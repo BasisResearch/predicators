@@ -3530,9 +3530,12 @@ NSRTSamplerWithEpsilonIndicator = Callable[
 # NSRTSampler's call signature (state, atoms, rng, objects) so the two are
 # interchangeable, but the GroundAtom set it receives is the step's
 # *subgoal* (not the task goal), letting it aim continuous params at the
-# subgoal instead of drawing uniformly. Returns a params array matching the
-# option's params_space; refinement clips it to that box and falls back to
-# uniform on a wrong-shaped return.
+# subgoal instead of drawing uniformly; at steps with no subgoal
+# annotation the set is empty, which the sampler must tolerate. Returns a
+# params array matching the option's params_space; refinement clips it to
+# that box and falls back to uniform on a wrong-shaped return. A sketch
+# step carrying a `~ [widths]` region annotation bypasses the sampler
+# (precedence: per-step region > per-skill sampler > uniform).
 OptionSampler = Callable[
     [State, Set[GroundAtom], np.random.Generator, Sequence[Object]], Array]
 Metrics = DefaultDict[str, float]

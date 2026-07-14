@@ -45,6 +45,44 @@ def exec_code_safely(code: str, context: Dict[str, Any],
     return context[expected_var], None
 
 
+def load_learned_samplers(
+    code: str,
+    context: Dict[str, Any],
+    option_names: Set[str],
+) -> Tuple[Dict[str, Any], List[str], Optional[str]]:
+    """Exec sampler code and validate its ``LEARNED_SAMPLERS`` dict.
+
+    The single loader behind both the ``evaluate_sampler`` tool and
+    ``SamplerLearningMixin._load_samplers_from_module_file``, so the
+    two cannot drift. Returns ``(valid_samplers, warnings, error)``:
+    ``error`` is non-None when the exec failed or ``LEARNED_SAMPLERS``
+    is missing or not a dict (nothing loads); ``warnings`` describe
+    entries skipped for an unknown option name or a non-callable value
+    (the rest load).
+    """
+    result, err = exec_code_safely(code, context, "LEARNED_SAMPLERS")
+    if err is not None:
+        return {}, [], err
+    if not isinstance(result, dict):
+        return {}, [], ("LEARNED_SAMPLERS must be a dict "
+                        "{option_name: sampler_fn}, got "
+                        f"{type(result).__name__}.")
+    valid: Dict[str, Any] = {}
+    warnings: List[str] = []
+    for name, fn in result.items():
+        if name not in option_names:
+            warnings.append(
+                f"Skipped '{name}' (not a known option name; known: "
+                f"{', '.join(sorted(option_names))}).")
+            continue
+        if not callable(fn):
+            warnings.append(f"Skipped '{name}' (value is not callable, got "
+                            f"{type(fn).__name__}).")
+            continue
+        valid[name] = fn
+    return valid, warnings, None
+
+
 def build_exec_context(
         types: Set[Type],
         predicates: Set[Predicate],

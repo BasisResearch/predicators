@@ -14,7 +14,8 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, \
 import numpy as np
 
 from predicators.agent_sdk.proposal_parser import ProposalBundle, \
-    build_exec_context, exec_code_safely, validate_predicate
+    build_exec_context, exec_code_safely, load_learned_samplers, \
+    validate_predicate
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import CausalProcess, LowLevelTrajectory, Object, \
@@ -4427,32 +4428,12 @@ def create_sampler_synthesis_tools(
                 "params": params_view,
                 "ParamSpec": ParamSpec,
             })
-        result, err = exec_code_safely(raw.decode("utf-8"), ctx,
-                                       "LEARNED_SAMPLERS")
+        option_names = {o.name for o in approach._get_all_options()}  # pylint: disable=protected-access
+        valid, warnings, err = load_learned_samplers(raw.decode("utf-8"), ctx,
+                                                     option_names)
         if err is not None:
             return {}, version_tag, (f"[{version_tag}] Error executing "
                                      f"{path}:\n{err}"), []
-        if not isinstance(result, dict):
-            return {}, version_tag, (
-                f"[{version_tag}] LEARNED_SAMPLERS must be a dict "
-                f"{{option_name: sampler_fn}}, got "
-                f"{type(result).__name__}."), []
-
-        option_names = {o.name for o in approach._get_all_options()}  # pylint: disable=protected-access
-        valid: Dict[str, Any] = {}
-        warnings: List[str] = []
-        for name, fn in result.items():
-            if name not in option_names:
-                warnings.append(
-                    f"Skipped '{name}' (not a known option name; known: "
-                    f"{', '.join(sorted(option_names))}).")
-                continue
-            if not callable(fn):
-                warnings.append(
-                    f"Skipped '{name}' (value is not callable, got "
-                    f"{type(fn).__name__}).")
-                continue
-            valid[name] = fn
 
         # Mutate approach state so evaluate_plan_refinement / test-time
         # refinement draw from the agent's draft samplers.
@@ -4491,7 +4472,12 @@ def create_sampler_synthesis_tools(
                 arr = np.asarray(raw, dtype=np.float32).reshape(-1)
             except Exception:  # pylint: disable=broad-except
                 last = traceback.format_exc().strip().splitlines()[-1]
-                return f"  {name}: ERROR — sampler raised: {last}"
+                return (f"  {name}: ERROR — sampler raised: {last} "
+                        "(note: this check, and refinement at steps with "
+                        "no subgoal annotation, call the sampler with "
+                        "subgoal_atoms=set(); it must not crash on an "
+                        "empty set — fall back to a default or uniform "
+                        "draw).")
             if arr.shape != (expected, ):
                 return (f"  {name}: ERROR — returned shape {arr.shape}, "
                         f"expected ({expected},).")
@@ -4510,6 +4496,12 @@ def create_sampler_synthesis_tools(
         "signature as the env's NSRT samplers); refinement calls it "
         "instead of drawing uniformly so the sampler can aim continuous "
         "params at the step's subgoal, then clips the result to the box. "
+        "At steps with no subgoal annotation, subgoal_atoms is the empty "
+        "set - the sampler must handle that without crashing. A sketch "
+        "step carrying a `~ [widths]` region annotation bypasses the "
+        "sampler (precedence: per-step region > per-skill sampler > "
+        "uniform); samplers are the reusable cross-task prior, regions a "
+        "per-call override. "
         "Reports a per-option sanity check (return shape + within-box) "
         "over a representative train-task state. After loading, the "
         "samplers used by evaluate_plan_refinement are updated — so call "
