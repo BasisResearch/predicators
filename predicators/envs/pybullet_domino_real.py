@@ -116,7 +116,7 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
     @classmethod
     def _apply_real_geometry(cls) -> None:
         """Set THIS subclass's robot geometry ClassVars from CFG (raise the
-        base to the real bench, lower the home EE).
+        base to the real bench).
 
         Applied in ``initialize_pybullet`` so it takes effect on BOTH
         the normal env build AND the skill factory's direct
@@ -124,6 +124,12 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
         Reads the base xy from the untouched shared class, so it is
         idempotent. Only this subclass is configured -- the shared base
         is never mutated.
+
+        The home EE height is not set here: the Panda homes to its own
+        configuration, which is reachable by construction and identical in
+        every env (see PyBulletEnv._sync_robot_init_pos_with_home). It used
+        to be lowered by hand here to keep the Fetch-tuned home within the
+        Panda's reach.
         """
         z_off = domino_world_z_offset(CFG.domino_real_table_z)
         base = PyBulletDominoComposedEnv.robot_base_pos
@@ -132,7 +138,6 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
         cls.robot_base_pos = (base_xy[0], base_xy[1], float(z_off))
         cls.robot_init_tilt = float(CFG.domino_real_robot_init_tilt)
         cls.robot_init_wrist = float(CFG.domino_real_robot_init_wrist)
-        cls.robot_init_z = float(CFG.domino_real_robot_init_z)
 
     @classmethod
     def initialize_pybullet(cls, using_gui: bool) -> Tuple[Any, Any, Any]:

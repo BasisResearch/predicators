@@ -18,7 +18,7 @@ def test_mobile_fetch_base_follows_y_motion(physics_client_id):
     ee_orn = p.getQuaternionFromEuler([0.0, np.pi / 2, -np.pi])
     ee_home_pose = Pose(ee_home_position, ee_orn)
     base_pose = Pose((0.75, 0.7441, 0.0))
-    robot = MobileFetchPyBulletRobot(ee_home_pose, physics_client_id,
+    robot = MobileFetchPyBulletRobot(physics_client_id, ee_home_pose,
                                      base_pose)
 
     current_joint_positions = robot.get_joints()
@@ -60,7 +60,7 @@ def test_mobile_fetch_base_follows_x_motion(physics_client_id):
     ee_orn = p.getQuaternionFromEuler([0.0, np.pi / 2, -np.pi])
     ee_home_pose = Pose(ee_home_position, ee_orn)
     base_pose = Pose((0.75, 0.7441, 0.0))
-    robot = MobileFetchPyBulletRobot(ee_home_pose, physics_client_id,
+    robot = MobileFetchPyBulletRobot(physics_client_id, ee_home_pose,
                                      base_pose)
 
     current_joint_positions = robot.get_joints()

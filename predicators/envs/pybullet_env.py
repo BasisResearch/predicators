@@ -36,7 +36,7 @@ Required overrides in subclasses:
 import abc
 import logging
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple, \
-    cast
+    Type, cast
 
 import matplotlib
 import numpy as np
@@ -52,11 +52,18 @@ from predicators.pybullet_helpers.joint import JointPositions
 from predicators.pybullet_helpers.link import get_link_state
 from predicators.pybullet_helpers.objects import update_object
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot, \
-    create_single_arm_pybullet_robot
+    create_single_arm_pybullet_robot, get_robot_home_ee_position
 from predicators.settings import CFG
 from predicators.structs import Action, Array, EnvironmentTask, Mask, Object, \
     Observation, State, Video
 from predicators.utils import PyBulletState
+
+# The robot_init_{x,y,z} values env classes declare, saved per declaring
+# class before a robot with a home configuration overwrites them (see
+# _sync_robot_init_pos_with_home), so that they can be restored for robots
+# that have none. Keyed per attribute so that a subclass inheriting a
+# parent's already-synced value can still recover what the parent declared.
+_DECLARED_ROBOT_INIT_POS: Dict[Tuple[Type["PyBulletEnv"], str], float] = {}
 
 
 class PyBulletEnv(BaseEnv):
@@ -345,18 +352,90 @@ class PyBulletEnv(BaseEnv):
 
         Called by initialize_pybullet().
         """
-        robot_ee_orn = cls.get_robot_ee_home_orn()
-        ee_home = Pose((cls.robot_init_x, cls.robot_init_y, cls.robot_init_z),
-                       robot_ee_orn)
-
         if cls.robot_base_pos is None or cls.robot_base_orn is None:
             base_pose = None
         else:
             base_pose = Pose(cls.robot_base_pos, cls.robot_base_orn)
 
+        home_position = get_robot_home_ee_position(CFG.pybullet_robot,
+                                                   base_pose)
+        cls._sync_robot_init_pos_with_home(home_position)
+        ee_home = Pose((cls.robot_init_x, cls.robot_init_y, cls.robot_init_z),
+                       cls.get_robot_ee_init_orn(home_position is not None))
+
         return create_single_arm_pybullet_robot(CFG.pybullet_robot,
                                                 physics_client_id, ee_home,
                                                 base_pose)
+
+    @classmethod
+    def get_robot_ee_init_orn(cls, has_home_config: bool) -> Quaternion:
+        """The end-effector orientation to home the robot to.
+
+        A robot with a home configuration must home to the orientation its
+        initial state describes. Otherwise it homes to one orientation and
+        every state reset runs IK to another.
+
+        Robots without a home configuration (the Fetch) keep homing to
+        get_robot_ee_home_orn(). Their home orientation can likewise disagree
+        with their initial state's, but they have no canonical branch to
+        protect, and their initial_joint_positions seed the oracle's motion
+        planning -- so moving their home perturbs plans that work today.
+
+        Reads the class-level _robot_type. An env that only assigns
+        _robot_type in __init__ (e.g. blocks, coffee) is invisible here
+        and falls back to get_robot_ee_home_orn().
+        """
+        robot_type = getattr(cls, "_robot_type", None)
+        if not has_home_config or robot_type is None:
+            return cls.get_robot_ee_home_orn()
+        names = robot_type.feature_names
+        default_roll, default_tilt, default_wrist = p.getEulerFromQuaternion(
+            cls.get_robot_ee_home_orn())
+        roll = cls.robot_init_roll if "roll" in names else default_roll
+        tilt = cls.robot_init_tilt if "tilt" in names else default_tilt
+        wrist = cls.robot_init_wrist if "wrist" in names else default_wrist
+        return p.getQuaternionFromEuler([roll, tilt, wrist])
+
+    @classmethod
+    def _sync_robot_init_pos_with_home(
+            cls, home_position: Optional[Pose3D]) -> None:
+        """Point robot_init_{x,y,z} at the robot's home configuration, for
+        robots that have one (home_position is None for robots that do not).
+
+        Envs specify robot_init_{x,y,z} for the Fetch, whose reach is
+        much longer than the Panda's. A robot with a home configuration
+        ignores them and starts where it rests instead. Robots without a
+        home configuration (the Fetch) keep the env's positions.
+        """
+        declared = cls._declared_robot_init_pos()
+        if home_position is None:
+            home_position = declared
+        attrs = ("robot_init_x", "robot_init_y", "robot_init_z")
+        for attr, declared_value, value in zip(attrs, declared, home_position):
+            _DECLARED_ROBOT_INIT_POS.setdefault((cls, attr), declared_value)
+            setattr(cls, attr, value)
+
+    @classmethod
+    def _declared_robot_init_pos(cls) -> Pose3D:
+        """The robot_init_{x,y,z} this env declares, seeing through any values
+        a previous _sync_robot_init_pos_with_home wrote over them.
+
+        Resolved per attribute on the class that provides it, so that a
+        subclass does not mistake a parent's synced value for a declared
+        one.
+        """
+        values = []
+        for attr in ("robot_init_x", "robot_init_y", "robot_init_z"):
+            for klass in cls.__mro__:
+                if attr in vars(klass):
+                    values.append(
+                        _DECLARED_ROBOT_INIT_POS.get((klass, attr),
+                                                     vars(klass)[attr]))
+                    break
+            else:
+                raise AttributeError(
+                    f"{cls.__name__} does not declare {attr}.")
+        return (values[0], values[1], values[2])
 
     @classmethod
     def get_robot_ee_home_orn(cls) -> Quaternion:
