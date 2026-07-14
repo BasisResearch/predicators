@@ -151,7 +151,10 @@ class AgentBilevelApproach(AgentPlannerApproach):
                 job += (
                     " Where many values work, any reasonable parameter is "
                     "fine; where good values are hard to hit (tight "
-                    "tolerances), use refine_plan_sketch to search for one.")
+                    "tolerances), use refine_plan_sketch to search for one, "
+                    "and confine its search near your estimate by appending "
+                    "a region `~ [w1, w2]` of per-parameter half-widths "
+                    "after a step's `[params]`.")
         else:
             # Fallback mode: the agent hands off a sketch and the approach's
             # backtracking search refines the continuous parameters.

@@ -1600,7 +1600,9 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         "`Option(obj1:type1, obj2:type2)[param1, param2] -> {Atom(obj:type), "
         "...}` (typed object refs; EXACT continuous params in `[]`, `[]` for "
         "none; optional `-> {atoms}` subgoals, prefix NOT to require false). "
-        "Runs your exact params with NO sampling. Use include_states/"
+        "Runs your exact params with NO sampling (a `~ [w1, w2]` region "
+        "annotation is accepted but IGNORED here - only refine_plan_sketch "
+        "searches the region). Use include_states/"
         "include_atoms to control output. If the plan reaches the goal on the "
         "CURRENT task (omit task_idx), it is captured as your answer, and the "
         "per-step subgoals make it execute closed-loop (monitored, with "
@@ -2328,7 +2330,15 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
         "the refined plan. Unlike evaluate_option_plan (which runs your EXACT "
         "params with no search), this takes a sketch and lets the search find "
         "params. You may seed it by appending `[p1, p2]` per step (use `[]` "
-        "for none); the search tries them first, then samples. `plan` is one "
+        "for none); the search tries them first, then samples. Append a "
+        "region `~ [w1, w2]` (per-parameter half-widths) after a step's "
+        "`[params]` to confine that step's sampling: the exact center is "
+        "tried first, then ALL further samples for the step are drawn "
+        "uniformly from `[center - w, center + w]` (clipped to the option's "
+        "range) instead of the full range, overriding any learned per-skill "
+        "sampler for that step. Use a region when you believe in a "
+        "neighborhood but not an exact value; a zero width pins every draw "
+        "to the center. `plan` is one "
         "option call per line with typed object references (`obj:type`) and "
         "every argument supplied; add `-> {Atom(obj:type, ...)}` subgoal "
         "annotations (effectively required after open-ended skills like Place, "
@@ -2355,7 +2365,9 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
                     "line, typed `obj:type` references, every argument "
                     "supplied; optional `-> {Atom(...)}` subgoal per step, "
                     "and `[p1, p2]` proposed continuous params per step "
-                    "(`[]` for none) when param-proposing is enabled.",
+                    "(`[]` for none) when param-proposing is enabled, "
+                    "optionally followed by a search region `~ [w1, w2]` "
+                    "of per-parameter half-widths around those params.",
                 },
                 "task_idx": {
                     "type":
