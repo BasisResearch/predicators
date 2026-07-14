@@ -16,7 +16,12 @@ For each sampled cached test task, three rows:
      baseline's predicted behaviour. Over-reach: the cheapest layout the
      planning-friction model accepts (fewer blues; should die short).
      Under-reach: the planning model's over-build (more blues; should
-     topple but exceed the K* budget).
+     topple but score below the calibrated reward).
+
+Rows 2-3 also annotate the env reward the DominoEvaluator would grant
+the rendered rollout: +1 for toppling the target minus
+``domino_block_cost`` per blue the cascade consumed (toppled, or shoved
+off its placed spot), read from the settled post-rollout sim state.
 
 Everything is produced by the real task-gen machinery: cached tasks are
 reloaded through the env, layouts come from the search code, outcomes from
@@ -35,6 +40,8 @@ from matplotlib.transforms import Affine2D
 
 from predicators import utils
 from predicators.envs import create_new_env
+from predicators.envs.pybullet_domino.cascade_certificate import \
+    RELAY_MIN_SLIDE
 from predicators.envs.pybullet_domino.task_generators import \
     min_block_utils as mbu
 from predicators.settings import CFG
@@ -47,7 +54,7 @@ ARMS = {
         "span_lo": 0.13,
         "span_hi": 0.30,
         "num_blues": 4,
-        "out_name": "task_examples.png",
+        "out_name": "task_examples_low_friction.png",
     },
     # Under-reach: planner under-estimates reach, over-builds, topples
     # but exceeds the K* budget. Short-leg geometry (retune 2026-07-12,
@@ -166,6 +173,26 @@ def state_poses(state):
     return out
 
 
+def blues_used(od, start, target):
+    """Blues the just-simulated rollout consumed - toppled, or shoved at
+    least RELAY_MIN_SLIDE off their placed spot - read from the env's
+    settled post-rollout state (the final-state view of the evaluator's
+    count_movable_blocks_used)."""
+    final = env._get_state()  # pylint: disable=protected-access
+    used = 0
+    for obj, pose in od.items():
+        if obj in (start, target):
+            continue
+        toppled = abs(final.get(obj, "roll")) >= comp.fallen_threshold
+        slid = float(
+            np.hypot(
+                final.get(obj, "x") - pose["x"],
+                final.get(obj, "y") - pose["y"])) >= RELAY_MIN_SLIDE
+        if toppled or slid:
+            used += 1
+    return used
+
+
 def is_turn(state):
     """A turn task's target faces ~90 degrees off the start (goal_nl no longer
     marks turns, so detect them from the staged geometry)."""
@@ -248,9 +275,12 @@ for row, ti in enumerate(picks):
         axes[row][2].axis("off")
         continue
     od, s_, t_, k_t = true_win
+    # winning_layout's last rollout is the winner, so the env still holds
+    # its settled final state - price it with the evaluator's reward form.
+    r_cal = 1.0 - CFG.domino_block_cost * blues_used(od, s_, t_)
     draw_state(axes[row][1],
                od_poses(od, s_, t_),
-               f"calibrated: {k_t} blues\n→ TOPPLES ✓",
+               f"calibrated: {k_t} blues\n→ TOPPLES ✓ · reward {r_cal:+.2f}",
                tcolor="#1a7a1a")
 
     # Believed side: what the miscalibrated planning model builds.
@@ -335,17 +365,19 @@ for row, ti in enumerate(picks):
                 acc += seg_len
         label = f"same route: {n_bel} blues"
     ok = mbu._layout_topples(env, odb, s_, t_, push_opt)
+    r_bel = float(ok) - CFG.domino_block_cost * blues_used(odb, s_, t_)
     if OVER_REACH:
         # Expected miscalibrated failure: the under-build dies short.
         verdict = "→ TOPPLES (leak!)" if ok else "→ DIES SHORT ✗"
         tcolor = "#b3541e" if ok else "#a01515"
     else:
-        # Expected miscalibrated failure: the over-build topples but
-        # spends more blues than the K* budget allows. A believed CORNER
-        # build can also legitimately die at the true friction (the
-        # µ=0.1 corner geometry is knife-edge at µ=0.5) - still a
-        # baseline failure, not a leak; a straight over-build dying is a
-        # leak (denser chains only get safer as friction rises).
+        # Expected miscalibrated failure mode: the over-build topples but
+        # spends more blues than the calibrated K*, so it scores a lower
+        # reward. A believed CORNER build can also legitimately die at
+        # the true friction (the µ=0.1 corner geometry is knife-edge at
+        # µ=0.5) - still a baseline failure, not a leak; a straight
+        # over-build dying is a leak (denser chains only get safer as
+        # friction rises).
         if ok:
             over = n_bel > k_star
             verdict = (f"→ TOPPLES, {n_bel} > K*={k_star} ✗"
@@ -357,7 +389,7 @@ for row, ti in enumerate(picks):
             verdict, tcolor = "→ DIES SHORT (leak!)", "#b3541e"
     draw_state(axes[row][2],
                od_poses(odb, s_, t_),
-               f"{label}\n{verdict}",
+               f"{label}\n{verdict} · reward {r_bel:+.2f}",
                tcolor=tcolor)
 
 true_mu = CFG.domino_true_friction
