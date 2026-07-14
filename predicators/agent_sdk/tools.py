@@ -235,9 +235,10 @@ class ToolContext:
     # nothing captured this query.
     solved_plan: Optional[Any] = None
     solved_sketch: Optional[Any] = None
-    # Whether the captured solved_plan reached the goal in its belief-sim
-    # rollout. False ⇒ it was a best-effort capture (see below). Cleared
-    # together with solved_plan.
+    # Whether the captured solved_plan counts as a validated solve in its
+    # belief-sim rollout(s): goal reached, evaluator-certified, and every
+    # validation rollout passed. False ⇒ it was a best-effort capture (see
+    # below). Cleared together with solved_plan.
     solved_plan_reached_goal: Optional[bool] = None
     # Gate for the above: only approaches that consume captured plans
     # (AgentBilevelApproach) set this True. Keeps the open-loop planner, which
@@ -246,9 +247,10 @@ class ToolContext:
     # Set (with capture_goal_reaching_plans) only for the final-submission
     # nudge after an attempt exhausted its turn budget: evaluate_option_plan
     # then captures the agent's submitted plan on the current task even if it
-    # does not reach the goal, so the approach executes the best-effort plan
-    # instead of paying for another full-budget attempt. A best-effort capture
-    # never displaces a goal-reaching one.
+    # does not reach the goal, is scored a non-solve by the task evaluator,
+    # or is flaky, so the approach executes the best-effort plan (for its
+    # honest reward) instead of paying for another full-budget attempt. A
+    # best-effort capture never displaces a validated-solve capture.
     capture_best_effort_plan: bool = False
 
 
@@ -1946,16 +1948,25 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # keeps only the subgoals that actually held (so the closed-loop
         # monitor won't flag a spurious divergence on a wrong annotation).
         # With capture_best_effort_plan (final-submission nudge after turn-cap
-        # exhaustion) also capture a non-goal-reaching plan, but never let it
-        # displace a goal-reaching capture. The only illegitimacy that blocks
-        # a capture is a reward hack (goal atoms reached illegitimately); an
-        # honest best-effort shortfall is legitimate=False yet still captured
-        # (it executes for its honest reward instead of forfeiting the task).
+        # exhaustion) capture the submission unconditionally: honest
+        # shortfall, evaluator-rejected rollout, and flaky repeat alike. The
+        # budget is spent, so executing the agent's best plan for its honest
+        # reward beats forfeiting the task (run_20260714_145053 task 4: a
+        # goal-reaching but certificate-rejected final submission was refused
+        # and the task forfeited, scoring n/a instead of its honest reward).
+        # Only a validated solve is marked as one; everything else is a
+        # best-effort capture that executes but cannot count as a solve - the
+        # certificate still protects the score. A best-effort capture never
+        # displaces a validated-solve capture.
         best_effort_capture = (ctx.capture_best_effort_plan
                                and not ctx.solved_plan_reached_goal)
+        validated_solve = (goal_achieved and not reward_hack
+                           and flaky_detail is None)
+        captured = False
         if (ctx.capture_goal_reaching_plans and task_idx == "current"
-                and (goal_achieved or best_effort_capture) and not reward_hack
-                and flaky_detail is None and grounded_plan):
+                and (validated_solve or best_effort_capture)
+                and grounded_plan):
+            captured = True
             captured_sketch = []
             for i, st in enumerate(sketch_steps):
                 post = (result.steps[i].post_state
@@ -1981,14 +1992,30 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                                               or None))
             ctx.solved_plan = grounded_plan
             ctx.solved_sketch = captured_sketch
-            ctx.solved_plan_reached_goal = goal_achieved
+            ctx.solved_plan_reached_goal = validated_solve
             n_annot = sum(1 for s in captured_sketch
                           if s.subgoal_atoms or s.subgoal_neg_atoms)
-            best_effort_note = ("" if goal_achieved else
-                                " (best-effort: goal NOT reached, accepted "
-                                "because the attempt budget is exhausted; it "
-                                "executes for its honest reward but will not "
-                                "count as a solve)")
+            if validated_solve:
+                best_effort_note = ""
+            elif not goal_achieved:
+                best_effort_note = (" (best-effort: goal NOT reached, "
+                                    "accepted because the attempt budget is "
+                                    "exhausted; it executes for its honest "
+                                    "reward but will not count as a solve)")
+            elif reward_hack:
+                best_effort_note = (" (best-effort: the rollout reaches the "
+                                    "goal atoms but the task evaluator "
+                                    "scores it as a non-solve, and the real "
+                                    "env applies the same scoring; accepted "
+                                    "because the attempt budget is exhausted "
+                                    "- it executes for its honest reward but "
+                                    "will not count as a solve)")
+            else:
+                best_effort_note = (f" (best-effort: {flaky_detail}; "
+                                    "accepted because the attempt budget is "
+                                    "exhausted - it executes for its honest "
+                                    "reward but may not reproduce its "
+                                    "solve)")
             lines.append(f"Captured as the current answer{best_effort_note}: "
                          f"{len(grounded_plan)} steps, "
                          f"{n_annot} with subgoal annotations for closed-loop "
@@ -2014,8 +2041,9 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             # but the evaluator's certificate rejects the route (e.g. the
             # target was knocked over directly), and the real evaluator
             # applies the same certificate, so it can never count as a solve.
-            # This refusal stands even under a best-effort submission - an
-            # honest shortfall is captured above, but a fake solve is not.
+            # (Under a best-effort final submission the same plan is instead
+            # captured above, flagged as a non-solve, to execute for its
+            # honest reward.)
             assert verdict is not None
             lines.append(
                 "NOT CAPTURED: the rollout reaches the goal atoms but the "
@@ -2053,13 +2081,19 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # Goal atoms hold but the plan needs more low-level steps than the
         # episode horizon allows: say so and that it was NOT captured, so the
         # agent shortens the plan instead of stopping on a false positive.
-        if goal_reached and not within_horizon:
+        # (A best-effort capture still happens above; then only warn.)
+        if goal_reached and not within_horizon and not captured:
             lines.append(
                 f"NOT EXECUTABLE (plan was NOT captured): reaching the goal "
                 f"takes {result.actions_to_goal} low-level steps but the "
                 f"episode horizon is {horizon}. The real executor will run "
                 f"out of steps — shorten the plan (fewer or quicker steps) "
                 f"before resubmitting.")
+        elif goal_reached and not within_horizon:
+            lines.append(
+                f"WARNING: reaching the goal takes {result.actions_to_goal} "
+                f"low-level steps but the episode horizon is {horizon}, so "
+                f"the real executor will run out of steps before the goal.")
         if not goal_reached and not task.goal_nl:
             missing = task.goal - final_atoms
             missing_str = ", ".join(str(a) for a in sorted(missing))

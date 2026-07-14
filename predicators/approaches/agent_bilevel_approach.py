@@ -776,7 +776,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
         "plan NOW via evaluate_option_plan on the current task (omit "
         "task_idx), using the best parameters you have already validated. "
         "It is captured as your answer even if it does not fully reach the "
-        "goal; then finish.")
+        "goal or does not score as a solve; then finish.")
 
     def _nudge_final_submission(
         self,
@@ -792,9 +792,10 @@ class AgentBilevelApproach(AgentPlannerApproach):
 
         With ``accept_best_effort`` (set when the attempt ended on the
         turn cap rather than an error) the submitted plan is captured
-        and executed even if its belief rollout does not reach the goal:
-        the budget is spent, and a partial plan beats forfeiting the
-        task after more full-budget retries.
+        and executed even if its belief rollout does not reach the goal,
+        is scored a non-solve by the task evaluator, or is flaky: the
+        budget is spent, and a partial plan beats forfeiting the task
+        after more full-budget retries.
         """
         nudge = (self._FINAL_SUBMIT_NUDGE_BEST_EFFORT
                  if accept_best_effort else self._FINAL_SUBMIT_NUDGE)
@@ -835,7 +836,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
         # refinement path emits.
         lines = bilevel_sketch.format_plan_lines(plan, sketch=sketch)
         verdict = ("simulator-verified" if reached_goal is not False else
-                   "best-effort: belief rollout did NOT reach the goal")
+                   "best-effort: not a validated solve in the belief rollout")
         logging.info(
             "[%s] Using agent-validated plan from refine_plan_sketch "
             "(%d steps, %s):\n%s", self._run_id, len(plan), verdict,
