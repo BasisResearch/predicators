@@ -669,24 +669,28 @@ def _run_testing(env: BaseEnv,
     # --------------------------------------------------------------------------
     # Helper functions
     # --------------------------------------------------------------------------
-    def _save_video(monitor: Optional[utils.VideoMonitor], is_failure: bool,
+    def _save_video(monitor: Optional[utils.LoggingMonitor], is_failure: bool,
                     task_idx: int) -> None:
         """Save a video from the monitor if the current config calls for it."""
         if monitor is None:
             return
-        video = monitor.get_video()
         if CFG.use_counterfactual_dataset_path_name:
             suffix = ""
         else:
             suffix = "_failure" if is_failure else ""
         outfile = f"{save_prefix}__task{task_idx+1}{suffix}{cycle_tag}.mp4"
-        utils.save_video(outfile, video)
+        if isinstance(monitor, utils.StreamingVideoMonitor):
+            monitor.finalize(outfile)
+        else:
+            assert isinstance(monitor, utils.VideoMonitor)
+            utils.save_video(outfile, monitor.get_video())
 
-    def _save_images(monitor: Optional[utils.VideoMonitor], is_failure: bool,
+    def _save_images(monitor: Optional[utils.LoggingMonitor], is_failure: bool,
                      task_idx: int) -> None:
         """Save images from the monitor if the current config calls for it."""
         if monitor is None:
             return
+        assert isinstance(monitor, utils.VideoMonitor)
         video = monitor.get_video()
         if CFG.use_counterfactual_dataset_path_name:
             experiment_id = CFG.experiment_id.split("-")[0]
@@ -742,7 +746,7 @@ def _run_testing(env: BaseEnv,
     def _execute_policy(
         task_idx: int,
         env_task: EnvironmentTask,
-        monitor: Optional[utils.VideoMonitor] = None
+        monitor: Optional[utils.LoggingMonitor] = None
     ) -> Tuple[bool, bool, float, int, Tuple[List[Observation], List[Action]]]:
         """Execute the cogman policy in the environment to see if the goal is
         solved.
@@ -858,10 +862,17 @@ def _run_testing(env: BaseEnv,
         # ---------------------
         # 2) Execution phase
         # ---------------------
-        # Decide if we need to record video
-        need_video = (CFG.make_test_videos or CFG.make_failure_videos
-                      or CFG.make_test_images or CFG.make_failure_images)
-        monitor = utils.VideoMonitor(env.render) if need_video else None
+        # Decide if we need to record video. Image saving needs the raw
+        # frames after the episode, so it gets the buffering monitor;
+        # video-only runs stream frames to disk as they are rendered,
+        # keeping peak memory at one frame instead of a whole episode.
+        need_images = CFG.make_test_images or CFG.make_failure_images
+        need_video = CFG.make_test_videos or CFG.make_failure_videos
+        monitor: Optional[utils.LoggingMonitor] = None
+        if need_images:
+            monitor = utils.VideoMonitor(env.render)
+        elif need_video:
+            monitor = utils.StreamingVideoMonitor(env.render)
 
         logging.info("Executing policy...")
         solved, caught_exception, exec_time, num_opts, traj = _execute_policy(
@@ -922,6 +933,12 @@ def _run_testing(env: BaseEnv,
                 _save_video(monitor, is_failure=True, task_idx=test_task_idx)
             if CFG.make_failure_images:
                 _save_images(monitor, is_failure=True, task_idx=test_task_idx)
+
+        # Drop the streamed clip when no branch above finalized it (e.g.
+        # a solved episode with only make_failure_videos on); no-op
+        # otherwise.
+        if isinstance(monitor, utils.StreamingVideoMonitor):
+            monitor.discard()
 
         logging.info(f"Task {test_task_idx+1} / {len(test_tasks)}: {log_msg}")
 

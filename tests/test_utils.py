@@ -4,6 +4,7 @@ import time
 from typing import Iterator, Optional, Tuple
 from typing import Type as TypingType
 
+import imageio
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
@@ -2606,6 +2607,41 @@ def test_VideoMonitor():
     first_state_rendered = env.render_state(task.init, task)
     assert np.allclose(first_state_rendered, video[0])
     assert not np.allclose(first_state_rendered, video[1])
+
+
+def test_StreamingVideoMonitor(tmp_path):
+    """Tests for StreamingVideoMonitor()."""
+    utils.reset_config({"env": "cover", "video_dir": str(tmp_path)})
+    env = CoverEnv()
+    monitor = utils.StreamingVideoMonitor(env.render)
+    policy = lambda _: Action(np.array([0.912], dtype=np.float32))
+    task = env.get_task("test", 0).task
+    utils.run_policy(policy,
+                     env,
+                     "test",
+                     0,
+                     task.goal_holds,
+                     max_num_steps=2,
+                     monitor=monitor)
+    # Frames were streamed to a hidden temp file, not buffered.
+    tmp_files = list(tmp_path.glob(".streaming_*.mp4"))
+    assert len(tmp_files) == 1
+    # finalize moves the clip into place; discard afterwards is a no-op.
+    monitor.finalize("clip.mp4")
+    assert (tmp_path / "clip.mp4").exists()
+    assert not list(tmp_path.glob(".streaming_*.mp4"))
+    monitor.discard()
+    assert (tmp_path / "clip.mp4").exists()
+    frames = imageio.mimread(tmp_path / "clip.mp4")
+    assert len(frames) == 3  # initial obs + 2 steps
+    # discard deletes an unfinalized clip; reset() also discards.
+    monitor.observe(env.get_observation(), None)
+    assert list(tmp_path.glob(".streaming_*.mp4"))
+    monitor.discard()
+    assert not list(tmp_path.glob(".streaming_*.mp4"))
+    # finalize with no frames observed is a no-op.
+    monitor.finalize("empty.mp4")
+    assert not (tmp_path / "empty.mp4").exists()
 
 
 def test_SimulateVideoMonitor():

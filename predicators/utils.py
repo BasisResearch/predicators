@@ -19,6 +19,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from argparse import ArgumentParser
 from collections import defaultdict, namedtuple
@@ -4193,6 +4194,74 @@ class VideoMonitor(LoggingMonitor):
     def get_video(self) -> Video:
         """Return the video."""
         return self._video
+
+
+@dataclass
+class StreamingVideoMonitor(LoggingMonitor):
+    """A VideoMonitor variant that encodes frames to disk as they arrive.
+
+    Peak memory is one frame instead of a whole episode's worth
+    (VideoMonitor buffers every frame until the caller saves, ~1.2GB for
+    a 500-step episode at 900x900). Frames stream into a hidden temp
+    file in the output directory; after the episode the caller must
+    either ``finalize(outfile)`` to move the clip into place or
+    ``discard()`` to delete it. ``discard()`` is a no-op after
+    ``finalize()``, so an unconditional trailing ``discard()`` is the
+    idiom for "keep only if some earlier branch finalized". The
+    trade-offs vs. buffering: encoding cost is paid even for clips that
+    end up discarded, and a process crash mid-episode leaves the hidden
+    temp file behind.
+
+    Use VideoMonitor instead when the raw frames are needed after the
+    episode (e.g. saving per-step images).
+    """
+    _render_fn: Callable[[Optional[Action], Optional[str]], Video]
+    _writer: Any = field(init=False, default=None)
+    _tmp_path: Optional[str] = field(init=False, default=None)
+
+    def reset(self, train_or_test: str, task_idx: int) -> None:
+        self.discard()
+
+    def observe(self, obs: Observation, action: Optional[Action]) -> None:
+        del obs  # unused
+        for frame in self._render_fn(action, None):
+            if self._writer is None:
+                # Temp file lives in the final output directory so
+                # finalize()'s rename never crosses filesystems.
+                outdir = os.path.join(CFG.video_dir, CFG.run_subdir)
+                os.makedirs(outdir, exist_ok=True)
+                fd, self._tmp_path = tempfile.mkstemp(prefix=".streaming_",
+                                                      suffix=".mp4",
+                                                      dir=outdir)
+                os.close(fd)
+                self._writer = imageio.get_writer(self._tmp_path,
+                                                  fps=CFG.video_fps)
+            self._writer.append_data(np.asarray(frame, dtype=np.uint8))
+
+    def finalize(self, outfile: str) -> None:
+        """Close the writer and move the clip to video_dir/run_subdir.
+
+        A no-op if no frame was ever observed.
+        """
+        if self._writer is None:
+            return
+        self._writer.close()
+        outpath = os.path.join(CFG.video_dir, CFG.run_subdir, outfile)
+        assert self._tmp_path is not None
+        os.replace(self._tmp_path, outpath)
+        self._writer = None
+        self._tmp_path = None
+        logging.info(f"Wrote out to {outpath}")
+
+    def discard(self) -> None:
+        """Delete the temp clip, unless already finalized (then no-op)."""
+        if self._writer is None:
+            return
+        self._writer.close()
+        assert self._tmp_path is not None
+        os.remove(self._tmp_path)
+        self._writer = None
+        self._tmp_path = None
 
 
 @dataclass
