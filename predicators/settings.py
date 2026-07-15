@@ -870,6 +870,17 @@ class GlobalSettings:
     data_dir = "saved_datasets"
     video_dir = "videos"
     image_dir = "images"
+    # Run-scoped subdir (approach/experiment_id/seed<N>/run_<timestamp>/) that
+    # video_dir mirrors from the log dir, so two runs sharing a config write to
+    # separate dirs instead of overwriting each other's videos. Set by
+    # utils.configure_logging; stays empty when there is no log dir (ad-hoc
+    # scripts, unit tests), which keeps writing flat as before.
+    run_subdir = ""
+    # How many runs of one approach/experiment_id/seed keep their videos. Those
+    # run dirs no longer overwrite each other, so save_video prunes the oldest
+    # instead, reclaiming space when an arm is re-run much as overwriting used
+    # to. 0 disables pruning and lets videos accumulate forever.
+    video_max_runs_kept = 3
     video_fps = 2
     failure_video_mode = "longest_only"
     terminate_on_goal_reached = True
