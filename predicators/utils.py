@@ -16,6 +16,7 @@ import logging
 import os
 import pkgutil
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -4271,10 +4272,43 @@ def fig2data(fig: matplotlib.figure.Figure, dpi: int) -> Image:
     return data
 
 
+# Matches only the run dirs configure_logging mints, so pruning can never
+# recurse into a directory this module did not create.
+_RUN_DIR_RE = re.compile(r"^run_\d{8}_\d{6}$")
+
+
+def _prune_old_video_runs(outdir: str) -> None:
+    """Keep only the newest CFG.video_max_runs_kept run dirs beside outdir.
+
+    Run-scoped video dirs never collide, so nothing reclaims the space
+    that the old flat layout reclaimed by overwriting. Pruning the
+    oldest runs of this approach/experiment_id/seed restores that, but
+    on a run granularity and only ever discarding whole runs older than
+    the ones kept.
+    """
+    if not CFG.run_subdir or CFG.video_max_runs_kept <= 0:
+        return  # not a run-scoped dir, or pruning disabled
+    parent = os.path.dirname(os.path.normpath(outdir))
+    try:
+        # run_<timestamp> sorts chronologically, so the tail is the oldest.
+        runs = sorted(
+            d for d in os.listdir(parent)
+            if _RUN_DIR_RE.match(d) and os.path.isdir(os.path.join(parent, d)))
+    except OSError:
+        return
+    for stale in runs[:-CFG.video_max_runs_kept]:
+        path = os.path.join(parent, stale)
+        if os.path.realpath(path) == os.path.realpath(outdir):
+            continue  # never prune the run currently being written
+        shutil.rmtree(path, ignore_errors=True)
+        logging.info(f"Pruned old videos: {path}")
+
+
 def save_video(outfile: str, video: Video) -> None:
-    """Save the video to video_dir/outfile."""
-    outdir = CFG.video_dir
+    """Save the video to video_dir/<run subdir>/outfile."""
+    outdir = os.path.join(CFG.video_dir, CFG.run_subdir)
     os.makedirs(outdir, exist_ok=True)
+    _prune_old_video_runs(outdir)
     outpath = os.path.join(outdir, outfile)
     video_uint8 = [np.array(frame).astype(np.uint8) for frame in video]
     imageio.mimwrite(outpath, video_uint8, fps=CFG.video_fps)  # type: ignore
@@ -5128,8 +5162,12 @@ def configure_logging() -> None:
     handlers: List[logging.Handler] = [colorlog_handler]
     if CFG.log_file:
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        CFG.log_file += (f"{CFG.approach}/{CFG.experiment_id}/"
-                         f"seed{CFG.seed}/run_{timestamp}/")
+        # save_video mirrors this subdir under CFG.video_dir. Both are derived
+        # from the one timestamp so a run's videos and logs always agree on the
+        # run id, which recomputing the clock per artifact would not guarantee.
+        CFG.run_subdir = (f"{CFG.approach}/{CFG.experiment_id}/"
+                          f"seed{CFG.seed}/run_{timestamp}/")
+        CFG.log_file += CFG.run_subdir
         os.makedirs(CFG.log_file, exist_ok=True)
 
         # Handler for DEBUG level messages
