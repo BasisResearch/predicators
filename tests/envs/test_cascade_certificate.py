@@ -246,6 +246,112 @@ def test_green_push_jitter_passes():
     assert ok, reason
 
 
+def test_target_relocation_fails():
+    """Carrying the targets into a line in front of green: rejected.
+
+    The zero-blue exploit from run_20260715_084342 task 1: leave green
+    and the blues untouched, but pick the targets up and set them down
+    in front of green, so one push cascades straight through them. It
+    reached the goal with no chain at all and scored a full reward=1.0.
+    Rule (a2) rejects the pick: only blues are the robot's to carry.
+    """
+    objs = _make_objects(["green", "blue1", "target"])
+    staged = (0.9, 1.32)
+    relocated = (0.7, 1.098)  # lined up in front of green at (0.7, 1.0)
+    target_xy = [staged] * 3 + [relocated] * 28
+    states = _build_states(objs,
+                           30, {
+                               "green": 14,
+                               "target": 18
+                           },
+                           positions={"green": (0.7, 1.0)},
+                           position_profiles={"target": target_xy},
+                           held_spans={"target": (3, 8)})
+    step_options = _options([("Pick", ("robot", "target"), 0, 3),
+                             ("Place", ("robot", ), 4, 8),
+                             ("Push", ("robot", "green"), 10, 13)], 30)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert not ok
+    assert "target domino" in reason
+    assert "picked up" in reason
+
+
+def test_target_slide_relocation_fails():
+    """Sliding a target into place without ever holding it: rejected.
+
+    Rule (a3) backstops (a2): a gripper-sweep relocation of a target
+    before the cascade starts earns no bonus even though is_held never
+    fires.
+    """
+    objs = _make_objects(["green", "target"])
+    target_xy = [(0.9, 1.32)] * 5 + [(0.7, 1.098)] * 26
+    states = _build_states(objs,
+                           30, {
+                               "green": 14,
+                               "target": 18
+                           },
+                           positions={"green": (0.7, 1.0)},
+                           position_profiles={"target": target_xy})
+    step_options = _options([("Push", ("robot", "green"), 10, 13)], 30)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert not ok
+    assert "staged pose" in reason
+
+
+def test_target_shoved_by_cascade_before_toppling_passes():
+    """A target the cascade shoves before it tips is not charged to the robot.
+
+    Rule (a3) measures staged-pose drift at the cascade's START, not at
+    each block's own onset, precisely so this stays legal: the chain
+    rams the target, slides it several centimeters (further than the
+    stage tolerance), and only then tips it over. That displacement is
+    the cascade's doing, not a relocation.
+    """
+    objs = _make_objects(["green", "blue1", "blue2", "target"])
+    # Struck at step 15, shoved 0.08 m (> the 0.07 m stage tolerance),
+    # topples at 18. Untouched through the cascade's start (step 5).
+    target_xy = [(0.7, 1.25)] * 16 + [(0.7, 1.33)] * 15
+    states = _build_states(objs,
+                           30, {
+                               "green": 5,
+                               "blue1": 10,
+                               "blue2": 14,
+                               "target": 18
+                           },
+                           position_profiles={"target": target_xy})
+    step_options = _options([("Push", ("robot", "green"), 0, 7)], 30)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert ok, reason
+
+
+def test_blue_relocation_passes():
+    """Carrying the blues into a chain is the task, not an exploit.
+
+    The mirror of ``test_target_relocation_fails``: rules (a2)/(a3)
+    cover every domino EXCEPT the blue movable blocks, which the robot
+    is expressly given to arrange.
+    """
+    objs = _make_objects(["green", "blue1", "target"])
+    blue_xy = [(0.9, 1.32)] * 3 + [(0.7, 1.098)] * 28
+    states = _build_states(objs,
+                           30, {
+                               "green": 14,
+                               "blue1": 18,
+                               "target": 22
+                           },
+                           positions={
+                               "green": (0.7, 1.0),
+                               "target": (0.7, 1.196)
+                           },
+                           position_profiles={"blue1": blue_xy},
+                           held_spans={"blue1": (3, 8)})
+    step_options = _options([("Pick", ("robot", "blue1"), 0, 3),
+                             ("Place", ("robot", ), 4, 8),
+                             ("Push", ("robot", "green"), 10, 13)], 30)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert ok, reason
+
+
 def test_push_placed_blue_fails():
     """Pushing a blue directly (green never pushed): rejected."""
     objs = _make_objects(["green", "blue1", "target"])
