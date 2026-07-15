@@ -1598,9 +1598,13 @@ class PyBulletEnv(BaseEnv):
             lightSpecularCoeff=self._render_light_specular,
             renderer=p.ER_BULLET_HARDWARE_OPENGL,
             physicsClientId=self._physics_client_id)
-        rgb_array = np.array(px).reshape((height, width, 4))
-        rgb_array = rgb_array[:, :, :3]
-        return [rgb_array]
+        # Without dtype, np.array on the plain-list px (pybullet built
+        # without numpy support) silently produces int64 - 8x the memory
+        # of uint8. VideoMonitor retains one frame per step for a whole
+        # episode, so the dtype and the .copy() (dropping the alpha
+        # channel's backing buffer) bound episode video memory.
+        rgb_array = np.array(px, dtype=np.uint8).reshape((height, width, 4))
+        return [rgb_array[:, :, :3].copy()]
 
     def render_segmented_obj(
         self,
