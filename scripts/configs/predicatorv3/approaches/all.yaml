@@ -129,6 +129,27 @@ APPROACHES:
       agent_sim_learn_oracle_sim_params: False
       agent_sim_learn_oracle_sim_param_noise_scale: 1.0 # 1.0 allows successful planning but insatisficing plan; 0.8 produces satisficing plan
       code_sim_learning_num_mcmc_steps: 0
+  agent_oracle_hybrid_sim_max:
+    NAME: "agent_sim_learning"
+    SKIP: True
+    FLAGS:
+      demonstrator: "oracle_process_planning"
+      bilevel_plan_without_sim: True # for the demonstrator
+      explorer: "agent_bilevel"
+      terminate_on_goal_reached_and_option_terminated: True
+      agent_sdk_use_local_sandbox: True
+      option_model_terminate_on_repeat: False
+      agent_planner_use_visualize_state: True
+      agent_planner_use_annotate_scene: True
+      option_model_use_gui: False
+      agent_bilevel_log_state: False
+      agent_sim_learn_oracle_sim_program: True
+      agent_sim_learn_oracle_sim_params: True
+      agent_bilevel_use_llm_initial_params: True
+      num_online_learning_cycles: 0
+      execution_monitor: "subgoal_annotations"
+      agent_bilevel_max_execution_replans: 2
+      agent_sdk_reasoning_effort: "max"
   # agent_oracle_hybrid_sim + agent-synthesized per-skill samplers: the
   # agent writes samplers.py (LEARNED_SAMPLERS) in a dedicated synthesis
   # session, and bilevel refinement then draws each option's params from
