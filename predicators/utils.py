@@ -4228,8 +4228,7 @@ class StreamingVideoMonitor(LoggingMonitor):
             if self._writer is None:
                 # Temp file lives in the final output directory so
                 # finalize()'s rename never crosses filesystems.
-                outdir = os.path.join(CFG.video_dir, CFG.run_subdir)
-                os.makedirs(outdir, exist_ok=True)
+                outdir = video_run_dir()
                 fd, self._tmp_path = tempfile.mkstemp(prefix=".streaming_",
                                                       suffix=".mp4",
                                                       dir=outdir)
@@ -4246,7 +4245,7 @@ class StreamingVideoMonitor(LoggingMonitor):
         if self._writer is None:
             return
         self._writer.close()
-        outpath = os.path.join(CFG.video_dir, CFG.run_subdir, outfile)
+        outpath = os.path.join(video_run_dir(), outfile)
         assert self._tmp_path is not None
         os.replace(self._tmp_path, outpath)
         self._writer = None
@@ -4373,12 +4372,23 @@ def _prune_old_video_runs(outdir: str) -> None:
         logging.info(f"Pruned old videos: {path}")
 
 
-def save_video(outfile: str, video: Video) -> None:
-    """Save the video to video_dir/<run subdir>/outfile."""
+def video_run_dir() -> str:
+    """Create and return this run's video dir, pruning older runs' dirs.
+
+    Every writer routes through here, so pruning cannot be skipped by
+    whichever one a config happens to select: save_video buffers an
+    episode, while StreamingVideoMonitor writes its own file and never
+    calls it.
+    """
     outdir = os.path.join(CFG.video_dir, CFG.run_subdir)
     os.makedirs(outdir, exist_ok=True)
     _prune_old_video_runs(outdir)
-    outpath = os.path.join(outdir, outfile)
+    return outdir
+
+
+def save_video(outfile: str, video: Video) -> None:
+    """Save the video to video_dir/<run subdir>/outfile."""
+    outpath = os.path.join(video_run_dir(), outfile)
     video_uint8 = [np.array(frame).astype(np.uint8) for frame in video]
     imageio.mimwrite(outpath, video_uint8, fps=CFG.video_fps)  # type: ignore
     logging.info(f"Wrote out to {outpath}")
