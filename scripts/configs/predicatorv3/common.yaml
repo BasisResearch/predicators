@@ -31,4 +31,4 @@ FLAGS:
   log: 'logs/'
   no_repeated_arguments_in_grounding: True
 START_SEED: 0
-NUM_SEEDS: 1
+NUM_SEEDS: 3

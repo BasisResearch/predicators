@@ -1194,8 +1194,9 @@ class TestExecutionReplanning:
         assert args[0] is state  # replans from the real current state
         assert args[3] == 0  # the failed step is the annotated first step
 
-    def test_full_resolve_when_no_suffix_validates(self):
-        """Suffix path exhausted: falls through to a fresh agent sketch."""
+    def test_episode_fails_when_no_suffix_validates(self):
+        """Suffix path exhausted: by default the episode fails instead of re-
+        opening the agent turn budget with a fresh sketch query."""
         from predicators.approaches import ApproachFailure
         approach, _, task = _make_approach()
         _enable_replanning(approach, 2)
@@ -1205,8 +1206,26 @@ class TestExecutionReplanning:
         state = _make_state()
         policy(state)
         approach._replan_suffix = MagicMock(return_value=None)
+        with pytest.raises(ApproachFailure,
+                           match="agent_bilevel_replan_agent_fallback"):
+            approach._solve(Task(state, task.goal), timeout=10)
+        approach._replan_suffix.assert_called_once()
+
+    def test_full_resolve_when_no_suffix_validates_with_fallback(self):
+        """With agent_bilevel_replan_agent_fallback, a failed suffix replan
+        falls through to a fresh agent sketch."""
+        from predicators.approaches import ApproachFailure
+        approach, _, task = _make_approach()
+        _enable_replanning(approach, 2)
+        utils.update_config({"agent_bilevel_replan_agent_fallback": True})
+        holding = {GroundAtom(_Holding, [_block0])}
+        plan, sketch = _make_two_step_plan(holding)
+        policy = approach._plan_to_policy(plan, sketch=sketch)
+        state = _make_state()
+        policy(state)
+        approach._replan_suffix = MagicMock(return_value=None)
         # agent_bilevel_max_retries=0, so reaching the fresh-sketch body
-        # raises its distinctive failure — proof we fell through.
+        # raises its distinctive failure - proof we fell through.
         with pytest.raises(ApproachFailure, match="Bilevel solve failed"):
             approach._solve(Task(state, task.goal), timeout=10)
         approach._replan_suffix.assert_called_once()
