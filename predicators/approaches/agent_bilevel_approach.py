@@ -747,10 +747,13 @@ class AgentBilevelApproach(AgentPlannerApproach):
         problem (a sampled parameter whose real outcome differed from
         the option-model rollout), not a wrong skeleton, so we first try
         to resume a suffix of the executed sketch (cheap, no agent
-        query; see :meth:`_replan_suffix`). Returns None to fall through
-        to a fresh agent sketch; raises ApproachFailure when the
-        episode's replan budget is exhausted so the episode fails fast
-        instead of running the horizon open-loop.
+        query; see :meth:`_replan_suffix`). When that fails, the default
+        is to fail the episode: a fresh agent sketch query would re-open
+        a turn budget the attempt already spent (set
+        ``CFG.agent_bilevel_replan_agent_fallback`` to return None and
+        fall through to one instead). Also raises ApproachFailure when
+        the episode's replan budget is exhausted so the episode fails
+        fast instead of running the horizon open-loop.
         """
         status = self._exec_status
         if status is None or status.steps_initiated == 0:
@@ -771,6 +774,13 @@ class AgentBilevelApproach(AgentPlannerApproach):
         policy = self._replan_suffix(task.init, task, steps, failed_idx,
                                      timeout)
         if policy is None:
+            if not CFG.agent_bilevel_replan_agent_fallback:
+                raise ApproachFailure(
+                    f"Subgoal divergence after step {failed_idx} "
+                    f"({failed_name}): no suffix of the executed sketch "
+                    "refines from here, and the fresh-agent-sketch "
+                    "fallback is disabled "
+                    "(agent_bilevel_replan_agent_fallback).")
             # No suffix of the executed skeleton refines from here; fall
             # through to pay for a fresh agent sketch.
             logging.info("Suffix replan failed; querying the agent for a "
