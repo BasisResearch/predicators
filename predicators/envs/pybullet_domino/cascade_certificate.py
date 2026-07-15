@@ -19,6 +19,15 @@ shoved relays - a rammed block that slides into its neighbor and knocks
 it over without itself toppling is a genuine cascade link
 (run_20260713_133936 task 3), not a violation.
 
+A second family of hacks keeps the causal chain intact but cheats on
+the scene it runs through, rearranging the parts the task did not hand
+the robot: relocating the green start block next to the target
+(run_20260712_122549), or carrying the targets themselves into a line
+in front of the green (run_20260715_084342 task 1), each collapsing a
+min-block task to zero blues. Only the blue movable blocks are the
+robot's to arrange, so rules (a2)/(a3) hold every other domino to its
+staged pose.
+
 The certificate is a pure function over ``State`` sequences - no
 PyBullet contact queries - so it runs identically on true-env episodes
 and on option-model rollouts in the agent's simulator.
@@ -156,18 +165,30 @@ def _cascade_reach() -> float:
 
 
 def _stage_tolerance() -> float:
-    """Max xy drift of the green start block from its staged pose before its
-    topple onset that still counts as "pushed where it stands".
+    """Max xy drift of a non-movable domino from its staged pose that still
+    counts as "left where it stands".
 
-    A legitimate push tips the block about its base edge, so the base
-    slides at most a couple of centimeters before the block leaves the
-    upright band; relocating the block anywhere useful (next to the
+    A legitimate push tips the green block about its base edge, so the
+    base slides at most a couple of centimeters before the block leaves
+    the upright band; relocating any block anywhere useful (next to the
     target, or even one chain gap over) moves it by at least ``pos_gap``
     ~= 0.098 m. One domino width sits safely between the two regimes.
     """
     from predicators.envs.pybullet_domino.env import \
         PyBulletDominoComposedEnv  # pylint: disable=import-outside-toplevel
     return PyBulletDominoComposedEnv.domino_width
+
+
+def _role_label(state: State, domino: Object) -> str:
+    """Human-readable role of a non-movable ``domino``, for error messages."""
+    # pylint: disable=protected-access
+    if DominoComponent._StartBlock_holds(state, [domino]):
+        return "green start block"
+    if DominoComponent._TargetDomino_holds(state, [domino]):
+        return "target domino"
+    if DominoComponent._HeavyBlock_holds(state, [domino]):
+        return "heavy block"
+    return "non-movable domino"
 
 
 def _topple_onset(states: Sequence[State], domino: Object) -> Optional[int]:
@@ -497,14 +518,24 @@ def check_cascade_legitimacy(
       (a1) the green block's own fall begins during (or within one
            cascade window after) a Push on it - not during a Pick/Place
            sweep;
-      (a2) the green block is never held before its topple onset:
-           picking it up (even to put it back) is not part of seeding a
-           legitimate cascade (holds after the cascade has started are
-           post-success fiddling and stay legal);
-      (a3) the green block is pushed where it stands: at its topple
-           onset it must be within ``_stage_tolerance()`` of its staged
-           (initial) xy - relocating it next to the target to skip the
-           chain earns no bonus;
+      (a2) no non-movable domino - the green start block, the targets,
+           heavy blocks - is ever held before its topple onset: only
+           the blue movable blocks are the robot's to carry, so picking
+           any other one up (even to put it back) is not part of
+           building a legitimate cascade (holds after a block has
+           fallen are post-success fiddling and stay legal);
+      (a3) every non-movable domino is toppled where it stands: at the
+           cascade's start it must be within ``_stage_tolerance()`` of
+           its staged (initial) xy. Relocating the green next to the
+           target to skip the chain earns no bonus, and neither does
+           carrying the targets themselves into a line in front of the
+           green - which solves any min-block task with zero blues
+           (run_20260715_084342 task 1: both targets were picked up and
+           set down 0.21 m and 0.34 m away, in front of the green, for
+           a full reward=1.0). Drift is measured at the cascade's start
+           rather than at each block's own onset so that a target the
+           cascade legitimately shoves before it tips is not charged
+           for the robot's doing;
       (a)  the green block is the first domino to start falling (ties
            allowed);
       (b)  every other topple onset is attributable to an
@@ -555,9 +586,17 @@ def check_cascade_legitimacy(
     if len(states) < 2:
         return True, ""
     dominoes = [obj for obj in states[0] if obj.type.name == "domino"]
+    # pylint: disable=protected-access
     greens = [
-        d for d in dominoes if DominoComponent._StartBlock_holds(  # pylint: disable=protected-access
-            states[0], [d])
+        d for d in dominoes
+        if DominoComponent._StartBlock_holds(states[0], [d])
+    ]
+    # Only the blue movable blocks are the robot's to arrange; every
+    # other domino (the green start block, the targets, heavy blocks) is
+    # scenery that must be toppled where the task staged it.
+    non_movables = [
+        d for d in dominoes
+        if not DominoComponent._MovableBlock_holds(states[0], [d])
     ]
     onsets: Dict[Object, int] = {}
     for d in dominoes:
@@ -570,39 +609,40 @@ def check_cascade_legitimacy(
         toppled = sorted(d.name for d in onsets)
         return False, (f"{', '.join(toppled)} toppled but there is no green "
                        "start block in the scene to seed a cascade")
+    cascade_start = min(onsets.values())
 
-    # Rule (a2): the green start block is never held before its topple
-    # onset. Holds after the cascade has started cannot have seeded it
-    # (a re-stand-and-re-tip of the fallen green fails rule (b)'s onset
-    # window), so they stay legal - episodes routinely continue past
-    # the goal (terminate_on_goal_reached=False) and post-success
-    # fiddling must not void an already-legitimate cascade.
-    for g in greens:
-        # Scan up to this green's own onset; a green that never falls
+    # Rule (a2): no non-movable domino is ever held before its topple
+    # onset. Holds after a block has fallen cannot have seeded or staged
+    # anything (a re-stand-and-re-tip fails rule (b)'s onset window), so
+    # they stay legal - episodes routinely continue past the goal
+    # (terminate_on_goal_reached=False) and post-success fiddling must
+    # not void an already-legitimate cascade.
+    for d in non_movables:
+        # Scan up to this block's own onset; a block that never falls
         # is held to the cascade's start (holding it afterwards cannot
-        # have seeded anything).
-        horizon = onsets[g] + 1 if g in onsets else min(onsets.values())
+        # have seeded or staged anything).
+        horizon = onsets[d] + 1 if d in onsets else cascade_start
         for t in range(horizon):
-            if states[t].get(g, "is_held") > 0.5:
+            if states[t].get(d, "is_held") > 0.5:
                 return False, (
-                    f"the green start block {g.name} was picked up (held at "
-                    f"step {t}, before its cascade began) - it must be "
-                    "toppled by a Push at its staged pose, not relocated")
+                    f"the {_role_label(states[0], d)} {d.name} was picked up "
+                    f"(held at step {t}, before it fell) - only the blue "
+                    "movable blocks may be carried; it must be toppled where "
+                    "it stands, not relocated")
 
-    # Rule (a3): the green start block is pushed where it stands.
+    # Rule (a3): every non-movable domino is still at its staged pose
+    # when the cascade starts.
     stage_tol = _stage_tolerance()
-    for g in greens:
-        if g not in onsets:
-            continue
-        onset_state = states[min(onsets[g], len(states) - 1)]
+    for d in non_movables:
+        start_state = states[min(cascade_start, len(states) - 1)]
         drift = math.hypot(
-            onset_state.get(g, "x") - states[0].get(g, "x"),
-            onset_state.get(g, "y") - states[0].get(g, "y"))
+            start_state.get(d, "x") - states[0].get(d, "x"),
+            start_state.get(d, "y") - states[0].get(d, "y"))
         if drift > stage_tol:
             return False, (
-                f"the green start block {g.name} moved {drift:.2f} m from "
-                "its staged pose before falling - the cascade must be "
-                "seeded by pushing it where it stands")
+                f"the {_role_label(states[0], d)} {d.name} moved "
+                f"{drift:.2f} m from its staged pose before the cascade "
+                "started - only the blue movable blocks may be rearranged")
 
     # Action rules (a0)/(a1).
     if step_options is not None:

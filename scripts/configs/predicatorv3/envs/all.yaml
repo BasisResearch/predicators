@@ -29,6 +29,23 @@ ENVS:
       predicate_invent_invent_derived_predicates: True
       pybullet_birrt_extend_num_interp: 20
       pybullet_birrt_path_subsample_ratio: 2
+  domino_900:
+    NAME: "pybullet_domino"
+    SKIP: True
+    FLAGS:
+      max_initial_demos: 0
+      excluded_objects_in_state_str: "loc,rot,angle,direction"
+      horizon: 500
+      domino_initialize_at_finished_state: False
+      domino_use_domino_blocks_as_target: True
+      domino_use_continuous_place: True
+      process_planning_heuristic_weight: 2.0
+      domino_has_glued_dominos: False
+      keep_failed_demos: True
+      predicate_invent_invent_derived_predicates: True
+      pybullet_birrt_extend_num_interp: 20
+      pybullet_birrt_path_subsample_ratio: 2
+      agent_sdk_image_max_px: 900
   # Same tasks as `domino`, but the launcher's excluded_predicates keeps
   # the env-native InFront (state-only pose trigonometry, no physics and
   # no grid helpers - use_gt_helpers stays False). Un-excluded, InFront
@@ -155,73 +172,6 @@ ENVS:
       # one-extra-blue over-build shows as a 0.10 reward gap per task
       # instead of 0.05 (0.1 * 4 staged blues < 1, so a certified
       # success still outscores any failure).
-      domino_block_cost: 0.1
-  # BONUS under-reach arms (probe sweep 2026-07-12,
-  # scripts/domino_debug/probe_min_block_bands.py): same experiment at
-  # gentler true frictions, sharing the retuned short-leg geometry. Both
-  # differentiate against planning friction 0.1 in the anchor probes
-  # (straights 1v2 on spans 0.29-0.31; turns 2v3 via natural single
-  # corners) and both generation-verified 5/5 (2 turns K*=2 + 3
-  # straights K*=1) in fresh processes.
-  domino_mid_friction:
-    NAME: "pybullet_domino"
-    SKIP: True
-    FLAGS:
-      max_initial_demos: 0
-      excluded_objects_in_state_str: "loc,rot,angle,direction"
-      horizon: 500
-      domino_initialize_at_finished_state: False
-      domino_use_domino_blocks_as_target: True
-      domino_use_continuous_place: True
-      process_planning_heuristic_weight: 2.0
-      domino_has_glued_dominos: False
-      keep_failed_demos: True
-      predicate_invent_invent_derived_predicates: True
-      pybullet_birrt_extend_num_interp: 20
-      pybullet_birrt_path_subsample_ratio: 2
-      domino_min_block_tasks: True
-      # True 0.3 vs believed 0.1: corner viability at 0.3 is narrower
-      # than at 0.5 (entry 0.24+ cells probe true K*=3 and tie
-      # believed-side), so the turn band stays at short entries.
-      domino_true_friction: 0.3
-      domino_planning_friction: 0.1
-      domino_min_block_span_lo: 0.29
-      domino_min_block_span_hi: 0.31
-      domino_min_block_turn_entry_lo: 0.20
-      domino_min_block_turn_entry_hi: 0.22
-      domino_min_block_turn_exit_lo: 0.17
-      domino_min_block_turn_exit_hi: 0.19
-      domino_min_block_num_blues: 4
-      domino_block_cost: 0.1
-  domino_midhigh_friction:
-    NAME: "pybullet_domino"
-    SKIP: True
-    FLAGS:
-      max_initial_demos: 0
-      excluded_objects_in_state_str: "loc,rot,angle,direction"
-      horizon: 500
-      domino_initialize_at_finished_state: False
-      domino_use_domino_blocks_as_target: True
-      domino_use_continuous_place: True
-      process_planning_heuristic_weight: 2.0
-      domino_has_glued_dominos: False
-      keep_failed_demos: True
-      predicate_invent_invent_derived_predicates: True
-      pybullet_birrt_extend_num_interp: 20
-      pybullet_birrt_path_subsample_ratio: 2
-      domino_min_block_tasks: True
-      # True 0.4 vs believed 0.1: k=2 natural corners on short entries;
-      # entry 0.24 probes true K*=3 at exits 0.18-0.20 (unlike the 0.5
-      # arm), so the band stops at 0.23.
-      domino_true_friction: 0.4
-      domino_planning_friction: 0.1
-      domino_min_block_span_lo: 0.29
-      domino_min_block_span_hi: 0.31
-      domino_min_block_turn_entry_lo: 0.21
-      domino_min_block_turn_entry_hi: 0.23
-      domino_min_block_turn_exit_lo: 0.17
-      domino_min_block_turn_exit_hi: 0.20
-      domino_min_block_num_blues: 4
       domino_block_cost: 0.1
   # Real-world domino: Learning + exploration stay in sim on
   # the reconstructed real scene; testing moves to the real Franka inside the
