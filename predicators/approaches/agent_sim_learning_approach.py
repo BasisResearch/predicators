@@ -377,8 +377,14 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
                                      skip_process_dynamics=True)
             logger.info("Pre-computing base states for %d transitions.",
                         len(obs_triples))
-            base_pred_triples = self._compute_base_pred_triples(
-                obs_triples, fit_env)
+            try:
+                base_pred_triples = self._compute_base_pred_triples(
+                    obs_triples, fit_env)
+            finally:
+                # This env is rebuilt every learning cycle; disconnect
+                # its PyBullet client or each cycle leaks a full physics
+                # world (~145MB for the domino env).
+                pybullet.disconnect(fit_env._physics_client_id)  # type: ignore[attr-defined]  # pylint: disable=protected-access
             inferred_hint = self._infer_process_features_from_residuals(
                 obs_triples, base_pred_triples)
             logger.info("Process features (data-driven hint): %s",

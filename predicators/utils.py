@@ -16,8 +16,10 @@ import logging
 import os
 import pkgutil
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from argparse import ArgumentParser
 from collections import defaultdict, namedtuple
@@ -4195,6 +4197,73 @@ class VideoMonitor(LoggingMonitor):
 
 
 @dataclass
+class StreamingVideoMonitor(LoggingMonitor):
+    """A VideoMonitor variant that encodes frames to disk as they arrive.
+
+    Peak memory is one frame instead of a whole episode's worth
+    (VideoMonitor buffers every frame until the caller saves, ~1.2GB for
+    a 500-step episode at 900x900). Frames stream into a hidden temp
+    file in the output directory; after the episode the caller must
+    either ``finalize(outfile)`` to move the clip into place or
+    ``discard()`` to delete it. ``discard()`` is a no-op after
+    ``finalize()``, so an unconditional trailing ``discard()`` is the
+    idiom for "keep only if some earlier branch finalized". The
+    trade-offs vs. buffering: encoding cost is paid even for clips that
+    end up discarded, and a process crash mid-episode leaves the hidden
+    temp file behind.
+
+    Use VideoMonitor instead when the raw frames are needed after the
+    episode (e.g. saving per-step images).
+    """
+    _render_fn: Callable[[Optional[Action], Optional[str]], Video]
+    _writer: Any = field(init=False, default=None)
+    _tmp_path: Optional[str] = field(init=False, default=None)
+
+    def reset(self, train_or_test: str, task_idx: int) -> None:
+        self.discard()
+
+    def observe(self, obs: Observation, action: Optional[Action]) -> None:
+        del obs  # unused
+        for frame in self._render_fn(action, None):
+            if self._writer is None:
+                # Temp file lives in the final output directory so
+                # finalize()'s rename never crosses filesystems.
+                outdir = video_run_dir()
+                fd, self._tmp_path = tempfile.mkstemp(prefix=".streaming_",
+                                                      suffix=".mp4",
+                                                      dir=outdir)
+                os.close(fd)
+                self._writer = imageio.get_writer(self._tmp_path,
+                                                  fps=CFG.video_fps)
+            self._writer.append_data(np.asarray(frame, dtype=np.uint8))
+
+    def finalize(self, outfile: str) -> None:
+        """Close the writer and move the clip to video_dir/run_subdir.
+
+        A no-op if no frame was ever observed.
+        """
+        if self._writer is None:
+            return
+        self._writer.close()
+        outpath = os.path.join(video_run_dir(), outfile)
+        assert self._tmp_path is not None
+        os.replace(self._tmp_path, outpath)
+        self._writer = None
+        self._tmp_path = None
+        logging.info(f"Wrote out to {outpath}")
+
+    def discard(self) -> None:
+        """Delete the temp clip, unless already finalized (then no-op)."""
+        if self._writer is None:
+            return
+        self._writer.close()
+        assert self._tmp_path is not None
+        os.remove(self._tmp_path)
+        self._writer = None
+        self._tmp_path = None
+
+
+@dataclass
 class SimulateVideoMonitor(LoggingMonitor):
     """A monitor that calls render_state on each state and action seen.
 
@@ -4271,11 +4340,55 @@ def fig2data(fig: matplotlib.figure.Figure, dpi: int) -> Image:
     return data
 
 
-def save_video(outfile: str, video: Video) -> None:
-    """Save the video to video_dir/outfile."""
-    outdir = CFG.video_dir
+# Matches only the run dirs configure_logging mints, so pruning can never
+# recurse into a directory this module did not create.
+_RUN_DIR_RE = re.compile(r"^run_\d{8}_\d{6}$")
+
+
+def _prune_old_video_runs(outdir: str) -> None:
+    """Keep only the newest CFG.video_max_runs_kept run dirs beside outdir.
+
+    Run-scoped video dirs never collide, so nothing reclaims the space
+    that the old flat layout reclaimed by overwriting. Pruning the
+    oldest runs of this approach/experiment_id/seed restores that, but
+    on a run granularity and only ever discarding whole runs older than
+    the ones kept.
+    """
+    if not CFG.run_subdir or CFG.video_max_runs_kept <= 0:
+        return  # not a run-scoped dir, or pruning disabled
+    parent = os.path.dirname(os.path.normpath(outdir))
+    try:
+        # run_<timestamp> sorts chronologically, so the tail is the oldest.
+        runs = sorted(
+            d for d in os.listdir(parent)
+            if _RUN_DIR_RE.match(d) and os.path.isdir(os.path.join(parent, d)))
+    except OSError:
+        return
+    for stale in runs[:-CFG.video_max_runs_kept]:
+        path = os.path.join(parent, stale)
+        if os.path.realpath(path) == os.path.realpath(outdir):
+            continue  # never prune the run currently being written
+        shutil.rmtree(path, ignore_errors=True)
+        logging.info(f"Pruned old videos: {path}")
+
+
+def video_run_dir() -> str:
+    """Create and return this run's video dir, pruning older runs' dirs.
+
+    Every writer routes through here, so pruning cannot be skipped by
+    whichever one a config happens to select: save_video buffers an
+    episode, while StreamingVideoMonitor writes its own file and never
+    calls it.
+    """
+    outdir = os.path.join(CFG.video_dir, CFG.run_subdir)
     os.makedirs(outdir, exist_ok=True)
-    outpath = os.path.join(outdir, outfile)
+    _prune_old_video_runs(outdir)
+    return outdir
+
+
+def save_video(outfile: str, video: Video) -> None:
+    """Save the video to video_dir/<run subdir>/outfile."""
+    outpath = os.path.join(video_run_dir(), outfile)
     video_uint8 = [np.array(frame).astype(np.uint8) for frame in video]
     imageio.mimwrite(outpath, video_uint8, fps=CFG.video_fps)  # type: ignore
     logging.info(f"Wrote out to {outpath}")
@@ -5128,8 +5241,12 @@ def configure_logging() -> None:
     handlers: List[logging.Handler] = [colorlog_handler]
     if CFG.log_file:
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        CFG.log_file += (f"{CFG.approach}/{CFG.experiment_id}/"
-                         f"seed{CFG.seed}/run_{timestamp}/")
+        # save_video mirrors this subdir under CFG.video_dir. Both are derived
+        # from the one timestamp so a run's videos and logs always agree on the
+        # run id, which recomputing the clock per artifact would not guarantee.
+        CFG.run_subdir = (f"{CFG.approach}/{CFG.experiment_id}/"
+                          f"seed{CFG.seed}/run_{timestamp}/")
+        CFG.log_file += CFG.run_subdir
         os.makedirs(CFG.log_file, exist_ok=True)
 
         # Handler for DEBUG level messages

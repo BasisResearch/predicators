@@ -5,7 +5,8 @@ Stdlib-only TensorBoard-style browser for run directories of the form
 logs/<family>/<env>-<approach>/seed<N>/run_<timestamp>/. Features:
 
   * runs overview with per-episode pass/fail chips, costs, and run comparison
-  * episode markdown transcripts with collapsible turns and inline images
+  * episode markdown transcripts with collapsible turns, inline images, and
+    the run's saved episode video from videos/<same run subdir>/
   * unified diffs between simulator_versions / predicates_versions files
   * image galleries, ANSI-colored info.log / debug.log, and a full file tree
     so every logged file is inspectable
@@ -18,8 +19,13 @@ Format contracts this viewer relies on:
   * "Goal achieved: True|False" lines inside tool-result blocks (tools.py)
   * "Test results: defaultdict(..., {...})" lines in info.log
 
+Format contracts, continued:
+  * videos/<approach>/<experiment_id>/seed<N>/run_<timestamp>/ mirrors the log
+    dir, via the run subdir utils.configure_logging shares with save_video
+  * video names ...__task<K+1>[_failure]__cycle<C>.mp4 from main.py _save_video
+
 Usage:
-    python scripts/log_viewer.py [--logs logs] [--port 8765]
+    python scripts/log_viewer.py [--logs logs] [--videos videos] [--port 8765]
 """
 
 from __future__ import annotations
@@ -30,15 +36,20 @@ import difflib
 import mimetypes
 import os
 import re
+import subprocess
 import sys
 import traceback
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 LOGS_ROOT = ""  # absolute, set in main()
+VIDEOS_ROOT = ""  # absolute, set in main(); may not exist
 
 EPISODE_RE = re.compile(r"^(\d{3})_([a-z]+)(?:_task(\d+))?_(\d{8}_\d{6})\.md$")
+# Tail of a test video written by main.py _save_video, whose task number is
+# 1-based (task_idx+1) unlike the 0-based task in an episode filename.
+VIDEO_RE = re.compile(r"__task(\d+)(_failure)?__cycle([^.]*)\.mp4$")
 RESULT_RE = re.compile(
     r"\*\*Result:\*\* (\d+) turns, \$([\d.]+) this solve, \$([\d.]+) total")
 GOAL_RE = re.compile(r"Goal achieved: (True|False)")
@@ -50,6 +61,12 @@ NUM_TOTAL_RE = re.compile(r"'num_total': ([\d.]+)")
 TASK_VERDICT_RE = re.compile(
     r"^INFO: (?:\[main\.py\] )?Task (\d+) / (\d+): (.+)$")
 TASKS_SOLVED_RE = re.compile(r"Tasks solved: (\d+) / (\d+)")
+# main.py logs this only after the pipeline returns, so it is the one
+# trustworthy "this run completed" marker; a crash or a kill leaves none.
+DONE_RE = re.compile(r"^Main script terminated in")
+# A live run is a main.py process whose flags name the run's log dir,
+# which utils.configure_logging builds as approach/experiment_id/seed<N>.
+PS_ARG_RE = re.compile(r"--(approach|experiment_id|seed)[= ]+(\S+)")
 ANSI_RE = re.compile(r"\x1b\[([\d;]*)m")
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".bmp", ".webp"}
 VIDEO_EXTS = {".mp4", ".mov", ".webm", ".avi"}
@@ -58,6 +75,21 @@ TEXT_EXTS = {
     ".sh", ".tex"
 }
 CODE_EXTS = {".py"}
+# Episode-grid geometry, in px. A task always gets TASK_W of space no
+# matter how many times it was retried, so its chips land at the same x in
+# every run and experiment; retries stack inside that space. MISC_W holds
+# the round's explore/learn chips, which are unbounded and so wrap too.
+TASK_W = 108
+ROUND_W = 34
+MISC_W = 3 * TASK_W
+# Fixed widths for the remaining columns of the index runs table, in the
+# order they are declared there. None is the episodes column, whose width
+# depends on the task count and is filled in at render time.
+RUN_COL_W = (30, 200, 62, 96, None, 178, 68, 132, 132)
+# Episodes of one run, in file order; see _parse_episode for the fields.
+EpList = List[Dict[str, Any]]
+# A run's videos as {(task, cycle tag): [(filename, is_failure)]}.
+VidMap = Dict[Tuple[int, str], List[Tuple[str, bool]]]
 # Bare image paths inside code blocks / inline code, e.g. "Saved images:".
 PATH_IN_TEXT_RE = re.compile(r"(?:/|\./)?[\w][\w./\-]*\.(?:png|jpe?g|gif)")
 
@@ -76,15 +108,27 @@ def q(text: str) -> str:
     return urllib.parse.quote(text, safe="")
 
 
-def safe_join(rel: str) -> Optional[str]:
-    """Resolve rel against LOGS_ROOT; return abs path or None if escaping."""
-    if not rel or rel.startswith(("/", "\\")) or ".." in rel.split("/"):
+def _join_under(root: str, rel: str) -> Optional[str]:
+    """Resolve rel against root; return abs path or None if escaping."""
+    if not root or not rel:
         return None
-    path = os.path.realpath(os.path.join(LOGS_ROOT, rel))
-    root = os.path.realpath(LOGS_ROOT)
+    if rel.startswith(("/", "\\")) or ".." in rel.split("/"):
+        return None
+    path = os.path.realpath(os.path.join(root, rel))
+    root = os.path.realpath(root)
     if path != root and not path.startswith(root + os.sep):
         return None
     return path
+
+
+def safe_join(rel: str) -> Optional[str]:
+    """Resolve rel against LOGS_ROOT; return abs path or None if escaping."""
+    return _join_under(LOGS_ROOT, rel)
+
+
+def safe_join_video(rel: str) -> Optional[str]:
+    """Resolve rel against VIDEOS_ROOT; return abs path or None if escaping."""
+    return _join_under(VIDEOS_ROOT, rel)
 
 
 def _cached(path: str, fn: Callable[[str], Any]) -> Any:
@@ -173,6 +217,34 @@ def find_runs() -> List[Dict[str, Any]]:
     return runs
 
 
+def live_run_keys() -> Set[Tuple[str, str]]:
+    """(exp, seed) of every run with a live main.py process.
+
+    A process names its log dir through
+    --approach/--experiment_id/--seed but not the run_<timestamp> leaf,
+    so this identifies the experiment and seed only; run_status pins it
+    to that key's newest run, the one the process created when it
+    started.
+    """
+    try:
+        out = subprocess.run(["ps", "-Ao", "args="],
+                             capture_output=True,
+                             text=True,
+                             check=False,
+                             timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return set()  # no ps: fall back to marker-only statuses
+    keys = set()
+    for line in out.splitlines():
+        if "main.py" not in line:
+            continue
+        flags = dict(PS_ARG_RE.findall(line))
+        if "approach" in flags and "experiment_id" in flags:
+            keys.add((f"{flags['approach']}/{flags['experiment_id']}",
+                      f"seed{flags.get('seed', '0')}"))
+    return keys
+
+
 def _parse_episode(path: str) -> Dict[str, Any]:
     text, _ = read_text(path)
     info: Dict[str, Any] = {}
@@ -223,7 +295,11 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
     totals: List[Tuple[int, int]] = []
     rounds: List[Dict[int, Dict[str, Any]]] = []
     current: Dict[int, Dict[str, Any]] = {}
+    done = False
     for line in text.splitlines():
+        if DONE_RE.match(line):
+            done = True
+            continue
         if "Test results:" in line:
             ms, mt = NUM_SOLVED_RE.search(line), NUM_TOTAL_RE.search(line)
             if ms and mt:
@@ -245,7 +321,7 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
             current = {}
     if current:  # run still in progress or crashed mid-round
         rounds.append(current)
-    return {"totals": totals, "rounds": rounds}
+    return {"totals": totals, "rounds": rounds, "done": done}
 
 
 def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
@@ -274,7 +350,8 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
         "episodes": episodes,
         "test_results": parsed.get("totals", []),
         "rounds": rounds,
-        "total_cost": total_cost
+        "total_cost": total_cost,
+        "done": parsed.get("done", False),
     }
 
 
@@ -698,6 +775,14 @@ summary .hint { color: var(--muted); font-weight: 400; font-size: 12px; }
 .chip.bad { color: var(--bad); border-color: var(--bad); }
 .chip.kind-explore { color: #b083f0; border-color: #b083f0; }
 .chip.kind-learn { color: #daaa3f; border-color: #daaa3f; }
+/* Lifecycle, not verdict: green and red stay reserved for env evals. */
+.chip.live { color: var(--accent); border-color: var(--accent);
+  animation: pulse 1.8s ease-in-out infinite; }
+.chip.stopped { color: #daaa3f; border-color: #daaa3f; }
+@keyframes pulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) {
+  .chip.live { animation: none; }
+}
 .banner { padding: 10px 14px; border-radius: 6px; margin-bottom: 12px;
   border: 1px solid var(--border); background: var(--panel);
   display: flex; gap: 18px; flex-wrap: wrap; }
@@ -709,9 +794,11 @@ table.grid { border-collapse: collapse; margin: 10px 0; }
 table.grid th, table.grid td { border: 1px solid var(--border);
   padding: 4px 10px; text-align: left; font-size: 13px; }
 table.grid th { background: var(--panel); }
-table.epgrid { border-collapse: collapse; margin: 0; }
-table.epgrid td { border: none; padding: 1px 10px 1px 0;
-  vertical-align: top; white-space: nowrap; }
+table.grid.runs { table-layout: fixed; }
+table.epgrid { border-collapse: collapse; margin: 0;
+  table-layout: fixed; }
+table.epgrid td { border: none; padding: 1px 0; line-height: 20px;
+  vertical-align: top; }
 .sidebar .nav a { display: block; padding: 3px 6px; border-radius: 4px;
   color: var(--fg); font-size: 13px; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
@@ -731,6 +818,14 @@ table.epgrid td { border: none; padding: 1px 10px 1px 0;
 img.mdimg { max-width: 480px; max-height: 400px;
   border: 1px solid var(--border); border-radius: 6px; display: block;
   margin: 6px 0; }
+/* A test and a failure video can both exist for one task, so the players
+   sit in a wrapping row rather than assuming a single video. */
+.vids { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 12px; }
+figure.vid { margin: 0; }
+figure.vid video { max-width: 480px; width: 100%;
+  border: 1px solid var(--border); border-radius: 6px; display: block;
+  background: #000; }
+figure.vid figcaption { font-size: 11px; margin-top: 4px; }
 .gallery { display: grid; gap: 8px;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
 .gallery a { text-align: center; font-size: 11px; color: var(--muted);
@@ -760,6 +855,10 @@ details.grp.family > summary { font-size: 15px; }
 details.grp > *:not(summary) { margin: 8px 12px; }
 details.grp.hidden { display: none; }
 .muted { color: var(--muted); }
+""" + f"""
+table.epgrid td.task {{ width: {TASK_W}px; }}
+table.epgrid td.misc {{ width: {MISC_W}px; }}
+table.epgrid td.rnd {{ width: {ROUND_W}px; }}
 """
 
 JS = """
@@ -1011,64 +1110,152 @@ def chip(label: Any, cls: str = "", title: str = "") -> str:
 def test_mark(ep: Dict[str, Any]) -> Tuple[str, str, str]:
     """(mark, css class, tooltip) for a test episode.
 
-    The env-side verdict from info.log is authoritative; the
-    transcript's own "Goal achieved" claim is shown parenthesized as a
-    fallback only.
+    Only the env-side verdict from info.log is authoritative, so only it
+    earns a colour. The transcript's own "Goal achieved" claim is shown
+    parenthesized and grey: it is a fallback that can still flip once
+    the episode is evaluated, and colouring it reads as a settled
+    outcome.
     """
     if "env_solved" in ep:
         if ep["env_solved"]:
             return "✓", "ok", "env eval: SOLVED"
         return "✗", "bad", "env eval: " + ep.get("env_msg", "failed")
     if ep.get("goal") is True:
-        return "(✓)", "ok", "agent-reported only; no env verdict in info.log"
+        return "(✓)", "", "agent-reported only; no env verdict in info.log"
     if ep.get("goal") is False:
-        return "(✗)", "bad", "agent-reported only; no env verdict in info.log"
+        return "(✗)", "", "agent-reported only; no env verdict in info.log"
     return "", "", ""
 
 
-def episode_grid(episodes: List[Dict[str, Any]]) -> str:
+def _split_episodes(
+    episodes: EpList
+) -> Tuple[Dict[int, Dict[int, EpList]], Dict[int, EpList]]:
+    """Episodes bucketed by round, as (test-by-task, non-test)."""
+    tests: Dict[int, Dict[int, EpList]] = {}
+    misc: Dict[int, EpList] = {}
+    for ep in episodes:
+        rnd = ep.get("round", 0)
+        if ep["kind"] == "test" and ep["task"] is not None:
+            tests.setdefault(rnd, {}).setdefault(ep["task"], []).append(ep)
+        else:
+            misc.setdefault(rnd, []).append(ep)
+    return tests, misc
+
+
+def grid_layout(runs: List[EpList]) -> Dict[str, Any]:
+    """Column layout shared by every run's episode grid.
+
+    Holding the task set and the round column fixed across every run on
+    the page is what lets task t1's chips land at the same x whether the
+    run above it retried t0 twice or not, and whether it belongs to the
+    same experiment or not.
+    """
+    tasks: Set[int] = set()
+    rounds = False
+    misc = False
+    for episodes in runs:
+        by_round, misc_by_round = _split_episodes(episodes)
+        rounds = rounds or max(list(by_round) + list(misc_by_round),
+                               default=0) > 0
+        misc = misc or bool(misc_by_round)
+        for by_task in by_round.values():
+            tasks.update(by_task)
+    return {"tasks": sorted(tasks), "rounds": rounds, "misc": misc}
+
+
+def grid_width(layout: Dict[str, Any]) -> int:
+    """Pixel width of an episode grid drawn with this layout."""
+    return (len(layout["tasks"]) * TASK_W +
+            (ROUND_W if layout["rounds"] else 0) +
+            (MISC_W if layout["misc"] else 0))
+
+
+def episode_grid(episodes: EpList,
+                 layout: Optional[Dict[str, Any]] = None) -> str:
     """Chips laid out one row per test round, one column per task.
 
     Vertical alignment makes it easy to compare a task's outcome against
-    earlier rounds; retries within a round stack in the cell.
+    earlier rounds and against other runs; retries within a round stack
+    inside their task's column rather than widening it.
     """
-    tests: Dict[int, Dict[int, List[str]]] = {}
-    misc: Dict[int, List[str]] = {}
-    for ep in episodes:
-        rnd = ep.get("round", 0)
-        label = f"{int(ep['num']):03}"
-        if ep["kind"] == "test" and ep["task"] is not None:
-            mark, cls, title = test_mark(ep)
-            label += f" t{ep['task']}"
-            if mark:
-                label += " " + mark
-            by_task = tests.setdefault(rnd, {})
-            by_task.setdefault(ep["task"], []).append(chip(label, cls, title))
-        else:
-            label += " " + ep["kind"]
-            misc.setdefault(rnd, []).append(chip(label, "kind-" + ep["kind"]))
+    if layout is None:
+        layout = grid_layout([episodes])
+    tests, misc = _split_episodes(episodes)
     if not tests and not misc:
         return ""
     n_rounds = max(list(tests) + list(misc)) + 1
-    tasks = sorted({t for by_task in tests.values() for t in by_task})
     rows = []
     for rnd in range(n_rounds):
         cells = []
-        if n_rounds > 1:
-            cells.append(f"<td class='muted'>r{int(rnd + 1)}</td>")
-        for t in tasks:
-            cells.append(f"<td>{''.join(tests.get(rnd, {}).get(t, []))}</td>")
-        cells.append(f"<td>{''.join(misc.get(rnd, []))}</td>")
+        if layout["rounds"]:
+            label = f"r{int(rnd + 1)}" if n_rounds > 1 else ""
+            cells.append(f"<td class='muted rnd'>{label}</td>")
+        for task in layout["tasks"]:
+            # One retry per line: two short chips would otherwise share a
+            # line while longer ones stack, making the column read ragged.
+            chips = "".join(f"<div>{_test_chip(ep)}</div>"
+                            for ep in tests.get(rnd, {}).get(task, []))
+            cells.append(f"<td class='task'>{chips}</td>")
+        if layout["misc"]:
+            chips = "".join(_misc_chip(ep) for ep in misc.get(rnd, []))
+            cells.append(f"<td class='misc'>{chips}</td>")
         rows.append(f"<tr>{''.join(cells)}</tr>")
-    return f"<table class='epgrid'>{''.join(rows)}</table>"
+    return (f"<table class='epgrid' style='width:{grid_width(layout)}px'>"
+            f"{''.join(rows)}</table>")
+
+
+def run_status(r: Dict[str, Any], summary: Dict[str, Any],
+               live: Set[Tuple[str, str]], is_newest: bool) -> Tuple[str, str]:
+    """(label, css class) for a run's lifecycle state.
+
+    Completion is read off info.log, since main.py logs its terminating
+    line only after the pipeline returns. A run that was killed or that
+    crashed leaves no such line - but neither does a run that is still
+    going, so the two are told apart by whether a process is still alive.
+    """
+    if summary.get("done"):
+        return "done", "done"
+    if is_newest and (r["exp"], r["seed"]) in live:
+        return "running", "live"
+    return "interrupted", "stopped"
+
+
+def status_chip(r: Dict[str, Any], summary: Dict[str, Any],
+                live: Set[Tuple[str, str]], is_newest: bool) -> str:
+    """Chip announcing whether a run is live, finished, or stopped."""
+    label, cls = run_status(r, summary, live, is_newest)
+    title = {
+        "done":
+        "info.log ends with main.py's completion line",
+        "live":
+        "a main.py process for this experiment and seed is running",
+        "stopped":
+        "no completion line in info.log and no live process: "
+        "killed or crashed",
+    }[cls]
+    return chip(label, cls, title)
+
+
+def _test_chip(ep: Dict[str, Any]) -> str:
+    """Chip for one test episode, e.g. "003 t1 ✓"."""
+    mark, cls, title = test_mark(ep)
+    label = f"{int(ep['num']):03} t{ep['task']}"
+    if mark:
+        label += " " + mark
+    return chip(label, cls, title)
+
+
+def _misc_chip(ep: Dict[str, Any]) -> str:
+    """Chip for one non-test episode, e.g. "002 explore"."""
+    return chip(f"{int(ep['num']):03} {ep['kind']}", "kind-" + ep["kind"])
 
 
 # ----------------------------------------------------------------- pages
 
 
-def run_row(r: Dict[str, Any]) -> str:
+def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
+            live: Set[Tuple[str, str]], is_newest: bool) -> str:
     """Table row summarizing one run for the index page."""
-    summary = run_summary(r["rel"]) or {}
     eps = summary.get("episodes", [])
     tr = summary.get("test_results", [])
     tr_str = " → ".join(f"{t[0]}/{t[1]}" for t in tr) or "-"
@@ -1077,7 +1264,9 @@ def run_row(r: Dict[str, Any]) -> str:
     sstr = datetime.datetime.fromtimestamp(_run_start_ts(
         r["name"], r["mtime"])).strftime(fmt)
     mstr = datetime.datetime.fromtimestamp(r["mtime"]).strftime(fmt)
-    key = f"{r['exp']} {r['seed']} {r['name']}".lower()
+    status, _ = run_status(r, summary, live, is_newest)
+    # The status joins the filter key, so "running" narrows to live runs.
+    key = f"{r['exp']} {r['seed']} {r['name']} {status}".lower()
     cost_str = f"${cost:.2f}" if cost else "-"
     return ("<tr class='runrow' "
             f"data-key='{esc(key)}'>"
@@ -1085,7 +1274,8 @@ def run_row(r: Dict[str, Any]) -> str:
             "</td>"
             f"<td><a href='/run?d={q(r['rel'])}'>{esc(r['name'])}</a></td>"
             f"<td>{esc(r['seed'])}</td>"
-            f"<td>{episode_grid(eps)}</td><td>{esc(tr_str)}</td>"
+            f"<td>{status_chip(r, summary, live, is_newest)}</td>"
+            f"<td>{episode_grid(eps, layout)}</td><td>{esc(tr_str)}</td>"
             f"<td>{cost_str}</td>"
             f"<td class='muted'>{sstr}</td>"
             f"<td class='muted'>{mstr}</td></tr>")
@@ -1098,31 +1288,58 @@ def index_page() -> str:
     for r in runs:
         fam, _, rest = r["exp"].partition("/")
         families.setdefault(fam, {}).setdefault(rest or fam, []).append(r)
+    summaries = {r["rel"]: run_summary(r["rel"]) or {} for r in runs}
+    # The task and round columns are laid out once for the whole page, so
+    # a task's chips line up across runs, experiments, and families. The
+    # explore/learn column sits to the right of every task column, so it
+    # can stay per-family without costing any of that alignment - which
+    # spares families that never explore its reserved width.
+    page_layout = grid_layout(
+        [s.get("episodes", []) for s in summaries.values()])
+    live = live_run_keys()
+    # A live process owns the newest run of its experiment and seed: the
+    # one it made at startup. Older runs of that key are its dead ancestors.
+    newest: Dict[Tuple[str, str], Tuple[float, str]] = {}
+    for r in runs:
+        key = (r["exp"], r["seed"])
+        ts = _run_start_ts(r["name"], r["mtime"])
+        if ts >= newest.get(key, (0.0, ""))[0]:
+            newest[key] = (ts, r["rel"])
     body = [
         "<div class='content' style='height:calc(100vh - 45px);"
-        "overflow-y:auto'>"
+        "overflow:auto'>"
     ]
     if not runs:
         body.append(
             f"<p>No run_* directories found under {esc(LOGS_ROOT)}.</p>")
-    table_head = ("<tr><th></th><th>run</th><th>seed</th><th>episodes"
-                  "</th><th>test results (info.log)</th><th>cost</th>"
-                  "<th>started</th><th>modified</th></tr>")
+    table_head = ("<tr><th></th><th>run</th><th>seed</th><th>status</th>"
+                  "<th>episodes</th><th>test results (info.log)</th>"
+                  "<th>cost</th><th>started</th><th>modified</th></tr>")
     for fam in sorted(families):
         exps = families[fam]
-        n_runs = sum(len(v) for v in exps.values())
+        fam_runs = [r for rs in exps.values() for r in rs]
+        fam_misc = grid_layout(
+            [summaries[r["rel"]].get("episodes", []) for r in fam_runs])
+        layout = dict(page_layout, misc=fam_misc["misc"])
+        widths = [w or grid_width(layout) for w in RUN_COL_W]
+        cols = "<colgroup>" + "".join(f"<col style='width:{w}px'>"
+                                      for w in widths) + "</colgroup>"
         body.append(f"<details class='grp family' data-key='fam:{esc(fam)}' "
                     f"open><summary>{esc(fam)} <span class='muted'>"
-                    f"({len(exps)} experiments, {n_runs} runs)"
+                    f"({len(exps)} experiments, {len(fam_runs)} runs)"
                     "</span></summary>")
         for expname in sorted(exps):
-            rows = "".join(run_row(r) for r in exps[expname])
+            rows = "".join(
+                run_row(r, summaries[r["rel"]], layout, live, newest[(
+                    r["exp"], r["seed"])][1] == r["rel"])
+                for r in exps[expname])
             body.append(f"<details class='grp exp' data-key='exp:{esc(fam)}/"
                         f"{esc(expname)}'>"
                         f"<summary>{esc(expname)} <span class='muted'>"
-                        f"({len(exps[expname])} runs)</span>"
-                        f"</summary><table class='grid'>{table_head}{rows}"
-                        "</table></details>")
+                        f"({len(exps[expname])} runs)</span></summary>"
+                        f"<table class='grid runs' "
+                        f"style='width:{sum(widths)}px'>"
+                        f"{cols}{table_head}{rows}</table></details>")
         body.append("</details>")
     body.append("</div>")
     topbar = ("<input id='runfilter' placeholder='filter runs…' "
@@ -1243,6 +1460,63 @@ def run_page(run_rel: str) -> Optional[str]:
 # ------------------------------------------------------------- fragments
 
 
+def _cycle_tag(rnd: int) -> str:
+    """The cycle tag main.py stamps into the video names of a test round.
+
+    Round 0 is the pre-learning test phase, which main.py runs with
+    online_learning_cycle=None; round r>0 is the test after learning
+    cycle r-1, since main.py passes that loop's 0-based index.
+    """
+    return "cycleNone" if rnd == 0 else f"cycle{rnd - 1}"
+
+
+def videos_for_run(run_rel: str) -> VidMap:
+    """Test videos of a run, from videos/<run_rel>/.
+
+    Keyed by the 0-based task index used everywhere else in this viewer,
+    so the 1-based number in the filename is converted here and nowhere
+    else.
+    """
+    base = safe_join_video(run_rel)
+    out: VidMap = {}
+    if not base or not os.path.isdir(base):
+        return out
+    try:
+        names = sorted(os.listdir(base))
+    except OSError:
+        return out
+    for name in names:
+        m = VIDEO_RE.search(name)
+        if not m:
+            continue  # e.g. cogman/interaction videos, which have no task
+        key = (int(m.group(1)) - 1, "cycle" + m.group(3))
+        out.setdefault(key, []).append((name, bool(m.group(2))))
+    return out
+
+
+def episode_videos(ep: Dict[str, Any], run_rel: str) -> str:
+    """Players for the env episode this transcript belongs to.
+
+    main.py names a test video by task and learning cycle rather than by
+    query, so the two transcripts of a replanned task (001/002
+    ..._task0) are two views of one env episode and correctly share its
+    video.
+    """
+    if ep["kind"] != "test" or ep["task"] is None:
+        return ""
+    key = (int(ep["task"]), _cycle_tag(int(ep.get("round", 0))))
+    vids = videos_for_run(run_rel).get(key, [])
+    out = []
+    for name, is_failure in vids:
+        url = "/rawvideo?p=" + q(run_rel + "/" + name)
+        label = "failure video" if is_failure else "test video"
+        out.append(f"<figure class='vid'><video controls preload='metadata' "
+                   f"src='{url}'></video><figcaption class='muted'>{label} · "
+                   f"<a class='muted' href='{url}' target='_blank'>raw</a>"
+                   f"</figcaption></figure>")
+    return f"<div class='vids'>{''.join(out)}</div>" if out else ""
+
+
 def episode_banner(ep: Dict[str, Any], n_rounds: int = 0) -> str:
     """Header banner summarizing an episode's verdict, cost, and turns."""
     parts = []
@@ -1344,8 +1618,9 @@ def view_fragment(run_rel: str, file_rel: str) -> str:
                 e for e in summary.get("episodes", []) if e["file"] == name
             ]
             if matches:
-                banner = episode_banner(matches[0],
-                                        len(summary.get("rounds", [])))
+                banner = (episode_banner(matches[0],
+                                         len(summary.get("rounds", []))) +
+                          episode_videos(matches[0], run_rel))
         text, truncated = read_text(file_abs, max_bytes=4 * 1024 * 1024)
         note = ("<p class='muted'>(truncated to last 4MB)</p>"
                 if truncated else "")
@@ -1643,22 +1918,34 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_html("<p>Not found.</p>", status=404)
             else:
                 self.send_raw(path)
+        elif route == "/rawvideo":
+            path = safe_join_video(params.get("p", ""))
+            if not path or not os.path.isfile(path):
+                self.send_html("<p>Not found.</p>", status=404)
+            else:
+                self.send_raw(path)
         else:
             self.send_html("<p>Not found.</p>", status=404)
 
 
 def main() -> None:
     """Parse args, set LOGS_ROOT, and serve the viewer until interrupted."""
-    global LOGS_ROOT  # pylint: disable=global-statement
+    global LOGS_ROOT, VIDEOS_ROOT  # pylint: disable=global-statement
     parser = argparse.ArgumentParser(
         description=__doc__.split("\n", maxsplit=1)[0])
     parser.add_argument("--logs",
                         default="logs",
                         help="logs root directory (default: logs)")
+    parser.add_argument("--videos",
+                        default="videos",
+                        help="videos root directory, laid out like --logs "
+                        "(default: videos)")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--host", default="127.0.0.1")
     args = parser.parse_args()
     LOGS_ROOT = os.path.abspath(args.logs)
+    # Videos are optional: a run with none simply shows no player.
+    VIDEOS_ROOT = os.path.abspath(args.videos)
     if not os.path.isdir(LOGS_ROOT):
         sys.exit(f"logs directory not found: {LOGS_ROOT}")
     server = ThreadingHTTPServer((args.host, args.port), Handler)
