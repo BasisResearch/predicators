@@ -39,7 +39,7 @@ ENVS:
 APPROACHES:
   agent_oracle_hybrid_sim:
     SKIP: True
-  agent_oracle_hybrid_sim_max_effort:
+  agent_oracle_hybrid_sim_max:
     SKIP: False
   agent_oracle_hybrid_sim_ground_sampler:
     SKIP: True
