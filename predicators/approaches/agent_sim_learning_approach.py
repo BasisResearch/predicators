@@ -1750,8 +1750,8 @@ the tools."""
         and the outcomes it observes; goal-atom termination it can
         check itself via ``is_goal_state``). ``actions`` may be
         ``Action`` objects (labeled via their producing options),
-        pre-built ``(option_name, object_names)`` labels, or ``None``
-        (kinematics-only scoring).
+        pre-built ``(option_name, object_names[, params])`` labels, or
+        ``None`` (kinematics-only scoring).
         """
         tasks = self._train_tasks
 
@@ -1774,8 +1774,12 @@ the tools."""
                     step_options = step_option_labels(acts)
                 else:
                     step_options = acts
-            verdict = evaluate_states_with(evaluator, list(states),
-                                           step_options)
+            verdict = evaluate_states_with(evaluator,
+                                           list(states),
+                                           step_options,
+                                           sim_env=getattr(
+                                               self._option_model, "sim_env",
+                                               None))
             return {
                 "reward": verdict["reward"],
                 "solved": verdict["solved"],
