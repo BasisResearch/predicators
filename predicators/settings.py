@@ -495,6 +495,15 @@ class GlobalSettings:
     domino_test_num_targets = [1, 2]
     domino_train_num_pivots = [0]
     domino_test_num_pivots = [0]
+    # Fraction of generated tasks that are L-shaped (contain one 90-degree
+    # domino turn) rather than straight, shared by both task pipelines:
+    # min-block generation fills its turn/straight quotas from it, and the
+    # plain DominoTaskGenerator resamples each task's chain until it
+    # contains (or avoids) a turn90 to meet the same quota, turn tasks
+    # first. Turn tasks are the hard family (tighter topple reach ~0.11 vs
+    # ~0.15 straight, corner-relay staging). 0.0 = all straight, 1.0 = all
+    # turns.
+    domino_turn_ratio = 0.5
     domino_train_num_pos_x = 3
     domino_train_num_pos_y = 2
     domino_test_num_pos_x = 4  # 5 is too large for robot to reach sometimes
@@ -602,12 +611,6 @@ class GlobalSettings:
     # including saved_datasets, so cluster runs regenerate once. Empty
     # string disables caching.
     domino_min_block_task_cache_dir = "saved_datasets/domino_min_block_tasks"
-    # Fraction of min-block tasks that are L-shaped (one 90-degree domino turn,
-    # no pivots) rather than straight. The turn's reach limit is tighter
-    # (~0.11 vs ~0.15 straight), so turn tasks are built at a tighter gap and
-    # K* = the verified reach-limited blue count of the L-chain. 0.0 = all
-    # straight (original min-block behaviour).
-    domino_min_block_turn_ratio = 0.5
     # Turn-task leg bands: entry/exit leg lengths (metres) sampled uniformly
     # from [lo, hi] per attempt. None (default) = the legacy over_reach band
     # hardcoded in _make_turn_task (the low-friction arm); under_reach arms
@@ -621,7 +624,7 @@ class GlobalSettings:
     domino_min_block_turn_exit_hi: Optional[float] = None
     # Heavy-block (immovable obstacle) task type — the single switch for the
     # variant. A HEAVY gray domino-shaped block sits with natural alignment
-    # in one of two shapes (mixed per domino_min_block_turn_ratio):
+    # in one of two shapes (mixed per domino_turn_ratio):
     #   * straight: start -> gray -> target on ONE line, all co-facing; the
     #     true solution is a half-circle swerve around the gray;
     #   * turn: an L whose believed-cheapest corner layout is found first,
