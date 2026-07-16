@@ -365,6 +365,26 @@ def test_boil_sketch_refinement(model_type):
             "(PyBullet state reconstruction is imperfect).", model_type)
 
 
+def test_build_option_model_binds_sim_env():
+    """The learned option model must expose ``_base_env`` as ``sim_env``.
+
+    The task-evaluator verdict paths (sandbox tools and
+    evaluate_trajectory) read ``option_model.sim_env`` to run
+    certificates that need physics, such as the domino counterfactual
+    push probe. Without the binding the probe is silently unavailable
+    and captures are accepted on the pure rules only.
+    """
+    from predicators.approaches.agent_sim_learning_approach import \
+        AgentSimLearningApproach
+    utils.reset_config({"wait_option_terminate_on_atom_change": False})
+    approach = AgentSimLearningApproach.__new__(AgentSimLearningApproach)
+    fake_env = object()
+    approach._base_env = fake_env
+    approach._get_all_options = lambda: set()  # type: ignore[method-assign]
+    model = approach._build_option_model(lambda s, a: s)
+    assert model.sim_env is fake_env
+
+
 if __name__ == "__main__":
     import sys
     _model = sys.argv[1] if len(sys.argv) > 1 else "oracle"
