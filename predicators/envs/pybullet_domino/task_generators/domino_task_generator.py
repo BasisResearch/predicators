@@ -63,13 +63,21 @@ class DominoTaskGenerator(TaskGenerator):
         if possible_num_pivots is None:
             possible_num_pivots = CFG.domino_test_num_pivots
 
+        # Turn/straight quota (CFG.domino_turn_ratio, shared with min-block
+        # generation): the first n_turn tasks must contain a turn90 corner
+        # and the rest are generated straight-only.
+        n_turn = int(round(num_tasks * CFG.domino_turn_ratio))
+
         tasks = []
         for i_task in range(num_tasks):
-            task = self._generate_single_task(i_task, rng,
+            task = self._generate_single_task(i_task,
+                                              rng,
                                               possible_num_dominos,
                                               possible_num_targets,
-                                              possible_num_pivots, log_debug,
-                                              domino_in_upper_half)
+                                              possible_num_pivots,
+                                              log_debug,
+                                              domino_in_upper_half,
+                                              force_turn=i_task < n_turn)
             if task is not None:
                 tasks.append(task)
 
@@ -83,8 +91,16 @@ class DominoTaskGenerator(TaskGenerator):
             possible_num_targets: List[int],
             possible_num_pivots: List[int],
             log_debug: bool = False,
-            domino_in_upper_half: bool = False) -> Optional[EnvironmentTask]:
-        """Generate a single domino task."""
+            domino_in_upper_half: bool = False,
+            force_turn: bool = False) -> Optional[EnvironmentTask]:
+        """Generate a single domino task.
+
+        ``force_turn`` is this task's slot in the ``domino_turn_ratio``
+        quota: True means the chain must contain a turn90 corner (chains
+        without one are resampled), False means it is generated
+        straight-only. Ignored on the min-block path, which fills its
+        own quota from the same ratio.
+        """
         if CFG.domino_min_block_tasks:
             return self._generate_min_block_task(task_idx, rng)
 
@@ -105,7 +121,7 @@ class DominoTaskGenerator(TaskGenerator):
                 print(f"\nAttempt {attempt_num} for task {task_idx}")
             candidate_obj_dict = self._generate_domino_sequence(
                 rng, n_dominos, n_targets, n_pivots, log_debug, task_idx,
-                domino_in_upper_half)
+                domino_in_upper_half, force_turn)
             if candidate_obj_dict is None:
                 continue
 
@@ -282,16 +298,22 @@ class DominoTaskGenerator(TaskGenerator):
                                goal_atoms,
                                goal_nl=goal_text.MIN_BLOCK_GOAL_NL)
 
-    def _generate_domino_sequence(
-            self,
-            rng: np.random.Generator,
-            n_dominos: int,
-            n_targets: int,
-            n_pivots: int,
-            _log_debug: bool = False,
-            task_idx: Optional[int] = None,
-            domino_in_upper_half: bool = False) -> Optional[Dict]:
-        """Generate a sequence of dominoes, targets, and pivots."""
+    def _generate_domino_sequence(self,
+                                  rng: np.random.Generator,
+                                  n_dominos: int,
+                                  n_targets: int,
+                                  n_pivots: int,
+                                  _log_debug: bool = False,
+                                  task_idx: Optional[int] = None,
+                                  domino_in_upper_half: bool = False,
+                                  force_turn: bool = False) -> Optional[Dict]:
+        """Generate a sequence of dominoes, targets, and pivots.
+
+        With ``force_turn`` True the completed chain must contain at
+        least one turn90 (otherwise ``None``, so the caller's attempt
+        loop resamples); with False the per-step choice is restricted to
+        straight placements. See ``domino_turn_ratio``.
+        """
         obj_dict: Dict[Object, Dict[str, Any]] = {}
         domino_count = 0
         target_count = 0
@@ -342,26 +364,31 @@ class DominoTaskGenerator(TaskGenerator):
             # straight runs after a turn keep one constant yaw; positions still
             # follow ``rotation`` (the travel direction).
             block_yaw = rotation
+            had_turn = False
             while domino_count < expected_count:
                 result = self._place_next_domino(
                     rng, obj_dict, x, y, rotation, gap, domino_count,
                     pivot_count, target_count, n_pivots, n_dominos, n_targets,
                     just_placed_target, just_turned_90, _in_bounds, task_idx,
-                    block_yaw)
+                    block_yaw, force_turn)
                 if not result.success:
                     return None
                 x, y, rotation = result.x, result.y, result.rotation
                 domino_count = result.domino_count
                 pivot_count = result.pivot_count
                 just_turned_90 = result.just_turned_90
+                had_turn = had_turn or result.just_turned_90
                 block_yaw = (result.block_yaw
                              if result.block_yaw is not None else rotation)
             if domino_count == expected_count and pivot_count == n_pivots:
+                if force_turn and not had_turn:
+                    return None
                 return obj_dict
             return None
 
         # Separate target objects (use_domino_blocks_as_target=False):
         # interleave regular dominoes and target-typed objects.
+        had_turn = False
         while self._should_continue_placement(domino_count, target_count,
                                               n_dominos, n_targets):
             can_place_target = (domino_count >= 2 and target_count < n_targets
@@ -372,10 +399,23 @@ class DominoTaskGenerator(TaskGenerator):
                                    or rng.random() > 0.5) and can_place_domino
 
             if should_place_domino:
-                result = self._place_next_domino(
-                    rng, obj_dict, x, y, rotation, gap, domino_count,
-                    pivot_count, target_count, n_pivots, n_dominos, n_targets,
-                    just_placed_target, just_turned_90, _in_bounds, task_idx)
+                result = self._place_next_domino(rng,
+                                                 obj_dict,
+                                                 x,
+                                                 y,
+                                                 rotation,
+                                                 gap,
+                                                 domino_count,
+                                                 pivot_count,
+                                                 target_count,
+                                                 n_pivots,
+                                                 n_dominos,
+                                                 n_targets,
+                                                 just_placed_target,
+                                                 just_turned_90,
+                                                 _in_bounds,
+                                                 task_idx,
+                                                 force_turn=force_turn)
                 if not result.success:
                     return None
                 x, y, rotation = result.x, result.y, result.rotation
@@ -383,6 +423,7 @@ class DominoTaskGenerator(TaskGenerator):
                 pivot_count = result.pivot_count
                 target_count += result.target_count
                 just_turned_90 = result.just_turned_90
+                had_turn = had_turn or result.just_turned_90
                 just_placed_target = result.just_placed_target
             else:
                 result = self._place_next_target(rng, obj_dict, x, y, rotation,
@@ -400,6 +441,8 @@ class DominoTaskGenerator(TaskGenerator):
         if self._check_placement_complete(domino_count, target_count,
                                           pivot_count, n_dominos, n_targets,
                                           n_pivots):
+            if force_turn and not had_turn:
+                return None
             return obj_dict
         return None
 
@@ -451,32 +494,34 @@ class DominoTaskGenerator(TaskGenerator):
         return (domino_count == n_dominos and target_count == n_targets
                 and pivot_count == n_pivots)
 
-    def _place_next_domino(
-            self,
-            rng: np.random.Generator,
-            obj_dict: Dict,
-            x: float,
-            y: float,
-            rotation: float,
-            gap: float,
-            domino_count: int,
-            pivot_count: int,
-            target_count: int,
-            n_pivots: int,
-            n_dominos: int,
-            n_targets: int,
-            just_placed_target: bool,
-            just_turned_90: bool,
-            _in_bounds: Callable[[float, float], bool],
-            task_idx: Optional[int] = None,
-            block_yaw: Optional[float] = None) -> PlacementResult:
+    def _place_next_domino(self,
+                           rng: np.random.Generator,
+                           obj_dict: Dict,
+                           x: float,
+                           y: float,
+                           rotation: float,
+                           gap: float,
+                           domino_count: int,
+                           pivot_count: int,
+                           target_count: int,
+                           n_pivots: int,
+                           n_dominos: int,
+                           n_targets: int,
+                           just_placed_target: bool,
+                           just_turned_90: bool,
+                           _in_bounds: Callable[[float, float], bool],
+                           task_idx: Optional[int] = None,
+                           block_yaw: Optional[float] = None,
+                           force_turn: bool = False) -> PlacementResult:
         """Place the next domino using various strategies."""
         turn_choices = self.domino.turn_choices.copy()
         if pivot_count >= n_pivots and "pivot180" in turn_choices:
             turn_choices.remove("pivot180")
         if just_turned_90 and "turn90" in turn_choices:
             turn_choices.remove("turn90")
-        if just_placed_target:
+        if just_placed_target or not force_turn:
+            # Straight-only slot in the domino_turn_ratio quota (or a
+            # cooldown step right after a target).
             turn_choices = ["straight"]
 
         choice = rng.choice(turn_choices)

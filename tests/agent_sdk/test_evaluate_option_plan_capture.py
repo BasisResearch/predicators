@@ -92,7 +92,7 @@ class _StubEvaluator(TaskEvaluator):
         super().__init__(goal)
         self._legit = legit
 
-    def _certify(self, states, step_options):
+    def _certify(self, states, step_options, sim_env=None):
         if self._legit:
             return True, ""
         return False, "stub: the cascade was staged, not pushed"

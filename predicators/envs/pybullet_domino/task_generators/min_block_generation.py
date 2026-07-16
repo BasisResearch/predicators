@@ -129,7 +129,7 @@ def make_min_block_tasks(env: "PyBulletDominoComposedEnv",
     searches), but fully deterministic given the seed, the config, and
     the code - so finished tasks are cached and reloaded on repeat runs.
 
-    A fraction (``domino_min_block_turn_ratio``) of tasks are L-shaped
+    A fraction (``domino_turn_ratio``) of tasks are L-shaped
     (one 90-degree domino turn), the rest straight. Both drop tasks that
     can't be pushed / don't topple, so the quota loop keeps going until
     enough of each survive (or the attempt cap is hit). ``rng`` is
@@ -154,7 +154,7 @@ def make_min_block_tasks(env: "PyBulletDominoComposedEnv",
     ], Optional[EnvironmentTask]]
     turn_maker: maker_t
     straight_maker: Optional[maker_t] = None
-    n_turn = int(round(num_tasks * CFG.domino_min_block_turn_ratio))
+    n_turn = int(round(num_tasks * CFG.domino_turn_ratio))
     n_straight = num_tasks - n_turn
     if CFG.domino_heavy_block_tasks:
         turn_maker = _make_heavy_turn_task

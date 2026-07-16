@@ -305,9 +305,11 @@ class BaseEnv(abc.ABC):
             return True, ""
         # The env is the sanctioned reader of the private certify: agents
         # only ever see the (reward, terminated) pair plus the boolean
-        # rejection flag.
+        # rejection flag. Passing self gives physics-needing certificates
+        # (the domino counterfactual push probe) the true env to probe
+        # with; the evaluator never stores it.
         # pylint: disable-next=protected-access
-        return evaluator._certify(states, step_options)
+        return evaluator._certify(states, step_options, sim_env=self)
 
     def evaluate_episode(self, observations: Sequence[Observation],
                          actions: Sequence[Action]) -> EpisodeEvaluation:
@@ -322,9 +324,12 @@ class BaseEnv(abc.ABC):
             states, step_options = self._extract_episode(observations, actions)
             if states is not None:
                 # pylint: disable-next=protected-access
-                _, reason = evaluator._certify(states, step_options)
+                _, reason = evaluator._certify(states,
+                                               step_options,
+                                               sim_env=self)
                 return EpisodeEvaluation(
-                    reward=evaluator.reward(states, step_options),
+                    reward=evaluator.reward(states, step_options,
+                                            sim_env=self),
                     terminated=evaluator.terminated(states[-1]),
                     reason=reason,
                     offline_metrics=evaluator.offline_metrics(

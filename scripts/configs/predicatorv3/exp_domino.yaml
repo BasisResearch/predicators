@@ -22,8 +22,12 @@ ENVS:
     SKIP: True
     FLAGS:
       excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
-  domino_900:
+  domino_turns:
     SKIP: False
+    FLAGS:
+      excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
+  domino_900:
+    SKIP: True
     FLAGS:
       excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
   # Forward (over-reach) arm: true friction 0.1, planner believes 0.5.
@@ -38,8 +42,10 @@ ENVS:
       excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
 APPROACHES:
   agent_oracle_hybrid_sim:
-    SKIP: True
-  agent_oracle_hybrid_sim_max:
+    SKIP: False
+  agent_oracle_hybrid_sim_long:
+    SKIP: False
+  agent_oracle_hybrid_sim_hires:
     SKIP: False
   agent_oracle_hybrid_sim_ground_sampler:
     SKIP: True

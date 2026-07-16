@@ -635,15 +635,18 @@ def _format_object_poses(state: State) -> str:
     return "\n".join(pose_lines)
 
 
-def evaluate_states_with(
-        evaluator: Any, states: Sequence[State],
-        step_options: Optional[Sequence[Any]]) -> Dict[str, Any]:
+def evaluate_states_with(evaluator: Any,
+                         states: Sequence[State],
+                         step_options: Optional[Sequence[Any]],
+                         sim_env: Optional[Any] = None) -> Dict[str, Any]:
     """Score a state/option-label sequence with a task's ``TaskEvaluator``.
 
     The single verdict surface: only booleans/scalars/reasons leave this
-    function, never the evaluator object. Both functions run on plain
-    states with no physics, so verdicts on belief-sim rollouts are
-    exactly as trustworthy as the belief sim itself.
+    function, never the evaluator object. Verdicts on belief-sim
+    rollouts are exactly as trustworthy as the belief sim itself -
+    including ``sim_env``, the belief env backing the rollout, passed
+    through so physics-needing certificates (the domino counterfactual
+    push probe) can probe with the same belief physics.
     ``legitimate``/``reason`` are HARNESS-INTERNAL (capture gating,
     logs), and ``terminated`` is agent-computable from the public goal
     atoms: agent-facing surfaces expose only the public (solved,
@@ -651,11 +654,11 @@ def evaluate_states_with(
     agent must infer the scoring rules from the stated objective and
     the outcomes its rollouts earn.
     """
-    ok, reason = evaluator._certify(states, step_options)  # pylint: disable=protected-access
+    ok, reason = evaluator._certify(states, step_options, sim_env=sim_env)  # pylint: disable=protected-access
     return {
         "terminated": evaluator.terminated(states[-1]),
-        "reward": evaluator.reward(states, step_options),
-        "solved": evaluator.solved(states, step_options),
+        "reward": evaluator.reward(states, step_options, sim_env=sim_env),
+        "solved": evaluator.solved(states, step_options, sim_env=sim_env),
         "legitimate": ok,
         "reason": reason,
     }
@@ -770,7 +773,8 @@ def _belief_rollout_verdict(
         if outcome.post_state is None:
             return
         opt = outcome.option
-        label = (opt.name, tuple(o.name for o in opt.objects))
+        label = (opt.name, tuple(o.name for o in opt.objects),
+                 tuple(float(p) for p in opt.params))
         step_traj = getattr(ctx.option_model, "last_trajectory", None)
         if step_traj is not None and len(step_traj.states) >= 2:
             states.extend(step_traj.states[1:])
@@ -789,7 +793,11 @@ def _belief_rollout_verdict(
                                             stop_on_failure=True)
         if len(states) < 2:
             return None
-        verdict = evaluate_states_with(evaluator, states, labels)
+        verdict = evaluate_states_with(evaluator,
+                                       states,
+                                       labels,
+                                       sim_env=getattr(ctx.option_model,
+                                                       "sim_env", None))
         return verdict, coarse
     except Exception as e:  # pylint: disable=broad-except
         logging.debug("Belief-rollout evaluator verdict failed: %s", e)
@@ -1818,7 +1826,8 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             if outcome.post_state is None:
                 return
             opt = outcome.option
-            label = (opt.name, tuple(o.name for o in opt.objects))
+            label = (opt.name, tuple(o.name for o in opt.objects),
+                     tuple(float(p) for p in opt.params))
             step_traj = getattr(ctx.option_model, "last_trajectory", None)
             if step_traj is not None and len(step_traj.states) >= 2:
                 eval_states.extend(step_traj.states[1:])
@@ -1901,8 +1910,12 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         verdict: Optional[Dict[str, Any]] = None
         if evaluator is not None and len(eval_states) > 1:
             try:
-                verdict = evaluate_states_with(evaluator, eval_states,
-                                               eval_labels)
+                verdict = evaluate_states_with(evaluator,
+                                               eval_states,
+                                               eval_labels,
+                                               sim_env=getattr(
+                                                   ctx.option_model, "sim_env",
+                                                   None))
             except Exception as e:  # pylint: disable=broad-except
                 logging.debug("Task-evaluator verdict failed: %s", e)
         evaluator_rejected = (verdict is not None and not verdict["legitimate"]
@@ -1938,7 +1951,8 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 if outcome.post_state is None:
                     return
                 opt = outcome.option
-                label = (opt.name, tuple(o.name for o in opt.objects))
+                label = (opt.name, tuple(o.name for o in opt.objects),
+                         tuple(float(p) for p in opt.params))
                 step_traj = getattr(ctx.option_model, "last_trajectory", None)
                 if step_traj is not None and len(step_traj.states) >= 2:
                     v_states.extend(step_traj.states[1:])
@@ -1975,7 +1989,12 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             # illegitimate verdict fails the validation.
             if evaluator is not None and len(v_states) > 1 and not v_coarse:
                 try:
-                    v = evaluate_states_with(evaluator, v_states, v_labels)
+                    v = evaluate_states_with(evaluator,
+                                             v_states,
+                                             v_labels,
+                                             sim_env=getattr(
+                                                 ctx.option_model, "sim_env",
+                                                 None))
                     if not v["legitimate"]:
                         return False, (
                             "this rollout reached the goal atoms but the "

@@ -24,6 +24,8 @@ from predicators.ground_truth_models.skill_factories.push import \
 from predicators.ground_truth_models.skill_factories.wait import \
     create_wait_option
 from predicators.pybullet_helpers.geometry import Pose
+from predicators.pybullet_helpers.inverse_kinematics import \
+    InverseKinematicsError
 from predicators.pybullet_helpers.robots import \
     create_single_arm_pybullet_robot
 from predicators.structs import Action, Object, ParameterizedOption, Type
@@ -1151,3 +1153,107 @@ class TestIkStallAbort:
             state = _build_state(robot_obj, robot, _EE_HOME[0] + 0.005 * i,
                                  _EE_HOME[1], _EE_HOME[2])
             skill._check_ik_stall(phase, state, memory, [robot_obj], params)  # pylint: disable=protected-access
+
+
+# ---------------------------------------------------------------------------
+# PhaseSkill._solve_goal_ik acceptance logic
+# ---------------------------------------------------------------------------
+
+
+class _FakeGoalIkRobot:
+    """Scripted stand-in for the planning robot in goal-IK tests.
+
+    The unvalidated one-shot IK returns an in-limits branch whose true
+    forward kinematics misses the target by ``one_shot_error_m`` meters;
+    validated IK returns a branch that hits the target exactly.
+    """
+
+    joint_lower_limits = [-3.0] * 7
+    joint_upper_limits = [3.0] * 7
+    initial_joint_positions = [0.0] * 7
+
+    def __init__(self, target_pose: Pose, one_shot_error_m: float) -> None:
+        self._target = target_pose
+        self._one_shot_error_m = one_shot_error_m
+        self.validated_calls = 0
+
+    def set_joints(self, joints):
+        pass
+
+    def inverse_kinematics(self, target_pose, validate, set_joints=True):
+        del target_pose, set_joints  # scripted result
+        if validate:
+            self.validated_calls += 1
+            return [0.1] * 7
+        return [0.2] * 7
+
+    def forward_kinematics(self, joints):
+        x, y, z = self._target.position
+        if joints == [0.1] * 7:
+            return Pose((x, y, z))
+        return Pose((x, y, z - self._one_shot_error_m))
+
+
+class TestSolveGoalIk:
+    """Every accepted goal config must hit the pose under FK."""
+
+    def _make_skill(self, robot) -> PhaseSkill:
+        config = _make_config(robot)
+        phase = Phase(
+            name="MoveToDrop",
+            action_type=PhaseAction.MOVE_TO_POSE,
+            target_fn=lambda *args: None,
+            use_motion_planning=True,
+        )
+        return PhaseSkill("Place", [_ROBOT_TYPE], Box(0, 1, (0, )), config,
+                          [phase])
+
+    def test_inaccurate_one_shot_escalates_to_validated(self, robot_scene):
+        """An in-limits one-shot whose FK misses by centimeters must be
+        rejected and the same seed re-solved with validated IK.
+
+        Regression test for run_20260716_133656: with
+        ``pybullet_ik_validate False`` a 5.7 cm one-shot residual used
+        to be accepted without any FK check, so BiRRT's goal collision
+        check placed the carried domino inside the table and refused a
+        valid Place.
+        """
+        _, robot = robot_scene
+        skill = self._make_skill(robot)
+        target = Pose((0.77, 1.34, 0.55))
+        fake = _FakeGoalIkRobot(target, one_shot_error_m=0.057)
+        result = skill._solve_goal_ik(  # pylint: disable=protected-access
+            fake,
+            target, [0.5] * 7,
+            validate=False)
+        assert result == [0.1] * 7
+        assert fake.validated_calls == 1
+
+    def test_accurate_one_shot_keeps_fast_path(self, robot_scene):
+        """A one-shot within tolerance is accepted with no validated IK."""
+        _, robot = robot_scene
+        skill = self._make_skill(robot)
+        target = Pose((0.77, 1.34, 0.55))
+        fake = _FakeGoalIkRobot(target, one_shot_error_m=0.002)
+        result = skill._solve_goal_ik(  # pylint: disable=protected-access
+            fake,
+            target, [0.5] * 7,
+            validate=False)
+        assert result == [0.2] * 7
+        assert fake.validated_calls == 0
+
+    def test_all_branches_inaccurate_raises(self, robot_scene):
+        """When no branch hits the pose, goal IK raises instead of handing
+        BiRRT a wrong goal configuration."""
+        _, robot = robot_scene
+        skill = self._make_skill(robot)
+        target = Pose((0.77, 1.34, 0.55))
+        fake = _FakeGoalIkRobot(target, one_shot_error_m=0.057)
+        fake.forward_kinematics = lambda joints: Pose(  # type: ignore
+            (target.position[0], target.position[1], target.position[2] - 0.057
+             ))
+        with pytest.raises(InverseKinematicsError):
+            skill._solve_goal_ik(  # pylint: disable=protected-access
+                fake,
+                target, [0.5] * 7,
+                validate=False)
