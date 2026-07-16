@@ -123,6 +123,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
         if option_model is None:
             option_model = _OracleOptionModel(initial_options,
                                               self._base_env.simulate)
+            option_model.sim_env = self._base_env
         super().__init__(initial_predicates,
                          initial_options,
                          types,
@@ -443,6 +444,12 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
         PyBullet env via ``get_or_create_env``.
         """
         model = _OracleOptionModel(self._get_all_options(), simulator_fn)
+        # The learned simulator_fn rides on top of _base_env's physics,
+        # so that env is the one physics-needing task-evaluator
+        # certificates (the domino counterfactual push probe) must run
+        # against. Without this the probe is silently unavailable in the
+        # sandbox and captures are accepted on the pure rules only.
+        model.sim_env = self._base_env
         if CFG.wait_option_terminate_on_atom_change:
             model._abstract_function = (  # pylint: disable=protected-access
                 lambda s: utils.abstract(s, self._get_all_predicates()))
@@ -1750,8 +1757,8 @@ the tools."""
         and the outcomes it observes; goal-atom termination it can
         check itself via ``is_goal_state``). ``actions`` may be
         ``Action`` objects (labeled via their producing options),
-        pre-built ``(option_name, object_names)`` labels, or ``None``
-        (kinematics-only scoring).
+        pre-built ``(option_name, object_names[, params])`` labels, or
+        ``None`` (kinematics-only scoring).
         """
         tasks = self._train_tasks
 
@@ -1774,8 +1781,12 @@ the tools."""
                     step_options = step_option_labels(acts)
                 else:
                     step_options = acts
-            verdict = evaluate_states_with(evaluator, list(states),
-                                           step_options)
+            verdict = evaluate_states_with(evaluator,
+                                           list(states),
+                                           step_options,
+                                           sim_env=getattr(
+                                               self._option_model, "sim_env",
+                                               None))
             return {
                 "reward": verdict["reward"],
                 "solved": verdict["solved"],
@@ -2002,6 +2013,12 @@ files to see exactly which rules and predicates produced each failed plan.
         if self._identified_physical_params:
             self._base_env.apply_physical_param_overrides(
                 self._identified_physical_params)
+        # The option model's transient certificate env rides on
+        # _base_env; re-point it so probes don't run against the dead
+        # client's stale physics overrides.
+        if self._option_model is not None and \
+                getattr(self._option_model, "sim_env", None) is not None:
+            self._option_model.sim_env = self._base_env
 
     def _restore_unreconstructible_process_features(self, base_state: State,
                                                     prev_state: State) -> None:

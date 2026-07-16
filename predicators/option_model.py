@@ -69,7 +69,9 @@ def create_option_model(
                              use_gui=gui,
                              **env_kwargs)
         options = get_gt_options(env.get_name())
-        return _OracleOptionModel(options, env.simulate)
+        model = _OracleOptionModel(options, env.simulate)
+        model.sim_env = env
+        return model
     if name.startswith("oracle"):
         env_name = name[name.index("_") + 1:]
         env = create_new_env(env_name,
@@ -77,13 +79,22 @@ def create_option_model(
                              use_gui=gui,
                              **env_kwargs)
         options = get_gt_options(env.get_name())
-        return _OracleOptionModel(options, env.simulate)
+        model = _OracleOptionModel(options, env.simulate)
+        model.sim_env = env
+        return model
     raise NotImplementedError(f"Unknown option model: {name}")
 
 
 class _OptionModelBase(abc.ABC):
     """Struct defining an option model, which predicts the next state of the
     world after an option is executed from a given start state."""
+
+    # The env instance backing this model's simulator, when it wraps
+    # one (set by ``create_option_model``). Task-evaluator verdict
+    # paths pass it as the transient ``sim_env`` so physics-needing
+    # certificates (the domino counterfactual push probe) run against
+    # the same belief physics the rollout used.
+    sim_env: Optional[Any] = None
 
     @abc.abstractmethod
     def get_next_state_and_num_actions(self, state: State,

@@ -1021,10 +1021,15 @@ class Task:
 
 DefaultTask = Task(DefaultState, set())
 
-# A per-step option label: (option name, grounded object names), or None when
-# the action carries no option. Trajectory-level evaluator inputs use these
-# instead of raw options so evaluators stay picklable and comparison-friendly.
-StepOption = Optional[Tuple[str, Tuple[str, ...]]]
+# A per-step option label: (option name, grounded object names, continuous
+# parameters), or None when the action carries no option. Trajectory-level
+# evaluator inputs use these instead of raw options so evaluators stay
+# picklable and comparison-friendly; the parameters let physics-replaying
+# certificates (the domino counterfactual push probe) re-run a step with the
+# plan's own continuous values. Consumers must tolerate legacy
+# (name, objects) 2-tuples, which some tests and agent-authored label lists
+# still produce.
+StepOption = Optional[Tuple[str, Tuple[str, ...], Tuple[float, ...]]]
 
 
 def step_option_labels(actions: Sequence[Action]) -> List[StepOption]:
@@ -1033,7 +1038,8 @@ def step_option_labels(actions: Sequence[Action]) -> List[StepOption]:
     for act in actions:
         if act.has_option():
             option = act.get_option()
-            labels.append((option.name, tuple(o.name for o in option.objects)))
+            labels.append((option.name, tuple(o.name for o in option.objects),
+                           tuple(float(p) for p in option.params)))
         else:
             labels.append(None)
     return labels
@@ -1056,12 +1062,13 @@ class TaskEvaluator:
     reader of the certificate's bool/reason.
 
     The evaluator rides on the agent-facing ``Task``, so instances must
-    be leak-free by construction: pure functions of the state
-    trajectory, no live env handle, and NO oracle quantity anywhere on
-    the object (not even in ``offline_metrics`` - per-task oracle
-    numbers like the domino K* belong in
-    ``EnvironmentTask.offline_task_metrics``, which never reaches a
-    ``Task``).
+    be leak-free by construction: no live env handle stored on the
+    object, and NO oracle quantity anywhere on it (not even in
+    ``offline_metrics`` - per-task oracle numbers like the domino K*
+    belong in ``EnvironmentTask.offline_task_metrics``, which never
+    reaches a ``Task``). Certificates that need a physics rollout (the
+    domino counterfactual push probe) receive the caller's env as a
+    transient ``sim_env`` argument per call instead - see ``_certify``.
 
     Subclasses override ``_certify`` for trajectory-level legitimacy
     rules, ``reward`` for cost terms, ``offline_metrics`` for
@@ -1093,24 +1100,39 @@ class TaskEvaluator:
         """
         return all(atom.holds(state) for atom in self.goal)
 
-    def reward(self, states: Sequence[State],
-               step_options: Optional[Sequence[StepOption]]) -> float:
+    def reward(self,
+               states: Sequence[State],
+               step_options: Optional[Sequence[StepOption]],
+               sim_env: Optional[Any] = None) -> float:
         """Episode reward: certified-success bonus (no cost by default)."""
-        ok, _ = self._certify(states, step_options)
+        ok, _ = self._certify(states, step_options, sim_env=sim_env)
         return float(self.terminated(states[-1]) and ok)
 
-    def solved(self, states: Sequence[State],
-               step_options: Optional[Sequence[StepOption]]) -> bool:
+    def solved(self,
+               states: Sequence[State],
+               step_options: Optional[Sequence[StepOption]],
+               sim_env: Optional[Any] = None) -> bool:
         """Public episode-success bit: goal atoms hold at the end AND the
         success credit was awarded (the episode certifies)."""
-        ok, _ = self._certify(states, step_options)
+        ok, _ = self._certify(states, step_options, sim_env=sim_env)
         return self.terminated(states[-1]) and ok
 
-    def _certify(
-            self, states: Sequence[State],
-            step_options: Optional[Sequence[StepOption]]) -> Tuple[bool, str]:
-        """Trajectory-level legitimacy: (ok, human-readable reason)."""
-        del states, step_options  # unused in the default
+    def _certify(self,
+                 states: Sequence[State],
+                 step_options: Optional[Sequence[StepOption]],
+                 sim_env: Optional[Any] = None) -> Tuple[bool, str]:
+        """Trajectory-level legitimacy: (ok, human-readable reason).
+
+        ``sim_env`` is the certifying caller's live environment (the
+        true env in ``BaseEnv``, an agent's belief env in sandbox
+        verdicts) for certificates that need a physics rollout - e.g.
+        the domino counterfactual push probe. It is passed per call and
+        MUST NOT be stored on the evaluator: the evaluator rides on the
+        agent-facing ``Task`` and stays leak-free precisely because it
+        holds no env handle. ``None`` (the default) runs whatever pure
+        rules the certificate has.
+        """
+        del states, step_options, sim_env  # unused in the default
         return True, ""
 
     def offline_metrics(

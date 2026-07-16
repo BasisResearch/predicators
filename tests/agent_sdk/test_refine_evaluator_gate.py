@@ -76,7 +76,7 @@ class _BandEvaluator(TaskEvaluator):
         self._lo = lo
         self._hi = hi
 
-    def _certify(self, states, step_options):
+    def _certify(self, states, step_options, sim_env=None):
         x = states[-1].get(_block, "x")
         if self._lo <= x <= self._hi:
             return True, ""
@@ -163,7 +163,7 @@ class _RejectFirstParamEvaluator(TaskEvaluator):
         super().__init__(goal)
         self._rejected_x = None
 
-    def _certify(self, states, step_options):
+    def _certify(self, states, step_options, sim_env=None):
         x = round(float(states[-1].get(_block, "x")), 6)
         if self._rejected_x is None:
             self._rejected_x = x

@@ -50,12 +50,15 @@ class DominoEvaluator(TaskEvaluator):
     searched minimum blues at the true friction) deliberately does NOT
     live here: this object ships on the agent-facing ``Task``, so it
     must hold no oracle quantity - K* travels env-side via
-    ``EnvironmentTask.offline_task_metrics``. Both reward and
-    certificate are physics-independent pure functions of the state
-    trajectory (``count_movable_blocks_used`` reads roll angles and
-    not-held displacements, no physics stepping) and the evaluator
-    holds no env handle, which is what makes shipping it on the
-    ``Task`` leak-free.
+    ``EnvironmentTask.offline_task_metrics``.
+
+    The evaluator itself stores no env handle (which is what makes
+    shipping it on the ``Task`` leak-free); the certificate's
+    counterfactual push probe needs physics, so callers that own an
+    env pass it per call as ``sim_env`` (``BaseEnv`` passes the true
+    env, the sandbox's verdict path passes the agent's belief env) and
+    the probe binding never outlives the call. Without a ``sim_env``
+    the certificate runs its pure state/action rules only.
     """
 
     def __init__(self,
@@ -70,17 +73,28 @@ class DominoEvaluator(TaskEvaluator):
             num_movables = CFG.domino_min_block_num_blues
         assert CFG.domino_block_cost * num_movables < 1.0, \
             "A legitimate success must outscore any failure."
+        # Per-trajectory memo for _certify: reward/solved/_certify are
+        # called back-to-back on the same states list and the probe is
+        # a physics rollout, so recomputing per call would triple the
+        # sim cost. Identity-keyed (never content-keyed): only reused
+        # while the SAME states/labels objects with the SAME length are
+        # scored.
+        self._certify_memo: Optional[Tuple[Tuple[int, ...], Tuple[bool,
+                                                                  str]]] = None
 
-    def reward(self, states: Sequence[State],
-               step_options: Optional[Sequence[StepOption]]) -> float:
-        ok, _ = self._certify(states, step_options)
+    def reward(self,
+               states: Sequence[State],
+               step_options: Optional[Sequence[StepOption]],
+               sim_env: Optional[Any] = None) -> float:
+        ok, _ = self._certify(states, step_options, sim_env=sim_env)
         bonus = float(self.terminated(states[-1]) and ok)
         return bonus - CFG.domino_block_cost * \
             count_movable_blocks_used(states)
 
-    def _certify(
-            self, states: Sequence[State],
-            step_options: Optional[Sequence[StepOption]]) -> Tuple[bool, str]:
+    def _certify(self,
+                 states: Sequence[State],
+                 step_options: Optional[Sequence[StepOption]],
+                 sim_env: Optional[Any] = None) -> Tuple[bool, str]:
         """Min-block episodes must be genuine start-block cascades.
 
         The final-state checks cannot see HOW the target fell; this
@@ -88,9 +102,20 @@ class DominoEvaluator(TaskEvaluator):
         green start block (via its Push), so place-knock / push-a-blue /
         flail-knock exploits earn no bonus even when the goal atoms
         hold. Consumed by ``BaseEnv.check_episode_trajectory`` /
-        ``BaseEnv.evaluate_episode``.
+        ``BaseEnv.evaluate_episode``. ``sim_env`` (a domino env, when
+        the caller owns one) supplies the counterfactual push probe.
         """
-        return check_cascade_legitimacy(states, self.goal, step_options)
+        key = (id(states), len(states), id(states[-1]), id(step_options),
+               id(sim_env))
+        if self._certify_memo is not None and self._certify_memo[0] == key:
+            return self._certify_memo[1]
+        probe = getattr(sim_env, "run_counterfactual_cascade_probe", None)
+        verdict = check_cascade_legitimacy(states,
+                                           self.goal,
+                                           step_options,
+                                           probe=probe)
+        self._certify_memo = (key, verdict)
+        return verdict
 
     def offline_metrics(
             self, states: Sequence[State],
@@ -106,7 +131,11 @@ class DominoEvaluator(TaskEvaluator):
                 "voids the bonus - the episode still terminates). The green "
                 "block must be pushed where it stands: picking it up or "
                 "sliding it away from its staged pose voids the bonus, so the "
-                "cascade must bridge the gap with blue dominoes. Each movable "
+                "cascade must bridge the gap with blue dominoes. Legitimacy "
+                "is verified by re-simulating the push from the pre-push "
+                "scene with a bare fingertip (no robot arm): the layout you "
+                "built must cascade to the goal on its own - topples that "
+                "needed the arm's body earn nothing. Each movable "
                 "(blue) domino the cascade consumes - toppled, or shoved off "
                 f"its stand - costs {CFG.domino_block_cost} reward, so use "
                 "as few blues as possible.")
@@ -256,6 +285,9 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         self._physical_param_baseline: Dict[str, float] = (
             self._domino_component.physical_param_override
             if self._domino_component is not None else {})
+        # Dedicated world for the certificate's counterfactual push probe
+        # (see run_counterfactual_cascade_probe); created on first use.
+        self._cascade_probe_env: Optional[PyBulletDominoComposedEnv] = None
 
     def _create_robot_predicates(self) -> None:
         """Create robot-specific predicates."""
@@ -531,6 +563,58 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         if unknown:
             raise ValueError(f"Unknown physical param(s) {sorted(unknown)}.")
         self.set_domino_physical_params(**params)
+
+    def _get_cascade_probe_env(self) -> "PyBulletDominoComposedEnv":
+        """The dedicated probe world for the counterfactual push probe.
+
+        A fresh instance of this env's own class (created once, then
+        reused) so probing never contaminates this world with residual
+        velocities, solver state, or the finger body. Same-class
+        construction gives the probe world the same body pool in the
+        same order, which is what lets it ``_set_state`` this env's
+        states (their objects carry this world's pybullet ids - the
+        same id-coincidence contract the option model's belief env
+        already relies on). The live physics overrides are re-mirrored
+        on every call because sysID artifacts move between episodes.
+        """
+        if self._cascade_probe_env is None:
+            # Concrete env classes take (use_gui, **kwargs) and build
+            # their own component list; only this abstract composed base
+            # takes `components`, and it is never instantiated directly.
+            # pylint: disable-next=no-value-for-parameter
+            self._cascade_probe_env = type(self)(  # type: ignore[call-arg]
+                use_gui=False,
+                skip_process_dynamics=self._skip_domain_specific_dynamics)
+        probe_env = self._cascade_probe_env
+        # pylint: disable-next=protected-access
+        probe_component = probe_env._domino_component
+        if self._domino_component is not None and probe_component is not None:
+            override = self._domino_component.physical_param_override
+            if override:
+                probe_component.set_physical_params(**override)
+        return probe_env
+
+    def run_counterfactual_cascade_probe(
+            self,
+            pre_push_state: State,
+            greens: Sequence[Object],
+            goal: Set[GroundAtom],
+            push_params: Optional[Tuple[float,
+                                        ...]] = None) -> Tuple[bool, str]:
+        """Counterfactual clean-push probe for the cascade certificate.
+
+        From ``pre_push_state``, re-runs the Push skill's waypoint path
+        with a motorized disembodied finger on each green (in the given
+        order) in the dedicated probe world - this env's physics, the
+        episode's own ``push_params`` when recorded, no robot arm - and
+        reports whether the push cascades to the goal atoms. See
+        ``cascade_probe`` for the fidelity contract and the rationale.
+        """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.envs.pybullet_domino import cascade_probe
+        return cascade_probe.run_counterfactual_push_probe(
+            self._get_cascade_probe_env(), pre_push_state, greens, goal,
+            push_params)
 
     # =========================================================================
     # PREDICATE HOLD FUNCTIONS

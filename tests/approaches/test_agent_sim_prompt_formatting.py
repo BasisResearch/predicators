@@ -290,7 +290,7 @@ def test_evaluate_trajectory_helper(approach_cls):
             super().__init__(set())  # empty goal: terminated is True
             self.seen_options = None
 
-        def _certify(self, states, step_options):
+        def _certify(self, states, step_options, sim_env=None):
             self.seen_options = step_options
             return False, "nope"
 
@@ -299,10 +299,13 @@ def test_evaluate_trajectory_helper(approach_cls):
     cup_type = Type("cup_type", ["f"])
     cup = cup_type("cup")
     states = [State({cup: [0.0]}), State({cup: [1.0]})]
+    # _option_model mirrors the real approach attribute the helper reads
+    # for the certificate's sim_env (None => kinematics-only scoring).
     stub = SimpleNamespace(_train_tasks=[
         Task(states[0], set(), evaluator=evaluator),
         Task(states[0], set()),
-    ])
+    ],
+                           _option_model=None)
     fn = approach_cls._make_evaluate_trajectory_fn(stub)
     push = utils.SingletonParameterizedOption(
         "Push", lambda s, m, o, p: Action(np.zeros(1, dtype=np.float32)))
@@ -317,7 +320,9 @@ def test_evaluate_trajectory_helper(approach_cls):
         "reward": 0.0,  # bonus gated by the internal rejection
         "solved": False,
     }
-    assert evaluator.seen_options == [("Push", ())]
+    # Labels are (name, objects, params) triples since plan-capture
+    # gating started matching on exact params.
+    assert evaluator.seen_options == [("Push", (), ())]
     # Pre-built labels pass through unchanged.
     fn(states, [("Push", ("robot", ))], task_idx=0)
     assert evaluator.seen_options == [("Push", ("robot", ))]

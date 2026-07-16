@@ -18,6 +18,13 @@ from predicators.agent_sdk.tools import ALL_TOOL_NAMES, BUILTIN_TOOLS, \
     create_synthesis_tools, get_allowed_tool_list, list_session_tool_names
 
 
+def _required_names(names: Optional[List[str]]) -> List[str]:
+    """Narrow an Optional tool-name list (None means "all static MCP tools",
+    which these tests never exercise)."""
+    assert names is not None
+    return names
+
+
 def _names(tools: Iterable[Any]) -> Set[str]:
     return {getattr(t, "name", "") for t in tools}
 

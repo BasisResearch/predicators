@@ -459,15 +459,15 @@ def test_task_evaluator(state):
     assert not unreached.solved([state], None)
     assert not reached.offline_metrics([state], None)
     assert reached.objective_description() == ""
-    # step_option_labels: option-carrying actions get (name, objects)
-    # labels, bare actions get None.
+    # step_option_labels: option-carrying actions get (name, objects,
+    # params) labels, bare actions get None.
     push = utils.SingletonParameterizedOption(
         "Push", lambda s, m, o, p: Action(np.zeros(1, dtype=np.float32)))
     act_with_option = Action(np.zeros(1, dtype=np.float32))
     act_with_option.set_option(push.ground([], np.zeros(0, dtype=np.float32)))
     act_without_option = Action(np.zeros(1, dtype=np.float32))
     assert step_option_labels([act_with_option, act_without_option]) == \
-        [("Push", ()), None]
+        [("Push", (), ()), None]
     # EpisodeEvaluation.rejected decodes rejection from the (reward,
     # terminated) pair: terminated without a positive reward = a
     # rule-breaking "success"; a non-terminated episode is never

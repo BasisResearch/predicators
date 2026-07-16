@@ -178,6 +178,53 @@ def test_plain_task_attaches_domino_evaluator() -> None:
     assert task.evaluator is None
 
 
+def test_counterfactual_cascade_probe() -> None:
+    """The counterfactual push probe certifies the generator's own finished
+    chain (guaranteed cascade geometry) and rejects the same scene with its
+    blues removed from the chain."""
+    # pylint: disable=protected-access
+    from predicators.envs.pybullet_domino.env import \
+        PyBulletDominoEnv  # pylint: disable=import-outside-toplevel
+    from predicators.utils import \
+        reset_config  # pylint: disable=import-outside-toplevel
+    reset_config({
+        "env": "pybullet_domino",
+        "approach": "oracle",
+        "seed": 0,
+        "num_train_tasks": 0,
+        "num_test_tasks": 1,
+        "domino_turn_ratio": 1.0,
+        "domino_initialize_at_finished_state": True,
+        "domino_use_domino_blocks_as_target": True,
+        "domino_use_continuous_place": True,
+        "domino_has_glued_dominos": False,
+    })
+    env = PyBulletDominoEnv(use_gui=False)
+    task = env.get_test_tasks()[0].task
+    init, goal = task.init, task.goal
+    domino_type = next(t for t in env.types if t.name == "domino")
+    greens = [
+        d for d in init.get_objects(domino_type)
+        if DominoComponent._StartBlock_holds(init, [d])
+    ]
+    blues = [
+        d for d in init.get_objects(domino_type)
+        if DominoComponent._MovableBlock_holds(init, [d])
+    ]
+    assert greens and blues
+    ok, detail = env.run_counterfactual_cascade_probe(init.copy(), greens,
+                                                      goal)
+    assert ok, detail
+    # Remove the chain's blues: the same push cannot reach the target.
+    broken = init.copy()
+    for i, blue in enumerate(blues):
+        broken.set(blue, "x", 0.45)
+        broken.set(blue, "y", 1.55 - 0.1 * i)
+    ok, detail = env.run_counterfactual_cascade_probe(broken, greens, goal)
+    assert not ok
+    assert "reaches the goal at none of" in detail
+
+
 class TestGridComponent:
     """Tests for GridComponent."""
 

@@ -811,6 +811,7 @@ def _resolve_ground_sampler(
         return None
 
     # pylint: disable-next=useless-return
+    # pylint: disable-next=useless-return
     def _bad(reason: str) -> Optional[GroundSampler]:
         msg = (f"step {step_idx} ({option.name}): bad '~' ground-sampler "
                f"annotation - {reason}")

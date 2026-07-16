@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 
 # Bootstrap circular imports before pulling from predicators.approaches.
-import predicators.utils  # noqa: F401
+from predicators import utils
 from predicators.structs import DerivedPredicate, Object, Predicate, State, \
     Type
 
