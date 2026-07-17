@@ -1,4 +1,4 @@
-"""Ground-truth options for the coffee environment."""
+"""Ground-truth options for the domino environment."""
 
 from dataclasses import replace
 from typing import ClassVar, Dict, Optional, Sequence, Set, Tuple
@@ -37,7 +37,7 @@ def _skill_robot_env_cls(env_name: str) -> TypingType[PyBulletEnv]:
 
 class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
                                              GroundTruthOptionFactory):
-    """Ground-truth options for the grow environment."""
+    """Ground-truth options for the domino environment."""
 
     env_cls: ClassVar[TypingType[PyBulletDominoEnv]] = PyBulletDominoEnv
     _move_to_pose_tol: ClassVar[float] = 1e-4
