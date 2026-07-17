@@ -23,9 +23,17 @@ def _names(tools: Iterable[Any]) -> Set[str]:
 
 
 def test_create_mcp_tools_matches_all_tool_names() -> None:
-    """``create_mcp_tools`` exposes exactly the names in ``ALL_TOOL_NAMES``."""
+    """``create_mcp_tools`` exposes exactly the names in ``ALL_TOOL_NAMES``
+    when the config opts into explore_python; without the opt-in, the
+    legacy ``tool_names=None`` surface must NOT carry the code-execution
+    tool (baseline arms would otherwise gain it silently)."""
+    from predicators import utils
+    utils.reset_config({"agent_planner_use_explore_python": True})
     tools = create_mcp_tools(ToolContext())
     assert _names(tools) == set(ALL_TOOL_NAMES)
+    utils.reset_config({"agent_planner_use_explore_python": False})
+    tools = create_mcp_tools(ToolContext())
+    assert _names(tools) == set(ALL_TOOL_NAMES) - {"explore_python"}
 
 
 def test_create_synthesis_tools_matches_constant(tmp_path) -> None:
@@ -189,3 +197,40 @@ def test_agent_render_resolution() -> None:
     })
     with agent_render_resolution():
         assert CFG.pybullet_camera_width == 900
+
+
+def test_explore_python_replaces_visualize_and_refine() -> None:
+    """When explore_python is on, the tools it subsumes are dropped unless
+    agent_planner_explore_python_keep_replaced_tools asks for both."""
+    from predicators import utils
+    from predicators.approaches.agent_bilevel_approach import \
+        AgentBilevelApproach
+    base = {
+        "env": "cover",
+        "approach": "agent_bilevel",
+        "agent_planner_use_simulator": True,
+        "agent_planner_use_visualize_state": True,
+        "agent_planner_use_annotate_scene": True,
+    }
+    obj = object.__new__(AgentBilevelApproach)
+
+    utils.reset_config(base)
+    names = obj._get_solve_tool_names()
+    assert "visualize_state" in names and "refine_plan_sketch" in names
+    assert "explore_python" not in names
+
+    utils.reset_config({**base, "agent_planner_use_explore_python": True})
+    names = obj._get_solve_tool_names()
+    assert "explore_python" in names
+    assert "visualize_state" not in names
+    assert "refine_plan_sketch" not in names
+    assert "annotate_scene" not in names  # subsumed: sim.render(annotations)
+
+    utils.reset_config({
+        **base, "agent_planner_use_explore_python": True,
+        "agent_planner_explore_python_keep_replaced_tools": True
+    })
+    names = obj._get_solve_tool_names()
+    assert "explore_python" in names
+    assert "visualize_state" in names and "refine_plan_sketch" in names
+    assert "annotate_scene" in names

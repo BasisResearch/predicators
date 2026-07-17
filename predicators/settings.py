@@ -1283,6 +1283,20 @@ class GlobalSettings:
     agent_planner_use_scratchpad = False  # include notes.md scratchpad
     agent_planner_use_visualize_state = False  # include visualize_state tool
     agent_planner_use_annotate_scene = False  # include annotate_scene tool
+    # Include the solve-phase explore_python tool: a persistent Python
+    # namespace over the ProbeSim exploration facade (set the sim to any task
+    # state or a modified copy, run option plans from it, read full-precision
+    # features, render, snapshot/restore) so the agent writes sweep loops in
+    # one call instead of one evaluate_option_plan round-trip per probe.
+    # Exploratory only: nothing run through it can be captured as the answer.
+    agent_planner_use_explore_python = False
+    # When explore_python is on, whether the tools it subsumes
+    # (visualize_state -> sim.reset(mods)+sim.render; annotate_scene ->
+    # sim.render(annotations=...); refine_plan_sketch -> sim.refine) are
+    # STILL offered alongside it. Default False: one surface
+    # per capability, so the agent's habits don't split across redundant
+    # tools. No effect when agent_planner_use_explore_python is False.
+    agent_planner_explore_python_keep_replaced_tools = False
     # Whether the planner is given a simulator to test candidate plans with
     # (the evaluate_option_plan tool / option-model rollouts). When False, the
     # agent must plan open-loop from trajectory data and LLM reasoning alone
