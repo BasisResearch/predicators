@@ -664,6 +664,47 @@ def evaluate_states_with(evaluator: Any,
     }
 
 
+def make_solved_check(
+    evaluator: Any,
+    sim_env: Optional[Any],
+    on_reject: Optional[Callable[[float], None]] = None
+) -> Callable[[List[State], List[Any], bool], Tuple[bool, str]]:
+    """Build the evaluator gate used inside refinement searches.
+
+    One policy for every surface (the MCP ``refine_plan_sketch`` and
+    ``ProbeSim.refine``), so identical parameters can never get
+    contradictory verdicts across tools:
+    - a coarse rollout (option-boundary states only) never blocks, the
+      same rule the capture path applies (a coarse certificate can
+      falsely reject a legitimate cascade);
+    - evaluator exceptions never block (fail-open, logged) - a flaky
+      certificate must not abort a search mid-budget;
+    - a non-terminated verdict never blocks (the goal-atom check is the
+      caller's job; the gate only vetoes certified-non-solves).
+    ``on_reject`` is called with the rejected verdict's reward.
+    """
+
+    def solved_check(states: List[State], labels: List[Any],
+                     coarse: bool) -> Tuple[bool, str]:
+        if coarse:
+            return True, ""
+        try:
+            v = evaluate_states_with(evaluator,
+                                     states,
+                                     labels,
+                                     sim_env=sim_env)
+        except Exception as e:  # pylint: disable=broad-except
+            logging.debug("In-search solved gate failed: %s", e)
+            return True, ""
+        if v["solved"] or not v["terminated"]:
+            return True, ""
+        if on_reject is not None:
+            on_reject(v["reward"])
+        return False, f"solved=False, reward={v['reward']:.2f}"
+
+    return solved_check
+
+
 def _format_evaluator_verdict(verdict: Dict[str, Any],
                               *,
                               coarse: bool = False) -> str:
@@ -2616,6 +2657,24 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
         start = time.perf_counter()
         success, report = False, ""
         plan: List[Any] = []
+
+        # In-search version of the same gate: reject a goal-atom-reaching
+        # candidate DURING backtracking when the evaluator scores it as a
+        # non-solve, so the search keeps moving from the same node (its
+        # upstream samples intact) instead of converging onto uncertifiable
+        # parameters and needing a cold restart below. The restart loop
+        # stays as the safety net for verdict flakiness: the post-hoc
+        # check re-rolls the accepted plan, and a re-roll that scores
+        # differently (the sim is nondeterministic across runs) still
+        # triggers a resample.
+        _gate_evaluator = _resolve_task_evaluator(ctx, task_idx)
+        solved_check = None
+        if _gate_evaluator is not None:
+            solved_check = make_solved_check(
+                _gate_evaluator,
+                getattr(ctx.option_model, "sim_env", None),
+                on_reject=discarded_rewards.append)
+
         for attempt in range(attempts):
             remaining = timeout - (time.perf_counter() - start)
             if attempt and remaining < 5.0:
@@ -2636,6 +2695,7 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
                         parameterized_samplers=ctx.parameterized_samplers or None,
                         run_id="planner_refine",
                         timeout_source=timeout_source,
+                        solved_check=solved_check,
                     )
             except Exception:  # pylint: disable=broad-except
                 tb = traceback.format_exc()
@@ -2656,6 +2716,17 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
             success = False
             non_solve = True
 
+        # A failed search whose DEEPEST blocker was the in-search gate is
+        # the verdict the restart loop expresses as SCORED_NON_SOLVE: the
+        # sketch reaches the goal atoms but never certifiably, so say that
+        # (with the change-the-sketch advice). A search that rejected a
+        # candidate along the way but then failed on something else (an
+        # upstream IK wall, a timeout mid-descent) keeps its own headline
+        # - the near-miss line and the discard NOTE still surface the
+        # rejections.
+        if (not success and discarded_rewards
+                and "scored non-solve" in report):
+            non_solve = True
         rewards_str = ", ".join(f"{r:.2f}" for r in discarded_rewards)
         if non_solve:
             report = (
@@ -2669,11 +2740,14 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
                 "orientations), not just the parameters.\n"
                 "Last attempt detail:\n" + report)
         elif discarded_rewards:
+            passed_tail = (
+                "; the result above is from parameters that passed the "
+                "evaluator's scoring." if success else ".")
             report += (
                 f"\n  NOTE: {len(discarded_rewards)} earlier "
                 f"parameterization(s) reached the goal atoms but scored as "
-                f"non-solves (rewards: {rewards_str}) and were discarded; "
-                "the result above is from a resampled attempt.")
+                f"non-solves (rewards: {rewards_str}) and were discarded "
+                f"during the search{passed_tail}")
 
         # refine_plan_sketch is a parameter FINDER, not a submission path: on
         # success, append the parameters the search found per step so the

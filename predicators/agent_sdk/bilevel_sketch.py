@@ -1005,12 +1005,28 @@ def refine_sketch(
     info_scorer: Optional[InfoScorer] = None,
     info_n_feasible_target: int = 1,
     parameterized_samplers: Optional[Dict[str, ParameterizedSampler]] = None,
+    solved_check: Optional[Callable[[List[State], List[Any], bool],
+                                    Tuple[bool, str]]] = None,
 ) -> Tuple[List[_Option], bool, int]:
     """Backtracking search over continuous parameters for a plan sketch.
 
     Returns ``(refined_plan, success, total_samples)``. On success the
     plan is fully refined; on failure it is the longest prefix of
     refined options (``None`` entries dropped).
+
+    ``solved_check`` is a caller-threaded task-evaluator gate (this
+    module stays free of evaluator/CFG coupling): called only for a
+    final-step candidate whose goal atoms already hold, with the
+    rollout's accumulated per-low-level-step states, per-action
+    ``(option, objects, params)`` labels, and a ``coarse`` flag (True
+    when any step's low-level trajectory was unavailable and only its
+    option-boundary state could be used). Returning ``(False, reason)``
+    fails the candidate as ``"scored non-solve: <reason>"`` - the search
+    keeps going instead of converging on parameters the evaluator would
+    reject, and the deepest-failure near-miss records the exact
+    goal-reaching-but-uncertified params. The gate runs only on
+    goal-reaching candidates, so its (potentially expensive) certificate
+    cost is bounded by how often the search actually reaches the goal.
 
     ``deepest_failure_holder`` is an out-holder (mirroring
     ``termination_reason``): when given, the single deepest validation
@@ -1088,6 +1104,13 @@ def refine_sketch(
     # the prefix, and deepest_failure_holder reports the failing step's
     # near-miss params/state to the caller on any failed search.
     deepest_fail_idx: List[int] = [-1]
+    # Within one step, failures rank by how far the candidate got before
+    # failing: an unmet subgoal (0) < an unreached final goal (1) < a
+    # goal-reaching rollout the evaluator scored as a non-solve (2). A
+    # same-step deeper-stage failure supersedes the record, so e.g. an
+    # early subgoal miss cannot mask the far more informative
+    # scored-non-solve near-miss on a single-step sketch.
+    deepest_fail_stage: List[int] = [-1]
     deepest_fail_prefix: List[List[Optional[_Option]]] = [[]]
 
     # Options whose synthesized sampler already misbehaved once — so the
@@ -1408,7 +1431,17 @@ def refine_sketch(
     # failing rollout's post-state is visible is validate_fn).
     last_fail_post: List[Optional[Tuple[int, State]]] = [None]
 
-    def validate_fn(idx: int, _pre_state: State, _option: _Option,
+    # Per-step low-level rollout stash for the solved_check gate: entry
+    # idx holds (states_after_first, per_action_labels, coarse) from the
+    # step's most recent execution. A prefix step's stash stays valid
+    # until the step re-executes (backtracking re-runs every step below
+    # the backtrack point, overwriting stale deeper entries), so at
+    # final-step acceptance entries 0..n-1 describe exactly the current
+    # search path's rollout.
+    step_trajs: List[Optional[Tuple[List[State], List[Any], bool]]] = \
+        [None] * n
+
+    def validate_fn(idx: int, _pre_state: State, option: _Option,
                     post_state: State, _num_actions: int) -> Tuple[bool, str]:
         step = sketch[idx]
         if check_subgoals and step.subgoal_atoms is not None:
@@ -1422,6 +1455,43 @@ def refine_sketch(
             if not task.goal_holds(post_state):
                 last_fail_post[0] = (idx, post_state)
                 return False, "goal not reached"
+        if solved_check is not None:
+            # Stash the step's low-level rollout AFTER the atom checks:
+            # most candidates fail those on the spot, and stashing first
+            # would copy an O(rollout-length) state list (a Wait step is
+            # up to 1000 states) per doomed candidate and pin it for the
+            # rest of the search. The freshness check guards against an
+            # option model that exposes ``last_trajectory`` without
+            # refreshing it for THIS rollout (a stale trajectory would be
+            # scored under the current option's label - a silent
+            # franken-trajectory); staleness falls back to the coarse
+            # option-boundary path.
+            label = (option.name, tuple(o.name for o in option.objects),
+                     tuple(float(p) for p in option.params))
+            step_traj = getattr(option_model, "last_trajectory", None)
+            if (step_traj is not None and len(step_traj.states) >= 2
+                    and step_traj.states[-1] is post_state):
+                step_trajs[idx] = (list(step_traj.states[1:]),
+                                   [label] * len(step_traj.actions), False)
+            else:
+                step_trajs[idx] = ([post_state], [label], True)
+        if solved_check is not None and idx == n - 1 and \
+                task.goal_holds(post_state):
+            eval_states: List[State] = [task.init]
+            eval_labels: List[Any] = []
+            coarse = False
+            for stash in step_trajs:
+                # Every prefix step was validated (and therefore stashed)
+                # on the current search path before the final step ran.
+                assert stash is not None
+                s_states, s_labels, s_coarse = stash
+                eval_states.extend(s_states)
+                eval_labels.extend(s_labels)
+                coarse = coarse or s_coarse
+            ok, why = solved_check(eval_states, eval_labels, coarse)
+            if not ok:
+                last_fail_post[0] = (idx, post_state)
+                return False, f"scored non-solve: {why}"
         return True, ""
 
     def wrapped_on_step_fail(idx: int, cur_plan: List[Optional[_Option]],
@@ -1438,10 +1508,18 @@ def refine_sketch(
         # failed search); only the truncation RETURN below stays gated on
         # truncate_on_subgoal_fail. Non-validation failures (not initiable,
         # 0 actions, model errors) never update it.
-        if ((fail_reason.startswith("subgoal missing")
-             or fail_reason == "goal not reached")
-                and idx > deepest_fail_idx[0]):
+        if fail_reason.startswith("scored non-solve"):
+            stage: Optional[int] = 2
+        elif fail_reason == "goal not reached":
+            stage = 1
+        elif fail_reason.startswith("subgoal missing"):
+            stage = 0
+        else:
+            stage = None
+        if stage is not None and (idx, stage) > (deepest_fail_idx[0],
+                                                 deepest_fail_stage[0]):
             deepest_fail_idx[0] = idx
+            deepest_fail_stage[0] = stage
             deepest_fail_prefix[0] = list(cur_plan[:idx + 1])
             if deepest_failure_holder is not None:
                 stash = last_fail_post[0]
@@ -1858,8 +1936,16 @@ def refine_and_validate_report(
     run_id: str = "refine",
     timeout_source: str = "explicit",
     extra_summary_lines: Optional[List[str]] = None,
+    solved_check: Optional[Callable[[List[State], List[Any], bool],
+                                    Tuple[bool, str]]] = None,
 ) -> Tuple[bool, str, List[_Option]]:
     """Refine a sketch, forward-validate on success, return a report.
+
+    ``solved_check`` is threaded to ``refine_sketch``: a task-evaluator
+    gate on final-step goal-reaching candidates (see there), so the
+    search rejects goal-atom-reaching-but-uncertified parameters during
+    refinement instead of reporting a SUCCESS the evaluator would score
+    as a non-solve.
 
     Runs ``refine_sketch`` (backtracking search over continuous params)
     and, when refinement succeeds, ``validate_plan_forward`` (continuous
@@ -1900,6 +1986,7 @@ def refine_and_validate_report(
         elapsed_holder=elapsed_holder,
         deepest_failure_holder=deepest_failure,
         parameterized_samplers=parameterized_samplers,
+        solved_check=solved_check,
     )
 
     reason = termination_reason[0] if termination_reason else (
