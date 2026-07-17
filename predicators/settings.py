@@ -1589,10 +1589,14 @@ class GlobalSettings:
     # agent_sim_learn_oracle_sim_program.
     agent_sim_learn_oracle_samplers = False
 
-    # Names of env predicates kept (not stripped) for the
-    # agent_sim_predicate_invention approach. Empty list defers to the
-    # subclass's KEPT_INITIAL_PREDICATE_NAMES class attribute (default
-    # {"Holding"}).
+    # Allowlist of env predicate names surfaced to the agent for
+    # agent_sim_learning and its subclasses (e.g.
+    # agent_sim_predicate_invention). Empty list defers to the class's
+    # KEPT_INITIAL_PREDICATE_NAMES attribute: None for agent_sim_learning
+    # (keep every env predicate), {"Holding"} for the invention approach.
+    # Setting it on agent_sim_learning strips the named-out predicates -
+    # even goal predicates - from the agent's prompts/tools; tasks whose
+    # goal atoms are stripped must then carry goal_nl.
     agent_sim_predicate_invention_kept_predicate_names: List[str] = []
 
     @classmethod

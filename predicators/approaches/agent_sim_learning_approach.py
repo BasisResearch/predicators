@@ -21,8 +21,8 @@ import copy
 import inspect
 import logging
 import os
-from typing import Any, Callable, Collection, Dict, List, Optional, Sequence, \
-    Set, Tuple
+from typing import Any, Callable, Collection, Dict, FrozenSet, List, \
+    Optional, Sequence, Set, Tuple
 
 import numpy as np
 import pybullet
@@ -55,9 +55,9 @@ from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_simulator
 from predicators.option_model import _OptionModelBase, _OracleOptionModel
 from predicators.settings import CFG
-from predicators.structs import Action, Dataset, GroundAtom, \
-    InteractionResult, LowLevelTrajectory, ParameterizedOption, Predicate, \
-    State, Task, Type, step_option_labels
+from predicators.structs import Action, Dataset, DerivedPredicate, \
+    GroundAtom, InteractionResult, LowLevelTrajectory, ParameterizedOption, \
+    Predicate, State, Task, Type, step_option_labels
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +104,16 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
     plumbing, loading) lives in :class:`SamplerLearningMixin`.
     """
 
+    # Allowlist of env predicate names surfaced to the agent; None keeps
+    # every env predicate. CFG.agent_sim_predicate_invention_kept_predicate_names
+    # overrides this class default when non-empty, so an experiment can
+    # strip predicates - even goal predicates - from the agent's
+    # vocabulary (prompts, tools, subgoal annotations) without touching
+    # env-side goal checking or the task evaluator. Tasks whose goal
+    # atoms are stripped must carry ``goal_nl``: the natural-language
+    # goal becomes the agent's only goal signal.
+    KEPT_INITIAL_PREDICATE_NAMES: Optional[FrozenSet[str]] = None
+
     def __init__(self,
                  initial_predicates: Set[Predicate],
                  initial_options: Set[ParameterizedOption],
@@ -132,6 +142,28 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
                          *args,
                          option_model=option_model,
                          **kwargs)
+        # Env predicates surfaced to the agent (see
+        # KEPT_INITIAL_PREDICATE_NAMES). Computed once here; everything
+        # agent-facing flows through _get_all_predicates().
+        self._kept_initial_predicates: Set[Predicate] = (
+            self._compute_kept_initial_predicates())
+        if self._resolve_kept_names() is not None:
+            kept_names = sorted(p.name for p in self._kept_initial_predicates)
+            stripped = sorted(p.name for p in self._initial_predicates
+                              if p not in self._kept_initial_predicates)
+            logger.info(
+                "Predicate stripping: kept %s; stripped (hidden from the "
+                "agent): %s", kept_names, stripped)
+            missing_nl = [
+                i for i, t in enumerate(self._train_tasks)
+                if not t.goal_nl and any(
+                    a.predicate not in self._kept_initial_predicates
+                    for a in t.goal)
+            ]
+            assert not missing_nl, (
+                f"Stripping hides goal predicates from the agent, so the "
+                f"affected tasks must supply `goal_nl` as the goal signal. "
+                f"Missing on train task indices: {missing_nl}")
         self._learned_simulator: Optional[LearnedSimulator] = None
         # Loss-scope mask for parameter fitting (compute_sse).
         self._process_features: Dict[str, List[str]] = {}
@@ -203,6 +235,44 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
     @classmethod
     def get_name(cls) -> str:
         return "agent_sim_learning"
+
+    # ── Predicate set ───────────────────────────────────────────
+
+    def _get_all_predicates(self) -> Set[Predicate]:
+        return self._kept_initial_predicates
+
+    def _resolve_kept_names(self) -> Optional[FrozenSet[str]]:
+        """Names of env predicates kept for the agent (None = keep all).
+
+        The CFG flag overrides the class default.
+        """
+        cfg_override = getattr(
+            CFG, "agent_sim_predicate_invention_kept_predicate_names", None)
+        if cfg_override:
+            return frozenset(cfg_override)
+        return self.KEPT_INITIAL_PREDICATE_NAMES
+
+    def _compute_kept_initial_predicates(self) -> Set[Predicate]:
+        """Apply the allowlist, then closure-strip derived predicates.
+
+        A ``DerivedPredicate`` whose ``auxiliary_predicates`` reference
+        any stripped predicate is itself stripped: keeping one with
+        removed dependencies would expose a broken classifier to
+        refinement.
+        """
+        kept_names = self._resolve_kept_names()
+        if kept_names is None:
+            return set(self._initial_predicates)
+        kept = {p for p in self._initial_predicates if p.name in kept_names}
+        kept_pred_set = set(kept)
+        for pred in self._initial_predicates:
+            if not isinstance(pred, DerivedPredicate):
+                continue
+            if pred in kept_pred_set:
+                aux = pred.auxiliary_predicates or set()
+                if any(a not in kept_pred_set for a in aux):
+                    kept.discard(pred)
+        return kept
 
     # ── Agent session hooks ──────────────────────────────────────
 

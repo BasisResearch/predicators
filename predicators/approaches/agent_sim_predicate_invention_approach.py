@@ -32,7 +32,7 @@ from predicators.agent_sdk.tools import PREDICATE_SYNTHESIS_TOOL_NAMES, \
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
 from predicators.settings import CFG
-from predicators.structs import Action, DerivedPredicate, Predicate, State
+from predicators.structs import Action, Predicate, State
 
 logger = logging.getLogger(__name__)
 
@@ -43,13 +43,16 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
     See module docstring.
     """
 
+    # Always an allowlist here (the parent treats None as keep-all):
+    # invention strips the env vocabulary down to Holding so everything
+    # else must be invented. The stripping machinery
+    # (_resolve_kept_names / _compute_kept_initial_predicates) lives on
+    # AgentSimLearningApproach.
     KEPT_INITIAL_PREDICATE_NAMES: FrozenSet[str] = frozenset({"Holding"})
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._learned_predicates: Set[Predicate] = set()
-        self._kept_initial_predicates: Set[Predicate] = (
-            self._compute_kept_initial_predicates())
         # Env goal atoms are hidden from the agent; goals are presented only
         # as natural language, so every train task must supply a goal_nl.
         missing = [i for i, t in enumerate(self._train_tasks) if not t.goal_nl]
@@ -57,12 +60,6 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
             f"{type(self).__name__} requires every train task to set "
             f"`goal_nl` (env goal atoms are deliberately not exposed to "
             f"the agent). Missing on task indices: {missing}")
-        kept_names = sorted(p.name for p in self._kept_initial_predicates)
-        stripped = sorted(p.name for p in self._initial_predicates
-                          if p not in self._kept_initial_predicates)
-        logger.info(
-            "Predicate stripping: kept %s; stripped (must be invented): %s",
-            kept_names, stripped)
 
     @classmethod
     def get_name(cls) -> str:
@@ -71,34 +68,7 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
     # ── Predicate set ───────────────────────────────────────────
 
     def _get_all_predicates(self) -> Set[Predicate]:
-        return self._kept_initial_predicates | self._learned_predicates
-
-    def _compute_kept_initial_predicates(self) -> Set[Predicate]:
-        """Apply the allowlist, then closure-strip derived predicates.
-
-        A ``DerivedPredicate`` whose ``auxiliary_predicates`` reference
-        any stripped predicate is itself stripped: keeping one with
-        removed dependencies would expose a broken classifier to
-        refinement.
-        """
-        kept_names = self._resolve_kept_names()
-        kept = {p for p in self._initial_predicates if p.name in kept_names}
-        kept_pred_set = set(kept)
-        for pred in self._initial_predicates:
-            if not isinstance(pred, DerivedPredicate):
-                continue
-            if pred in kept_pred_set:
-                aux = pred.auxiliary_predicates or set()
-                if any(a not in kept_pred_set for a in aux):
-                    kept.discard(pred)
-        return kept
-
-    def _resolve_kept_names(self) -> FrozenSet[str]:
-        cfg_override = getattr(
-            CFG, "agent_sim_predicate_invention_kept_predicate_names", None)
-        if cfg_override:
-            return frozenset(cfg_override)
-        return self.KEPT_INITIAL_PREDICATE_NAMES
+        return super()._get_all_predicates() | self._learned_predicates
 
     # ── Agent session hooks ─────────────────────────────────────
 
