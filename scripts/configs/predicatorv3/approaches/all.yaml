@@ -176,6 +176,7 @@ APPROACHES:
       execution_monitor: "subgoal_annotations"
       agent_bilevel_max_execution_replans: 2
       agent_sdk_max_agent_turns_per_iteration: 200
+      agent_sdk_image_max_px: 900
   agent_oracle_hybrid_sim_hires:
     NAME: "agent_sim_learning"
     SKIP: True
