@@ -14,8 +14,7 @@ import numpy as np
 import pytest
 
 from predicators.envs.pybullet_domino.cascade_certificate import \
-    CASCADE_WINDOW_STEPS, check_cascade_legitimacy, \
-    count_movable_blocks_used
+    check_cascade_legitimacy, count_movable_blocks_used
 from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
 from predicators.structs import GroundAtom, Object, Predicate, State, Type
@@ -372,13 +371,24 @@ def test_push_placed_blue_fails():
     assert "only the green start block may be pushed" in reason
 
 
-def test_push_placed_blue_fails_without_options():
-    """Same hack, kinematic rules only: green never falls -> rejected."""
+def test_push_placed_blue_without_options_probe_decides():
+    """Same hack, label-free: with no bonus at stake it is accepted as
+    worthless; once the goal holds, the probe (which replays a push on the
+    GREEN from the pre-onset scene) is the layer that rejects it."""
     objs = _make_objects(["green", "blue1", "target"])
     states = _build_states(objs, 30, {"blue1": 10, "target": 15})
+    # Goal unreached (never-holds Toppled): no bonus at stake, accepted.
     ok, reason = check_cascade_legitimacy(states, _goal(objs), None)
+    assert ok, reason
+    # Goal reached: the probe decides, and a blue-push layout cannot
+    # cascade from a green push.
+    probe = _FakeProbe(ok=False, detail="green push reaches nothing")
+    ok, reason = check_cascade_legitimacy(states,
+                                          _real_goal(objs),
+                                          None,
+                                          probe=probe)
     assert not ok
-    assert "blue1" in reason and "green" in reason
+    assert "green push reaches nothing" in reason
 
 
 def test_place_knock_fails():
@@ -392,29 +402,47 @@ def test_place_knock_fails():
     assert "target" in reason and "before" in reason
 
 
-def test_place_knock_fails_without_options():
-    """Same hack, kinematic rules only: target falls first -> rejected."""
+def test_place_knock_without_options_probe_decides():
+    """Same hack, label-free: the anchor falls back to the pre-onset state.
+
+    That state precedes the knock, so the probe replays the true staged
+    scene and a success that needed the knock cannot reproduce.
+    """
     objs = _make_objects(["green", "blue1", "target"])
     states = _build_states(objs, 40, {"target": 3, "green": 25, "blue1": 29})
     ok, reason = check_cascade_legitimacy(states, _goal(objs), None)
+    assert ok, reason  # goal unreached: no bonus at stake
+    probe = _FakeProbe(ok=False, detail="staged scene does not cascade")
+    ok, reason = check_cascade_legitimacy(states,
+                                          _real_goal(objs),
+                                          None,
+                                          probe=probe)
     assert not ok
-    assert "target" in reason
+    assert "staged scene does not cascade" in reason
+    # The probe was anchored before the knock (first onset at 3).
+    assert probe.calls[0][0] is states[2]
 
 
-def test_flail_knock_fails():
-    """Fist knocks the target during Push(green), green stays up."""
+def test_flail_knock_rejected_by_probe():
+    """Fist knocks the target during Push(green), green stays up: the goal
+    holds but the staged layout cannot cascade, so the probe rejects."""
     objs = _make_objects(["green", "blue1", "target"])
     states = _build_states(objs, 30, {"target": 15})
     step_options = _options([("Push", ("robot", "green"), 5, 29)], 30)
-    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    probe = _FakeProbe(ok=False, detail="green never reaches the target")
+    ok, reason = check_cascade_legitimacy(states,
+                                          _real_goal(objs),
+                                          step_options,
+                                          probe=probe)
     assert not ok
-    assert "target" in reason
+    assert "green never reaches the target" in reason
 
 
-def test_spontaneous_late_tip_fails():
-    """A topple far outside the cascade window is not attributable."""
+def test_spontaneous_late_tip_probe_decides():
+    """A topple long after the cascade settled: no timing forensics anymore -
+    the probe alone decides whether the staged layout deserves the bonus."""
     objs = _make_objects(["green", "blue1", "target"])
-    late = 10 + CASCADE_WINDOW_STEPS + 11
+    late = 45
     num = late + 5
     states = _build_states(objs, num, {
         "green": 5,
@@ -422,15 +450,29 @@ def test_spontaneous_late_tip_fails():
         "target": late
     })
     step_options = _options([("Push", ("robot", "green"), 0, 7)], num)
+    # Goal unreached: accepted as worthless (no bonus at stake).
     ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert ok, reason
+    # Goal reached + probe says the layout cannot cascade: rejected.
+    probe = _FakeProbe(ok=False, detail="chain stops at blue1")
+    ok, reason = check_cascade_legitimacy(states,
+                                          _real_goal(objs),
+                                          step_options,
+                                          probe=probe)
     assert not ok
-    assert "target" in reason
+    assert "chain stops at blue1" in reason
 
 
-def test_stalled_relay_fails():
-    """Hand-relaying a stalled cascade (huge onset gap): rejected."""
+def test_stalled_relay_probe_decides():
+    """Hand-relaying a stalled cascade: the probe is the sole arbiter.
+
+    If the staged layout genuinely cascades on its own, the episode
+    certifies even though the real rollout needed help after the push
+    (the bonus rewards the layout, which the probe verifies, not the
+    execution); if the layout cannot cascade, it is rejected.
+    """
     objs = _make_objects(["green", "blue1", "blue2", "target"])
-    relay = 10 + CASCADE_WINDOW_STEPS + 50
+    relay = 84
     num = relay + 10
     states = _build_states(objs, num, {
         "green": 5,
@@ -439,9 +481,19 @@ def test_stalled_relay_fails():
         "target": relay + 4
     })
     step_options = _options([("Push", ("robot", "green"), 0, 7)], num)
-    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    bad_layout = _FakeProbe(ok=False, detail="stalls at blue2")
+    ok, reason = check_cascade_legitimacy(states,
+                                          _real_goal(objs),
+                                          step_options,
+                                          probe=bad_layout)
     assert not ok
-    assert "blue2" in reason
+    assert "stalls at blue2" in reason
+    good_layout = _FakeProbe(ok=True)
+    ok, reason = check_cascade_legitimacy(states,
+                                          _real_goal(objs),
+                                          step_options,
+                                          probe=good_layout)
+    assert ok, reason
 
 
 def _slide_profile(start: Tuple[float, float], stops: Dict[int, Tuple[float,
@@ -649,11 +701,15 @@ def test_same_step_tie_attributes_through_knocker():
     assert ok, reason
 
 
-def test_green_toppled_outside_push_fails():
-    """Green falling long after its Push (e.g. swept by a later Place) violates
-    (a1) even though it is the first onset."""
+def test_green_toppled_outside_push_probe_decides():
+    """Green falling long after its Push (e.g. swept by a later Place).
+
+    There are no onset-in-span forensics anymore - once the goal holds,
+    the probe replays the recorded push from the pre-push scene and
+    decides on the layout.
+    """
     objs = _make_objects(["green", "target"])
-    green_onset = 5 + 1 + CASCADE_WINDOW_STEPS + 10
+    green_onset = 40
     num = green_onset + 15
     states = _build_states(objs,
                            num, {
@@ -667,8 +723,16 @@ def test_green_toppled_outside_push_fails():
     step_options = _options([("Push", ("robot", "green"), 0, 5),
                              ("Place", ("robot", ), 6, num - 1)], num)
     ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert ok, reason  # goal unreached: no bonus at stake
+    probe = _FakeProbe(ok=False, detail="the push does not topple the green")
+    ok, reason = check_cascade_legitimacy(states,
+                                          _real_goal(objs),
+                                          step_options,
+                                          probe=probe)
     assert not ok
-    assert "green" in reason and "Push" in reason
+    assert "the push does not topple the green" in reason
+    # The probe replays from the recorded push, not the later sweep.
+    assert probe.calls[0][0] is states[0]
 
 
 def test_no_topples_passes():
@@ -786,15 +850,29 @@ def test_domino_evaluator_reward_decomposition():
     evaluator = DominoEvaluator(goal)
     honest = _options([("Push", ("robot", "green"), 0, 7)], 30)
     hacked = _options([("Push", ("robot", "blue1"), 0, 7)], 30)
+
+    class _ProbeEnv:
+        """Quacks like a domino env whose probe always certifies."""
+
+        def run_counterfactual_cascade_probe(self,
+                                             pre_push_state,
+                                             greens,
+                                             goal_atoms,
+                                             push_params=None):
+            del pre_push_state, greens, goal_atoms, push_params
+            return True, "fake probe: cascades"
+
     # Legitimate topple: bonus minus one block's cost.
     assert evaluator.terminated(states[-1])
     assert abs(
-        evaluator.reward(states, honest) -
+        evaluator.reward(states, honest, sim_env=_ProbeEnv()) -
         (1.0 - CFG.domino_block_cost)) < 1e-9
-    # Illegitimate topple: still terminated, bonus gated, cost still paid.
+    # Illegitimate topple (Push on a blue): still terminated, bonus
+    # gated by the only-green label rule, cost still paid.
     assert evaluator.terminated(states[-1])
-    assert abs(evaluator.reward(states, hacked) -
-               (-CFG.domino_block_cost)) < 1e-9
+    assert abs(
+        evaluator.reward(states, hacked, sim_env=_ProbeEnv()) -
+        (-CFG.domino_block_cost)) < 1e-9
     # The evaluator ships on the agent-facing Task, so no oracle
     # quantity may live on it: K* travels env-side via
     # EnvironmentTask.offline_task_metrics instead.
@@ -937,6 +1015,56 @@ def test_probe_skipped_when_goal_not_reached():
     assert not probe.calls
 
 
+def test_goal_reached_without_probe_fails_closed():
+    """A goal-reaching episode with no probe available must not certify:
+
+    with the forensic rules gone, an unverifiable success cannot score.
+    """
+    objs, states, step_options = _legit_chain_case()
+    ok, reason = check_cascade_legitimacy(states,
+                                          _real_goal(objs),
+                                          step_options,
+                                          probe=None)
+    assert not ok
+    assert "no counterfactual push probe is available" in reason
+
+
+def test_pre_tilted_non_movable_fails():
+    """A non-movable left leaning (past the tilting band, short of fallen) at
+    the push is a disturbed scene: the probe would inherit a half-fallen
+    layout, so staging integrity rejects it before the probe runs."""
+    objs = _make_objects(["green", "blue1", "target", "target2"])
+    num = 30
+    positions = {
+        "green": (0.7, 1.0),
+        "blue1": (0.7, 1.098),
+        "target": (0.7, 1.196),
+        "target2": (0.9, 1.196),
+    }
+    states = _build_states(
+        objs,
+        num,
+        {
+            "green": 12,
+            "blue1": 16,
+            "target": 20
+        },
+        positions=positions,
+        # target2 never topples but leans 0.12 rad (~6.9 deg, past the
+        # 5 deg tilting threshold) the whole episode - e.g. nudged
+        # against a staged blue during staging.
+        roll_profiles={"target2": [0.12] * (num + 1)})
+    step_options = _options([("Push", ("robot", "green"), 10, 13)], num)
+    probe = _FakeProbe(ok=True)
+    ok, reason = check_cascade_legitimacy(states,
+                                          _real_goal(objs),
+                                          step_options,
+                                          probe=probe)
+    assert not ok
+    assert "target2" in reason and "leaning" in reason
+    assert not probe.calls
+
+
 def test_probe_without_labels_uses_pre_onset_state():
     """Without option labels the probe still runs, anchored to the state just
     before the first topple onset, and pushes every green."""
@@ -1012,9 +1140,11 @@ def test_domino_evaluator_binds_probe_from_sim_env():
         sim_env=fake_env)
     assert not ok2
     assert len(fake_env.probe.calls) == 1
-    # No sim_env: the pure rules pass and no probe is involved.
+    # No sim_env: a goal-reaching episode fails closed - with the
+    # forensic rules gone an unverifiable success must not score.
     ok3, reason3 = evaluator._certify(  # pylint: disable=protected-access
         states, step_options)
-    assert ok3, reason3
+    assert not ok3
+    assert "no counterfactual push probe is available" in reason3
     # Leak-freedom: the transient env was never stored on the evaluator.
     assert all(v is not fake_env for v in vars(evaluator).values())

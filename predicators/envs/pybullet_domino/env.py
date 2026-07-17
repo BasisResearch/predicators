@@ -34,7 +34,7 @@ from predicators.pybullet_helpers.objects import create_object
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
-    Predicate, State, TaskEvaluator, Type
+    ParameterizedOption, Predicate, State, TaskEvaluator, Type
 
 
 class DominoEvaluator(TaskEvaluator):
@@ -125,17 +125,19 @@ class DominoEvaluator(TaskEvaluator):
 
     def objective_description(self) -> str:
         return ("Success (+1 reward) = the target domino topples via a "
-                "legitimate cascade seeded by pushing the green start block "
-                "(the robot may push only the green block; knocking any other "
-                "domino directly, or toppling the target by any other means, "
-                "voids the bonus - the episode still terminates). The green "
-                "block must be pushed where it stands: picking it up or "
-                "sliding it away from its staged pose voids the bonus, so the "
+                "legitimate cascade seeded by pushing the green start block. "
+                "Only the blue dominoes may be rearranged: the green start "
+                "block, the targets, and any heavy blocks must stay "
+                "untouched at their staged poses, upright and never held, "
+                "until the green is pushed, and nothing may topple before "
+                "that push. Only the green block may ever be pushed, so the "
                 "cascade must bridge the gap with blue dominoes. Legitimacy "
                 "is verified by re-simulating the push from the pre-push "
-                "scene with a bare fingertip (no robot arm): the layout you "
-                "built must cascade to the goal on its own - topples that "
-                "needed the arm's body earn nothing. Each movable "
+                "scene with the same Push skill but only the fingertips "
+                "able to touch anything (the arm's body is intangible): the "
+                "layout you built must cascade to the goal under the legal "
+                "fingertip push alone - topples that needed the arm's body "
+                "earn nothing. Each movable "
                 "(blue) domino the cascade consumes - toppled, or shoved off "
                 f"its stand - costs {CFG.domino_block_cost} reward, so use "
                 "as few blues as possible.")
@@ -288,6 +290,9 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         # Dedicated world for the certificate's counterfactual push probe
         # (see run_counterfactual_cascade_probe); created on first use.
         self._cascade_probe_env: Optional[PyBulletDominoComposedEnv] = None
+        # The real Push skill the probe replays; resolved lazily from
+        # the ground-truth options on first probe.
+        self._probe_push_option: Optional[ParameterizedOption] = None
 
     def _create_robot_predicates(self) -> None:
         """Create robot-specific predicates."""
@@ -603,18 +608,32 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                                         ...]] = None) -> Tuple[bool, str]:
         """Counterfactual clean-push probe for the cascade certificate.
 
-        From ``pre_push_state``, re-runs the Push skill's waypoint path
-        with a motorized disembodied finger on each green (in the given
-        order) in the dedicated probe world - this env's physics, the
-        episode's own ``push_params`` when recorded, no robot arm - and
+        From ``pre_push_state``, re-runs the REAL Push skill on each
+        green (in the given order) in the dedicated probe world - this
+        env's physics, the episode's own ``push_params`` when recorded,
+        every robot link except the fingertips collision-masked - and
         reports whether the push cascades to the goal atoms. See
         ``cascade_probe`` for the fidelity contract and the rationale.
         """
         # pylint: disable-next=import-outside-toplevel
         from predicators.envs.pybullet_domino import cascade_probe
+        if self._probe_push_option is None:
+            # Lazy: the env layer imports no ground-truth models at
+            # module scope; the probe needs the real Push skill (its
+            # controller IS the fidelity contract), and get_gt_options
+            # caches its skill simulator, so this costs one lookup.
+            # pylint: disable-next=import-outside-toplevel
+            from predicators.ground_truth_models import get_gt_options
+            self._probe_push_option = next(
+                opt for opt in get_gt_options(self.get_name())
+                if opt.name == "Push")
         return cascade_probe.run_counterfactual_push_probe(
-            self._get_cascade_probe_env(), pre_push_state, greens, goal,
-            push_params)
+            self._get_cascade_probe_env(),
+            pre_push_state,
+            greens,
+            goal,
+            push_params,
+            push_option=self._probe_push_option)
 
     # =========================================================================
     # PREDICATE HOLD FUNCTIONS
