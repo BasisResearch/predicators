@@ -61,11 +61,17 @@ from predicators.structs import Array, Object, ParameterizedOption, State, Type
 # Canonical continuous parameters for Push. The approach upper bound
 # leaves room for the side-oriented gripper (skill_push_ee_yaw_offset 0),
 # whose body extends along the approach axis: a descend waypoint closer
-# than ~0.07 m can itself collide with the pushed object.
+# than ~0.07 m can itself collide with the pushed object. That caveat is
+# stated in the description because the tool-facing params text is the
+# only place an agent learns the advertised range's usable interior.
 _PUSH_PARAMS = [
-    ("approach_distance (dist behind target along facing dir to start push)",
-     0.00, 0.10),
-    ("contact_z_offset (height above target z for contact)", 0.0, 0.11),
+    ("approach_distance (dist behind target along facing dir to start push; "
+     "small values put the descend waypoint inside the gripper's own "
+     "footprint along the approach axis, colliding with the target)", 0.00,
+     0.10),
+    ("contact_z_offset (height above target z for contact; near-zero values "
+     "descend into the target/support and can stall, near-max values may "
+     "pass over a short target)", 0.0, 0.11),
 ]
 
 
