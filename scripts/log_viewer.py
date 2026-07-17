@@ -85,7 +85,7 @@ MISC_W = 3 * TASK_W
 # Fixed widths for the remaining columns of the index runs table, in the
 # order they are declared there. None is the episodes column, whose width
 # depends on the task count and is filled in at render time.
-RUN_COL_W = (30, 200, 62, 96, None, 178, 68, 132, 132)
+RUN_COL_W = (30, 200, 62, 96, None, 178, 68, 132, 132, 72)
 # Episodes of one run, in file order; see _parse_episode for the fields.
 EpList = List[Dict[str, Any]]
 # A run's videos as {(task, cycle tag): [(filename, is_failure)]}.
@@ -179,6 +179,17 @@ def _run_start_ts(name: str, mtime: float) -> float:
         return mtime
 
 
+def _fmt_duration(seconds: float) -> str:
+    """Compact duration like "2h 05m", "43m", or "<1m"."""
+    minutes = int(seconds // 60)
+    if minutes < 1:
+        return "<1m"
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}h {minutes:02}m"
+    return f"{minutes}m"
+
+
 def _run_activity_ts(run_abs: str, dir_mtime: float) -> float:
     """Last-activity time: newest mtime of the run dir's direct children.
 
@@ -186,12 +197,16 @@ def _run_activity_ts(run_abs: str, dir_mtime: float) -> float:
     removed, or renamed - appends never move it, at any depth. Every run
     appends info.log and debug.log at the run root for as long as it is
     alive, so a shallow scan tracks activity without walking the tree.
+    Subdirectories are skipped: tooling that pokes into a dead run (e.g.
+    its sandbox) moves their mtimes long after the run ended.
     """
     latest = dir_mtime
     try:
         with os.scandir(run_abs) as it:
             for entry in it:
                 try:
+                    if entry.is_dir(follow_symlinks=False):
+                        continue
                     latest = max(latest, entry.stat().st_mtime)
                 except OSError:
                     continue
@@ -1415,9 +1430,10 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
     tr_str = " → ".join(f"{t[0]}/{t[1]}" for t in tr) or "-"
     cost = summary.get("total_cost", 0.0)
     fmt = "%Y-%m-%d %H:%M"
-    sstr = datetime.datetime.fromtimestamp(_run_start_ts(
-        r["name"], r["mtime"])).strftime(fmt)
+    start_ts = _run_start_ts(r["name"], r["mtime"])
+    sstr = datetime.datetime.fromtimestamp(start_ts).strftime(fmt)
     mstr = datetime.datetime.fromtimestamp(r["activity"]).strftime(fmt)
+    dur_str = _fmt_duration(max(0.0, r["activity"] - start_ts))
     status, _ = run_status(r, summary, live, is_newest)
     # The status joins the filter key, so "running" narrows to live runs.
     key = f"{r['exp']} {r['seed']} {r['name']} {status}".lower()
@@ -1432,7 +1448,8 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
             f"<td>{episode_grid(eps, layout)}</td><td>{esc(tr_str)}</td>"
             f"<td>{cost_str}</td>"
             f"<td class='muted'>{sstr}</td>"
-            f"<td class='muted'>{mstr}</td></tr>")
+            f"<td class='muted'>{mstr}</td>"
+            f"<td class='muted'>{dur_str}</td></tr>")
 
 
 def index_page() -> str:
@@ -1469,7 +1486,8 @@ def index_page() -> str:
             f"<p>No run_* directories found under {esc(LOGS_ROOT)}.</p>")
     table_head = ("<tr><th></th><th>run</th><th>seed</th><th>status</th>"
                   "<th>episodes</th><th>test results (info.log)</th>"
-                  "<th>cost</th><th>started</th><th>modified</th></tr>")
+                  "<th>cost</th><th>started</th><th>modified</th>"
+                  "<th>time</th></tr>")
     for fam in sorted(families):
         exps = families[fam]
         fam_runs = [r for rs in exps.values() for r in rs]
