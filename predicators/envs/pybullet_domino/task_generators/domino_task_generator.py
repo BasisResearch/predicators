@@ -208,9 +208,16 @@ class DominoTaskGenerator(TaskGenerator):
                 # pylint: disable-next=protected-access
                 if DominoComponent._MovableBlock_holds(init_state, [obj]))
             evaluator = DominoEvaluator(goal_atoms, num_movables)
-            goal_nl += (" Use as few blue dominoes as possible: each blue "
-                        "domino the cascade topples or shoves out of place "
-                        "costs reward.")
+            # State the reward structure so a rejected goal-reaching
+            # attempt reads as "no solve bonus", not as a fatal
+            # per-blue penalty: run_20260716_215533 burned its budget
+            # theorizing that any disturbed blue disqualifies a solve.
+            cost = CFG.domino_block_cost
+            goal_nl += (f" Scoring: a solve earns +1 reward, and each blue "
+                        f"domino the cascade consumes (toppled or shoved "
+                        f"out of place) costs {cost:g}, so a solve that "
+                        f"uses one blue scores +{1.0 - cost:g}. Using "
+                        f"blues never disqualifies a solve.")
 
         return EnvironmentTask(init_state,
                                goal_atoms,
