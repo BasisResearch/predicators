@@ -1597,7 +1597,7 @@ class GlobalSettings:
     # Setting it on agent_sim_learning strips the named-out predicates -
     # even goal predicates - from the agent's prompts/tools; tasks whose
     # goal atoms are stripped must then carry goal_nl.
-    agent_sim_predicate_invention_kept_predicate_names: List[str] = []
+    agent_sim_learn_kept_predicates_names: List[str] = []
 
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:

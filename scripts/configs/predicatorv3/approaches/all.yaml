@@ -14,7 +14,7 @@
 #
 # Merge note: launchers override scalars cleanly ({SKIP: False}), but the
 # include merge CONCATENATES lists. Keep list-valued FLAGS (e.g.
-# agent_sim_predicate_invention_kept_predicate_names) defined here and do not
+# agent_sim_learn_kept_predicates_names) defined here and do not
 # try to override them from a launcher.
 APPROACHES:
 
@@ -34,7 +34,7 @@ APPROACHES:
       option_model_terminate_on_repeat: False
       agent_planner_use_visualize_state: True
       agent_planner_use_annotate_scene: True
-      agent_sim_predicate_invention_kept_predicate_names: ["Holding"]
+      agent_sim_learn_kept_predicates_names: ["Holding"]
       partially_observable: True
       agent_explorer_info_seeking: True
       execution_monitor: "subgoal_annotations"
@@ -291,7 +291,7 @@ APPROACHES:
       agent_sim_learn_oracle_sim_program: False
       agent_sim_learn_oracle_sim_params: False
       code_sim_learning_num_mcmc_steps: 0
-      agent_sim_predicate_invention_kept_predicate_names: ["Holding"]
+      agent_sim_learn_kept_predicates_names: ["Holding"]
 
   # ======================================================================
   # BASELINES  (lower bounds / alternative learners)

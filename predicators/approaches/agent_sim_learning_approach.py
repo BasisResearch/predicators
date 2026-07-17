@@ -105,7 +105,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
     """
 
     # Allowlist of env predicate names surfaced to the agent; None keeps
-    # every env predicate. CFG.agent_sim_predicate_invention_kept_predicate_names
+    # every env predicate. CFG.agent_sim_learn_kept_predicates_names
     # overrides this class default when non-empty, so an experiment can
     # strip predicates - even goal predicates - from the agent's
     # vocabulary (prompts, tools, subgoal annotations) without touching
@@ -246,8 +246,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
 
         The CFG flag overrides the class default.
         """
-        cfg_override = getattr(
-            CFG, "agent_sim_predicate_invention_kept_predicate_names", None)
+        cfg_override = getattr(CFG, "agent_sim_learn_kept_predicates_names",
+                               None)
         if cfg_override:
             return frozenset(cfg_override)
         return self.KEPT_INITIAL_PREDICATE_NAMES
