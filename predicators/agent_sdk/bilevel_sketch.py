@@ -473,6 +473,36 @@ def build_solve_prompt(
             line += f" — {pred.natural_language_assertion(names)}"
         pred_strs.append(line)
 
+    # Tool-availability-aware references: when explore_python replaces the
+    # standalone visualize/refine tools (see
+    # agent_planner_explore_python_keep_replaced_tools), guidance must
+    # point at the probe equivalents instead of tools the session lacks.
+    # ``tool_names=None`` keeps the legacy all-tools wording.
+    tool_set = set(tool_names) if tool_names is not None else None
+
+    def _has_tool(name: str) -> bool:
+        return tool_set is None or name in tool_set
+
+    probe_refine = (not _has_tool("refine_plan_sketch")
+                    and _has_tool("explore_python"))
+    refine_ref = ("`sim.refine` (in `explore_python`)"
+                  if probe_refine else "`refine_plan_sketch`")
+    if not _has_tool("visualize_state") and _has_tool("explore_python"):
+        visualize_advice = (
+            "- Use `explore_python` (`sim.reset(mods={...})`, then "
+            "`sim.render(...)`) to move objects to candidate positions and "
+            "orientations for free (no physics) and find the right region "
+            "visually before testing.\n")
+    elif _has_tool("visualize_state"):
+        visualize_advice = (
+            "- Use `visualize_state` to move objects to candidate positions "
+            "and orientations for free (no physics) and find the right "
+            "region visually before testing.\n")
+    else:
+        # Neither visualization surface is offered: no bullet, rather
+        # than advice naming a tool the session lacks.
+        visualize_advice = ""
+
     # Advice for a step the search reports stuck (SAMPLE_EXHAUSTED). When the
     # agent proposes params it tunes that step's values; otherwise it can only
     # change the skeleton.
@@ -483,10 +513,7 @@ def build_solve_prompt(
         "actually happened.\n"
         "- For a failure like an IK error or collision, use the image and "
         "object poses to reason about WHY and adjust params directionally — "
-        "don't try random nearby values.\n"
-        "- Use `visualize_state` to move objects to candidate positions and "
-        "orientations for free (no physics) and find the right region "
-        "visually before testing.\n"
+        "don't try random nearby values.\n" + visualize_advice +
         "- Vary ALL parameters, not just position — orientation and others "
         "affect both the outcome and whether the action succeeds.\n"
         "- Search coarse-to-fine: spread attempts across the full range; if "
@@ -512,9 +539,9 @@ def build_solve_prompt(
                 "(`GROUND_SAMPLERS = {\"my_sampler\": fn}`, "
                 "`fn(state, subgoal_atoms, rng, objects) -> params`) and "
                 "reference it as `~ my_sampler` instead; the file is "
-                "reloaded on every refine_plan_sketch call.")
+                f"reloaded on every {refine_ref} call.")
             ground_sampler_format = (
-                "\n(For refine_plan_sketch only, a step may add a search "
+                f"\n(For {refine_ref} only, a step may add a search "
                 "region after its params: "
                 "`OptionName(obj1:type1)[p1, p2] ~ [w1, w2] -> {...}`, or "
                 "`... ~ my_sampler` naming a GROUND_SAMPLERS entry.)")
@@ -527,7 +554,7 @@ def build_solve_prompt(
             "qualitatively different designs could work (different objects, "
             "orientations, sides, orderings, or mechanisms), run a cheap "
             "test of each and compare failure modes BEFORE fine-tuning any "
-            "one of them. Parameter tuning cannot rescue the wrong design — "
+            "one of them. Parameter tuning cannot rescue the wrong design - "
             "if a design keeps failing the same way as you tune it, switch "
             "designs rather than tightening values. And before building on "
             "a physics rule or constraint you inferred from a single "
@@ -538,7 +565,7 @@ def build_solve_prompt(
             "fine — don't over-tune these.\n"
             "- Where good values are hard to hit — tight tolerances or exact "
             "relative placements (e.g. positioning one object at a precise "
-            "offset from another) — use `refine_plan_sketch` to search for a "
+            f"offset from another) - use {refine_ref} to search for a "
             "working value (it's slower) and read the value it found." +
             ground_sampler_guidance)
         format_block = (
@@ -574,18 +601,18 @@ def build_solve_prompt(
             "times before capture (simulation varies across runs); if it is "
             "reported FLAKY, add margin to the fragile step and resubmit. "
             "It runs your EXACT parameters with no sampling. To find "
-            "working parameters you MAY use `refine_plan_sketch` (it searches "
+            f"working parameters you MAY use {refine_ref} (it searches "
             "but is slower); read the parameters it reports and submit them "
             "via evaluate_option_plan. If a step does not reach its subgoal, "
             + stuck_advice)
     elif propose_params:
         submit_guidance = (
-            "You may validate with `refine_plan_sketch` (it tries your "
+            f"You may validate with {refine_ref} (it tries your "
             "parameters first, then samples) and deep-tune any step it "
             "reports stuck before finishing.")
     else:
         submit_guidance = (
-            "You may vet a sketch with `refine_plan_sketch` before finishing; "
+            f"You may vet a sketch with {refine_ref} before finishing; "
             "the backtracking search will find continuous parameters.")
 
     if require_tool_validation:

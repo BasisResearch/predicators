@@ -24,7 +24,8 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.agent_session_mixin import AgentSessionMixin
-from predicators.agent_sdk.tools import agent_render_resolution
+from predicators.agent_sdk.tools import agent_render_resolution, \
+    explore_python_replaces_tools
 from predicators.approaches import ApproachFailure
 from predicators.approaches.base_approach import BaseApproach
 from predicators.explorers import create_explorer
@@ -309,9 +310,13 @@ scene, then annotate_scene overlays markers on it."""
     def _get_agent_system_prompt(self) -> str:
         use_scratchpad = CFG.agent_planner_use_scratchpad
         # visualize_state / annotate_scene render a live env, so they are
-        # only available when the planner has a simulator.
+        # only available when the planner has a simulator. When
+        # explore_python replaces visualize_state (see
+        # explore_python_replaces_tools), the tool is absent from the
+        # session, so the prompt must not mandate it.
         use_visualize = (CFG.agent_planner_use_simulator
-                         and CFG.agent_planner_use_visualize_state)
+                         and CFG.agent_planner_use_visualize_state
+                         and not explore_python_replaces_tools())
         use_annotate = (CFG.agent_planner_use_simulator
                         and CFG.agent_planner_use_annotate_scene)
 
@@ -421,8 +426,14 @@ scene, then annotate_scene overlays markers on it."""
             tools.append("evaluate_option_plan")
             if CFG.agent_planner_use_annotate_scene:
                 tools.append("annotate_scene")
-            if CFG.agent_planner_use_visualize_state:
+            # explore_python subsumes visualize_state (sim.reset(mods) +
+            # sim.render); when it replaces the subsumed tools (see
+            # explore_python_replaces_tools), visualize_state is dropped.
+            if CFG.agent_planner_use_visualize_state and \
+                    not explore_python_replaces_tools():
                 tools.append("visualize_state")
+            if CFG.agent_planner_use_explore_python:
+                tools.append("explore_python")
         return tools
 
     # ------------------------------------------------------------------ #
@@ -684,6 +695,29 @@ scene, then annotate_scene overlays markers on it."""
 
         return self._parse_and_ground_plan(plan_text, task)
 
+    def _solve_prompt_visualize_line(self) -> str:
+        """The stuck-step visualization bullet, matching the session's
+        actual visualization surface (visualize_state, explore_python, or
+        neither)."""
+        if CFG.agent_planner_use_simulator and \
+                CFG.agent_planner_use_explore_python:
+            return (
+                "- **Use explore_python when stuck** - after 3+ failures on "
+                "the same step, STOP testing and use explore_python "
+                "(`sim.reset(mods={...})`, then `sim.render(...)`) to move "
+                "the object to several candidate positions and "
+                "orientations. It's free (no physics). Find the right "
+                "region visually, then test.\n")
+        if CFG.agent_planner_use_simulator and \
+                CFG.agent_planner_use_visualize_state:
+            return (
+                "- **Use visualize_state when stuck** - after 3+ failures "
+                "on the same step, STOP testing and use visualize_state to "
+                "move the object to several candidate positions and "
+                "orientations. It's free (no physics). Find the right "
+                "region visually, then test.\n")
+        return ""
+
     def _solve_prompt_scratchpad_line(self) -> str:
         """Return the notes.md bullet for the solve prompt, or empty."""
         if CFG.agent_planner_use_scratchpad:
@@ -814,9 +848,7 @@ in `./test_images/` to see what actually happened in the scene.
 - Review past session logs in `./session_logs/` if available — they contain prior queries and results.
 - When a step fails (e.g. IK error), use the image + object poses to reason about \
 WHY and adjust params directionally. Don't just try random nearby values.
-- **Use visualize_state when stuck** — after 3+ failures on the same step, STOP \
-testing and use visualize_state to move the object to several candidate positions \
-and orientations. It's free (no physics). Find the right region visually, then test.
+{self._solve_prompt_visualize_line()}\
 - **Vary all parameters, not just position** — orientation and other params affect \
 both the outcome and whether the action succeeds. Try 2-3 values for each \
 non-position parameter per target region.

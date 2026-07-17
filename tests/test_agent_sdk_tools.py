@@ -44,6 +44,12 @@ _CFG_OVERRIDES = {
     "skill_phase_use_motion_planning": True,
     "pybullet_ik_validate": False,
     "agent_sdk_propose_options": True,
+    "agent_planner_use_explore_python": True,
+    # Match the experiment configs: without this, an option whose
+    # first action no-ops against residual env state (wrist drift
+    # from earlier tests) is killed as "stuck", making the
+    # physics-dependent tests order-sensitive.
+    "option_model_terminate_on_repeat": False,
 }
 
 
@@ -319,6 +325,139 @@ def test_option_plan_missing_goal_atoms(ctx: Any) -> None:
                 or "EXECUTION ERROR" in text or "Failed to ground" in text)
         print("  PASS: evaluate_option_plan (plan failed early, "
               "goal check not reached)")
+
+
+def test_option_plan_description_submission_split(ctx: Any) -> None:
+    """With explore_python on, evaluate_option_plan's description routes
+    exploration to the probe and frames this tool as the submission path;
+    with it off, the description is unchanged."""
+    from predicators.agent_sdk.tools import create_mcp_tools
+    prior = CFG.agent_planner_use_explore_python
+    try:
+        pred_utils.update_config({"agent_planner_use_explore_python": True})
+        tool_obj = create_mcp_tools(ctx,
+                                    tool_names=["evaluate_option_plan"])[0]
+        desc = getattr(tool_obj, "description", "")
+        assert "explore_python" in desc and "SUBMIT" in desc
+        pred_utils.update_config({"agent_planner_use_explore_python": False})
+        tool_obj = create_mcp_tools(ctx,
+                                    tool_names=["evaluate_option_plan"])[0]
+        assert "explore_python" not in getattr(tool_obj, "description", "")
+    finally:
+        pred_utils.update_config({"agent_planner_use_explore_python": prior})
+    print("  PASS: evaluate_option_plan (submission-split description)")
+
+
+def test_explore_python_unknown_mod_object(ctx: Any) -> None:
+    """A reset() modification naming an unknown object is a loud error."""
+    tools = _make_tools(ctx, ["explore_python"])
+    result = _run(tools["explore_python"]({
+        "code":
+        'sim.reset(mods={"no_such_object": {"x": 0.5}})'
+    }))
+    assert "Unknown object 'no_such_object'" in result["content"][0]["text"]
+    print("  PASS: explore_python (unknown mod object error)")
+
+
+def test_explore_python_exec_and_persistence(ctx: Any) -> None:
+    """The solve-phase explore_python executes code and keeps its namespace."""
+    tools = _make_tools(ctx, ["explore_python"])
+    result = _run(tools["explore_python"]({"code": "x = 21\nprint(x * 2)"}))
+    assert result["content"][0]["text"].strip() == "42"
+    result = _run(tools["explore_python"]({"code": "print(x + 1)"}))
+    assert result["content"][0]["text"].strip() == "22"
+    print("  PASS: explore_python (exec + persistent namespace)")
+
+
+def test_explore_python_probe_sim(ctx: Any) -> None:
+    """ProbeSim: reset with mods, full-precision state, run from the
+    modified state, snapshot/restore - and nothing is ever captured."""
+    tools = _make_tools(ctx, ["explore_python"])
+    domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
+    robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
+    ctx.capture_goal_reaching_plans = True
+    try:
+        code = f"""
+sim.reset(mods={{"{domino.name}": {{"x": 0.95}}}})
+print("modx", sim.state("{domino.name}")["x"])
+sid = sim.snapshot()
+out = sim.run("Wait({robot.name}:robot)[]")
+print("steps", len(out.steps))
+sim.restore(sid)
+print("restx", sim.state("{domino.name}")["x"])
+print("natoms", len(sim.atoms()))
+"""
+        result = _run(tools["explore_python"]({"code": code}))
+    finally:
+        ctx.capture_goal_reaching_plans = False
+    text = result["content"][0]["text"]
+    assert "modx 0.95" in text
+    assert "steps 1" in text
+    assert "restx 0.95" in text
+    assert "natoms" in text
+    # The probe carries no scoring surface: nothing it ran was captured.
+    assert ctx.solved_plan is None
+    print("  PASS: explore_python (ProbeSim reset/run/snapshot, no capture)")
+
+
+def test_explore_python_probe_refine(ctx: Any) -> None:
+    """ProbeSim.refine searches params from the current state, reports
+    per-step samples and a refined plan line, and captures nothing."""
+    tools = _make_tools(ctx, ["explore_python"])
+    domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
+    robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
+    ctx.capture_goal_reaching_plans = True
+    try:
+        code = f"""
+sim.reset()
+res = sim.refine(
+    "Pick({robot.name}:robot, {domino.name}:domino)[0.06] "
+    "-> {{Holding({robot.name}:robot, {domino.name}:domino)}}",
+    timeout=45)
+print("success", res.success)
+print("samples", res.total_samples, res.step_samples)
+print("line", res.plan_lines[0])
+"""
+        result = _run(tools["explore_python"]({"code": code}))
+    finally:
+        ctx.capture_goal_reaching_plans = False
+    text = result["content"][0]["text"]
+    assert "success True" in text
+    assert "samples" in text
+    assert "line Pick(" in text and "Holding(" in text
+    assert ctx.solved_plan is None
+    print("  PASS: explore_python (ProbeSim.refine, no capture)")
+
+
+def test_explore_python_refine_require_solved_guards(ctx: Any) -> None:
+    """require_solved refuses to run from a modified start, and from a task
+    with no evaluator - both before any search. (The gate's accept/reject
+    semantics are covered deterministically in
+    test_bilevel_sketch_samplers.py with fake option models.)"""
+    tools = _make_tools(ctx, ["explore_python"])
+    domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
+    robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
+    plan_line = (f"Pick({robot.name}:robot, {domino.name}:domino)[0.06] "
+                 f"-> {{Holding({robot.name}:robot, "
+                 f"{domino.name}:domino)}}")
+
+    # Modified start: refused outright.
+    code = (f'sim.reset(mods={{"{domino.name}": {{"x": 0.9}}}})\n'
+            f'sim.refine("{plan_line}", require_solved=True)')
+    result = _run(tools["explore_python"]({"code": code}))
+    assert "unmodified initial state" in result["content"][0]["text"]
+
+    # Pristine start but the task defines no evaluator: refused.
+    import dataclasses
+    saved_task = ctx.current_task
+    try:
+        ctx.current_task = dataclasses.replace(saved_task, evaluator=None)
+        code = f'sim.reset()\nsim.refine("{plan_line}", require_solved=True)'
+        result = _run(tools["explore_python"]({"code": code}))
+        assert "defines no task evaluator" in result["content"][0]["text"]
+    finally:
+        ctx.current_task = saved_task
+    print("  PASS: explore_python (require_solved guards)")
 
 
 def test_option_plan_not_initiable_shows_poses(ctx: Any) -> None:

@@ -73,9 +73,35 @@ SCENE_TOOL_NAMES = [
     "annotate_scene",
     "visualize_state",
 ]
+# Solve-phase exploration: ``explore_python`` over the ProbeSim facade
+# (predicators/agent_sdk/probe_api.py). Named distinctly from the
+# synthesis-phase ``run_python`` (same execution core, different
+# namespace) so sessions, transcripts, and log greps never conflate the
+# two capabilities. Built only when CFG.agent_planner_use_explore_python
+# is on - the legacy ``tool_names=None`` surface ("all static MCP
+# tools") must not hand baseline arms an ungated code-execution tool.
+EXPLORATION_TOOL_NAMES = [
+    "explore_python",
+]
+
+
+def explore_python_replaces_tools() -> bool:
+    """Whether explore_python replaces the tools it subsumes this session.
+
+    The single definition of the tool-roster policy (visualize_state ->
+    ``sim.reset(mods)`` + ``sim.render``; refine_plan_sketch ->
+    ``sim.refine``): the approaches' tool lists and every prompt surface
+    read this one predicate, so the offered tools and the guidance that
+    names them cannot drift apart.
+    """
+    return (CFG.agent_planner_use_explore_python
+            and not CFG.agent_planner_explore_python_keep_replaced_tools)
+
+
 ALL_TOOL_NAMES = (INSPECTION_TOOL_NAMES + PROPOSAL_TOOL_NAMES +
                   RETRACTION_TOOL_NAMES + TESTING_TOOL_NAMES +
-                  PLANNING_TOOL_NAMES + SCENE_TOOL_NAMES)
+                  PLANNING_TOOL_NAMES + SCENE_TOOL_NAMES +
+                  EXPLORATION_TOOL_NAMES)
 
 # Names of tools returned by ``create_synthesis_tools`` (sim-learning)
 # and ``create_predicate_synthesis_tools`` (predicate invention). These
@@ -633,6 +659,37 @@ def _format_object_poses(state: State) -> str:
         if len(parts) > 1:  # has at least one spatial feature
             pose_lines.append("  " + " ".join(parts))
     return "\n".join(pose_lines)
+
+
+def _apply_state_modifications(
+        state: State,
+        modifications: List[Dict[str, Any]]) -> Tuple[State, List[str], str]:
+    """Apply ``[{object, features}]`` overrides to a copy of ``state``.
+
+    Shared by ``visualize_state`` and ``ProbeSim.reset``
+    (explore_python) so both accept the same modification format.
+    Returns ``(modified_state, summaries, error)``; ``error`` is ``""``
+    on success.
+    """
+    modified_state = state.copy()
+    obj_lookup = {o.name: o for o in modified_state}
+    summaries: List[str] = []
+    for mod in modifications:
+        obj_name = mod.get("object", "")
+        features = mod.get("features", {})
+        if obj_name not in obj_lookup:
+            available = sorted(obj_lookup.keys())
+            return modified_state, summaries, (f"Unknown object '{obj_name}'. "
+                                               f"Available: {available}")
+        obj = obj_lookup[obj_name]
+        for feat_name, value in features.items():
+            try:
+                modified_state.set(obj, feat_name, value)
+                summaries.append(f"  {obj_name}.{feat_name} = {value}")
+            except Exception as e:  # pylint: disable=broad-except
+                return modified_state, summaries, (
+                    f"Failed to set {obj_name}.{feat_name}: {e}")
+    return modified_state, summaries, ""
 
 
 def evaluate_states_with(evaluator: Any,
@@ -1701,6 +1758,16 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         if CFG.agent_bilevel_ground_samplers else
         "Runs your exact params with NO sampling. ")
 
+    # When the session carries explore_python, the two surfaces divide
+    # cleanly: exploration (modified states, partial plans, sweeps)
+    # belongs in the probe, and this tool is the SUBMISSION path.
+    _probe_split_doc = (
+        " This tool always runs from the task's TRUE initial state and is "
+        "the ONLY path that captures an answer: do your exploration "
+        "(modified states, partial plans, parameter sweeps) in "
+        "explore_python, then validate and SUBMIT the final plan here."
+        if CFG.agent_planner_use_explore_python else "")
+
     @tool(
         "evaluate_option_plan",
         "Execute a fully-specified plan on a task via the option model and "
@@ -1719,7 +1786,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         "When the task has an evaluator, a goal-reaching plan the evaluator "
         "still scores as a non-solve (no success credit in its reward) is "
         "NOT captured (the real env applies the same scoring, so it could "
-        "never count as a solve).",
+        "never count as a solve)." + _probe_split_doc,
         {
             "type": "object",
             "properties": {
@@ -3000,26 +3067,11 @@ def _build_scene_tools(ctx: ToolContext, _text_result: Callable,
             return _error_result("No modifications provided. Pass a list of "
                                  "{object, features} dicts.")
 
-        # Copy the initial state
-        modified_state = task.init.copy()
-        obj_lookup = {o.name: o for o in modified_state}
-
-        summaries: List[str] = []
-        for mod in modifications:
-            obj_name = mod.get("object", "")
-            features = mod.get("features", {})
-            if obj_name not in obj_lookup:
-                available = sorted(obj_lookup.keys())
-                return _error_result(f"Unknown object '{obj_name}'. "
-                                     f"Available: {available}")
-            obj = obj_lookup[obj_name]
-            for feat_name, value in features.items():
-                try:
-                    modified_state.set(obj, feat_name, value)
-                    summaries.append(f"  {obj_name}.{feat_name} = {value}")
-                except Exception as e:  # pylint: disable=broad-except
-                    return _error_result(
-                        f"Failed to set {obj_name}.{feat_name}: {e}")
+        # Copy the initial state and apply the overrides.
+        modified_state, summaries, mod_err = _apply_state_modifications(
+            task.init, modifications)
+        if mod_err:
+            return _error_result(mod_err)
 
         # Store for subsequent annotate_scene calls
         ctx.visualized_state = modified_state
@@ -3045,6 +3097,70 @@ def _build_scene_tools(ctx: ToolContext, _text_result: Callable,
         "annotate_scene": annotate_scene,
         "visualize_state": visualize_state,
     }
+
+
+def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
+                             tool: Callable) -> Dict[str, Any]:
+    """Solve-phase ``explore_python`` over the ProbeSim exploration facade.
+
+    The namespace is deliberately tiny (probe facade + numpy): the probe
+    reuses the exact machinery behind ``evaluate_option_plan`` (same
+    plan grammar, same option-model executor, same renderer) but carries
+    no scoring surface - nothing run here can be captured as the answer,
+    so it is safe to hand the agent as a freely composable physics
+    probe. Built only when the session's config opts in: the
+    ``tool_names=None`` legacy surface would otherwise grant every
+    default-configured session an in-process exec tool.
+    """
+    if not CFG.agent_planner_use_explore_python:
+        return {}
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.agent_sdk.probe_api import build_probe_namespace
+    explore_python = _make_python_exec_tool(
+        tool,
+        name="explore_python",
+        description=(
+            "Execute Python code for cheap physics/geometry exploration in "
+            "a persistent namespace (variables survive across calls - "
+            "define helpers and sweep loops once, reuse them). Available: "
+            "`sim` (a ProbeSim over the belief simulator), `ProbeSim()` "
+            "(extra independent instances), `np`. ProbeSim API: "
+            "`sim.reset(task_idx=None, mods=None)` sets the current state "
+            "to a task's init (current task by default), optionally with "
+            "feature overrides (`mods={'obj': {'x': 1.05}}`); "
+            "`sim.run(plan_text)` executes an option plan FROM THE CURRENT "
+            "STATE (same grammar as evaluate_option_plan; print the result "
+            "for per-step outcomes) and advances the state; `sim.state()` / "
+            "`sim.state('obj')` full-precision features; `sim.atoms()`; "
+            "`sim.render(label)` saves an image; `sim.snapshot()` / "
+            "`sim.restore(id)` bank and rewind states (use to re-try "
+            "different actions from one setup, or resume after a fixed "
+            "plan prefix without re-running it); "
+            "`sim.refine(sketch_text, timeout=60, require_goal=False, "
+            "require_solved=False)` runs "
+            "backtracking parameter search FROM THE CURRENT STATE (same "
+            "grammar/search as refine_plan_sketch, incl. `~ [w]` regions; "
+            "success = each step establishes its `-> {subgoals}` "
+            "annotation) - refine a plan SUFFIX from a snapshot so the "
+            "budget goes to the step that matters; the result reports "
+            "best-found params even on timeout, per-step sample counts, and "
+            "the deepest near-miss. require_solved=True (only from an "
+            "unmodified reset() state) additionally requires the task "
+            "evaluator to score the final rollout solved=True, rejecting "
+            "goal-reaching-but-unscored candidates during the search. "
+            "print() output is "
+            "returned; oversize output is spilled to "
+            "`tool_outputs/explore_python/` (Read/Grep it back). "
+            "EXPLORATORY "
+            "ONLY: nothing run here is captured as your answer and no "
+            "task-evaluator verdict is computed - validate and submit the "
+            "final plan via evaluate_option_plan from the true initial "
+            "state."),
+        exec_ns=build_probe_namespace(ctx),
+        sandbox_dir=ctx.sandbox_dir,
+        text_result=_text_result,
+    )
+    return {"explore_python": explore_python}
 
 
 def create_mcp_tools(ctx: ToolContext,
@@ -3074,6 +3190,7 @@ def create_mcp_tools(ctx: ToolContext,
         **_build_testing_tools(ctx, _text_result, tool),
         **_build_planning_tools(ctx, _text_result, tool),
         **_build_scene_tools(ctx, _text_result, tool),
+        **_build_exploration_tools(ctx, _text_result, tool),
     }
     if tool_names is None:
         tools = list(_all.values())
@@ -3300,6 +3417,134 @@ class _ArtifactSnapshotter:
                      f"{self._version_count:03d}"), None
 
 
+def _make_python_exec_tool(
+    tool: Callable,
+    *,
+    name: str,
+    description: str,
+    exec_ns: Dict[str, Any],
+    sandbox_dir: Optional[str],
+    sandbox_dir_for_agent: Optional[str] = None,
+    text_result: Callable[[str], Dict[str, Any]],
+) -> Any:
+    """Build a code-execution MCP tool over a persistent namespace.
+
+    Shared core behind the synthesis-phase ``run_python`` (namespace =
+    trajectory data) and the solve-phase ``explore_python`` (namespace =
+    the ``ProbeSim`` exploration facade): sandbox-escape screening, in-
+    process ``exec`` with stdout capture, and oversize-output spill to
+    ``<sandbox_dir>/tool_outputs/<name>/``. The namespace persists
+    across calls, so agents can define helpers once and reuse them.
+    """
+    # pylint: disable=import-outside-toplevel
+    import io
+    import sys
+    import traceback  # pylint: disable=redefined-outer-name,reimported
+
+    # pylint: enable=import-outside-toplevel
+
+    inline_char_limit = 30000
+    preview_head_lines = 30
+    preview_tail_lines = 30
+    outputs_subdir = os.path.join("tool_outputs", name)
+    outputs_dir_host: Optional[str] = (os.path.join(
+        sandbox_dir, outputs_subdir) if sandbox_dir else None)
+    if sandbox_dir_for_agent:
+        outputs_dir_agent: Optional[str] = (
+            f"{sandbox_dir_for_agent.rstrip('/')}/"
+            f"{outputs_subdir.replace(os.sep, '/')}")
+    else:
+        outputs_dir_agent = outputs_dir_host
+    # Continue numbering after any spill files already in the directory,
+    # so re-created instances sharing a sandbox never overwrite earlier
+    # outputs.
+    count = [0]
+    if outputs_dir_host and os.path.isdir(outputs_dir_host):
+        count[0] = len(os.listdir(outputs_dir_host))
+
+    @tool(
+        name,
+        description,
+        {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": "Python code to execute.",
+                }
+            },
+            "required": ["code"],
+        },
+    )
+    async def python_exec(args: Dict[str, Any]) -> Dict[str, Any]:
+        code = args["code"]
+        # The code execs in-process with full filesystem access, and the
+        # sandbox's PreToolUse file-path hook does not cover MCP tools, so
+        # screen the code here for out-of-sandbox reads / source
+        # introspection before executing (best-effort; see
+        # _screen_text_for_sandbox_escape).
+        if sandbox_dir is not None:
+            reason = _screen_text_for_sandbox_escape(code, sandbox_dir)
+            if reason is not None:
+                return text_result(
+                    f"Error: sandbox guard blocked this code - {reason}. "
+                    "Read files with Read/Grep and use the MCP tools and "
+                    "./reference/ files instead.")
+        old_stdout = sys.stdout
+        sys.stdout = captured = io.StringIO()
+        try:
+            exec(code, exec_ns)  # pylint: disable=exec-used
+        except Exception:  # pylint: disable=broad-except
+            tb = traceback.format_exc()
+            return text_result(f"Error:\n{tb}")
+        finally:
+            sys.stdout = old_stdout
+
+        output = captured.getvalue()
+        if not output:
+            return text_result("(no output)")
+
+        if len(output) <= inline_char_limit or outputs_dir_host is None:
+            return text_result(output)
+
+        count[0] += 1
+        os.makedirs(outputs_dir_host, exist_ok=True)
+        filename = f"call_{count[0]:04d}.txt"
+        host_path = os.path.join(outputs_dir_host, filename)
+        with open(host_path, "w", encoding="utf-8") as f:
+            f.write(output)
+
+        out_lines = output.splitlines()
+        total_lines = len(out_lines)
+        head = out_lines[:preview_head_lines]
+        tail = (out_lines[-preview_tail_lines:] if total_lines >
+                (preview_head_lines + preview_tail_lines) else [])
+        agent_path = (f"{outputs_dir_agent}/{filename}"
+                      if outputs_dir_agent else host_path)
+        preview_parts = [
+            f"[{name} output too large to inline: "
+            f"{len(output):,} chars across {total_lines:,} lines; "
+            f"full output saved to {agent_path}. Use Read/Grep to "
+            f"inspect, or rerun with narrower print() to keep results "
+            f"inline.]",
+            "",
+            f"--- head ({len(head)} lines) ---",
+            *head,
+        ]
+        if tail:
+            omitted = total_lines - len(head) - len(tail)
+            preview_parts.extend([
+                "",
+                f"... [{omitted:,} lines omitted] ...",
+                "",
+                f"--- tail ({len(tail)} lines) ---",
+                *tail,
+            ])
+        return text_result("\n".join(preview_parts))
+
+    return python_exec
+
+
 def create_synthesis_tools(
     exec_ns: Dict[str, Any],
     base_pred_triples: list,
@@ -3381,8 +3626,6 @@ def create_synthesis_tools(
             ``cycle_000_vers_YYY``).
     """
     # pylint: disable=import-outside-toplevel
-    import io
-    import sys
     import traceback  # pylint: disable=redefined-outer-name,reimported
     from collections import defaultdict
 
@@ -3414,37 +3657,9 @@ def create_synthesis_tools(
         missing_file_hint=("Use Write to create it with PROCESS_RULES, "
                            "PARAM_SPECS, PROCESS_FEATURES."),
     )
-    _run_python_count = [0]
-
-    # Threshold above which run_python output is spilled to a file in the
-    # sandbox rather than returned inline. Kept well under the agent SDK's
-    # MCP tool-result token cap so the harness never has to truncate and
-    # dump to ``~/.claude/projects/.../tool-results/``.
-    _run_python_inline_char_limit = 30000
-    _run_python_preview_head_lines = 30
-    _run_python_preview_tail_lines = 30
-
-    # Where oversize ``run_python`` outputs are written. The agent reads
-    # these back via ``Read``/``Grep`` using ``sandbox_dir_for_agent`` as
-    # the path prefix (e.g. ``./tool_outputs/run_python/...`` for local
-    # sandbox, ``/sandbox/tool_outputs/run_python/...`` for docker, or an
-    # absolute host path otherwise).
-    _run_python_outputs_subdir = os.path.join("tool_outputs", "run_python")
-    _run_python_outputs_dir_host: Optional[str] = (os.path.join(
-        sandbox_dir, _run_python_outputs_subdir) if sandbox_dir else None)
-    if sandbox_dir_for_agent:
-        _run_python_outputs_dir_agent: Optional[str] = (
-            f"{sandbox_dir_for_agent.rstrip('/')}/"
-            f"{_run_python_outputs_subdir.replace(os.sep, '/')}")
-    elif _run_python_outputs_dir_host:
-        _run_python_outputs_dir_agent = _run_python_outputs_dir_host
-    else:
-        _run_python_outputs_dir_agent = None
-
-    # Spill oversize output from the synthesis tools into the sandbox too,
+    # Spill oversize output from the synthesis tools into the sandbox,
     # so nothing is dumped to ``~/.claude/projects/.../tool-results/``.
-    # ``run_python`` keeps its own bespoke spill below (with a tailored
-    # "narrow your print()" hint); this covers the remaining tools.
+    # (``run_python``'s own spill lives in ``_make_python_exec_tool``.)
     _text = _make_spilling_text_result(sandbox_dir,
                                        agent_prefix=sandbox_dir_for_agent)
 
@@ -3687,106 +3902,35 @@ def create_synthesis_tools(
 
     # ── run_python ──────────────────────────────────────────
 
-    @tool(
-        "run_python",
-        "Execute Python code for ad-hoc data exploration. Available "
-        "variables: trajectories (List[LowLevelTrajectory]; each has "
-        "`is_demo`, `train_task_idx`, `states`, `actions`), train_tasks "
-        "(List[Task]; each has `init`, `goal`, `goal_holds(state)`), "
-        "is_goal_state (callable: state, task_idx -> bool — do the goal "
-        "atoms hold in this one STATE; reaching the goal atoms does not "
-        "by itself mean solved), np, ParamSpec, and (when the "
-        "env defines task evaluators) evaluate_trajectory(states, "
-        "actions=None, task_idx=0) -> {reward, solved} — the env's "
-        "ground-truth episode scoring over a full TRAJECTORY. "
-        "print() output "
-        "is returned. The namespace persists across calls. If output "
-        "exceeds ~30k chars it is saved to "
-        "`tool_outputs/run_python/call_NNNN.txt` in the sandbox and only "
-        "a head/tail preview plus that path is returned — use Read/Grep "
-        "to inspect the full file. This does NOT define rules — write "
-        "`simulator.py` for that; the synthesis tools "
-        "(evaluate_step_fit, report_residuals, evaluate_plan_refinement) "
-        "load PROCESS_RULES, PARAM_SPECS, PROCESS_FEATURES from that "
-        "file.",
-        {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "string",
-                    "description": "Python code to execute.",
-                }
-            },
-            "required": ["code"],
-        },
+    run_python = _make_python_exec_tool(
+        tool,
+        name="run_python",
+        description=(
+            "Execute Python code for ad-hoc data exploration. Available "
+            "variables: trajectories (List[LowLevelTrajectory]; each has "
+            "`is_demo`, `train_task_idx`, `states`, `actions`), train_tasks "
+            "(List[Task]; each has `init`, `goal`, `goal_holds(state)`), "
+            "is_goal_state (callable: state, task_idx -> bool - do the goal "
+            "atoms hold in this one STATE; reaching the goal atoms does not "
+            "by itself mean solved), np, ParamSpec, and (when the "
+            "env defines task evaluators) evaluate_trajectory(states, "
+            "actions=None, task_idx=0) -> {reward, solved} - the env's "
+            "ground-truth episode scoring over a full TRAJECTORY. "
+            "print() output "
+            "is returned. The namespace persists across calls. If output "
+            "exceeds ~30k chars it is saved to "
+            "`tool_outputs/run_python/call_NNNN.txt` in the sandbox and only "
+            "a head/tail preview plus that path is returned - use Read/Grep "
+            "to inspect the full file. This does NOT define rules - write "
+            "`simulator.py` for that; the synthesis tools "
+            "(evaluate_step_fit, report_residuals, evaluate_plan_refinement) "
+            "load PROCESS_RULES, PARAM_SPECS, PROCESS_FEATURES from that "
+            "file."),
+        exec_ns=exec_ns,
+        sandbox_dir=sandbox_dir,
+        sandbox_dir_for_agent=sandbox_dir_for_agent,
+        text_result=_text,
     )
-    async def run_python(args: Dict[str, Any]) -> Dict[str, Any]:
-        code = args["code"]
-        # run_python execs in-process with full filesystem access, and the
-        # sandbox's PreToolUse file-path hook does not cover MCP tools, so
-        # screen the code here for out-of-sandbox reads / source
-        # introspection before executing (best-effort; see
-        # _screen_text_for_sandbox_escape).
-        if sandbox_dir is not None:
-            reason = _screen_text_for_sandbox_escape(code, sandbox_dir)
-            if reason is not None:
-                return _text(
-                    f"Error: sandbox guard blocked this code — {reason}. "
-                    "Read files with Read/Grep and use the MCP tools and "
-                    "./reference/ files instead.")
-        old_stdout = sys.stdout
-        sys.stdout = captured = io.StringIO()
-        try:
-            exec(code, exec_ns)  # pylint: disable=exec-used
-        except Exception:  # pylint: disable=broad-except
-            tb = traceback.format_exc()
-            return _text(f"Error:\n{tb}")
-        finally:
-            sys.stdout = old_stdout
-
-        output = captured.getvalue()
-        if not output:
-            return _text("(no output)")
-
-        if (len(output) <= _run_python_inline_char_limit
-                or _run_python_outputs_dir_host is None):
-            return _text(output)
-
-        _run_python_count[0] += 1
-        os.makedirs(_run_python_outputs_dir_host, exist_ok=True)
-        filename = f"call_{_run_python_count[0]:04d}.txt"
-        host_path = os.path.join(_run_python_outputs_dir_host, filename)
-        with open(host_path, "w", encoding="utf-8") as f:
-            f.write(output)
-
-        lines = output.splitlines()
-        total_lines = len(lines)
-        head = lines[:_run_python_preview_head_lines]
-        tail = (lines[-_run_python_preview_tail_lines:] if total_lines >
-                (_run_python_preview_head_lines +
-                 _run_python_preview_tail_lines) else [])
-        agent_path = (f"{_run_python_outputs_dir_agent}/{filename}"
-                      if _run_python_outputs_dir_agent else host_path)
-        preview_parts = [
-            f"[run_python output too large to inline: "
-            f"{len(output):,} chars across {total_lines:,} lines; "
-            f"full output saved to {agent_path}. Use Read/Grep to "
-            f"inspect, or rerun with narrower print() to keep results "
-            f"inline.]",
-            "",
-            f"--- head ({len(head)} lines) ---",
-            *head,
-        ]
-        if tail:
-            omitted = total_lines - len(head) - len(tail)
-            preview_parts.extend([
-                "",
-                f"... [{omitted:,} lines omitted] ...",
-                "",
-                f"--- tail ({len(tail)} lines) ---",
-                *tail,
-            ])
-        return _text("\n".join(preview_parts))
 
     # ── evaluate_step_fit ────────────────────────────────────────
 
