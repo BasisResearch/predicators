@@ -329,8 +329,8 @@ def test_option_plan_missing_goal_atoms(ctx: Any) -> None:
 
 def test_option_plan_description_submission_split(ctx: Any) -> None:
     """With explore_python on, evaluate_option_plan's description routes
-    exploration to the probe and frames this tool as the submission path;
-    with it off, the description is unchanged."""
+    exploration to the probe and frames this tool as the submission path; with
+    it off, the description is unchanged."""
     from predicators.agent_sdk.tools import create_mcp_tools
     prior = CFG.agent_planner_use_explore_python
     try:
@@ -349,9 +349,9 @@ def test_option_plan_description_submission_split(ctx: Any) -> None:
 
 
 def test_explore_python_render_annotations(ctx: Any) -> None:
-    """sim.render(annotations=...) overlays annotate_scene-format geometry
-    for one render (bodies removed after), sets the annotate handoff, and
-    surfaces bad annotations as loud errors."""
+    """sim.render(annotations=...) overlays annotate_scene-format geometry for
+    one render (bodies removed after), sets the annotate handoff, and surfaces
+    bad annotations as loud errors."""
     import os as _os
     import tempfile as _tempfile
     tools = _make_tools(ctx, ["explore_python"])
@@ -410,33 +410,52 @@ def test_explore_python_probe_sim(ctx: Any) -> None:
     domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
     robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
     ctx.capture_goal_reaching_plans = True
+    prior_dir = ctx.image_save_dir
     try:
-        code = f"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ctx.image_save_dir = tmpdir
+            code = f"""
 sim.reset(mods={{"{domino.name}": {{"x": 0.95}}}})
 print("modx", sim.state("{domino.name}")["x"])
 sid = sim.snapshot()
 out = sim.run("Wait({robot.name}:robot)[]")
 print("steps", len(out.steps))
+print("stepimg", out.steps[0]["image"])
+sim.restore(sid)
+quiet = sim.run("Wait({robot.name}:robot)[]", render=False)
+print("quietimg", quiet.steps[0]["image"])
 sim.restore(sid)
 print("restx", sim.state("{domino.name}")["x"])
 print("natoms", len(sim.atoms()))
 """
-        result = _run(tools["explore_python"]({"code": code}))
+            result = _run(tools["explore_python"]({"code": code}))
+            saved = [f for f in os.listdir(tmpdir) if f.endswith(".png")]
     finally:
         ctx.capture_goal_reaching_plans = False
+        ctx.image_save_dir = prior_dir
     text = result["content"][0]["text"]
     assert "modx 0.95" in text
     assert "steps 1" in text
     assert "restx 0.95" in text
     assert "natoms" in text
+    # sim.run saves the same per-step audit images evaluate_option_plan
+    # does, and reports their paths on each step; render=False (for
+    # tight sweep loops) skips the render entirely.
+    assert "quietimg None" in text
+    if saved:
+        assert any("probe_step_0_" in f for f in saved)
+        assert "stepimg " + os.path.join(tmpdir, "") in text
+        assert len(saved) == 1
+    else:
+        print("  NOTE: rendering not available, image save not checked")
     # The probe carries no scoring surface: nothing it ran was captured.
     assert ctx.solved_plan is None
     print("  PASS: explore_python (ProbeSim reset/run/snapshot, no capture)")
 
 
 def test_explore_python_probe_refine(ctx: Any) -> None:
-    """ProbeSim.refine searches params from the current state, reports
-    per-step samples and a refined plan line, and captures nothing."""
+    """ProbeSim.refine searches params from the current state, reports per-step
+    samples and a refined plan line, and captures nothing."""
     tools = _make_tools(ctx, ["explore_python"])
     domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
     robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
@@ -464,10 +483,12 @@ print("line", res.plan_lines[0])
 
 
 def test_explore_python_refine_require_solved_guards(ctx: Any) -> None:
-    """require_solved refuses to run from a modified start, and from a task
+    """require_solved refuses to run from a modified start, and from a task.
+
     with no evaluator - both before any search. (The gate's accept/reject
     semantics are covered deterministically in
-    test_bilevel_sketch_samplers.py with fake option models.)"""
+    test_bilevel_sketch_samplers.py with fake option models.)
+    """
     tools = _make_tools(ctx, ["explore_python"])
     domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
     robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
