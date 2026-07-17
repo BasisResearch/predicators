@@ -906,7 +906,14 @@ class PhaseSkill:
             planning_robot.set_joints(pb_state.joint_positions)
             client = sim._physics_client_id  # pylint: disable=protected-access
             p.performCollisionDetection(physicsClientId=client)
-            margin = CFG.pybullet_birrt_contact_margin
+            # Report against the wider (positive) threshold, mirroring
+            # _log_collision_diagnostics: pybullet_birrt_contact_margin is
+            # the NEGATIVE penetration allowance (-1mm), and a stall
+            # typically presses at ~0 separation - filtering by the
+            # negative margin would report nothing exactly when the agent
+            # needs the blocker named.
+            margin = max(CFG.pybullet_birrt_contact_margin,
+                         CFG.pybullet_birrt_bystander_clearance)
             touching = []
             for body in sorted(collision_bodies):
                 label = body_names.get(body, f"body {body}")
