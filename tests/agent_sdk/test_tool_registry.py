@@ -224,7 +224,7 @@ def test_explore_python_replaces_visualize_and_refine() -> None:
     assert "explore_python" in names
     assert "visualize_state" not in names
     assert "refine_plan_sketch" not in names
-    assert "annotate_scene" in names  # not subsumed (annotations)
+    assert "annotate_scene" not in names  # subsumed: sim.render(annotations)
 
     utils.reset_config({
         **base, "agent_planner_use_explore_python": True,
@@ -233,3 +233,4 @@ def test_explore_python_replaces_visualize_and_refine() -> None:
     names = obj._get_solve_tool_names()
     assert "explore_python" in names
     assert "visualize_state" in names and "refine_plan_sketch" in names
+    assert "annotate_scene" in names

@@ -348,6 +348,40 @@ def test_option_plan_description_submission_split(ctx: Any) -> None:
     print("  PASS: evaluate_option_plan (submission-split description)")
 
 
+def test_explore_python_render_annotations(ctx: Any) -> None:
+    """sim.render(annotations=...) overlays annotate_scene-format geometry
+    for one render (bodies removed after), sets the annotate handoff, and
+    surfaces bad annotations as loud errors."""
+    import os as _os
+    import tempfile as _tempfile
+    tools = _make_tools(ctx, ["explore_python"])
+    with _tempfile.TemporaryDirectory() as img_dir:
+        prior_dir = ctx.image_save_dir
+        ctx.image_save_dir = img_dir
+        try:
+            code = """
+sim.reset()
+path = sim.render("ann", annotations=[
+    {"type": "marker", "position": [0.5, 1.3, 0.5], "size": 0.02},
+    {"type": "line", "from": [0.4, 1.2, 0.5], "to": [0.6, 1.4, 0.5]},
+])
+print("saved", path is not None)
+"""
+            result = _run(tools["explore_python"]({"code": code}))
+            text = result["content"][0]["text"]
+            assert "saved True" in text
+            assert len(_os.listdir(img_dir)) == 1
+            # The staged state is handed to annotate_scene-style consumers.
+            assert ctx.visualized_state is not None
+            # A malformed annotation errors loudly (after cleanup).
+            bad = 'sim.render("bad", annotations=[{"type": "line"}])'
+            result = _run(tools["explore_python"]({"code": bad}))
+            assert "Error" in result["content"][0]["text"]
+        finally:
+            ctx.image_save_dir = prior_dir
+    print("  PASS: explore_python (annotated render)")
+
+
 def test_explore_python_unknown_mod_object(ctx: Any) -> None:
     """A reset() modification naming an unknown object is a loud error."""
     tools = _make_tools(ctx, ["explore_python"])

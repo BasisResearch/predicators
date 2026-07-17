@@ -1291,8 +1291,9 @@ class GlobalSettings:
     # Exploratory only: nothing run through it can be captured as the answer.
     agent_planner_use_explore_python = False
     # When explore_python is on, whether the tools it subsumes
-    # (visualize_state -> sim.reset(mods)+sim.render; refine_plan_sketch ->
-    # sim.refine) are STILL offered alongside it. Default False: one surface
+    # (visualize_state -> sim.reset(mods)+sim.render; annotate_scene ->
+    # sim.render(annotations=...); refine_plan_sketch -> sim.refine) are
+    # STILL offered alongside it. Default False: one surface
     # per capability, so the agent's habits don't split across redundant
     # tools. No effect when agent_planner_use_explore_python is False.
     agent_planner_explore_python_keep_replaced_tools = False

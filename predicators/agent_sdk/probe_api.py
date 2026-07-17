@@ -270,17 +270,55 @@ class ProbeSim:
                  | self._ctx.iteration_proposals.proposed_predicates)
         return [str(a) for a in sorted(utils.abstract(cur, preds))]
 
-    def render(self, label: str = "probe") -> Optional[str]:
-        """Render the current state; returns the saved image path."""
-        # pylint: disable-next=import-outside-toplevel
-        from predicators.agent_sdk.tools import _render_pybullet_image
+    def render(
+            self,
+            label: str = "probe",
+            annotations: Optional[List[Dict[str,
+                                            Any]]] = None) -> Optional[str]:
+        """Render the current state; returns the saved image path.
+
+        ``annotations`` overlays temporary geometry for this render only
+        (the annotate_scene format): dicts with ``type`` of ``marker``
+        (``position`` [x, y, z]), ``line`` (``from``/``to``), or
+        ``rectangle`` (``min_corner``/``max_corner``), plus optional
+        ``color`` [r, g, b], ``size``, and ``label`` text. Use it to
+        mark candidate positions, offsets, and reference points on the
+        staged scene.
+        """
+        # pylint: disable=import-outside-toplevel
+        import pybullet as pb
+
+        from predicators.agent_sdk.tools import _draw_pybullet_annotation, \
+            _render_pybullet_image
+
+        # pylint: enable=import-outside-toplevel
         ctx = self._ctx
         cur = self._require_state()
         ctx.test_call_id += 1
-        img = _render_pybullet_image(ctx, f"probe_{label}", state=cur)
+        if annotations:
+            if ctx.env is None:
+                raise ValueError("No environment available for rendering.")
+            ctx.env._set_state(cur)  # pylint: disable=protected-access
+            physics_id = ctx.env._physics_client_id  # pylint: disable=protected-access
+            debug_ids: List[int] = []
+            try:
+                for ann in annotations:
+                    debug_ids.extend(_draw_pybullet_annotation(
+                        ann, physics_id))
+                img = _render_pybullet_image(ctx, f"probe_{label}")
+            finally:
+                # Remove only the drawn bodies (never the env's own),
+                # also on a bad-annotation error mid-draw.
+                for body_id in debug_ids:
+                    try:
+                        pb.removeBody(body_id, physicsClientId=physics_id)
+                    except Exception:  # pylint: disable=broad-except
+                        pass
+        else:
+            img = _render_pybullet_image(ctx, f"probe_{label}", state=cur)
         # Same handoff visualize_state provides: a later annotate_scene
-        # call draws on the state the agent just staged and rendered,
-        # not on the pristine task init.
+        # call (when offered) draws on the state the agent just staged
+        # and rendered, not on the pristine task init.
         ctx.visualized_state = cur
         return img.get("saved_path") if img else None
 

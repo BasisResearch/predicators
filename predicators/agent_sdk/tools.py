@@ -89,7 +89,8 @@ def explore_python_replaces_tools() -> bool:
     """Whether explore_python replaces the tools it subsumes this session.
 
     The single definition of the tool-roster policy (visualize_state ->
-    ``sim.reset(mods)`` + ``sim.render``; refine_plan_sketch ->
+    ``sim.reset(mods)`` + ``sim.render``; annotate_scene ->
+    ``sim.render(annotations=...)``; refine_plan_sketch ->
     ``sim.refine``): the approaches' tool lists and every prompt surface
     read this one predicate, so the offered tools and the guidance that
     names them cannot drift apart.
@@ -3132,7 +3133,12 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
             "STATE (same grammar as evaluate_option_plan; print the result "
             "for per-step outcomes) and advances the state; `sim.state()` / "
             "`sim.state('obj')` full-precision features; `sim.atoms()`; "
-            "`sim.render(label)` saves an image; `sim.snapshot()` / "
+            "`sim.render(label, annotations=None)` saves an image, "
+            "optionally overlaying marker/line/rectangle dicts "
+            "(`{'type': 'marker', 'position': [x, y, z], 'color': "
+            "[r, g, b], 'size': s}`; lines use `from`/`to`, rectangles "
+            "`min_corner`/`max_corner`) to check offsets and reference "
+            "points visually; `sim.snapshot()` / "
             "`sim.restore(id)` bank and rewind states (use to re-try "
             "different actions from one setup, or resume after a fixed "
             "plan prefix without re-running it); "

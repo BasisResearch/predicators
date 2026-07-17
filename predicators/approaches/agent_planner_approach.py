@@ -318,7 +318,8 @@ scene, then annotate_scene overlays markers on it."""
                          and CFG.agent_planner_use_visualize_state
                          and not explore_python_replaces_tools())
         use_annotate = (CFG.agent_planner_use_simulator
-                        and CFG.agent_planner_use_annotate_scene)
+                        and CFG.agent_planner_use_annotate_scene
+                        and not explore_python_replaces_tools())
 
         sections = [self._SYSTEM_PROMPT_BASE]
 
@@ -424,11 +425,13 @@ scene, then annotate_scene overlays markers on it."""
         # is exposed only by AgentBilevelApproach.)
         if CFG.agent_planner_use_simulator:
             tools.append("evaluate_option_plan")
-            if CFG.agent_planner_use_annotate_scene:
-                tools.append("annotate_scene")
-            # explore_python subsumes visualize_state (sim.reset(mods) +
+            # explore_python subsumes annotate_scene (sim.render with
+            # annotations) and visualize_state (sim.reset(mods) +
             # sim.render); when it replaces the subsumed tools (see
-            # explore_python_replaces_tools), visualize_state is dropped.
+            # explore_python_replaces_tools), both are dropped.
+            if CFG.agent_planner_use_annotate_scene and \
+                    not explore_python_replaces_tools():
+                tools.append("annotate_scene")
             if CFG.agent_planner_use_visualize_state and \
                     not explore_python_replaces_tools():
                 tools.append("visualize_state")
