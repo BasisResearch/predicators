@@ -424,6 +424,78 @@ def resolve_asset(ref: str, run_rel: str) -> Optional[str]:
     return None
 
 
+def _image_size_uncached(path: str) -> Optional[Tuple[int, int]]:
+    """Pixel (width, height) parsed from the file header, or None."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(32)
+            if head[:8] == b"\x89PNG\r\n\x1a\n" and head[12:16] == b"IHDR":
+                return (int.from_bytes(head[16:20], "big"),
+                        int.from_bytes(head[20:24], "big"))
+            if head[:6] in (b"GIF87a", b"GIF89a"):
+                return (int.from_bytes(head[6:8], "little"),
+                        int.from_bytes(head[8:10], "little"))
+            if head[:2] == b"BM":
+                return (int.from_bytes(head[18:22], "little"),
+                        abs(int.from_bytes(head[22:26], "little",
+                                           signed=True)))
+            if head[:2] == b"\xff\xd8":  # JPEG: scan segments for a SOF.
+                f.seek(2)
+                while True:
+                    byte = f.read(1)
+                    if not byte:
+                        return None
+                    if byte != b"\xff":
+                        continue
+                    marker = f.read(1)
+                    while marker == b"\xff":
+                        marker = f.read(1)
+                    if not marker:
+                        return None
+                    code = marker[0]
+                    # Standalone markers carry no length field.
+                    if code in (0x01, 0xD8) or 0xD0 <= code <= 0xD7:
+                        continue
+                    if code in (0xD9, 0xDA):  # EOI / start of scan data.
+                        return None
+                    len_bytes = f.read(2)
+                    if len(len_bytes) < 2:
+                        return None
+                    length = int.from_bytes(len_bytes, "big")
+                    if length < 2:  # corrupt; would seek backwards
+                        return None
+                    if 0xC0 <= code <= 0xCF and code not in (0xC4, 0xC8, 0xCC):
+                        body = f.read(5)
+                        if len(body) < 5:
+                            return None
+                        return (int.from_bytes(body[3:5], "big"),
+                                int.from_bytes(body[1:3], "big"))
+                    f.seek(length - 2, 1)
+    except OSError:
+        pass
+    return None
+
+
+def size_attrs(path: str) -> str:
+    """width/height attributes for an <img> tag, or "" if unknown.
+
+    Lazy-loaded images otherwise occupy no space until fetched, so a
+    reloaded page is far shorter than it was and restoring the saved
+    scrollTop clamps to the bottom. Intrinsic dimensions let the browser
+    reserve the exact layout before any image loads.
+    """
+    dims = _cached(path, _image_size_uncached)
+    return f" width='{dims[0]}' height='{dims[1]}'" if dims else ""
+
+
+def size_attrs_for_url(url: Optional[str]) -> str:
+    """size_attrs for a /raw image URL as built by resolve_asset."""
+    if not url or not url.startswith("/raw?p="):
+        return ""
+    path = safe_join(urllib.parse.unquote(url[len("/raw?p="):]))
+    return size_attrs(path) if path else ""
+
+
 def thumbs_for_paths(text: str, run_rel: str, cap: int = 24) -> str:
     """Row of thumbnail links for up to cap image paths found in text."""
     seen, out = set(), []
@@ -432,7 +504,8 @@ def thumbs_for_paths(text: str, run_rel: str, cap: int = 24) -> str:
         if url and url not in seen:
             seen.add(url)
             out.append(f'<a class="thumb" href="{url}" target="_blank">'
-                       f'<img loading="lazy" src="{url}"></a>')
+                       f'<img loading="lazy"{size_attrs_for_url(url)} '
+                       f'src="{url}"></a>')
         if len(out) >= cap:
             break
     if not out:
@@ -462,13 +535,15 @@ def render_inline(line: str, run_rel: str) -> str:
         url = resolve_asset(content, run_rel)
         if url and os.path.splitext(content)[1].lower() in IMG_EXTS:
             frag += (f' <a class="thumb inline" href="{url}" target="_blank">'
-                     f'<img loading="lazy" src="{url}"></a>')
+                     f'<img loading="lazy"{size_attrs_for_url(url)} '
+                     f'src="{url}"></a>')
         return stash(frag)
 
     def sub_img(m: re.Match[str]) -> str:
         alt, src = m.group(1), m.group(2)
         url = resolve_asset(src, run_rel) or esc(src)
-        return stash(f'<img class="mdimg" loading="lazy" '
+        return stash(f'<img class="mdimg" loading="lazy"'
+                     f'{size_attrs_for_url(url)} '
                      f'alt="{esc(alt)}" src="{url}">')
 
     def sub_link(m: re.Match[str]) -> str:
@@ -812,10 +887,13 @@ table.epgrid td { border: none; padding: 1px 0; line-height: 20px;
 .sidebar details summary { cursor: pointer; font-size: 13px;
   color: var(--muted); }
 .thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
-.thumb img { height: 110px; border: 1px solid var(--border);
+/* width/height attrs on <img> reserve layout space before lazy images
+   load (needed for exact scroll restore); auto on the free axis keeps
+   the aspect ratio instead of taking the attr value literally. */
+.thumb img { height: 110px; width: auto; border: 1px solid var(--border);
   border-radius: 4px; }
-.thumb.inline img { height: 60px; vertical-align: middle; }
-img.mdimg { max-width: 480px; max-height: 400px;
+.thumb.inline img { height: 60px; width: auto; vertical-align: middle; }
+img.mdimg { max-width: 480px; max-height: 400px; height: auto;
   border: 1px solid var(--border); border-radius: 6px; display: block;
   margin: 6px 0; }
 /* A test and a failure video can both exist for one task, so the players
@@ -830,7 +908,7 @@ figure.vid figcaption { font-size: 11px; margin-top: 4px; }
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
 .gallery a { text-align: center; font-size: 11px; color: var(--muted);
   overflow-wrap: anywhere; }
-.gallery img { width: 100%; border: 1px solid var(--border);
+.gallery img { width: 100%; height: auto; border: 1px solid var(--border);
   border-radius: 4px; }
 pre.logview { white-space: pre-wrap; overflow-wrap: anywhere; }
 .diff .add { background: var(--add); display: block; }
@@ -979,8 +1057,11 @@ function loadHash() {
     }
     var want = (r && typeof r.content === 'number') ? r.content : 0;
     content.scrollTop = want;
-    if (want) {
-      // Lazy images may not have expanded the pane yet; re-apply once.
+    if (want && content.scrollTop < want) {
+      // The set clamped: some content (images without intrinsic sizes,
+      // videos) has not laid out yet; re-apply once. When the first set
+      // sticks, no timer runs, so a user scrolling right away is not
+      // yanked back.
       setTimeout(function() {
         if (content.scrollTop < want) content.scrollTop = want;
       }, 400);
@@ -1605,8 +1686,8 @@ def view_fragment(run_rel: str, file_rel: str) -> str:
     header = (f"<h2>{esc(file_rel)} <a class='muted' style='font-size:12px' "
               f"href='{raw_url}' target='_blank'>raw</a></h2>")
     if ext in IMG_EXTS:
-        return header + (f"<img class='mdimg' style='max-width:96%' "
-                         f"src='{raw_url}'>")
+        return header + (f"<img class='mdimg' style='max-width:96%'"
+                         f"{size_attrs(file_abs)} src='{raw_url}'>")
     if ext in VIDEO_EXTS:
         return header + (f"<video controls style='max-width:96%' "
                          f"src='{raw_url}'></video>")
@@ -1713,7 +1794,9 @@ def gallery_fragment(run_rel: str, dir_rel: str) -> str:
             rel = os.path.relpath(os.path.join(dir_abs, f), root)
             url = "/raw?p=" + q(rel.replace(os.sep, "/"))
             cells.append(f"<a class='shot' href='{url}' target='_blank'>"
-                         f"<img loading='lazy' src='{url}'><br>{esc(f)}</a>")
+                         f"<img loading='lazy'"
+                         f"{size_attrs(os.path.join(dir_abs, f))} "
+                         f"src='{url}'><br>{esc(f)}</a>")
         open_attr = " open" if len(groups) == 1 else ""
         cells_html = "".join(cells)
         out.append(f"<details{open_attr}><summary>{esc(gname)} "
