@@ -8,45 +8,53 @@ dominoes knock each other over -> target falls": pushing a placed blue
 directly, sweeping the target with the gripper or a carried block
 during Place, knocking the target while an option flails, relocating
 the green start block (or the targets themselves) to skip the chain,
-and toppling a block with the robot's body during or right after the
-Push so the arm - not the cascade - supplies the energy.
+and toppling a block with the robot's body so the arm - not the
+cascade - supplies the energy.
 
-The certificate decides legitimacy in three layers:
+The certificate decides legitimacy in two layers:
 
-1. **Pre-push integrity** (pure state/action rules): until the first
-   Push on the green start block, the scene must stay as staged -
-   nothing topples, no non-movable domino is held or drifts from its
-   staged pose - and the green block must fall during a Push on it.
-   Only the green may ever be the target of a Push.
-2. **Cascade timing** (pure state rule): every later topple onset must
-   fall within ``CASCADE_WINDOW_STEPS`` of an earlier one, so a block
-   knocked over long after the cascade settled (an arm flail, a late
-   nudge) cannot ride on a stale push.
-3. **The counterfactual push probe** (physics, via the injected
-   ``probe``): from the recorded pre-push state, a motorized
-   disembodied finger re-runs the episode's own Push - the skill's
-   waypoint path with the plan's recorded continuous parameters - in a
-   dedicated same-physics world with the robot arm parked (see
+1. **Staging integrity** (pure state/action rules): only the blue
+   movable dominoes are the robot's to rearrange. Until the first Push
+   on the green start block, the scene must stay as staged - nothing
+   topples, and every non-movable domino (the green, the targets,
+   heavy blocks) is never held, stays within ``_stage_tolerance()`` of
+   its staged xy, and stands upright (below the tilting band, so a
+   pre-tilted target cannot hand the probe a half-fallen scene). Only
+   the green may ever be the target of a Push, and once anything
+   topples such a Push must exist.
+2. **The counterfactual push probe** (physics, via the injected
+   ``probe``): on goal-reaching episodes, the episode's own Push skill
+   re-runs from the recorded pre-push state - the real controller with
+   the plan's recorded continuous parameters - in a dedicated
+   same-physics world where only the robot's fingertips can touch
+   anything (the arm's body is collision-masked; see
    ``cascade_probe``). The goal atoms must topple under that push.
-   This replaces the old swept-corridor /
-   shoved-relay / robot-strike attribution rules: instead of guessing
-   from geometry whether the arm or the cascade toppled each block -
-   a forensic call that produced both misses and false rejections
-   (run_20260715_220941: a genuine green-on-blue knock measured 7 mm
-   of modeled corridor clearance with the end-effector nearby and was
-   charged to the robot) - the probe answers the only question that
-   matters: does the layout the robot built actually cascade to the
-   goal under a clean push? Arm collateral cannot help (the probe has
-   no arm), so any hack that needs the robot's body to reach the goal
-   fails the probe.
 
-Layers 1 and 2 are pure functions over ``State`` sequences and run
-identically everywhere; layer 3 needs a physics rollout, so the caller
+The probe is the sole authority on HOW the goal fell: it re-derives
+the outcome from the staged layout and the push alone, so anything the
+real episode does after the push - a stalled hop, arm contact, a late
+topple - neither earns nor voids the bonus. This replaced first the
+old swept-corridor / shoved-relay / robot-strike attribution rules and
+then the interim green-first / onset-chaining timing rules: forensic
+reconstruction of per-block causality produced both misses and false
+rejections (run_20260715_220941: a genuine green-on-blue knock
+measured 7 mm of modeled corridor clearance with the end-effector
+nearby and was charged to the robot; same-step onset ties on corner
+layouts), while the probe answers the only question that matters -
+does the layout the robot built actually cascade to the goal under a
+clean push? Arm collateral cannot help (the probe's arm is
+intangible), so any hack that needs the robot's body to reach the goal
+fails the probe. The deliberate flip side: a working layout certifies
+even if the real episode also used the arm after the push - the bonus
+rewards the layout, which the probe verifies, not the execution.
+
+Layer 1 is a pure function over ``State`` sequences and runs
+identically everywhere; layer 2 needs a physics rollout, so the caller
 injects ``probe`` (``DominoEvaluator`` binds it from the certifying
 env - the true env env-side, the agent's belief env in sandbox
-verdicts, each side probing with its own physics). When no probe is
-available the certificate runs layers 1-2 only and logs that the
-counterfactual was skipped.
+verdicts, each side probing with its own physics). A goal-reaching
+episode with no probe available fails closed: with the forensic rules
+gone, an uncertifiable success must not score.
 """
 
 import logging
@@ -56,13 +64,6 @@ from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
 from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
 from predicators.structs import GroundAtom, Object, State, StepOption
-
-# A toppling domino knocks its successor within a fraction of a second;
-# one env step is CFG.pybullet_sim_steps_per_action (20) PyBullet
-# substeps at 1/240 s ~= 0.083 s, so 24 steps ~= 2.0 s is a generous
-# upper bound on one cascade hop. A larger gap means the "predecessor"
-# had already settled and cannot have supplied the energy.
-CASCADE_WINDOW_STEPS = 24
 
 # The name of the option through which the robot is allowed to topple
 # the green start block.
@@ -267,46 +268,36 @@ def check_cascade_legitimacy(
     """Certify that the episode's topples are a genuine push-seeded cascade.
 
     Rules (any violation fails the whole episode):
-      (a0) nothing topples before the robot's first Push on the green
-           start block, and topples imply such a Push exists; the Push
-           option is only ever legal on the green - a Push that names
-           any other domino fails outright;
-      (a1) the green block's own fall begins during (or within one
-           cascade window after) a Push on it - not during a Pick/Place
-           sweep;
-      (a2) no non-movable domino - the green start block, the targets,
-           heavy blocks - is ever held before its topple onset: only
-           the blue movable blocks are the robot's to carry (holds
-           after a block has fallen are post-success fiddling and stay
-           legal);
-      (a3) every non-movable domino is toppled where it stands: at the
-           cascade's start it must be within ``_stage_tolerance()`` of
-           its staged (initial) xy;
-      (a)  the green block is the first domino to start falling (ties
-           allowed);
-      (b)  every topple onset chains in time: each non-green onset lies
-           within ``CASCADE_WINDOW_STEPS`` of an earlier onset, so a
-           block knocked over after the cascade already settled (a
-           flail, a late nudge, spontaneous instability) is rejected
-           without any geometric attribution;
-      (c)  when the goal atoms hold at the episode's end, the injected
-           counterfactual ``probe`` must reproduce the cascade: a
-           motorized disembodied finger re-running the episode's own
-           Push (skill waypoint path, the plan's recorded continuous
-           parameters) on the green(s) from the recorded pre-push
-           state - same physics, robot arm parked - must reach the
-           goal atoms. This is the layer that separates "the layout
-           works" from "the robot's body made it work" (see the module
-           docstring); it runs only on goal-reaching episodes because
-           only those have a success bonus at stake.
+      (a)  the Push option is only ever legal on the green start block -
+           a Push that names any other domino fails outright - and once
+           anything topples, a Push on the green must exist;
+      (b)  nothing topples before the robot's first Push on the green:
+           the scene must stay standing until the push;
+      (c)  every non-movable domino - the green start block, the
+           targets, heavy blocks - is at its staged pose when the push
+           happens: never held up to that point, within
+           ``_stage_tolerance()`` of its staged xy, and upright (below
+           the tilting band, so a pre-tilted block cannot hand the
+           probe a half-fallen scene). Only the blue movable blocks are
+           the robot's to carry and place;
+      (d)  when the goal atoms hold at the episode's end, the injected
+           counterfactual ``probe`` must reproduce the cascade: the
+           episode's own Push skill re-run (real controller, the
+           plan's recorded continuous parameters) on the green(s) from
+           the recorded pre-push state - same physics, only the
+           fingertips collidable - must reach the goal atoms. The probe
+           alone decides how the goal fell (see the module docstring);
+           it runs only on goal-reaching episodes because only those
+           have a success bonus at stake, and a goal-reaching episode
+           with no probe available fails closed.
 
     ``step_options`` labels each transition ``states[t] -> states[t+1]``
     (action index ``t``) with the producing option; when it is None the
-    action rules (a0)/(a1) are skipped, only the kinematic rules apply,
-    and the probe falls back to the state just before the first topple
-    onset as its pre-push state. ``goal`` feeds the probe's success
-    check and the error messages - all dominoes are held to the same
-    rules.
+    action rules (a)/(b) are skipped, the staging rule anchors to the
+    state just before the first topple onset, and the probe falls back
+    to that state as its pre-push state. ``goal`` feeds the probe's
+    success check and the error messages - all dominoes are held to the
+    same rules.
 
     Returns ``(ok, reason)`` with a human-readable reason on failure.
     """
@@ -337,41 +328,8 @@ def check_cascade_legitimacy(
         toppled = sorted(d.name for d in onsets)
         return False, (f"{', '.join(toppled)} toppled but there is no green "
                        "start block in the scene to seed a cascade")
-    cascade_start = min(onsets.values())
 
-    # Rule (a2): no non-movable domino is ever held before its topple
-    # onset. Holds after a block has fallen cannot have seeded or staged
-    # anything, so they stay legal - episodes routinely continue past
-    # the goal (terminate_on_goal_reached=False) and post-success
-    # fiddling must not void an already-legitimate cascade.
-    for d in non_movables:
-        # Scan up to this block's own onset; a block that never falls
-        # is held to the cascade's start (holding it afterwards cannot
-        # have seeded or staged anything).
-        horizon = onsets[d] + 1 if d in onsets else cascade_start
-        for t in range(horizon):
-            if states[t].get(d, "is_held") > 0.5:
-                return False, (
-                    f"the {_role_label(states[0], d)} {d.name} was picked up "
-                    f"(held at step {t}, before it fell) - only the blue "
-                    "movable blocks may be carried; it must be toppled where "
-                    "it stands, not relocated")
-
-    # Rule (a3): every non-movable domino is still at its staged pose
-    # when the cascade starts.
-    stage_tol = _stage_tolerance()
-    for d in non_movables:
-        start_state = states[min(cascade_start, len(states) - 1)]
-        drift = math.hypot(
-            start_state.get(d, "x") - states[0].get(d, "x"),
-            start_state.get(d, "y") - states[0].get(d, "y"))
-        if drift > stage_tol:
-            return False, (
-                f"the {_role_label(states[0], d)} {d.name} moved "
-                f"{drift:.2f} m from its staged pose before the cascade "
-                "started - only the blue movable blocks may be rearranged")
-
-    # Action rules (a0)/(a1).
+    # Action rules (a)/(b).
     pre_push_idx: Optional[int] = None
     pushed_greens: List[Object] = list(greens)
     push_params: Optional[Tuple[float, ...]] = None
@@ -410,54 +368,51 @@ def check_cascade_legitimacy(
                     "green start block was first pushed (step "
                     f"{first_push + 1}) - the scene must stay standing "
                     "until the push")
-        for g in greens:
-            if g not in onsets:
-                continue
-            t_g = onsets[g]
-            if not any(start + 1 <= t_g <= end + 1 + CASCADE_WINDOW_STEPS
-                       for start, end in spans):
+    if pre_push_idx is None:
+        # Label-free fallback: anchor to the state just before the
+        # first fall.
+        pre_push_idx = max(min(onsets.values()) - 1, 0)
+    pre_push_idx = min(pre_push_idx, len(states) - 1)
+    pre_push = states[pre_push_idx]
+
+    # Rule (c): staging integrity of every non-movable domino at the
+    # pre-push snapshot. Measured here rather than per-onset: robot
+    # staging necessarily precedes the push, while everything the
+    # cascade itself does to a block (shoves, slides, topples) happens
+    # after it, so the pre-push snapshot cleanly separates the two.
+    stage_tol = _stage_tolerance()
+    for d in non_movables:
+        for t in range(pre_push_idx + 1):
+            if states[t].get(d, "is_held") > 0.5:
                 return False, (
-                    f"the green start block {g.name} started falling at "
-                    f"step {t_g}, outside any Push on it - it must be "
-                    "toppled by the Push, not by other robot motion")
-
-    # Rule (a): green first (ties allowed).
-    min_onset = min(onsets.values())
-    if not any(g in onsets and onsets[g] == min_onset for g in greens):
-        earliest = min((d for d in onsets if d not in greens),
-                       key=lambda d: (onsets[d], d.name))
-        green_str = " and ".join(g.name for g in greens)
-        return False, (
-            f"{earliest.name} started falling at step {onsets[earliest]} "
-            f"before the green start block ({green_str}) - the cascade "
-            "must start from the green block")
-
-    # Rule (b): cascade timing. Every non-green onset must lie within
-    # one cascade window of an EARLIER onset (ties allowed): energy can
-    # only flow from a block that was already falling. Green onsets are
-    # anchored to their push spans by rule (a1) instead.
-    onset_times = sorted(onsets.values())
-    for d, t in sorted(onsets.items(), key=lambda kv: (kv[1], kv[0].name)):
-        if d in greens:
-            continue
-        if not any(t_prev <= t <= t_prev + CASCADE_WINDOW_STEPS
-                   for t_prev in onset_times if t_prev < t) \
-                and not any(onsets[g] == t for g in greens if g in onsets):
+                    f"the {_role_label(states[0], d)} {d.name} was picked up "
+                    f"(held at step {t}, before the push) - only the blue "
+                    "movable blocks may be carried; it must be toppled where "
+                    "it stands, not relocated")
+        drift = math.hypot(
+            pre_push.get(d, "x") - states[0].get(d, "x"),
+            pre_push.get(d, "y") - states[0].get(d, "y"))
+        if drift > stage_tol:
             return False, (
-                f"{d.name} started falling at step {t}, more than "
-                f"{CASCADE_WINDOW_STEPS} steps after every earlier fall - "
-                "it was not knocked over by the push's cascade")
+                f"the {_role_label(states[0], d)} {d.name} moved "
+                f"{drift:.2f} m from its staged pose before the push - "
+                "only the blue movable blocks may be rearranged")
+        lean = abs(pre_push.get(d, "roll"))
+        if lean >= DominoComponent.domino_roll_threshold:
+            return False, (
+                f"the {_role_label(states[0], d)} {d.name} was leaning "
+                f"{math.degrees(lean):.1f} deg when the push happened - "
+                "it must still stand upright as staged; a pre-tilted "
+                "block is a disturbed scene, not a cascade")
 
-    # Rule (c): the counterfactual push probe, on goal-reaching episodes.
+    # Rule (d): the counterfactual push probe, on goal-reaching episodes.
     if not all(atom.holds(states[-1]) for atom in goal):
         return True, ""
     if probe is None:
-        logging.debug(
-            "[cascade certificate] no counterfactual probe available; "
-            "accepting on the pure rules only.")
-        return True, ""
-    if pre_push_idx is None:
-        pre_push_idx = max(cascade_start - 1, 0)
+        return False, (
+            "the goal atoms hold, but no counterfactual push probe is "
+            "available to verify the cascade - an unverifiable success "
+            "cannot be certified (bind sim_env at the evaluator call site)")
     ok, detail = probe(states[pre_push_idx], pushed_greens, goal, push_params)
     if not ok:
         return False, (

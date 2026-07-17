@@ -33,6 +33,7 @@ from predicators.agent_sdk.response_parser import parse_message
 from predicators.agent_sdk.sandbox_prompts import build_claude_md, \
     build_sandbox_system_prompt, find_repo_root, setup_sandbox_directory, \
     truncate
+from predicators.agent_sdk.thinking import resolve_thinking_config
 from predicators.agent_sdk.tools import BUILTIN_TOOLS, ToolContext, \
     session_log_filename
 from predicators.settings import CFG
@@ -183,10 +184,11 @@ class LocalSandboxSessionManager:
         allowed_tools = BUILTIN_TOOLS + mcp_tool_list
 
         extra_hooks = dict(self._tool_context.extra_session_hooks or {})
-        # Adaptive thinking: the model decides when and how much to think.
-        # budget_tokens is rejected (400) on claude-sonnet-5 and later;
-        # thinking depth is controlled via `effort` below.
-        thinking = {"type": "adaptive"}
+        # Model-dependent thinking config: adaptive on sonnet-5+ (where
+        # budget_tokens is rejected with a 400 and depth is controlled via
+        # `effort` below), manual extended thinking with a fixed budget on
+        # older models like claude-sonnet-4-6.
+        thinking = resolve_thinking_config(self._model_name)
         # Reasoning effort: pass through to the agent when set to one of the
         # SDK's accepted levels; "" / "default" leaves it unset.
         effort = CFG.agent_sdk_reasoning_effort.strip().lower()

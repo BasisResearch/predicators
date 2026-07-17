@@ -43,6 +43,8 @@ from predicators.agent_sdk.log_formatter import \
     format_conversation_markdown  # noqa: E402
 from predicators.agent_sdk.response_parser import parse_message  # noqa: E402
 from predicators.agent_sdk.sandbox_prompts import truncate  # noqa: E402
+from predicators.agent_sdk.thinking import \
+    resolve_thinking_config  # noqa: E402
 from predicators.agent_sdk.tools import BUILTIN_TOOLS  # noqa: E402
 
 
@@ -72,9 +74,11 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
     mcp_tool_list = get_allowed_tool_list(tool_names)
     allowed_tools = BUILTIN_TOOLS + mcp_tool_list
 
-    # Adaptive thinking: budget_tokens is rejected (400) on claude-sonnet-5
-    # and later; thinking depth is controlled via reasoning_effort.
-    thinking = {"type": "adaptive"}
+    # Model-dependent thinking config: adaptive on sonnet-5+ (where
+    # budget_tokens is rejected with a 400 and depth is controlled via
+    # reasoning_effort), manual extended thinking with a fixed budget on
+    # older models like claude-sonnet-4-6.
+    thinking = resolve_thinking_config(query_input["model_name"])
     # Reasoning effort: one of the SDK levels, or unset for ""/"default".
     effort = str(query_input.get("reasoning_effort", "")).strip().lower()
     reasoning_effort = (effort if effort in {"low", "medium", "high", "max"}

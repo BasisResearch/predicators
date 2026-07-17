@@ -3,49 +3,50 @@
 The certificate's legitimacy question is "does the layout the robot
 built actually work as a domino cascade?", and this module answers it
 by physics instead of geometric forensics: from the recorded pre-push
-state it re-runs the episode's own Push with a disembodied finger - a
-dynamic fingertip-sized box driven along the Push skill's waypoint
-path with the plan's recorded continuous parameters - and reports
-whether the goal atoms hold after the cascade settles. The robot's arm
-never moves, so collateral arm contact (the confound the old
-swept-corridor attribution rules had to guess at) cannot contribute:
-if the goal topples in the probe, the layout genuinely cascades; if it
-never does, the real episode's topples are owed to the robot's body,
-not the built chain.
+state it re-runs the episode's own Push - the REAL Push skill, with the
+episode's recorded continuous parameters - in a probe world where every
+robot link except the two fingertips has its collision geometry masked
+off. The skill's controller, waypoint path, speed profile, and
+follow-through are exactly the plan's own; the arm's body is
+intangible, so collateral arm contact (the confound the old
+swept-corridor attribution rules had to guess at) cannot contribute: if
+the goal topples in the probe, the layout genuinely cascades under the
+legal fingertip push; if it never does, the real episode's topples are
+owed to the robot's body, not the built chain.
 
-Fidelity to the skill (``ground_truth_models/skill_factories/push.py``):
-the finger materializes at the skill's behind-transport waypoint,
-descends to contact height behind the green, and strokes to the
-block's center xy - the same three pre-retreat waypoints, computed
-with the same ``facing = (sin yaw, cos yaw)`` geometry and the
-episode's actual ``(approach_distance, contact_z_offset)`` when the
-step labels carry them. The finger is driven through a pose constraint
-(a motor, not a teleport), so when the stroke ends at the block's
-center it keeps PRESSING exactly like the arm's position-controlled
-motors do - the follow-through that decides marginal topples. The two
-deliberate departures are the collateral-only segments: there is no
-arm body, and the retreat is a straight lift instead of the skill's
-home sweep (the recorded arm-knock hacks live in the descent sweep of
-the gripper BODY and the retreat - neither ever contributes to the
-intended topple).
+This replaced an earlier synthetic finger-box replay (a fingertip-sized
+box driven along hand-computed waypoints): instrumented replays of
+run_20260716_133656 showed the box under-delivering so badly that the
+pushed green never crossed 11 deg while the real skill toppled it every
+time - two genuine cascades were rejected, and the agent misread the
+rejections as a scoring rule. Executing the actual skill removes the
+whole fidelity gap by construction.
+
+The replay stops when the skill advances past its push stroke
+(Waypoint_2): the closing home-sweep retreat and OpenFingers phases are
+deliberately excluded because a fingertip retreat knock is collateral,
+not the built chain - with them included a retreat graze could certify
+a layout that never cascades. During the settle window the arm holds
+the stroke's final commanded pose, exactly like the skill's
+position-controlled motors dwell before retreating.
 
 Corner layouts are contact-history knife-edge (see
 ``min_block_utils``), and a single replay can diverge from the real
-rollout in either direction, so the probe retries the SAME push at a
-few stroke speeds (execution-noise bracket, not different pushes) and
-certifies on the first success. Everything is deterministic: no RNG,
-fixed schedule, velocities zeroed before every attempt.
+rollout in either direction (residual solver state is the one quantity
+``_set_state`` cannot pin down), so the probe retries the SAME replay a
+few times and certifies on the first success. Velocities are zeroed
+before every attempt.
 
 The probe runs in a dedicated probe env - a fresh instance of the
 certifying env's class, physics mirrored via
 ``DominoComponent.physical_param_override`` - so it never contaminates
-the certifying env's world (cross-episode residuals) and stays valid
-for both the true env and an agent's belief env: each side probes with
-its own physics, which is exactly the trust contract of belief-side
-verdicts. States transfer between the worlds by the same mechanism the
-option model relies on: same-class envs build the same body pool in
-the same order, so the pybullet ids stamped on the state's objects
-coincide.
+the certifying env's world (cross-episode residuals, the collision
+masks) and stays valid for both the true env and an agent's belief env:
+each side probes with its own physics, which is exactly the trust
+contract of belief-side verdicts. States transfer between the worlds by
+the same mechanism the option model relies on: same-class envs build
+the same body pool in the same order, so the pybullet ids stamped on
+the state's objects coincide.
 """
 
 import logging
@@ -54,7 +55,9 @@ from typing import Any, List, Optional, Sequence, Set, Tuple
 import numpy as np
 import pybullet as p
 
-from predicators.structs import Action, GroundAtom, Object, State
+from predicators import utils
+from predicators.structs import Action, GroundAtom, Object, \
+    ParameterizedOption, State
 
 # Fallback Push parameters (approach_distance, contact_z_offset) for
 # episodes whose step labels carry no continuous parameters (legacy
@@ -62,43 +65,28 @@ from predicators.structs import Action, GroundAtom, Object, State
 # generators' canonical probe push (``min_block_utils._PUSH_PARAMS``).
 _CANONICAL_PUSH_PARAMS: Tuple[float, ...] = (0.04, 0.05)
 
-# Stroke speed of the real end-effector during the push-to-object
-# phase, measured on recorded episodes (m per env step); the descent is
-# contact-free in a legal push, so its exact speed only costs steps.
-_STROKE_SPEED = 0.008
-_DESCEND_SPEED = 0.012
+# Identical-replay attempts: knife-edge cascades flip on residual
+# solver state between the real rollout and a replay (the one quantity
+# _set_state cannot reconstruct), so any success across a few replays
+# is a success of the plan's own push.
+_NUM_ATTEMPTS = 3
 
-# Retries of the SAME push at bracketed stroke speeds: knife-edge
-# cascades flip on residual-state noise between the real rollout and a
-# replay, and execution speed is the one quantity the waypoint skill
-# does not pin down (it comes from the arm controller). Any success is
-# a success of the plan's own push.
-_SPEED_FACTORS: Tuple[float, ...] = (1.0, 0.7, 1.4)
+# The Push skill's phase list (``skill_factories/push.py``):
+# 0 CloseFingers, 1 Waypoint_0 (behind-transport), 2 Waypoint_1
+# (descend), 3 Waypoint_2 (push stroke), 4 Waypoint_3 (home-sweep
+# retreat), 5 OpenFingers. The replay ends when the skill advances to
+# the retreat: its home sweep is the recorded collateral-knock vector
+# and never contributes to the intended topple.
+_RETREAT_PHASE_IDX = 4
 
-# The skill holds its final commanded pose until the phase terminates;
-# a few pressed steps at the stroke's end reproduce that dwell.
-_HOLD_STEPS = 8
-
-# Retreat: lift the finger straight up after the stroke (the clean-push
-# counterfactual has no sideways home sweep to knock anything).
-_LIFT_STEPS = 5
-_LIFT_DZ = 0.06
+# Cap on replayed skill steps per green (a real Push runs ~50; a stall
+# past this is a failed push, not a cascade).
+_MAX_REPLAY_STEPS = 200
 
 # No-op env steps after the stroke for the cascade to propagate and
-# settle. A hop takes at most CASCADE_WINDOW_STEPS (24) env steps and
-# recorded chains run 2-4 hops.
+# settle, with the arm holding the stroke's final commanded pose. A hop
+# takes at most ~24 env steps (~2 s) and recorded chains run 2-4 hops.
 _SETTLE_STEPS = 100
-
-# Finger half extents (m): a fingertip-sized box, comfortably narrower
-# than a domino's width (0.07) so it strikes only the block it aims at.
-_FINGER_HALF_EXTENTS = (0.01, 0.01, 0.02)
-# The finger is dynamic and driven through a fixed constraint - a motor,
-# not a teleport - so contact resolves with sustained force the way the
-# arm's position-controlled joints press. The force cap is far above
-# what toppling a 0.1 kg domino needs (the arm is effectively rigid at
-# this scale) while staying finite for the solver.
-_FINGER_MASS = 0.2
-_FINGER_MAX_FORCE = 200.0
 
 
 def _zero_all_velocities(physics_client_id: int) -> None:
@@ -119,99 +107,68 @@ def _standing_goal_shortfall(env: Any, goal: Set[GroundAtom]) -> List[str]:
     ]
 
 
-def _transport_z(env: Any) -> float:
-    """The Push skill's transport height for this env.
+def _ensure_fingertips_only_collision(probe_env: Any) -> None:
+    """Mask collision on every robot link except the two fingertips.
 
-    Mirrors ``PyBulletDominoGroundTruthOptionFactory._transport_z_push``
-    (``table_height + domino_height * 1.5``); computed from the same
-    env-class constants rather than imported to keep the env layer free
-    of ground-truth-model imports.
-    """
-    return float(env.table_height + env.domino_height * 1.5)
-
-
-def _drive_finger(env: Any, green: Object, state: State,
-                  push_params: Tuple[float, ...], speed_factor: float) -> None:
-    """Re-run the Push skill's stroke on ``green`` with a motorized finger.
-
-    Waypoints replicate the skill's pre-retreat path for the given
-    ``(approach_distance, contact_z_offset)``: appear behind the block
-    at transport height, descend to contact height, stroke to the
-    block's center xy, dwell pressed, then lift straight up. The finger
-    is pulled toward each scheduled pose by a fixed constraint with a
-    bounded force, so a blocked stroke presses instead of tunneling -
-    the same sustained follow-through the arm's position-controlled
-    motors deliver at the stroke's end.
+    Idempotent per probe env (the masks persist across ``_set_state``
+    because the body pool is fixed and never rebuilt). Group/mask 0
+    makes a link collide with nothing, so the arm's body passes through
+    the scene while the fingertips - the only link the legal push may
+    deliver force through - keep their default filters.
     """
     # pylint: disable=protected-access
-    approach, contact_z = push_params[0], push_params[1]
-    cid = env._physics_client_id
-    gx = state.get(green, "x")
-    gy = state.get(green, "y")
-    gz = state.get(green, "z")
-    yaw = state.get(green, "yaw")
-    facing = np.array([np.sin(yaw), np.cos(yaw)])
-    behind_xy = np.array([gx, gy]) - facing * approach
-    center_xy = np.array([gx, gy])
-    contact_height = gz + contact_z
+    if getattr(probe_env, "_probe_fingertips_only", False):
+        return
+    robot = probe_env._pybullet_robot
+    cid = probe_env._physics_client_id
+    keep = {robot.left_finger_id, robot.right_finger_id}
+    num_joints = p.getNumJoints(robot.robot_id, physicsClientId=cid)
+    for link in range(-1, num_joints):
+        if link not in keep:
+            p.setCollisionFilterGroupMask(robot.robot_id,
+                                          link,
+                                          0,
+                                          0,
+                                          physicsClientId=cid)
+    probe_env._probe_fingertips_only = True
 
-    start_pos = [*behind_xy, _transport_z(env)]
-    collision = p.createCollisionShape(p.GEOM_BOX,
-                                       halfExtents=_FINGER_HALF_EXTENTS,
-                                       physicsClientId=cid)
-    # A visual shape costs nothing in DIRECT mode and makes the probe
-    # inspectable in renders/GUI debugging.
-    visual = p.createVisualShape(p.GEOM_BOX,
-                                 halfExtents=_FINGER_HALF_EXTENTS,
-                                 rgbaColor=(0.9, 0.25, 0.15, 1.0),
-                                 physicsClientId=cid)
-    finger = p.createMultiBody(baseMass=_FINGER_MASS,
-                               baseCollisionShapeIndex=collision,
-                               baseVisualShapeIndex=visual,
-                               basePosition=start_pos,
-                               physicsClientId=cid)
-    constraint = p.createConstraint(finger,
-                                    -1,
-                                    -1,
-                                    -1,
-                                    p.JOINT_FIXED, [0, 0, 0], [0, 0, 0],
-                                    start_pos,
-                                    physicsClientId=cid)
-    noop = Action(np.array(env._pybullet_robot.initial_joint_positions))
 
-    def _segment(target: np.ndarray, speed: float,
-                 pose: np.ndarray) -> np.ndarray:
-        """Drive the constraint from ``pose`` to ``target`` at ``speed``."""
-        dist = float(np.linalg.norm(target - pose))
-        n_steps = max(1, int(np.ceil(dist / speed)))
-        for i in range(1, n_steps + 1):
-            waypoint = pose + (target - pose) * (i / n_steps)
-            p.changeConstraint(constraint,
-                               jointChildPivot=waypoint.tolist(),
-                               maxForce=_FINGER_MAX_FORCE,
-                               physicsClientId=cid)
-            env.step(noop)
-        return target
+def _replay_push_skill(probe_env: Any, push_option: ParameterizedOption,
+                       robot: Object, green: Object,
+                       params: Tuple[float, ...]) -> Optional[Action]:
+    """Run the real Push skill on ``green`` up to the end of its stroke.
 
+    Executes the skill's own policy step by step in the probe world and
+    stops as soon as it advances past Waypoint_2 (the push stroke) - the
+    retreat's returned action is never executed. Returns the last
+    executed action (the stroke's final commanded pose, for the settle
+    dwell), or the last action anyway if the skill stalled/failed short
+    of the stroke's end (the settle then scores whatever the partial
+    push achieved - an honest non-cascade).
+    """
+    # pylint: disable=protected-access
+    objects = [robot, green][:len(push_option.types)]
+    option = push_option.ground(objects, np.asarray(params, dtype=np.float32))
+    state = probe_env._get_state()
+    last_action: Optional[Action] = None
+    if not option.initiable(state):
+        return None
     try:
-        pose = np.array(start_pos)
-        # Waypoint 1: descend behind the block to contact height.
-        pose = _segment(np.array([*behind_xy, contact_height]),
-                        _DESCEND_SPEED * speed_factor, pose)
-        # Waypoint 2: the push stroke, to the block's center xy.
-        pose = _segment(np.array([*center_xy, contact_height]),
-                        _STROKE_SPEED * speed_factor, pose)
-        # The skill holds its last commanded pose until the phase
-        # terminates: dwell pressed at the stroke's end.
-        for _ in range(_HOLD_STEPS):
-            env.step(noop)
-        # Retreat: straight up (deliberately not the skill's home sweep).
-        _segment(
-            np.array([*center_xy, contact_height + _LIFT_STEPS * _LIFT_DZ]),
-            _LIFT_DZ, pose)
-    finally:
-        p.removeConstraint(constraint, physicsClientId=cid)
-        p.removeBody(finger, physicsClientId=cid)
+        for _ in range(_MAX_REPLAY_STEPS):
+            if option.terminal(state):
+                break
+            action = option.policy(state)
+            # policy() advances the phase when the previous one has
+            # terminated, so a retreat-phase action is detected here and
+            # never executed.
+            if option.memory.get("phase_idx", 0) >= _RETREAT_PHASE_IDX:
+                break
+            probe_env.step(action)
+            last_action = action
+            state = probe_env._get_state()
+    except (utils.OptionExecutionFailure, p.error) as e:
+        logging.debug("[cascade probe] push replay aborted: %s", e)
+    return last_action
 
 
 def run_counterfactual_push_probe(
@@ -219,54 +176,62 @@ def run_counterfactual_push_probe(
         pre_push_state: State,
         greens: Sequence[Object],
         goal: Set[GroundAtom],
-        push_params: Optional[Tuple[float, ...]] = None) -> Tuple[bool, str]:
-    """Does the plan's own push, delivered by a clean finger, cascade to the
-    goal?
+        push_params: Optional[Tuple[float, ...]] = None,
+        push_option: Optional[ParameterizedOption] = None) -> Tuple[bool, str]:
+    """Does the plan's own push, delivered by the fingertips alone, cascade to
+    the goal?
 
-    Re-runs the Push skill's stroke (waypoint path + the episode's
-    recorded ``push_params``, falling back to the generators' canonical
-    push when None) from ``pre_push_state`` in ``probe_env`` (a
-    dedicated same-class env; see module docstring), retrying the same
-    push at bracketed stroke speeds. Returns ``(ok, detail)``: ``ok``
-    on the first attempt whose settled state satisfies every goal atom
-    - or, after all attempts fail, the goal atoms the closest run left
-    unsatisfied.
+    Re-runs the real Push skill (the episode's recorded ``push_params``,
+    falling back to the generators' canonical push when None) from
+    ``pre_push_state`` in ``probe_env`` (a dedicated same-class env with
+    every non-fingertip robot link collision-masked; see module
+    docstring), retrying the identical replay a few times. Returns
+    ``(ok, detail)``: ``ok`` on the first attempt whose settled state
+    satisfies every goal atom - or, after all attempts fail, the goal
+    atoms the closest run left unsatisfied.
     """
     # pylint: disable=protected-access
     assert greens, "probe needs at least one pushed green block"
+    assert push_option is not None, \
+        "probe needs the real Push skill (see run_counterfactual_cascade_probe)"
     params = tuple(push_params) if push_params else _CANONICAL_PUSH_PARAMS
     assert len(params) >= 2, f"malformed push params {params}"
+    _ensure_fingertips_only_collision(probe_env)
     cid = probe_env._physics_client_id
-    noop = Action(np.array(probe_env._pybullet_robot.initial_joint_positions))
+    robot = next(o for o in pre_push_state if o.type.name == "robot")
     best_shortfall: Optional[List[str]] = None
-    for speed_factor in _SPEED_FACTORS:
+    for attempt in range(_NUM_ATTEMPTS):
         probe_env._set_state(pre_push_state)
-        # Park the arm out of the scene: the pre-push arm pose is
-        # wherever the real arm hovered, and the counterfactual must not
-        # let a parked arm body block (or brace) the cascade.
-        probe_env._pybullet_robot.set_joints(
-            probe_env._pybullet_robot.initial_joint_positions)
         _zero_all_velocities(cid)
+        hold_action: Optional[Action] = None
         for green in greens:
-            _drive_finger(probe_env, green, pre_push_state, params,
-                          speed_factor)
+            action = _replay_push_skill(probe_env, push_option, robot, green,
+                                        params)
+            if action is not None:
+                hold_action = action
+        # Dwell: the skill holds its final commanded pose until the
+        # phase terminates; keep pressing while the cascade propagates.
+        if hold_action is None:
+            hold_action = Action(
+                np.array(probe_env._pybullet_robot.initial_joint_positions))
         for _ in range(_SETTLE_STEPS):
-            probe_env.step(noop)
+            probe_env.step(hold_action)
         shortfall = _standing_goal_shortfall(probe_env, goal)
         if not shortfall:
             source = "the plan's" if push_params else "the canonical"
             detail = (f"{source} push (approach {params[0]:.2f} m, contact "
-                      f"height +{params[1]:.2f} m) at stroke-speed factor "
-                      f"{speed_factor:g} cascades to the goal")
+                      f"height +{params[1]:.2f} m), replayed with the real "
+                      f"skill and fingertips-only collision, cascades to the "
+                      f"goal (attempt {attempt + 1})")
             return True, detail
         if best_shortfall is None or len(shortfall) < len(best_shortfall):
             best_shortfall = shortfall
     assert best_shortfall is not None
     source = "the plan's own" if push_params else "the canonical"
     detail = (f"{source} push (approach {params[0]:.2f} m, contact height "
-              f"+{params[1]:.2f} m) on {', '.join(g.name for g in greens)} "
-              f"reaches the goal at none of {len(_SPEED_FACTORS)} stroke "
-              f"speeds; closest run left {', '.join(best_shortfall)} "
-              "unsatisfied")
+              f"+{params[1]:.2f} m) on {', '.join(g.name for g in greens)}, "
+              f"replayed with the real skill and fingertips-only collision, "
+              f"reaches the goal at none of {_NUM_ATTEMPTS} attempts; "
+              f"closest run left {', '.join(best_shortfall)} unsatisfied")
     logging.debug("[cascade probe] %s", detail)
     return False, detail

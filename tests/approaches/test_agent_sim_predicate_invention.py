@@ -97,6 +97,49 @@ def test_kept_initial_predicates_strips_derived_with_missing_aux(cup_type):
     assert base_dropped not in out
 
 
+def _make_fake_sim_learning_self(initial_predicates: Set[Predicate]) -> Any:
+    """Stand-in for the sim-learning parent, using its REAL
+    ``_resolve_kept_names`` so the CFG-override path is exercised."""
+    from predicators.approaches.agent_sim_learning_approach import \
+        AgentSimLearningApproach
+    fake_cls = type("_FakeSimLearning", (AgentSimLearningApproach, ), {
+        "__init__": lambda self: None,
+    })
+    fake = fake_cls()
+    fake._initial_predicates = initial_predicates
+    return fake
+
+
+def test_sim_learning_keeps_all_predicates_by_default(cup_type):
+    """With no allowlist configured, every env predicate stays.
+
+    The sim-learning class default is None and the CFG flag is unset, so
+    even goal predicates remain available to the agent.
+    """
+    import predicators.utils as utils
+    utils.reset_config({"agent_sim_learn_kept_predicates_names": []})
+    holding = Predicate("Holding", [cup_type], _classifier)
+    toppled = Predicate("Toppled", [cup_type], _classifier)
+    fake = _make_fake_sim_learning_self({holding, toppled})
+    assert fake._compute_kept_initial_predicates() == {holding, toppled}
+
+
+def test_sim_learning_cfg_allowlist_strips_goal_predicates(cup_type):
+    """The CFG allowlist strips predicates from the agent's set.
+
+    Here the stripped predicate is a goal predicate.
+    """
+    import predicators.utils as utils
+    utils.reset_config({"agent_sim_learn_kept_predicates_names": ["Holding"]})
+    try:
+        holding = Predicate("Holding", [cup_type], _classifier)
+        toppled = Predicate("Toppled", [cup_type], _classifier)
+        fake = _make_fake_sim_learning_self({holding, toppled})
+        assert fake._compute_kept_initial_predicates() == {holding}
+    finally:
+        utils.reset_config({"agent_sim_learn_kept_predicates_names": []})
+
+
 # ── _load_predicates_from_module_file ────────────────────────────────
 
 
