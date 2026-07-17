@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from predicators.agent_sdk.response_parser import parse_message
 from predicators.agent_sdk.sandbox_prompts import truncate
+from predicators.agent_sdk.thinking import resolve_thinking_config
 from predicators.settings import CFG
 
 
@@ -72,9 +73,10 @@ class AgentSessionManager:
         if self._tool_context is not None:
             extra_hooks = dict(
                 getattr(self._tool_context, "extra_session_hooks", {}) or {})
-        # Adaptive thinking: budget_tokens is rejected (400) on
-        # claude-sonnet-5 and later.
-        thinking = {"type": "adaptive"}
+        # Model-dependent thinking config: adaptive on sonnet-5+ (where
+        # budget_tokens is rejected with a 400), manual extended thinking
+        # with a fixed budget on older models like claude-sonnet-4-6.
+        thinking = resolve_thinking_config(self._model_name)
         options = ClaudeAgentOptions(
             allowed_tools=self._allowed_tools or [],
             mcp_servers={"predicator_tools": self._mcp_server},
