@@ -85,7 +85,7 @@ MISC_W = 3 * TASK_W
 # Fixed widths for the remaining columns of the index runs table, in the
 # order they are declared there. None is the episodes column, whose width
 # depends on the task count and is filled in at render time.
-RUN_COL_W = (30, 200, 62, 96, None, 178, 68, 132, 132)
+RUN_COL_W = (30, 200, 62, 96, None, 178, 68, 132, 132, 72)
 # Episodes of one run, in file order; see _parse_episode for the fields.
 EpList = List[Dict[str, Any]]
 # A run's videos as {(task, cycle tag): [(filename, is_failure)]}.
@@ -168,11 +168,7 @@ _RUN_NAME_TS_RE = re.compile(r"^run_(\d{8})_(\d{6})$")
 
 
 def _run_start_ts(name: str, mtime: float) -> float:
-    """Start time from the run dir name; dir mtime as a fallback.
-
-    The dir mtime moves whenever a file inside is added or touched, so
-    only the name timestamp gives a stable newest-first ordering.
-    """
+    """Start time from the run dir name; dir mtime as a fallback."""
     m = _RUN_NAME_TS_RE.match(name)
     if not m:
         return mtime
@@ -181,6 +177,42 @@ def _run_start_ts(name: str, mtime: float) -> float:
             m.group(1) + m.group(2), "%Y%m%d%H%M%S").timestamp()
     except ValueError:
         return mtime
+
+
+def _fmt_duration(seconds: float) -> str:
+    """Compact duration like "2h 05m", "43m", or "<1m"."""
+    minutes = int(seconds // 60)
+    if minutes < 1:
+        return "<1m"
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}h {minutes:02}m"
+    return f"{minutes}m"
+
+
+def _run_activity_ts(run_abs: str, dir_mtime: float) -> float:
+    """Last-activity time: newest mtime of the run dir's direct children.
+
+    A directory's mtime only moves when a direct entry is created,
+    removed, or renamed - appends never move it, at any depth. Every run
+    appends info.log and debug.log at the run root for as long as it is
+    alive, so a shallow scan tracks activity without walking the tree.
+    Subdirectories are skipped: tooling that pokes into a dead run (e.g.
+    its sandbox) moves their mtimes long after the run ended.
+    """
+    latest = dir_mtime
+    try:
+        with os.scandir(run_abs) as it:
+            for entry in it:
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        continue
+                    latest = max(latest, entry.stat().st_mtime)
+                except OSError:
+                    continue
+    except OSError:
+        pass
+    return latest
 
 
 def find_runs() -> List[Dict[str, Any]]:
@@ -199,17 +231,15 @@ def find_runs() -> List[Dict[str, Any]]:
                 seed = next((p for p in parts if p.startswith("seed")), "")
                 exp = "/".join(p for p in parts[:-1]
                                if not p.startswith("seed")) or "(root)"
+                run_abs = os.path.join(dirpath, d)
+                dir_mtime = os.path.getmtime(run_abs)
                 runs.append({
-                    "rel":
-                    run_rel,
-                    "exp":
-                    exp,
-                    "seed":
-                    seed,
-                    "name":
-                    d,
-                    "mtime":
-                    os.path.getmtime(os.path.join(dirpath, d)),
+                    "rel": run_rel,
+                    "exp": exp,
+                    "seed": seed,
+                    "name": d,
+                    "mtime": dir_mtime,
+                    "activity": _run_activity_ts(run_abs, dir_mtime),
                 })
                 dirnames.remove(d)  # do not descend into run dirs
     runs.sort(key=lambda r:
@@ -217,32 +247,84 @@ def find_runs() -> List[Dict[str, Any]]:
     return runs
 
 
-def live_run_keys() -> Set[Tuple[str, str]]:
-    """(exp, seed) of every run with a live main.py process.
+# (exp, seed, run name) triples pinned to a live process, plus (exp, seed)
+# keys of live processes that could not be pinned to a specific run.
+LiveProcs = Tuple[Set[Tuple[str, str, str]], Set[Tuple[str, str]]]
 
-    A process names its log dir through
-    --approach/--experiment_id/--seed but not the run_<timestamp> leaf,
-    so this identifies the experiment and seed only; run_status pins it
-    to that key's newest run, the one the process created when it
-    started.
+_LSOF_RUN_RE = re.compile(r"(?:/(seed\d+))?/(run_\d{8}_\d{6})(?:/|$)")
+
+
+def _open_run_names(pids: List[str]) -> Dict[str, Set[Tuple[str, str]]]:
+    """(seed, run name) pairs in each pid's open file paths, per lsof.
+
+    The seed is "" when the open path has no seed<N> component right
+    above the run dir.
     """
     try:
-        out = subprocess.run(["ps", "-Ao", "args="],
+        out = subprocess.run(["lsof", "-n", "-P", "-Fn", "-p", ",".join(pids)],
                              capture_output=True,
                              text=True,
                              check=False,
                              timeout=10).stdout
     except (OSError, subprocess.SubprocessError):
-        return set()  # no ps: fall back to marker-only statuses
-    keys = set()
+        return {}
+    names: Dict[str, Set[Tuple[str, str]]] = {}
+    pid = ""
+    for line in out.splitlines():
+        if line.startswith("p"):
+            pid = line[1:]
+        elif line.startswith("n") and pid:
+            m = _LSOF_RUN_RE.search(line[1:])
+            if m:
+                names.setdefault(pid, set()).add((m.group(1)
+                                                  or "", m.group(2)))
+    return names
+
+
+def live_runs() -> LiveProcs:
+    """Live main.py processes, pinned to the runs they log into.
+
+    A process names its log dir through --approach/--experiment_id/--seed
+    but not the run_<timestamp> leaf, so ps alone identifies the
+    experiment and seed only - ambiguous when parallel launches of the
+    same config overlap. Each process keeps its run's log files open,
+    though, so lsof recovers the leaf. Processes lsof cannot resolve are
+    returned as bare keys, which run_status attributes to the key's
+    newest run: the one such a process made when it started.
+    """
+    try:
+        out = subprocess.run(["ps", "-Axo", "pid=,args="],
+                             capture_output=True,
+                             text=True,
+                             check=False,
+                             timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return set(), set()  # no ps: fall back to marker-only statuses
+    procs: Dict[str, Tuple[str, str]] = {}
     for line in out.splitlines():
         if "main.py" not in line:
             continue
-        flags = dict(PS_ARG_RE.findall(line))
-        if "approach" in flags and "experiment_id" in flags:
-            keys.add((f"{flags['approach']}/{flags['experiment_id']}",
-                      f"seed{flags.get('seed', '0')}"))
-    return keys
+        pid, _, args = line.strip().partition(" ")
+        flags = dict(PS_ARG_RE.findall(args))
+        if pid.isdigit() and "approach" in flags and "experiment_id" in flags:
+            procs[pid] = (f"{flags['approach']}/{flags['experiment_id']}",
+                          f"seed{flags.get('seed', '0')}")
+    pinned: Set[Tuple[str, str, str]] = set()
+    unpinned: Set[Tuple[str, str]] = set()
+    open_names = _open_run_names(list(procs)) if procs else {}
+    for pid, (exp, seed) in procs.items():
+        # Parallel launches stamp sibling seeds with the same run name,
+        # so a pin only counts when the open path agrees on the seed.
+        matched = {
+            name
+            for path_seed, name in open_names.get(pid, set())
+            if path_seed in ("", seed)
+        }
+        if matched:
+            pinned.update((exp, seed, name) for name in matched)
+        else:
+            unpinned.add((exp, seed))
+    return pinned, unpinned
 
 
 def _parse_episode(path: str) -> Dict[str, Any]:
@@ -381,12 +463,14 @@ def index_stamp() -> str:
         if not run_abs:
             continue
         try:
-            st = os.stat(run_abs)
             info = os.path.join(run_abs, "info.log")
             info_size = os.path.getsize(info) if os.path.exists(info) else 0
         except OSError:
             continue
-        parts.append(f"{r['rel']}:{int(st.st_mtime)}:{int(info_size)}")
+        # Activity at minute granularity: the modified column displays
+        # minutes, so finer resolution would only cause no-op reloads.
+        parts.append(f"{r['rel']}:{int(r['mtime'])}:{int(info_size)}:"
+                     f"{int(r['activity'] // 60)}")
     return f"{len(parts)}:{int(hash(tuple(parts)) & 4294967295)}"
 
 
@@ -1285,8 +1369,8 @@ def episode_grid(episodes: EpList,
             f"{''.join(rows)}</table>")
 
 
-def run_status(r: Dict[str, Any], summary: Dict[str, Any],
-               live: Set[Tuple[str, str]], is_newest: bool) -> Tuple[str, str]:
+def run_status(r: Dict[str, Any], summary: Dict[str, Any], live: LiveProcs,
+               is_newest: bool) -> Tuple[str, str]:
     """(label, css class) for a run's lifecycle state.
 
     Completion is read off info.log, since main.py logs its terminating
@@ -1296,20 +1380,24 @@ def run_status(r: Dict[str, Any], summary: Dict[str, Any],
     """
     if summary.get("done"):
         return "done", "done"
-    if is_newest and (r["exp"], r["seed"]) in live:
+    pinned, unpinned = live
+    if (r["exp"], r["seed"], r["name"]) in pinned:
+        return "running", "live"
+    if is_newest and (r["exp"], r["seed"]) in unpinned:
         return "running", "live"
     return "interrupted", "stopped"
 
 
-def status_chip(r: Dict[str, Any], summary: Dict[str, Any],
-                live: Set[Tuple[str, str]], is_newest: bool) -> str:
+def status_chip(r: Dict[str, Any], summary: Dict[str, Any], live: LiveProcs,
+                is_newest: bool) -> str:
     """Chip announcing whether a run is live, finished, or stopped."""
     label, cls = run_status(r, summary, live, is_newest)
     title = {
         "done":
         "info.log ends with main.py's completion line",
         "live":
-        "a main.py process for this experiment and seed is running",
+        "a live main.py process holds this run's logs open, or this is "
+        "the newest run of a live process lsof could not pin",
         "stopped":
         "no completion line in info.log and no live process: "
         "killed or crashed",
@@ -1335,16 +1423,17 @@ def _misc_chip(ep: Dict[str, Any]) -> str:
 
 
 def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
-            live: Set[Tuple[str, str]], is_newest: bool) -> str:
+            live: LiveProcs, is_newest: bool) -> str:
     """Table row summarizing one run for the index page."""
     eps = summary.get("episodes", [])
     tr = summary.get("test_results", [])
     tr_str = " → ".join(f"{t[0]}/{t[1]}" for t in tr) or "-"
     cost = summary.get("total_cost", 0.0)
     fmt = "%Y-%m-%d %H:%M"
-    sstr = datetime.datetime.fromtimestamp(_run_start_ts(
-        r["name"], r["mtime"])).strftime(fmt)
-    mstr = datetime.datetime.fromtimestamp(r["mtime"]).strftime(fmt)
+    start_ts = _run_start_ts(r["name"], r["mtime"])
+    sstr = datetime.datetime.fromtimestamp(start_ts).strftime(fmt)
+    mstr = datetime.datetime.fromtimestamp(r["activity"]).strftime(fmt)
+    dur_str = _fmt_duration(max(0.0, r["activity"] - start_ts))
     status, _ = run_status(r, summary, live, is_newest)
     # The status joins the filter key, so "running" narrows to live runs.
     key = f"{r['exp']} {r['seed']} {r['name']} {status}".lower()
@@ -1359,7 +1448,8 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
             f"<td>{episode_grid(eps, layout)}</td><td>{esc(tr_str)}</td>"
             f"<td>{cost_str}</td>"
             f"<td class='muted'>{sstr}</td>"
-            f"<td class='muted'>{mstr}</td></tr>")
+            f"<td class='muted'>{mstr}</td>"
+            f"<td class='muted'>{dur_str}</td></tr>")
 
 
 def index_page() -> str:
@@ -1377,9 +1467,10 @@ def index_page() -> str:
     # spares families that never explore its reserved width.
     page_layout = grid_layout(
         [s.get("episodes", []) for s in summaries.values()])
-    live = live_run_keys()
-    # A live process owns the newest run of its experiment and seed: the
-    # one it made at startup. Older runs of that key are its dead ancestors.
+    live = live_runs()
+    # A process lsof could not pin owns the newest run of its experiment
+    # and seed: the one it made at startup. Older runs of that key are
+    # dead ancestors - unless lsof pinned a live process to them.
     newest: Dict[Tuple[str, str], Tuple[float, str]] = {}
     for r in runs:
         key = (r["exp"], r["seed"])
@@ -1395,7 +1486,8 @@ def index_page() -> str:
             f"<p>No run_* directories found under {esc(LOGS_ROOT)}.</p>")
     table_head = ("<tr><th></th><th>run</th><th>seed</th><th>status</th>"
                   "<th>episodes</th><th>test results (info.log)</th>"
-                  "<th>cost</th><th>started</th><th>modified</th></tr>")
+                  "<th>cost</th><th>started</th><th>modified</th>"
+                  "<th>time</th></tr>")
     for fam in sorted(families):
         exps = families[fam]
         fam_runs = [r for rs in exps.values() for r in rs]

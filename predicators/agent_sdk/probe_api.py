@@ -49,9 +49,10 @@ class ProbeResult:
 
     Attributes mirror the ``evaluate_option_plan`` report: ``steps`` is
     a list of per-step dicts (``option``, ``num_actions``, ``failure``,
-    ``added``, ``deleted``), plus ``goal_reached`` and ``final_atoms``.
-    ``print(result)`` renders the same step-by-step summary the tool
-    prints.
+    ``added``, ``deleted``, ``image`` - the saved post-step scene
+    image path, if rendering is available), plus ``goal_reached`` and
+    ``final_atoms``. ``print(result)`` renders the same step-by-step
+    summary the tool prints.
     """
     steps: List[Dict[str, Any]]
     goal_reached: bool
@@ -70,6 +71,10 @@ class ProbeResult:
             lines.append(line)
         lines.append(f"Goal reached: {self.goal_reached}")
         lines.append(f"Final atoms: {{{', '.join(self.final_atoms)}}}")
+        images = [s["image"] for s in self.steps if s.get("image")]
+        if images:
+            lines.append("Saved images (view with Read):")
+            lines.extend(f"  {p}" for p in images)
         return "\n".join(lines)
 
 
@@ -375,7 +380,7 @@ class ProbeSim:
                 "object refs, and exact params in `[]`.")
         return probe_task, sketch_steps, all_predicates
 
-    def run(self, plan_text: str) -> ProbeResult:
+    def run(self, plan_text: str, render: bool = True) -> ProbeResult:
         """Execute an option plan from the current state.
 
         ``plan_text`` uses the same grammar as ``evaluate_option_plan``:
@@ -383,6 +388,9 @@ class ProbeSim:
         exact continuous params (``[]`` for none); ``-> {atoms}``
         subgoals are accepted but optional. Advances the current state
         to the rollout's final state (``restore`` a snapshot to rewind).
+        Like ``evaluate_option_plan``, each step's post-state is
+        rendered to a saved image whose path lands in the step report;
+        pass ``render=False`` inside tight sweep loops to skip that.
         Exploratory only: results are never captured and carry no
         evaluator verdict.
         """
@@ -391,7 +399,10 @@ class ProbeSim:
 
         # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk import bilevel_sketch
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.tools import _render_scene_image
         ctx = self._ctx
+        ctx.test_call_id += 1
         probe_task, sketch_steps, all_predicates = \
             self._parse_sketch(plan_text)
         grounded: List[Any] = []
@@ -405,7 +416,7 @@ class ProbeSim:
         report_preds = ctx.predicates
         step_dicts: List[Dict[str, Any]] = []
 
-        def _on_step(_i: int, outcome: Any) -> None:
+        def _on_step(i: int, outcome: Any) -> None:
             sig = _fmt_option(outcome.option)
             added: List[str] = []
             deleted: List[str] = []
@@ -417,12 +428,18 @@ class ProbeSim:
                 after = utils.abstract(outcome.post_state, report_preds)
                 added = [str(a) for a in sorted(after - before)]
                 deleted = [str(a) for a in sorted(before - after)]
+            # Same per-step audit image evaluate_option_plan saves; the
+            # env already sits at the post-step state here.
+            img = _render_scene_image(
+                ctx,
+                f"probe_step_{i}_{outcome.option.name}") if render else None
             step_dicts.append({
                 "option": sig,
                 "num_actions": outcome.num_actions,
                 "failure": failure,
                 "added": added,
                 "deleted": deleted,
+                "image": img.get("saved_path") if img else None,
             })
 
         result = bilevel_sketch.execute_plan_forward(probe_task,

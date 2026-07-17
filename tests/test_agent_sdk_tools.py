@@ -408,25 +408,44 @@ def test_explore_python_probe_sim(ctx: Any) -> None:
     domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
     robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
     ctx.capture_goal_reaching_plans = True
+    prior_dir = ctx.image_save_dir
     try:
-        code = f"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ctx.image_save_dir = tmpdir
+            code = f"""
 sim.reset(mods={{"{domino.name}": {{"x": 0.95}}}})
 print("modx", sim.state("{domino.name}")["x"])
 sid = sim.snapshot()
 out = sim.run("Wait({robot.name}:robot)[]")
 print("steps", len(out.steps))
+print("stepimg", out.steps[0]["image"])
+sim.restore(sid)
+quiet = sim.run("Wait({robot.name}:robot)[]", render=False)
+print("quietimg", quiet.steps[0]["image"])
 sim.restore(sid)
 print("restx", sim.state("{domino.name}")["x"])
 print("natoms", len(sim.atoms()))
 """
-        result = _run(tools["explore_python"]({"code": code}))
+            result = _run(tools["explore_python"]({"code": code}))
+            saved = [f for f in os.listdir(tmpdir) if f.endswith(".png")]
     finally:
         ctx.capture_goal_reaching_plans = False
+        ctx.image_save_dir = prior_dir
     text = result["content"][0]["text"]
     assert "modx 0.95" in text
     assert "steps 1" in text
     assert "restx 0.95" in text
     assert "natoms" in text
+    # sim.run saves the same per-step audit images evaluate_option_plan
+    # does, and reports their paths on each step; render=False (for
+    # tight sweep loops) skips the render entirely.
+    assert "quietimg None" in text
+    if saved:
+        assert any("probe_step_0_" in f for f in saved)
+        assert "stepimg " + os.path.join(tmpdir, "") in text
+        assert len(saved) == 1
+    else:
+        print("  NOTE: rendering not available, image save not checked")
     # The probe carries no scoring surface: nothing it ran was captured.
     assert ctx.solved_plan is None
     print("  PASS: explore_python (ProbeSim reset/run/snapshot, no capture)")
