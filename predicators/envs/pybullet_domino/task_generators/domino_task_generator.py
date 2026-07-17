@@ -182,8 +182,12 @@ class DominoTaskGenerator(TaskGenerator):
             target_word, target_verb = "the purple dominoes", "are"
         goal_nl = (f"Arrange the blue dominoes as needed (possibly none) such "
                    f"that when the green domino is pushed, {target_word} "
-                   f"{target_verb} toppled. Do NOT directly "
-                   f"push or topple {target_word} yourself.")
+                   f"{target_verb} toppled. Only the blue dominoes may be "
+                   f"rearranged: the green and purple dominoes must stay "
+                   f"untouched at their staged poses, upright and never "
+                   f"held, until the green is pushed, and nothing may "
+                   f"topple before that push. Only the green domino may "
+                   f"ever be pushed.")
 
         # Cascade-legitimacy evaluator (reward = certified success minus a
         # per-toppled-blue cost), same as the min-block tasks. Attached only
