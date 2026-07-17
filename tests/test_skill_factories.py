@@ -12,7 +12,7 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.ground_truth_models.skill_factories.base import \
     _BIRRT_STEP_KEY, _BIRRT_TRAJ_KEY, Phase, PhaseAction, PhaseSkill, \
-    SkillConfig
+    SkillConfig, _fmt_option_params
 from predicators.ground_truth_models.skill_factories.move_to import \
     create_move_to_skill, make_move_to_phase
 from predicators.ground_truth_models.skill_factories.pick import \
@@ -1099,6 +1099,13 @@ class TestCreatePushSkill:
         assert robot.action_space.contains(action.arr)
 
 
+def test_fmt_option_params():
+    """Params render compactly for failure messages, including empty."""
+    assert _fmt_option_params(np.zeros(0, dtype=np.float32)) == "[]"
+    assert _fmt_option_params(np.array([0.05, 0.02],
+                                       dtype=np.float32)) == "[0.05, 0.02]"
+
+
 class TestIkStallAbort:
     """Incremental-IK stall detection (_check_ik_stall)."""
 
@@ -1139,6 +1146,10 @@ class TestIkStallAbort:
         with pytest.raises(utils.OptionExecutionFailure) as e:
             skill._check_ik_stall(phase, state, memory, [robot_obj], params)  # pylint: disable=protected-access
         assert "incremental-IK stalled" in str(e.value)
+        # The message names the phase target and echoes the option params
+        # (the agent's only channel for diagnosing which values failed).
+        assert "m from the target (" in str(e.value)
+        assert "commanded by params []" in str(e.value)
 
     def test_progress_resets_counter(self, robot_scene):
         """Steady progress toward the target never trips the abort."""

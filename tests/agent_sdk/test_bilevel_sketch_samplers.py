@@ -11,6 +11,8 @@ supplied.
 
 # pylint: disable=unused-import
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 from gym.spaces import Box
@@ -753,3 +755,80 @@ def test_refine_and_validate_report_returns_plan():
     assert len(plan) == 1
     # The captured plan carries the validated continuous params.
     assert np.isclose(float(plan[0].params[0]), 0.95)
+
+
+class _TrajModel(_FakeOptionModel):
+    """_FakeOptionModel that also exposes per-step low-level trajectories, so
+    the solved_check gate sees a non-coarse rollout."""
+
+    last_trajectory = None
+
+    def get_next_state_and_num_actions(self, state, option):
+        nxt, n = super().get_next_state_and_num_actions(state, option)
+        self.last_trajectory = SimpleNamespace(states=[state, nxt],
+                                               actions=[None])
+        return nxt, n
+
+
+def test_refine_sketch_solved_check_rejects_during_search():
+    """A rejecting solved_check fails every goal-reaching candidate as "scored
+    non-solve" DURING backtracking (the search keeps sampling instead of
+    accepting), and the deepest-failure near-miss records the rejection with
+    the candidate's exact params."""
+    task, sketch = _easy_task_and_sketch()
+    seen = []
+
+    def reject_all(states, labels, coarse):
+        seen.append((len(states), list(labels), coarse))
+        return False, "solved=False, reward=-0.05"
+
+    deepest = []
+    _plan, success, total = bilevel_sketch.refine_sketch(
+        task,
+        sketch,
+        _TrajModel(),
+        predicates={_Reached},
+        timeout=10.0,
+        rng=np.random.default_rng(0),
+        max_samples_per_step=3,
+        check_subgoals=True,
+        check_final_goal=True,
+        deepest_failure_holder=deepest,
+        solved_check=reject_all)
+    assert not success
+    # Every candidate passed subgoal+goal checks, reached the gate, and
+    # was rejected - the search spent its full budget.
+    assert total == 3
+    assert len(seen) == 3
+    assert deepest and deepest[0].fail_reason == (
+        "scored non-solve: solved=False, reward=-0.05")
+    # Non-coarse: the model exposes last_trajectory, so the gate saw
+    # init + per-step states and (name, objects, params) labels.
+    n_states, labels, coarse = seen[0]
+    assert n_states == 2 and coarse is False
+    assert labels[0][0] == "Move" and labels[0][1] == ("block0", )
+
+
+def test_refine_sketch_solved_check_accepts():
+    """An accepting solved_check leaves refinement untouched; a coarse stash
+    (model without last_trajectory) is flagged to the callback."""
+    task, sketch = _easy_task_and_sketch()
+    seen_coarse = []
+
+    def accept_all(_states, _labels, coarse):
+        seen_coarse.append(coarse)
+        return True, ""
+
+    plan, success, total = bilevel_sketch.refine_sketch(
+        task,
+        sketch,
+        _FakeOptionModel(),  # no last_trajectory -> coarse
+        predicates={_Reached},
+        timeout=10.0,
+        rng=np.random.default_rng(0),
+        max_samples_per_step=3,
+        check_subgoals=True,
+        check_final_goal=True,
+        solved_check=accept_all)
+    assert success and len(plan) == 1 and total == 1
+    assert seen_coarse == [True]

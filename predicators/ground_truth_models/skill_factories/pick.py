@@ -54,7 +54,9 @@ from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
 # Canonical continuous parameters for Pick.
 _PICK_PARAMS = [
-    ("grasp_z_offset (height above object origin to close gripper)", 0.0, 0.1),
+    ("grasp_z_offset (height above object origin to close gripper; low "
+     "values can put the gripper in contact with the object or its support "
+     "at the grasp pose, making the grasp config infeasible)", 0.0, 0.1),
 ]
 
 

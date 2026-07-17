@@ -191,9 +191,10 @@ _CLAUDE_MD_RULES = """\
 
 ## Rules
 - Do NOT attempt to read or browse files outside the sandbox directory.
-  This is enforced for the file tools AND for Bash / run_python: commands
-  or code containing absolute or `../` paths that leave the sandbox (or
-  source introspection) are blocked. Use relative paths inside the sandbox.
+  This is enforced for the file tools AND for Bash and the Python
+  execution tools (run_python / explore_python): commands or code
+  containing absolute or `../` paths that leave the sandbox (or source
+  introspection) are blocked. Use relative paths inside the sandbox.
 - Do NOT modify files in ./reference/ — they are for reading only
 - Write all your code, experiments, and tests in the sandbox
 - Do NOT inspect predicators source code (e.g. via `inspect.getsource()`,
@@ -204,16 +205,25 @@ _CLAUDE_MD_RULES = """\
 _CLAUDE_MD_SOLVE_STRATEGY = """\
 
 ## Debugging Strategy
-- **Use visualize_state liberally** — it's free (no physics, no failure
-  modes). When stuck on a step, STOP testing and visualize the object at
-  several candidate positions and orientations to find the right region
-  before spending more evaluate_option_plan calls.
+- **Visualize liberally** — {visualize_hint} It's free (no physics, no
+  failure modes). When stuck on a step, STOP testing and visualize the
+  object at several candidate positions and orientations to find the
+  right region before spending more evaluate_option_plan calls.
 - **Vary all parameters** — orientation and other non-position params
   affect both the outcome and whether the action succeeds.
 - **Search coarse-to-fine** — spread initial attempts across the full
   parameter range. After 3 failures in a small neighborhood, jump to a
   different region.
 """
+
+# The solve strategy's visualization pointer depends on which tool the
+# session actually has (see agent_planner_explore_python_keep_replaced
+# _tools): explore_python subsumes visualize_state when it replaces it.
+_VISUALIZE_HINT_TOOL = "use visualize_state."
+_VISUALIZE_HINT_PROBE = ("use explore_python (`sim.reset(mods={...})`, "
+                         "then `sim.render(...)`).")
+_VISUALIZE_HINT_GENERIC = ("render candidate layouts with whatever "
+                           "visualization your tools provide.")
 
 _CLAUDE_MD_SYNTHESIS_STRATEGY = """\
 
@@ -278,10 +288,20 @@ def build_claude_md(phase: Optional[str] = None) -> str:
             written into the sandbox so the agent reads phase-appropriate
             guidance every turn.
     """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.settings import CFG
     if phase == "synthesis":
         strategy = _CLAUDE_MD_SYNTHESIS_STRATEGY
     else:
-        strategy = _CLAUDE_MD_SOLVE_STRATEGY
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.tools import explore_python_replaces_tools
+        if explore_python_replaces_tools():
+            hint = _VISUALIZE_HINT_PROBE
+        elif CFG.agent_planner_use_visualize_state:
+            hint = _VISUALIZE_HINT_TOOL
+        else:
+            hint = _VISUALIZE_HINT_GENERIC
+        strategy = _CLAUDE_MD_SOLVE_STRATEGY.format(visualize_hint=hint)
     return _CLAUDE_MD_HEADER + strategy + _CLAUDE_MD_RULES
 
 

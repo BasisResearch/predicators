@@ -179,6 +179,16 @@ def build_params_space(
     return Box(low=low, high=high, dtype=np.float64), names
 
 
+def _fmt_option_params(params: Array) -> str:
+    """Render an option's continuous params for failure messages.
+
+    Failure messages are the agent's only channel for learning which
+    parameter values produced an infeasible target, so echo them
+    compactly (``[0.05, 0.02]``; ``[]`` for parameter-free options).
+    """
+    return "[" + ", ".join(f"{float(v):.4g}" for v in params) + "]"
+
+
 # ---------------------------------------------------------------------------
 # Public type aliases
 # ---------------------------------------------------------------------------
@@ -448,10 +458,16 @@ class PhaseSkill:
             return
         memory[count_key] = memory.get(count_key, 0) + 1
         if memory[count_key] >= self._ik_stall_window:
+            tgt = target_pose.position
+            contact_report = self._stall_contact_report(
+                cast(utils.PyBulletState, state))
             raise utils.OptionExecutionFailure(
                 f"[{self._name}/{phase.name}] incremental-IK stalled: no "
                 f"end-effector progress in {self._ik_stall_window} steps "
-                f"({dist:.3f} m from target); aborting option.")
+                f"({dist:.3f} m from the target ({tgt[0]:.3f}, {tgt[1]:.3f}, "
+                f"{tgt[2]:.3f}) commanded by params "
+                f"{_fmt_option_params(params)}); aborting option."
+                f"{contact_report}")
 
     # ------------------------------------------------------------------
     # Phase execution
@@ -647,10 +663,30 @@ class PhaseSkill:
                     if self._last_plan_diagnostics:
                         detail = (" Blocking contacts: " +
                                   "; ".join(self._last_plan_diagnostics) + ".")
+                    # A GOAL-config contact means the pose commanded by the
+                    # option's parameters is itself infeasible - no path
+                    # could ever reach it, so say that instead of blaming
+                    # path planning.
+                    if any(
+                            d.startswith("GOAL")
+                            for d in self._last_plan_diagnostics):
+                        headline = (
+                            "target configuration in collision: the pose "
+                            "commanded by this option's parameters "
+                            f"{_fmt_option_params(params)} is itself in "
+                            "contact - adjust the parameters, not the path")
+                    elif any(
+                            d.startswith("START")
+                            for d in self._last_plan_diagnostics):
+                        headline = (
+                            "start configuration in collision: the robot "
+                            "begins this phase already in contact")
+                    else:
+                        headline = ("motion planning failed (no "
+                                    "collision-free path)")
                     raise utils.OptionExecutionFailure(
                         f"[{self._name}/{phase.name}] BiRRT collision: "
-                        f"motion planning failed (no collision-free path)."
-                        f"{detail}")
+                        f"{headline}.{detail}")
             else:
                 # Skip the first waypoint — BiRRT includes the start
                 # position (current joints) as traj[0].  Commanding the
@@ -776,22 +812,16 @@ class PhaseSkill:
             physics_client_id=robot.physics_client_id,
         )
 
-    def _plan_with_simulator(
-        self,
-        pb_state: utils.PyBulletState,
-        target_pose: Pose,
-        phase_name: str,
-        expect_contact: bool = False,
-        objects: Sequence[Object] = (),
-        phase: Optional[Phase] = None,
-    ) -> Optional[Sequence[JointPositions]]:
-        """Plan using the simulator env for collision-aware motion planning.
+    def _sim_collision_context(
+        self, pb_state: utils.PyBulletState
+    ) -> Tuple[utils.PyBulletState, set, Dict[int, str], Optional[int]]:
+        """Remap ``pb_state`` onto the planning simulator and collect its
+        collision bodies.
 
-        Remaps the current state onto the simulator's objects, resets
-        the simulator, collects collision body IDs, and runs IK + BiRRT
-        on the simulator's physics client.
+        Resets the simulator to the remapped state as a side effect.
+        Returns ``(remapped_state, collision_bodies, body_names,
+        held_object)``. Requires ``self._config.simulator``.
         """
-        del objects  # Unused; kept for a uniform planner signature.
         sim = self._config.simulator
         assert sim is not None
 
@@ -853,6 +883,77 @@ class PhaseSkill:
         # 4d. Add environment-specific extra collision bodies (e.g. liquid
         #     blocks in Grow that aren't tracked as state Objects).
         collision_bodies.update(sim.get_extra_collision_ids())
+
+        return remapped_state, collision_bodies, body_names, held_object
+
+    def _stall_contact_report(self, pb_state: utils.PyBulletState) -> str:
+        """Name the bodies the robot is touching when incremental IK stalls.
+
+        A stall usually means an obstacle sits between the end effector
+        and the phase target, so the contacting bodies are the best
+        available explanation. Runs on the planning simulator; returns
+        ``""`` when no simulator is configured or nothing is in contact
+        (or the report fails - this is a best-effort diagnostic on an
+        error path).
+        """
+        if self._config.simulator is None:
+            return ""
+        try:
+            sim = self._config.simulator
+            _, collision_bodies, body_names, held_object = \
+                self._sim_collision_context(pb_state)
+            planning_robot = sim._pybullet_robot  # pylint: disable=protected-access
+            planning_robot.set_joints(pb_state.joint_positions)
+            client = sim._physics_client_id  # pylint: disable=protected-access
+            p.performCollisionDetection(physicsClientId=client)
+            # Report against the wider (positive) threshold, mirroring
+            # _log_collision_diagnostics: pybullet_birrt_contact_margin is
+            # the NEGATIVE penetration allowance (-1mm), and a stall
+            # typically presses at ~0 separation - filtering by the
+            # negative margin would report nothing exactly when the agent
+            # needs the blocker named.
+            margin = max(CFG.pybullet_birrt_contact_margin,
+                         CFG.pybullet_birrt_bystander_clearance)
+            touching = []
+            for body in sorted(collision_bodies):
+                label = body_names.get(body, f"body {body}")
+                for probe, probe_label in ((planning_robot.robot_id, "robot"),
+                                           (held_object, "held object")):
+                    if probe is None:
+                        continue
+                    contacts = p.getContactPoints(probe,
+                                                  body,
+                                                  physicsClientId=client)
+                    if any(c[8] < margin for c in contacts):
+                        min_dist = min(c[8] for c in contacts)
+                        touching.append(f"{probe_label} within "
+                                        f"{min_dist:.4f} m of {label}")
+        except Exception:  # pylint: disable=broad-except
+            return ""
+        if not touching:
+            return ""
+        return " In contact: " + "; ".join(touching) + "."
+
+    def _plan_with_simulator(
+        self,
+        pb_state: utils.PyBulletState,
+        target_pose: Pose,
+        phase_name: str,
+        expect_contact: bool = False,
+        objects: Sequence[Object] = (),
+        phase: Optional[Phase] = None,
+    ) -> Optional[Sequence[JointPositions]]:
+        """Plan using the simulator env for collision-aware motion planning.
+
+        Remaps the current state onto the simulator's objects, resets
+        the simulator, collects collision body IDs, and runs IK + BiRRT
+        on the simulator's physics client.
+        """
+        del objects  # Unused; kept for a uniform planner signature.
+        sim = self._config.simulator
+        assert sim is not None
+        remapped_state, collision_bodies, body_names, held_object = \
+            self._sim_collision_context(pb_state)
 
         # 5. IK + motion planning on simulator's robot
         planning_robot = sim._pybullet_robot  # pylint: disable=protected-access

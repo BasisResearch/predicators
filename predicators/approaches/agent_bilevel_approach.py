@@ -23,7 +23,8 @@ import numpy as np
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.bilevel_sketch import SketchStep as _SketchStep
-from predicators.agent_sdk.tools import BUILTIN_TOOLS, _load_ground_sampler_fns
+from predicators.agent_sdk.tools import BUILTIN_TOOLS, \
+    _load_ground_sampler_fns, explore_python_replaces_tools
 from predicators.approaches import ApproachFailure
 from predicators.approaches.agent_planner_approach import AgentPlannerApproach
 from predicators.execution_monitoring.subgoal_annotations_monitor import \
@@ -102,8 +103,12 @@ class AgentBilevelApproach(AgentPlannerApproach):
         # Bilevel solving hands continuous refinement to a search, so the
         # agent also gets refine_plan_sketch (backtracking refinement +
         # forward validation on a param-free sketch). Needs a simulator.
+        # explore_python's sim.refine subsumes it (same search core, from
+        # any state); when explore_python is on, the standalone tool is
+        # offered only if the keep-replaced-tools flag asks for both.
         tools = list(super()._get_solve_tool_names() or [])
-        if CFG.agent_planner_use_simulator:
+        if CFG.agent_planner_use_simulator and \
+                not explore_python_replaces_tools():
             tools.append("refine_plan_sketch")
         return tools
 
@@ -113,10 +118,19 @@ class AgentBilevelApproach(AgentPlannerApproach):
 
     def _get_agent_system_prompt(self) -> str:
         propose = CFG.agent_bilevel_use_llm_initial_params
+        # When explore_python replaces the standalone refine/visualize
+        # tools, every guidance mention must point at the probe
+        # equivalents instead of tools the session lacks.
+        probe_replaces = explore_python_replaces_tools()
+        refine_ref = ("sim.refine (in explore_python)"
+                      if probe_replaces else "refine_plan_sketch")
+        visualize_ref = ("explore_python"
+                         if probe_replaces else "visualize_state")
         # When True the approach skips its own (post-agent) backtracking
         # refinement, so the agent must itself deliver a plan it validated via
-        # refine_plan_sketch. (The agent still triggers a backtracking search
-        # inside that tool; what's skipped is the approach's separate one.)
+        # the refinement search. (The agent still triggers a backtracking
+        # search inside that tool; what's skipped is the approach's separate
+        # one.)
         skip_final_backtracking_search = not CFG.agent_bilevel_refine_fallback
         # What a sketch step consists of (shared between modes).
         if propose:
@@ -128,7 +142,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
             sketch_desc = (
                 "a sequence of skills (parameterized options) with object "
                 "arguments and subgoal atoms after each step, plus continuous "
-                "parameters you find with refine_plan_sketch")
+                f"parameters you find with {refine_ref}")
 
         if skip_final_backtracking_search:
             # The deliverable is a plan that WORKS IN THE SIMULATOR, submitted
@@ -143,15 +157,14 @@ class AgentBilevelApproach(AgentPlannerApproach):
                 "ONLY output, so do not finish until evaluate_option_plan "
                 "reaches the goal. It runs your EXACT parameters with no "
                 "sampling, so every parameter must be right. To find working "
-                "values you MAY use refine_plan_sketch while reasoning (it "
+                f"values you MAY use {refine_ref} while reasoning (it "
                 "searches for parameters but is slower); read the parameters "
                 "it reports and submit them via evaluate_option_plan. Use "
-                "whatever tools help (inspection, visualize_state).")
+                f"whatever tools help (inspection, {visualize_ref}).")
             if propose:
-                job += (
-                    " Where many values work, any reasonable parameter is "
-                    "fine; where good values are hard to hit (tight "
-                    "tolerances), use refine_plan_sketch to search for one.")
+                job += (" Where many values work, any reasonable parameter is "
+                        "fine; where good values are hard to hit (tight "
+                        f"tolerances), use {refine_ref} to search for one.")
                 if CFG.agent_bilevel_ground_samplers:
                     job += (
                         " Confine its search near your estimate by appending "
@@ -168,14 +181,14 @@ class AgentBilevelApproach(AgentPlannerApproach):
                     " A backtracking search refines the parameters, trying "
                     "yours first and sampling for any step where they don't "
                     "work, so propose precise values only where sampling would "
-                    "struggle. You may validate with refine_plan_sketch and "
+                    f"struggle. You may validate with {refine_ref} and "
                     "deep-tune any step it reports stuck.")
 
         # Keep responses short: the model's deliberation is the main driver of
         # the output-token overflow, and testing is often faster than deriving.
         brevity = (
             " Keep your reasoning concise: prefer making a concrete attempt "
-            "and testing it with refine_plan_sketch / evaluate_option_plan to "
+            f"and testing it with {refine_ref} / evaluate_option_plan to "
             "let the simulator tell you what's wrong.")
         params_clause = job + brevity + "\n\n"
         # Keep the subgoal-annotation template's option format consistent with

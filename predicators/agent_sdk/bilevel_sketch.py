@@ -473,6 +473,36 @@ def build_solve_prompt(
             line += f" — {pred.natural_language_assertion(names)}"
         pred_strs.append(line)
 
+    # Tool-availability-aware references: when explore_python replaces the
+    # standalone visualize/refine tools (see
+    # agent_planner_explore_python_keep_replaced_tools), guidance must
+    # point at the probe equivalents instead of tools the session lacks.
+    # ``tool_names=None`` keeps the legacy all-tools wording.
+    tool_set = set(tool_names) if tool_names is not None else None
+
+    def _has_tool(name: str) -> bool:
+        return tool_set is None or name in tool_set
+
+    probe_refine = (not _has_tool("refine_plan_sketch")
+                    and _has_tool("explore_python"))
+    refine_ref = ("`sim.refine` (in `explore_python`)"
+                  if probe_refine else "`refine_plan_sketch`")
+    if not _has_tool("visualize_state") and _has_tool("explore_python"):
+        visualize_advice = (
+            "- Use `explore_python` (`sim.reset(mods={...})`, then "
+            "`sim.render(...)`) to move objects to candidate positions and "
+            "orientations for free (no physics) and find the right region "
+            "visually before testing.\n")
+    elif _has_tool("visualize_state"):
+        visualize_advice = (
+            "- Use `visualize_state` to move objects to candidate positions "
+            "and orientations for free (no physics) and find the right "
+            "region visually before testing.\n")
+    else:
+        # Neither visualization surface is offered: no bullet, rather
+        # than advice naming a tool the session lacks.
+        visualize_advice = ""
+
     # Advice for a step the search reports stuck (SAMPLE_EXHAUSTED). When the
     # agent proposes params it tunes that step's values; otherwise it can only
     # change the skeleton.
@@ -483,10 +513,7 @@ def build_solve_prompt(
         "actually happened.\n"
         "- For a failure like an IK error or collision, use the image and "
         "object poses to reason about WHY and adjust params directionally — "
-        "don't try random nearby values.\n"
-        "- Use `visualize_state` to move objects to candidate positions and "
-        "orientations for free (no physics) and find the right region "
-        "visually before testing.\n"
+        "don't try random nearby values.\n" + visualize_advice +
         "- Vary ALL parameters, not just position — orientation and others "
         "affect both the outcome and whether the action succeeds.\n"
         "- Search coarse-to-fine: spread attempts across the full range; if "
@@ -512,9 +539,9 @@ def build_solve_prompt(
                 "(`GROUND_SAMPLERS = {\"my_sampler\": fn}`, "
                 "`fn(state, subgoal_atoms, rng, objects) -> params`) and "
                 "reference it as `~ my_sampler` instead; the file is "
-                "reloaded on every refine_plan_sketch call.")
+                f"reloaded on every {refine_ref} call.")
             ground_sampler_format = (
-                "\n(For refine_plan_sketch only, a step may add a search "
+                f"\n(For {refine_ref} only, a step may add a search "
                 "region after its params: "
                 "`OptionName(obj1:type1)[p1, p2] ~ [w1, w2] -> {...}`, or "
                 "`... ~ my_sampler` naming a GROUND_SAMPLERS entry.)")
@@ -523,12 +550,22 @@ def build_solve_prompt(
             "and continuous parameters in `[...]` per step (see each option's "
             "params and range above; use `[]` for options with no "
             "parameters).\n\n"
+            "Explore designs before tuning parameters: when several "
+            "qualitatively different designs could work (different objects, "
+            "orientations, sides, orderings, or mechanisms), run a cheap "
+            "test of each and compare failure modes BEFORE fine-tuning any "
+            "one of them. Parameter tuning cannot rescue the wrong design - "
+            "if a design keeps failing the same way as you tune it, switch "
+            "designs rather than tightening values. And before building on "
+            "a physics rule or constraint you inferred from a single "
+            "observation, re-test it once with a clean experiment; a wrong "
+            "rule adopted early can quietly rule out the correct designs.\n\n"
             "Spend effort on parameters in proportion to difficulty:\n"
             "- Where a WIDE range of values works, any reasonable value is "
             "fine — don't over-tune these.\n"
             "- Where good values are hard to hit — tight tolerances or exact "
             "relative placements (e.g. positioning one object at a precise "
-            "offset from another) — use `refine_plan_sketch` to search for a "
+            f"offset from another) - use {refine_ref} to search for a "
             "working value (it's slower) and read the value it found." +
             ground_sampler_guidance)
         format_block = (
@@ -564,18 +601,18 @@ def build_solve_prompt(
             "times before capture (simulation varies across runs); if it is "
             "reported FLAKY, add margin to the fragile step and resubmit. "
             "It runs your EXACT parameters with no sampling. To find "
-            "working parameters you MAY use `refine_plan_sketch` (it searches "
+            f"working parameters you MAY use {refine_ref} (it searches "
             "but is slower); read the parameters it reports and submit them "
             "via evaluate_option_plan. If a step does not reach its subgoal, "
             + stuck_advice)
     elif propose_params:
         submit_guidance = (
-            "You may validate with `refine_plan_sketch` (it tries your "
+            f"You may validate with {refine_ref} (it tries your "
             "parameters first, then samples) and deep-tune any step it "
             "reports stuck before finishing.")
     else:
         submit_guidance = (
-            "You may vet a sketch with `refine_plan_sketch` before finishing; "
+            f"You may vet a sketch with {refine_ref} before finishing; "
             "the backtracking search will find continuous parameters.")
 
     if require_tool_validation:
@@ -997,12 +1034,28 @@ def refine_sketch(
     info_scorer: Optional[InfoScorer] = None,
     info_n_feasible_target: int = 1,
     parameterized_samplers: Optional[Dict[str, ParameterizedSampler]] = None,
+    solved_check: Optional[Callable[[List[State], List[Any], bool],
+                                    Tuple[bool, str]]] = None,
 ) -> Tuple[List[_Option], bool, int]:
     """Backtracking search over continuous parameters for a plan sketch.
 
     Returns ``(refined_plan, success, total_samples)``. On success the
     plan is fully refined; on failure it is the longest prefix of
     refined options (``None`` entries dropped).
+
+    ``solved_check`` is a caller-threaded task-evaluator gate (this
+    module stays free of evaluator/CFG coupling): called only for a
+    final-step candidate whose goal atoms already hold, with the
+    rollout's accumulated per-low-level-step states, per-action
+    ``(option, objects, params)`` labels, and a ``coarse`` flag (True
+    when any step's low-level trajectory was unavailable and only its
+    option-boundary state could be used). Returning ``(False, reason)``
+    fails the candidate as ``"scored non-solve: <reason>"`` - the search
+    keeps going instead of converging on parameters the evaluator would
+    reject, and the deepest-failure near-miss records the exact
+    goal-reaching-but-uncertified params. The gate runs only on
+    goal-reaching candidates, so its (potentially expensive) certificate
+    cost is bounded by how often the search actually reaches the goal.
 
     ``deepest_failure_holder`` is an out-holder (mirroring
     ``termination_reason``): when given, the single deepest validation
@@ -1080,6 +1133,13 @@ def refine_sketch(
     # the prefix, and deepest_failure_holder reports the failing step's
     # near-miss params/state to the caller on any failed search.
     deepest_fail_idx: List[int] = [-1]
+    # Within one step, failures rank by how far the candidate got before
+    # failing: an unmet subgoal (0) < an unreached final goal (1) < a
+    # goal-reaching rollout the evaluator scored as a non-solve (2). A
+    # same-step deeper-stage failure supersedes the record, so e.g. an
+    # early subgoal miss cannot mask the far more informative
+    # scored-non-solve near-miss on a single-step sketch.
+    deepest_fail_stage: List[int] = [-1]
     deepest_fail_prefix: List[List[Optional[_Option]]] = [[]]
 
     # Options whose synthesized sampler already misbehaved once — so the
@@ -1400,7 +1460,17 @@ def refine_sketch(
     # failing rollout's post-state is visible is validate_fn).
     last_fail_post: List[Optional[Tuple[int, State]]] = [None]
 
-    def validate_fn(idx: int, _pre_state: State, _option: _Option,
+    # Per-step low-level rollout stash for the solved_check gate: entry
+    # idx holds (states_after_first, per_action_labels, coarse) from the
+    # step's most recent execution. A prefix step's stash stays valid
+    # until the step re-executes (backtracking re-runs every step below
+    # the backtrack point, overwriting stale deeper entries), so at
+    # final-step acceptance entries 0..n-1 describe exactly the current
+    # search path's rollout.
+    step_trajs: List[Optional[Tuple[List[State], List[Any], bool]]] = \
+        [None] * n
+
+    def validate_fn(idx: int, _pre_state: State, option: _Option,
                     post_state: State, _num_actions: int) -> Tuple[bool, str]:
         step = sketch[idx]
         if check_subgoals and step.subgoal_atoms is not None:
@@ -1414,6 +1484,43 @@ def refine_sketch(
             if not task.goal_holds(post_state):
                 last_fail_post[0] = (idx, post_state)
                 return False, "goal not reached"
+        if solved_check is not None:
+            # Stash the step's low-level rollout AFTER the atom checks:
+            # most candidates fail those on the spot, and stashing first
+            # would copy an O(rollout-length) state list (a Wait step is
+            # up to 1000 states) per doomed candidate and pin it for the
+            # rest of the search. The freshness check guards against an
+            # option model that exposes ``last_trajectory`` without
+            # refreshing it for THIS rollout (a stale trajectory would be
+            # scored under the current option's label - a silent
+            # franken-trajectory); staleness falls back to the coarse
+            # option-boundary path.
+            label = (option.name, tuple(o.name for o in option.objects),
+                     tuple(float(p) for p in option.params))
+            step_traj = getattr(option_model, "last_trajectory", None)
+            if (step_traj is not None and len(step_traj.states) >= 2
+                    and step_traj.states[-1] is post_state):
+                step_trajs[idx] = (list(step_traj.states[1:]),
+                                   [label] * len(step_traj.actions), False)
+            else:
+                step_trajs[idx] = ([post_state], [label], True)
+        if solved_check is not None and idx == n - 1 and \
+                task.goal_holds(post_state):
+            eval_states: List[State] = [task.init]
+            eval_labels: List[Any] = []
+            coarse = False
+            for stash in step_trajs:
+                # Every prefix step was validated (and therefore stashed)
+                # on the current search path before the final step ran.
+                assert stash is not None
+                s_states, s_labels, s_coarse = stash
+                eval_states.extend(s_states)
+                eval_labels.extend(s_labels)
+                coarse = coarse or s_coarse
+            ok, why = solved_check(eval_states, eval_labels, coarse)
+            if not ok:
+                last_fail_post[0] = (idx, post_state)
+                return False, f"scored non-solve: {why}"
         return True, ""
 
     def wrapped_on_step_fail(idx: int, cur_plan: List[Optional[_Option]],
@@ -1430,10 +1537,18 @@ def refine_sketch(
         # failed search); only the truncation RETURN below stays gated on
         # truncate_on_subgoal_fail. Non-validation failures (not initiable,
         # 0 actions, model errors) never update it.
-        if ((fail_reason.startswith("subgoal missing")
-             or fail_reason == "goal not reached")
-                and idx > deepest_fail_idx[0]):
+        if fail_reason.startswith("scored non-solve"):
+            stage: Optional[int] = 2
+        elif fail_reason == "goal not reached":
+            stage = 1
+        elif fail_reason.startswith("subgoal missing"):
+            stage = 0
+        else:
+            stage = None
+        if stage is not None and (idx, stage) > (deepest_fail_idx[0],
+                                                 deepest_fail_stage[0]):
             deepest_fail_idx[0] = idx
+            deepest_fail_stage[0] = stage
             deepest_fail_prefix[0] = list(cur_plan[:idx + 1])
             if deepest_failure_holder is not None:
                 stash = last_fail_post[0]
@@ -1851,8 +1966,16 @@ def refine_and_validate_report(
     run_id: str = "refine",
     timeout_source: str = "explicit",
     extra_summary_lines: Optional[List[str]] = None,
+    solved_check: Optional[Callable[[List[State], List[Any], bool],
+                                    Tuple[bool, str]]] = None,
 ) -> Tuple[bool, str, List[_Option]]:
     """Refine a sketch, forward-validate on success, return a report.
+
+    ``solved_check`` is threaded to ``refine_sketch``: a task-evaluator
+    gate on final-step goal-reaching candidates (see there), so the
+    search rejects goal-atom-reaching-but-uncertified parameters during
+    refinement instead of reporting a SUCCESS the evaluator would score
+    as a non-solve.
 
     Runs ``refine_sketch`` (backtracking search over continuous params)
     and, when refinement succeeds, ``validate_plan_forward`` (continuous
@@ -1893,6 +2016,7 @@ def refine_and_validate_report(
         elapsed_holder=elapsed_holder,
         deepest_failure_holder=deepest_failure,
         parameterized_samplers=parameterized_samplers,
+        solved_check=solved_check,
     )
 
     reason = termination_reason[0] if termination_reason else (
