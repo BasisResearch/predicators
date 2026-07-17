@@ -168,11 +168,7 @@ _RUN_NAME_TS_RE = re.compile(r"^run_(\d{8})_(\d{6})$")
 
 
 def _run_start_ts(name: str, mtime: float) -> float:
-    """Start time from the run dir name; dir mtime as a fallback.
-
-    The dir mtime moves whenever a file inside is added or touched, so
-    only the name timestamp gives a stable newest-first ordering.
-    """
+    """Start time from the run dir name; dir mtime as a fallback."""
     m = _RUN_NAME_TS_RE.match(name)
     if not m:
         return mtime
@@ -181,6 +177,27 @@ def _run_start_ts(name: str, mtime: float) -> float:
             m.group(1) + m.group(2), "%Y%m%d%H%M%S").timestamp()
     except ValueError:
         return mtime
+
+
+def _run_activity_ts(run_abs: str, dir_mtime: float) -> float:
+    """Last-activity time: newest mtime of the run dir's direct children.
+
+    A directory's mtime only moves when a direct entry is created,
+    removed, or renamed - appends never move it, at any depth. Every run
+    appends info.log and debug.log at the run root for as long as it is
+    alive, so a shallow scan tracks activity without walking the tree.
+    """
+    latest = dir_mtime
+    try:
+        with os.scandir(run_abs) as it:
+            for entry in it:
+                try:
+                    latest = max(latest, entry.stat().st_mtime)
+                except OSError:
+                    continue
+    except OSError:
+        pass
+    return latest
 
 
 def find_runs() -> List[Dict[str, Any]]:
@@ -199,17 +216,15 @@ def find_runs() -> List[Dict[str, Any]]:
                 seed = next((p for p in parts if p.startswith("seed")), "")
                 exp = "/".join(p for p in parts[:-1]
                                if not p.startswith("seed")) or "(root)"
+                run_abs = os.path.join(dirpath, d)
+                dir_mtime = os.path.getmtime(run_abs)
                 runs.append({
-                    "rel":
-                    run_rel,
-                    "exp":
-                    exp,
-                    "seed":
-                    seed,
-                    "name":
-                    d,
-                    "mtime":
-                    os.path.getmtime(os.path.join(dirpath, d)),
+                    "rel": run_rel,
+                    "exp": exp,
+                    "seed": seed,
+                    "name": d,
+                    "mtime": dir_mtime,
+                    "activity": _run_activity_ts(run_abs, dir_mtime),
                 })
                 dirnames.remove(d)  # do not descend into run dirs
     runs.sort(key=lambda r:
@@ -381,12 +396,14 @@ def index_stamp() -> str:
         if not run_abs:
             continue
         try:
-            st = os.stat(run_abs)
             info = os.path.join(run_abs, "info.log")
             info_size = os.path.getsize(info) if os.path.exists(info) else 0
         except OSError:
             continue
-        parts.append(f"{r['rel']}:{int(st.st_mtime)}:{int(info_size)}")
+        # Activity at minute granularity: the modified column displays
+        # minutes, so finer resolution would only cause no-op reloads.
+        parts.append(f"{r['rel']}:{int(r['mtime'])}:{int(info_size)}:"
+                     f"{int(r['activity'] // 60)}")
     return f"{len(parts)}:{int(hash(tuple(parts)) & 4294967295)}"
 
 
@@ -1344,7 +1361,7 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
     fmt = "%Y-%m-%d %H:%M"
     sstr = datetime.datetime.fromtimestamp(_run_start_ts(
         r["name"], r["mtime"])).strftime(fmt)
-    mstr = datetime.datetime.fromtimestamp(r["mtime"]).strftime(fmt)
+    mstr = datetime.datetime.fromtimestamp(r["activity"]).strftime(fmt)
     status, _ = run_status(r, summary, live, is_newest)
     # The status joins the filter key, so "running" narrows to live runs.
     key = f"{r['exp']} {r['seed']} {r['name']} {status}".lower()
