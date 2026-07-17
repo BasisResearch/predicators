@@ -163,7 +163,7 @@ def test_plain_task_attaches_domino_evaluator() -> None:
         DominoEvaluator  # pylint: disable=import-outside-toplevel
     assert isinstance(task.evaluator, DominoEvaluator)
     assert task.goal_nl is not None
-    assert "as few blue dominoes as possible" in task.goal_nl
+    assert "Only the green domino may ever be pushed." in task.goal_nl
 
     # A ball/fan-style extra component can topple dominoes without a
     # robot Push, which the certificate would falsely reject - so its

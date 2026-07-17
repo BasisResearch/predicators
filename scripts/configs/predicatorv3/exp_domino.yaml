@@ -23,6 +23,10 @@ ENVS:
     FLAGS:
       excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
   domino_turns:
+    SKIP: True
+    FLAGS:
+      excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
+  domino_turns_new_goal:
     SKIP: False
     FLAGS:
       excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
@@ -42,11 +46,15 @@ ENVS:
       excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
 APPROACHES:
   agent_oracle_hybrid_sim:
-    SKIP: False
+    SKIP: True
+  agent_oracle_hybrid_sim_sonnet46:
+    SKIP: True
   agent_oracle_hybrid_sim_long:
     SKIP: False
+    FLAGS:
+      agent_sim_learn_kept_predicates_names: ["Holding", "HandEmpty"]
   agent_oracle_hybrid_sim_hires:
-    SKIP: False
+    SKIP: True
   agent_oracle_hybrid_sim_ground_sampler:
     SKIP: True
   agent_po_predicate_invention_al:

@@ -706,8 +706,15 @@ scene, then annotate_scene overlays markers on it."""
         for obj in sorted(objects, key=lambda o: o.name):
             obj_strs.append(f"  {obj.name}: {obj.type.name}")
 
-        # Goal
-        goal_strs = [str(a) for a in sorted(task.goal, key=str)]
+        # Goal. Only expose goal atoms whose predicate is in the agent's
+        # current predicate set (same filter as the bilevel sketch
+        # prompt): approaches that strip env predicates rely on goal_nl
+        # to communicate the goal.
+        visible_preds = self._get_all_predicates()
+        goal_strs = [
+            str(a) for a in sorted(task.goal, key=str)
+            if a.predicate in visible_preds
+        ]
 
         # Options
         option_strs = []
@@ -1005,7 +1012,11 @@ Output ONLY the option plan lines at the end, after any analysis."""
         additional fields (e.g. skill_factory_context).
         """
         self._tool_context.types = self._types
-        self._tool_context.predicates = self._initial_predicates
+        # The agent's predicate vocabulary, not the raw env set: tools
+        # abstract states, list predicates, and parse plan annotations
+        # from this, so stripped predicates (agent_sim_learning
+        # allowlist) must not leak in and invented ones must appear.
+        self._tool_context.predicates = self._get_all_predicates()
         self._tool_context.options = self._initial_options
         self._tool_context.show_option_source = True
         ref_root = "/sandbox" if CFG.agent_sdk_use_docker_sandbox else "."
