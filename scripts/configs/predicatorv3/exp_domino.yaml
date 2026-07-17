@@ -51,6 +51,8 @@ APPROACHES:
     SKIP: True
   agent_oracle_hybrid_sim_long:
     SKIP: False
+    FLAGS:
+      agent_sim_learn_kept_predicates_names: ["Holding", "HandEmpty"]
   agent_oracle_hybrid_sim_hires:
     SKIP: True
   agent_oracle_hybrid_sim_ground_sampler:
