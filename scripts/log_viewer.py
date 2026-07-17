@@ -232,32 +232,84 @@ def find_runs() -> List[Dict[str, Any]]:
     return runs
 
 
-def live_run_keys() -> Set[Tuple[str, str]]:
-    """(exp, seed) of every run with a live main.py process.
+# (exp, seed, run name) triples pinned to a live process, plus (exp, seed)
+# keys of live processes that could not be pinned to a specific run.
+LiveProcs = Tuple[Set[Tuple[str, str, str]], Set[Tuple[str, str]]]
 
-    A process names its log dir through
-    --approach/--experiment_id/--seed but not the run_<timestamp> leaf,
-    so this identifies the experiment and seed only; run_status pins it
-    to that key's newest run, the one the process created when it
-    started.
+_LSOF_RUN_RE = re.compile(r"(?:/(seed\d+))?/(run_\d{8}_\d{6})(?:/|$)")
+
+
+def _open_run_names(pids: List[str]) -> Dict[str, Set[Tuple[str, str]]]:
+    """(seed, run name) pairs in each pid's open file paths, per lsof.
+
+    The seed is "" when the open path has no seed<N> component right
+    above the run dir.
     """
     try:
-        out = subprocess.run(["ps", "-Ao", "args="],
+        out = subprocess.run(["lsof", "-n", "-P", "-Fn", "-p", ",".join(pids)],
                              capture_output=True,
                              text=True,
                              check=False,
                              timeout=10).stdout
     except (OSError, subprocess.SubprocessError):
-        return set()  # no ps: fall back to marker-only statuses
-    keys = set()
+        return {}
+    names: Dict[str, Set[Tuple[str, str]]] = {}
+    pid = ""
+    for line in out.splitlines():
+        if line.startswith("p"):
+            pid = line[1:]
+        elif line.startswith("n") and pid:
+            m = _LSOF_RUN_RE.search(line[1:])
+            if m:
+                names.setdefault(pid, set()).add((m.group(1)
+                                                  or "", m.group(2)))
+    return names
+
+
+def live_runs() -> LiveProcs:
+    """Live main.py processes, pinned to the runs they log into.
+
+    A process names its log dir through --approach/--experiment_id/--seed
+    but not the run_<timestamp> leaf, so ps alone identifies the
+    experiment and seed only - ambiguous when parallel launches of the
+    same config overlap. Each process keeps its run's log files open,
+    though, so lsof recovers the leaf. Processes lsof cannot resolve are
+    returned as bare keys, which run_status attributes to the key's
+    newest run: the one such a process made when it started.
+    """
+    try:
+        out = subprocess.run(["ps", "-Axo", "pid=,args="],
+                             capture_output=True,
+                             text=True,
+                             check=False,
+                             timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return set(), set()  # no ps: fall back to marker-only statuses
+    procs: Dict[str, Tuple[str, str]] = {}
     for line in out.splitlines():
         if "main.py" not in line:
             continue
-        flags = dict(PS_ARG_RE.findall(line))
-        if "approach" in flags and "experiment_id" in flags:
-            keys.add((f"{flags['approach']}/{flags['experiment_id']}",
-                      f"seed{flags.get('seed', '0')}"))
-    return keys
+        pid, _, args = line.strip().partition(" ")
+        flags = dict(PS_ARG_RE.findall(args))
+        if pid.isdigit() and "approach" in flags and "experiment_id" in flags:
+            procs[pid] = (f"{flags['approach']}/{flags['experiment_id']}",
+                          f"seed{flags.get('seed', '0')}")
+    pinned: Set[Tuple[str, str, str]] = set()
+    unpinned: Set[Tuple[str, str]] = set()
+    open_names = _open_run_names(list(procs)) if procs else {}
+    for pid, (exp, seed) in procs.items():
+        # Parallel launches stamp sibling seeds with the same run name,
+        # so a pin only counts when the open path agrees on the seed.
+        matched = {
+            name
+            for path_seed, name in open_names.get(pid, set())
+            if path_seed in ("", seed)
+        }
+        if matched:
+            pinned.update((exp, seed, name) for name in matched)
+        else:
+            unpinned.add((exp, seed))
+    return pinned, unpinned
 
 
 def _parse_episode(path: str) -> Dict[str, Any]:
@@ -1302,8 +1354,8 @@ def episode_grid(episodes: EpList,
             f"{''.join(rows)}</table>")
 
 
-def run_status(r: Dict[str, Any], summary: Dict[str, Any],
-               live: Set[Tuple[str, str]], is_newest: bool) -> Tuple[str, str]:
+def run_status(r: Dict[str, Any], summary: Dict[str, Any], live: LiveProcs,
+               is_newest: bool) -> Tuple[str, str]:
     """(label, css class) for a run's lifecycle state.
 
     Completion is read off info.log, since main.py logs its terminating
@@ -1313,20 +1365,24 @@ def run_status(r: Dict[str, Any], summary: Dict[str, Any],
     """
     if summary.get("done"):
         return "done", "done"
-    if is_newest and (r["exp"], r["seed"]) in live:
+    pinned, unpinned = live
+    if (r["exp"], r["seed"], r["name"]) in pinned:
+        return "running", "live"
+    if is_newest and (r["exp"], r["seed"]) in unpinned:
         return "running", "live"
     return "interrupted", "stopped"
 
 
-def status_chip(r: Dict[str, Any], summary: Dict[str, Any],
-                live: Set[Tuple[str, str]], is_newest: bool) -> str:
+def status_chip(r: Dict[str, Any], summary: Dict[str, Any], live: LiveProcs,
+                is_newest: bool) -> str:
     """Chip announcing whether a run is live, finished, or stopped."""
     label, cls = run_status(r, summary, live, is_newest)
     title = {
         "done":
         "info.log ends with main.py's completion line",
         "live":
-        "a main.py process for this experiment and seed is running",
+        "a live main.py process holds this run's logs open, or this is "
+        "the newest run of a live process lsof could not pin",
         "stopped":
         "no completion line in info.log and no live process: "
         "killed or crashed",
@@ -1352,7 +1408,7 @@ def _misc_chip(ep: Dict[str, Any]) -> str:
 
 
 def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
-            live: Set[Tuple[str, str]], is_newest: bool) -> str:
+            live: LiveProcs, is_newest: bool) -> str:
     """Table row summarizing one run for the index page."""
     eps = summary.get("episodes", [])
     tr = summary.get("test_results", [])
@@ -1394,9 +1450,10 @@ def index_page() -> str:
     # spares families that never explore its reserved width.
     page_layout = grid_layout(
         [s.get("episodes", []) for s in summaries.values()])
-    live = live_run_keys()
-    # A live process owns the newest run of its experiment and seed: the
-    # one it made at startup. Older runs of that key are its dead ancestors.
+    live = live_runs()
+    # A process lsof could not pin owns the newest run of its experiment
+    # and seed: the one it made at startup. Older runs of that key are
+    # dead ancestors - unless lsof pinned a live process to them.
     newest: Dict[Tuple[str, str], Tuple[float, str]] = {}
     for r in runs:
         key = (r["exp"], r["seed"])
