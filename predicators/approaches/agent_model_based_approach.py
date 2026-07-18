@@ -30,7 +30,7 @@ from predicators.agent_sdk.bilevel_sketch import SketchStep as _SketchStep
 from predicators.agent_sdk.tools import BUILTIN_TOOLS, \
     _load_ground_sampler_fns, explore_python_replaces_tools
 from predicators.approaches import ApproachFailure
-from predicators.approaches.agent_planner_approach import AgentPlannerApproach
+from predicators.approaches.agent_model_free_approach import AgentModelFreeApproach
 from predicators.execution_monitoring.subgoal_annotations_monitor import \
     SubgoalExecutionStatus
 from predicators.settings import CFG
@@ -49,7 +49,7 @@ _REQUERY_MIN_WALL_FRACTION = 0.2
 class _CaptureInfo:
     """Metadata of the most recently consumed captured plan.
 
-    Recorded by :meth:`AgentBilevelApproach._consume_validated_plan` so
+    Recorded by :meth:`AgentModelBasedApproach._consume_validated_plan` so
     the restart loop can distinguish a validated solve (return
     immediately) from a best-effort capture (bank it, rank across
     attempts by evaluator reward) and journal the plan.
@@ -59,11 +59,11 @@ class _CaptureInfo:
     plan_lines: List[str]
 
 
-class AgentBilevelApproach(AgentPlannerApproach):
+class AgentModelBasedApproach(AgentModelFreeApproach):
     """Bilevel planning: the agent plans a skeleton with subgoals and
     parameters and submits it as a simulator-validated capture.
 
-    Extends AgentPlannerApproach — reuses agent session, tools,
+    Extends AgentModelFreeApproach — reuses agent session, tools,
     trajectory management, exploration, save/load.  Overrides solving
     with the capture-only query loop plus the restart/journal machinery.
     """

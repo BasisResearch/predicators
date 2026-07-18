@@ -290,8 +290,8 @@ def test_explore_python_replaces_visualize_and_refine() -> None:
     """When explore_python is on, the tools it subsumes are dropped unless
     agent_planner_explore_python_keep_replaced_tools asks for both."""
     from predicators import utils
-    from predicators.approaches.agent_bilevel_approach import \
-        AgentBilevelApproach
+    from predicators.approaches.agent_model_based_approach import \
+        AgentModelBasedApproach
     base = {
         "env": "cover",
         "approach": "agent_bilevel",
@@ -299,7 +299,7 @@ def test_explore_python_replaces_visualize_and_refine() -> None:
         "agent_planner_use_visualize_state": True,
         "agent_planner_use_annotate_scene": True,
     }
-    obj = object.__new__(AgentBilevelApproach)
+    obj = object.__new__(AgentModelBasedApproach)
 
     utils.reset_config(base)
     names = _required_names(obj._get_solve_tool_names())

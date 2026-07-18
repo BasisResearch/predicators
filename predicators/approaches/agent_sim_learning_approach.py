@@ -1,6 +1,6 @@
 """Agent sim-learning approach: learns a simulator program online.
 
-Extends AgentBilevelApproach to learn process dynamics via an
+Extends AgentModelBasedApproach to learn process dynamics via an
 agent-synthesized step-level simulator with parameterized process
 rules. Parameters are fitted via emcee ensemble MCMC (training.py).
 
@@ -35,7 +35,7 @@ from predicators.agent_sdk.tools import SAMPLER_SYNTHESIS_TOOL_NAMES, \
     SYNTHESIS_TOOL_NAMES, _SnapshotTarget, create_synthesis_tools, \
     evaluate_states_with, finalize_versioned_snapshot, \
     make_write_snapshot_hook
-from predicators.approaches.agent_bilevel_approach import AgentBilevelApproach
+from predicators.approaches.agent_model_based_approach import AgentModelBasedApproach
 from predicators.approaches.sampler_learning_mixin import SamplerLearningMixin
 from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
     mean_bernoulli_entropy, perturbation_ensemble, \
@@ -89,11 +89,11 @@ def rule(state, updates, params):
 # ── Approach ─────────────────────────────────────────────────────
 
 
-class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
+class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     """Bilevel planning with a learned step-level simulator.
 
     During online learning:
-    1. Collect trajectories (inherited from AgentBilevelApproach)
+    1. Collect trajectories (inherited from AgentModelBasedApproach)
     2. Segment into option-level transitions
     3. Synthesize parameterized process rules via Claude agent
     4. Fit rule parameters via emcee ensemble MCMC
@@ -1755,7 +1755,7 @@ the tools.{probe_note}"""
         ``LATENT_INIT`` was loaded (or the resulting block is empty), leave
         the task alone so downstream code keeps the legacy
         ``state.latent is None`` behaviour. Overrides the no-op default in
-        :class:`AgentBilevelApproach`.
+        :class:`AgentModelBasedApproach`.
         """
         if self._latent_init is None:
             return task

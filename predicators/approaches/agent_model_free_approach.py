@@ -40,7 +40,7 @@ from predicators.structs import Action, Dataset, GroundAtom, \
     ParameterizedOption, ParameterizedSampler, Predicate, State, Task, Type
 
 
-class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
+class AgentModelFreeApproach(AgentSessionMixin, BaseApproach):
     """Fixed-vocabulary open-loop planning via Claude Agent SDK.
 
     - Collects trajectories online using AgentPlanExplorer
@@ -422,7 +422,7 @@ scene, then annotate_scene overlays markers on it."""
         # option model; visualize_state / annotate_scene render env states.
         # None are offered when the planner has no simulator.
         # (refine_plan_sketch, which backtracking-refines a param-free sketch,
-        # is exposed only by AgentBilevelApproach.)
+        # is exposed only by AgentModelBasedApproach.)
         if CFG.agent_planner_use_simulator:
             tools.append("evaluate_option_plan")
             # explore_python subsumes annotate_scene (sim.render with

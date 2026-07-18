@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 from predicators import utils
-from predicators.approaches.agent_bilevel_approach import _SketchStep
+from predicators.approaches.agent_model_based_approach import _SketchStep
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, merge_updates
 from predicators.envs import create_new_env
@@ -119,7 +119,7 @@ def _parse_sketch_from_file(
     predicates: Set[Predicate],
     objects: Sequence[Object],
 ) -> List[_SketchStep]:
-    """Parse a plan sketch from a text file, same as agent_bilevel_approach."""
+    """Parse a plan sketch from a text file, same as agent_model_based_approach."""
     with open(sketch_file, "r", encoding="utf-8") as f:
         plan_text = f.read().strip()
 

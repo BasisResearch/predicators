@@ -288,7 +288,7 @@ class ToolContext:
     # below). Cleared together with solved_plan.
     solved_plan_reached_goal: Optional[bool] = None
     # Gate for the above: only approaches that consume captured plans
-    # (AgentBilevelApproach) set this True. Keeps the open-loop planner, which
+    # (AgentModelBasedApproach) set this True. Keeps the open-loop planner, which
     # also uses evaluate_option_plan, from recording spurious captures.
     capture_goal_reaching_plans: bool = False
     # Set (with capture_goal_reaching_plans) only for the final-submission
@@ -322,7 +322,7 @@ class ToolContext:
     # The restart loop ranks best-effort captures across attempts by it.
     # Cleared together with solved_plan.
     solved_plan_eval_reward: Optional[float] = None
-    # Restart-loop attempt bookkeeping, set by AgentBilevelApproach._solve
+    # Restart-loop attempt bookkeeping, set by AgentModelBasedApproach._solve
     # around each attempt. ``attempt_start``/``attempt_deadline`` are
     # time.monotonic() values; the deadline is enforced cooperatively by
     # the probe (every sim call) and explore_python, and surfaced in tool

@@ -1,6 +1,6 @@
 """Shared helpers for bilevel plan-sketch construction and refinement.
 
-Extracted from ``AgentBilevelApproach`` so both the approach (at solve
+Extracted from ``AgentModelBasedApproach`` so both the approach (at solve
 time) and ``AgentBilevelExplorer`` (at exploration time) can build plan
 sketches, parse subgoal annotations, and run backtracking refinement
 against an arbitrary ``_OptionModelBase``.
@@ -352,7 +352,7 @@ def build_solve_prompt(
     ``CFG.agent_bilevel_ground_samplers``; when False the prompt never
     mentions the ``~`` annotation channel.
 
-    Mirrors ``AgentBilevelApproach._build_solve_prompt`` but takes
+    Mirrors ``AgentModelBasedApproach._build_solve_prompt`` but takes
     dependencies explicitly so explorers can reuse it.
 
     ``prior_failures`` is a pre-formatted block summarizing earlier

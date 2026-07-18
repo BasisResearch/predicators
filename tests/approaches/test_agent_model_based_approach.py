@@ -1,4 +1,4 @@
-"""Tests for AgentBilevelApproach -- parsing and refinement logic."""
+"""Tests for AgentModelBasedApproach -- parsing and refinement logic."""
 # pylint: disable=protected-access,import-outside-toplevel
 import os
 from unittest.mock import MagicMock, patch
@@ -8,8 +8,8 @@ import pytest
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.approaches.agent_bilevel_approach import \
-    AgentBilevelApproach, _SketchStep
+from predicators.approaches.agent_model_based_approach import \
+    AgentModelBasedApproach, _SketchStep
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, Type
 
@@ -95,7 +95,7 @@ def _make_state(overrides=None):
 
 
 def _make_approach():
-    """Create an AgentBilevelApproach with mock config and option model."""
+    """Create an AgentModelBasedApproach with mock config and option model."""
     state = _make_state()
     goal = {GroundAtom(_On, [_block0, _block1])}
     task = Task(state, goal)
@@ -113,7 +113,7 @@ def _make_approach():
     })
 
     mock_option_model = MagicMock()
-    approach = AgentBilevelApproach(
+    approach = AgentModelBasedApproach(
         initial_predicates=_ALL_PREDICATES,
         initial_options=_ALL_OPTIONS,
         types={_block_type, _robot_type},
@@ -1041,7 +1041,7 @@ class TestSampleParams:
 
 def test_get_name():
     """Test get name."""
-    assert AgentBilevelApproach.get_name() == "agent_bilevel"
+    assert AgentModelBasedApproach.get_name() == "agent_bilevel"
 
 
 # ---------------------------------------------------------------------------
@@ -1288,9 +1288,9 @@ class TestExecutionReplanning:
             option_model=MagicMock(),
         )
         with pytest.raises(ValueError, match="subgoal_annotations"):
-            AgentBilevelApproach(**kwargs)
+            AgentModelBasedApproach(**kwargs)
         utils.update_config({"execution_monitor": "subgoal_annotations"})
-        AgentBilevelApproach(**kwargs)
+        AgentModelBasedApproach(**kwargs)
 
     def test_replan_suffix_walkback_and_validation(self):
         """_replan_suffix tries the failed step first, walks back only to the

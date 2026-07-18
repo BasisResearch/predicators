@@ -8,7 +8,7 @@ expected after a Wait doesn't actually hold), the trajectory is a targeted
 learning signal for online simulator synthesis.
 
 Parallels ``AgentPlanExplorer`` for session plumbing and
-``AgentBilevelApproach`` for the sketch/refine workflow.
+``AgentModelBasedApproach`` for the sketch/refine workflow.
 """
 
 import logging
