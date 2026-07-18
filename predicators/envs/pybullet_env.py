@@ -265,6 +265,15 @@ class PyBulletEnv(BaseEnv):
         # right input. Empty on sequential rollouts (no reset → nothing lost).
         self._last_unreconstructible_features: List[Tuple[Object, str]] = []
 
+        # Opt-in contact recording (see start_contact_recording): while
+        # the log is not None, every step() appends that step's contact
+        # pairs. Off by default - recording every rollout would tax large
+        # parameter sweeps for data nobody reads.
+        self._contact_log: Optional[List[Tuple[int, int, int, int, int]]] = \
+            None
+        self._contact_step_count = 0
+        self._contact_relevant_ids: Optional[Set[int]] = None
+
     # ── Setup & Initialization ──────────────────────────────────
 
     @classmethod
@@ -473,6 +482,100 @@ class PyBulletEnv(BaseEnv):
                 return obj
         raise ValueError(f"Object with ID {obj_id} not found")
 
+    # ── Contact Recording ───────────────────────────────────────
+
+    def start_contact_recording(self) -> None:
+        """Begin recording each step's contact pairs.
+
+        Domain-general observability for agent tools: which robot links
+        touched which objects, and which object pairs touched, at which
+        low-level step. Recording stays cheap (raw body/link ids in the
+        hot path; name resolution deferred to stop) but is opt-in - a
+        parameter sweep should not pay for a log nobody reads.
+        """
+        self._contact_log = []
+        self._contact_step_count = 0
+        # Hot-path filter: only pairs among these bodies are worth
+        # logging (stop_contact_recording would discard the rest anyway,
+        # and every resting object touches the table every step).
+        self._contact_relevant_ids = {self._pybullet_robot.robot_id} | {
+            obj.id
+            for obj in self._objects if obj.id is not None
+        }
+
+    @property
+    def contact_steps_recorded(self) -> int:
+        """Env steps seen by the current/last contact recording.
+
+        Lets consumers that bucket events by an external action count
+        (``_attach_step_contacts``) detect a count mismatch instead of
+        silently mis-windowing.
+        """
+        return self._contact_step_count
+
+    def stop_contact_recording(self) -> List[Dict[str, Any]]:
+        """Stop recording and return name-resolved contact events.
+
+        Each event is ``{"step": i, "a": name, "b": name}`` (``step``
+        counts env steps since recording started, 1-based) where a name
+        is ``robot:<link_name>`` for a robot link or the state Object's
+        name. Pairs where either side is neither the robot nor a state
+        Object (table, walls, floor) are dropped: every resting object
+        touches static scenery every step, and that noise would bury the
+        contacts that explain motion.
+        """
+        log = self._contact_log or []
+        self._contact_log = None
+        obj_names = {
+            obj.id: obj.name
+            for obj in self._objects if obj.id is not None
+        }
+        robot_id = self._pybullet_robot.robot_id
+        link_names = {-1: "base"}
+        for ji in self._pybullet_robot.joint_infos:
+            link_names[ji.jointIndex] = ji.linkName
+        events: List[Dict[str, Any]] = []
+        for step, body_a, link_a, body_b, link_b in log:
+            if body_a == robot_id and body_b == robot_id:
+                continue
+            names: List[Optional[str]] = []
+            for body, link in ((body_a, link_a), (body_b, link_b)):
+                if body == robot_id:
+                    names.append(
+                        f"robot:{link_names.get(link, f'link{link}')}")
+                elif body in obj_names:
+                    names.append(obj_names[body])
+                else:
+                    names.append(None)
+            if names[0] is None or names[1] is None:
+                continue
+            events.append({"step": step, "a": names[0], "b": names[1]})
+        return events
+
+    def _record_step_contacts(self) -> None:
+        """Append this step's deduplicated contact pairs to the log."""
+        assert self._contact_log is not None
+        self._contact_step_count += 1
+        if CFG.pybullet_control_mode == "reset":
+            # No stepSimulation ran, so the contact manifold is stale.
+            p.performCollisionDetection(
+                physicsClientId=self._physics_client_id)
+        relevant = self._contact_relevant_ids
+        seen: Set[Tuple[int, int, int, int]] = set()
+        for c in p.getContactPoints(physicsClientId=self._physics_client_id):
+            # c[1]/c[2] = body ids, c[3]/c[4] = link indices,
+            # c[8] = contact distance (negative = penetration).
+            if c[8] > 1e-4:
+                continue
+            if relevant is not None and (c[1] not in relevant
+                                         or c[2] not in relevant):
+                continue
+            key = (c[1], c[3], c[2], c[4])
+            if key in seen:
+                continue
+            seen.add(key)
+            self._contact_log.append((self._contact_step_count, *key))
+
     # ── Core Loop (Reset / Simulate / Step) ─────────────────────
 
     def reset(self,
@@ -574,6 +677,9 @@ class PyBulletEnv(BaseEnv):
         if CFG.pybullet_control_mode != "reset":
             for _ in range(CFG.pybullet_sim_steps_per_action):
                 p.stepSimulation(physicsClientId=self._physics_client_id)
+
+        if self._contact_log is not None:
+            self._record_step_contacts()
 
         # If not currently holding something, and fingers are closing, check
         # for a new grasp.
