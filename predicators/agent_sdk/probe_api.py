@@ -814,10 +814,7 @@ class ProbeSim:
         rng = np.random.default_rng(CFG.seed + 100003 *
                                     (self._instance_id + 1) +
                                     self._refine_calls)
-        step_samples: List[int] = [0] * len(sketch_steps)
-        termination_reason: List[str] = []
-        deepest_failure: List[Any] = []
-        refined_plan, success, total_samples = bilevel_sketch.refine_sketch(
+        outcome = bilevel_sketch.refine_sketch(
             probe_task,
             sketch_steps,
             self._option_model(),
@@ -828,13 +825,13 @@ class ProbeSim:
             check_subgoals=True,
             check_final_goal=require_goal,
             run_id="probe",
-            step_samples_cumulative=step_samples,
-            termination_reason=termination_reason,
-            deepest_failure_holder=deepest_failure,
             parameterized_samplers=ctx.parameterized_samplers or None,
             solved_check=solved_check)
-        reason = termination_reason[0] if termination_reason else (
-            "success" if success else "failure")
+        refined_plan, success = outcome.plan, outcome.success
+        total_samples = outcome.total_samples
+        step_samples = outcome.step_samples_cumulative
+        reason = outcome.termination_reason or ("success"
+                                                if success else "failure")
         plan_lines: List[str] = []
         for i, st in enumerate(sketch_steps):
             opt = refined_plan[i] if i < len(refined_plan) else None
@@ -846,8 +843,8 @@ class ProbeSim:
             suffix = f" -> {{{', '.join(atoms)}}}" if atoms else ""
             plan_lines.append(f"{st.option.name}({objs}){params}{suffix}")
         near_miss: Optional[Dict[str, Any]] = None
-        if deepest_failure:
-            df = deepest_failure[0]
+        if outcome.deepest_failure is not None:
+            df = outcome.deepest_failure
             near_miss = {
                 "step_idx": df.step_idx,
                 "option": _fmt_option(df.option),
