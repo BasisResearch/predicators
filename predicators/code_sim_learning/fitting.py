@@ -35,6 +35,37 @@ StepSimulatorFn = Callable[[State, Action, Dict[str, float]], Dict]
 TrajectoryTriples = List[Tuple[State, Action, State]]
 
 
+def iter_step_terms(
+    state: State,
+    updates: Dict,
+    next_obs: State,
+    process_features: Dict[str, List[str]],
+) -> Any:
+    """Yield one ``(obj, feat, predicted, observed, rule_fired)`` term per
+    (state object x allowed feature) for a single step.
+
+    The single source of truth behind the SSE / residual-vector /
+    breakdown computations, in deterministic object x feature order: a
+    fixed vector length and position across theta perturbations is a
+    hard requirement of the finite-difference Jacobians LM builds, even
+    when a hard gate flips which rule fires. A feature the simulator did
+    not update is predicted as "no change" (the pre-step value).
+    Predicted features for objects absent from ``state`` are ignored -
+    they have no observation to compare against.
+    """
+    for obj in state:
+        type_name = obj.type.name
+        for feat_name in process_features.get(type_name, []):
+            fired = obj in updates and feat_name in updates[obj]
+            if fired:
+                raw = updates[obj][feat_name]
+                pred = raw.item() if hasattr(raw, 'item') else float(raw)
+            else:
+                pred = float(state.get(obj, feat_name))
+            obs = float(next_obs.get(obj, feat_name))
+            yield obj, feat_name, float(pred), obs, fired
+
+
 def compute_sse(
     simulator_fn: StepSimulatorFn,
     transitions: List[Tuple[State, Action, State]],
@@ -50,30 +81,11 @@ def compute_sse(
     to parameter changes.
     """
     total_se = 0.0
-
     for s_t, action, s_next_obs in transitions:
         updates = simulator_fn(s_t, action, params)
-
-        for obj, feat_dict in updates.items():
-            type_name = obj.type.name
-            allowed_feats = process_features.get(type_name, [])
-            for feat_name, pred_val in feat_dict.items():
-                if feat_name not in allowed_feats:
-                    continue
-                v = pred_val.item() if hasattr(pred_val, 'item') else pred_val
-                obs_val = float(s_next_obs.get(obj, feat_name))
-                total_se += (v - obs_val)**2
-
-        # Penalize unpredicted features (model predicts no change).
-        for obj in s_t:
-            type_name = obj.type.name
-            for feat_name in process_features.get(type_name, []):
-                if obj in updates and feat_name in updates[obj]:
-                    continue
-                pred_val = float(s_t.get(obj, feat_name))
-                obs_val = float(s_next_obs.get(obj, feat_name))
-                total_se += (pred_val - obs_val)**2
-
+        for _obj, _feat, pred, obs, _fired in iter_step_terms(
+                s_t, updates, s_next_obs, process_features):
+            total_se += (pred - obs)**2
     return total_se
 
 
@@ -123,26 +135,9 @@ def compute_sse_recurrent(
             updates = apply_rules_with_latent(state_base, latent, history,
                                               rules, params)
 
-            for obj, feat_dict in updates.items():
-                type_name = obj.type.name
-                allowed_feats = process_features.get(type_name, [])
-                for feat_name, pred_val in feat_dict.items():
-                    if feat_name not in allowed_feats:
-                        continue
-                    v = pred_val.item() if hasattr(pred_val,
-                                                   'item') else pred_val
-                    obs_val = float(state_obs.get(obj, feat_name))
-                    total_se += (v - obs_val)**2
-
-            # Penalize unpredicted features (model predicts no change).
-            for obj in state_base:
-                type_name = obj.type.name
-                for feat_name in process_features.get(type_name, []):
-                    if obj in updates and feat_name in updates[obj]:
-                        continue
-                    pred_val = float(state_base.get(obj, feat_name))
-                    obs_val = float(state_obs.get(obj, feat_name))
-                    total_se += (pred_val - obs_val)**2
+            for _obj, _feat, pred, obs, _fired in iter_step_terms(
+                    state_base, updates, state_obs, process_features):
+                total_se += (pred - obs)**2
 
     return total_se
 
@@ -254,16 +249,9 @@ def compute_residuals(
     residuals: List[float] = []
     for s_t, action, s_next_obs in transitions:
         updates = simulator_fn(s_t, action, params)
-        for obj in s_t:
-            type_name = obj.type.name
-            for feat_name in process_features.get(type_name, []):
-                if obj in updates and feat_name in updates[obj]:
-                    raw = updates[obj][feat_name]
-                    pred = raw.item() if hasattr(raw, 'item') else float(raw)
-                else:
-                    pred = float(s_t.get(obj, feat_name))
-                obs = float(s_next_obs.get(obj, feat_name))
-                residuals.append(pred - obs)
+        residuals.extend(pred - obs
+                         for _obj, _feat, pred, obs, _fired in iter_step_terms(
+                             s_t, updates, s_next_obs, process_features))
     return np.asarray(residuals, dtype=float)
 
 
@@ -276,11 +264,10 @@ def compute_residuals_recurrent(
 ) -> np.ndarray:
     """Per-feature residuals (predicted - observed) for the recurrent rollout.
 
-    Vector counterpart to :func:`compute_sse_recurrent`, written in the
-    object x feature iteration order of :func:`compute_residuals` (not the
-    predicted-then-unpredicted order of the SSE) so the flat vector keeps a
-    fixed length and position across theta perturbations even when a hard
-    gate flips which rule fires -- required for the finite-difference
+    Vector counterpart to :func:`compute_sse_recurrent`; both draw their
+    terms from :func:`iter_step_terms`, so the flat vector keeps a fixed
+    length and position across theta perturbations even when a hard gate
+    flips which rule fires -- required for the finite-difference
     Jacobian LM builds. By construction
     ``sum(compute_residuals_recurrent(...)**2)`` equals
     ``compute_sse_recurrent(...)``, so minimizing ``0.5 * ||r||^2`` with LM
@@ -304,17 +291,10 @@ def compute_residuals_recurrent(
             history.append((state_base, action))
             updates = apply_rules_with_latent(state_base, latent, history,
                                               rules, params)
-            for obj in state_base:
-                type_name = obj.type.name
-                for feat_name in process_features.get(type_name, []):
-                    if obj in updates and feat_name in updates[obj]:
-                        raw = updates[obj][feat_name]
-                        pred = raw.item() if hasattr(raw,
-                                                     'item') else float(raw)
-                    else:
-                        pred = float(state_base.get(obj, feat_name))
-                    obs = float(state_obs.get(obj, feat_name))
-                    residuals.append(pred - obs)
+            residuals.extend(
+                pred - obs
+                for _obj, _feat, pred, obs, _fired in iter_step_terms(
+                    state_base, updates, state_obs, process_features))
     return np.asarray(residuals, dtype=float)
 
 
@@ -350,33 +330,17 @@ def log_sse_breakdown(
 
     for s_t, action, s_next_obs in transitions:
         updates = simulator_fn(s_t, action, params)
-
-        for obj, feat_dict in updates.items():
-            type_name = obj.type.name
-            allowed_feats = process_features.get(type_name, [])
-            for feat_name, pred_val in feat_dict.items():
-                if feat_name not in allowed_feats:
-                    continue
-                v = pred_val.item() if hasattr(pred_val, 'item') else pred_val
-                obs_val = float(s_next_obs.get(obj, feat_name))
-                err = float(v) - obs_val
-                slot = _slot((type_name, feat_name))
+        for obj, feat_name, pred, obs, fired in iter_step_terms(
+                s_t, updates, s_next_obs, process_features):
+            err = pred - obs
+            slot = _slot((obj.type.name, feat_name))
+            if fired:
                 slot["sse_pred"] += err * err
                 slot["n_pred"] += 1
-                slot["max_abs_err"] = max(slot["max_abs_err"], abs(err))
-
-        for obj in s_t:
-            type_name = obj.type.name
-            for feat_name in process_features.get(type_name, []):
-                if obj in updates and feat_name in updates[obj]:
-                    continue
-                pred_val = float(s_t.get(obj, feat_name))
-                obs_val = float(s_next_obs.get(obj, feat_name))
-                err = pred_val - obs_val
-                slot = _slot((type_name, feat_name))
+            else:
                 slot["sse_no_pred"] += err * err
                 slot["n_no_pred"] += 1
-                slot["max_abs_err"] = max(slot["max_abs_err"], abs(err))
+            slot["max_abs_err"] = max(slot["max_abs_err"], abs(err))
 
     if not bucket:
         return
