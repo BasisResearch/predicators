@@ -248,9 +248,9 @@ def test_annotations_cleaned_up(ctx: Any) -> None:
         }))
 
         # Render plain scene (no annotations)
-        from predicators.agent_sdk.tools import _render_pybullet_image
+        from predicators.agent_sdk.tools import render_pybullet_image
         ctx.test_call_id += 1
-        _render_pybullet_image(ctx, "clean_render")
+        render_pybullet_image(ctx, "clean_render")
 
         saved = sorted(f for f in os.listdir(tmpdir) if f.endswith(".png"))
         assert len(saved) == 2

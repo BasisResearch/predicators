@@ -31,7 +31,7 @@ from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.sketch_types import SketchStep as _SketchStep
 from predicators.agent_sdk.tools import BUILTIN_TOOLS, \
-    _load_ground_sampler_fns, explore_python_replaces_tools
+    explore_python_replaces_tools, load_ground_sampler_fns
 from predicators.approaches import ApproachFailure
 from predicators.approaches.agent_model_free_approach import \
     AgentModelFreeApproach
@@ -716,7 +716,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         # references resolve against the sandbox's ground_samplers.py (a
         # broken file just drops the annotations here - this is the
         # best-effort fallback path, not the strict tool path).
-        gs_fns, gs_err = _load_ground_sampler_fns(self._tool_context)
+        gs_fns, gs_err = load_ground_sampler_fns(self._tool_context)
         if gs_err is not None:
             logging.warning("[%s] %s", self._run_id, gs_err)
         sketch = bilevel_sketch.parse_sketch_from_text(

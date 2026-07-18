@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 # Bootstrap circular imports before pulling from predicators.agent_sdk.
 import predicators.utils  # noqa: F401 — required for import side effects
-from predicators.agent_sdk.tools import _SnapshotTarget, \
+from predicators.agent_sdk.tools.snapshots import _SnapshotTarget, \
     finalize_versioned_snapshot, make_write_snapshot_hook
 
 # ── finalize_versioned_snapshot ──────────────────────────────────────
