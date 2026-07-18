@@ -17,6 +17,17 @@ read.  The agent can write and run Python scripts in ``/sandbox/``, and
 
 Shared data (pickled context and results) passes through ``/data``.
 
+Behavioral notes relative to the shared base
+(:mod:`predicators.agent_sdk.session_base`):
+
+- ``query()`` is a subprocess orchestrator: each call runs one fresh
+  container (no persistent client), so ``start_session``, ``close``,
+  and ``_recover_session`` are no-ops.
+- The incremental markdown log is written in-container; the host only
+  prepends a metadata header afterwards.
+- Cost accounting reuses the base delta scheme with the baseline reset
+  to zero per query, since every container session starts from zero.
+
 Usage
 -----
 When the ``agent_sdk_use_docker_sandbox`` flag is ``True``, the
@@ -46,10 +57,8 @@ from typing import Any, Dict, List, Optional
 import dill as pkl
 
 from predicators.agent_sdk.config import SessionConfig
-from predicators.agent_sdk.sandbox_prompts import build_claude_md, \
-    build_sandbox_system_prompt
-from predicators.agent_sdk.sandbox_setup import find_repo_root, \
-    setup_sandbox_directory
+from predicators.agent_sdk.sandbox_prompts import build_sandbox_system_prompt
+from predicators.agent_sdk.session_base import SandboxSessionManagerBase
 from predicators.agent_sdk.tools import ToolContext, session_log_filename
 from predicators.settings import CFG
 
@@ -105,7 +114,7 @@ def _get_claude_oauth_token() -> Optional[str]:
         return None
 
 
-class DockerSessionManager:
+class DockerSessionManager(SandboxSessionManagerBase):
     """Runs ClaudeSDKClient inside Docker with built-in + custom MCP tools.
 
     Matches the ``AgentSessionManager`` interface so that all agent-based
@@ -125,6 +134,8 @@ class DockerSessionManager:
     ``PYTHONPATH`` are unaffected.
     """
 
+    _log_label = "Docker"
+
     def __init__(
         self,
         system_prompt: str,
@@ -138,89 +149,27 @@ class DockerSessionManager:
         config: Optional[SessionConfig] = None,
     ) -> None:
         # Append sandbox instructions to the system prompt
-        self._system_prompt = system_prompt + _SANDBOX_SYSTEM_PROMPT
-        self._log_dir = log_dir
-        self._model_name = model_name
-        self._config = config if config is not None else \
-            SessionConfig.from_cfg()
-        self._tool_context = tool_context
-        self._tool_names = tool_names
+        super().__init__(system_prompt=system_prompt + _SANDBOX_SYSTEM_PROMPT,
+                         log_dir=log_dir,
+                         model_name=model_name,
+                         tool_context=tool_context,
+                         tool_names=tool_names,
+                         extra_reference_files=extra_reference_files,
+                         phase=phase,
+                         config=config)
         self._image = image
-        self._extra_reference_files = extra_reference_files or {}
-        self._repo_root = str(find_repo_root())
-        self._phase = phase
-
-        self._total_cost_usd: float = 0.0
-        self._total_turns: int = 0
-        self._query_count: int = 0
-        self._session_id: Optional[str] = None
-        self._conversation_log: List[Dict[str, Any]] = []
         self._last_kind: str = "query"
-
-        # Persistent sandbox directory (created lazily, cleaned up on close)
-        self._sandbox_dir: Optional[str] = None
-
-    # -- Properties matching AgentSessionManager interface --
-
-    @property
-    def session_id(self) -> Optional[str]:
-        """Return the current session ID."""
-        return self._session_id
-
-    @session_id.setter
-    def session_id(self, value: Optional[str]) -> None:
-        self._session_id = value
-
-    @property
-    def tool_names(self) -> List[str]:
-        """Return short tool names (without MCP prefix)."""
-        # pylint: disable=import-outside-toplevel
-        from predicators.agent_sdk.tools import BUILTIN_TOOLS, MCP_SERVER_NAME
-
-        # pylint: enable=import-outside-toplevel
-        prefix = f"mcp__{MCP_SERVER_NAME}__"
-        names = list(BUILTIN_TOOLS)
-        if self._tool_names:
-            names += self._tool_names
-        return [t[len(prefix):] if t.startswith(prefix) else t for t in names]
-
-    @property
-    def conversation_log(self) -> List[Dict[str, Any]]:
-        """Return the in-memory log of all query/response pairs."""
-        return self._conversation_log
-
-    # -- Sandbox setup --
-
-    def _ensure_sandbox_dir(self) -> None:
-        """Create and populate the sandbox directory if it doesn't exist."""
-        if self._sandbox_dir is not None:
-            return
-
-        self._sandbox_dir = os.path.abspath(
-            os.path.join(self._log_dir, "sandbox"))
-
-        setup_sandbox_directory(
-            sandbox_dir=self._sandbox_dir,
-            repo_root=self._repo_root,
-            extra_reference_files=self._extra_reference_files,
-            claude_md_content=build_claude_md(phase=self._phase),
-            system_prompt=self._system_prompt,
-            log_dir=self._log_dir,
-            seed_scratchpad=self._config.use_scratchpad,
-            phase=self._phase,
-        )
-
-        # Set sandbox paths on tool context
-        # (In Docker, these are host paths; the container maps them to
-        # /sandbox/ via the volume mount.)
-        self._tool_context.image_save_dir = str(
-            os.path.join(self._sandbox_dir, "test_images"))
-        self._tool_context.sandbox_dir = self._sandbox_dir
 
     # -- Session lifecycle --
 
     async def start_session(self) -> None:
         """No-op: each query() is a fresh docker run."""
+
+    async def close(self) -> None:
+        """No-op: the sandbox directory is kept on disk for inspection."""
+
+    async def _recover_session(self) -> None:
+        """No-op: each query is independent."""
 
     async def query(self,
                     message: str,
@@ -268,6 +217,7 @@ class DockerSessionManager:
                 "system_prompt": self._system_prompt,
                 "model_name": self._model_name,
                 "max_turns": self._config.max_turns,
+                "max_buffer_size": self._config.max_buffer_size,
                 "reasoning_effort": self._config.reasoning_effort,
                 "tool_names": self._tool_names,
                 "cfg_snapshot": dict(CFG.__dict__),
@@ -283,9 +233,14 @@ class DockerSessionManager:
                 self._model_name,
             )
 
-            # 3. Build docker run command
+            # 3. Build docker run command.  Resolve authentication once
+            # per query (the Keychain OAuth lookup is a subprocess call
+            # shared by the command and env builders).
+            api_key = os.environ.get("ANTHROPIC_API_KEY")
+            oauth_token = None if api_key else _get_claude_oauth_token()
             container_name = f"pred-sandbox-{uuid.uuid4().hex[:8]}"
-            docker_cmd = self._build_docker_command(container_name, tmp_dir)
+            docker_cmd = self._build_docker_command(container_name, tmp_dir,
+                                                    api_key, oauth_token)
 
             # 4. Run Docker container
             logger.info(
@@ -293,7 +248,7 @@ class DockerSessionManager:
                 container_name,
                 self._image,
             )
-            env = self._build_env()
+            env = self._build_env(api_key, oauth_token)
 
             proc = subprocess.Popen(
                 docker_cmd,
@@ -381,15 +336,15 @@ class DockerSessionManager:
                         "Docker output has iteration_proposals=None; "
                         "no proposals synced.")
 
-                # Track costs/turns
+                # Track costs/turns via the base delta accounting.  Each
+                # docker query is a fresh in-container session whose
+                # cumulative cost restarts from zero, so reset the delta
+                # baseline first: every result then charges its full
+                # cumulative cost.
+                self._last_cost_usd = 0.0
                 for resp in responses:
                     if resp.get("type") == "result":
-                        cost = resp.get("total_cost_usd")
-                        turns = resp.get("num_turns")
-                        if cost is not None:
-                            self._total_cost_usd += cost
-                        if turns is not None:
-                            self._total_turns += turns
+                        self._account_result(resp)
             else:
                 logger.error(
                     "No output pickle found at %s. Container may have "
@@ -403,7 +358,7 @@ class DockerSessionManager:
                      f"stderr: {''.join(stderr_lines[-_STDERR_TAIL_LINES:])}"),
                 }]
 
-            # 7. Finalize query log — the incremental log was written
+            # 7. Finalize query log - the incremental log was written
             # directly to _log_dir as markdown (updated per-message).
             # Prepend host metadata header now that the container is done.
             if os.path.exists(incremental_log_path) and self._log_dir:
@@ -442,33 +397,18 @@ class DockerSessionManager:
             # Cleanup temp data directory (sandbox persists across queries)
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    async def close(self) -> None:
-        """No-op: sandbox directory is kept for inspection."""
-        self._sandbox_dir = None
-
-    async def _recover_session(self) -> None:
-        """No-op: each query is independent."""
-
-    def save_session_info(self) -> None:
-        """Save session metadata to log directory."""
-        os.makedirs(self._log_dir, exist_ok=True)
-        info = {
+    def _session_info_extras(self) -> Dict[str, Any]:
+        """Extra session-info keys: manager type + container image."""
+        return {
             "session_type": "docker",
-            "session_id": self._session_id,
-            "total_cost_usd": self._total_cost_usd,
-            "total_turns": self._total_turns,
-            "model": self._model_name,
             "docker_image": self._image,
         }
-        path = os.path.join(self._log_dir, "session_info.json")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(info, f, indent=2)
-        logger.info("Saved session info to %s", path)
 
     # -- Internal helpers --
 
-    def _build_docker_command(self, container_name: str,
-                              tmp_dir: str) -> List[str]:
+    def _build_docker_command(self, container_name: str, tmp_dir: str,
+                              api_key: Optional[str],
+                              oauth_token: Optional[str]) -> List[str]:
         """Build the ``docker run`` command."""
         cmd = [
             "docker",
@@ -481,29 +421,25 @@ class DockerSessionManager:
         ]
 
         # Authentication: prefer ANTHROPIC_API_KEY, fall back to OAuth
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
         if api_key:
             cmd += ["-e", "ANTHROPIC_API_KEY"]
+        elif oauth_token:
+            # The token value itself is added to env in _build_env()
+            cmd += ["-e", "CLAUDE_CODE_OAUTH_TOKEN"]
         else:
-            oauth_token = _get_claude_oauth_token()
-            if oauth_token:
-                cmd += ["-e", "CLAUDE_CODE_OAUTH_TOKEN"]
-                # We'll add this to env in _build_env()
-            else:
-                # Fall back to bind-mounting ~/.claude
-                claude_cfg = Path(
-                    os.environ.get("CLAUDE_CONFIG_DIR",
-                                   str(Path.home() / ".claude")))
-                cmd += ["-v", f"{claude_cfg}:/home/node/.claude"]
+            # Fall back to bind-mounting ~/.claude
+            claude_cfg = Path(
+                os.environ.get("CLAUDE_CONFIG_DIR",
+                               str(Path.home() / ".claude")))
+            cmd += ["-v", f"{claude_cfg}:/home/node/.claude"]
 
         # Mount predicators source for Python imports (hidden from agent
-        # tools by the PreToolUse hook — only Python's import system can
+        # tools by the PreToolUse hook - only Python's import system can
         # read these files).
         cmd += ["-v", f"{self._repo_root}:/opt/predicators:ro"]
         cmd += ["-e", "PYTHONPATH=/opt/predicators"]
 
         # Mount curated sandbox directory
-        assert self._sandbox_dir is not None
         cmd += ["-v", f"{self._sandbox_dir}:/sandbox"]
 
         # Mount data exchange directory
@@ -531,7 +467,8 @@ class DockerSessionManager:
 
         return cmd
 
-    def _build_env(self) -> Dict[str, str]:
+    def _build_env(self, api_key: Optional[str],
+                   oauth_token: Optional[str]) -> Dict[str, str]:
         """Build environment dict for the docker subprocess."""
         # Pass through host env, stripping CLAUDECODE* vars
         env = {
@@ -540,14 +477,10 @@ class DockerSessionManager:
         }
 
         # Ensure ANTHROPIC_API_KEY is passed through if set
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
         if api_key:
             env["ANTHROPIC_API_KEY"] = api_key
-        else:
-            # Try OAuth token
-            oauth_token = _get_claude_oauth_token()
-            if oauth_token:
-                env["CLAUDE_CODE_OAUTH_TOKEN"] = oauth_token
+        elif oauth_token:
+            env["CLAUDE_CODE_OAUTH_TOKEN"] = oauth_token
 
         return env
 
