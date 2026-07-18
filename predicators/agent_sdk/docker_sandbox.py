@@ -442,7 +442,7 @@ class DockerSessionManager:
         """No-op: sandbox directory is kept for inspection."""
         self._sandbox_dir = None
 
-    async def _recover_session(self, last_message: str) -> None:
+    async def _recover_session(self) -> None:
         """No-op: each query is independent."""
 
     def save_session_info(self) -> None:

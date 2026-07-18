@@ -188,9 +188,10 @@ class AgentSessionManager:
                         # cost is cumulative; the per-solve cost is the
                         # delta since the last result (a drop means the
                         # session reset, so the new total is the delta).
-                        solve_cost = float(cost -
-                                           self._last_cost_usd if cost >= self.
-                                           _last_cost_usd else cost)
+                        if cost >= self._last_cost_usd:
+                            solve_cost = float(cost - self._last_cost_usd)
+                        else:
+                            solve_cost = float(cost)
                         self._last_cost_usd = cost
                         self._total_cost_usd += solve_cost
                         self._current_log_meta["solve_cost_usd"] = solve_cost
@@ -212,7 +213,7 @@ class AgentSessionManager:
         except Exception as e:  # pylint: disable=broad-except
             logging.error("Agent session error: %s", e)
             collected.append({"type": "error", "error": str(e)})
-            await self._recover_session(message)
+            await self._recover_session()
 
         elapsed = time.perf_counter() - start
         logging.info("[agent-interaction] kind=%s took %.2fs (%d messages)",
@@ -236,8 +237,12 @@ class AgentSessionManager:
         """Return the in-memory log of all query/response pairs."""
         return self._conversation_log
 
-    async def _recover_session(self, _last_message: str) -> None:
-        """Attempt to recover from a session error."""
+    async def _recover_session(self) -> None:
+        """Attempt to recover from a session error.
+
+        Reconnects only; the failed message is NOT resent — the caller
+        sees the error entry and decides whether to retry.
+        """
         logging.warning("Attempting agent session recovery...")
         try:
             if self._client is not None:
@@ -277,21 +282,27 @@ class AgentSessionManager:
         logging.info("Saved session info to %s", path)
 
 
-def run_query_sync(session: Any, message: str,
-                   **query_kwargs: Any) -> List[Dict[str, Any]]:
-    """Synchronously run ``session.query(message, **query_kwargs)``.
+def run_async_sync(coro: Any) -> Any:
+    """Run ``coro`` to completion from synchronous code.
 
     Reuses a running event loop via nest_asyncio when one is active,
-    otherwise falls back to ``asyncio.run``. Extra kwargs (e.g.
-    ``kind="learn"`` for log-file tagging) are forwarded to ``query``.
+    otherwise falls back to ``asyncio.run``.
     """
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
             import nest_asyncio  # type: ignore[import-untyped,import-not-found]  # pylint: disable=import-outside-toplevel
             nest_asyncio.apply()
-            return loop.run_until_complete(
-                session.query(message, **query_kwargs))
-        return loop.run_until_complete(session.query(message, **query_kwargs))
+        return loop.run_until_complete(coro)
     except RuntimeError:
-        return asyncio.run(session.query(message, **query_kwargs))
+        return asyncio.run(coro)
+
+
+def run_query_sync(session: Any, message: str,
+                   **query_kwargs: Any) -> List[Dict[str, Any]]:
+    """Synchronously run ``session.query(message, **query_kwargs)``.
+
+    Extra kwargs (e.g. ``kind="learn"`` for log-file tagging) are
+    forwarded to ``query``.
+    """
+    return run_async_sync(session.query(message, **query_kwargs))

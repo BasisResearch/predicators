@@ -344,7 +344,7 @@ class LocalSandboxSessionManager:
         except Exception as e:  # pylint: disable=broad-except
             logger.error("Local sandbox session error: %s", e)
             collected.append({"type": "error", "error": str(e)})
-            await self._recover_session(message)
+            await self._recover_session()
 
         # Final flush
         if log_path:
@@ -383,7 +383,7 @@ class LocalSandboxSessionManager:
                 self._client = None
                 self._started = False
 
-    async def _recover_session(self, _last_message: str) -> None:
+    async def _recover_session(self) -> None:
         """Attempt to recover from a session error."""
         logger.warning("Attempting local sandbox session recovery...")
         try:

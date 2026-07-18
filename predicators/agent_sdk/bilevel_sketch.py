@@ -11,7 +11,6 @@ neither approaches nor explorers need to subclass one another.
 """
 import dataclasses
 import logging
-import os
 import re
 from typing import Any, Callable, Collection, Dict, List, Optional, Sequence, \
     Set, Tuple, Union, cast
@@ -22,9 +21,8 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.option_model import _OptionModelBase
 from predicators.planning import run_backtracking_refinement
-from predicators.structs import EnvironmentTask, GroundAtom, Object, \
-    ParameterizedOption, ParameterizedSampler, Predicate, State, Task, Type, \
-    _Option
+from predicators.structs import GroundAtom, Object, ParameterizedOption, \
+    ParameterizedSampler, Predicate, State, Task, Type, _Option
 
 # Signature of an info-gain scorer: given a candidate post-state and the
 # atoms whose truth the step is meant to establish, return a scalar where
@@ -39,50 +37,6 @@ def _fmt_params(opt: _Option) -> str:
     return np.array2string(np.asarray(opt.params, dtype=float),
                            precision=4,
                            separator=", ")
-
-
-def save_task_state_image(env: Any, task: Task, save_dir: str,
-                          filename: str) -> Optional[str]:
-    """Render ``task.init`` in ``env`` and save it under ``save_dir``.
-
-    Shared by the solve-time approaches and the explorer so the agent
-    can see the scene it is planning from. Best-effort by design: any
-    rendering failure logs a warning and returns None instead of
-    raising. Returns the absolute path of the saved image on success.
-    """
-    try:
-        # pylint: disable=import-outside-toplevel
-        from PIL import Image as PILImage
-
-        # For PyBullet envs, set state then use render() (render_state
-        # raises NotImplementedError for arbitrary states). For other
-        # envs, use render_state directly.
-        try:
-            from predicators.envs.pybullet_env import PyBulletEnv
-            is_pybullet = isinstance(env, PyBulletEnv)
-        except ImportError:
-            is_pybullet = False
-
-        if is_pybullet:
-            env._set_state(task.init)  # pylint: disable=protected-access
-            video = env.render()
-        else:
-            env_task = EnvironmentTask(task.init, task.goal)
-            video = env.render_state(task.init, env_task)
-
-        if not video:
-            return None
-        rgb_array = np.asarray(video[0], dtype=np.uint8)
-        img = PILImage.fromarray(  # type: ignore[no-untyped-call]
-            rgb_array)
-        os.makedirs(save_dir, exist_ok=True)
-        saved_path = os.path.join(save_dir, filename)
-        img.save(saved_path)
-        logging.info("Saved initial state image to %s", saved_path)
-        return saved_path
-    except Exception as e:  # pylint: disable=broad-except
-        logging.warning("Failed to render initial state image: %s", e)
-        return None
 
 
 @dataclasses.dataclass
