@@ -23,7 +23,7 @@ synthesis session. The host approach keeps only the call sites.
 """
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, cast
 
 import numpy as np
 
@@ -37,6 +37,7 @@ from predicators.structs import Action, LowLevelTrajectory, \
     ParameterizedOption, ParameterizedSampler, Predicate, State, Task, Type
 
 if TYPE_CHECKING:
+    from predicators.agent_sdk.synthesis_backend import SynthesisBackend
     from predicators.agent_sdk.tools import ToolContext
 
 logger = logging.getLogger(__name__)
@@ -344,7 +345,10 @@ as `cycle_XXX_vers_YYY_samplers.py`."""
             inferred_hint,
             simulator_file=simulator_file,
             versions_dir=versions_dir,
-            approach=self,
+            # The host class (AgentSimLearningApproach) provides the
+            # full backend surface; the mixin's own type covers only
+            # the sampler slice.
+            approach=cast("SynthesisBackend", self),
             sandbox_dir=base,
             sandbox_dir_for_agent=sandbox_dir_for_agent,
             cycle_index_provider=self._learning_cycle_index,

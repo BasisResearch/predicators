@@ -648,3 +648,127 @@ def fit_params(
                  for k, v in result.point_estimate.items()})
 
     return result
+
+
+# Observation-noise sigma shared by the rule-fit wrappers below and the
+# approach's likelihood logging, so SSE -> log-likelihood conversions
+# agree everywhere.
+FIT_NOISE_SIGMA = 0.05
+
+
+def log_param_changes(init_params: Dict[str, float],
+                      fitted_params: Dict[str, float]) -> None:
+    """Log each parameter's init -> fitted move (absolute and %)."""
+    for name in sorted(fitted_params):
+        init_val = init_params[name]
+        fit_val = fitted_params[name]
+        delta = fit_val - init_val
+        pct = (delta / init_val * 100) if init_val != 0 else float("nan")
+        logger.info("  %-30s  %.4f -> %.4f  (Δ=%.4f, %+.1f%%)", name, init_val,
+                    fit_val, delta, pct)
+
+
+def fit_rule_parameters(
+    rules: List,
+    specs: List[ParamSpec],
+    base_pred_triples: List[Tuple[State, Action, State]],
+    process_features: Dict[str, List[str]],
+    num_steps: Optional[int] = None,
+) -> Tuple[FitResult, float]:
+    """Fit parameters for synthesized process rules (teacher-forced).
+
+    ``base_pred_triples`` must already have the base step applied;
+    precomputing avoids re-running it inside the MCMC inner loop.
+
+    ``num_steps`` overrides the global MCMC budget for this fit
+    (``None`` falls back to ``CFG.code_sim_learning_num_mcmc_steps``).
+
+    Returns the full :class:`FitResult` (so callers can reach the
+    posterior ``samples`` / Laplace ``jacobian`` for ensemble
+    construction) alongside the post-fit SSE. Shared source of truth
+    for the approach's engine fit and the synthesis tools' scoring, so
+    the two cannot drift.
+    """
+    # pylint: disable=import-outside-toplevel
+    from predicators.code_sim_learning.utils import apply_rules
+
+    def sim_fn(state: State, _action: Action, params: Dict[str,
+                                                           float]) -> Dict:
+        return apply_rules(state, rules, params)
+
+    init_params = {s.name: s.init_value for s in specs}
+    pre_sse = compute_sse(sim_fn, base_pred_triples, init_params,
+                          process_features)
+    pre_ll = -0.5 * pre_sse / (FIT_NOISE_SIGMA**2)
+    logger.info("Before fitting - SSE: %.6f  log-likelihood: %.2f", pre_sse,
+                pre_ll)
+    log_sse_breakdown(sim_fn,
+                      base_pred_triples,
+                      init_params,
+                      process_features,
+                      label="before")
+
+    result = fit_params(
+        simulator_fn=sim_fn,
+        transitions=base_pred_triples,
+        param_specs=specs,
+        process_features=process_features,
+        num_steps=num_steps,
+    )
+
+    fitted_params = result.point_estimate
+    post_sse = compute_sse(sim_fn, base_pred_triples, fitted_params,
+                           process_features)
+    post_ll = -0.5 * post_sse / (FIT_NOISE_SIGMA**2)
+    logger.info("After fitting  - SSE: %.6f  log-likelihood: %.2f", post_sse,
+                post_ll)
+    log_sse_breakdown(sim_fn,
+                      base_pred_triples,
+                      fitted_params,
+                      process_features,
+                      label="after")
+    log_param_changes(init_params, fitted_params)
+    return result, post_sse
+
+
+def fit_rule_parameters_latent(
+    rules: List,
+    specs: List[ParamSpec],
+    groups: List[TrajectoryTriples],
+    latent_init: Any,
+    process_features: Dict[str, List[str]],
+    num_steps: Optional[int] = None,
+) -> Tuple[FitResult, float]:
+    """Recurrent MCMC fit over pre-grouped trajectories.
+
+    Shared source of truth for the recurrent (latent-threaded) fit:
+    the approach calls it with groups derived from its trajectory cache
+    and latent init; the synthesis tools call it with groups they
+    regroup and ``LATENT_INIT`` read fresh from ``simulator.py``. Both
+    therefore score latent rules identically, with no tool/engine drift
+    in the rule call convention.
+
+    ``num_steps`` overrides the global MCMC budget (``None`` falls
+    back to ``CFG.code_sim_learning_num_mcmc_steps``). The tools
+    never pass it, so repeated tool calls stay at the fast global
+    setting while the post-synthesis fit can run real MCMC.
+    """
+    init_params = {s.name: s.init_value for s in specs}
+    pre_sse = compute_sse_recurrent(rules, groups, init_params, latent_init,
+                                    process_features)
+    logger.info("Recurrent fit - pre-SSE: %.6f", pre_sse)
+
+    result = fit_params_recurrent(
+        rules=rules,
+        trajectories=groups,
+        param_specs=specs,
+        latent_init=latent_init,
+        process_features=process_features,
+        num_steps=num_steps,
+    )
+    fitted_params = result.point_estimate
+    post_sse = compute_sse_recurrent(rules, groups, fitted_params, latent_init,
+                                     process_features)
+    logger.info("Recurrent fit - post-SSE: %.6f", post_sse)
+    log_param_changes(init_params, fitted_params)
+    return result, post_sse

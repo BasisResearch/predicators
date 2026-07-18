@@ -25,10 +25,13 @@ from __future__ import annotations
 
 import dataclasses
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 from predicators import utils
 from predicators.structs import State, Task
+
+if TYPE_CHECKING:
+    from predicators.agent_sdk.tools import ToolContext
 
 # Modification format accepted by ``reset``: either the tools' list form
 # ``[{"object": name, "features": {feat: val}}]`` or the terser dict form
@@ -47,23 +50,23 @@ class ProbeBudgetExceeded(Exception):
     """
 
 
-def _check_time_budget(ctx: Any) -> None:
+def _check_time_budget(ctx: "ToolContext") -> None:
     """Raise :class:`ProbeBudgetExceeded` when a wall-clock budget is up.
 
     Never fires during the final-submission nudge
     (``ctx.capture_best_effort_plan``): with the budget spent, the one
     thing left is submitting, and blocking that would forfeit the task.
     """
-    if getattr(ctx, "capture_best_effort_plan", False):
+    if ctx.capture_best_effort_plan:
         return
     now = time.monotonic()
-    attempt_dl = getattr(ctx, "attempt_deadline", None)
+    attempt_dl = ctx.attempt_deadline
     if attempt_dl is not None and now > attempt_dl:
         raise ProbeBudgetExceeded(
             "the attempt's wall-clock exploration budget is exhausted. Stop "
             "exploring NOW and submit your single best plan via "
             "evaluate_option_plan on the current task (omit task_idx).")
-    call_dl = getattr(ctx, "explore_call_deadline", None)
+    call_dl = ctx.explore_call_deadline
     if call_dl is not None and now > call_dl:
         # pylint: disable-next=import-outside-toplevel
         from predicators.settings import CFG
@@ -77,9 +80,9 @@ def _check_time_budget(ctx: Any) -> None:
             "within the limit.")
 
 
-def _count_rollout(ctx: Any, n: int = 1) -> None:
+def _count_rollout(ctx: "ToolContext", n: int = 1) -> None:
     """Meter full-plan rollouts for the attempt budget footer."""
-    ctx.attempt_rollout_count = getattr(ctx, "attempt_rollout_count", 0) + n
+    ctx.attempt_rollout_count += n
 
 
 def _fmt_params(params: Any) -> str:
@@ -266,7 +269,7 @@ class ProbeSim:
     # Distinct deterministic rng streams per instance (see refine).
     _next_instance_id = 0
 
-    def __init__(self, ctx: Any):
+    def __init__(self, ctx: "ToolContext"):
         self._ctx = ctx
         self._state: Optional[State] = None
         self._base_task: Optional[Task] = None
@@ -300,7 +303,7 @@ class ProbeSim:
         exercise the latest belief model, never the stale pre-synthesis
         one (real physics on cycle 1: a live-env leak).
         """
-        provider = getattr(self._ctx, "probe_option_model_provider", None)
+        provider = self._ctx.probe_option_model_provider
         if provider is not None:
             return provider()
         return self._ctx.option_model
@@ -318,8 +321,7 @@ class ProbeSim:
         from predicators.agent_sdk.tools import _apply_state_modifications
         ctx = self._ctx
         _check_time_budget(ctx)
-        if task_idx is None and getattr(ctx, "probe_option_model_provider",
-                                        None) is not None:
+        if (task_idx is None and ctx.probe_option_model_provider is not None):
             # Synthesis session: "current task" is a solve-time pointer
             # and may dangle at whatever task the harness touched last -
             # silently probing it is the stale-current-task bug class.
@@ -616,9 +618,8 @@ class ProbeSim:
             # surfaces sample the same distribution.
             fresh_scope = (
                 ctx.validation_env_scope if CFG.agent_plan_validation_fresh_env
-                and getattr(ctx, "validation_env_scope", None) is not None
-                and getattr(ctx, "probe_option_model_provider", None) is None
-                else None)
+                and ctx.validation_env_scope is not None
+                and ctx.probe_option_model_provider is None else None)
             # pylint: disable-next=import-outside-toplevel
             import contextlib
             trial_dicts: List[Dict[str, Any]] = []
@@ -913,7 +914,7 @@ class ProbeSim:
         return self._state
 
 
-def build_probe_namespace(ctx: Any) -> Dict[str, Any]:
+def build_probe_namespace(ctx: "ToolContext") -> Dict[str, Any]:
     """The persistent ``explore_python`` namespace (solve and synthesis).
 
     Deliberately small: the probe facade, numpy, and nothing else - the

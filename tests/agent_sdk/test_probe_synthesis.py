@@ -81,7 +81,7 @@ def test_probe_reset_requires_task_idx_during_synthesis() -> None:
     assert sim._state is not None
 
 
-def test_candidate_probe_model_provider_glue(tmp_path) -> None:
+def test_candidate_probe_model_provider_glue(tmp_path, monkeypatch) -> None:
     """The provider gates on a loadable simulator.py, caches by content hash
     (no refit for an unchanged file), and rebuilds on change.
 
@@ -103,7 +103,9 @@ def test_candidate_probe_model_provider_glue(tmp_path) -> None:
                          samples=np.array([[s.init_value for s in specs]]),
                          log_probs=np.array([0.0])), 0.0
 
-    setattr(approach, "_fit_parameters", _fake_fit)
+    monkeypatch.setattr(
+        "predicators.approaches.synthesis_validation.fit_rule_parameters",
+        _fake_fit)
     setattr(approach, "_build_combined_simulator", lambda learned: learned)
     setattr(approach, "_build_option_model", lambda sim: ("model", sim))
 
