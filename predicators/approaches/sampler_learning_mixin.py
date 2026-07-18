@@ -259,7 +259,7 @@ as `cycle_XXX_vers_YYY_samplers.py`."""
         the ``evaluate_sampler`` tool via ``load_learned_samplers``.
         """
         # pylint: disable=import-outside-toplevel
-        from predicators.agent_sdk.proposal_parser import build_exec_context, \
+        from predicators.agent_sdk.proposal_exec import build_exec_context, \
             load_learned_samplers
         from predicators.agent_sdk.tools import _ParamsView
 

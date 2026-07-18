@@ -20,7 +20,7 @@ from typing import Any, Callable, Dict, List, Optional, Set
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.agent_sdk.proposal_parser import ProposalBundle
+from predicators.agent_sdk.proposal_exec import ProposalBundle
 from predicators.approaches.agent_model_free_approach import \
     AgentModelFreeApproach
 from predicators.settings import CFG
