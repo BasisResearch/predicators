@@ -1,6 +1,10 @@
-"""Training utilities for the sim-learning approach.
+"""Parameter fitting for the sim-learning approach.
 
-Parameter fitting via emcee (affine-invariant ensemble MCMC).
+The default path is a Levenberg-Marquardt point fit (MAP under a
+Gaussian prior); emcee (affine-invariant ensemble MCMC) is the opt-in
+posterior-sampling path behind ``code_sim_learning_num_mcmc_steps``.
+Both share the fit-space machinery here (``z = log(theta)`` for
+log-scale params), which ``physical_sysid`` reuses for rollout fits.
 """
 
 from __future__ import annotations
@@ -67,9 +71,11 @@ class FitResult:
     """Result of parameter fitting.
 
     The optional ``jacobian``/``noise_sigma``/``prior_sigma`` fields are a
-    Laplace bundle, attached by both :func:`fit_params` and
-    :func:`fit_params_recurrent` whenever their Levenberg-Marquardt fit
-    ran (info-seeking exploration or the Hessian/warm-start flags). They
+    Laplace bundle, attached by :func:`fit_params`,
+    :func:`fit_params_recurrent`, and
+    :func:`physical_sysid.fit_params_rollout` whenever their
+    Levenberg-Marquardt fit ran (info-seeking exploration or the
+    Hessian/warm-start flags). They
     let a caller build a calibrated posterior covariance
     ``(J^T J / sigma^2 + diag(1/prior^2))^-1`` around the MAP without
     re-deriving it. They stay ``None`` when LM was skipped or failed —
@@ -204,7 +210,8 @@ def _lm_prefit(
     warm_start_breakdown_fn: Optional[Callable[[Dict[str, float]],
                                                None]] = None,
 ) -> Tuple[np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]:
-    """Optional one-shot LM fit shared by both MCMC entry points.
+    """Optional one-shot LM fit shared by the three fit entry points (per-
+    transition, recurrent, and rollout).
 
     Three independent uses, each behind its own CFG flag (the fit runs
     once if any is set):
@@ -708,7 +715,7 @@ def fit_map_lm(
         ``log_hessian_identifiability`` eigendecomposes to flag flat
         directions.
 
-    Three callers (see ``fit_simulator_params``):
+    Three uses of the result:
       * Hessian identifiability diagnostic — eigendecompose J^T J.
       * MCMC warm start — center emcee walkers on theta_map (and short-
         circuit to it directly when ``num_mcmc_steps == 0``).
@@ -732,8 +739,8 @@ def _solve_lm(
     label: str,
     diff_step: Optional[float] = None,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
-    """Shared Levenberg-Marquardt core for the per-transition and recurrent MAP
-    fits.
+    """Shared Levenberg-Marquardt core for the per-transition, recurrent, and
+    rollout (``physical_sysid``) MAP fits.
 
     Solves ``min_theta 0.5 * ||residuals_fn(theta)||^2`` with
     ``scipy.optimize.least_squares(method='trf')`` under the
@@ -930,10 +937,12 @@ def fit_params(
     noise_sigma: float = 0.05,
     prior_sigma_scale: float = 1.0,
 ) -> FitResult:
-    """Fit simulator parameters via emcee ensemble MCMC.
+    """Fit simulator parameters: LM point fit, optional emcee posterior.
 
-    Gradient-free — handles all parameter types (rates, thresholds,
-    capacities) uniformly. Returns full posterior with uncertainty.
+    With ``code_sim_learning_num_mcmc_steps == 0`` (the experiment
+    default) this returns the Levenberg-Marquardt MAP directly; with
+    MCMC steps it runs emcee (gradient-free, so it tolerates
+    non-smooth simulators), optionally warm-started from the LM fit.
 
     Args:
         simulator_fn: Simulator(state, action, params_dict) -> updates.
@@ -1024,7 +1033,6 @@ def fit_params(
                 num_walkers, num_steps, burn_in)
 
     # Run with periodic progress reports.
-    report_interval = max(1, num_steps // 5)
     report_interval = 100
     for i, _result in enumerate(sampler.sample(p0, iterations=num_steps),
                                 start=1):
