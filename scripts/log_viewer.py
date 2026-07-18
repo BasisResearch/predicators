@@ -1017,6 +1017,12 @@ details.grp.family > summary { font-size: 15px; }
 details.grp > *:not(summary) { margin: 8px 12px; }
 details.grp.hidden { display: none; }
 .muted { color: var(--muted); }
+button.copybtn { padding: 0 3px; margin-left: 5px; border: none;
+  background: none; color: var(--muted); font-size: 12px;
+  visibility: hidden; }
+tr.runrow:hover button.copybtn { visibility: visible; }
+button.copybtn:hover { color: var(--accent); }
+button.copybtn.copied { color: var(--ok); visibility: visible; }
 """ + f"""
 table.epgrid td.task {{ width: {TASK_W}px; }}
 table.epgrid td.misc {{ width: {MISC_W}px; }}
@@ -1050,6 +1056,31 @@ document.addEventListener('DOMContentLoaded', function() {
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') lb.style.display = 'none';
   });
+});
+
+// Copy-path buttons next to run names.
+document.addEventListener('click', function(e) {
+  var b = e.target.closest('button.copybtn');
+  if (!b) return;
+  var done = function() {
+    b.textContent = '\\u2713';
+    b.classList.add('copied');
+    setTimeout(function() {
+      b.textContent = '\\u29c9';
+      b.classList.remove('copied');
+    }, 1200);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(b.dataset.copy).then(done);
+  } else {  // non-localhost http has no clipboard API
+    var ta = document.createElement('textarea');
+    ta.value = b.dataset.copy;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+    done();
+  }
 });
 
 function setAllDetails(open) {
@@ -1467,12 +1498,16 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
     # The status joins the filter key, so "running" narrows to live runs.
     key = f"{r['exp']} {r['seed']} {r['name']} {status}".lower()
     cost_str = f"${cost:.2f}" if cost else "-"
+    # Path to paste into a terminal at the server's working directory.
+    copy_path = os.path.relpath(os.path.join(LOGS_ROOT, r["rel"]))
     return ("<tr class='runrow' "
             f"data-key='{esc(key)}' data-seed='{esc(r['seed'])}' "
             f"data-start='{start_ts:.0f}'>"
             f"<td><input type='checkbox' class='cmp' value='{esc(r['rel'])}'>"
             "</td>"
-            f"<td><a href='/run?d={q(r['rel'])}'>{esc(r['name'])}</a></td>"
+            f"<td><a href='/run?d={q(r['rel'])}'>{esc(r['name'])}</a>"
+            f"<button class='copybtn' data-copy='{esc(copy_path)}' "
+            "title='Copy run path'>⧉</button></td>"
             f"<td>{esc(r['seed'])}</td>"
             f"<td>{status_chip(r, summary, live, is_newest)}</td>"
             f"<td>{episode_grid(eps, layout)}</td><td>{esc(tr_str)}</td>"
