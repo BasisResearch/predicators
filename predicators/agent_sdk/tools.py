@@ -1,5 +1,7 @@
 """Custom MCP tool definitions for the agent SDK approach."""
 import contextlib
+import copy
+import functools
 import hashlib
 import json
 import logging
@@ -188,6 +190,17 @@ class ToolContext:
     online_trajectories: List[LowLevelTrajectory] = field(default_factory=list)
     example_state: Optional[State] = None
     option_model: Optional[_OptionModelBase] = None
+    # Synthesis-session override for the explore_python probe: a lazy
+    # builder over the CANDIDATE simulator.py (fresh MCMC fit, cached
+    # until the file changes). When set, ProbeSim executes against it
+    # instead of ``option_model`` - which during synthesis is the stale
+    # pre-synthesis model (real physics on cycle 1: a live-env leak).
+    # Installed by the sim-learning approach around its synthesis
+    # session only; None everywhere else (solve sessions, and
+    # oracle-sim-program sampler sessions where ``option_model`` IS the
+    # deployed belief model).
+    probe_option_model_provider: Optional[Callable[[],
+                                                   _OptionModelBase]] = None
     # Active-experiment info-gain scorer, synced from the learning
     # approach when info-seeking exploration is on:
     # ``(state, atoms) -> disagreement``. The agent_bilevel explorer
@@ -280,6 +293,24 @@ class ToolContext:
     # honest reward) instead of paying for another full-budget attempt. A
     # best-effort capture never displaces a validated-solve capture.
     capture_best_effort_plan: bool = False
+    # Fresh-physics scope for capture-validation rollouts: a zero-arg
+    # callable returning a context manager. While entered,
+    # ``ctx.option_model`` simulates on a freshly constructed env instance
+    # instead of the shared session env, whose reset cannot reconstruct
+    # state exactly (solver warm-start state, velocity residuals), making
+    # repeated rollouts correlated with each other and systematically
+    # offset from the fresh real env. Installed by AgentSimLearningApproach
+    # (see ``_fresh_validation_env_scope``); None ⇒ validation rollouts
+    # share the session env. Gated by CFG.agent_plan_validation_fresh_env.
+    validation_env_scope: Optional[Callable[[], Any]] = None
+    # Capture-task keys (see ``_capture_task_key``) that have produced a
+    # FLAKY rejection in evaluate_option_plan. A flaky submission is direct
+    # evidence the agent is tuning in a marginal region where a lucky
+    # streak can pass the base rollout gate (run_20260717_182321: a
+    # 20/20-swept placement validated 3/3, then failed the real episode),
+    # so subsequent captures on these tasks must clear the escalated
+    # CFG.agent_plan_validation_rollouts_after_flaky gate instead.
+    flaky_capture_task_keys: Set[Any] = field(default_factory=set)
 
 
 def session_log_filename(query_count: int,
@@ -307,6 +338,87 @@ def _text_result(text: str) -> Dict[str, Any]:
 def _error_result(text: str) -> Dict[str, Any]:
     """Helper to format an error result."""
     return {"content": [{"type": "text", "text": text}], "is_error": True}
+
+
+def _capture_task_key(ctx: "ToolContext") -> Any:
+    """Stable identity of the task behind a ``task_idx="current"`` capture.
+
+    Keys ``ctx.flaky_capture_task_keys`` so a FLAKY rejection escalates
+    the validation gate for later submissions on the SAME task only.
+    Test-time solves are keyed by the test task index (stable across the
+    sessions and replans of one task); exploration/synthesis captures
+    fall back to the learning iteration, which at worst escalates
+    conservatively across that cycle's tasks.
+    """
+    if ctx.test_task_idx is not None:
+        return ("test", ctx.test_task_idx)
+    return ("iter", ctx.iteration_id)
+
+
+def _region_syntax_blurb() -> str:
+    """The `~ [w]` region mention for tool descriptions, flag-aware.
+
+    Advertising the syntax while ``agent_bilevel_ground_samplers`` is
+    off sent every audited run through 1-3 turns of syntax guessing
+    against a feature that could not work.
+    """
+    if CFG.agent_bilevel_ground_samplers:
+        return ", incl. `~ [w]` half-width regions after a step's params"
+    return (" - note `~ [w]` regions are DISABLED in this configuration "
+            "and are ignored if given")
+
+
+def _make_coercing_tool(tool: Callable) -> Callable:
+    """Wrap the SDK ``tool`` decorator with numeric-string coercion.
+
+    Harness-side JSON-schema validation rejects ``"0"`` for an
+    ``integer`` property before the handler ever runs (agents lost
+    whole tools to it - ``inspect_trajectories`` went 0-for-6 in
+    run_20260717_154753 seed2), and which tools accept strings was
+    inconsistent. This wrapper loosens every top-level ``integer`` /
+    ``number`` property to also accept a string, then coerces the value
+    back to the numeric type before the handler sees it, so handlers
+    keep their exact-type assumptions.
+    """
+
+    def _coercing_tool(name: str, description: str, schema: Any) -> Callable:
+        numeric_props: Dict[str, type] = {}
+        loosened = schema
+        if isinstance(schema, dict) and isinstance(schema.get("properties"),
+                                                   dict):
+            loosened = copy.deepcopy(schema)
+            for prop, spec in loosened["properties"].items():
+                if not isinstance(spec, dict):
+                    continue
+                if spec.get("type") == "integer":
+                    numeric_props[prop] = int
+                    spec["type"] = ["integer", "string"]
+                elif spec.get("type") == "number":
+                    numeric_props[prop] = float
+                    spec["type"] = ["number", "string"]
+
+        def _decorate(fn: Callable) -> Any:
+            if not numeric_props:
+                return tool(name, description, schema)(fn)
+
+            @functools.wraps(fn)
+            async def _wrapped(args: Dict[str, Any]) -> Dict[str, Any]:
+                for prop, target in numeric_props.items():
+                    val = args.get(prop)
+                    if isinstance(val, str):
+                        try:
+                            args[prop] = target(val)
+                        except ValueError:
+                            return _error_result(
+                                f"`{prop}` must be a "
+                                f"{target.__name__}; got {val!r}.")
+                return await fn(args)
+
+            return tool(name, description, loosened)(_wrapped)
+
+        return _decorate
+
+    return _coercing_tool
 
 
 def _make_spilling_text_result(
@@ -405,6 +517,32 @@ _SANDBOX_SYSTEM_ROOTS = (
 # ``getsourcelines``; ``inspect.getfile`` is matched explicitly so the
 # generic ``getfilesystemencoding`` etc. don't false-positive.
 _SANDBOX_INTROSPECTION = ("getsource", "inspect.getfile", "site-packages")
+# Hidden-implementation predicators imports inside agent-executed
+# Python: the exec runs in-process, so ``from predicators.envs... import
+# ...`` would hand the agent the real env classes and ground-truth
+# constants the sandbox deliberately hides (observed in
+# run_20260717_182040 seed1 turn 22). Public authoring surfaces
+# (``predicators.structs``, ``predicators.utils``) stay importable -
+# agent-written simulator.py code depends on them.
+_SANDBOX_PREDICATORS_IMPORT_RE = re.compile(
+    r"^\s*(?:from|import)\s+predicators\.(?:envs|ground_truth_models)\b",
+    re.MULTILINE)
+# Host filesystem prefixes scrubbed from tracebacks surfaced to agents:
+# absolute source paths both leak the layout and invite out-of-sandbox
+# probing (an audited run responded to one with ``find /``).
+_HOST_REPO_ROOT = os.path.realpath(
+    os.path.join(os.path.dirname(__file__), "..", ".."))
+
+
+def _scrub_host_paths(text: str) -> str:
+    """Strip host-absolute path prefixes from traceback text."""
+    text = text.replace(_HOST_REPO_ROOT + os.sep, "")
+    home = os.path.expanduser("~")
+    if home and home != "/":
+        text = text.replace(home + os.sep, "~" + os.sep)
+    return text
+
+
 # Path-like tokens: absolute (``/foo``) or parent-traversal (``..``/``../foo``),
 # anchored at a boundary (start, whitespace, quote, ``(`` or ``=``) so we skip
 # ``/`` inside URLs (preceded by ``:``), division, and ``./relative`` paths
@@ -431,6 +569,11 @@ def _screen_text_for_sandbox_escape(text: str,
         if needle in text:
             return (f"'{needle}' may read predicators source outside the "
                     "sandbox; use the MCP tools and ./reference/ files")
+    if _SANDBOX_PREDICATORS_IMPORT_RE.search(text):
+        return ("importing predicators env/ground-truth modules would "
+                "expose implementation the sandbox hides; use the "
+                "provided namespace and the MCP tools / ./reference/ "
+                "files")
     sandbox = os.path.realpath(sandbox_dir)
     for match in _SANDBOX_PATH_RE.finditer(text):
         token = match.group(1)
@@ -1431,8 +1574,9 @@ def _build_proposal_tools(ctx: ToolContext, _text_result: Callable,
                 new_objs = set(augmented.init) - orig_objs
                 obj_names = [str(o) for o in sorted(new_objs, key=str)]
             except Exception:  # pylint: disable=broad-except
-                return _error_result(f"augment_task failed on test task:\n"
-                                     f"{traceback.format_exc()}")
+                return _error_result(
+                    f"augment_task failed on test task:\n"
+                    f"{_scrub_host_paths(traceback.format_exc())}")
         else:
             obj_names = ["(no tasks to test on)"]
 
@@ -1891,6 +2035,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             gs_fns, gs_err = _load_ground_sampler_fns(ctx)
             if gs_err is not None:
                 return _error_result(gs_err)
+            parse_notices: List[str] = []
             sketch_steps = bilevel_sketch.parse_sketch_from_text(
                 plan_text,
                 task,
@@ -1900,9 +2045,11 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 parse_continuous_params=True,
                 strict=True,
                 parse_ground_samplers=CFG.agent_bilevel_ground_samplers,
-                ground_sampler_fns=gs_fns or None)
+                ground_sampler_fns=gs_fns or None,
+                notices=parse_notices)
         except Exception as e:  # pylint: disable=broad-except
             return _error_result(f"Could not parse plan: {e}")
+        lines.extend(f"NOTE: {n}" for n in parse_notices)
         if not sketch_steps:
             return _error_result(
                 "Parsed empty plan. Each line must be "
@@ -2116,21 +2263,52 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         flaky_detail: Optional[str] = None
         validation_note = ""
         n_rollouts = max(1, CFG.agent_plan_validation_rollouts)
+        # Escalated gate once this task has produced a FLAKY rejection: the
+        # agent is provably tuning in a marginal region, where a lucky
+        # streak passes the base gate and dies on the single real episode
+        # (run_20260717_182321: a 20/20-swept relay placement validated 3/3,
+        # then missed the target for real).
+        capture_task_key = _capture_task_key(ctx)
+        if capture_task_key in ctx.flaky_capture_task_keys:
+            n_rollouts = max(n_rollouts,
+                             CFG.agent_plan_validation_rollouts_after_flaky)
+        # Fresh env per validation rollout when the approach provides one:
+        # repeats on the shared env are correlated (its reset cannot
+        # reconstruct state exactly), so only fresh envs sample the same
+        # distribution the real episode will.
+        fresh_scope = (ctx.validation_env_scope
+                       if CFG.agent_plan_validation_fresh_env else None)
+        rollout_outcomes: List[str] = []
         if (ctx.capture_goal_reaching_plans and task_idx == "current"
                 and goal_achieved and not evaluator_rejected and grounded_plan
                 and n_rollouts > 1):
+            # Run ALL validation rollouts even after a failure: the
+            # per-rollout outcome list distinguishes failure modes (a
+            # physics-tail fizzle vs. an IK stall vs. a certificate
+            # rejection) and yields a reliability estimate - a bare
+            # "rollout k FAILED" left agents guessing which
+            # (run_20260717_182040 seed0 turn 214).
             for repeat_idx in range(2, n_rollouts + 1):
-                ok, why = _validation_rollout()
-                if not ok:
-                    flaky_detail = (f"rollout {repeat_idx}/{n_rollouts} "
-                                    f"FAILED: {why}")
-                    break
-            else:
+                with (fresh_scope() if fresh_scope is not None else
+                      contextlib.nullcontext()):
+                    ok, why = _validation_rollout()
+                if ok:
+                    rollout_outcomes.append(
+                        f"rollout {repeat_idx}: goal reached")
+                else:
+                    rollout_outcomes.append(
+                        f"rollout {repeat_idx}: FAILED - {why}")
+                    if flaky_detail is None:
+                        flaky_detail = (f"rollout {repeat_idx}/{n_rollouts} "
+                                        f"FAILED: {why}")
+            if flaky_detail is None:
+                fresh_note = (", each on a freshly constructed simulator "
+                              "instance" if fresh_scope is not None else "")
                 validation_note = (
                     f" Validated {n_rollouts}/{n_rollouts} rollouts (the "
                     "simulator's motion planning and physics stepping vary "
                     "across runs; repeats sample that execution "
-                    "variability).")
+                    f"variability{fresh_note}).")
 
         # Capture a goal-reaching plan on the current task with a sketch that
         # keeps only the subgoals that actually held (so the closed-loop
@@ -2213,16 +2391,30 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
               and flaky_detail is not None):
             # Loudly refuse a flaky capture: the agent still has this
             # session to add margin and resubmit, which beats discovering
-            # the flakiness as a failed real episode.
+            # the flakiness as a failed real episode. Record the task so
+            # later submissions face the escalated gate - flakiness here is
+            # evidence the whole parameter region is marginal, not just
+            # this point.
+            ctx.flaky_capture_task_keys.add(capture_task_key)
+            escalated_n = max(max(1, CFG.agent_plan_validation_rollouts),
+                              CFG.agent_plan_validation_rollouts_after_flaky)
+            n_ok = 1 + sum(1 for o in rollout_outcomes if "FAILED" not in o)
+            per_rollout = "\n".join(f"  {o}" for o in rollout_outcomes)
             lines.append(
                 f"FLAKY (plan NOT captured): the plan reached the goal on "
-                f"rollout 1 but {flaky_detail}. The simulator's motion "
+                f"rollout 1 but {flaky_detail}. Per-rollout outcomes "
+                f"(estimated reliability {n_ok}/{n_rollouts}):\n"
+                f"  rollout 1: goal reached\n{per_rollout}\n"
+                "The simulator's motion "
                 "planning and physics stepping vary across runs, and the "
                 "real environment samples the same variability - a plan "
                 "that only sometimes succeeds in simulation will likely "
                 "fail for real. Add margin (e.g. tighter spacing, aim "
                 "impacts closer to the middle of the fall path) and "
-                "resubmit.")
+                "resubmit. Because this task has now produced a flaky "
+                f"submission, captures require {escalated_n}/{escalated_n} "
+                "successful rollouts: fix the margin rather than "
+                "resubmitting near-identical parameters.")
         elif (ctx.capture_goal_reaching_plans and task_idx == "current"
               and reward_hack):
             # Loudly refuse a reward hack: the rollout reaches the goal atoms
@@ -2262,10 +2454,16 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             lines.append(f"Goal: {{{goal_str}}}")
         lines.append(f"Goal achieved: {goal_achieved}")
         # Task-evaluator verdict line (verdict computed above, before the
-        # capture decision it gates).
+        # capture decision it gates). On a FLAKY rejection this verdict is
+        # rollout 1's only - printing it unlabeled next to a failing
+        # rollout's non-solve read as two contradictory verdicts in one
+        # message (run_20260717_182040 seed1 turn 96).
         if verdict is not None:
-            lines.append(_format_evaluator_verdict(verdict,
-                                                   coarse=eval_coarse))
+            vline = _format_evaluator_verdict(verdict, coarse=eval_coarse)
+            if flaky_detail is not None and not captured:
+                vline += (" [rollout 1 only - NOT the operative outcome; "
+                          "this submission was rejected as FLAKY above]")
+            lines.append(vline)
         # Goal atoms hold but the plan needs more low-level steps than the
         # episode horizon allows: say so and that it was NOT captured, so the
         # agent shortens the plan instead of stopping on a false positive.
@@ -2282,7 +2480,12 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 f"WARNING: reaching the goal takes {result.actions_to_goal} "
                 f"low-level steps but the episode horizon is {horizon}, so "
                 f"the real executor will run out of steps before the goal.")
-        if not goal_reached and not task.goal_nl:
+        # Print the missing goal atoms even when the goal is stated in
+        # natural language: "Goal achieved: False" with no per-atom
+        # diagnosis left agents unable to tell a near-miss from a
+        # non-starter, and validation-rollout failures already name the
+        # missing atoms - this just makes rollout 1 report the same way.
+        if not goal_reached:
             missing = task.goal - final_atoms
             missing_str = ", ".join(str(a) for a in sorted(missing))
             lines.append(f"Missing goal atoms: {{{missing_str}}}")
@@ -2680,6 +2883,7 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
             gs_fns, gs_err = _load_ground_sampler_fns(ctx)
             if gs_err is not None:
                 return _error_result(gs_err)
+            parse_notices: List[str] = []
             sketch = bilevel_sketch.parse_sketch_from_text(
                 plan_text,
                 task,
@@ -2691,6 +2895,7 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
                 strict=True,
                 parse_ground_samplers=CFG.agent_bilevel_ground_samplers,
                 ground_sampler_fns=gs_fns or None,
+                notices=parse_notices,
             )
         except Exception as e:  # pylint: disable=broad-except
             return _error_result(f"Could not parse plan sketch: {e}")
@@ -2766,7 +2971,7 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
                         solved_check=solved_check,
                     )
             except Exception:  # pylint: disable=broad-except
-                tb = traceback.format_exc()
+                tb = _scrub_host_paths(traceback.format_exc())
                 return _error_result(f"Refinement raised:\n{tb}")
             non_solve = False
             if not (success and plan):
@@ -2831,6 +3036,10 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
                        "evaluate_option_plan):\n" + "\n".join(param_lines))
             if verdict_line is not None:
                 report += "\n" + verdict_line
+
+        if parse_notices:
+            report = "\n".join(f"NOTE: {n}" for n in parse_notices) + \
+                "\n" + report
 
         return _text_result(f"Task {task_idx}:\n{report}")
 
@@ -3117,6 +3326,41 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
         return {}
     # pylint: disable-next=import-outside-toplevel
     from predicators.agent_sdk.probe_api import build_probe_namespace
+
+    # Synthesis sessions install a candidate-simulator provider before
+    # opening the session (see ToolContext.probe_option_model_provider);
+    # its presence at build time is exactly what flips the probe's
+    # semantics, so the description follows it.
+    synthesis_probe = ctx.probe_option_model_provider is not None
+    if synthesis_probe:
+        sim_desc = (
+            "`sim` (a ProbeSim over the CANDIDATE simulator: your current "
+            "simulator.py with freshly MCMC-fitted params, rebuilt "
+            "automatically when the file changes - so probes always "
+            "exercise what you just wrote; errors until a loadable "
+            "simulator.py exists)")
+        reset_desc = (
+            "`sim.reset(task_idx, mods=None)` sets the current state "
+            "to a train task's init (task_idx is required in this "
+            "session), optionally with "
+            "feature overrides (`mods={'obj': {'x': 1.05}}`); ")
+        submit_desc = (
+            "EXPLORATORY "
+            "ONLY: nothing run here is captured and no task-evaluator "
+            "verdict is computed - validate the simulator itself via "
+            "evaluate_plan_refinement.")
+    else:
+        sim_desc = "`sim` (a ProbeSim over the belief simulator)"
+        reset_desc = (
+            "`sim.reset(task_idx=None, mods=None)` sets the current state "
+            "to a task's init (current task by default), optionally with "
+            "feature overrides (`mods={'obj': {'x': 1.05}}`); ")
+        submit_desc = (
+            "EXPLORATORY "
+            "ONLY: nothing run here is captured as your answer and no "
+            "task-evaluator verdict is computed - validate and submit the "
+            "final plan via evaluate_option_plan from the true initial "
+            "state.")
     explore_python = _make_python_exec_tool(
         tool,
         name="explore_python",
@@ -3124,17 +3368,20 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
             "Execute Python code for cheap physics/geometry exploration in "
             "a persistent namespace (variables survive across calls - "
             "define helpers and sweep loops once, reuse them). Available: "
-            "`sim` (a ProbeSim over the belief simulator), `ProbeSim()` "
+            f"{sim_desc}, `ProbeSim()` "
             "(extra independent instances), `np`. ProbeSim API: "
-            "`sim.reset(task_idx=None, mods=None)` sets the current state "
-            "to a task's init (current task by default), optionally with "
-            "feature overrides (`mods={'obj': {'x': 1.05}}`); "
-            "`sim.run(plan_text, render=True)` executes an option plan FROM "
-            "THE CURRENT "
+            f"{reset_desc}"
+            "`sim.run(plan_text, render=True, trials=1)` executes an option "
+            "plan FROM THE CURRENT "
             "STATE (same grammar as evaluate_option_plan; print the result "
             "for per-step outcomes incl. saved per-step scene-image paths - "
             "view them with the Read tool; pass render=False inside tight "
-            "sweep loops) and advances the state; "
+            "sweep loops) and advances the state; trials=N repeats the plan "
+            "N times (fresh physics per trial when available) and returns "
+            "the per-trial outcomes + success count WITHOUT advancing the "
+            "state - use it for reliability estimates instead of "
+            "hand-rolled repeat loops (restore/rerun repeats share solver "
+            "state and read optimistic); "
             "`sim.state()` / "
             "`sim.state('obj')` full-precision features; `sim.atoms()`; "
             "`sim.render(label, annotations=None)` saves an image "
@@ -3150,9 +3397,11 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
             "`sim.refine(sketch_text, timeout=60, require_goal=False, "
             "require_solved=False)` runs "
             "backtracking parameter search FROM THE CURRENT STATE (same "
-            "grammar/search as refine_plan_sketch, incl. `~ [w]` regions; "
+            "grammar/search as refine_plan_sketch"
+            f"{_region_syntax_blurb()}; "
             "success = each step establishes its `-> {subgoals}` "
-            "annotation) - refine a plan SUFFIX from a snapshot so the "
+            "annotation, and the result's Verdict line states what it "
+            "certifies) - refine a plan SUFFIX from a snapshot so the "
             "budget goes to the step that matters; the result reports "
             "best-found params even on timeout, per-step sample counts, and "
             "the deepest near-miss. require_solved=True (only from an "
@@ -3162,11 +3411,7 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
             "print() output is "
             "returned; oversize output is spilled to "
             "`tool_outputs/explore_python/` (Read/Grep it back). "
-            "EXPLORATORY "
-            "ONLY: nothing run here is captured as your answer and no "
-            "task-evaluator verdict is computed - validate and submit the "
-            "final plan via evaluate_option_plan from the true initial "
-            "state."),
+            f"{submit_desc}"),
         exec_ns=build_probe_namespace(ctx),
         sandbox_dir=ctx.sandbox_dir,
         text_result=_text_result,
@@ -3186,7 +3431,8 @@ def create_mcp_tools(ctx: ToolContext,
     Returns a list of SdkMcpTool objects to pass to create_sdk_mcp_server.
     """
     from claude_agent_sdk import \
-        tool  # pylint: disable=import-outside-toplevel
+        tool as _sdk_tool  # pylint: disable=import-outside-toplevel
+    tool = _make_coercing_tool(_sdk_tool)
 
     # Spill oversize tool output into the sandbox (``./tool_outputs/``)
     # instead of returning it inline. Each builder names its parameter
@@ -3446,6 +3692,7 @@ def _make_python_exec_tool(
     process ``exec`` with stdout capture, and oversize-output spill to
     ``<sandbox_dir>/tool_outputs/<name>/``. The namespace persists
     across calls, so agents can define helpers once and reuse them.
+
     """
     # pylint: disable=import-outside-toplevel
     import io
@@ -3506,8 +3753,10 @@ def _make_python_exec_tool(
         try:
             exec(code, exec_ns)  # pylint: disable=exec-used
         except Exception:  # pylint: disable=broad-except
-            tb = traceback.format_exc()
-            return text_result(f"Error:\n{tb}")
+            tb = _scrub_host_paths(traceback.format_exc())
+            partial = captured.getvalue()
+            prefix = f"{partial}\n" if partial else ""
+            return text_result(f"{prefix}Error:\n{tb}")
         finally:
             sys.stdout = old_stdout
 
@@ -3640,7 +3889,8 @@ def create_synthesis_tools(
     import traceback  # pylint: disable=redefined-outer-name,reimported
     from collections import defaultdict
 
-    from claude_agent_sdk import tool
+    from claude_agent_sdk import tool as _sdk_tool
+    tool = _make_coercing_tool(_sdk_tool)
 
     from predicators.approaches.agent_sim_learning_approach import \
         AgentSimLearningApproach
@@ -3699,7 +3949,7 @@ def create_synthesis_tools(
         except Exception:  # pylint: disable=broad-except
             return None, None, None, None, None, version_tag, (
                 f"[{version_tag}] Error executing {path}:\n"
-                f"{traceback.format_exc()}")
+                f"{_scrub_host_paths(traceback.format_exc())}")
         rules, specs, features = read_simulator_components(ns)
         latent_init = read_latent_init(ns)
         physical_specs = read_physical_param_specs(ns)
@@ -4370,7 +4620,7 @@ def create_synthesis_tools(
                 latent_init=latent_init,
             )
         except Exception:  # pylint: disable=broad-except
-            tb = traceback.format_exc()
+            tb = _scrub_host_paths(traceback.format_exc())
             return _text(f"[{version_tag}] Error: validation failed:\n{tb}")
 
         return _text(f"[{version_tag}] {report}")
@@ -4450,7 +4700,8 @@ def create_predicate_synthesis_tools(
     # pylint: disable=import-outside-toplevel
     import traceback  # pylint: disable=redefined-outer-name,reimported
 
-    from claude_agent_sdk import tool
+    from claude_agent_sdk import tool as _sdk_tool
+    tool = _make_coercing_tool(_sdk_tool)
 
     from predicators.code_sim_learning.training import ParamSpec
 
@@ -4617,8 +4868,8 @@ def create_predicate_synthesis_tools(
             preds, version_tag, err, warnings = (
                 _snapshot_and_load_predicates(predicates_file))
         except Exception:  # pylint: disable=broad-except
-            return _text(
-                f"Error loading predicates.py:\n{traceback.format_exc()}")
+            return _text(f"Error loading predicates.py:\n"
+                         f"{_scrub_host_paths(traceback.format_exc())}")
 
         if err is not None:
             return _text(err)
@@ -4751,7 +5002,8 @@ def create_sampler_synthesis_tools(
     # pylint: disable=import-outside-toplevel
     import traceback  # pylint: disable=redefined-outer-name,reimported
 
-    from claude_agent_sdk import tool
+    from claude_agent_sdk import tool as _sdk_tool
+    tool = _make_coercing_tool(_sdk_tool)
 
     from predicators.code_sim_learning.training import ParamSpec
 
@@ -4882,8 +5134,8 @@ def create_sampler_synthesis_tools(
             samplers, version_tag, err, warnings = (
                 _snapshot_and_load_samplers(samplers_file))
         except Exception:  # pylint: disable=broad-except
-            return _text(
-                f"Error loading samplers.py:\n{traceback.format_exc()}")
+            return _text(f"Error loading samplers.py:\n"
+                         f"{_scrub_host_paths(traceback.format_exc())}")
 
         if err is not None:
             return _text(err)

@@ -18,15 +18,22 @@ from predicators.agent_sdk.tools import ALL_TOOL_NAMES, BUILTIN_TOOLS, \
     create_synthesis_tools, get_allowed_tool_list, list_session_tool_names
 
 
+def _required_names(names: Optional[List[str]]) -> List[str]:
+    """Narrow an Optional tool-name list (None means "all static MCP tools",
+    which these tests never exercise)."""
+    assert names is not None
+    return names
+
+
 def _names(tools: Iterable[Any]) -> Set[str]:
     return {getattr(t, "name", "") for t in tools}
 
 
 def test_create_mcp_tools_matches_all_tool_names() -> None:
     """``create_mcp_tools`` exposes exactly the names in ``ALL_TOOL_NAMES``
-    when the config opts into explore_python; without the opt-in, the
-    legacy ``tool_names=None`` surface must NOT carry the code-execution
-    tool (baseline arms would otherwise gain it silently)."""
+    when the config opts into explore_python; without the opt-in, the legacy
+    ``tool_names=None`` surface must NOT carry the code-execution tool
+    (baseline arms would otherwise gain it silently)."""
     from predicators import utils
     utils.reset_config({"agent_planner_use_explore_python": True})
     tools = create_mcp_tools(ToolContext())
@@ -129,6 +136,75 @@ def test_get_allowed_tool_list_passes_dynamic_names_through() -> None:
     ]
 
 
+def test_coercing_tool_accepts_numeric_strings() -> None:
+    """Top-level integer/number schema properties accept numeric strings
+    and are coerced before the handler runs - harness-side validation
+    used to hard-reject '0' for an integer arg, costing agents whole
+    tools (inspect_trajectories went 0-for-6 in one audited run)."""
+    import asyncio
+
+    from predicators.agent_sdk.tools import _make_coercing_tool
+
+    captured: dict = {}
+
+    def fake_tool(name: str, description: str, schema: Any) -> Any:
+        del description
+
+        def deco(fn: Any) -> Any:
+            captured["schema"] = schema
+            return SimpleNamespace(name=name, handler=fn)
+
+        return deco
+
+    ctool = _make_coercing_tool(fake_tool)
+
+    @ctool(
+        "t", "d", {
+            "type": "object",
+            "properties": {
+                "idx": {
+                    "type": "integer"
+                },
+                "frac": {
+                    "type": "number"
+                },
+                "label": {
+                    "type": "string"
+                },
+            },
+        })
+    async def handler(args: dict) -> dict:
+        return {"args": args}
+
+    schema = captured["schema"]
+    assert schema["properties"]["idx"]["type"] == ["integer", "string"]
+    assert schema["properties"]["frac"]["type"] == ["number", "string"]
+    assert schema["properties"]["label"]["type"] == "string"
+    out = asyncio.new_event_loop().run_until_complete(
+        handler.handler({
+            "idx": "3",
+            "frac": "0.5",
+            "label": "x"
+        }))
+    assert out["args"] == {"idx": 3, "frac": 0.5, "label": "x"}
+    bad = asyncio.new_event_loop().run_until_complete(
+        handler.handler({"idx": "abc"}))
+    assert bad.get("is_error")
+    # A schema with no numeric props passes through untouched.
+    @ctool("u", "d", {
+        "type": "object",
+        "properties": {
+            "s": {
+                "type": "string"
+            }
+        }
+    })
+    async def handler2(args: dict) -> dict:
+        return args
+
+    assert captured["schema"]["properties"]["s"]["type"] == "string"
+
+
 def test_resolve_task_evaluator_reads_task_field() -> None:
     """``_resolve_task_evaluator`` reads ``Task.evaluator`` off the context's
     train tasks / current task (the evaluator rides on the Task itself)."""
@@ -215,12 +291,12 @@ def test_explore_python_replaces_visualize_and_refine() -> None:
     obj = object.__new__(AgentBilevelApproach)
 
     utils.reset_config(base)
-    names = obj._get_solve_tool_names()
+    names = _required_names(obj._get_solve_tool_names())
     assert "visualize_state" in names and "refine_plan_sketch" in names
     assert "explore_python" not in names
 
     utils.reset_config({**base, "agent_planner_use_explore_python": True})
-    names = obj._get_solve_tool_names()
+    names = _required_names(obj._get_solve_tool_names())
     assert "explore_python" in names
     assert "visualize_state" not in names
     assert "refine_plan_sketch" not in names
@@ -230,7 +306,68 @@ def test_explore_python_replaces_visualize_and_refine() -> None:
         **base, "agent_planner_use_explore_python": True,
         "agent_planner_explore_python_keep_replaced_tools": True
     })
-    names = obj._get_solve_tool_names()
+    names = _required_names(obj._get_solve_tool_names())
     assert "explore_python" in names
     assert "visualize_state" in names and "refine_plan_sketch" in names
     assert "annotate_scene" in names
+
+
+def test_synthesis_tool_names_explore_python() -> None:
+    """The synthesis surface mirrors the solve surface's explore_python
+    policy: the probe joins on the same opt-in flag, and the scene tools
+    it subsumes are dropped unless keep_replaced_tools asks for both.
+
+    ``evaluate_plan_refinement`` is NOT subsumed (it alone MCMC-fits
+    PARAM_SPECS and emits the versioned snapshot verdict), so it must
+    survive replacement.
+    """
+    from predicators import utils
+    from predicators.approaches.agent_sim_learning_approach import \
+        AgentSimLearningApproach
+    from predicators.approaches.agent_sim_predicate_invention_approach import \
+        AgentSimPredicateInventionApproach
+
+    sim_learn = object.__new__(AgentSimLearningApproach)
+    sim_learn._do_synthesize_samplers = False
+    invention = object.__new__(AgentSimPredicateInventionApproach)
+    invention._do_synthesize_samplers = False
+
+    utils.reset_config({"agent_planner_use_explore_python": False})
+    names = _required_names(sim_learn._get_synthesis_tool_names())
+    assert "explore_python" not in names
+    names = _required_names(invention._get_synthesis_tool_names())
+    assert "explore_python" not in names
+    assert "visualize_state" in names and "annotate_scene" in names
+
+    utils.reset_config({"agent_planner_use_explore_python": True})
+    names = _required_names(sim_learn._get_synthesis_tool_names())
+    assert "explore_python" in names
+    names = _required_names(invention._get_synthesis_tool_names())
+    assert "explore_python" in names
+    assert "visualize_state" not in names
+    assert "annotate_scene" not in names
+    assert "evaluate_plan_refinement" in names  # not subsumed
+    assert "evaluate_predicate_quality" in names
+
+    utils.reset_config({
+        "agent_planner_use_explore_python":
+        True,
+        "agent_planner_explore_python_keep_replaced_tools":
+        True,
+    })
+    names = _required_names(invention._get_synthesis_tool_names())
+    assert "explore_python" in names
+    assert "visualize_state" in names and "annotate_scene" in names
+
+    # The invention subclass's solve override must respect replacement
+    # too (it force-adds the scene tools otherwise).
+    utils.reset_config({
+        "env": "cover",
+        "approach": "agent_sim_predicate_invention",
+        "agent_planner_use_simulator": True,
+        "agent_planner_use_explore_python": True,
+    })
+    names = _required_names(invention._get_solve_tool_names())
+    assert "explore_python" in names
+    assert "visualize_state" not in names
+    assert "annotate_scene" not in names

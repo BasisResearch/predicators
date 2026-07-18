@@ -35,6 +35,11 @@ _BLOCK = [
     "cat /Users/me/.claude/projects/x/tool-results/y.txt",
     "open('../../secret.txt')",
     "grep x /usr/lib/python3/site-packages/foo.py",
+    # Hidden-implementation imports (run_20260717_182040 seed1 turn 22
+    # pulled real domino constants this way); the public authoring
+    # surface (predicators.structs, in _ALLOW) stays importable.
+    "from predicators.envs.pybullet_domino import PyBulletDominoEnv",
+    "import predicators.ground_truth_models.domino as gt",
 ]
 
 
