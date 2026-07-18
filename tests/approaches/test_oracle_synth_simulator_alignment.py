@@ -31,7 +31,7 @@ import pytest
 import predicators.approaches  # noqa: F401  # pylint: disable=unused-import
 import predicators.ground_truth_models  # noqa: F401  # pylint: disable=unused-import
 from predicators import utils
-from predicators.code_sim_learning.training import ParamSpec
+from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, merge_updates, read_simulator_components
 from predicators.envs import create_new_env

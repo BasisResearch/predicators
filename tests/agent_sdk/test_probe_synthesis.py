@@ -18,7 +18,7 @@ from predicators.agent_sdk.probe_api import ProbeSim
 from predicators.agent_sdk.tools import ToolContext, create_mcp_tools
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
-from predicators.code_sim_learning.training import FitResult
+from predicators.code_sim_learning.fit_space import FitResult
 from predicators.option_model import _OptionModelBase
 from predicators.structs import Object, State, Task, Type
 

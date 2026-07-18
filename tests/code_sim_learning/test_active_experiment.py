@@ -9,7 +9,7 @@ from predicators import utils  # noqa: F401  (settles import order)
 from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
     mean_bernoulli_entropy, perturbation_ensemble, \
     posterior_subsample_ensemble
-from predicators.code_sim_learning.training import ParamSpec
+from predicators.code_sim_learning.fit_space import ParamSpec
 
 
 def _specs():

@@ -14,11 +14,12 @@ import pytest
 import predicators.approaches  # noqa: F401  # pylint: disable=unused-import
 from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
     perturbation_ensemble
+from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
+    fit_space_bounds, from_fit_space, prior_widths, rows_from_fit_space, \
+    to_fit_space
+from predicators.code_sim_learning.lm import solve_lm
 from predicators.code_sim_learning.physical_sysid import _grid_candidates, \
     identifiability_report
-from predicators.code_sim_learning.training import FitResult, ParamSpec, \
-    _internal_bounds, _prior_widths, _rows_to_external, _solve_lm, \
-    _to_external, _to_internal
 from predicators.code_sim_learning.utils import stamp_physical_spec_scales
 
 # ── ParamSpec validation ──────────────────────────────────────────
@@ -52,15 +53,15 @@ def test_transform_round_trip():
     """log columns map through log/exp; linear columns pass untouched."""
     specs = _mixed_specs()
     ext = [0.1, -0.2]
-    z = _to_internal(specs, ext)
+    z = to_fit_space(specs, ext)
     assert np.isclose(z[0], np.log(0.1))
     assert np.isclose(z[1], -0.2)  # linear param untouched
-    assert np.allclose(_to_external(specs, z), ext)
+    assert np.allclose(from_fit_space(specs, z), ext)
 
 
 def test_internal_bounds_log_param():
     """Internal bounds are log-transformed for log params, raw for linear."""
-    lo, hi = _internal_bounds(_mixed_specs())
+    lo, hi = fit_space_bounds(_mixed_specs())
     assert np.isclose(lo[0], np.log(0.01))
     assert np.isclose(hi[0], np.log(2.0))
     assert np.isclose(lo[1], -0.3) and np.isclose(hi[1], 0.3)
@@ -70,14 +71,14 @@ def test_rows_to_external_only_touches_log_columns():
     """Batched internal->external conversion exponentiates only log columns."""
     specs = _mixed_specs()
     rows = np.array([[np.log(0.1), -0.2], [np.log(2.0), 0.1]])
-    out = _rows_to_external(specs, rows)
+    out = rows_from_fit_space(specs, rows)
     assert np.allclose(out, [[0.1, -0.2], [2.0, 0.1]])
 
 
 def test_prior_widths_log_param_is_constant_in_log_space():
     """A log param's prior sigma is the scale itself, independent of init."""
     specs = _mixed_specs()
-    widths = _prior_widths(specs, 0.75)
+    widths = prior_widths(specs, 0.75)
     # Log param: sigma = the scale itself, independent of init — one
     # sigma spans the same multiplicative factor everywhere.
     assert np.isclose(widths[0], 0.75)
@@ -116,7 +117,7 @@ def test_solve_lm_recovers_low_target_from_high_init():
     def resid(theta):
         return np.array([np.log(theta[0]) - np.log(0.02)] * 3)
 
-    x, jac = _solve_lm(resid, specs, 200, "test")
+    x, jac = solve_lm(resid, specs, 200, "test")
     assert abs(x[0] - 0.02) < 1e-4
     assert jac is not None and np.all(np.abs(jac) > 1e-6)
 
@@ -129,7 +130,7 @@ def test_solve_lm_jacobian_nonzero_at_unit_theta():
     def resid(theta):
         return np.array([theta[0] - 3.0])
 
-    x, jac = _solve_lm(resid, specs, 200, "test", diff_step=2e-2)
+    x, jac = solve_lm(resid, specs, 200, "test", diff_step=2e-2)
     assert abs(x[0] - 3.0) < 1e-3
     assert jac is not None and np.all(np.abs(jac) > 1e-6)
 

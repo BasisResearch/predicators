@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from predicators.code_sim_learning.training import ParamSpec
+from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.utils import Params, ProcessUpdate
 from predicators.ground_truth_models import GroundTruthSimulatorFactory
 from predicators.structs import State

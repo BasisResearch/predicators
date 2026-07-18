@@ -42,6 +42,10 @@ from predicators.approaches.sampler_learning_mixin import SamplerLearningMixin
 from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
     mean_bernoulli_entropy, perturbation_ensemble, \
     posterior_subsample_ensemble
+from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
+from predicators.code_sim_learning.fitting import compute_sse, \
+    compute_sse_recurrent, fit_params, fit_params_recurrent, \
+    log_sse_breakdown
 from predicators.code_sim_learning.physical_sysid import RolloutTrajectory, \
     _dispose_env, compute_residual_scaling, compute_rollout_sse, \
     fit_params_rollout, fit_params_rollout_trimmed, format_identifiability, \
@@ -49,9 +53,6 @@ from predicators.code_sim_learning.physical_sysid import RolloutTrajectory, \
     select_trustworthy_params, split_at_rest_points, truncate_settled_tail
 from predicators.code_sim_learning.synthesis_validation import \
     build_candidate_option_model
-from predicators.code_sim_learning.training import FitResult, ParamSpec, \
-    compute_sse, compute_sse_recurrent, fit_params, fit_params_recurrent, \
-    log_sse_breakdown
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, apply_rules_with_latent, has_latent_rules, init_latent, \
     iter_feature_residuals, merge_updates, read_latent_init, \

@@ -102,7 +102,7 @@ def test_rebuild_param_ensemble_respects_flag():
     approach._rebuild_param_ensemble()
     assert approach._param_ensemble == []  # cleared when off
 
-    from predicators.code_sim_learning.training import ParamSpec
+    from predicators.code_sim_learning.fit_space import ParamSpec
     approach._param_specs = [ParamSpec("a", 1.0, lo=0.0, hi=2.0)]
     utils.reset_config({
         "agent_explorer_info_seeking": True,
@@ -115,7 +115,7 @@ def test_rebuild_param_ensemble_respects_flag():
 
 
 def _selector_approach(fit_result):
-    from predicators.code_sim_learning.training import ParamSpec
+    from predicators.code_sim_learning.fit_space import ParamSpec
     approach = object.__new__(AgentSimLearningApproach)
     approach._fitted_params = {"a": 1.0, "b": 2.0}
     approach._param_specs = [
@@ -129,7 +129,7 @@ def _selector_approach(fit_result):
 
 def test_select_ensemble_prefers_posterior_when_samples_present():
     """Select ensemble prefers posterior when samples present."""
-    from predicators.code_sim_learning.training import FitResult
+    from predicators.code_sim_learning.fit_space import FitResult
 
     # MCMC ran: multi-row samples -> posterior subsample wins.
     fit = FitResult(names=["a", "b"],
@@ -150,7 +150,7 @@ def test_select_ensemble_prefers_posterior_when_samples_present():
 
 def test_select_ensemble_uses_laplace_when_only_jacobian():
     """Select ensemble uses laplace when only jacobian."""
-    from predicators.code_sim_learning.training import FitResult
+    from predicators.code_sim_learning.fit_space import FitResult
 
     # No MCMC (single-row samples) but the Laplace bundle is present.
     fit = FitResult(names=["a", "b"],
@@ -173,7 +173,7 @@ def test_select_ensemble_uses_laplace_when_only_jacobian():
 
 def test_select_ensemble_falls_back_to_uniform_without_calibration():
     """Select ensemble falls back to uniform without calibration."""
-    from predicators.code_sim_learning.training import FitResult
+    from predicators.code_sim_learning.fit_space import FitResult
 
     # Single-row samples and no Jacobian (LM skipped/failed) -> uniform.
     fit = FitResult(names=["a", "b"],
@@ -192,7 +192,7 @@ def test_select_ensemble_falls_back_to_uniform_without_calibration():
 
 def test_select_ensemble_uniform_when_calibration_disabled():
     """Select ensemble uniform when calibration disabled."""
-    from predicators.code_sim_learning.training import FitResult
+    from predicators.code_sim_learning.fit_space import FitResult
 
     # Posterior samples exist, but the calibration flag is off -> uniform.
     fit = FitResult(names=["a", "b"],
@@ -250,7 +250,7 @@ def test_exploration_fit_num_steps_budget():
 
 def test_exploration_mcmc_does_not_replace_solver_params(monkeypatch):
     """Extra exploration MCMC should not publish into solver params."""
-    from predicators.code_sim_learning.training import FitResult, ParamSpec
+    from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
 
     approach = object.__new__(AgentSimLearningApproach)
     approach._fitted_params = {}
@@ -315,7 +315,7 @@ def test_fit_params_no_data_seeds_declared_inits(monkeypatch):
     ``base_pred_triples`` and must fall back to the declared init values
     instead of fitting.
     """
-    from predicators.code_sim_learning.training import ParamSpec
+    from predicators.code_sim_learning.fit_space import ParamSpec
 
     approach = object.__new__(AgentSimLearningApproach)
     approach._fitted_params = {}
@@ -352,7 +352,7 @@ def test_fit_parameters_num_steps_override_runs_mcmc():
     passes its own budget and gets multi-row posterior samples — exactly
     what upgrades ``_select_param_ensemble`` to posterior-subsample.
     """
-    from predicators.code_sim_learning.training import ParamSpec
+    from predicators.code_sim_learning.fit_space import ParamSpec
     utils.reset_config({
         "code_sim_learning_num_mcmc_steps": 0,
         "code_sim_learning_warm_start_with_lm": False,
@@ -375,7 +375,7 @@ def test_fit_parameters_num_steps_override_runs_mcmc():
 def test_fit_parameters_latent_threads_num_steps(monkeypatch):
     """The recurrent fit forwards the override into fit_params_recurrent."""
     import predicators.approaches.agent_sim_learning_approach as asla
-    from predicators.code_sim_learning.training import FitResult, ParamSpec
+    from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
 
     captured = {}
 

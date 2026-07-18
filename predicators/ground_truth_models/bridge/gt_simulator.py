@@ -23,7 +23,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from predicators.code_sim_learning.training import ParamSpec
+from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.utils import SOFT_EPS, Params, \
     ProcessUpdate, objs_by_type, sigmoid
 from predicators.ground_truth_models import GroundTruthSimulatorFactory

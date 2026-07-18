@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from predicators.code_sim_learning.training import ParamSpec
+from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, has_latent_rules
 from predicators.settings import CFG
