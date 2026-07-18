@@ -833,16 +833,20 @@ def _resolve_ground_sampler(
     strict: bool,
     enabled: bool,
     ground_sampler_fns: Optional[Dict[str, ParameterizedSampler]],
+    notices: Optional[List[str]] = None,
 ) -> Optional[GroundSampler]:
     """Validate one step's ``~`` annotation into a ``GroundSampler``.
 
     Returns ``None`` when the step carries no annotation. A bad
     annotation raises ``ValueError`` naming the step in strict mode; in
     tolerant mode it is dropped with a warning and the step is kept.
-    With ``enabled`` False (``agent_bilevel_ground_samplers`` off) any
-    annotation is itself an error, so baseline arms cannot use the
-    channel by accident. ``ground_sampler_fns`` maps the names that a
-    ``~ my_sampler`` form may reference.
+    With ``enabled`` False (``agent_bilevel_ground_samplers`` off) the
+    annotation is silently ignored - the step keeps its params as an
+    exact seed and refinement uses the default uniform samplers - with
+    a line appended to ``notices`` so tool output can say so (an error
+    here cost every audited run 1-3 turns of syntax guessing).
+    ``ground_sampler_fns`` maps the names that a ``~ my_sampler`` form
+    may reference.
     """
     if not raw_blocks:
         return None
@@ -856,9 +860,14 @@ def _resolve_ground_sampler(
         return None
 
     if not enabled:
-        return _bad("ground samplers are disabled "
-                    "(agent_bilevel_ground_samplers is off); remove the "
-                    "annotation")
+        note = (f"step {step_idx} ({option.name}): the '~' region "
+                "annotation was IGNORED - ground samplers are disabled in "
+                "this configuration, so the step's params seed the search "
+                "and sampling uses the default uniform samplers.")
+        logging.info("Ignoring ground-sampler annotation: %s", note)
+        if notices is not None and note not in notices:
+            notices.append(note)
+        return None
     if len(raw_blocks) > 1:
         return _bad("multiple '~' annotations on one line")
     token = raw_blocks[0]
@@ -903,6 +912,7 @@ def parse_sketch_from_text(
     strict: bool = False,
     parse_ground_samplers: bool = True,
     ground_sampler_fns: Optional[Dict[str, ParameterizedSampler]] = None,
+    notices: Optional[List[str]] = None,
 ) -> List[SketchStep]:
     """Parse plan-sketch text into ``SketchStep``s.
 
@@ -932,8 +942,9 @@ def parse_sketch_from_text(
 
     ``parse_ground_samplers`` is the caller-threaded value of
     ``CFG.agent_bilevel_ground_samplers``: when False, any ``~``
-    annotation is a strict error / tolerant drop, keeping baseline arms
-    free of the channel.
+    annotation is accepted but ignored (params still seed the search;
+    sampling stays uniform), with an explanation appended to
+    ``notices`` for the caller to surface in tool output.
     """
     cleaned_text = strip_code_fences(plan_text)
     objects = list(task.init)
@@ -980,7 +991,8 @@ def parse_sketch_from_text(
             center=ip if ip is not None and ip.size > 0 else None,
             strict=strict,
             enabled=parse_ground_samplers,
-            ground_sampler_fns=ground_sampler_fns)
+            ground_sampler_fns=ground_sampler_fns,
+            notices=notices)
         if sg is not None:
             pos, neg = sg
             sketch.append(
