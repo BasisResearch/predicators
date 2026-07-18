@@ -18,6 +18,8 @@ import numpy as np
 from predicators import utils  # noqa: F401  (settles import order)
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
+from predicators.code_sim_learning.fitting import fit_rule_parameters, \
+    fit_rule_parameters_latent
 from predicators.structs import Action, GroundAtom, Object, Predicate, State, \
     Type
 
@@ -282,8 +284,9 @@ def test_exploration_mcmc_does_not_replace_solver_params(monkeypatch):
             return solver_result, 10.0
         return exploration_result, 5.0
 
-    monkeypatch.setattr(AgentSimLearningApproach, "_fit_parameters",
-                        staticmethod(_fake_fit))
+    monkeypatch.setattr(
+        "predicators.approaches.agent_sim_learning_approach.fit_rule_parameters",
+        _fake_fit)
     utils.reset_config({
         "agent_sim_learn_oracle_sim_params": False,
         "agent_explorer_info_seeking": True,
@@ -330,8 +333,9 @@ def test_fit_params_no_data_seeds_declared_inits(monkeypatch):
         del args, kwargs
         raise AssertionError("fit must not run with no data")
 
-    monkeypatch.setattr(AgentSimLearningApproach, "_fit_parameters",
-                        staticmethod(_fail_fit))
+    monkeypatch.setattr(
+        "predicators.approaches.agent_sim_learning_approach.fit_rule_parameters",
+        _fail_fit)
     utils.reset_config({
         "agent_sim_learn_oracle_sim_params": False,
         "agent_explorer_info_seeking": False,
@@ -362,19 +366,16 @@ def test_fit_parameters_num_steps_override_runs_mcmc():
     specs = [ParamSpec("a", 1.0, lo=0.5, hi=1.5)]
     triple = (_state(0.1), Action(np.zeros(1, dtype=np.float32)), _state(0.1))
     # No override: short-circuits at the global 0 -> single-row samples.
-    result, _ = AgentSimLearningApproach._fit_parameters([], specs, [triple],
-                                                         {})
+    result, _ = fit_rule_parameters([], specs, [triple], {})
     assert result.samples.shape[0] == 1
     # Override: emcee runs despite the global 0 -> multi-row samples.
-    result, _ = AgentSimLearningApproach._fit_parameters([],
-                                                         specs, [triple], {},
-                                                         num_steps=8)
+    result, _ = fit_rule_parameters([], specs, [triple], {}, num_steps=8)
     assert result.samples.shape[0] > 1
 
 
 def test_fit_parameters_latent_threads_num_steps(monkeypatch):
     """The recurrent fit forwards the override into fit_params_recurrent."""
-    import predicators.approaches.agent_sim_learning_approach as asla
+    import predicators.code_sim_learning.fitting as fitting_mod
     from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
 
     captured = {}
@@ -385,13 +386,14 @@ def test_fit_parameters_latent_threads_num_steps(monkeypatch):
                          samples=np.array([[1.0]]),
                          log_probs=np.zeros(1))
 
-    monkeypatch.setattr(asla, "fit_params_recurrent", _fake_fit)
-    monkeypatch.setattr(asla, "compute_sse_recurrent", lambda *a, **k: 0.0)
+    monkeypatch.setattr(fitting_mod, "fit_params_recurrent", _fake_fit)
+    monkeypatch.setattr(fitting_mod, "compute_sse_recurrent",
+                        lambda *a, **k: 0.0)
     specs = [ParamSpec("a", 1.0, lo=0.0, hi=2.0)]
-    result, sse = AgentSimLearningApproach._fit_parameters_latent([],
-                                                                  specs, [[]],
-                                                                  None, {},
-                                                                  num_steps=7)
+    result, sse = fit_rule_parameters_latent([],
+                                             specs, [[]],
+                                             None, {},
+                                             num_steps=7)
     assert captured["num_steps"] == 7
     assert sse == 0.0
     assert result.point_estimate == {"a": 1.0}

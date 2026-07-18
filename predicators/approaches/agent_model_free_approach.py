@@ -29,11 +29,11 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
-from predicators.approaches.agent_session_mixin import AgentSessionMixin
 from predicators.agent_sdk.rendering import save_task_state_image
 from predicators.agent_sdk.tools import agent_render_resolution, \
     explore_python_replaces_tools
 from predicators.approaches import ApproachFailure
+from predicators.approaches.agent_session_mixin import AgentSessionMixin
 from predicators.approaches.base_approach import BaseApproach
 from predicators.explorers import create_explorer
 from predicators.explorers.base_explorer import BaseExplorer

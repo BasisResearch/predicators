@@ -18,6 +18,8 @@ import numpy as np
 from predicators.agent_sdk.proposal_exec import ProposalBundle, \
     build_exec_context, exec_code_safely, load_ground_samplers, \
     load_learned_samplers, validate_predicate
+from predicators.agent_sdk.synthesis_backend import \
+    PredicateSynthesisBackend, SamplerSynthesisBackend, SynthesisBackend
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import CausalProcess, LowLevelTrajectory, Object, \
@@ -4140,7 +4142,7 @@ def create_synthesis_tools(
     inferred_process_features: Dict[str, List[str]],
     simulator_file: str,
     versions_dir: str,
-    approach: Optional[Any] = None,
+    approach: Optional[SynthesisBackend] = None,
     sandbox_dir: Optional[str] = None,
     sandbox_dir_for_agent: Optional[str] = None,
     cycle_index_provider: Optional[Callable[[], int]] = None,
@@ -4221,18 +4223,17 @@ def create_synthesis_tools(
     from claude_agent_sdk import tool as _sdk_tool
     tool = _make_coercing_tool(_sdk_tool)
 
-    from predicators.approaches.agent_sim_learning_approach import \
-        AgentSimLearningApproach
+    from predicators.approaches.synthesis_validation import \
+        run_refinement_for_synthesis
     from predicators.code_sim_learning.fit_space import ParamSpec
     from predicators.code_sim_learning.fitting import compute_sse, \
-        compute_sse_recurrent
+        compute_sse_recurrent, fit_rule_parameters, \
+        fit_rule_parameters_latent
     from predicators.code_sim_learning.physical_sysid import \
         compute_residual_scaling, compute_rollout_sse, \
         fit_params_rollout_trimmed, format_identifiability, \
         identifiability_report, physical_param_anchors, \
         select_trustworthy_params
-    from predicators.code_sim_learning.synthesis_validation import \
-        run_refinement_for_synthesis
     from predicators.code_sim_learning.utils import apply_rules, \
         has_latent_rules, iter_feature_residuals, read_latent_init, \
         read_physical_param_specs, read_simulator_components, \
@@ -4603,13 +4604,11 @@ def create_synthesis_tools(
 
         try:
             if latent_mode:
-                fit_result, post_sse = (
-                    AgentSimLearningApproach._fit_parameters_latent(  # pylint: disable=protected-access
-                        rules, specs, groups, latent_init, process_features))
+                fit_result, post_sse = fit_rule_parameters_latent(
+                    rules, specs, groups, latent_init, process_features)
             else:
-                fit_result, post_sse = (
-                    AgentSimLearningApproach._fit_parameters(  # pylint: disable=protected-access
-                        rules, specs, base_pred_triples, process_features))
+                fit_result, post_sse = fit_rule_parameters(
+                    rules, specs, base_pred_triples, process_features)
             fitted_params = fit_result.point_estimate
         except Exception as e:  # pylint: disable=broad-except
             return _text(f"[{version_tag}] Error: fit_params failed:\n{e}")
@@ -4718,14 +4717,11 @@ def create_synthesis_tools(
         if do_fit:
             try:
                 if latent_mode:
-                    fit_result, _ = (
-                        AgentSimLearningApproach._fit_parameters_latent(  # pylint: disable=protected-access
-                            rules, specs, groups, latent_init,
-                            process_features))
+                    fit_result, _ = fit_rule_parameters_latent(
+                        rules, specs, groups, latent_init, process_features)
                 else:
-                    fit_result, _ = (
-                        AgentSimLearningApproach._fit_parameters(  # pylint: disable=protected-access
-                            rules, specs, base_pred_triples, process_features))
+                    fit_result, _ = fit_rule_parameters(
+                        rules, specs, base_pred_triples, process_features)
                 t_params = fit_result.point_estimate
                 param_label = "fitted"
             except Exception as e:  # pylint: disable=broad-except
@@ -5001,7 +4997,7 @@ class _ParamsView:
 def create_predicate_synthesis_tools(
     predicates_file: str,
     predicates_versions_dir: str,
-    approach: Any,
+    approach: "PredicateSynthesisBackend",
     trajectories: List[LowLevelTrajectory],
     cycle_index_provider: Optional[Callable[[], int]] = None,
 ) -> list:
@@ -5312,7 +5308,7 @@ def create_predicate_synthesis_tools(
 def create_sampler_synthesis_tools(
     samplers_file: str,
     samplers_versions_dir: str,
-    approach: Any,
+    approach: "SamplerSynthesisBackend",
     cycle_index_provider: Optional[Callable[[], int]] = None,
 ) -> list:
     """Create the per-skill sampler-synthesis tool.
