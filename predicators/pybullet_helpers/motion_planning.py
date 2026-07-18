@@ -25,6 +25,7 @@ def run_motion_planning(
     held_object: Optional[int] = None,
     base_link_to_held_obj: Optional[NDArray] = None,
     allow_shallow_held_object_contacts: bool = False,
+    held_bystander_clearance: Optional[float] = None,
 ) -> Optional[Sequence[JointPositions]]:
     """Run BiRRT to find a collision-free sequence of joint positions.
 
@@ -33,6 +34,10 @@ def run_motion_planning(
     against ``CFG.pybullet_birrt_contact_margin``; all other bodies are
     bystanders from which the path must keep
     ``CFG.pybullet_birrt_bystander_clearance`` of separation.
+
+    ``held_bystander_clearance`` overrides
+    ``CFG.pybullet_birrt_held_bystander_clearance`` (the wider berth the
+    held object keeps from bodies the path never intends to approach).
 
     Note that this function changes the state of the robot.
     """
@@ -98,25 +103,51 @@ def run_motion_planning(
     # keep ``bystander_clearance`` of separation, so that a "collision-
     # free" path cannot physically graze it (the hard margin tolerates
     # ~1mm of penetration, enough to topple a knife-edge object).
+    #
+    # The held object additionally gets the larger
+    # ``pybullet_birrt_held_bystander_clearance`` against bodies the path
+    # has no business approaching at all: unlike the position-controlled
+    # robot links, the held object hangs on a grasp constraint and lags
+    # the end effector's mid-path orientation swings by ~0.05 rad
+    # (centimetres at the tip of a long object), so a plan that clears a
+    # bystander by only ``bystander_clearance`` still physically grazes
+    # it. Bodies already within the held clearance at the start or goal
+    # keep the plain ``bystander_clearance`` so deliberately tight
+    # placements (butt joints, chain neighbors) stay plannable.
+    held_clearance = held_bystander_clearance \
+        if held_bystander_clearance is not None \
+        else CFG.pybullet_birrt_held_bystander_clearance
+    held_body_clearances: dict = {}
     contact_partners: set = set(collision_bodies)
     if bystander_clearance > hard_margin:
         contact_partners = set()
+        held_probe_radius = max(bystander_clearance, held_clearance)
+        held_near_endpoint: set = set()
         for pt in (initial_positions, target_positions):
             _set_state(pt)
             for body in collision_bodies:
-                if body in contact_partners:
+                if body not in contact_partners:
+                    if p.getClosestPoints(robot.robot_id,
+                                          body,
+                                          bystander_clearance,
+                                          physicsClientId=physics_client_id):
+                        contact_partners.add(body)
+                if held_object is None or body in held_near_endpoint:
                     continue
-                if p.getClosestPoints(robot.robot_id,
-                                      body,
-                                      bystander_clearance,
-                                      physicsClientId=physics_client_id):
-                    contact_partners.add(body)
-                elif held_object is not None and p.getClosestPoints(
-                        held_object,
-                        body,
-                        bystander_clearance,
-                        physicsClientId=physics_client_id):
-                    contact_partners.add(body)
+                held_pts = p.getClosestPoints(
+                    held_object,
+                    body,
+                    held_probe_radius,
+                    physicsClientId=physics_client_id)
+                if held_pts:
+                    if min(pt[8] for pt in held_pts) < bystander_clearance:
+                        contact_partners.add(body)
+                    held_near_endpoint.add(body)
+        if held_object is not None and held_clearance > bystander_clearance:
+            held_body_clearances = {
+                body: held_clearance
+                for body in collision_bodies if body not in held_near_endpoint
+            }
 
     def _extend_fn(pt1: JointPositions,
                    pt2: JointPositions) -> Iterator[JointPositions]:
@@ -150,14 +181,25 @@ def run_motion_planning(
             if any(c[8] < margin for c in contacts):
                 return True
             if held_object is not None:
-                contacts = p.getContactPoints(
-                    held_object, body, physicsClientId=physics_client_id)
+                # Clearances above Bullet's contactBreakingThreshold
+                # (0.02 m) would be silently unenforced: getContactPoints
+                # generates no points beyond it. Query closest points out
+                # to the clearance instead when the held clearance
+                # applies.
+                held_margin = held_body_clearances.get(body, margin)
+                contacts = p.getClosestPoints(
+                    held_object,
+                    body,
+                    held_margin,
+                    physicsClientId=physics_client_id) \
+                    if held_margin > 0 else p.getContactPoints(
+                        held_object, body, physicsClientId=physics_client_id)
                 contact_distances = [c[8] for c in contacts]
                 if body in allowed_shallow_held_collision_bodies:
                     if any(d < shallow_margin for d in contact_distances):
                         return True
                     continue
-                if any(d < margin for d in contact_distances):
+                if any(d < held_margin for d in contact_distances):
                     return True
         return False
 

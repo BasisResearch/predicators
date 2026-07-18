@@ -162,6 +162,13 @@ class SkillConfig:
     simulator: Optional[PyBulletEnv] = None
     collision_skip_types: Tuple[str, ...] = ()
     sim_extra_collision_bodies: Tuple[int, ...] = ()
+    # Per-env override for the held object's bystander clearance during
+    # BiRRT (metres); see pybullet_birrt_held_bystander_clearance in
+    # settings.py. ``None`` (default) uses the global setting. Envs whose
+    # bystanders topple from a graze (dominoes) should raise this above
+    # pybullet_birrt_bystander_clearance; envs with tight corridors
+    # cannot afford it.
+    held_bystander_clearance: Optional[float] = None
     extra: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -214,6 +221,7 @@ ChangeFingersTargetFn = Callable[[State, Sequence[Object], Array, SkillConfig],
 _BIRRT_TRAJ_KEY = "birrt_traj_{}"  # stores List[JointPositions] or None
 _BIRRT_STEP_KEY = "birrt_step_{}"  # stores int index into trajectory
 _BIRRT_FINGER_KEY = "birrt_finger_{}"  # stores finger_status str
+_BIRRT_HOLD_KEY = "birrt_hold_{}"  # consecutive re-commands of a waypoint
 _IK_STALL_BEST_KEY = "ik_stall_best_{}"  # best EE-to-target distance seen
 _IK_STALL_COUNT_KEY = "ik_stall_count_{}"  # steps since last improvement
 
@@ -719,16 +727,41 @@ class PhaseSkill:
             self._check_ik_stall(phase, state, memory, objects, params)
             return self._execute_move_ik(phase, state, objects, params)
 
+        finger_idx_l = robot.left_finger_joint_idx
+        finger_idx_r = robot.right_finger_joint_idx
+
+        # Tracking gate: re-command the previous waypoint until the arm has
+        # converged to it. Advancing one waypoint per control step regardless
+        # of tracking error lets position control lag several waypoints
+        # behind and cut corners off the collision-checked path — enough to
+        # swing a held object centimetres past the planner's bystander
+        # clearance. A hold cap keeps an unreachable waypoint from stalling
+        # the phase forever.
         target_joints = traj[step]
-        memory[step_key] = step + 1
+        track_tol = CFG.pybullet_birrt_replay_track_tol
+        hold_key = _BIRRT_HOLD_KEY.format(pid)
+        if track_tol > 0 and step > 0:
+            prev_cmd = traj[step - 1]
+            arm_err = max(
+                abs(cur - cmd) for idx, (
+                    cur,
+                    cmd) in enumerate(zip(pb_state.joint_positions, prev_cmd))
+                if idx not in (finger_idx_l, finger_idx_r))
+            if arm_err > track_tol and memory.get(
+                    hold_key, 0) < CFG.pybullet_birrt_replay_max_hold_steps:
+                memory[hold_key] = memory.get(hold_key, 0) + 1
+                target_joints = prev_cmd
+            else:
+                memory[hold_key] = 0
+                memory[step_key] = step + 1
+        else:
+            memory[step_key] = step + 1
 
         # Apply finger nudge matching the phase's finger_status, identical
         # to what incremental IK does in controllers.py.  This prevents
         # finger drift and allows finger transitions (e.g. open→closed)
         # to happen gradually during BiRRT trajectory replay.
         joint_action = list(target_joints)
-        finger_idx_l = robot.left_finger_joint_idx
-        finger_idx_r = robot.right_finger_joint_idx
         current_fingers = pb_state.joint_positions[finger_idx_l]
         finger_status = memory[finger_key]
         if finger_status == "open":
@@ -995,6 +1028,7 @@ class PhaseSkill:
             allow_shallow_held_object_contacts=(
                 phase.allow_shallow_held_object_contacts
                 if phase is not None else False),
+            held_bystander_clearance=self._config.held_bystander_clearance,
         )
 
         if traj is None and not validate_goal_ik:
@@ -1028,6 +1062,8 @@ class PhaseSkill:
                     allow_shallow_held_object_contacts=(
                         phase.allow_shallow_held_object_contacts
                         if phase is not None else False),
+                    held_bystander_clearance=(
+                        self._config.held_bystander_clearance),
                 )
                 if traj is not None:
                     target_joints = validated_target_joints
