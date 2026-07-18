@@ -119,7 +119,8 @@ def _parse_sketch_from_file(
     predicates: Set[Predicate],
     objects: Sequence[Object],
 ) -> List[_SketchStep]:
-    """Parse a plan sketch from a text file, same as agent_model_based_approach."""
+    """Parse a plan sketch from a text file, as the model-based approach
+    does."""
     with open(sketch_file, "r", encoding="utf-8") as f:
         plan_text = f.read().strip()
 

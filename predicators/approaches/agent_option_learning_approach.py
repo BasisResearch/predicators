@@ -21,7 +21,8 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk.proposal_parser import ProposalBundle
-from predicators.approaches.agent_model_free_approach import AgentModelFreeApproach
+from predicators.approaches.agent_model_free_approach import \
+    AgentModelFreeApproach
 from predicators.settings import CFG
 from predicators.structs import Action, ParameterizedOption, Predicate, \
     State, Task, Type
@@ -30,11 +31,11 @@ from predicators.structs import Action, ParameterizedOption, Predicate, \
 class AgentOptionLearningApproach(AgentModelFreeApproach):
     """Option-learning planning approach using Claude Agent SDK.
 
-    Extends AgentModelFreeApproach with the ability to invent and retract
-    parameterized options at solve time.  The agent reads skill factory
-    reference files and writes Python code using skill factory functions
-    (create_pick_skill, create_place_skill, etc.) to define new options,
-    then plans with them in the same query.
+    Extends AgentModelFreeApproach with the ability to invent and
+    retract parameterized options at solve time.  The agent reads skill
+    factory reference files and writes Python code using skill factory
+    functions (create_pick_skill, create_place_skill, etc.) to define
+    new options, then plans with them in the same query.
     """
 
     _save_suffix = "AgentOptionLearning"

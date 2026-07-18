@@ -1,8 +1,13 @@
-"""Agent planner approach: fixed-vocabulary open-loop planning.
+"""Agent model-free approach: fixed-vocabulary open-loop planning.
 
-Combines online trajectory collection (via AgentPlanExplorer) with open-loop
-option plan generation (via Claude Agent SDK). No predicate/process/type
-invention — just stores trajectories and generates plans.
+The agent plans directly from its own world knowledge - no simulator
+(model) is required to validate a plan before execution. Combines online
+trajectory collection (via AgentPlanExplorer) with open-loop option plan
+generation (via Claude Agent SDK). No predicate/process/type invention -
+just stores trajectories and generates plans.
+
+Registered under the CLI approach name ``agent_planner`` (kept stable so
+existing configs and logs remain valid).
 
 Example command:
     python predicators/main.py --env pybullet_domino \
@@ -10,6 +15,7 @@ Example command:
         --num_train_tasks 1 --num_test_tasks 1 \
         --num_online_learning_cycles 1 --explorer agent_plan
 """
+import copy
 import datetime
 import inspect as _inspect
 import logging
@@ -140,7 +146,7 @@ class AgentModelFreeApproach(AgentSessionMixin, BaseApproach):
         """Return per-run log directory (created by configure_logging)."""
         log_dir = super()._get_log_dir()
         os.makedirs(log_dir, exist_ok=True)
-        logging.info(f"Logging agent queries/responses to: {log_dir}")
+        logging.info("Logging agent queries/responses to: %s", log_dir)
         return log_dir
 
     # ------------------------------------------------------------------ #
@@ -223,7 +229,7 @@ class AgentModelFreeApproach(AgentSessionMixin, BaseApproach):
         "You have access to read-only tools to inspect predicates, "
         "options, trajectories, and training tasks. Use these to "
         "understand the environment and generate effective plans.\n\n"
-        "Some effects may not be immediate — if an action triggers a "
+        "Some effects may not be immediate - if an action triggers a "
         "delayed process (e.g. water filling, dominoes cascading, "
         "heating), insert a Wait after it so the effect has time "
         "to occur before the next action. The Wait action holds the "
@@ -237,17 +243,17 @@ class AgentModelFreeApproach(AgentSessionMixin, BaseApproach):
         "cause the plan to fail.")
 
     _SCRATCHPAD_SECTION = """
-## Scratchpad — CRITICAL
+## Scratchpad - CRITICAL
 You MUST maintain `./notes.md` as your working memory. \
 **Read it at the very start of the session** and **read it \
 again before every evaluate_option_plan call** to remind yourself \
 what you already tried. **Update it immediately after every \
-evaluate_option_plan call** — no exceptions.
+evaluate_option_plan call** - no exceptions.
 
 Use this exact format for each option you are tuning:
 
 ```
-## <OptionName> — Parameter Search
+## <OptionName> - Parameter Search
 | # | params | outcome | notes |
 |---|--------|---------|-------|
 | 1 | [x, y, ...] | IK fail | ... |
@@ -256,14 +262,14 @@ Use this exact format for each option you are tuning:
 
 After every test, append a row and update these summary fields:
 - **Confirmed working params**: (list any that achieve the desired atoms)
-- **Explored ranges**: e.g. "x: 0.9–1.05, y: 1.4–1.55" — look for GAPS
+- **Explored ranges**: e.g. "x: 0.9–1.05, y: 1.4–1.55" - look for GAPS
 - **Unreachable region**: e.g. "y > 1.47 always IK-fails"
 - **Next hypothesis**: what to try and why
 
 The cycle is: Read notes → plan next experiment → run test → \
 update notes → repeat. Without this loop you WILL forget what \
 you tried and repeat the same failed parameters. Treat notes.md \
-as your lab notebook — write after every single experiment.
+as your lab notebook - write after every single experiment.
 
 **If you notice you have NOT updated notes after a test, STOP \
 and update before doing anything else.**"""
@@ -272,7 +278,7 @@ and update before doing anything else.**"""
 **visualize_state** modifies any object features (x, y, z, \
 rotation, water_volume, is_on, etc.) and renders the scene \
 WITHOUT running the full simulation. It is FREE (no physics, \
-no failure modes) — use it liberally to build spatial \
+no failure modes) - use it liberally to build spatial \
 understanding before spending expensive evaluate_option_plan calls.
 
 **When to use visualize_state:**
@@ -282,7 +288,7 @@ where exactly would spatial relations like "under" or "on" \
 be satisfied?)
 - **Before testing params**: visualize the object at your \
 candidate position to check if it looks right. Try multiple \
-positions AND orientations — orientation changes how the \
+positions AND orientations - orientation changes how the \
 object sits relative to nearby objects.
 - **After a failed action**: visualize the object at BOTH \
 where it actually ended up AND where you wanted it. Compare \
@@ -290,7 +296,7 @@ visually to understand the offset.
 - **When stuck (3+ failures on the same step)**: STOP testing \
 and switch to visualize_state. Move the object to 4-5 spread \
 out positions to visually locate the right region. Also try \
-different orientations — they change the offset between the \
+different orientations - they change the offset between the \
 action's target coordinates and the object's final position.
 - **To understand reference geometry**: Visualize nearby \
 objects and look at their shapes. The functional point of an \
@@ -334,7 +340,7 @@ scene, then annotate_scene overlays markers on it."""
                 (use_annotate, "annotate_scene"),
             ] if flag)
             sections.append(
-                f"\n## Scene Visualization — CRITICAL\n"
+                f"\n## Scene Visualization - CRITICAL\n"
                 f"You MUST use {tools_str} throughout debugging. "
                 f"Without them you are guessing blindly at spatial parameters."
             )
@@ -357,7 +363,7 @@ scene, then annotate_scene overlays markers on it."""
                 "**Read `./notes.md` before every test**, then **update it "
                 "immediately after every evaluate_option_plan call**. Record "
                 "what you tried, what happened, and what you learned. "
-                "This is your memory — without it you will repeat failures.")
+                "This is your memory - without it you will repeat failures.")
         steps += [
             "**Review past session logs** in `./session_logs/` if available. "
             "Previous queries and tool results from earlier sessions are "
@@ -374,7 +380,7 @@ scene, then annotate_scene overlays markers on it."""
             "(e.g. test 4–5 spread-out values across [low, high]). "
             "Identify which coarse region works, THEN refine within it. "
             "Never spend more than 3 attempts tweaking values in a small "
-            "neighborhood — if none work, jump to a different region. "
+            "neighborhood - if none work, jump to a different region. "
             "Check your notes for gaps in the explored range.",
             "**Vary ALL params, not just position.** Orientation and "
             "other parameters change offsets and feasibility. If an "
@@ -512,9 +518,9 @@ scene, then annotate_scene overlays markers on it."""
         self._sync_tool_context()
 
         logging.info(
-            f"[Run {self._run_id}] Cycle {self._online_learning_cycle}: "
-            f"collected {len(results)} trajectories, "
-            f"{len(self._online_trajectories)} total online.")
+            "[Run %s] Cycle %s: collected %d trajectories, %d total online.",
+            self._run_id, self._online_learning_cycle, len(results),
+            len(self._online_trajectories))
 
         self.save(self._online_learning_cycle)
         self._online_learning_cycle += 1
@@ -651,7 +657,6 @@ scene, then annotate_scene overlays markers on it."""
         self._in_test_phase = True
         self._test_task_idx = -1
         if self._agent_session is not None:
-            import copy  # pylint: disable=import-outside-toplevel
             self._pre_test_conversation_log = copy.deepcopy(
                 self._agent_session.conversation_log)
         else:
@@ -728,7 +733,7 @@ scene, then annotate_scene overlays markers on it."""
             return (
                 "- **Read `./notes.md` before every "
                 "evaluate_option_plan call** "
-                "and **update it immediately after each call** — append a "
+                "and **update it immediately after each call** - append a "
                 "row to the parameter table and update the explored-ranges "
                 "summary. If you realize you forgot to update, STOP and "
                 "update before doing anything else.\n")
@@ -845,15 +850,15 @@ it between actions with immediate effects (e.g. Pick, Place).
 For Wait with target atoms: `Wait(robot:Robot)[] -> {{Boiled(water:water_type)}}`
 For negated targets: `Wait(robot:Robot)[] -> {{NOT Touching(a:block, b:block)}}`
 
-**Important — parameter tuning workflow:**
+**Important - parameter tuning workflow:**
 - When a step fails or produces unexpected results, inspect the rendered images \
 in `./test_images/` to see what actually happened in the scene.
 {self._solve_prompt_scratchpad_line()}\
-- Review past session logs in `./session_logs/` if available — they contain prior queries and results.
+- Review past session logs in `./session_logs/` if available - they contain prior queries and results.
 - When a step fails (e.g. IK error), use the image + object poses to reason about \
 WHY and adjust params directionally. Don't just try random nearby values.
 {self._solve_prompt_visualize_line()}\
-- **Vary all parameters, not just position** — orientation and other params affect \
+- **Vary all parameters, not just position** - orientation and other params affect \
 both the outcome and whether the action succeeds. Try 2-3 values for each \
 non-position parameter per target region.
 - **Search coarse-to-fine**: spread initial attempts across the full parameter range. \
@@ -1004,15 +1009,14 @@ Output ONLY the option plan lines at the end, after any analysis."""
                         ground_opt.memory["wait_target_neg_atoms"] = neg
                 grounded.append(ground_opt)
             except Exception as e:  # pylint: disable=broad-except
-                logging.warning(
-                    f"[Run {self._run_id}] Failed to ground option "
-                    f"{option.name}: {e}")
+                logging.warning("[Run %s] Failed to ground option "
+                                "%s: %s", self._run_id, option.name, e)
                 break
 
         if not grounded:
             raise ApproachFailure("No options successfully grounded.")
-        logging.info(f"[Run {self._run_id}] Agent produced plan with "
-                     f"{len(grounded)} options.")
+        logging.info("[Run %s] Agent produced plan with %d options.",
+                     self._run_id, len(grounded))
         return grounded
 
     # ------------------------------------------------------------------ #
@@ -1137,7 +1141,7 @@ Output ONLY the option plan lines at the end, after any analysis."""
         }
         with open(path, "wb") as f:
             pkl.dump(save_dict, f)
-        logging.info(f"[Run {self._run_id}] Saved approach to {path}")
+        logging.info("[Run %s] Saved approach to %s", self._run_id, path)
 
     def load(self, online_learning_cycle: Optional[int] = None) -> None:
         save_path = utils.get_approach_load_path_str()
@@ -1163,9 +1167,10 @@ Output ONLY the option plan lines at the end, after any analysis."""
         self._sync_tool_context()
 
         logging.info(
-            f"[Run {self._run_id}] Loaded from previous run {original_run_id}: "
-            f"{len(self._offline_dataset.trajectories)} offline, "
-            f"{len(self._online_trajectories)} online trajectories")
+            "[Run %s] Loaded from previous run %s: %d offline, %d online "
+            "trajectories", self._run_id, original_run_id,
+            len(self._offline_dataset.trajectories),
+            len(self._online_trajectories))
 
 
 # --------------------------------------------------------------------------- #
