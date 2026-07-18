@@ -72,6 +72,7 @@ from predicators.code_sim_learning.config import SysIdConfig
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
     fit_space_bounds, from_fit_space, prior_widths, rows_from_fit_space, \
     to_fit_space
+from predicators.code_sim_learning.fitting import run_emcee_posterior
 from predicators.code_sim_learning.grid_seed import \
     _grid_seed_physical_specs, min_explainable_rms
 from predicators.code_sim_learning.identifiability import NOISE_FLOOR_EVALS, \
@@ -290,46 +291,30 @@ def fit_params_rollout(
         result.sensitivity = sensitivity
         return result
 
-    import emcee  # type: ignore[import-untyped]  # pylint: disable=import-outside-toplevel
-
-    ndim = len(all_specs)
-    num_walkers = max(num_walkers, 2 * ndim + 2)
-    burn_in = min(burn_in, max(num_steps - 1, 0))
-
-    def log_posterior(theta: np.ndarray) -> float:
-        # theta lives in the FIT space (log for log-scale params).
-        if np.any(theta < lo) or np.any(theta > hi):
-            return -np.inf
-        ext = from_fit_space(all_specs, theta)
-        params = {n: float(ext[i]) for i, n in enumerate(names)}
-        log_prior = -0.5 * np.sum(((theta - center_int) / prior_sigma)**2)
-        sse = compute_rollout_sse(base_env, trajectories, params,
-                                  process_features, physical_names, rules,
-                                  latent_init, scaling)
-        return float(log_prior - 0.5 * sse / (noise_sigma**2))
-
-    p0 = to_fit_space(all_specs, walker_center) + \
-        0.5 * prior_sigma * np.random.randn(num_walkers, ndim)
-    p0 = np.clip(p0, lo, hi)
-    sampler = emcee.EnsembleSampler(num_walkers, ndim, log_posterior)
     logger.info(
         "Rollout sysID emcee: %d walkers, %d steps, %d burn-in "
-        "(%d physical + %d rule params, %d trajectories).", num_walkers,
-        num_steps, burn_in, len(physical_names), len(list(rule_specs)),
-        len(trajectories))
-    report_interval = 25
-    for i, _result in enumerate(sampler.sample(p0, iterations=num_steps),
-                                start=1):
-        if i % report_interval == 0 or i == num_steps:
-            best_lp = sampler.get_log_prob()[:i].max()
-            logger.info("  rollout emcee step %d/%d  (best log-prob: %.2f)", i,
-                        num_steps, best_lp)
-            for h in logger.handlers + logging.getLogger().handlers:
-                h.flush()
-
-    samples = rows_from_fit_space(
-        all_specs, sampler.get_chain(discard=burn_in, flat=True))
-    log_probs = sampler.get_log_prob(discard=burn_in, flat=True)
+        "(%d physical + %d rule params, %d trajectories).",
+        max(num_walkers, 2 * len(all_specs) + 2), num_steps,
+        min(burn_in, max(num_steps - 1, 0)), len(physical_names),
+        len(list(rule_specs)), len(trajectories))
+    samples, log_probs = run_emcee_posterior(
+        list(all_specs),
+        lambda p:
+        compute_rollout_sse(base_env, trajectories, p, process_features,
+                            physical_names, rules, latent_init, scaling),
+        walker_center,
+        center_int,
+        prior_sigma,
+        lo,
+        hi,
+        noise_sigma,
+        num_walkers,
+        num_steps,
+        burn_in,
+        label="rollout",
+        # Rollout evaluations are ~100x costlier than analytic SSEs, so
+        # report much more often.
+        report_interval=25)
     result = FitResult(names=names,
                        samples=samples,
                        log_probs=log_probs,

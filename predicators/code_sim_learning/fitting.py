@@ -208,41 +208,23 @@ def fit_params_recurrent(
                                    "recurrent",
                                    scales=scales)
 
-    import emcee  # type: ignore[import-untyped]  # pylint: disable=import-outside-toplevel
-
-    ndim = len(param_specs)
-    num_walkers = max(num_walkers, 2 * ndim + 2)
-    burn_in = min(burn_in, max(num_steps - 1, 0))
-
-    def log_posterior(theta: np.ndarray) -> float:
-        # theta lives in the FIT space (log for log-scale params).
-        if np.any(theta < lo) or np.any(theta > hi):
-            return -np.inf
-        ext = from_fit_space(param_specs, theta)
-        params = {n: float(ext[i]) for i, n in enumerate(names)}
-        log_prior = -0.5 * np.sum(((theta - init_int) / prior_sigma)**2)
-        sse = compute_sse_recurrent(rules, trajectories, params, latent_init,
-                                    process_features)
-        return log_prior + (-0.5 * sse / (noise_sigma**2))
-
-    p0 = to_fit_space(param_specs, walker_center) + \
-        0.5 * prior_sigma * np.random.randn(num_walkers, ndim)
-    p0 = np.clip(p0, lo, hi)
-    sampler = emcee.EnsembleSampler(num_walkers, ndim, log_posterior)
     logger.info("Running emcee (recurrent): %d walkers, %d steps, %d burn-in.",
-                num_walkers, num_steps, burn_in)
-    report_interval = 100
-    for i, _result in enumerate(sampler.sample(p0, iterations=num_steps),
-                                start=1):
-        if i % report_interval == 0 or i == num_steps:
-            best_lp = sampler.get_log_prob()[:i].max()
-            logger.info("  emcee step %d/%d  (best log-prob: %.2f)", i,
-                        num_steps, best_lp)
-            for h in logger.handlers + logging.getLogger().handlers:
-                h.flush()
-    samples = rows_from_fit_space(
-        param_specs, sampler.get_chain(discard=burn_in, flat=True))
-    log_probs = sampler.get_log_prob(discard=burn_in, flat=True)
+                max(num_walkers, 2 * len(param_specs) + 2), num_steps,
+                min(burn_in, max(num_steps - 1, 0)))
+    samples, log_probs = run_emcee_posterior(
+        param_specs,
+        lambda p: compute_sse_recurrent(rules, trajectories, p, latent_init,
+                                        process_features),
+        walker_center,
+        init_int,
+        prior_sigma,
+        lo,
+        hi,
+        noise_sigma,
+        num_walkers,
+        num_steps,
+        burn_in,
+        label="recurrent")
     result = FitResult(names=names,
                        samples=samples,
                        log_probs=log_probs,
@@ -421,6 +403,81 @@ def log_sse_breakdown(
         )
 
 
+def run_emcee_posterior(
+    param_specs: List[ParamSpec],
+    sse_fn: Callable[[Dict[str, float]], float],
+    walker_center: np.ndarray,
+    prior_center_int: np.ndarray,
+    prior_sigma: np.ndarray,
+    lo: np.ndarray,
+    hi: np.ndarray,
+    noise_sigma: float,
+    num_walkers: int,
+    num_steps: int,
+    burn_in: int,
+    label: str,
+    report_interval: int = 100,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Shared emcee run behind the three fit entry points.
+
+    Returns ``(samples_external, log_probs)`` with burn-in discarded and
+    chains flattened. All coordinates are in the FIT space internally
+    (``lo``/``hi``/``prior_center_int``/``prior_sigma``); the returned
+    samples are mapped back to EXTERNAL units.
+
+    RNG discipline: the walker init is the single ``np.random`` draw
+    (then emcee's own internal draws); the call sequence is preserved
+    exactly from the three formerly-duplicated blocks so fixed-seed
+    chains are bit-identical across the consolidation.
+    """
+    import emcee  # type: ignore[import-untyped]  # pylint: disable=import-outside-toplevel
+
+    names = [s.name for s in param_specs]
+    ndim = len(param_specs)
+    num_walkers = max(num_walkers, 2 * ndim + 2)
+    burn_in = min(burn_in, max(num_steps - 1, 0))
+
+    def log_posterior(theta: np.ndarray) -> float:
+        # theta lives in the FIT space (log for log-scale params).
+        # Reject samples outside the per-parameter [lo, hi] box.
+        if np.any(theta < lo) or np.any(theta > hi):
+            return -np.inf
+        ext = from_fit_space(param_specs, theta)
+        params = {n: float(ext[i]) for i, n in enumerate(names)}
+        # Broad Gaussian prior centered on the prior center.
+        log_prior = -0.5 * np.sum(
+            ((theta - prior_center_int) / prior_sigma)**2)
+        sse = sse_fn(params)
+        return float(log_prior - 0.5 * sse / (noise_sigma**2))
+
+    # Initialize walkers across the prior support (sigma = half the prior
+    # width). A tight ball around init traps the chain on flat plateaus
+    # of the likelihood (e.g., when threshold-based rules don't fire),
+    # because emcee stretch moves scale with the swarm's spread.
+    p0 = to_fit_space(param_specs, walker_center) + \
+        0.5 * prior_sigma * np.random.randn(num_walkers, ndim)
+    p0 = np.clip(p0, lo, hi)
+
+    sampler = emcee.EnsembleSampler(num_walkers, ndim, log_posterior)
+
+    # Run with periodic progress reports (flushed so long fits stay
+    # observable in the experiment logs).
+    for i, _result in enumerate(sampler.sample(p0, iterations=num_steps),
+                                start=1):
+        if i % report_interval == 0 or i == num_steps:
+            best_lp = sampler.get_log_prob()[:i].max()
+            logger.info("  %s emcee step %d/%d  (best log-prob: %.2f)", label,
+                        i, num_steps, best_lp)
+            for h in logger.handlers + logging.getLogger().handlers:
+                h.flush()
+
+    # Discard burn-in, flatten chains (back to external units).
+    samples = rows_from_fit_space(
+        param_specs, sampler.get_chain(discard=burn_in, flat=True))
+    log_probs = sampler.get_log_prob(discard=burn_in, flat=True)
+    return samples, log_probs
+
+
 def fit_map_lm(
     simulator_fn: StepSimulatorFn,
     transitions: List[Tuple[State, Action, State]],
@@ -586,53 +643,22 @@ def fit_params(
                                    "per-transition",
                                    scales=scales)
 
-    import emcee  # type: ignore[import-untyped]  # pylint: disable=import-outside-toplevel
-
-    ndim = len(param_specs)
-    num_walkers = max(num_walkers, 2 * ndim + 2)
-    burn_in = min(burn_in, max(num_steps - 1, 0))
-
-    def log_posterior(theta: np.ndarray) -> float:
-        # theta lives in the FIT space (log for log-scale params).
-        # Reject samples outside the per-parameter [lo, hi] box.
-        if np.any(theta < lo) or np.any(theta > hi):
-            return -np.inf
-        ext = from_fit_space(param_specs, theta)
-        params = {n: float(ext[i]) for i, n in enumerate(names)}
-        # Broad Gaussian prior centered on init values
-        log_prior = -0.5 * np.sum(((theta - init_int) / prior_sigma)**2)
-        # Likelihood
-        sse = compute_sse(simulator_fn, transitions, params, process_features)
-        return log_prior + (-0.5 * sse / (noise_sigma**2))
-
-    # Initialize walkers across the prior support (sigma = half the prior
-    # width). A tight ball around init traps the chain on flat plateaus
-    # of the likelihood (e.g., when threshold-based rules don't fire),
-    # because emcee stretch moves scale with the swarm's spread.
-    p0 = to_fit_space(param_specs, walker_center) + \
-        0.5 * prior_sigma * np.random.randn(num_walkers, ndim)
-    p0 = np.clip(p0, lo, hi)
-
-    sampler = emcee.EnsembleSampler(num_walkers, ndim, log_posterior)
-
     logger.info("Running emcee: %d walkers, %d steps, %d burn-in.",
-                num_walkers, num_steps, burn_in)
-
-    # Run with periodic progress reports.
-    report_interval = 100
-    for i, _result in enumerate(sampler.sample(p0, iterations=num_steps),
-                                start=1):
-        if i % report_interval == 0 or i == num_steps:
-            best_lp = sampler.get_log_prob()[:i].max()
-            logger.info("  emcee step %d/%d  (best log-prob: %.2f)", i,
-                        num_steps, best_lp)
-            for h in logger.handlers + logging.getLogger().handlers:
-                h.flush()
-
-    # Discard burn-in, flatten chains (back to external units).
-    samples = rows_from_fit_space(
-        param_specs, sampler.get_chain(discard=burn_in, flat=True))
-    log_probs = sampler.get_log_prob(discard=burn_in, flat=True)
+                max(num_walkers, 2 * len(param_specs) + 2), num_steps,
+                min(burn_in, max(num_steps - 1, 0)))
+    samples, log_probs = run_emcee_posterior(
+        param_specs,
+        lambda p: compute_sse(simulator_fn, transitions, p, process_features),
+        walker_center,
+        init_int,
+        prior_sigma,
+        lo,
+        hi,
+        noise_sigma,
+        num_walkers,
+        num_steps,
+        burn_in,
+        label="per-transition")
 
     result = FitResult(names=names,
                        samples=samples,
