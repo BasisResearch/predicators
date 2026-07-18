@@ -162,6 +162,17 @@ class SkillConfig:
     simulator: Optional[PyBulletEnv] = None
     collision_skip_types: Tuple[str, ...] = ()
     sim_extra_collision_bodies: Tuple[int, ...] = ()
+    # Wait-option quiescence termination: when set, Wait terminates once
+    # every non-robot object's state features change by less than this
+    # eps for ``wait_quiescence_steps`` consecutive steps (the scene has
+    # settled), instead of always running to the option-rollout cap.
+    # ``None`` (default) keeps the never-terminate behavior - correct for
+    # domains that Wait for TIME on a static scene (e.g. glue curing),
+    # wrong only in cost for domains that Wait for motion to stop (a
+    # domino cascade settles in ~100-200 steps but paid the full
+    # 1000-step cap on every probe rollout).
+    wait_quiescence_eps: Optional[float] = None
+    wait_quiescence_steps: int = 10
     # Per-env override for the held object's bystander clearance during
     # BiRRT (metres); see pybullet_birrt_held_bystander_clearance in
     # settings.py. ``None`` (default) uses the global setting. Envs whose
