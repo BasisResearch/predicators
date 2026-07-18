@@ -12,6 +12,7 @@ Example command::
         --num_train_tasks 1 --num_test_tasks 1 \
         --num_online_learning_cycles 1 --explorer agent_plan
 """
+import dataclasses
 import logging
 import os
 import time
@@ -32,6 +33,27 @@ from predicators.execution_monitoring.subgoal_annotations_monitor import \
 from predicators.settings import CFG
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, _Option
+
+# Fraction of agent_solve_attempt_wall_clock that must remain before the
+# sketch loop pays for another full query. A re-query launched into a
+# nearly spent budget gets a fresh turn cap but only refused tools, so a
+# low remainder counts as a budget end: best-effort nudge, then (when
+# restarts are configured) the next fresh-context attempt is the retry.
+_REQUERY_MIN_WALL_FRACTION = 0.2
+
+
+@dataclasses.dataclass
+class _CaptureInfo:
+    """Metadata of the most recently consumed captured plan.
+
+    Recorded by :meth:`AgentBilevelApproach._consume_validated_plan` so
+    the restart loop can distinguish a validated solve (return
+    immediately) from a best-effort capture (bank it, rank across
+    attempts by evaluator reward) and journal the plan.
+    """
+    validated: bool
+    reward: Optional[float]
+    plan_lines: List[str]
 
 
 class AgentBilevelApproach(AgentPlannerApproach):
@@ -65,6 +87,12 @@ class AgentBilevelApproach(AgentPlannerApproach):
         # retrying (a real error) and accepting the nudged best-effort
         # submission (budget exhaustion).
         self._last_sketch_query_hit_turn_cap = False
+        # Metadata of the last capture consumed by
+        # _consume_validated_plan; read by the restart loop in _solve.
+        self._last_capture_info: Optional[_CaptureInfo] = None
+        # Tasks whose goal + init-state journal entry is already written
+        # (one context entry per task, at the top of its section).
+        self._journal_task_context_recorded: Set[Any] = set()
 
     @classmethod
     def get_name(cls) -> str:
@@ -235,6 +263,12 @@ class AgentBilevelApproach(AgentPlannerApproach):
                             prior_failures: Optional[List[str]] = None) -> str:
         """Build prompt asking for a plan sketch without continuous params."""
         failures_text = "\n\n".join(prior_failures) if prior_failures else ""
+        journal_text = ""
+        if CFG.agent_solve_use_journal:
+            # pylint: disable-next=import-outside-toplevel
+            from predicators.agent_sdk import journal as journal_mod
+            journal_text = journal_mod.read_journal(
+                self._tool_context.sandbox_dir)
         return bilevel_sketch.build_solve_prompt(
             task,
             all_predicates=self._get_all_predicates(),
@@ -246,6 +280,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
             propose_params=CFG.agent_bilevel_use_llm_initial_params,
             require_tool_validation=not CFG.agent_bilevel_refine_fallback,
             ground_samplers=CFG.agent_bilevel_ground_samplers,
+            journal=journal_text,
         )
 
     def _solve_prompt_tool_names(self) -> Optional[List[str]]:
@@ -274,6 +309,231 @@ class AgentBilevelApproach(AgentPlannerApproach):
         replan_policy = self._maybe_replan_from_divergence(task, timeout)
         if replan_policy is not None:
             return replan_policy
+        ctx = self._tool_context
+        self._record_task_context_in_journal(task)
+        max_attempts = max(1, CFG.agent_solve_max_attempts)
+        wall_clock = CFG.agent_solve_attempt_wall_clock
+        # Best best-effort capture across attempts, ranked by evaluator
+        # reward. A validated (evaluator-solved) capture returns
+        # immediately; only when no attempt produces one does the best
+        # banked policy execute for its honest reward.
+        best_policy: Optional[Callable[[State], Action]] = None
+        best_reward = -float("inf")
+        last_failure: Optional[ApproachFailure] = None
+        for attempt in range(1, max_attempts + 1):
+            if CFG.agent_solve_fresh_context:
+                # Fresh conversation per attempt (and per test task): a
+                # failed attempt's context carries its confidently wrong
+                # world model (run_20260717_230436 seed1's "hard collision
+                # boundary" that its identical sibling placed through), so
+                # a restart is the cheapest de-anchoring mechanism. Curated
+                # knowledge travels through the solve journal instead.
+                self._close_agent_session()
+            ctx.attempt_index = attempt
+            ctx.attempt_rollout_count = 0
+            ctx.best_uncaptured_plan_lines = None
+            ctx.best_uncaptured_reward = None
+            ctx.attempt_start = time.monotonic()
+            ctx.attempt_deadline = (ctx.attempt_start +
+                                    wall_clock if wall_clock > 0 else None)
+            self._last_capture_info = None
+            policy: Optional[Callable[[State], Action]] = None
+            unexpected: Optional[Exception] = None
+            try:
+                policy = self._solve_attempt(task, timeout)
+            except ApproachFailure as e:
+                last_failure = e
+            except Exception as e:  # pylint: disable=broad-except
+                # ApproachTimeout is a SIBLING of ApproachFailure (both
+                # subclass ExceptionWithInfo), and env/SDK errors can
+                # also escape - none of them may skip the cleanup below,
+                # and a banked capture from an earlier attempt should
+                # still execute rather than be forfeited (handled after
+                # the finally).
+                unexpected = e
+            finally:
+                # Attempt bookkeeping must not outlive the attempt on ANY
+                # exit path (including KeyboardInterrupt): stale fields
+                # would append bogus [budget] footers and mislabel journal
+                # entries in later sessions sharing this ToolContext.
+                ctx.attempt_deadline = None
+                info = self._take_capture_info()
+                self._record_attempt_in_journal(attempt, max_attempts, policy,
+                                                info)
+                ctx.attempt_start = None
+                ctx.attempt_index = 0
+            if unexpected is not None:
+                if best_policy is not None:
+                    logging.warning(
+                        "[%s] Solve attempt %d/%d raised %s; executing the "
+                        "banked best-effort capture instead of forfeiting.",
+                        self._run_id, attempt, max_attempts, unexpected)
+                    return best_policy
+                raise unexpected
+            if policy is not None and (info is None or info.validated):
+                # info None: a capture path that predates the metadata -
+                # treat as validated, matching its pre-restart handling.
+                return policy
+            if policy is not None:
+                assert info is not None
+                reward = (info.reward
+                          if info.reward is not None else -float("inf"))
+                if best_policy is None or reward > best_reward:
+                    best_policy = policy
+                    best_reward = reward
+            if attempt < max_attempts:
+                logging.info(
+                    "[%s] Solve attempt %d/%d ended without a validated "
+                    "solve%s; restarting with %s context.", self._run_id,
+                    attempt, max_attempts, " (best-effort capture banked)"
+                    if policy is not None else "",
+                    "fresh" if CFG.agent_solve_fresh_context else "the same")
+        if best_policy is not None:
+            logging.info(
+                "[%s] No validated solve in %d attempt(s); executing the "
+                "best best-effort capture (evaluator reward %s).",
+                self._run_id, max_attempts,
+                f"{best_reward:.2f}" if best_reward > -float("inf") else "n/a")
+            return best_policy
+        if last_failure is not None:
+            raise last_failure
+        raise ApproachFailure(
+            f"Bilevel solve produced no captured plan in {max_attempts} "
+            "attempt(s).")
+
+    def _attempt_wall_spent(self) -> bool:
+        """Whether the attempt's wall clock is too spent for another query.
+
+        True once less than :data:`_REQUERY_MIN_WALL_FRACTION` of the
+        wall clock remains, not merely once the deadline passes: agents
+        that watch the [budget] footer wrap up shortly BEFORE the
+        deadline, and run_20260718_125643 turned exactly that ending
+        into a strict nudge plus a 4-minute re-query of refused tool
+        calls for an attempt with 2 minutes left. A nearly spent budget
+        therefore counts as a budget end and stops further full queries.
+        Tool-side refusals keep using the exact deadline, so the closing
+        minutes still allow submissions.
+        """
+        deadline = self._tool_context.attempt_deadline
+        if deadline is None:
+            return False
+        floor = (_REQUERY_MIN_WALL_FRACTION *
+                 CFG.agent_solve_attempt_wall_clock)
+        return time.monotonic() > deadline - floor
+
+    def _take_capture_info(self) -> Optional[_CaptureInfo]:
+        """Pop the metadata _consume_validated_plan recorded (or None).
+
+        An accessor rather than a bare attribute read: the attribute is
+        set as a side effect of _solve_attempt, which mypy cannot see,
+        so reading it directly right after ``= None`` is flagged
+        unreachable.
+        """
+        info = self._last_capture_info
+        self._last_capture_info = None
+        return info
+
+    def _record_task_context_in_journal(self, task: Task) -> None:
+        """Append the task's goal + init-state entry, once per task.
+
+        Written at the START of the task's first attempt so it tops the
+        task's journal section - above even the agent's own in-attempt
+        notes - keeping every later entry interpretable: a recorded
+        plan's geometry is only meaningful relative to its layout. The
+        init dict uses the exact representation the solve prompt shows
+        (including its excluded-objects filtering).
+        """
+        if not CFG.agent_solve_use_journal:
+            return
+        ctx = self._tool_context
+        if not ctx.sandbox_dir:
+            return
+        key = (ctx.test_task_idx, id(task))
+        if key in self._journal_task_context_recorded:
+            return
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk import journal as journal_mod
+        if task.goal_nl:
+            goal_txt = " ".join(task.goal_nl.split())
+            if len(goal_txt) > 400:
+                goal_txt = goal_txt[:400].rstrip() + "..."
+        else:
+            goal_txt = ", ".join(str(a) for a in sorted(task.goal, key=str))
+        body = [f"- goal: {goal_txt}", "- initial state features:"]
+        body.extend(f"  {line}"
+                    for line in task.init.dict_str(indent=2).splitlines())
+        task_label = (f"task {ctx.test_task_idx}"
+                      if ctx.test_task_idx is not None else "task ?")
+        try:
+            journal_mod.append_entry(
+                ctx.sandbox_dir,
+                f"{task_label} goal + initial state (auto)",
+                "\n".join(body),
+                max_chars=journal_mod.MAX_AUTO_ENTRY_CHARS)
+        except OSError as e:
+            logging.warning("Journal task-context entry failed: %s", e)
+            return
+        self._journal_task_context_recorded.add(key)
+
+    def _record_attempt_in_journal(self, attempt: int, max_attempts: int,
+                                   policy: Optional[Any],
+                                   info: Optional[_CaptureInfo]) -> None:
+        """Auto-append this attempt's factual record to the solve journal.
+
+        The harness-written record (outcome, budget spent, captured or
+        best refused plan) guarantees the journal's essentials even when
+        the agent records nothing; agent-authored lessons arrive
+        separately via the record_journal tool.
+        """
+        if not CFG.agent_solve_use_journal:
+            return
+        ctx = self._tool_context
+        if not ctx.sandbox_dir:
+            return
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk import journal as journal_mod
+        if policy is None:
+            outcome = "no capture"
+        elif info is None or info.validated:
+            outcome = "SOLVED (validated capture)"
+        elif info.reward is not None:
+            outcome = ("best-effort capture "
+                       f"(evaluator reward {info.reward:.2f})")
+        else:
+            outcome = "best-effort capture (no evaluator verdict)"
+        body = [f"- outcome: {outcome}"]
+        if ctx.attempt_start is not None:
+            elapsed_min = (time.monotonic() - ctx.attempt_start) / 60.0
+            body.append(f"- budget spent: {elapsed_min:.1f} min, "
+                        f"{ctx.attempt_rollout_count} sim rollouts")
+        if info is not None and info.plan_lines:
+            body.append("- captured plan:")
+            body.extend(f"  {line}" for line in info.plan_lines)
+        elif ctx.best_uncaptured_plan_lines:
+            # Nothing captured, but the attempt's best refused submission
+            # (evaluator non-solve or flaky) is worth carrying: a later
+            # attempt - or the final best-effort nudge - can resubmit it
+            # instead of the work vanishing with the attempt's context.
+            reward_txt = (f"evaluator reward {ctx.best_uncaptured_reward:.2f}"
+                          if ctx.best_uncaptured_reward is not None else
+                          "no evaluator verdict")
+            body.append(f"- best refused submission ({reward_txt}, "
+                        "not captured):")
+            body.extend(f"  {line}" for line in ctx.best_uncaptured_plan_lines)
+        task_label = (f"task {ctx.test_task_idx}"
+                      if ctx.test_task_idx is not None else "task ?")
+        try:
+            journal_mod.append_entry(
+                ctx.sandbox_dir,
+                f"{task_label} attempt {attempt}/{max_attempts} (auto)",
+                "\n".join(body),
+                max_chars=journal_mod.MAX_AUTO_ENTRY_CHARS)
+        except OSError as e:
+            logging.warning("Journal auto-entry failed: %s", e)
+
+    def _solve_attempt(self, task: Task,
+                       timeout: int) -> Callable[[State], Action]:
+        """One full solve attempt (query loop + nudges) on one session."""
         max_sketch_retries = CFG.agent_bilevel_max_retries
         max_refine_retries = CFG.agent_bilevel_max_refine_retries
         self._sync_tool_context()
@@ -294,6 +554,15 @@ class AgentBilevelApproach(AgentPlannerApproach):
             return timeout - elapsed
 
         sketches_tried = 0
+        # Whether later fresh-context restarts exist after this attempt.
+        # When they do, a spent budget ends the attempt with NO nudge:
+        # the restart is the retry, the journal auto-entry already
+        # records the attempt's best refused submission, and the
+        # best-effort submission nudge is reserved for the FINAL attempt
+        # as the ultimate fallback. attempt_index == 0 (no restart loop
+        # in flight) behaves like a final attempt.
+        restarts_remain = (0 < self._tool_context.attempt_index < max(
+            1, CFG.agent_solve_max_attempts))
         # Pre-formatted summaries of earlier sketches the search could not
         # refine; threaded into the next sketch query so the agent revises
         # the dead skeleton instead of re-emitting it.
@@ -301,10 +570,22 @@ class AgentBilevelApproach(AgentPlannerApproach):
         for sketch_attempt in range(max_sketch_retries):
             if _refine_remaining() <= 0:
                 break
+            if sketch_attempt > 0 and self._attempt_wall_spent():
+                if restarts_remain:
+                    break
+                # The wall clock expired (or nearly so) on the way into a
+                # re-query: skip straight to the best-effort submission
+                # instead of paying for a full query whose exploration
+                # tools would refuse.
+                policy = self._nudge_final_submission(accept_best_effort=True)
+                if policy is not None:
+                    return policy
+                break
             # Clear any prior capture so we only act on this query's result.
             self._tool_context.solved_plan = None
             self._tool_context.solved_sketch = None
             self._tool_context.solved_plan_reached_goal = None
+            self._tool_context.solved_plan_eval_reward = None
             self._last_sketch_query_hit_turn_cap = False
             query_start = time.perf_counter()
             try:
@@ -329,7 +610,14 @@ class AgentBilevelApproach(AgentPlannerApproach):
                         "long derivations.")
                 logging.warning("Sketch query failed (attempt %d): %s",
                                 sketch_attempt, e)
-                hit_cap = self._last_sketch_query_hit_turn_cap
+                # A (nearly) spent wall clock is a budget end exactly like
+                # the turn cap: don't retry with another full query.
+                hit_cap = (self._last_sketch_query_hit_turn_cap
+                           or self._attempt_wall_spent())
+                if hit_cap and restarts_remain:
+                    # Budget end with restarts left: end the attempt
+                    # directly (no nudge query).
+                    break
                 nudge_start = time.perf_counter()
                 policy = self._nudge_final_submission(
                     accept_best_effort=hit_cap)
@@ -363,7 +651,11 @@ class AgentBilevelApproach(AgentPlannerApproach):
                 logging.info(
                     "[%s] Attempt %d ended without a validated plan; "
                     "re-querying the agent.", self._run_id, sketch_attempt)
-                hit_cap = self._last_sketch_query_hit_turn_cap
+                hit_cap = (self._last_sketch_query_hit_turn_cap
+                           or self._attempt_wall_spent())
+                if hit_cap and restarts_remain:
+                    # See the identical break in the exception path.
+                    break
                 nudge_start = time.perf_counter()
                 policy = self._nudge_final_submission(
                     accept_best_effort=hit_cap)
@@ -827,8 +1119,9 @@ class AgentBilevelApproach(AgentPlannerApproach):
         converts that dead end into a submission attempt at the cost of a
         few turns.
 
-        With ``accept_best_effort`` (set when the attempt ended on the
-        turn cap rather than an error) the submitted plan is captured
+        With ``accept_best_effort`` (set when the attempt ended on a
+        spent budget - turn cap or wall clock - rather than a retryable
+        error) the submitted plan is captured
         and executed even if its belief rollout does not reach the goal,
         is scored a non-solve by the task evaluator, or is flaky: the
         budget is spent, and a partial plan beats forfeiting the task
@@ -836,6 +1129,28 @@ class AgentBilevelApproach(AgentPlannerApproach):
         """
         nudge = (self._FINAL_SUBMIT_NUDGE_BEST_EFFORT
                  if accept_best_effort else self._FINAL_SUBMIT_NUDGE)
+        if CFG.agent_solve_use_journal:
+            if accept_best_effort:
+                nudge += (
+                    " If an earlier attempt's entry in the Solve Journal "
+                    "records a better plan (captured or refused) than "
+                    "anything from this attempt, resubmit that plan "
+                    "instead.")
+            nudge += (
+                " After the submission, call record_journal ONCE with a "
+                "short factual entry for later fresh-context attempts and "
+                "tasks: what you tried (exact parameters), the key "
+                "measurements, and what to try differently - facts and "
+                "measurements only, no verdicts like 'impossible'.")
+        # SUSPEND (not clear) the attempt deadline for the nudge query:
+        # its cooperative refusals and the sandbox interrupt backstop
+        # must not block the submission (or the journal entry) itself.
+        # It must be restored afterwards - this nudge also fires on
+        # mid-attempt retry paths that continue the sketch loop, and a
+        # permanently cleared deadline would disarm the wall clock for
+        # the rest of the attempt.
+        saved_deadline = self._tool_context.attempt_deadline
+        self._tool_context.attempt_deadline = None
         self._tool_context.capture_best_effort_plan = accept_best_effort
         try:
             self._query_agent_sync(nudge, kind="test")
@@ -843,6 +1158,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
             logging.warning("Final-submission nudge failed: %s", e)
         finally:
             self._tool_context.capture_best_effort_plan = False
+            self._tool_context.attempt_deadline = saved_deadline
         policy = self._consume_validated_plan()
         if policy is not None:
             logging.info(
@@ -863,15 +1179,21 @@ class AgentBilevelApproach(AgentPlannerApproach):
         plan = self._tool_context.solved_plan
         sketch = self._tool_context.solved_sketch
         reached_goal = self._tool_context.solved_plan_reached_goal
+        eval_reward = self._tool_context.solved_plan_eval_reward
         self._tool_context.solved_plan = None
         self._tool_context.solved_sketch = None
         self._tool_context.solved_plan_reached_goal = None
+        self._tool_context.solved_plan_eval_reward = None
         if not plan:
             return None
         # Log the full validated plan (options + continuous params + subgoal
         # annotations), mirroring the per-step plan log the approach-side
         # refinement path emits.
         lines = bilevel_sketch.format_plan_lines(plan, sketch=sketch)
+        self._last_capture_info = _CaptureInfo(validated=reached_goal
+                                               is not False,
+                                               reward=eval_reward,
+                                               plan_lines=list(lines))
         verdict = ("simulator-verified" if reached_goal is not False else
                    "best-effort: not a validated solve in the belief rollout")
         logging.info(

@@ -1439,6 +1439,28 @@ class TestTurnCapHandling:
         assert query.call_count == 1  # no full-budget retries
         nudge.assert_called_once_with(accept_best_effort=True)
 
+    def test_solve_turn_cap_with_restarts_skips_nudge(self):
+        """Budget-ended non-final attempts restart directly with no nudge.
+
+        The best-effort submission nudge fires only on the FINAL
+        attempt, as the ultimate fallback.
+        """
+        from predicators.approaches import ApproachFailure
+        approach, _, task = _make_approach()
+        utils.update_config({
+            "agent_bilevel_max_retries": 3,
+            "agent_solve_max_attempts": 3,
+        })
+        query = MagicMock(
+            return_value=[self._cap_result(subtype="error_max_turns")])
+        nudge = MagicMock(return_value=None)
+        with patch.object(approach, '_query_agent_sync', query), \
+                patch.object(approach, '_nudge_final_submission', nudge):
+            with pytest.raises(ApproachFailure, match="Bilevel solve failed"):
+                approach._solve(task, timeout=10)
+        assert query.call_count == 3  # one full query per attempt
+        nudge.assert_called_once_with(accept_best_effort=True)
+
     def test_solve_retries_on_non_cap_failure(self):
         """A non-cap failure (e.g. unparseable output) still retries."""
         from predicators.approaches import ApproachFailure
