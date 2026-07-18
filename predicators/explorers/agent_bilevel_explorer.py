@@ -85,10 +85,7 @@ class AgentBilevelExplorer(BaseExplorer):
         # solve.
         self._tool_context.current_task = task
         self._tool_context.capture_goal_reaching_plans = True
-        self._tool_context.solved_plan = None
-        self._tool_context.solved_sketch = None
-        self._tool_context.solved_plan_reached_goal = None
-        self._tool_context.solved_plan_eval_reward = None
+        self._tool_context.clear_plan_capture()
 
         try:
             prompt = bilevel_sketch.build_solve_prompt(
@@ -292,12 +289,9 @@ class AgentBilevelExplorer(BaseExplorer):
         ``_sample_info_seeking``) rather than replaying them verbatim.
         Consume (clear) the capture so it can't be reused.
         """
-        plan = self._tool_context.solved_plan
-        captured_sketch = self._tool_context.solved_sketch
-        self._tool_context.solved_plan = None
-        self._tool_context.solved_sketch = None
-        self._tool_context.solved_plan_reached_goal = None
-        self._tool_context.solved_plan_eval_reward = None
+        capture = self._tool_context.take_plan_capture()
+        plan = capture.plan
+        captured_sketch = capture.sketch
         if not plan or not captured_sketch:
             return None
         seeded: List[bilevel_sketch.SketchStep] = []

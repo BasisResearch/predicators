@@ -183,6 +183,20 @@ def list_session_tool_names(
     return out
 
 
+@dataclass(frozen=True)
+class PlanCapture:
+    """A captured plan popped off a :class:`ToolContext` in one piece.
+
+    Returned by :meth:`ToolContext.take_plan_capture` so consumers see
+    the four ``solved_plan*`` fields as the single value they are:
+    ``plan`` is falsy when nothing was captured.
+    """
+    plan: Optional[Any]
+    sketch: Optional[Any]
+    reached_goal: Optional[bool]
+    eval_reward: Optional[float]
+
+
 @dataclass
 class ToolContext:
     """Shared mutable state between the approach and MCP tools."""
@@ -348,6 +362,47 @@ class ToolContext:
     # (CFG.agent_sdk_explore_python_call_timeout); enforced at the same
     # probe checkpoints as attempt_deadline. None ⇒ no call in flight.
     explore_call_deadline: Optional[float] = None
+
+    def begin_attempt(self, index: int, wall_clock: float) -> None:
+        """Start restart-loop bookkeeping for solve attempt ``index``.
+
+        Resets everything scoped to a single attempt (rollout count,
+        best refused submission) and arms the wall-clock deadline
+        (``wall_clock <= 0`` ⇒ no deadline). The matching teardown stays
+        in ``AgentModelBasedApproach._solve``'s finally block,
+        interleaved with its journal write.
+        """
+        self.attempt_index = index
+        self.attempt_rollout_count = 0
+        self.best_uncaptured_plan_lines = None
+        self.best_uncaptured_reward = None
+        self.attempt_start = time.monotonic()
+        self.attempt_deadline = (self.attempt_start +
+                                 wall_clock if wall_clock > 0 else None)
+
+    def clear_plan_capture(self) -> None:
+        """Clear the four ``solved_plan*`` fields together.
+
+        They form one value (see :class:`PlanCapture`); clearing any of
+        them individually would leave a stale mix.
+        """
+        self.solved_plan = None
+        self.solved_sketch = None
+        self.solved_plan_reached_goal = None
+        self.solved_plan_eval_reward = None
+
+    def take_plan_capture(self) -> PlanCapture:
+        """Pop the captured plan, clearing it so it cannot be reused.
+
+        The returned capture's ``plan`` is falsy when nothing was
+        captured since the last clear.
+        """
+        capture = PlanCapture(plan=self.solved_plan,
+                              sketch=self.solved_sketch,
+                              reached_goal=self.solved_plan_reached_goal,
+                              eval_reward=self.solved_plan_eval_reward)
+        self.clear_plan_capture()
+        return capture
 
 
 def session_log_filename(query_count: int,
