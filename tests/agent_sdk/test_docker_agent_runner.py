@@ -107,15 +107,12 @@ def test_rehash_clears_hash_caches_on_all_ctx_surfaces():
     assert hash(goal_obj) == hash(Object("cur_block", _block_type))
 
 
-def test_rehash_dict_rebuild_does_not_rekey_stale_entries():
-    """Characterize: dict(d) copies stored hashes, so lookups stay broken.
+def test_rehash_rekeys_stale_entries():
+    """The rebuild re-keys entries under the repaired hashes.
 
-    ``_process_state`` rebuilds via ``dict(state.data)``, but CPython's
-    dict-from-dict constructor reuses each entry's stored hash instead
-    of calling ``__hash__`` again. Entries inserted under a stale hash
-    therefore stay keyed under it, and once the rehash clears the stale
-    instance's cache, even that instance no longer finds itself. (A dict
-    comprehension would re-key; this pins the current behavior.)
+    The comprehension in ``_process_state`` is load-bearing: ``dict(d)``
+    would copy each entry's stored hash without calling ``__hash__``,
+    leaving lookups broken even after the caches are cleared.
     """
     stale_obj, state = _stale_state()
     ctx = SimpleNamespace(train_tasks=[Task(state, set())], current_task=None)
@@ -123,8 +120,9 @@ def test_rehash_dict_rebuild_does_not_rekey_stale_entries():
 
     fresh_obj = Object("block0", _block_type)
     assert hash(stale_obj) == hash(fresh_obj)  # Caches repaired...
-    assert fresh_obj not in state.data  # ...but the table is not.
-    assert stale_obj not in state.data
+    assert fresh_obj in state.data  # ...and the table re-keyed.
+    assert state.data[fresh_obj][0] == pytest.approx(0.0)
+    assert stale_obj in state.data
 
 
 def test_rehash_makes_newly_built_dicts_consistent():

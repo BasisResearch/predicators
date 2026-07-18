@@ -211,8 +211,11 @@ def _rehash_objects_after_unpickle(ctx: Any) -> None:
             return
         for obj in list(state.data.keys()):
             _clear(obj)
-        # Rebuild dict so Python re-hashes keys with current seed.
-        state.data = dict(state.data)
+        # Rebuild dict so Python re-hashes keys with current seed. A
+        # comprehension (not ``dict(...)``) is load-bearing: ``dict(d)``
+        # copies each entry's stored hash without calling ``__hash__``,
+        # so it would preserve exactly the stale table this repairs.
+        state.data = {obj: vals for obj, vals in state.data.items()}
 
     def _process_atoms(atoms: Any) -> None:
         for atom in atoms:
@@ -228,7 +231,9 @@ def _rehash_objects_after_unpickle(ctx: Any) -> None:
             _process_state(task.init_obs)
         for attr in ("goal", "alt_goal", "goal_description", "alt_goal_desc"):
             atoms = getattr(task, attr, None)
-            if atoms:
+            # goal_description may be a plain NL string on
+            # EnvironmentTask; only atom collections carry Objects.
+            if atoms and not isinstance(atoms, str):
                 _process_atoms(atoms)
 
     # Train tasks
