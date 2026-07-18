@@ -10,14 +10,17 @@ from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig, \
     ValidationConfig
 from predicators.agent_sdk.tools.budget import _budget_footer
+from predicators.agent_sdk.tools.capture import BestEffortReason, \
+    CaptureDecision, _decide_capture
 from predicators.agent_sdk.tools.context import ToolContext, _capture_task_key
 from predicators.agent_sdk.tools.results import _error_result
 from predicators.agent_sdk.tools.scene import format_object_poses, \
     render_scene_image
-from predicators.agent_sdk.tools.verdicts import _format_evaluator_verdict, \
-    _resolve_task_evaluator, evaluate_states_with, load_ground_sampler_fns
+from predicators.agent_sdk.tools.tasks import _resolve_task
+from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
+    _format_evaluator_verdict, _resolve_task_evaluator, evaluate_states_with, \
+    load_ground_sampler_fns
 from predicators.settings import CFG
-from predicators.structs import State
 
 
 def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
@@ -204,19 +207,15 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         include_states = args.get("include_states", False)
         include_atoms = args.get("include_atoms", True)
 
-        if task_idx is not None:
-            if task_idx < 0 or task_idx >= len(ctx.train_tasks):
-                return _error_result(f"Invalid task_idx {task_idx}. "
-                                     f"Available: 0-{len(ctx.train_tasks)-1}")
-            task = ctx.train_tasks[task_idx]
-        elif ctx.current_task is not None:
-            task = ctx.current_task
-            task_idx = "current"
-        else:
-            return _error_result(
-                "No task_idx provided and no current_task set.")
+        resolved, task_err = _resolve_task(ctx, task_idx)
+        if task_err is not None:
+            return task_err
+        assert resolved is not None
+        task = resolved.task
+        task_label = resolved.label
+        is_current = resolved.is_current
 
-        lines = [f"Testing option plan on task {task_idx}:"]
+        lines = [f"Testing option plan on task {task_label}:"]
         saved_image_paths: List[str] = []
 
         all_predicates = (ctx.predicates
@@ -274,33 +273,12 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                                      f"({st.option.name}): {e}")
 
         # Per-low-level-step states + option labels for the task-evaluator
-        # verdict below. The cascade certificate needs per-step states
-        # (topple-onset analysis); option-boundary states give garbage
-        # verdicts, so prefer the option model's last_trajectory and flag
-        # the verdict as coarse when it is unavailable.
-        eval_states: List[State] = [task.init]
-        eval_labels: List[Any] = []
-        eval_coarse = False
-
-        def _collect_eval_steps(outcome: Any) -> None:
-            nonlocal eval_coarse
-            if outcome.post_state is None:
-                return
-            opt = outcome.option
-            label = (opt.name, tuple(o.name for o in opt.objects),
-                     tuple(float(p) for p in opt.params))
-            step_traj = getattr(ctx.option_model, "last_trajectory", None)
-            if step_traj is not None and len(step_traj.states) >= 2:
-                eval_states.extend(step_traj.states[1:])
-                eval_labels.extend([label] * len(step_traj.actions))
-            else:
-                eval_states.append(outcome.post_state)
-                eval_labels.append(label)
-                eval_coarse = True
+        # verdict below (see _EvalStateCollector for why per-step states).
+        eval_collector = _EvalStateCollector(model, task.init)
 
         # Per-step report callback, driven by the shared forward executor.
         def _report_step(i: int, outcome: Any) -> None:
-            _collect_eval_steps(outcome)
+            eval_collector.collect(outcome)
             opt = outcome.option
             sig = f"{opt.name}({[o.name for o in opt.objects]})"
             if not outcome.initiable:
@@ -368,20 +346,20 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # task has no evaluator or nothing executed. A coarse verdict
         # (option-boundary states only) can falsely reject a legitimate
         # cascade, so it never blocks capture.
-        evaluator = _resolve_task_evaluator(ctx, task_idx)
+        evaluator = _resolve_task_evaluator(ctx, task_label)
         verdict: Optional[Dict[str, Any]] = None
-        if evaluator is not None and len(eval_states) > 1:
+        if evaluator is not None and len(eval_collector.states) > 1:
             try:
                 verdict = evaluate_states_with(evaluator,
-                                               eval_states,
-                                               eval_labels,
+                                               eval_collector.states,
+                                               eval_collector.labels,
                                                sim_env=getattr(
                                                    ctx.option_model, "sim_env",
                                                    None))
             except Exception as e:  # pylint: disable=broad-except
                 logging.debug("Task-evaluator verdict failed: %s", e)
         evaluator_rejected = (verdict is not None and not verdict["legitimate"]
-                              and not eval_coarse)
+                              and not eval_collector.coarse)
         # An evaluator rejection only disqualifies a capture when the goal
         # atoms actually hold via an illegitimate route - a reward hack (e.g.
         # the agent knocked the target over directly). An honest shortfall,
@@ -404,33 +382,15 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # still has the session to add margin and resubmit.
         def _validation_rollout() -> Tuple[bool, str]:
             """One extra rollout of the exact plan; (ok, failure detail)."""
-            v_states: List[State] = [task.init]
-            v_labels: List[Any] = []
-            v_coarse = False
-
-            def _collect(_i: int, outcome: Any) -> None:
-                nonlocal v_coarse
-                if outcome.post_state is None:
-                    return
-                opt = outcome.option
-                label = (opt.name, tuple(o.name for o in opt.objects),
-                         tuple(float(p) for p in opt.params))
-                step_traj = getattr(ctx.option_model, "last_trajectory", None)
-                if step_traj is not None and len(step_traj.states) >= 2:
-                    v_states.extend(step_traj.states[1:])
-                    v_labels.extend([label] * len(step_traj.actions))
-                else:
-                    v_states.append(outcome.post_state)
-                    v_labels.append(label)
-                    v_coarse = True
-
-            r = bilevel_sketch.execute_plan_forward(task,
-                                                    grounded_plan,
-                                                    model,
-                                                    predicates=all_predicates,
-                                                    sketch=sketch_steps,
-                                                    on_step=_collect,
-                                                    stop_on_failure=True)
+            v_collector = _EvalStateCollector(model, task.init)
+            r = bilevel_sketch.execute_plan_forward(
+                task,
+                grounded_plan,
+                model,
+                predicates=all_predicates,
+                sketch=sketch_steps,
+                on_step=v_collector.on_step,
+                stop_on_failure=True)
             if r.first_failure_idx is not None:
                 fr = r.steps[r.first_failure_idx].failure_reason
                 opt = r.steps[r.first_failure_idx].option
@@ -449,11 +409,12 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                                f"the episode horizon ({horizon})")
             # Same legitimacy rule as the first rollout: a non-coarse
             # illegitimate verdict fails the validation.
-            if evaluator is not None and len(v_states) > 1 and not v_coarse:
+            if (evaluator is not None and len(v_collector.states) > 1
+                    and not v_collector.coarse):
                 try:
                     v = evaluate_states_with(evaluator,
-                                             v_states,
-                                             v_labels,
+                                             v_collector.states,
+                                             v_collector.labels,
                                              sim_env=getattr(
                                                  ctx.option_model, "sim_env",
                                                  None))
@@ -484,8 +445,8 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         fresh_scope = (ctx.validation_env_scope
                        if validation_cfg.fresh_env else None)
         rollout_outcomes: List[str] = []
-        if (ctx.capture_goal_reaching_plans and task_idx == "current"
-                and goal_achieved and not evaluator_rejected and grounded_plan
+        if (ctx.capture_goal_reaching_plans and is_current and goal_achieved
+                and not evaluator_rejected and grounded_plan
                 and n_rollouts > 1):
             # Run ALL validation rollouts even after a failure: the
             # per-rollout outcome list distinguishes failure modes (a
@@ -516,20 +477,6 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                     "across runs; repeats sample that execution "
                     f"variability{fresh_note}).")
 
-        # Capture a goal-reaching plan on the current task with a sketch that
-        # keeps only the subgoals that actually held (so the closed-loop
-        # monitor won't flag a spurious divergence on a wrong annotation).
-        # With capture_best_effort_plan (final-submission nudge after turn-cap
-        # exhaustion) capture the submission unconditionally: honest
-        # shortfall, evaluator-rejected rollout, and flaky repeat alike. The
-        # budget is spent, so executing the agent's best plan for its honest
-        # reward beats forfeiting the task (run_20260714_145053 task 4: a
-        # goal-reaching but certificate-rejected final submission was refused
-        # and the task forfeited, scoring n/a instead of its honest reward).
-        # Only a validated solve is marked as one; everything else is a
-        # best-effort capture that executes but cannot count as a solve - the
-        # certificate still protects the score. A best-effort capture never
-        # displaces a validated-solve capture.
         def _stash_uncaptured_submission() -> None:
             """Remember the best refused submission of this attempt.
 
@@ -547,15 +494,26 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             ctx.best_uncaptured_plan_lines = list(
                 bilevel_sketch.format_plan_lines(grounded_plan))
 
-        best_effort_capture = (ctx.capture_best_effort_plan
-                               and not ctx.solved_plan_reached_goal)
-        validated_solve = (goal_achieved and not reward_hack
-                           and flaky_detail is None)
-        captured = False
-        if (ctx.capture_goal_reaching_plans and task_idx == "current"
-                and (validated_solve or best_effort_capture)
-                and grounded_plan):
-            captured = True
+        # The capture decision itself is pure (see _decide_capture, which
+        # also documents the best-effort-mode semantics); the branches
+        # below apply its ctx mutations and format its messages.
+        capture_outcome = _decide_capture(
+            capture_enabled=ctx.capture_goal_reaching_plans,
+            is_current_task=is_current,
+            have_plan=bool(grounded_plan),
+            goal_achieved=goal_achieved,
+            evaluator_rejected=evaluator_rejected,
+            reward_hack=reward_hack,
+            flaky=flaky_detail is not None,
+            best_effort_mode=ctx.capture_best_effort_plan,
+            have_validated_capture=bool(ctx.solved_plan_reached_goal))
+        decision = capture_outcome.decision
+        captured = capture_outcome.captured
+        if captured:
+            # Capture the plan with a sketch that keeps only the subgoals
+            # that actually held (so the closed-loop monitor won't flag a
+            # spurious divergence on a wrong annotation).
+            validated_solve = decision is CaptureDecision.VALIDATED_CAPTURE
             captured_sketch = []
             for i, st in enumerate(sketch_steps):
                 post = (result.steps[i].post_state
@@ -586,14 +544,15 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                                            if verdict is not None else None)
             n_annot = sum(1 for s in captured_sketch
                           if s.subgoal_atoms or s.subgoal_neg_atoms)
-            if validated_solve:
+            reason = capture_outcome.best_effort_reason
+            if reason is None:
                 best_effort_note = ""
-            elif not goal_achieved:
+            elif reason is BestEffortReason.GOAL_NOT_REACHED:
                 best_effort_note = (" (best-effort: goal NOT reached, "
                                     "accepted because the attempt budget is "
                                     "exhausted; it executes for its honest "
                                     "reward but will not count as a solve)")
-            elif reward_hack:
+            elif reason is BestEffortReason.REWARD_HACK:
                 best_effort_note = (" (best-effort: the rollout reaches the "
                                     "goal atoms but the task evaluator "
                                     "scores it as a non-solve, and the real "
@@ -602,6 +561,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                                     "- it executes for its honest reward but "
                                     "will not count as a solve)")
             else:
+                assert reason is BestEffortReason.FLAKY
                 best_effort_note = (f" (best-effort: {flaky_detail}; "
                                     "accepted because the attempt budget is "
                                     "exhausted - it executes for its honest "
@@ -611,15 +571,10 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                          f"{len(grounded_plan)} steps, "
                          f"{n_annot} with subgoal annotations for closed-loop "
                          f"monitoring.{validation_note}")
-        elif (ctx.capture_goal_reaching_plans and task_idx == "current"
-              and goal_achieved and not evaluator_rejected
-              and flaky_detail is not None):
-            # Loudly refuse a flaky capture: the agent still has this
-            # session to add margin and resubmit, which beats discovering
-            # the flakiness as a failed real episode. Record the task so
-            # later submissions face the escalated gate - flakiness here is
-            # evidence the whole parameter region is marginal, not just
-            # this point.
+        elif decision is CaptureDecision.FLAKY_NO_CAPTURE:
+            # Record the task so later submissions face the escalated
+            # gate - flakiness here is evidence the whole parameter
+            # region is marginal, not just this point.
             ctx.flaky_capture_task_keys.add(capture_task_key)
             _stash_uncaptured_submission()
             escalated_n = max(max(1, validation_cfg.rollouts),
@@ -641,15 +596,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 f"submission, captures require {escalated_n}/{escalated_n} "
                 "successful rollouts: fix the margin rather than "
                 "resubmitting near-identical parameters.")
-        elif (ctx.capture_goal_reaching_plans and task_idx == "current"
-              and reward_hack):
-            # Loudly refuse a reward hack: the rollout reaches the goal atoms
-            # but the evaluator's certificate rejects the route (e.g. the
-            # target was knocked over directly), and the real evaluator
-            # applies the same certificate, so it can never count as a solve.
-            # (Under a best-effort final submission the same plan is instead
-            # captured above, flagged as a non-solve, to execute for its
-            # honest reward.)
+        elif decision is CaptureDecision.REWARD_HACK_NO_CAPTURE:
             assert verdict is not None
             _stash_uncaptured_submission()
             lines.append(
@@ -659,13 +606,9 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 "same scoring, so executing this plan cannot count as a "
                 "solve. Find a plan whose rollout the evaluator scores "
                 "solved=True.")
-        elif (ctx.capture_goal_reaching_plans and task_idx != "current"
-              and goal_achieved):
-            # Loudly flag a success that cannot count: agents have burned
-            # whole sessions validating on a train task, believing they
-            # were done (run_20260707_112310 test task 0, session 3).
+        elif decision is CaptureDecision.WRONG_TASK_NOTE:
             lines.append(
-                f"NOTE: this ran on train task {task_idx}, NOT the current "
+                f"NOTE: this ran on train task {task_label}, NOT the current "
                 "task, so it is NOT captured as your answer. To submit, "
                 "re-run the plan on the current task (omit task_idx).")
         if result.first_failure_idx is not None:
@@ -686,7 +629,8 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # rollout's non-solve read as two contradictory verdicts in one
         # message (run_20260717_182040 seed1 turn 96).
         if verdict is not None:
-            vline = _format_evaluator_verdict(verdict, coarse=eval_coarse)
+            vline = _format_evaluator_verdict(verdict,
+                                              coarse=eval_collector.coarse)
             if flaky_detail is not None and not captured:
                 vline += (" [rollout 1 only - NOT the operative outcome; "
                           "this submission was rejected as FLAKY above]")
