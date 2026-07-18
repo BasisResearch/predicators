@@ -25,6 +25,7 @@ def run_motion_planning(
     held_object: Optional[int] = None,
     base_link_to_held_obj: Optional[NDArray] = None,
     allow_shallow_held_object_contacts: bool = False,
+    goal_finger_joint: Optional[float] = None,
     held_bystander_clearance: Optional[float] = None,
 ) -> Optional[Sequence[JointPositions]]:
     """Run BiRRT to find a collision-free sequence of joint positions.
@@ -34,6 +35,12 @@ def run_motion_planning(
     against ``CFG.pybullet_birrt_contact_margin``; all other bodies are
     bystanders from which the path must keep
     ``CFG.pybullet_birrt_bystander_clearance`` of separation.
+
+    When ``goal_finger_joint`` is given, the goal configuration is
+    additionally checked with both finger joints at that value (e.g. a
+    place phase whose next phase opens the gripper: the opening sweep is
+    not otherwise planned, so a goal whose open fingers would hit a
+    neighbor must be rejected here).
 
     ``held_bystander_clearance`` overrides
     ``CFG.pybullet_birrt_held_bystander_clearance`` (the wider berth the
@@ -202,6 +209,13 @@ def run_motion_planning(
                 if any(d < held_margin for d in contact_distances):
                     return True
         return False
+
+    if goal_finger_joint is not None:
+        release_config = list(target_positions)
+        release_config[robot.left_finger_joint_idx] = goal_finger_joint
+        release_config[robot.right_finger_joint_idx] = goal_finger_joint
+        if _collision_fn(release_config):
+            return None
 
     def _distance_fn(from_pt: JointPositions, to_pt: JointPositions) -> float:
         # NOTE: only using positions to calculate distance. Should use

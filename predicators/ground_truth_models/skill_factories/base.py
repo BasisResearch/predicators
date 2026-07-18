@@ -169,6 +169,19 @@ class SkillConfig:
     # pybullet_birrt_bystander_clearance; envs with tight corridors
     # cannot afford it.
     held_bystander_clearance: Optional[float] = None
+    # Grasp-relative release for place skills: at the drop pose the
+    # gripper opens GRADUALLY just until the simulator drops the grasp
+    # constraint (observed as is_held flipping in the state), opens
+    # ``_RELEASE_CLEAR_SLACK`` further so the pads clear the released
+    # object, retreats HOLDING that width, and only fully opens back at
+    # transport height. The release width therefore derives from the
+    # measured grasp width of whatever is held - no per-object constant -
+    # and the side clearance a placement needs shrinks from the full
+    # opening span (±4 cm) to roughly the object thickness plus a few
+    # millimetres. Requires the env to expose holding via an ``is_held``
+    # object feature (all current place-skill envs do). False restores
+    # the legacy full open at the drop pose.
+    release_until_ungrasped: bool = True
     extra: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -222,6 +235,23 @@ _BIRRT_TRAJ_KEY = "birrt_traj_{}"  # stores List[JointPositions] or None
 _BIRRT_STEP_KEY = "birrt_step_{}"  # stores int index into trajectory
 _BIRRT_FINGER_KEY = "birrt_finger_{}"  # stores finger_status str
 _BIRRT_HOLD_KEY = "birrt_hold_{}"  # consecutive re-commands of a waypoint
+_FINGER_TARGET_KEY = "finger_target_{}"  # anchored CHANGE_FINGERS target
+
+# Grasp-relative release (SkillConfig.release_until_ungrasped): the
+# opening commanded at the drop pose (anchored at the measured grasp
+# width) while waiting for the simulator to drop the grasp constraint,
+# and how much further the gripper opens once the release is observed so
+# the pads clear the released object before the hold-width retreat. The
+# open step must exceed every env's _finger_action_tol or that env never
+# classifies the action as "opening" and never releases the constraint -
+# all envs now share the base 1e-4, but grow's since-removed 5e-3
+# override once silently swallowed a 2mm step (caught by its jug tests),
+# so the step stays comfortably large. The planner's release-clearance
+# check budgets the worst-case width: grasp + open step + clear slack +
+# margin.
+_RELEASE_OPEN_STEP = 0.01
+_RELEASE_CLEAR_SLACK = 0.004
+_RELEASE_CHECK_BUFFER = _RELEASE_OPEN_STEP + _RELEASE_CLEAR_SLACK + 0.002
 _IK_STALL_BEST_KEY = "ik_stall_best_{}"  # best EE-to-target distance seen
 _IK_STALL_COUNT_KEY = "ik_stall_count_{}"  # steps since last improvement
 
@@ -273,6 +303,20 @@ class Phase:
     # goal fixes that without the cost/regressions of globally validating
     # every transport/retreat IK.
     validate_ik: bool = False
+    # Additionally collision-check this phase's BiRRT goal config with the
+    # fingers OPEN. Set on a place descent whose next phase opens the
+    # gripper: the opening sweep itself is not planned, so a drop pose
+    # whose opening fingers would clip a neighbor (e.g. a domino placed
+    # closer to the previous one than the finger span) must be rejected
+    # at planning time, not discovered by toppling the neighbor.
+    check_release_clearance: bool = False
+    # For CHANGE_FINGERS phases whose target depends on the CURRENT finger
+    # value (e.g. a grasp-relative release width of "current + slack"):
+    # freeze the target at its first evaluation for the rest of the phase.
+    # Without anchoring, "current + slack" ratchets - each step the fingers
+    # open, the target moves further out, and the phase never terminates
+    # short of fully open.
+    anchor_finger_target: bool = False
 
 
 class PhaseSkill:
@@ -358,7 +402,22 @@ class PhaseSkill:
         if phase.action_type == PhaseAction.MOVE_TO_POSE:
             return self._execute_move(phase, state, memory, objects, params)
         assert phase.action_type == PhaseAction.CHANGE_FINGERS
-        return self._execute_fingers(phase, state, objects, params)
+        return self._execute_fingers(phase, state, memory, objects, params)
+
+    def _finger_target(self, phase: Phase, state: State, memory: Dict,
+                       objects: Sequence[Object],
+                       params: Array) -> Tuple[float, float]:
+        """(current, target) finger values for a CHANGE_FINGERS phase,
+        freezing the target at its first evaluation when the phase asks
+        for anchoring (grasp-relative targets would otherwise ratchet)."""
+        current_val, target_val = phase.target_fn(state, objects, params,
+                                                  self._config)
+        if phase.anchor_finger_target:
+            key = _FINGER_TARGET_KEY.format(id(phase))
+            if key not in memory:
+                memory[key] = target_val
+            target_val = memory[key]
+        return current_val, target_val
 
     def _terminal(self, state: State, memory: Dict, objects: Sequence[Object],
                   params: Array) -> bool:
@@ -380,8 +439,8 @@ class PhaseSkill:
             return phase.terminal_fn(state, objects, params, self._config)
 
         if phase.action_type == PhaseAction.CHANGE_FINGERS:
-            current_val, target_val = phase.target_fn(state, objects, params,
-                                                      self._config)
+            current_val, target_val = self._finger_target(
+                phase, state, memory, objects, params)
             tol = phase.finger_tol if phase.finger_tol is not None \
                 else self._config.grasp_tol
             tol_lin = float(np.sqrt(tol))
@@ -766,6 +825,8 @@ class PhaseSkill:
         finger_status = memory[finger_key]
         if finger_status == "open":
             finger_delta = self._config.finger_action_nudge_magnitude
+        elif finger_status == "hold":
+            finger_delta = 0.0
         else:
             finger_delta = -self._config.finger_action_nudge_magnitude
         f_action = current_fingers + finger_delta
@@ -1016,6 +1077,19 @@ class PhaseSkill:
                 "falling back to incremental IK.")
             return None
 
+        goal_finger_joint = None
+        if phase is not None and phase.check_release_clearance:
+            # Check the width the fingers actually reach at the drop pose:
+            # with a grasp-relative release, the measured grasp width plus
+            # the worst-case release travel; else the legacy full open.
+            if self._config.release_until_ungrasped:
+                grasp_width = pb_state.joint_positions[
+                    planning_robot.left_finger_joint_idx]
+                goal_finger_joint = min(self._config.open_fingers_joint,
+                                        grasp_width + _RELEASE_CHECK_BUFFER)
+            else:
+                goal_finger_joint = self._config.open_fingers_joint
+
         traj = run_motion_planning(
             robot=planning_robot,
             initial_positions=pb_state.joint_positions,
@@ -1028,6 +1102,7 @@ class PhaseSkill:
             allow_shallow_held_object_contacts=(
                 phase.allow_shallow_held_object_contacts
                 if phase is not None else False),
+            goal_finger_joint=goal_finger_joint,
             held_bystander_clearance=self._config.held_bystander_clearance,
         )
 
@@ -1062,6 +1137,7 @@ class PhaseSkill:
                     allow_shallow_held_object_contacts=(
                         phase.allow_shallow_held_object_contacts
                         if phase is not None else False),
+                    goal_finger_joint=goal_finger_joint,
                     held_bystander_clearance=(
                         self._config.held_bystander_clearance),
                 )
@@ -1078,7 +1154,8 @@ class PhaseSkill:
                 held_object,
                 base_link_to_held_obj,
                 phase_name,
-                body_names=body_names)
+                body_names=body_names,
+                goal_finger_joint=goal_finger_joint)
 
         return traj
 
@@ -1159,6 +1236,7 @@ class PhaseSkill:
         base_link_to_held_obj: Optional[Any],
         phase_name: str,
         body_names: Optional[Dict[int, str]] = None,
+        goal_finger_joint: Optional[float] = None,
     ) -> List[str]:
         """Log which collision bodies cause start/goal collisions.
 
@@ -1224,6 +1302,16 @@ class PhaseSkill:
 
         _check(start_joints, "START")
         _check(goal_joints, "GOAL")
+        if goal_finger_joint is not None:
+            release_joints = list(goal_joints)
+            release_joints[planning_robot.left_finger_joint_idx] = \
+                goal_finger_joint
+            release_joints[planning_robot.right_finger_joint_idx] = \
+                goal_finger_joint
+            _check(
+                release_joints,
+                "GOAL with fingers OPEN to release (the opening "
+                "gripper needs side clearance at the drop pose)")
         for diag in diagnostics:
             logging.error(f"[{self._name}/{phase_name}] {diag}")
         return diagnostics
@@ -1261,12 +1349,12 @@ class PhaseSkill:
                 f"target=({tgt[0]:.3f}, {tgt[1]:.3f}, {tgt[2]:.3f}), "
                 f"params={params.tolist()}")
 
-    def _execute_fingers(self, phase: Phase, state: State,
+    def _execute_fingers(self, phase: Phase, state: State, memory: Dict,
                          objects: Sequence[Object], params: Array) -> Action:
         """Execute a CHANGE_FINGERS phase."""
         pb_state = cast(utils.PyBulletState, state)
-        current_val, target_val = phase.target_fn(state, objects, params,
-                                                  self._config)
+        current_val, target_val = self._finger_target(phase, state, memory,
+                                                      objects, params)
         return get_change_fingers_action(
             self._config.robot,
             pb_state.joint_positions,
