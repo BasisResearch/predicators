@@ -1,16 +1,31 @@
 """Utilities for the code sim-learning module.
 
-Core primitives for process-dynamics simulation:
+Two groups live here:
 
-* ``apply_rules`` — run a list of rule functions on a state, return
-  feature updates (``ProcessUpdate``).
+Rule-DSL primitives — the API process-rule simulators (oracle modules
+and agent-synthesized code) are written against:
+
+* ``apply_rules`` / ``apply_rules_with_latent`` — run a list of rule
+  functions on a state, return feature updates (``ProcessUpdate``);
+  the latent variant threads a hidden-state dict and ``History``.
 * ``merge_updates`` — overwrite features in a ``State`` with values
   from a ``ProcessUpdate``.
+* ``rollout_predictions`` / ``iter_feature_residuals`` — teacher-forced
+  rollouts of a rule set over recorded trajectories.
+* ``sigmoid`` / ``SOFT_EPS`` — building blocks for differentiable
+  soft gates in process rules.
+* ``objs_by_type`` / ``init_latent`` / ``has_latent_rules`` — rule
+  introspection and setup helpers.
+
+Simulator-artifact decoding — how a synthesized ``simulator.py``
+namespace is unpacked:
+
 * ``read_simulator_components`` — pull the ``PROCESS_RULES``,
   ``PARAM_SPECS``, ``PROCESS_FEATURES`` triple out of a namespace
   (oracle module globals or agent-synthesized exec namespace).
-* ``sigmoid`` / ``SOFT_EPS`` — building blocks for differentiable
-  soft gates in process rules.
+* ``read_latent_init`` / ``read_physical_param_specs`` /
+  ``stamp_physical_spec_scales`` — optional artifact entries.
+* ``LearnedSimulator`` — fail-soft wrapper around a step function.
 """
 
 from __future__ import annotations
@@ -185,11 +200,11 @@ def init_latent(
         latent_init = latent_init()
     if not isinstance(latent_init, dict):
         return {}
+    # Late import to avoid a circular dependency.
+    # pylint: disable=import-outside-toplevel
+    from predicators.code_sim_learning.training import ParamSpec
     out: Dict[str, Any] = {}
     for k, v in latent_init.items():
-        # Late import to avoid a circular dependency.
-        # pylint: disable=import-outside-toplevel
-        from predicators.code_sim_learning.training import ParamSpec
         if isinstance(v, ParamSpec):
             out[k] = params.get(v.name, v.init_value)
         else:
@@ -428,7 +443,12 @@ class LearnedSimulator:
         self.name = name
 
     def predict_step(self, state: State) -> ProcessUpdate:
-        """Predict process feature updates for a single timestep."""
+        """Predict process feature updates for a single timestep.
+
+        Fails soft: agent-written simulators may raise on states they
+        never anticipated, so any exception is logged and treated as "no
+        update" rather than crashing the rollout.
+        """
         try:
             return self._step_fn(state)
         except Exception as e:  # pylint: disable=broad-except
