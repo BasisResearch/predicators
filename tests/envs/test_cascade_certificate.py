@@ -8,7 +8,7 @@ physics lives in ``cascade_probe`` and is integration-tested in
 ``test_pybullet_domino_composed.py``.
 """
 
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pytest
@@ -121,12 +121,15 @@ def _goal(objs: Dict[str, Object]) -> set:
 def _options(
     spans: Sequence[Tuple[str, Tuple[str, ...], int, int]],
     num_actions: int,
-) -> List[Optional[Tuple[str, Tuple[str, ...]]]]:
+) -> List[Optional[Tuple[Any, ...]]]:
     """Build a per-action option labeling from (name, objects, lo, hi) spans
-    over action indices; unlabeled actions become Wait."""
-    labels: List[Optional[Tuple[str, Tuple[str, ...]]]] = [
-        ("Wait", ("robot", )) for _ in range(num_actions)
-    ]
+    over action indices; unlabeled actions become Wait.
+
+    Labels are loose tuples so callers may stamp params (3-tuple form)
+    onto them.
+    """
+    labels: List[Optional[Tuple[Any, ...]]] = [("Wait", ("robot", ))
+                                               for _ in range(num_actions)]
     for name, objects, lo, hi in spans:
         for i in range(lo, hi + 1):
             labels[i] = (name, objects)
