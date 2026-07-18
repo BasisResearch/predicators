@@ -3,7 +3,9 @@
 This module provides ``create_wait_option``, which builds a
 ``ParameterizedOption`` that holds the robot's current joint positions
 while nudging fingers toward their current open/closed state to resist
-drift.  The option is always initiable and never terminates.
+drift.  The option is always initiable; it never terminates unless the
+config sets ``wait_quiescence_eps``, in which case it terminates once
+the non-robot scene has stopped moving (see ``SkillConfig``).
 
 Example::
 
@@ -14,6 +16,7 @@ Example::
     Wait = create_wait_option("Wait", config, robot_type)
 """
 
+import weakref
 from typing import Dict, Optional, Sequence, Tuple, cast
 
 import numpy as np
@@ -33,8 +36,12 @@ def create_wait_option(
 ) -> ParameterizedOption:
     """Create a wait (no-op) option that holds the robot's current pose.
 
-    Nudges fingers toward their current open/closed state to resist drift,
-    keeps all other joints at their current positions, and never terminates.
+    Nudges fingers toward their current open/closed state to resist drift
+    and keeps all other joints at their current positions.  With
+    ``config.wait_quiescence_eps`` unset the option never terminates
+    (the executor's option-rollout cap ends it); when set, it terminates
+    once every non-robot object's features have changed by less than the
+    eps for ``config.wait_quiescence_steps`` consecutive steps.
 
     Args:
         name: Option name (e.g. "Wait").
@@ -42,8 +49,7 @@ def create_wait_option(
         robot_type: The robot ``Type`` object.
 
     Returns:
-        A ``ParameterizedOption`` with ``initiable=True`` and
-        ``terminal=False`` always.
+        A ``ParameterizedOption`` with ``initiable=True`` always.
 
     Example::
 
@@ -51,6 +57,49 @@ def create_wait_option(
     """
     robot = config.robot
     mid_point = (config.open_fingers_joint + config.closed_fingers_joint) / 2
+
+    def _initiable(state: State, memory: Dict, objects: Sequence[Object],
+                   params: Array) -> bool:
+        del state, objects, params
+        # A grounded option can be re-run (validation rollouts reuse the
+        # grounded plan); stale quiescence tracking from a previous run
+        # would terminate the new run instantly.
+        memory.pop("quiescence_prev", None)
+        memory.pop("quiescence_count", None)
+        memory.pop("quiescence_sref", None)
+        return True
+
+    def _terminal(state: State, memory: Dict, objects: Sequence[Object],
+                  params: Array) -> bool:
+        del params
+        if config.wait_quiescence_eps is None:
+            return False
+        robot_obj = objects[0]
+        scene_objs = sorted((o for o in state if o != robot_obj), key=str)
+        if not scene_objs:
+            return False
+        # terminal() can be consulted more than once on the same state
+        # (executor loop + monitors); recounting a zero delta would let
+        # repeated queries stand in for settled physics steps. Identity
+        # via weakref, NOT id(): the allocator reuses a freed state's id,
+        # which would silently swallow real steps.
+        last_ref = memory.get("quiescence_sref")
+        if last_ref is not None and last_ref() is state:
+            return (memory.get("quiescence_count", 0) >=
+                    config.wait_quiescence_steps)
+        memory["quiescence_sref"] = weakref.ref(state)
+        vec = state.vec(scene_objs)
+        prev = memory.get("quiescence_prev")
+        memory["quiescence_prev"] = vec
+        if prev is None or prev.shape != vec.shape:
+            memory["quiescence_count"] = 0
+            return False
+        if float(np.max(np.abs(vec - prev))) < config.wait_quiescence_eps:
+            count = memory.get("quiescence_count", 0) + 1
+        else:
+            count = 0
+        memory["quiescence_count"] = count
+        return count >= config.wait_quiescence_steps
 
     def _policy(state: State, memory: Dict, objects: Sequence[Object],
                 params: Array) -> Action:
@@ -88,7 +137,7 @@ def create_wait_option(
         types=[robot_type],
         params_space=Box(0, 1, (0, )),
         policy=_policy,
-        initiable=lambda _1, _2, _3, _4: True,
-        terminal=lambda _1, _2, _3, _4: False,
+        initiable=_initiable,
+        terminal=_terminal,
         params_description=params_description,
     )

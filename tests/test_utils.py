@@ -3644,6 +3644,25 @@ def test_parse_model_output_into_option_plan():
     assert len(zero_arg) == 1
     assert zero_arg[0][0].name == "PickPlace"
     assert zero_arg[0][2] == [0.5]
+    # Whitespace-only lines (indented triple-quoted plan text) are
+    # skipped, even in strict mode where they used to be rejected as
+    # "doesn't contain a valid option name".
+    indented = "   \nPickPlace()[0.5]\n   \n"
+    plan = utils.parse_model_output_into_option_plan(indented, [], [],
+                                                     cover_options,
+                                                     True,
+                                                     strict=True)
+    assert len(plan) == 1
+    # A '~' inside the params block is a misplaced region annotation: the
+    # strict error names the offending token and the correct syntax.
+    with pytest.raises(ValueError) as excinfo:
+        utils.parse_model_output_into_option_plan("PickPlace()[0.5 ~ 0.1]", [],
+                                                  [],
+                                                  cover_options,
+                                                  True,
+                                                  strict=True)
+    assert "continuous parameter" in str(excinfo.value)
+    assert "AFTER the closing" in str(excinfo.value)
 
 
 def test_parse_model_output_into_option_plan_strict():

@@ -28,7 +28,7 @@ from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
 
 from predicators.agent_sdk.tools import PREDICATE_SYNTHESIS_TOOL_NAMES, \
     SCENE_TOOL_NAMES, _SnapshotTarget, create_predicate_synthesis_tools, \
-    finalize_versioned_snapshot
+    explore_python_replaces_tools, finalize_versioned_snapshot
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
 from predicators.settings import CFG
@@ -79,14 +79,18 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
         geometry it would otherwise infer numerically. The parent
         (``AgentPlannerApproach``) gates these on
         ``agent_planner_use_*`` CFG flags, but those target a different
-        use case; for predicate invention we always want them available.
+        use case; for predicate invention we always want the capability
+        available - as the standalone tools, or through explore_python
+        when it replaces them (``explore_python_replaces_tools``, the
+        single roster-policy predicate).
         """
         names = super()._get_solve_tool_names()
         if names is None:
             return None
-        for extra in SCENE_TOOL_NAMES:
-            if extra not in names:
-                names.append(extra)
+        if not explore_python_replaces_tools():
+            for extra in SCENE_TOOL_NAMES:
+                if extra not in names:
+                    names.append(extra)
         return names
 
     def _get_synthesis_tool_names(self) -> Optional[List[str]]:
@@ -94,15 +98,19 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
         synthesis surface.
 
         Adds ``visualize_state`` / ``annotate_scene`` (the prompt tells
-        the agent to call them when verifying geometric thresholds) and
+        the agent to call them when verifying geometric thresholds) -
+        unless explore_python replaces them (its ``sim.reset(mods)`` /
+        ``sim.render(annotations)`` subsume both) - and
         ``evaluate_predicate_quality`` (built by
         :meth:`_extra_synthesis_tools`).
         """
         names = super()._get_synthesis_tool_names()
         if names is None:
             return None
-        for extra in list(SCENE_TOOL_NAMES) + list(
-                PREDICATE_SYNTHESIS_TOOL_NAMES):
+        extras = list(PREDICATE_SYNTHESIS_TOOL_NAMES)
+        if not explore_python_replaces_tools():
+            extras = list(SCENE_TOOL_NAMES) + extras
+        for extra in extras:
             if extra not in names:
                 names.append(extra)
         return names
@@ -221,7 +229,22 @@ names. Any predicate you reference in a sketch must exist in \
         return f"Goals across train tasks (natural language):\n{bullets}\n\n"
 
     def _extra_synthesis_system_prompt(self) -> str:
-        return _PREDICATE_PROMPT_SECTION
+        # Scene-workbench references must name tools this session
+        # actually has: when explore_python replaces the standalone
+        # scene tools, point at its probe equivalents instead.
+        if explore_python_replaces_tools():
+            workbench = ("`explore_python` as scene workbench - "
+                         "`sim.reset(task_idx=..., mods={...})` to stage "
+                         "states, `sim.render(label, annotations=[...])` "
+                         "to render with overlays")
+            render_ref = "`sim.render`"
+        else:
+            workbench = "`visualize_state` / `annotate_scene`"
+            render_ref = "`annotate_scene`"
+        return _PREDICATE_PROMPT_SECTION.replace("__SCENE_WORKBENCH__",
+                                                 workbench).replace(
+                                                     "__SCENE_RENDER_REF__",
+                                                     render_ref)
 
     def _post_synthesis_loading(
         self,
@@ -437,12 +460,12 @@ contains the full threshold-fitting protocol (bucket steps by downstream \
 effect, check for a knife-edge gap, visualize, then refit); follow it \
 whenever you fit a numeric cutoff. The two workbenches you'll lean on:
 
-- `visualize_state` / `annotate_scene` (available for any PyBullet env): \
+- __SCENE_WORKBENCH__ (available for any PyBullet env): \
 use whenever a predicate depends on geometry. A body's recorded pose \
 often doesn't coincide with the feature that matters (a body center vs. \
 an outlet on its side, a joint base vs. an end-effector tip, a container \
 origin vs. its opening, a switch housing vs. its handle). On one \
-`annotate_scene` render, overlay the recorded object origin and the \
+__SCENE_RENDER_REF__ render, overlay the recorded object origin and the \
 positions where the gated effect did vs. did not fire — the gap between \
 the origin and the effect-firing cluster, expressed in the fixture's \
 local frame, is the anchor offset the predicate needs. Confirm what's \

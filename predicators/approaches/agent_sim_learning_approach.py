@@ -18,11 +18,13 @@ Example command::
 """
 
 import copy
+import hashlib
 import inspect
 import logging
 import os
-from typing import Any, Callable, Collection, Dict, FrozenSet, List, \
-    Optional, Sequence, Set, Tuple
+from contextlib import contextmanager
+from typing import Any, Callable, Collection, Dict, FrozenSet, Iterator, \
+    List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 import pybullet
@@ -39,10 +41,12 @@ from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
     mean_bernoulli_entropy, perturbation_ensemble, \
     posterior_subsample_ensemble
 from predicators.code_sim_learning.physical_sysid import RolloutTrajectory, \
-    compute_residual_scaling, compute_rollout_sse, fit_params_rollout, \
-    fit_params_rollout_trimmed, format_identifiability, \
+    _dispose_env, compute_residual_scaling, compute_rollout_sse, \
+    fit_params_rollout, fit_params_rollout_trimmed, format_identifiability, \
     identifiability_report, physical_param_anchors, \
     select_trustworthy_params, split_at_rest_points, truncate_settled_tail
+from predicators.code_sim_learning.synthesis_validation import \
+    build_candidate_option_model
 from predicators.code_sim_learning.training import FitResult, ParamSpec, \
     compute_sse, compute_sse_recurrent, fit_params, fit_params_recurrent, \
     log_sse_breakdown
@@ -142,6 +146,12 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
                          *args,
                          option_model=option_model,
                          **kwargs)
+        # Capture-validation rollouts each run on a freshly constructed env
+        # (see ToolContext.validation_env_scope): repeats on the shared
+        # ``_base_env`` are correlated across resets, so only fresh envs
+        # sample the distribution the real episode will.
+        self._tool_context.validation_env_scope = \
+            self._fresh_validation_env_scope
         # Env predicates surfaced to the agent (see
         # KEPT_INITIAL_PREDICATE_NAMES). Computed once here; everything
         # agent-facing flows through _get_all_predicates().
@@ -298,6 +308,14 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
         # ground-truth ones), expose the evaluate_sampler tool.
         if self._do_synthesize_samplers:
             names += list(SAMPLER_SYNTHESIS_TOOL_NAMES)
+        # Same opt-in flag as the solve phase. In the agent-synthesis
+        # session the probe runs against the CANDIDATE simulator.py via
+        # ctx.probe_option_model_provider (installed in
+        # _synthesize_with_agent); in the oracle-sim-program sampler
+        # session no provider is installed and the probe falls back to
+        # ctx.option_model, which there IS the deployed belief model.
+        if CFG.agent_planner_use_explore_python:
+            names.append("explore_python")
         return names
 
     # ── Subclass hooks ──────────────────────────────────────────
@@ -524,6 +542,71 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
             model._abstract_function = (  # pylint: disable=protected-access
                 lambda s: utils.abstract(s, self._get_all_predicates()))
         return model
+
+    def _make_candidate_probe_model_provider(
+        self,
+        simulator_file: str,
+        trajectories: List[LowLevelTrajectory],
+        base_pred_triples: List[Tuple[State, Action, State]],
+        inferred_hint: Dict[str, List[str]],
+    ) -> Callable[[], _OracleOptionModel]:
+        """Lazy option-model builder behind the synthesis explore_python.
+
+        The returned callable is installed as
+        ``ctx.probe_option_model_provider`` for the synthesis session:
+        on first use, and again after every content change of
+        ``simulator_file``, it loads the candidate simulator, MCMC-fits
+        its params, and builds the combined option model through the
+        same :func:`build_candidate_option_model` path
+        ``evaluate_plan_refinement`` uses. ``sim.run`` / ``sim.refine``
+        therefore exercise exactly the model the validation tool would
+        score, at deployed (fitted) params. Content-hash caching keeps
+        sweep loops cheap: an unchanged file never refits.
+
+        Raises ``RuntimeError`` (surfaced in the tool output) when no
+        loadable candidate exists yet - the probe must never fall back
+        to the pre-synthesis option model, which on cycle 1 wraps the
+        real env (a live-physics leak into learning).
+        """
+        cache: Dict[str, Any] = {}
+
+        def _provider() -> _OracleOptionModel:
+            if not os.path.isfile(simulator_file):
+                raise RuntimeError(
+                    "explore_python probe: no candidate simulator yet - "
+                    "write ./simulator.py (PROCESS_RULES / PARAM_SPECS / "
+                    "PROCESS_FEATURES) first; the probe runs against it.")
+            with open(simulator_file, "rb") as f:
+                digest = hashlib.sha256(f.read()).hexdigest()
+            if cache.get("digest") == digest:
+                return cache["model"]
+            rules, specs, features, ns = \
+                self._load_simulator_from_module_file(
+                    simulator_file, trajectories)
+            if rules is None or specs is None:
+                raise RuntimeError(
+                    "explore_python probe: ./simulator.py failed to load "
+                    "(exec error, or PROCESS_RULES / PARAM_SPECS missing) - "
+                    "fix the file and probe again.")
+            process_features = (features
+                                if features is not None else inferred_hint)
+            latent_init = read_latent_init(ns) if isinstance(ns,
+                                                             dict) else None
+            model, _, fit_sse = build_candidate_option_model(
+                self,
+                rules,
+                specs,
+                process_features,
+                base_pred_triples,
+                latent_init=latent_init)
+            logger.info(
+                "Synthesis probe: candidate model rebuilt from %s "
+                "(post-fit SSE %.6f).", simulator_file, fit_sse)
+            cache["digest"] = digest
+            cache["model"] = model
+            return model
+
+        return _provider
 
     # ── Active-experiment ensemble (info-seeking exploration) ────
 
@@ -801,6 +884,16 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
             self._tool_context.extra_mcp_tools = [
                 t for t in tools if getattr(t, "name", "") in declared
             ]
+            # Point the explore_python probe at the CANDIDATE simulator
+            # for this session (never the stale pre-synthesis option
+            # model; on cycle 1 that wraps the real env). Must be
+            # installed before the session opens: the tool builder reads
+            # it to pick the probe's description. Cleared in `finally`.
+            if CFG.agent_planner_use_explore_python:
+                self._tool_context.probe_option_model_provider = \
+                    self._make_candidate_probe_model_provider(
+                        simulator_file, trajectories, base_pred_triples,
+                        inferred_hint)
             self._learning_mode = True
 
             # PostToolUse hook: snapshot simulator.py / predicates.py on
@@ -830,6 +923,32 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
             trajectory_listing = self._format_trajectory_listing(trajectories)
             prior_state_block = self._format_prior_state_block(base)
             objective_block = self._format_objective_block()
+            # run_python explores the recorded DATA; explore_python
+            # forward-rolls the CANDIDATE simulator. One sentence so the
+            # two exec tools are not conflated; details live in the tool
+            # description.
+            probe_note = ""
+            if CFG.agent_planner_use_explore_python:
+                probe_note = (
+                    "\n\nTo forward-roll your CURRENT candidate simulator "
+                    "(does the process fire when and where you intended?), "
+                    "use `explore_python`: its `sim` probes the "
+                    "`simulator.py` you are editing, re-fit automatically "
+                    "whenever the file changes; pass task_idx explicitly to "
+                    "`sim.reset`. Exploratory only - "
+                    "`evaluate_plan_refinement` remains the authoritative "
+                    "validation surface.")
+            # Tool surface of the (just-opened) synthesis session,
+            # rendered the same way the solve/explore prompts list
+            # theirs. ``tool_names`` already merges the sandbox
+            # built-ins with the declared MCP subset, prefix-stripped.
+            tools_block = ""
+            session_tool_names = (self._agent_session.tool_names
+                                  if self._agent_session is not None else [])
+            if session_tool_names:
+                tool_listing = "\n".join(f"  - {t}"
+                                         for t in session_tool_names)
+                tools_block = f"## Available Tools\n{tool_listing}\n\n"
             message = f"""\
 Synthesize a process dynamics simulator for this environment. \
 There are {n_trajs} trajectories ({len(obs_triples)} step \
@@ -868,7 +987,7 @@ Any threshold or condition you bake into a rule must be consistent \
 with what the predicate's classifier actually checks, or refinement \
 will reject parameter samples that look correct on paper.
 
-Read the data-structures file first, then explore the trajectory \
+{tools_block}Read the data-structures file first, then explore the trajectory \
 data with `run_python` (variables: `trajectories`, `train_tasks`, \
 `is_goal_state`, `np`, `ParamSpec`, plus `evaluate_trajectory` when a \
 task objective is stated above). Write your simulator to \
@@ -879,7 +998,7 @@ and PROCESS_FEATURES there. Every successful Write/Edit of \
 tools (evaluate_step_fit, report_residuals, evaluate_plan_refinement) \
 load that file fresh on every call and report the version tag \
 [cycle_XXX_vers_YYY] in their output. Iterate with `Edit` and re-run \
-the tools."""
+the tools.{probe_note}"""
 
             extra_message = self._extra_synthesis_message(extra_paths)
             if extra_message:
@@ -893,6 +1012,7 @@ the tools."""
             finally:
                 self._tool_context.extra_session_hooks = {}
                 self._tool_context.extra_mcp_tools = []
+                self._tool_context.probe_option_model_provider = None
                 self._learning_mode = False
                 self._close_agent_session()
 
@@ -2090,6 +2210,63 @@ files to see exactly which rules and predicates produced each failed plan.
                 getattr(self._option_model, "sim_env", None) is not None:
             self._option_model.sim_env = self._base_env
 
+    @contextmanager
+    def _fresh_validation_env_scope(self) -> Iterator[None]:
+        """Run the option model on a freshly constructed base env.
+
+        Installed as ``ToolContext.validation_env_scope`` so
+        ``evaluate_option_plan``'s capture-validation rollouts each sample
+        a fresh physics world. The shared ``_base_env``'s reset cannot
+        reconstruct state exactly (solver warm-start state, velocity
+        residuals, near-matching bodies skipped by the reconstruction diff
+        - the same mechanism measured in :func:`rollout_states`), so
+        repeats on it are correlated with each other and systematically
+        offset from the fresh env the real episode runs in
+        (run_20260717_182321: a placement swept 20/20 on the shared env
+        validated 3/3, then missed the target on the real rollout).
+
+        Swaps ``_base_env`` (the learned combined simulator reads it
+        dynamically), the option model's ``sim_env`` (backs certificate
+        probes), and - for the pre-learning model, whose simulator is the
+        bound method ``_base_env.simulate`` - the model's ``_simulator``.
+        Everything is restored and the fresh env disposed on exit,
+        including the replacement env a mid-rollout PyBullet-crash
+        recovery (``_recreate_base_env``) may have installed.
+        """
+        fresh = create_new_env(CFG.env,
+                               do_cache=False,
+                               use_gui=False,
+                               skip_process_dynamics=True)
+        if self._identified_physical_params:
+            fresh.apply_physical_param_overrides(
+                self._identified_physical_params)
+        prev_env = self._base_env
+        # Typed Any: sim_env and _simulator are dynamic attributes not on
+        # _OptionModelBase.
+        model: Any = self._option_model
+        prev_sim = getattr(model, "_simulator", None)
+        rebind_sim = getattr(prev_sim, "__self__", None) is prev_env
+        prev_sim_env = getattr(model, "sim_env", None)
+        self._base_env = fresh
+        if rebind_sim:
+            model._simulator = fresh.simulate  # pylint: disable=protected-access
+        if prev_sim_env is not None:
+            model.sim_env = fresh
+        try:
+            yield
+        finally:
+            current = self._base_env
+            self._base_env = prev_env
+            if rebind_sim:
+                model._simulator = prev_sim  # pylint: disable=protected-access
+            if prev_sim_env is not None:
+                model.sim_env = prev_sim_env
+            if current is not prev_env:
+                try:
+                    _dispose_env(current)
+                except Exception:  # pylint: disable=broad-except
+                    pass  # client already dead (crashed mid-rollout)
+
     def _restore_unreconstructible_process_features(self, base_state: State,
                                                     prev_state: State) -> None:
         """Restore process features the base env's reset couldn't round-trip.
@@ -2284,9 +2461,7 @@ gap (~5% of the value range or narrower), the gate references the \
 wrong point — a threshold flush against the data boundary is a \
 rejected fit, not a fit. Do **not** nudge the threshold to paper over \
 it: add or refit the anchor offset and re-bucket. To find the offset, \
-call `visualize_state` on a representative state from each bucket and \
-use `annotate_scene` to overlay, on one render, the recorded origin \
-and the positions where the effect did vs. did not fire; the gap \
+__SCENE_VIZ_HINT__; the gap \
 between the origin and the effect-firing cluster is the offset.
 
 ### ParamSpec
@@ -2439,11 +2614,35 @@ re-validate.
         base_prompt = base_prompt.replace(
             "__PHYSICAL_PARAMS_SECTION__",
             self._physical_params_prompt_section())
+        base_prompt = base_prompt.replace("__SCENE_VIZ_HINT__",
+                                          self._scene_viz_hint())
         extra = self._extra_synthesis_system_prompt()
         if extra:
             return base_prompt.replace("__SYNTHESIS_PROMPT_EXTRA__",
                                        "\n" + extra.rstrip() + "\n")
         return base_prompt.replace("__SYNTHESIS_PROMPT_EXTRA__", "")
+
+    @staticmethod
+    def _scene_viz_hint() -> str:
+        """The find-the-anchor-offset sentence, tool-availability-aware.
+
+        When explore_python replaces the standalone scene tools (the
+        single policy predicate ``explore_python_replaces_tools``), the
+        guidance must name the probe equivalents instead of tools the
+        session lacks; otherwise the legacy wording stands.
+        """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.tools import explore_python_replaces_tools
+        if explore_python_replaces_tools():
+            return ("use `explore_python`: `sim.reset(task_idx=..., "
+                    "mods={...})` to stage a representative state from each "
+                    "bucket and `sim.render(label, annotations=[...])` to "
+                    "overlay, on one render, the recorded origin and the "
+                    "positions where the effect did vs. did not fire")
+        return ("call `visualize_state` on a representative state from each "
+                "bucket and use `annotate_scene` to overlay, on one render, "
+                "the recorded origin and the positions where the effect did "
+                "vs. did not fire")
 
     def _physical_params_prompt_section(self) -> str:
         """Markdown for the optional PHYSICAL_PARAMS (system-ID) block.
