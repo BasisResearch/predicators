@@ -1195,8 +1195,12 @@ class TestExecutionReplanning:
         assert args[3] == 0  # the failed step is the annotated first step
 
     def test_episode_fails_when_no_suffix_validates(self):
-        """Suffix path exhausted: by default the episode fails instead of
-        re-opening the agent turn budget with a fresh sketch query."""
+        """Suffix path exhausted: by default the episode fails.
+
+        A fresh sketch query would re-open the agent turn budget the
+        attempt already spent, so it is opt-in
+        (agent_bilevel_replan_agent_fallback).
+        """
         from predicators.approaches import ApproachFailure
         approach, _, task = _make_approach()
         _enable_replanning(approach, 2)
