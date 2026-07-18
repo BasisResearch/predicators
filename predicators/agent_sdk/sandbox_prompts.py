@@ -161,14 +161,14 @@ def build_claude_md(phase: Optional[str] = None) -> str:
             guidance every turn.
     """
     # pylint: disable-next=import-outside-toplevel
-    from predicators.settings import CFG
+    from predicators.agent_sdk.config import ToolSurfaceConfig
     if phase == "synthesis":
         strategy = _CLAUDE_MD_SYNTHESIS_STRATEGY
     else:
         from predicators.agent_sdk.tools import explore_python_replaces_tools
         if explore_python_replaces_tools():
             hint = _VISUALIZE_HINT_PROBE
-        elif CFG.agent_planner_use_visualize_state:
+        elif ToolSurfaceConfig.from_cfg().use_visualize_state:
             hint = _VISUALIZE_HINT_TOOL
         else:
             hint = _VISUALIZE_HINT_GENERIC

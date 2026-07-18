@@ -303,7 +303,7 @@ def build_solve_prompt(
     """Build the bilevel solve/explore prompt asking for a plan sketch.
 
     ``ground_samplers`` is the caller-threaded value of
-    ``CFG.agent_bilevel_ground_samplers``; when False the prompt never
+    ``RefinementConfig.ground_samplers``; when False the prompt never
     mentions the ``~`` annotation channel.
 
     Mirrors ``AgentModelBasedApproach._build_solve_prompt`` but takes
@@ -919,7 +919,7 @@ def parse_sketch_from_text(
     ``strict`` tool inputs error instead).
 
     ``parse_ground_samplers`` is the caller-threaded value of
-    ``CFG.agent_bilevel_ground_samplers``: when False, any ``~``
+    ``RefinementConfig.ground_samplers``: when False, any ``~``
     annotation is accepted but ignored (params still seed the search;
     sampling stays uniform), with an explanation appended to
     ``notices`` for the caller to surface in tool output.

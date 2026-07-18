@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Set
 
 from gym.spaces import Box
 
+from predicators.agent_sdk.config import SessionConfig
 from predicators.agent_sdk.session_manager import AgentSessionManager, \
     SessionManagerProtocol, run_async_sync, run_query_sync
 from predicators.agent_sdk.tools import ALL_TOOL_NAMES, ToolContext, \
@@ -124,7 +125,7 @@ class AgentSessionMixin:
     def _ensure_agent_session(self) -> None:
         """Create the agent session manager if needed.
 
-        When ``CFG.agent_sdk_use_docker_sandbox`` is ``True``, creates a
+        When ``SessionConfig.use_docker_sandbox`` is ``True``, creates a
         ``DockerSessionManager`` that runs ``ClaudeSDKClient`` inside a
         Docker container with full built-in tools (Bash, Read, Write,
         …). Otherwise creates the normal in-process
@@ -132,6 +133,11 @@ class AgentSessionMixin:
         """
         if self._agent_session is not None:
             return
+
+        # Session config is read once here (at session-construction
+        # time, never import time) and handed to whichever manager is
+        # built below.
+        config = SessionConfig.from_cfg()
 
         # Pick the declared tool surface by phase. ``_learning_mode`` is
         # the same signal the system-prompt branch reads, so tools and
@@ -185,30 +191,32 @@ class AgentSessionMixin:
             logger.info("\n".join(lines))
 
         session: SessionManagerProtocol
-        if CFG.agent_sdk_use_docker_sandbox:
+        if config.use_docker_sandbox:
             from predicators.agent_sdk.docker_sandbox import \
                 DockerSessionManager  # pylint: disable=import-outside-toplevel
             session = DockerSessionManager(
                 system_prompt=self._get_agent_system_prompt(),
                 log_dir=self._get_log_dir(),
-                model_name=CFG.agent_sdk_model_name,
+                model_name=config.model_name,
                 tool_context=self._tool_context,
                 tool_names=tool_names,
-                image=CFG.agent_sdk_docker_image,
+                image=config.docker_image,
                 extra_reference_files=self._get_sandbox_reference_files(),
                 phase=phase,
+                config=config,
             )
-        elif CFG.agent_sdk_use_local_sandbox:
+        elif config.use_local_sandbox:
             from predicators.agent_sdk.local_sandbox import \
                 LocalSandboxSessionManager  # pylint: disable=import-outside-toplevel
             session = LocalSandboxSessionManager(
                 system_prompt=self._get_agent_system_prompt(),
                 log_dir=self._get_log_dir(),
-                model_name=CFG.agent_sdk_model_name,
+                model_name=config.model_name,
                 tool_context=self._tool_context,
                 tool_names=tool_names,
                 extra_reference_files=self._get_sandbox_reference_files(),
                 phase=phase,
+                config=config,
             )
         else:
             from claude_agent_sdk import \
@@ -225,9 +233,10 @@ class AgentSessionMixin:
                 system_prompt=self._get_agent_system_prompt(),
                 mcp_server=mcp_server,
                 log_dir=self._get_log_dir(),
-                model_name=CFG.agent_sdk_model_name,
+                model_name=config.model_name,
                 allowed_tools=get_allowed_tool_list(tool_names),
                 tool_context=self._tool_context,
+                config=config,
             )
 
         self._agent_session = session

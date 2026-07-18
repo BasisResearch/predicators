@@ -28,6 +28,8 @@ import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 from predicators import utils
+from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig, \
+    ValidationConfig
 from predicators.structs import State, Task
 
 if TYPE_CHECKING:
@@ -68,11 +70,10 @@ def _check_time_budget(ctx: "ToolContext") -> None:
             "evaluate_option_plan on the current task (omit task_idx).")
     call_dl = ctx.explore_call_deadline
     if call_dl is not None and now > call_dl:
-        # pylint: disable-next=import-outside-toplevel
-        from predicators.settings import CFG
+        call_timeout = ToolSurfaceConfig.from_cfg().explore_python_call_timeout
         raise ProbeBudgetExceeded(
             f"this explore_python call exceeded its "
-            f"{CFG.agent_sdk_explore_python_call_timeout:.0f}s time limit "
+            f"{call_timeout:.0f}s time limit "
             "and was stopped between sim calls; output printed so far is "
             "returned above. Large sweeps are expensive - narrow the "
             "candidate set (coarse-to-fine, fewer perturbations per "
@@ -507,7 +508,6 @@ class ProbeSim:
         # pylint: disable=import-outside-toplevel
         from predicators.agent_sdk import bilevel_sketch
         from predicators.agent_sdk.tools import _load_ground_sampler_fns
-        from predicators.settings import CFG
 
         # pylint: enable=import-outside-toplevel
         ctx = self._ctx
@@ -539,7 +539,7 @@ class ProbeSim:
             types=types,
             parse_continuous_params=True,
             strict=True,
-            parse_ground_samplers=CFG.agent_bilevel_ground_samplers,
+            parse_ground_samplers=RefinementConfig.from_cfg().ground_samplers,
             ground_sampler_fns=gs_fns or None,
             notices=notices)
         if not sketch_steps:
@@ -616,10 +616,11 @@ class ProbeSim:
             # its own env, which the scope does not manage). Same CFG gate
             # as evaluate_option_plan's validation rollouts, so the two
             # surfaces sample the same distribution.
-            fresh_scope = (
-                ctx.validation_env_scope if CFG.agent_plan_validation_fresh_env
-                and ctx.validation_env_scope is not None
-                and ctx.probe_option_model_provider is None else None)
+            fresh_scope = (ctx.validation_env_scope
+                           if ValidationConfig.from_cfg().fresh_env
+                           and ctx.validation_env_scope is not None
+                           and ctx.probe_option_model_provider is None else
+                           None)
             # pylint: disable-next=import-outside-toplevel
             import contextlib
             trial_dicts: List[Dict[str, Any]] = []
@@ -806,7 +807,8 @@ class ProbeSim:
                 return inner_check(states, labels, coarse)
 
         if max_samples_per_step is None:
-            max_samples_per_step = CFG.agent_bilevel_max_samples_per_step
+            max_samples_per_step = \
+                RefinementConfig.from_cfg().max_samples_per_step
         self._refine_calls += 1
         # Deterministic but distinct from refine_plan_sketch's
         # CFG.seed + attempt streams and from other probe instances, so

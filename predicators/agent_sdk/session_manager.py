@@ -7,6 +7,7 @@ import os
 import time
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
+from predicators.agent_sdk.config import SessionConfig
 from predicators.agent_sdk.log_formatter import truncate
 from predicators.agent_sdk.response_parser import parse_message
 from predicators.agent_sdk.thinking import resolve_thinking_config
@@ -64,11 +65,14 @@ class AgentSessionManager:
                  log_dir: str,
                  model_name: str,
                  allowed_tools: Optional[List[str]] = None,
-                 tool_context: Any = None) -> None:
+                 tool_context: Any = None,
+                 config: Optional[SessionConfig] = None) -> None:
         self._system_prompt = system_prompt
         self._mcp_server = mcp_server
         self._log_dir = log_dir
         self._model_name = model_name
+        self._config = config if config is not None else \
+            SessionConfig.from_cfg()
         self._allowed_tools = allowed_tools
         # Optional ToolContext reference — read at session start so the
         # caller can inject ``extra_session_hooks`` between sessions
@@ -129,8 +133,8 @@ class AgentSessionManager:
             permission_mode="bypassPermissions",
             system_prompt=self._system_prompt,
             model=self._model_name,
-            max_turns=CFG.agent_sdk_max_agent_turns_per_iteration,
-            max_buffer_size=CFG.agent_sdk_max_buffer_size,
+            max_turns=self._config.max_turns,
+            max_buffer_size=self._config.max_buffer_size,
             thinking=thinking,  # type: ignore[arg-type]
             hooks=(extra_hooks
                    if extra_hooks else None),  # type: ignore[arg-type]

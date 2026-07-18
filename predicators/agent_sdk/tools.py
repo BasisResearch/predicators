@@ -15,6 +15,8 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, \
 
 import numpy as np
 
+from predicators.agent_sdk.config import RefinementConfig, SessionConfig, \
+    ToolSurfaceConfig, ValidationConfig
 from predicators.agent_sdk.proposal_exec import ProposalBundle, \
     build_exec_context, exec_code_safely, load_ground_samplers, \
     load_learned_samplers, validate_predicate
@@ -81,13 +83,13 @@ SCENE_TOOL_NAMES = [
 # (predicators/agent_sdk/probe_api.py). Named distinctly from the
 # synthesis-phase ``run_python`` (same execution core, different
 # namespace) so sessions, transcripts, and log greps never conflate the
-# two capabilities. Built only when CFG.agent_planner_use_explore_python
+# two capabilities. Built only when agent_planner_use_explore_python
 # is on - the legacy ``tool_names=None`` surface ("all static MCP
 # tools") must not hand baseline arms an ungated code-execution tool.
 EXPLORATION_TOOL_NAMES = [
     "explore_python",
 ]
-# Solve-journal writing (CFG.agent_solve_use_journal): agent-authored
+# Solve-journal writing (agent_solve_use_journal): agent-authored
 # lessons for future fresh-context attempts. Read side is prompt
 # injection, so this is the only journal tool.
 JOURNAL_TOOL_NAMES = [
@@ -105,8 +107,9 @@ def explore_python_replaces_tools() -> bool:
     read this one predicate, so the offered tools and the guidance that
     names them cannot drift apart.
     """
-    return (CFG.agent_planner_use_explore_python
-            and not CFG.agent_planner_explore_python_keep_replaced_tools)
+    surface_cfg = ToolSurfaceConfig.from_cfg()
+    return (surface_cfg.use_explore_python
+            and not surface_cfg.explore_python_keep_replaced_tools)
 
 
 ALL_TOOL_NAMES = (INSPECTION_TOOL_NAMES + PROPOSAL_TOOL_NAMES +
@@ -323,7 +326,7 @@ class ToolContext:
     # repeated rollouts correlated with each other and systematically
     # offset from the fresh real env. Installed by AgentSimLearningApproach
     # (see ``_fresh_validation_env_scope``); None ⇒ validation rollouts
-    # share the session env. Gated by CFG.agent_plan_validation_fresh_env.
+    # share the session env. Gated by agent_plan_validation_fresh_env.
     validation_env_scope: Optional[Callable[[], Any]] = None
     # Capture-task keys (see ``_capture_task_key``) that have produced a
     # FLAKY rejection in evaluate_option_plan. A flaky submission is direct
@@ -331,7 +334,7 @@ class ToolContext:
     # streak can pass the base rollout gate (run_20260717_182321: a
     # 20/20-swept placement validated 3/3, then failed the real episode),
     # so subsequent captures on these tasks must clear the escalated
-    # CFG.agent_plan_validation_rollouts_after_flaky gate instead.
+    # agent_plan_validation_rollouts_after_flaky gate instead.
     flaky_capture_task_keys: Set[Any] = field(default_factory=set)
     # Task-evaluator reward of the rollout that produced the current
     # solved_plan capture (None when no evaluator verdict was computed).
@@ -361,7 +364,7 @@ class ToolContext:
     best_uncaptured_plan_lines: Optional[List[str]] = None
     best_uncaptured_reward: Optional[float] = None
     # Per-call deadline for the explore_python call currently executing
-    # (CFG.agent_sdk_explore_python_call_timeout); enforced at the same
+    # (agent_sdk_explore_python_call_timeout); enforced at the same
     # probe checkpoints as attempt_deadline. None ⇒ no call in flight.
     explore_call_deadline: Optional[float] = None
 
@@ -456,7 +459,7 @@ def _region_syntax_blurb() -> str:
     off sent every audited run through 1-3 turns of syntax guessing
     against a feature that could not work.
     """
-    if CFG.agent_bilevel_ground_samplers:
+    if RefinementConfig.from_cfg().ground_samplers:
         return ", incl. `~ [w]` half-width regions after a step's params"
     return (" - note `~ [w]` regions are DISABLED in this configuration "
             "and are ignored if given")
@@ -780,14 +783,14 @@ def agent_render_resolution() -> Iterator[None]:
     """Scoped camera-resolution cap for agent-facing scene renders.
 
     While inside the block, pybullet_camera_width/height are scaled so
-    the longest side is CFG.agent_sdk_image_max_px (0 disables; never
+    the longest side is agent_sdk_image_max_px (0 disables; never
     upscales). Every image the agent views stays in its conversation for
     the rest of the session, so pixel count directly drives per-turn
     cost - and rendering at the capped size is cheaper than rendering
     full-res and resampling. Videos render outside this scope and keep
     the full camera resolution.
     """
-    max_px = CFG.agent_sdk_image_max_px
+    max_px = ToolSurfaceConfig.from_cfg().image_max_px
     old_w = CFG.pybullet_camera_width
     old_h = CFG.pybullet_camera_height
     if not max_px or max(old_w, old_h) <= max_px:
@@ -1122,7 +1125,7 @@ def _ground_samplers_path(ctx: ToolContext) -> Optional[str]:
     does: the local sandbox lives under ``<log_dir>/sandbox``, the
     docker sandbox at ``ctx.sandbox_dir``, else the log dir itself.
     """
-    if CFG.agent_sdk_use_local_sandbox and ctx.log_dir:
+    if SessionConfig.from_cfg().use_local_sandbox and ctx.log_dir:
         base: Optional[str] = os.path.abspath(
             os.path.join(ctx.log_dir, "sandbox"))
     elif ctx.sandbox_dir:
@@ -1144,7 +1147,7 @@ def _load_ground_sampler_fns(
     ``({}, None)``; a broken file returns an error message for the agent
     so it can fix the code instead of silently sampling uniformly.
     """
-    if not CFG.agent_bilevel_ground_samplers:
+    if not RefinementConfig.from_cfg().ground_samplers:
         return {}, None
     path = _ground_samplers_path(ctx)
     if path is None or not os.path.isfile(path):
@@ -1626,7 +1629,7 @@ def _build_proposal_tools(ctx: ToolContext, _text_result: Callable,
         },
     )
     async def propose_types(args: Dict[str, Any]) -> Dict[str, Any]:
-        if not CFG.agent_sdk_propose_types:
+        if not ToolSurfaceConfig.from_cfg().propose_types:
             return _error_result("Type proposals are disabled.")
         code = args["code"]
         exec_ctx = build_exec_context(ctx.types, ctx.predicates, ctx.options)
@@ -1669,7 +1672,7 @@ def _build_proposal_tools(ctx: ToolContext, _text_result: Callable,
         },
     )
     async def propose_predicates(args: Dict[str, Any]) -> Dict[str, Any]:
-        if not CFG.agent_sdk_propose_predicates:
+        if not ToolSurfaceConfig.from_cfg().propose_predicates:
             return _error_result("Predicate proposals are disabled.")
         code = args["code"]
         exec_ctx = build_exec_context(ctx.types, ctx.predicates, ctx.options)
@@ -1728,7 +1731,7 @@ def _build_proposal_tools(ctx: ToolContext, _text_result: Callable,
         },
     )
     async def propose_task_augmentor(args: Dict[str, Any]) -> Dict[str, Any]:
-        if not CFG.agent_sdk_propose_objects:
+        if not ToolSurfaceConfig.from_cfg().propose_objects:
             return _error_result("Object augmentor proposals are disabled.")
         code = args["code"]
         exec_ctx = build_exec_context(ctx.types, ctx.predicates, ctx.options)
@@ -1783,7 +1786,7 @@ def _build_proposal_tools(ctx: ToolContext, _text_result: Callable,
         },
     )
     async def propose_processes(args: Dict[str, Any]) -> Dict[str, Any]:
-        if not CFG.agent_sdk_propose_processes:
+        if not ToolSurfaceConfig.from_cfg().propose_processes:
             return _error_result("Process proposals are disabled.")
         code = args["code"]
         exec_ctx = build_exec_context(ctx.types, ctx.predicates, ctx.options)
@@ -1826,7 +1829,7 @@ def _build_proposal_tools(ctx: ToolContext, _text_result: Callable,
         },
     )
     async def propose_options(args: Dict[str, Any]) -> Dict[str, Any]:
-        if not CFG.agent_sdk_propose_options:
+        if not ToolSurfaceConfig.from_cfg().propose_options:
             return _error_result("Option proposals are disabled.")
         if ctx.proposals_disabled:
             return _error_result(
@@ -2070,11 +2073,13 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             f"Predicate {pred_name}({', '.join(object_names)}) "
             f"over trajectory {traj_idx}:\n" + "\n".join(results))
 
+    # Tool descriptions bake config values at BUILD time (session open);
+    # the handlers below re-read config at CALL time.
     _gs_eval_doc = (
         "Runs your exact params with NO sampling (a `~` ground-sampler "
         "annotation - `~ [w1, w2]` region or `~ my_sampler` - is accepted "
         "but IGNORED here; only refine_plan_sketch uses it). "
-        if CFG.agent_bilevel_ground_samplers else
+        if RefinementConfig.from_cfg().ground_samplers else
         "Runs your exact params with NO sampling. ")
 
     # When the session carries explore_python, the two surfaces divide
@@ -2085,7 +2090,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         "the ONLY path that captures an answer: do your exploration "
         "(modified states, partial plans, parameter sweeps) in "
         "explore_python, then validate and SUBMIT the final plan here."
-        if CFG.agent_planner_use_explore_python else "")
+        if ToolSurfaceConfig.from_cfg().use_explore_python else "")
 
     @tool(
         "evaluate_option_plan",
@@ -2151,6 +2156,8 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         from predicators import \
             utils  # pylint: disable=import-outside-toplevel
 
+        refine_cfg = RefinementConfig.from_cfg()
+        validation_cfg = ValidationConfig.from_cfg()
         ctx.test_call_id += 1
         # Snapshot for the [budget] footer's per-call delta; this handler
         # increments the counter itself (initial rollout + validation
@@ -2221,7 +2228,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 types=types,
                 parse_continuous_params=True,
                 strict=True,
-                parse_ground_samplers=CFG.agent_bilevel_ground_samplers,
+                parse_ground_samplers=refine_cfg.ground_samplers,
                 ground_sampler_fns=gs_fns or None,
                 notices=parse_notices)
         except Exception as e:  # pylint: disable=broad-except
@@ -2371,7 +2378,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # a margin-free plan that will likely fail on the real env
         # (run_20260712_192457 task 1: a sim-validated 2-hop relay died on a
         # ~9mm placement drift). So a goal-reaching plan is captured only
-        # after every one of CFG.agent_plan_validation_rollouts total
+        # after every one of validation_cfg.rollouts total
         # rollouts succeeds; a flaky repeat is reported to the agent, who
         # still has the session to add margin and resubmit.
         def _validation_rollout() -> Tuple[bool, str]:
@@ -2440,7 +2447,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
 
         flaky_detail: Optional[str] = None
         validation_note = ""
-        n_rollouts = max(1, CFG.agent_plan_validation_rollouts)
+        n_rollouts = max(1, validation_cfg.rollouts)
         # Escalated gate once this task has produced a FLAKY rejection: the
         # agent is provably tuning in a marginal region, where a lucky
         # streak passes the base gate and dies on the single real episode
@@ -2448,14 +2455,13 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # then missed the target for real).
         capture_task_key = _capture_task_key(ctx)
         if capture_task_key in ctx.flaky_capture_task_keys:
-            n_rollouts = max(n_rollouts,
-                             CFG.agent_plan_validation_rollouts_after_flaky)
+            n_rollouts = max(n_rollouts, validation_cfg.rollouts_after_flaky)
         # Fresh env per validation rollout when the approach provides one:
         # repeats on the shared env are correlated (its reset cannot
         # reconstruct state exactly), so only fresh envs sample the same
         # distribution the real episode will.
         fresh_scope = (ctx.validation_env_scope
-                       if CFG.agent_plan_validation_fresh_env else None)
+                       if validation_cfg.fresh_env else None)
         rollout_outcomes: List[str] = []
         if (ctx.capture_goal_reaching_plans and task_idx == "current"
                 and goal_achieved and not evaluator_rejected and grounded_plan
@@ -2595,8 +2601,8 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             # this point.
             ctx.flaky_capture_task_keys.add(capture_task_key)
             _stash_uncaptured_submission()
-            escalated_n = max(max(1, CFG.agent_plan_validation_rollouts),
-                              CFG.agent_plan_validation_rollouts_after_flaky)
+            escalated_n = max(max(1, validation_cfg.rollouts),
+                              validation_cfg.rollouts_after_flaky)
             n_ok = 1 + sum(1 for o in rollout_outcomes if "FAILED" not in o)
             per_rollout = "\n".join(f"  {o}" for o in rollout_outcomes)
             lines.append(
@@ -2961,12 +2967,12 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
         "`fn(state, subgoal_atoms, rng, objects) -> params`, so it can "
         "shape any state-dependent distribution). A ground sampler "
         "overrides any learned per-skill sampler for that step. "
-        if CFG.agent_bilevel_ground_samplers else "")
+        if RefinementConfig.from_cfg().ground_samplers else "")
     _gs_refine_plan_doc = (
         ", optionally followed by a ground sampler: `~ [w1, w2]` "
         "half-widths around those params, or `~ my_sampler` naming a "
         "GROUND_SAMPLERS entry in ground_samplers.py"
-        if CFG.agent_bilevel_ground_samplers else "")
+        if RefinementConfig.from_cfg().ground_samplers else "")
 
     @tool(
         "refine_plan_sketch",
@@ -3031,6 +3037,7 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
 
         from predicators.agent_sdk import bilevel_sketch
 
+        refine_cfg = RefinementConfig.from_cfg()
         if ctx.option_model is None:
             return _error_result(
                 "refine_plan_sketch requires a simulator (no option model "
@@ -3089,10 +3096,9 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
                 predicates=all_predicates,
                 options=all_options,
                 types=types,
-                parse_continuous_params=CFG.
-                agent_bilevel_use_llm_initial_params,
+                parse_continuous_params=refine_cfg.use_llm_initial_params,
                 strict=True,
-                parse_ground_samplers=CFG.agent_bilevel_ground_samplers,
+                parse_ground_samplers=refine_cfg.ground_samplers,
                 ground_sampler_fns=gs_fns or None,
                 notices=parse_notices,
             )
@@ -3107,8 +3113,8 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
         timeout, timeout_source = bilevel_sketch.resolve_refine_timeout(
             args.get("timeout"),
             len(sketch),
-            per_step=CFG.agent_bilevel_refinement_timeout_per_step,
-            minimum=CFG.agent_bilevel_refinement_timeout_min)
+            per_step=refine_cfg.refinement_timeout_per_step,
+            minimum=refine_cfg.refinement_timeout_min)
 
         # Refinement accepts a parameterization only if the task evaluator
         # also scores its rollout as a solve: a candidate that reaches the
@@ -3122,7 +3128,7 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
         # the standard RL end-of-episode observables - so it grants the
         # search nothing the agent could not compute itself, and it never
         # depends on a reward sign convention.
-        attempts = max(1, CFG.agent_bilevel_refine_evaluator_attempts)
+        attempts = max(1, refine_cfg.refine_evaluator_attempts)
         discarded_rewards: List[float] = []
         verdict_line: Optional[str] = None
         non_solve = False
@@ -3160,10 +3166,9 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
                         predicates=all_predicates,
                         timeout=remaining if attempt else timeout,
                         rng=np.random.default_rng(CFG.seed + attempt),
-                        max_samples_per_step=CFG.
-                        agent_bilevel_max_samples_per_step,
-                        check_subgoals=CFG.agent_bilevel_check_subgoals,
-                        log_state=CFG.agent_bilevel_log_state,
+                        max_samples_per_step=refine_cfg.max_samples_per_step,
+                        check_subgoals=refine_cfg.check_subgoals,
+                        log_state=refine_cfg.log_state,
                         parameterized_samplers=ctx.parameterized_samplers
                         or None,
                         run_id="planner_refine",
@@ -3511,7 +3516,8 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
     ``tool_names=None`` legacy surface would otherwise grant every
     default-configured session an in-process exec tool.
     """
-    if not CFG.agent_planner_use_explore_python:
+    surface_cfg = ToolSurfaceConfig.from_cfg()
+    if not surface_cfg.use_explore_python:
         return {}
     # pylint: disable-next=import-outside-toplevel
     from predicators.agent_sdk.probe_api import build_probe_namespace
@@ -3553,61 +3559,62 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
     explore_python = _make_python_exec_tool(
         tool,
         name="explore_python",
-        description=
-        ("Execute Python code for cheap physics/geometry exploration in "
-         "a persistent namespace (variables survive across calls - "
-         "define helpers and sweep loops once, reuse them). Available: "
-         f"{sim_desc}, `ProbeSim()` "
-         "(extra independent instances), `np`. ProbeSim API: "
-         f"{reset_desc}"
-         "`sim.run(plan_text, render=True, trials=1)` executes an option "
-         "plan FROM THE CURRENT "
-         "STATE (same grammar as evaluate_option_plan; print the result "
-         "for per-step outcomes incl. saved per-step scene-image paths - "
-         "view them with the Read tool; pass render=False inside tight "
-         "sweep loops) and advances the state; trials=N repeats the plan "
-         "N times (fresh physics per trial when available) and returns "
-         "the per-trial outcomes + success count WITHOUT advancing the "
-         "state - use it for reliability estimates instead of "
-         "hand-rolled repeat loops (restore/rerun repeats share solver "
-         "state and read optimistic); "
-         "`sim.state()` / "
-         "`sim.state('obj')` full-precision features; `sim.atoms()`; "
-         "`sim.render(label, annotations=None)` saves an image "
-         "(returns its path; Read it to view), "
-         "optionally overlaying marker/line/rectangle dicts "
-         "(`{'type': 'marker', 'position': [x, y, z], 'color': "
-         "[r, g, b], 'size': s}`; lines use `from`/`to`, rectangles "
-         "`min_corner`/`max_corner`) to check offsets and reference "
-         "points visually; `sim.snapshot()` / "
-         "`sim.restore(id)` bank and rewind states (use to re-try "
-         "different actions from one setup, or resume after a fixed "
-         "plan prefix without re-running it); "
-         "`sim.refine(sketch_text, timeout=60, require_goal=False, "
-         "require_solved=False)` runs "
-         "backtracking parameter search FROM THE CURRENT STATE (same "
-         "grammar/search as refine_plan_sketch"
-         f"{_region_syntax_blurb()}; "
-         "success = each step establishes its `-> {subgoals}` "
-         "annotation, and the result's Verdict line states what it "
-         "certifies) - refine a plan SUFFIX from a snapshot so the "
-         "budget goes to the step that matters; the result reports "
-         "best-found params even on timeout, per-step sample counts, and "
-         "the deepest near-miss. require_solved=True (only from an "
-         "unmodified reset() state) additionally requires the task "
-         "evaluator to score the final rollout solved=True, rejecting "
-         "goal-reaching-but-unscored candidates during the search. "
-         "print() output is "
-         "returned; oversize output is spilled to "
-         "`tool_outputs/explore_python/` (Read/Grep it back). " +
-         (f"Each call has a {CFG.agent_sdk_explore_python_call_timeout:.0f}s "
-          "wall-clock limit (checked between sim calls, plus a hard stop "
-          "for sim-free code; printed output up to the stop is "
-          "returned): budget sweeps accordingly - "
-          "prefer coarse-to-fine over exhaustive grids, and print "
-          "intermediate bests so partial results survive a stop. "
-          if CFG.agent_sdk_explore_python_call_timeout > 0
-          and not synthesis_probe else "") + f"{submit_desc}"),
+        description=(
+            "Execute Python code for cheap physics/geometry exploration in "
+            "a persistent namespace (variables survive across calls - "
+            "define helpers and sweep loops once, reuse them). Available: "
+            f"{sim_desc}, `ProbeSim()` "
+            "(extra independent instances), `np`. ProbeSim API: "
+            f"{reset_desc}"
+            "`sim.run(plan_text, render=True, trials=1)` executes an option "
+            "plan FROM THE CURRENT "
+            "STATE (same grammar as evaluate_option_plan; print the result "
+            "for per-step outcomes incl. saved per-step scene-image paths - "
+            "view them with the Read tool; pass render=False inside tight "
+            "sweep loops) and advances the state; trials=N repeats the plan "
+            "N times (fresh physics per trial when available) and returns "
+            "the per-trial outcomes + success count WITHOUT advancing the "
+            "state - use it for reliability estimates instead of "
+            "hand-rolled repeat loops (restore/rerun repeats share solver "
+            "state and read optimistic); "
+            "`sim.state()` / "
+            "`sim.state('obj')` full-precision features; `sim.atoms()`; "
+            "`sim.render(label, annotations=None)` saves an image "
+            "(returns its path; Read it to view), "
+            "optionally overlaying marker/line/rectangle dicts "
+            "(`{'type': 'marker', 'position': [x, y, z], 'color': "
+            "[r, g, b], 'size': s}`; lines use `from`/`to`, rectangles "
+            "`min_corner`/`max_corner`) to check offsets and reference "
+            "points visually; `sim.snapshot()` / "
+            "`sim.restore(id)` bank and rewind states (use to re-try "
+            "different actions from one setup, or resume after a fixed "
+            "plan prefix without re-running it); "
+            "`sim.refine(sketch_text, timeout=60, require_goal=False, "
+            "require_solved=False)` runs "
+            "backtracking parameter search FROM THE CURRENT STATE (same "
+            "grammar/search as refine_plan_sketch"
+            f"{_region_syntax_blurb()}; "
+            "success = each step establishes its `-> {subgoals}` "
+            "annotation, and the result's Verdict line states what it "
+            "certifies) - refine a plan SUFFIX from a snapshot so the "
+            "budget goes to the step that matters; the result reports "
+            "best-found params even on timeout, per-step sample counts, and "
+            "the deepest near-miss. require_solved=True (only from an "
+            "unmodified reset() state) additionally requires the task "
+            "evaluator to score the final rollout solved=True, rejecting "
+            "goal-reaching-but-unscored candidates during the search. "
+            "print() output is "
+            "returned; oversize output is spilled to "
+            "`tool_outputs/explore_python/` (Read/Grep it back). " +
+            (f"Each call has a "
+             f"{surface_cfg.explore_python_call_timeout:.0f}s "
+             "wall-clock limit (checked between sim calls, plus a hard stop "
+             "for sim-free code; printed output up to the stop is "
+             "returned): budget sweeps accordingly - "
+             "prefer coarse-to-fine over exhaustive grids, and print "
+             "intermediate bests so partial results survive a stop. "
+             if surface_cfg.explore_python_call_timeout > 0
+             and not synthesis_probe else "") + f"{submit_desc}"),
         exec_ns=build_probe_namespace(ctx),
         sandbox_dir=ctx.sandbox_dir,
         text_result=_text_result,
@@ -3629,7 +3636,7 @@ def _build_journal_tools(ctx: ToolContext, _text_result: Callable,
     (run_20260717_230436 seed1 concluded a "hard collision boundary"
     its sibling run placed through minutes later).
     """
-    if not CFG.agent_solve_use_journal:
+    if not ValidationConfig.from_cfg().use_journal:
         return {}
     # pylint: disable-next=import-outside-toplevel
     from predicators.agent_sdk import journal as journal_mod
@@ -3957,7 +3964,7 @@ def _make_python_exec_tool(
 
     ``budget_ctx`` (the solve session's ToolContext) opts the tool into
     wall-clock budgeting: each call arms the per-call deadline
-    (``CFG.agent_sdk_explore_python_call_timeout``) that probe sim calls
+    (``agent_sdk_explore_python_call_timeout``) that probe sim calls
     enforce cooperatively, a call arriving after the attempt deadline is
     refused with a submit-now message, and every result carries a
     ``[budget]`` footer (attempt time + rollout counts) so sweeps have a
@@ -4031,7 +4038,8 @@ def _make_python_exec_tool(
                     "best plan NOW via evaluate_option_plan on the current "
                     "task (omit task_idx)." +
                     _budget_footer(budget_ctx, rollouts_before))
-            call_timeout = CFG.agent_sdk_explore_python_call_timeout
+            call_timeout = ToolSurfaceConfig.from_cfg(
+            ).explore_python_call_timeout
             if budget_ctx.probe_option_model_provider is not None:
                 # Synthesis sessions probe the CANDIDATE simulator, whose
                 # rollouts are far slower than belief-sim ones and whose
@@ -4928,7 +4936,7 @@ def create_synthesis_tools(
         task_idx = int(args.get("task_idx", 0))
         # Treat missing/None timeout as "auto-scale by sketch length"
         # (computed inside run_refinement_for_synthesis from
-        # CFG.agent_bilevel_refinement_timeout_per_step / _min).
+        # agent_bilevel_refinement_timeout_per_step / _min).
         timeout_arg = args.get("timeout", None)
         timeout = float(timeout_arg) if timeout_arg is not None else None
         plan_text = args.get("plan", "") or ""
