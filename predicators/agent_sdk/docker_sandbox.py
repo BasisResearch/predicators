@@ -46,7 +46,9 @@ from typing import Any, Dict, List, Optional
 import dill as pkl
 
 from predicators.agent_sdk.sandbox_prompts import build_claude_md, \
-    build_sandbox_system_prompt, find_repo_root, setup_sandbox_directory
+    build_sandbox_system_prompt
+from predicators.agent_sdk.sandbox_setup import find_repo_root, \
+    setup_sandbox_directory
 from predicators.agent_sdk.tools import ToolContext, session_log_filename
 from predicators.settings import CFG
 

@@ -7,8 +7,8 @@ import os
 import time
 from typing import Any, Dict, List, Optional
 
+from predicators.agent_sdk.log_formatter import truncate
 from predicators.agent_sdk.response_parser import parse_message
-from predicators.agent_sdk.sandbox_prompts import truncate
 from predicators.agent_sdk.thinking import resolve_thinking_config
 from predicators.settings import CFG
 

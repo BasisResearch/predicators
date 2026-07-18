@@ -586,7 +586,7 @@ def _make_spilling_text_result(
 
 # Filesystem roots that, when they prefix an absolute path outside the
 # sandbox, mark it as a real escape (vs. data like "/done" printed by code).
-_SANDBOX_SYSTEM_ROOTS = (
+SANDBOX_SYSTEM_ROOTS = (
     "/Users",
     "/home",
     "/root",
@@ -609,7 +609,7 @@ _SANDBOX_SYSTEM_ROOTS = (
 # bare ``getsource`` substring also covers ``getsourcefile`` /
 # ``getsourcelines``; ``inspect.getfile`` is matched explicitly so the
 # generic ``getfilesystemencoding`` etc. don't false-positive.
-_SANDBOX_INTROSPECTION = ("getsource", "inspect.getfile", "site-packages")
+SANDBOX_INTROSPECTION = ("getsource", "inspect.getfile", "site-packages")
 # Hidden-implementation predicators imports inside agent-executed
 # Python: the exec runs in-process, so ``from predicators.envs... import
 # ...`` would hand the agent the real env classes and ground-truth
@@ -617,9 +617,13 @@ _SANDBOX_INTROSPECTION = ("getsource", "inspect.getfile", "site-packages")
 # run_20260717_182040 seed1 turn 22). Public authoring surfaces
 # (``predicators.structs``, ``predicators.utils``) stay importable -
 # agent-written simulator.py code depends on them.
+# The module alternation is shared with the sandbox hook script (see
+# sandbox_setup.VALIDATE_SANDBOX_SCRIPT), which anchors it differently
+# for shell-command strings; sharing the alternation keeps the two
+# guards covering the same modules by construction.
+SANDBOX_HIDDEN_MODULES_PATTERN = r"predicators\.(?:envs|ground_truth_models)\b"
 _SANDBOX_PREDICATORS_IMPORT_RE = re.compile(
-    r"^\s*(?:from|import)\s+predicators\.(?:envs|ground_truth_models)\b",
-    re.MULTILINE)
+    r"^\s*(?:from|import)\s+" + SANDBOX_HIDDEN_MODULES_PATTERN, re.MULTILINE)
 # Host filesystem prefixes scrubbed from tracebacks surfaced to agents:
 # absolute source paths both leak the layout and invite out-of-sandbox
 # probing (an audited run responded to one with ``find /``).
@@ -731,10 +735,10 @@ def _screen_text_for_sandbox_escape(text: str,
     This is a heuristic: a determined script can still escape (env vars,
     ``subprocess``, computed paths), so OS-level isolation (the docker
     sandbox) remains the only hard boundary. The equivalent self-contained
-    logic for Bash lives in ``sandbox_prompts.VALIDATE_SANDBOX_SCRIPT``;
+    logic for Bash lives in ``sandbox_setup.VALIDATE_SANDBOX_SCRIPT``;
     keep the two in sync.
     """
-    for needle in _SANDBOX_INTROSPECTION:
+    for needle in SANDBOX_INTROSPECTION:
         if needle in text:
             return (f"'{needle}' may read predicators source outside the "
                     "sandbox; use the MCP tools and ./reference/ files")
@@ -752,7 +756,7 @@ def _screen_text_for_sandbox_escape(text: str,
             continue
         if token.startswith("/") and not any(
                 token == root or token.startswith(root + "/")
-                for root in _SANDBOX_SYSTEM_ROOTS):
+                for root in SANDBOX_SYSTEM_ROOTS):
             # Absolute but not a real filesystem path (e.g. printed data
             # like "/done") — don't flag.
             continue

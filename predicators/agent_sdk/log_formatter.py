@@ -8,6 +8,16 @@ a human-readable markdown document.  Used by
 import json
 from typing import Any, Dict, List, Optional
 
+_MAX_PARAM_LEN = 120
+
+
+def truncate(value: Any, max_len: int = _MAX_PARAM_LEN) -> str:
+    """Return a short string repr of *value*, truncating if needed."""
+    s = repr(value)
+    if len(s) > max_len:
+        return s[:max_len] + "..."
+    return s
+
 
 def format_conversation_markdown(
     collected: List[Dict[str, Any]],
