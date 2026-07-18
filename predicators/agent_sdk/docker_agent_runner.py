@@ -41,73 +41,43 @@ logger = logging.getLogger(__name__)
 # pylint: disable=wrong-import-position
 from predicators.agent_sdk.log_formatter import \
     format_conversation_markdown  # noqa: E402
-from predicators.agent_sdk.log_formatter import truncate  # noqa: E402
-from predicators.agent_sdk.response_parser import parse_message  # noqa: E402
-from predicators.agent_sdk.thinking import \
-    resolve_thinking_config  # noqa: E402
-from predicators.agent_sdk.tools import BUILTIN_TOOLS  # noqa: E402
+from predicators.agent_sdk.session_base import build_agent_options, \
+    build_sandbox_mcp, stream_agent_response  # noqa: E402
 
 
 async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
     """Create a ClaudeSDKClient, query the agent, and collect responses."""
-    # pylint: disable=import-outside-toplevel
-    from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, \
-        create_sdk_mcp_server
-
-    from predicators.agent_sdk.tools import create_mcp_tools, \
-        get_allowed_tool_list
-
-    # pylint: enable=import-outside-toplevel
+    from claude_agent_sdk import \
+        ClaudeSDKClient  # pylint: disable=import-outside-toplevel
 
     ctx = query_input["tool_context"]
     tool_names: Optional[List[str]] = query_input.get("tool_names")
 
-    # Create MCP tools (closures over ctx — in-process, same as host)
-    tools = create_mcp_tools(ctx, tool_names=tool_names)
-    mcp_server = create_sdk_mcp_server(
-        name="predicator_tools",
-        version="1.0.0",
-        tools=tools,
-    )
-
-    # Build allowed_tools: built-in Claude tools + custom MCP tools
-    mcp_tool_list = get_allowed_tool_list(tool_names)
-    allowed_tools = BUILTIN_TOOLS + mcp_tool_list
-
-    # Model-dependent thinking config: adaptive on sonnet-5+ (where
-    # budget_tokens is rejected with a 400 and depth is controlled via
-    # reasoning_effort), manual extended thinking with a fixed budget on
-    # older models like claude-sonnet-4-6.
-    thinking = resolve_thinking_config(query_input["model_name"])
-    # Reasoning effort: one of the SDK levels, or unset for ""/"default".
-    effort = str(query_input.get("reasoning_effort", "")).strip().lower()
-    reasoning_effort = (effort if effort in {"low", "medium", "high", "max"}
-                        else None)
-    options = ClaudeAgentOptions(
-        allowed_tools=allowed_tools,
-        # No tool-search deferral: the predicator MCP schemas are always
-        # needed (see local_sandbox.py for the audit trail).
-        disallowed_tools=["ToolSearch"],
-        mcp_servers={"predicator_tools": mcp_server},
-        permission_mode="bypassPermissions",
+    # MCP server and options come from the same helpers the host-side
+    # managers use; every value is an explicit query_input entry (no CFG
+    # reads in-container).  An invalid reasoning_effort raises here and
+    # surfaces as an error response, matching host-side validation.
+    mcp_server, allowed_tools = build_sandbox_mcp(ctx, tool_names)
+    options = build_agent_options(
         system_prompt=query_input["system_prompt"],
-        model=query_input["model_name"],
+        model_name=query_input["model_name"],
+        allowed_tools=allowed_tools,
+        mcp_server=mcp_server,
         max_turns=query_input.get("max_turns", 20),
+        # Sent by DockerSessionManager from its SessionConfig; the 20MB
+        # fallback only covers pickles from older hosts.
         max_buffer_size=query_input.get("max_buffer_size", 20 * 1024 * 1024),
-        thinking=thinking,  # type: ignore[arg-type]
-        effort=reasoning_effort,  # type: ignore[arg-type]
+        reasoning_effort=str(query_input.get("reasoning_effort", "")),
     )
 
     client = ClaudeSDKClient(options=options)
     await client.connect()
 
-    collected: List[Dict[str, Any]] = []
-
-    # Incremental log file path (on shared /data volume)
+    # Incremental log file path (on shared /data or /log volume)
     log_path = query_input.get("log_path")
     log_meta = {"query": query_input.get("message", "")}
 
-    def _flush_log() -> None:
+    def _flush_log(collected: List[Dict[str, Any]]) -> None:
         """Write current conversation state as markdown to the log file."""
         if not log_path:
             return
@@ -120,52 +90,28 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
         except Exception:  # pylint: disable=broad-except
             pass  # Don't let logging errors break the agent
 
+    # Docker-specific stderr reporting for real-time host visibility
+    # (the host streams container stderr into its own log).
+    def _report_block(dt: float, preview: str) -> None:
+        print(f"[+{dt:.2f}s] {preview}", file=sys.stderr, flush=True)
+
+    def _report_result(entry: Dict[str, Any]) -> None:
+        print(
+            f"Agent iteration complete. "
+            f"Turns: {entry.get('num_turns', '?')}, "
+            f"Cost: ${entry.get('total_cost_usd', '?')}",
+            file=sys.stderr,
+            flush=True)
+
     try:
-        await client.query(query_input["message"])
-        async for msg in client.receive_response():
-            entry = parse_message(msg)
-            if entry is None:
-                continue
-            collected.append(entry)
-
-            # Docker-specific stderr logging for real-time visibility
-            if entry["type"] == "assistant":
-                for block in entry.get("content", []):
-                    btype = block.get("type", "")
-                    if btype == "text":
-                        print(f"Agent: {block['text'][:200]}...",
-                              file=sys.stderr,
-                              flush=True)
-                    elif btype == "tool_use":
-                        params = block.get("input") or {}
-                        param_summary = ", ".join(f"{k}={truncate(v)}"
-                                                  for k, v in params.items())
-                        print(
-                            f"Tool call: {block['name']}"
-                            f"({param_summary})",
-                            file=sys.stderr,
-                            flush=True)
-                    elif btype == "ThinkingBlock":
-                        thinking_text = str(block.get("thinking", ""))
-                        if thinking_text:
-                            print(f"Thinking: {thinking_text[:200]}...",
-                                  file=sys.stderr,
-                                  flush=True)
-            elif entry["type"] == "result":
-                print(
-                    f"Agent iteration complete. "
-                    f"Turns: {entry.get('num_turns', '?')}, "
-                    f"Cost: ${entry.get('total_cost_usd', '?')}",
-                    file=sys.stderr,
-                    flush=True)
-
-            # Flush log after each message
-            _flush_log()
-
-    except Exception as e:  # pylint: disable=broad-except
-        logger.error("Agent session error: %s", e)
-        collected.append({"type": "error", "error": str(e)})
-        _flush_log()
+        collected = await stream_agent_response(
+            client,
+            query_input["message"],
+            log_label="Docker runner",
+            report_block=_report_block,
+            on_result=_report_result,
+            flush=_flush_log,
+        )
     finally:
         try:
             await client.disconnect()
