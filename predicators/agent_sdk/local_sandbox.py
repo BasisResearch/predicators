@@ -13,7 +13,7 @@ agent to read.  The agent can write and run Python scripts in the sandbox.
 
 Usage
 -----
-When ``CFG.agent_sdk_use_local_sandbox`` is ``True``, the
+When the ``agent_sdk_use_local_sandbox`` flag is ``True``, the
 ``AgentSessionMixin`` creates a ``LocalSandboxSessionManager`` in place
 of the normal ``AgentSessionManager``::
 
@@ -29,6 +29,7 @@ import re
 import time
 from typing import Any, Dict, List, Optional
 
+from predicators.agent_sdk.config import SessionConfig
 from predicators.agent_sdk.log_formatter import format_conversation_markdown, \
     truncate
 from predicators.agent_sdk.response_parser import parse_message
@@ -39,7 +40,6 @@ from predicators.agent_sdk.sandbox_setup import find_repo_root, \
 from predicators.agent_sdk.thinking import resolve_thinking_config
 from predicators.agent_sdk.tools import BUILTIN_TOOLS, ToolContext, \
     session_log_filename
-from predicators.settings import CFG
 
 logger = logging.getLogger(__name__)
 
@@ -77,10 +77,13 @@ class LocalSandboxSessionManager:
         tool_names: Optional[List[str]] = None,
         extra_reference_files: Optional[Dict[str, str]] = None,
         phase: Optional[str] = None,
+        config: Optional[SessionConfig] = None,
     ) -> None:
         self._system_prompt = system_prompt + _LOCAL_SANDBOX_SYSTEM_PROMPT
         self._log_dir = log_dir
         self._model_name = model_name
+        self._config = config if config is not None else \
+            SessionConfig.from_cfg()
         self._tool_context = tool_context
         self._tool_names = tool_names
         self._extra_reference_files = extra_reference_files or {}
@@ -161,7 +164,7 @@ class LocalSandboxSessionManager:
             claude_md_content=build_claude_md(phase=self._phase),
             system_prompt=self._system_prompt,
             log_dir=self._log_dir,
-            seed_scratchpad=CFG.agent_planner_use_scratchpad,
+            seed_scratchpad=self._config.use_scratchpad,
             phase=self._phase,
         )
         self._sandbox_populated = True
@@ -202,12 +205,12 @@ class LocalSandboxSessionManager:
         thinking = resolve_thinking_config(self._model_name)
         # Reasoning effort: pass through to the agent when set to one of the
         # SDK's accepted levels; "" / "default" leaves it unset.
-        effort = CFG.agent_sdk_reasoning_effort.strip().lower()
+        effort = self._config.reasoning_effort.strip().lower()
         valid_efforts = {"low", "medium", "high", "max"}
         if effort and effort not in valid_efforts and effort != "default":
             raise ValueError(f"agent_sdk_reasoning_effort must be one of "
                              f"{sorted(valid_efforts)} or ''/'default'; got "
-                             f"{CFG.agent_sdk_reasoning_effort!r}")
+                             f"{self._config.reasoning_effort!r}")
         reasoning_effort = effort if effort in valid_efforts else None
         options = ClaudeAgentOptions(
             allowed_tools=allowed_tools,
@@ -223,8 +226,8 @@ class LocalSandboxSessionManager:
             permission_mode="bypassPermissions",
             system_prompt=self._system_prompt,
             model=self._model_name,
-            max_turns=CFG.agent_sdk_max_agent_turns_per_iteration,
-            max_buffer_size=CFG.agent_sdk_max_buffer_size,
+            max_turns=self._config.max_turns,
+            max_buffer_size=self._config.max_buffer_size,
             thinking=thinking,  # type: ignore[arg-type]
             effort=reasoning_effort,  # type: ignore[arg-type]
             cwd=self._sandbox_dir,
