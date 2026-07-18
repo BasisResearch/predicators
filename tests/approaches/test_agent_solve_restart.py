@@ -82,7 +82,7 @@ class _AttemptScript:
         self.calls = 0
         self.policies = []
 
-    def __call__(self, _task, _timeout):
+    def __call__(self, _task):
         kind, value = self.script[self.calls]
         self.calls += 1
         if kind == "fail":
@@ -210,7 +210,7 @@ def test_attempt_bookkeeping_reset_per_attempt():
     ctx = approach._tool_context
     seen = []
 
-    def _attempt(_task, _timeout):
+    def _attempt(_task):
         seen.append(
             (ctx.attempt_index, ctx.attempt_rollout_count, ctx.attempt_deadline
              is not None))
@@ -340,7 +340,7 @@ def test_journal_records_best_refused_submission(tmp_path):
     ctx = approach._tool_context
     ctx.test_task_idx = 0
 
-    def _attempt(_task, _timeout):
+    def _attempt(_task):
         ctx.best_uncaptured_plan_lines = ["Move(block0:block)[0.87]"]
         ctx.best_uncaptured_reward = -0.05
         raise ApproachFailure("no capture")

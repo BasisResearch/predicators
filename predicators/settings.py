@@ -1342,13 +1342,19 @@ class GlobalSettings:
 
     # Agent bilevel approach settings
     agent_bilevel_max_samples_per_step = 50  # param samples per step
-    agent_bilevel_max_retries = 3  # re-query agent (new skeleton) on failure
+    # Full agent plan-queries per solve attempt: the first query plus
+    # re-queries after RETRYABLE errors only (unparseable/empty final
+    # text, output-token overflow, or a session that finished without
+    # submitting an evaluate_option_plan capture). Budget ends (turn
+    # cap, spent attempt wall clock) never re-query: with restarts
+    # remaining (agent_solve_max_attempts) the attempt ends and the
+    # fresh-context restart is the retry, and on the final attempt the
+    # best-effort submission nudge is the fallback.
+    agent_bilevel_max_plan_queries = 3
     # Total refine_plan_sketch attempts (fresh rng each) when a refined
     # plan reaches the goal atoms but the task evaluator scores it as a
     # non-solve; all attempts share the one tool-call timeout budget.
     agent_bilevel_refine_evaluator_attempts = 3
-    # reseed refinement on the same skeleton before re-querying the agent
-    agent_bilevel_max_refine_retries = 5
     agent_bilevel_check_subgoals = True  # check subgoal atoms after each step
     # When True, the agent proposes per-step continuous parameters inside the
     # plan sketch (`Option(obj:type)[p1, p2] -> {subgoals}`). Refinement tries
@@ -1368,12 +1374,6 @@ class GlobalSettings:
     # expressible). Default False hides the grammar from the agent and
     # rejects the annotations, keeping baseline arms free of the channel.
     agent_bilevel_ground_samplers = False
-    # When True, restore the approach-side refinement fallback: if the agent
-    # finishes without a refine_plan_sketch-validated plan, the approach
-    # refines its parsed sketch itself. Default False makes the agent's
-    # tool-validated (refined + forward-validated) plan the ONLY solve path,
-    # so nothing unvalidated is ever executed.
-    agent_bilevel_refine_fallback = False
     # When True, close the agent SDK session at the start of each test task
     # so every test solve begins with a FRESH conversation (no context from
     # earlier test tasks). The sandbox filesystem and learned artifacts are

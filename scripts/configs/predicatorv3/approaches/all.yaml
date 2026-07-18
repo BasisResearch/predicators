@@ -46,11 +46,11 @@ APPROACHES:
   #           without the refine_plan_sketch tool), then the GT-hybrid-sim
   #           ladder ordered from most GT handed in down to least)
   # ======================================================================
-  # Oracle: GT monolithic sim as world model + GT predicates. Under the default
-  # flags here (agent_bilevel_refine_fallback False, use_llm_initial_params
-  # False) the LLM still delivers a full, concrete, exact-parameter plan and
-  # validates it in the sim via evaluate_option_plan -- the approach's own
-  # post-hoc backtracking search is skipped. What it adds over
+  # Oracle: GT monolithic sim as world model + GT predicates. Even with
+  # use_llm_initial_params False the LLM delivers a full, concrete,
+  # exact-parameter plan and validates it in the sim via
+  # evaluate_option_plan -- there is no approach-side backtracking
+  # fallback. What it adds over
   # agent_model_based_planning is the refine_plan_sketch tool (an agent-invokable
   # per-step backtracking parameter search) plus the sketch / per-step-subgoal
   # scaffolding. Paired with agent_model_based_planning below: same oracle GT

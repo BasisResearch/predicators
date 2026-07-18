@@ -108,7 +108,7 @@ def _make_approach():
         "option_model_name": "oracle",
         "seed": 42,
         "agent_bilevel_max_samples_per_step": 10,
-        "agent_bilevel_max_retries": 0,
+        "agent_bilevel_max_plan_queries": 0,
         "agent_bilevel_check_subgoals": True,
     })
 
@@ -598,7 +598,7 @@ class TestRefineSketch:
             "num_test_tasks": 1,
             "seed": 42,
             "agent_bilevel_max_samples_per_step": 3,
-            "agent_bilevel_max_retries": 0,
+            "agent_bilevel_max_plan_queries": 0,
             "agent_bilevel_check_subgoals": False,
         })
 
@@ -1224,7 +1224,7 @@ class TestExecutionReplanning:
         state = _make_state()
         policy(state)
         approach._replan_suffix = MagicMock(return_value=None)
-        # agent_bilevel_max_retries=0, so reaching the fresh-sketch body
+        # agent_bilevel_max_plan_queries=0, so reaching the fresh-sketch body
         # raises its distinctive failure - proof we fell through.
         with pytest.raises(ApproachFailure, match="Bilevel solve failed"):
             approach._solve(Task(state, task.goal), timeout=10)
@@ -1428,7 +1428,7 @@ class TestTurnCapHandling:
         retries stay reserved for real errors."""
         from predicators.approaches import ApproachFailure
         approach, _, task = _make_approach()
-        utils.update_config({"agent_bilevel_max_retries": 3})
+        utils.update_config({"agent_bilevel_max_plan_queries": 3})
         query = MagicMock(
             return_value=[self._cap_result(subtype="error_max_turns")])
         nudge = MagicMock(return_value=None)
@@ -1448,7 +1448,7 @@ class TestTurnCapHandling:
         from predicators.approaches import ApproachFailure
         approach, _, task = _make_approach()
         utils.update_config({
-            "agent_bilevel_max_retries": 3,
+            "agent_bilevel_max_plan_queries": 3,
             "agent_solve_max_attempts": 3,
         })
         query = MagicMock(
@@ -1465,7 +1465,7 @@ class TestTurnCapHandling:
         """A non-cap failure (e.g. unparseable output) still retries."""
         from predicators.approaches import ApproachFailure
         approach, _, task = _make_approach()
-        utils.update_config({"agent_bilevel_max_retries": 3})
+        utils.update_config({"agent_bilevel_max_plan_queries": 3})
         # Well under the cap, but no plan text: a real error, not budget end.
         query = MagicMock(
             return_value=[self._cap_result(subtype="success", num_turns=5)])
