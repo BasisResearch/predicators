@@ -17,7 +17,7 @@ from predicators.structs import NSRT, GroundAtom, \
     Task, Type, _GroundSTRIPSOperator
 
 if TYPE_CHECKING:
-    from predicators.agent_sdk.session_manager import AgentSessionManager
+    from predicators.agent_sdk.session_manager import SessionManagerProtocol
     from predicators.agent_sdk.tools import ToolContext
 
 __all__ = ["BaseExplorer"]
@@ -48,7 +48,7 @@ def create_explorer(
     pursue_task_goal_first: Optional[bool] = None,
     maple_q_function: Optional[MapleQFunction] = None,
     tool_context: Optional["ToolContext"] = None,
-    agent_session: Optional["AgentSessionManager"] = None,
+    agent_session: Optional["SessionManagerProtocol"] = None,
 ) -> BaseExplorer:
     """Create an explorer given its name."""
     if max_steps_before_termination is None:

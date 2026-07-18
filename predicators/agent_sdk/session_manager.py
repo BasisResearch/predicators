@@ -5,12 +5,54 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 from predicators.agent_sdk.log_formatter import truncate
 from predicators.agent_sdk.response_parser import parse_message
 from predicators.agent_sdk.thinking import resolve_thinking_config
 from predicators.settings import CFG
+
+
+@runtime_checkable
+class SessionManagerProtocol(Protocol):
+    """Structural interface shared by the three session managers.
+
+    Implemented by :class:`AgentSessionManager` (in-process, no
+    sandbox), ``LocalSandboxSessionManager`` (in-process, sandbox cwd +
+    hooks), and ``DockerSessionManager`` (stateless container per
+    query). Consumers — ``AgentSessionMixin`` and the agent explorers —
+    must depend on this, not a concrete manager.
+    """
+
+    session_id: Optional[str]
+
+    @property
+    def tool_names(self) -> List[str]:
+        """Fully-qualified allowed tool names for this session."""
+        ...  # pylint: disable=unnecessary-ellipsis
+
+    @property
+    def conversation_log(self) -> List[Dict[str, Any]]:
+        """In-memory log of all query/response pairs."""
+        ...  # pylint: disable=unnecessary-ellipsis
+
+    async def start_session(self) -> None:
+        """Start (or lazily prepare) the underlying agent session."""
+        ...  # pylint: disable=unnecessary-ellipsis
+
+    async def query(self,
+                    message: str,
+                    kind: str = "query") -> List[Dict[str, Any]]:
+        """Send one message and return the collected response entries."""
+        ...  # pylint: disable=unnecessary-ellipsis
+
+    async def close(self) -> None:
+        """Tear down the underlying agent session, if any."""
+        ...  # pylint: disable=unnecessary-ellipsis
+
+    def save_session_info(self) -> None:
+        """Persist session metadata to the log directory."""
+        ...  # pylint: disable=unnecessary-ellipsis
 
 
 class AgentSessionManager:

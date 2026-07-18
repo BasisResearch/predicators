@@ -6,10 +6,12 @@ creation shared by AgentModelFreeApproach and its subclasses.
 """
 import logging
 import os
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Set
+
+from gym.spaces import Box
 
 from predicators.agent_sdk.session_manager import AgentSessionManager, \
-    run_async_sync, run_query_sync
+    SessionManagerProtocol, run_async_sync, run_query_sync
 from predicators.agent_sdk.tools import ALL_TOOL_NAMES, ToolContext, \
     create_mcp_tools, get_allowed_tool_list
 from predicators.explorers import create_explorer
@@ -44,6 +46,17 @@ class AgentSessionMixin:
 
     _log_subdir: str = "agent"  # fallback; _get_log_dir prefers get_name()
 
+    # --- Host-class contract ------------------------------------------ #
+    # The mixin is mixed into BaseApproach subclasses; these declare the
+    # host attributes it reads, so a typo fails type-checking instead of
+    # silently hitting a getattr default. ``_learning_mode`` is flipped
+    # by the sim-learning approach around synthesis sessions; the class
+    # default keeps plain solve-only hosts working without declaring it.
+    _learning_mode: bool = False
+    _types: Set[Type]
+    _action_space: Box
+    _train_tasks: List[Any]
+
     # ------------------------------------------------------------------ #
     # Initialization
     # ------------------------------------------------------------------ #
@@ -62,8 +75,7 @@ class AgentSessionMixin:
             options=options,
             train_tasks=train_tasks,
         )
-        self._agent_session: Optional[Union[
-            AgentSessionManager, Any]] = None  # or DockerSessionManager
+        self._agent_session: Optional[SessionManagerProtocol] = None
         self._agent_session_id: Optional[str] = None
 
     # ------------------------------------------------------------------ #
@@ -127,7 +139,7 @@ class AgentSessionMixin:
         # synthesis tool sets independently — they may be disjoint.
         # ``tool_names`` is the *complete* declared list (may mix static
         # MCP names with names of dynamic SdkMcpTool instances).
-        if getattr(self, "_learning_mode", False):
+        if self._learning_mode:
             tool_names = self._get_synthesis_tool_names()  # pylint: disable=assignment-from-none
         else:
             tool_names = self._get_solve_tool_names()  # pylint: disable=assignment-from-none
@@ -144,16 +156,14 @@ class AgentSessionMixin:
             attached = list(self._tool_context.extra_mcp_tools or ())
             built = {getattr(t, "name", "") for t in attached}
             missing = dynamic_declared - built
-            phase_for_msg = ("synthesis" if getattr(self, "_learning_mode",
-                                                    False) else "solve")
+            phase_for_msg = "synthesis" if self._learning_mode else "solve"
             assert not missing, (
                 f"Dynamic tool name(s) {sorted(missing)} declared in "
                 f"_get_{phase_for_msg}_tool_names but no matching tool "
                 f"attached to ctx.extra_mcp_tools — add them to the "
                 f"builder or drop the names.")
 
-        phase = "synthesis" if getattr(self, "_learning_mode",
-                                       False) else "solve"
+        phase = "synthesis" if self._learning_mode else "solve"
         approach_name = getattr(type(self), "get_name",
                                 lambda: type(self).__name__)()
         if tool_names is None:
@@ -174,10 +184,11 @@ class AgentSessionMixin:
                 lines.append(f"  dynamic  {n}")
             logger.info("\n".join(lines))
 
+        session: SessionManagerProtocol
         if CFG.agent_sdk_use_docker_sandbox:
             from predicators.agent_sdk.docker_sandbox import \
                 DockerSessionManager  # pylint: disable=import-outside-toplevel
-            self._agent_session = DockerSessionManager(
+            session = DockerSessionManager(
                 system_prompt=self._get_agent_system_prompt(),
                 log_dir=self._get_log_dir(),
                 model_name=CFG.agent_sdk_model_name,
@@ -190,7 +201,7 @@ class AgentSessionMixin:
         elif CFG.agent_sdk_use_local_sandbox:
             from predicators.agent_sdk.local_sandbox import \
                 LocalSandboxSessionManager  # pylint: disable=import-outside-toplevel
-            self._agent_session = LocalSandboxSessionManager(
+            session = LocalSandboxSessionManager(
                 system_prompt=self._get_agent_system_prompt(),
                 log_dir=self._get_log_dir(),
                 model_name=CFG.agent_sdk_model_name,
@@ -210,7 +221,7 @@ class AgentSessionMixin:
                 tools=tools,
             )
 
-            self._agent_session = AgentSessionManager(
+            session = AgentSessionManager(
                 system_prompt=self._get_agent_system_prompt(),
                 mcp_server=mcp_server,
                 log_dir=self._get_log_dir(),
@@ -219,10 +230,9 @@ class AgentSessionMixin:
                 tool_context=self._tool_context,
             )
 
+        self._agent_session = session
         if self._agent_session_id is not None:
-            sess = self._agent_session
-            sess.session_id = (  # type: ignore[attr-defined,union-attr]
-                self._agent_session_id)
+            session.session_id = self._agent_session_id
 
         # Save system prompt to log directory. Suffix with the phase tag
         # so solve and synthesis prompts don't overwrite each other across
@@ -276,9 +286,9 @@ class AgentSessionMixin:
             name,
             predicates,
             options,
-            self._types,  # type: ignore[attr-defined]
-            self._action_space,  # type: ignore[attr-defined]
-            self._train_tasks,  # type: ignore[attr-defined]
+            self._types,
+            self._action_space,
+            self._train_tasks,
             tool_context=self._tool_context,
             agent_session=self._agent_session,
         )
