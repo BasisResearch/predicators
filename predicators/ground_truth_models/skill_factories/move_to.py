@@ -103,6 +103,7 @@ def make_move_to_phase(
     expect_contact: bool = False,
     allow_shallow_held_object_contacts: bool = False,
     validate_ik: bool = False,
+    check_release_clearance: bool = False,
 ) -> Phase:
     """Create a MOVE_TO_POSE phase for use in a ``PhaseSkill``.
 
@@ -114,8 +115,9 @@ def make_move_to_phase(
         name: Phase name (for logging).
         get_target_pose_fn: Callback that returns ``(x, y, z, yaw)``
             from ``(state, objects, params, config)``.
-        finger_status: ``"open"`` or ``"closed"``.  If ``None``, preserves
-            the current finger status from state.
+        finger_status: ``"open"``, ``"closed"``, or ``"hold"`` (keep the
+            current width, e.g. retreating from a partial-open release).
+            If ``None``, preserves the current finger status from state.
 
     Returns:
         A ``Phase`` that can be included in a ``PhaseSkill``.
@@ -170,4 +172,5 @@ def make_move_to_phase(
         expect_contact=expect_contact,
         allow_shallow_held_object_contacts=allow_shallow_held_object_contacts,
         validate_ik=validate_ik,
+        check_release_clearance=check_release_clearance,
     )

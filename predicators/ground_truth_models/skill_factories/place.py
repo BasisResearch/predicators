@@ -33,8 +33,9 @@ from typing import Optional, Sequence, Tuple
 
 import numpy as np
 
-from predicators.ground_truth_models.skill_factories.base import Phase, \
-    PhaseAction, PhaseSkill, SkillConfig, build_params_space
+from predicators.ground_truth_models.skill_factories.base import \
+    _RELEASE_CLEAR_SLACK, _RELEASE_OPEN_STEP, Phase, PhaseAction, PhaseSkill, \
+    SkillConfig, build_params_space
 from predicators.ground_truth_models.skill_factories.move_to import \
     make_move_to_phase
 from predicators.structs import Array, Object, ParameterizedOption, State, Type
@@ -71,6 +72,15 @@ def create_place_skill(
         1. **Descend** -- Lower to ``release_z``.
         2. **OpenFingers** -- Release the object.
         3. **Retreat** -- Rise to ``config.transport_z``.
+
+    When ``config.release_until_ungrasped`` is set, the release is
+    grasp-relative: **OpenFingers** opens gradually just until the
+    simulator drops the grasp constraint (observed as ``is_held``
+    flipping in the state), **ClearFingers** opens a few millimetres
+    more so the pads clear the released object, **Retreat** holds that
+    width, and a final **FullyOpenFingers** phase opens fully at
+    transport height - so a placement only needs side clearance for
+    roughly the held object's thickness, not the full opening span.
 
     Continuous parameters:
         ``(target_x, target_y, release_z, target_yaw)`` -- placement
@@ -117,6 +127,57 @@ def create_place_skill(
         target = cfg.open_fingers_joint
         return current, target
 
+    def _current_fingers(state: State, robot_obj: Object,
+                         cfg: SkillConfig) -> float:
+        return cfg.fingers_state_to_joint(cfg.robot,
+                                          state.get(robot_obj, "fingers"))
+
+    def _release_open_target(
+        state: State,
+        objects: Sequence[Object],
+        params: Array,
+        cfg: SkillConfig,
+    ) -> Tuple[float, float]:
+        # One anchored opening step from the measured grasp width - big
+        # enough to exceed every env's _finger_action_tol so the
+        # simulator drops the grasp constraint on the first action; the
+        # phase terminates (via _nothing_held) as soon as the state
+        # reflects the release, so the width stays bounded by
+        # grasp + _RELEASE_OPEN_STEP. Anchored (see
+        # Phase.anchor_finger_target) so the target does not ratchet
+        # while waiting for is_held to flip.
+        del params
+        current = _current_fingers(state, objects[0], cfg)
+        return current, min(cfg.open_fingers_joint,
+                            current + _RELEASE_OPEN_STEP)
+
+    def _clear_fingers_target(
+        state: State,
+        objects: Sequence[Object],
+        params: Array,
+        cfg: SkillConfig,
+    ) -> Tuple[float, float]:
+        # Anchored at phase entry (see Phase.anchor_finger_target): the
+        # width at which the release was observed, plus slack so the pads
+        # clear the released object before the hold-width retreat.
+        del params
+        current = _current_fingers(state, objects[0], cfg)
+        return current, min(cfg.open_fingers_joint,
+                            current + _RELEASE_CLEAR_SLACK)
+
+    def _nothing_held(
+        state: State,
+        objects: Sequence[Object],
+        params: Array,
+        cfg: SkillConfig,
+    ) -> bool:
+        del objects, params, cfg
+        for obj in state:
+            if "is_held" in obj.type.feature_names and \
+                    state.get(obj, "is_held") > 0.5:
+                return False
+        return True
+
     def _held_xy_offset(state: State,
                         robot_obj: Object) -> Tuple[float, float]:
         """(EE - held object) xy offset, or (0, 0) if nothing is held."""
@@ -153,20 +214,62 @@ def create_place_skill(
         off_x, off_y = _held_xy_offset(state, objects[0])
         return x + off_x, y + off_y, drop_z, yaw
 
+    # With release_until_ungrasped, the drop-pose opening is
+    # grasp-relative instead of full-span: open gradually until the
+    # simulator drops the grasp constraint, open a few millimetres more
+    # to clear the pads, retreat HOLDING that width (an "open" nudge
+    # would keep widening next to the placed object's neighbors, and a
+    # "closed" nudge would re-pinch it), and only open fully once back
+    # at transport height, clear of the scene.
+    partial_release = config.release_until_ungrasped
+
     phases = []
     if use_move_above:
         phases.append(make_move_to_phase("MoveAbove", _above_pose, "closed"))
-    phases.extend([
+    phases.append(
         make_move_to_phase("Descend" if use_move_above else "MoveToDrop",
-                           _drop_pose, "closed"),
-        Phase(
-            name="OpenFingers",
-            action_type=PhaseAction.CHANGE_FINGERS,
-            target_fn=_open_fingers_target,
-            finger_direction="open",
-        ),
-        make_move_to_phase("Retreat", _above_pose, "open"),
-    ])
+                           _drop_pose,
+                           "closed",
+                           check_release_clearance=True))
+    if partial_release:
+        phases.extend([
+            Phase(
+                name="OpenFingers",
+                action_type=PhaseAction.CHANGE_FINGERS,
+                target_fn=_release_open_target,
+                finger_direction="open",
+                terminal_fn=_nothing_held,
+                anchor_finger_target=True,
+            ),
+            Phase(
+                name="ClearFingers",
+                action_type=PhaseAction.CHANGE_FINGERS,
+                target_fn=_clear_fingers_target,
+                finger_direction="open",
+                anchor_finger_target=True,
+                # The default grasp_tol accepts ~2 cm of finger error -
+                # wider than the whole clear-slack travel, which would
+                # terminate the phase before the fingers move.
+                finger_tol=1e-6,
+            ),
+            make_move_to_phase("Retreat", _above_pose, "hold"),
+            Phase(
+                name="FullyOpenFingers",
+                action_type=PhaseAction.CHANGE_FINGERS,
+                target_fn=_open_fingers_target,
+                finger_direction="open",
+            ),
+        ])
+    else:
+        phases.extend([
+            Phase(
+                name="OpenFingers",
+                action_type=PhaseAction.CHANGE_FINGERS,
+                target_fn=_open_fingers_target,
+                finger_direction="open",
+            ),
+            make_move_to_phase("Retreat", _above_pose, "open"),
+        ])
 
     return PhaseSkill(name,
                       types,
