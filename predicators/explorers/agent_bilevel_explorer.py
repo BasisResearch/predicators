@@ -88,6 +88,7 @@ class AgentBilevelExplorer(BaseExplorer):
         self._tool_context.solved_plan = None
         self._tool_context.solved_sketch = None
         self._tool_context.solved_plan_reached_goal = None
+        self._tool_context.solved_plan_eval_reward = None
 
         try:
             prompt = bilevel_sketch.build_solve_prompt(
@@ -296,6 +297,7 @@ class AgentBilevelExplorer(BaseExplorer):
         self._tool_context.solved_plan = None
         self._tool_context.solved_sketch = None
         self._tool_context.solved_plan_reached_goal = None
+        self._tool_context.solved_plan_eval_reward = None
         if not plan or not captured_sketch:
             return None
         seeded: List[bilevel_sketch.SketchStep] = []

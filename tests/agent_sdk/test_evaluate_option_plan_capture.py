@@ -427,3 +427,46 @@ def test_best_effort_flaky_plan_is_captured():
     assert "FLAKY (plan NOT captured)" not in text
     assert ctx.solved_plan is not None
     assert ctx.solved_plan_reached_goal is False
+
+
+def test_capture_stashes_evaluator_reward():
+    """A capture records the evaluator verdict's reward for the restart loop's
+    cross-attempt ranking."""
+    model = _Model()
+    goal = {GroundAtom(_ReachedHi, [_block])}
+    _, ctx = _run_tool(model,
+                       evaluator=_StubEvaluator(goal, legit=True),
+                       rollouts=1)
+    assert ctx.solved_plan is not None
+    assert isinstance(ctx.solved_plan_eval_reward, float)
+
+
+def test_capture_without_evaluator_has_no_reward():
+    """No evaluator: the reward stash stays None (ranked below any rewarded
+    capture, above no capture)."""
+    model = _Model()
+    _, ctx = _run_tool(model, rollouts=1)
+    assert ctx.solved_plan is not None
+    assert ctx.solved_plan_eval_reward is None
+
+
+def test_budget_footer_during_attempt():
+    """The footer reports THIS call's rollout delta, not the attempt's
+    cumulative total masquerading as one."""
+    import time as _time  # pylint: disable=import-outside-toplevel
+    utils.reset_config({"agent_plan_validation_rollouts": 1})
+    model = _Model()
+    ctx = _make_ctx(model)
+    ctx.attempt_start = _time.monotonic()
+    # Simulate a prior explore sweep this attempt.
+    ctx.attempt_rollout_count = 50
+    text = _call_tool(ctx, _PLAN_TEXT)
+    assert "[budget] attempt time" in text
+    assert "sim rollouts this attempt: 51 (+1 this call)" in text
+
+
+def test_no_budget_footer_outside_attempt():
+    """No attempt in flight: no footer noise."""
+    model = _Model()
+    text, _ctx = _run_tool(model, rollouts=1)
+    assert "[budget]" not in text

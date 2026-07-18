@@ -1342,13 +1342,19 @@ class GlobalSettings:
 
     # Agent bilevel approach settings
     agent_bilevel_max_samples_per_step = 50  # param samples per step
-    agent_bilevel_max_retries = 3  # re-query agent (new skeleton) on failure
+    # Full agent plan-queries per solve attempt: the first query plus
+    # re-queries after RETRYABLE errors only (unparseable/empty final
+    # text, output-token overflow, or a session that finished without
+    # submitting an evaluate_option_plan capture). Budget ends (turn
+    # cap, spent attempt wall clock) never re-query: with restarts
+    # remaining (agent_solve_max_attempts) the attempt ends and the
+    # fresh-context restart is the retry, and on the final attempt the
+    # best-effort submission nudge is the fallback.
+    agent_bilevel_max_plan_queries = 3
     # Total refine_plan_sketch attempts (fresh rng each) when a refined
     # plan reaches the goal atoms but the task evaluator scores it as a
     # non-solve; all attempts share the one tool-call timeout budget.
     agent_bilevel_refine_evaluator_attempts = 3
-    # reseed refinement on the same skeleton before re-querying the agent
-    agent_bilevel_max_refine_retries = 5
     agent_bilevel_check_subgoals = True  # check subgoal atoms after each step
     # When True, the agent proposes per-step continuous parameters inside the
     # plan sketch (`Option(obj:type)[p1, p2] -> {subgoals}`). Refinement tries
@@ -1368,18 +1374,52 @@ class GlobalSettings:
     # expressible). Default False hides the grammar from the agent and
     # rejects the annotations, keeping baseline arms free of the channel.
     agent_bilevel_ground_samplers = False
-    # When True, restore the approach-side refinement fallback: if the agent
-    # finishes without a refine_plan_sketch-validated plan, the approach
-    # refines its parsed sketch itself. Default False makes the agent's
-    # tool-validated (refined + forward-validated) plan the ONLY solve path,
-    # so nothing unvalidated is ever executed.
-    agent_bilevel_refine_fallback = False
     # When True, close the agent SDK session at the start of each test task
     # so every test solve begins with a FRESH conversation (no context from
     # earlier test tasks). The sandbox filesystem and learned artifacts are
     # untouched. Default False keeps the current behavior: all test tasks
     # share one continuous agent conversation.
     agent_fresh_session_per_test_task = False
+    # Restart loop for test-task solving. Solve-time outcomes are close to
+    # heavy-tailed in agent-search quality (run_20260717 family split: the
+    # same tasks solved in 9-32 min in one launch and burned 2-11 h without
+    # solving in its identical sibling, anchored on wrong conclusions), so
+    # several short, independent attempts beat one long one. Each attempt
+    # above the first starts from a fresh conversation; the solve journal
+    # (below) carries curated knowledge across attempts. An attempt ends
+    # early with a validated (evaluator-solved) capture; otherwise its
+    # best-effort capture is banked and the best across attempts executes.
+    agent_solve_max_attempts = 1
+    # Wall-clock budget per solve attempt, in seconds (0 disables). The
+    # turn cap bounds turns, not compute - one explore_python sweep hid
+    # 47k rollouts (~7 h) inside a single turn. On expiry, exploration
+    # tools refuse with a submit-now message and the approach runs the
+    # same best-effort submission flow as turn-cap exhaustion.
+    agent_solve_attempt_wall_clock = 0.0
+    # When True, every solve attempt (including the first, i.e. every test
+    # task) begins with a fresh agent conversation; cross-attempt and
+    # cross-task knowledge travels through the solve journal instead of
+    # raw transcript history, which also carries the *wrong* conclusions
+    # of failed attempts.
+    agent_solve_fresh_context = False
+    # Persistent per-run solve journal (<sandbox>/journal.md): the harness
+    # auto-records each attempt's outcome + captured plan, the agent adds
+    # lessons via the record_journal tool, and the journal is injected
+    # into every solve prompt. Entries are capped and guided to record
+    # facts/measurements rather than verdicts, so failed attempts steer
+    # later ones away from repeated sweeps without re-importing their
+    # anchoring mistakes.
+    agent_solve_use_journal = False
+    # Per-call wall-clock limit for explore_python code execution, in
+    # seconds (0 disables). Enforced cooperatively at every probe sim
+    # call, plus a hard async-exception watchdog for sim-free code (a
+    # pure-Python loop blocks the event loop, so nothing else can stop
+    # it), so a combinatorial sweep stops with its printed output
+    # returned (partial results + a cost lesson) instead of blocking the
+    # session for hours. Synthesis sessions (candidate-simulator probes,
+    # whose rollouts are far slower and whose reset can trigger a
+    # refit) are exempt.
+    agent_sdk_explore_python_call_timeout = 600.0
     # Test-time closed-loop recovery. After each option in the refined plan
     # finishes, the subgoal_annotations execution monitor checks the
     # sketch's subgoal annotation for that step against the REAL state; on

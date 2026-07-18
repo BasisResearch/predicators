@@ -31,16 +31,27 @@ def _names(tools: Iterable[Any]) -> Set[str]:
 
 def test_create_mcp_tools_matches_all_tool_names() -> None:
     """``create_mcp_tools`` exposes exactly the names in ``ALL_TOOL_NAMES``
-    when the config opts into explore_python; without the opt-in, the legacy
-    ``tool_names=None`` surface must NOT carry the code-execution tool
-    (baseline arms would otherwise gain it silently)."""
+    when the config opts into every conditionally-built tool; without the
+    opt-ins the surface must NOT carry them (baseline arms would otherwise
+    gain the code-execution tool silently). Conditionally-built tools MUST
+    still appear in ``ALL_TOOL_NAMES``: the session-open sanity check
+    classifies any declared name outside it as a dynamic tool and asserts
+    when no builder attached it (run_20260718_124622 failed every solve
+    query because ``record_journal`` was missing from the roster)."""
     from predicators import utils
-    utils.reset_config({"agent_planner_use_explore_python": True})
+    utils.reset_config({
+        "agent_planner_use_explore_python": True,
+        "agent_solve_use_journal": True,
+    })
     tools = create_mcp_tools(ToolContext())
     assert _names(tools) == set(ALL_TOOL_NAMES)
-    utils.reset_config({"agent_planner_use_explore_python": False})
+    utils.reset_config({
+        "agent_planner_use_explore_python": False,
+        "agent_solve_use_journal": False,
+    })
     tools = create_mcp_tools(ToolContext())
-    assert _names(tools) == set(ALL_TOOL_NAMES) - {"explore_python"}
+    disabled = {"explore_python", "record_journal"}
+    assert _names(tools) == set(ALL_TOOL_NAMES) - disabled
 
 
 def test_create_synthesis_tools_matches_constant(tmp_path) -> None:
