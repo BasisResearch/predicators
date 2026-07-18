@@ -237,6 +237,36 @@ class GlobalSettings:
     # or goal configuration are treated as intended contact partners and
     # keep the hard margin. 0 disables the clearance entirely.
     pybullet_birrt_bystander_clearance = 0.003
+    # Required separation (metres) between the HELD OBJECT and bystander
+    # bodies during BiRRT. The held object hangs on a grasp constraint and
+    # lags the end effector's mid-path orientation swings by ~0.05 rad
+    # (~7 mm at the tip of a 15 cm domino), so a plan that clears a
+    # bystander by only pybullet_birrt_bystander_clearance still
+    # physically grazes it at execution (run_20260717_230436 test task1:
+    # a transported domino toppled a standing one the plan cleared by
+    # 3 mm). Bodies already within this clearance of the held object at
+    # the start or goal configuration fall back to the plain bystander
+    # clearance so deliberately tight placements stay plannable. Must stay
+    # below Bullet's 0.02 contactBreakingThreshold. 0 disables (falls back
+    # to the plain bystander clearance). Kept off globally because tight
+    # workspaces (boil) cannot afford the margin; graze-sensitive envs
+    # opt in per skill via SkillConfig.held_bystander_clearance (domino
+    # uses 0.015).
+    pybullet_birrt_held_bystander_clearance = 0.0
+    # BiRRT replay tracking gate: a waypoint is re-commanded until every
+    # arm joint is within this tolerance (radians) of it, so the executed
+    # path stays on the collision-checked plan. Popping one waypoint per
+    # control step regardless of tracking error lets the arm lag several
+    # waypoints behind and cut corners - the EE tilted up to 0.28 rad off
+    # the planned configs during a domino Place transport, swinging the
+    # held domino centimetres past the planner's bystander clearance and
+    # toppling a standing domino (run_20260717_230436 test task1). 0
+    # disables the gate.
+    pybullet_birrt_replay_track_tol = 0.03
+    # Deadlock guard for the tracking gate: after this many consecutive
+    # re-commands of the same waypoint, advance anyway (an unreachable
+    # waypoint otherwise stalls the phase until the episode horizon).
+    pybullet_birrt_replay_max_hold_steps = 10
     pybullet_control_mode = "position"
     pybullet_max_vel_norm = 0.05
     # env -> robot -> quaternion

@@ -126,9 +126,13 @@ def get_move_end_effector_to_pose_action(
     # Handle the fingers. Fingers drift if left alone.
     # When the fingers are not explicitly being opened or closed, we
     # nudge the fingers toward being open or closed according to the
-    # finger status.
+    # finger status. "hold" keeps the current width (e.g. retreating
+    # from a partial-open release without re-pinching the placed
+    # object or sweeping wider next to its neighbors).
     if finger_status == "open":
         finger_delta = finger_action_nudge_magnitude
+    elif finger_status == "hold":
+        finger_delta = 0.0
     else:
         assert finger_status == "closed"
         finger_delta = -finger_action_nudge_magnitude
@@ -192,9 +196,12 @@ def get_move_end_effector_to_pose_with_base_action(
         if moved_base_pose is not None:
             mobile_robot.set_base_pose(base_pose)
         raise utils.OptionExecutionFailure("Inverse kinematics failed.")
-    # Handle the fingers. Fingers drift if left alone.
+    # Handle the fingers. Fingers drift if left alone. "hold" keeps the
+    # current width (see get_move_end_effector_to_pose_action).
     if finger_status == "open":
         finger_delta = finger_action_nudge_magnitude
+    elif finger_status == "hold":
+        finger_delta = 0.0
     else:
         assert finger_status == "closed"
         finger_delta = -finger_action_nudge_magnitude

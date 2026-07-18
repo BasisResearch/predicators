@@ -135,6 +135,12 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
                             env_cls.robot_init_z),
             transport_z=cls._transport_z,
             simulator=simulator,
+            # A transported domino lags the EE's mid-path orientation
+            # swings by ~7 mm at its tip, and a graze topples a standing
+            # domino: plan with a wider berth around bystanders than the
+            # global 3 mm (run_20260717_230436 test task1 knocked a
+            # standing domino the plan had cleared).
+            held_bystander_clearance=0.015,
         )
 
     @classmethod

@@ -1103,6 +1103,33 @@ function filterRuns(text) {
   if (!text) restoreGroups();
   window._filtering = false;
 }
+// Index page: sort runs by seed (the server order) or by start time.
+// Time mode interleaves each experiment's seeds newest-first; the
+// experiment and family groups themselves stay in place.
+function sortMode() { return localStorage.getItem('lv-sort') || 'seed'; }
+function toggleSort() {
+  localStorage.setItem('lv-sort', sortMode() === 'seed' ? 'time' : 'seed');
+  paintSortBtn();
+  applySort();
+}
+function paintSortBtn() {
+  var b = $('#sortbtn');
+  if (b) b.textContent = 'sort: ' + sortMode();
+}
+function applySort() {
+  if (!$('#sortbtn')) return;
+  var byTime = sortMode() === 'time';
+  $all('table.runs').forEach(function(t) {
+    var rows = $all('tr.runrow', t);
+    rows.sort(function(a, b) {
+      if (!byTime && a.dataset.seed !== b.dataset.seed)
+        return a.dataset.seed < b.dataset.seed ? -1 : 1;
+      return b.dataset.start - a.dataset.start;
+    });
+    var tbody = rows.length ? rows[0].parentNode : null;
+    rows.forEach(function(r) { tbody.appendChild(r); });
+  });
+}
 function compareSelected() {
   var sel = $all('input.cmp:checked').map(function(c) { return c.value; });
   if (sel.length < 2) { alert('Select at least two runs to compare.'); return; }
@@ -1225,6 +1252,8 @@ function pollStamp() {
 }
 document.addEventListener('DOMContentLoaded', function() {
   paintAutoBtn();
+  paintSortBtn();
+  applySort();
   pollStamp();
   setInterval(pollStamp, REFRESH_MS);
   var f = $('#runfilter');
@@ -1439,7 +1468,8 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
     key = f"{r['exp']} {r['seed']} {r['name']} {status}".lower()
     cost_str = f"${cost:.2f}" if cost else "-"
     return ("<tr class='runrow' "
-            f"data-key='{esc(key)}'>"
+            f"data-key='{esc(key)}' data-seed='{esc(r['seed'])}' "
+            f"data-start='{start_ts:.0f}'>"
             f"<td><input type='checkbox' class='cmp' value='{esc(r['rel'])}'>"
             "</td>"
             f"<td><a href='/run?d={q(r['rel'])}'>{esc(r['name'])}</a></td>"
@@ -1517,6 +1547,9 @@ def index_page() -> str:
     body.append("</div>")
     topbar = ("<input id='runfilter' placeholder='filter runs…' "
               "oninput='filterRuns(this.value)'>"
+              "<button id='sortbtn' onclick='toggleSort()' title='seed: "
+              "group rows by seed, newest first within each seed; time: "
+              "newest runs first within each experiment'></button>"
               "<button onclick='setAllGroups(true)'>expand all</button>"
               "<button onclick='setAllGroups(false)'>collapse all</button>"
               "<button onclick='compareSelected()'>Compare selected"
