@@ -29,11 +29,13 @@ import re
 import time
 from typing import Any, Dict, List, Optional
 
-from predicators.agent_sdk.log_formatter import format_conversation_markdown
+from predicators.agent_sdk.log_formatter import format_conversation_markdown, \
+    truncate
 from predicators.agent_sdk.response_parser import parse_message
 from predicators.agent_sdk.sandbox_prompts import build_claude_md, \
-    build_sandbox_system_prompt, find_repo_root, setup_sandbox_directory, \
-    truncate
+    build_sandbox_system_prompt
+from predicators.agent_sdk.sandbox_setup import find_repo_root, \
+    git_commit_all, setup_sandbox_directory
 from predicators.agent_sdk.thinking import resolve_thinking_config
 from predicators.agent_sdk.tools import BUILTIN_TOOLS, ToolContext, \
     session_log_filename
@@ -48,9 +50,6 @@ _DEADLINE_INTERRUPT_SLACK_S = 180
 
 # Character cap for per-block debug previews of agent output.
 _TEXT_PREVIEW_CHARS = 200
-
-# Timeout for the git add/commit that makes session logs Glob-visible.
-_GIT_TIMEOUT_S = 5
 
 # Build local-sandbox-specific prompts from shared templates.
 # CLAUDE.md is built per-instance with the phase tag so the agent reads
@@ -491,29 +490,9 @@ class LocalSandboxSessionManager:
         # file must be committed before start_session() is called.
         if self._sandbox_log_path and self._sandbox_dir:
             try:
-                import subprocess  # pylint: disable=import-outside-toplevel
-                subprocess.run(
-                    ["git", "add", self._sandbox_log_path],
-                    cwd=self._sandbox_dir,
-                    capture_output=True,
-                    timeout=_GIT_TIMEOUT_S,
-                    check=False,
-                )
-                subprocess.run(
-                    [
-                        "git", "commit", "-q", "-m",
-                        f"log query {self._query_count}", "--author",
-                        "sandbox <sandbox@local>"
-                    ],
-                    cwd=self._sandbox_dir,
-                    capture_output=True,
-                    timeout=_GIT_TIMEOUT_S,
-                    check=False,
-                    env={
-                        **os.environ, "GIT_COMMITTER_NAME": "sandbox",
-                        "GIT_COMMITTER_EMAIL": "sandbox@local"
-                    },
-                )
+                git_commit_all(self._sandbox_dir,
+                               f"log query {self._query_count}",
+                               paths=[self._sandbox_log_path])
             except Exception as e:  # pylint: disable=broad-except
                 # A failed commit breaks the agent's Glob discovery of its
                 # own logs, so it is worth a visible warning.
