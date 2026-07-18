@@ -4237,11 +4237,17 @@ def create_synthesis_tools(
     from predicators.code_sim_learning.fitting import compute_sse, \
         compute_sse_recurrent, fit_rule_parameters, \
         fit_rule_parameters_latent
-    from predicators.code_sim_learning.physical_sysid import \
-        compute_residual_scaling, compute_rollout_sse, \
-        fit_params_rollout_trimmed, format_identifiability, \
-        identifiability_report, physical_param_anchors, \
+    from predicators.code_sim_learning.identifiability import \
+        format_identifiability, identifiability_report, \
         select_trustworthy_params
+    from predicators.code_sim_learning.physical_sysid import \
+        fit_params_rollout_trimmed
+    from predicators.code_sim_learning.rollout_env import \
+        physical_param_anchors
+    from predicators.code_sim_learning.rollout_objective import \
+        compute_rollout_sse
+    from predicators.code_sim_learning.trajectory_prep import \
+        compute_residual_scaling
     from predicators.code_sim_learning.utils import apply_rules, \
         has_latent_rules, iter_feature_residuals, read_latent_init, \
         read_physical_param_specs, read_simulator_components, \

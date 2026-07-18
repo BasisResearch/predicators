@@ -11,11 +11,15 @@ import numpy as np
 import pybullet as p
 
 import predicators.approaches  # noqa: F401  # pylint: disable=unused-import
-from predicators.code_sim_learning import physical_sysid
+from predicators.code_sim_learning import grid_seed, physical_sysid, \
+    rollout_env, trajectory_prep
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
+from predicators.code_sim_learning.identifiability import \
+    format_identifiability, identifiability_report, \
+    select_trustworthy_params
 from predicators.code_sim_learning.physical_sysid import \
-    fit_params_rollout_trimmed, identifiability_report, \
-    select_trustworthy_params, truncate_settled_tail
+    fit_params_rollout_trimmed
+from predicators.code_sim_learning.trajectory_prep import truncate_settled_tail
 from predicators.structs import Action, Object, State, Type
 
 _DOMINO_TYPE = Type("domino", ["x"])
@@ -224,6 +228,9 @@ def _patch_fit_and_rms(monkeypatch, fit_thetas, rms_by_count):
 
     monkeypatch.setattr(physical_sysid, "fit_params_rollout", fake_fit)
     monkeypatch.setattr(physical_sysid, "per_trajectory_rms", fake_rms)
+    # min_explainable_rms (called by the trimmed fit) evaluates its
+    # candidate grid through grid_seed's namespace.
+    monkeypatch.setattr(grid_seed, "per_trajectory_rms", fake_rms)
     # The stub trajectories are plain strings; skip the data-derived
     # residual scaling (exercised by its own tests).
     monkeypatch.setattr(physical_sysid, "compute_residual_scaling",
@@ -299,6 +306,7 @@ def test_consistency_loop_drops_disagreeing_survivor(monkeypatch):
 
     monkeypatch.setattr(physical_sysid, "fit_params_rollout", fake_fit)
     monkeypatch.setattr(physical_sysid, "per_trajectory_rms", fake_rms)
+    monkeypatch.setattr(grid_seed, "per_trajectory_rms", fake_rms)
     monkeypatch.setattr(physical_sysid, "compute_residual_scaling",
                         lambda *_a, **_k: None)
     result, survivors, _rms = fit_params_rollout_trimmed(
@@ -385,11 +393,11 @@ def test_pin_all_physical_params_reverts_undeclared():
     """A fit declaring a subset must not inherit an earlier fit's values."""
     env = _FakeStickyEnv(_REGISTRY)
     # Earlier fit's eval left lateral_friction at 2.0 on the shared env.
-    physical_sysid._pin_all_physical_params(env, {"lateral_friction": 2.0})
+    rollout_env._pin_all_physical_params(env, {"lateral_friction": 2.0})
     assert env.overrides["lateral_friction"] == 2.0
     # A later fit declares only rolling_friction: lateral_friction must be
     # pinned back to the env default, not stay at 2.0.
-    physical_sysid._pin_all_physical_params(env, {"rolling_friction": 0.02})
+    rollout_env._pin_all_physical_params(env, {"rolling_friction": 0.02})
     assert env.overrides["lateral_friction"] == 0.5
     assert env.overrides["rolling_friction"] == 0.02
 
@@ -405,7 +413,7 @@ def test_pin_all_physical_params_env_without_registry():
             self.applied = dict(params)
 
     env = _Bare()
-    physical_sysid._pin_all_physical_params(env, {"k": 1.0})
+    rollout_env._pin_all_physical_params(env, {"k": 1.0})
     assert env.applied == {"k": 1.0}
 
 
@@ -477,10 +485,8 @@ def test_rollout_states_factory_builds_and_disposes_fresh_env():
     def factory():
         return _FreshRolloutEnv(built)
 
-    out1 = physical_sysid.rollout_states(factory, states[0], actions,
-                                         {"k": 1.0})
-    out2 = physical_sysid.rollout_states(factory, states[0], actions,
-                                         {"k": 1.0})
+    out1 = rollout_env.rollout_states(factory, states[0], actions, {"k": 1.0})
+    out2 = rollout_env.rollout_states(factory, states[0], actions, {"k": 1.0})
     assert out1 == ["post_1", "post_2"] == out2
     assert len(built) == 2  # one fresh env per rollout
     assert all(not env.connected for env in built)  # both disposed
@@ -501,7 +507,7 @@ def test_rollout_states_factory_disposes_on_rollout_error():
         return _ExplodingEnv(built)
 
     try:
-        physical_sysid.rollout_states(factory, states[0], actions, {})
+        rollout_env.rollout_states(factory, states[0], actions, {})
         assert False, "expected the step error to propagate"
     except RuntimeError:
         pass
@@ -514,7 +520,7 @@ def test_rollout_states_env_instance_is_not_disposed():
     states, actions = _trajectory([0.0, 0.1, 0.2])
     built = []
     env = _FreshRolloutEnv(built)
-    out = physical_sysid.rollout_states(env, states[0], actions, {"k": 1.0})
+    out = rollout_env.rollout_states(env, states[0], actions, {"k": 1.0})
     assert out == ["post_1", "post_2"]
     assert env.connected  # caller-owned env stays alive
     p.disconnect(env._physics_client_id)  # pylint: disable=protected-access
@@ -538,12 +544,12 @@ def _angular_trajectory(xs, yaws):
 
 def test_residual_scaling_wraps_angular_features():
     """-pi vs +pi is the same orientation, so the residual must be ~0."""
-    scaling = physical_sysid.ResidualScaling(angular=frozenset({("spinner",
-                                                                 "yaw")}),
-                                             scales={
-                                                 ("spinner", "yaw"):
-                                                 float(np.pi)
-                                             })
+    scaling = trajectory_prep.ResidualScaling(angular=frozenset({("spinner",
+                                                                  "yaw")}),
+                                              scales={
+                                                  ("spinner", "yaw"):
+                                                  float(np.pi)
+                                              })
     near_zero = scaling.residual("spinner", "yaw", -np.pi + 1e-6, np.pi)
     assert abs(near_zero) < 1e-5
     # A genuine quarter-turn error survives the wrap: pi/2 / pi = 0.5.
@@ -553,8 +559,8 @@ def test_residual_scaling_wraps_angular_features():
 
 def test_residual_scaling_normalizes_linear_features():
     """Linear residuals are divided by the feature's scale entry."""
-    scaling = physical_sysid.ResidualScaling(angular=frozenset(),
-                                             scales={("spinner", "x"): 0.5})
+    scaling = trajectory_prep.ResidualScaling(angular=frozenset(),
+                                              scales={("spinner", "x"): 0.5})
     assert abs(scaling.residual("spinner", "x", 0.6, 0.5) - 0.2) < 1e-12
     # Unknown features fall back to scale 1 (raw difference).
     assert abs(scaling.residual("spinner", "q", 0.6, 0.5) - 0.1) < 1e-12
@@ -565,7 +571,7 @@ def test_compute_residual_scaling_reads_type_metadata():
     xs = [0.0, 0.1, 0.4]  # span 0.4 > floor
     yaws = [0.0, 1.0, 3.0]
     traj = _angular_trajectory(xs, yaws)
-    scaling = physical_sysid.compute_residual_scaling(
+    scaling = trajectory_prep.compute_residual_scaling(
         [traj], {"spinner": ["x", "yaw"]})
     assert scaling is not None
     assert ("spinner", "yaw") in scaling.angular
@@ -579,8 +585,8 @@ def test_compute_residual_scaling_floors_static_features(monkeypatch):
     monkeypatch.setattr(CFG, "code_sim_learning_rollout_feature_scale_floor",
                         0.05)
     traj = _angular_trajectory([0.2, 0.2, 0.2], [0.0, 0.0, 0.0])
-    scaling = physical_sysid.compute_residual_scaling([traj],
-                                                      {"spinner": ["x"]})
+    scaling = trajectory_prep.compute_residual_scaling([traj],
+                                                       {"spinner": ["x"]})
     assert scaling is not None
     assert abs(scaling.scales[("spinner", "x")] - 0.05) < 1e-12
 
@@ -591,7 +597,7 @@ def test_compute_residual_scaling_disabled(monkeypatch):
     monkeypatch.setattr(CFG, "code_sim_learning_rollout_scale_residuals",
                         False)
     traj = _angular_trajectory([0.0, 0.1], [0.0, 0.1])
-    assert physical_sysid.compute_residual_scaling(
+    assert trajectory_prep.compute_residual_scaling(
         [traj], {"spinner": ["x", "yaw"]}) is None
 
 
@@ -602,11 +608,11 @@ def test_split_at_rest_points_separates_phases():
     """Two motion phases with a long rest between -> two segments."""
     xs = ([0.01 * i for i in range(11)] + [0.1] * 40 +
           [0.1 + 0.01 * i for i in range(11)] + [0.2] * 40)
-    segments = physical_sysid.split_at_rest_points(_trajectory(xs),
-                                                   _PROCESS_FEATURES,
-                                                   motion_tol=1e-3,
-                                                   min_rest_steps=10,
-                                                   margin=5)
+    segments = trajectory_prep.split_at_rest_points(_trajectory(xs),
+                                                    _PROCESS_FEATURES,
+                                                    motion_tol=1e-3,
+                                                    min_rest_steps=10,
+                                                    margin=5)
     assert len(segments) == 2
     for states, actions in segments:
         assert len(states) == len(actions) + 1
@@ -627,21 +633,21 @@ def test_split_at_rest_points_keeps_short_pauses_together():
     """A pause shorter than min_rest_steps must not split the segment."""
     xs = ([0.01 * i for i in range(11)] + [0.1] * 4 +
           [0.1 + 0.01 * i for i in range(11)] + [0.2] * 30)
-    segments = physical_sysid.split_at_rest_points(_trajectory(xs),
-                                                   _PROCESS_FEATURES,
-                                                   motion_tol=1e-3,
-                                                   min_rest_steps=10,
-                                                   margin=5)
+    segments = trajectory_prep.split_at_rest_points(_trajectory(xs),
+                                                    _PROCESS_FEATURES,
+                                                    motion_tol=1e-3,
+                                                    min_rest_steps=10,
+                                                    margin=5)
     assert len(segments) == 1
 
 
 def test_split_at_rest_points_static_trajectory_yields_nothing():
     """No scored motion -> no segments (no parameter signal at all)."""
-    segments = physical_sysid.split_at_rest_points(_trajectory([0.5] * 50),
-                                                   _PROCESS_FEATURES,
-                                                   motion_tol=1e-3,
-                                                   min_rest_steps=10,
-                                                   margin=5)
+    segments = trajectory_prep.split_at_rest_points(_trajectory([0.5] * 50),
+                                                    _PROCESS_FEATURES,
+                                                    motion_tol=1e-3,
+                                                    min_rest_steps=10,
+                                                    margin=5)
     assert not segments
 
 
@@ -794,13 +800,13 @@ def _run_sweep(monkeypatch, sse_fn, specs, anchors, **flags):
     def fake_sse(_env, _trajs, params, *_args, **_kwargs):
         return sse_fn(params)
 
-    monkeypatch.setattr(physical_sysid, "compute_rollout_sse", fake_sse)
-    seeded, info = physical_sysid._grid_seed_physical_specs(None, ["traj"],
-                                                            specs,
-                                                            {"domino": ["x"]},
-                                                            [], [],
-                                                            None,
-                                                            anchors=anchors)
+    monkeypatch.setattr(grid_seed, "compute_rollout_sse", fake_sse)
+    seeded, info = grid_seed._grid_seed_physical_specs(None, ["traj"],
+                                                       specs,
+                                                       {"domino": ["x"]}, [],
+                                                       [],
+                                                       None,
+                                                       anchors=anchors)
     return {s.name: s.init_value for s in seeded}, info
 
 
@@ -935,7 +941,7 @@ def test_flat_interval_annotates_identified_report():
     assert entry["verdict"] == "identified"
     assert entry["flat_interval"] == (0.5, 2.0)
     assert entry["flat_wide"]
-    text = physical_sysid.format_identifiability(report)
+    text = format_identifiability(report)
     assert "data-equivalent over [0.5, 2]" in text
     assert "not a unique optimum" in text
     # A degenerate interval is neither rendered nor flagged wide.
@@ -945,5 +951,4 @@ def test_flat_interval_annotates_identified_report():
                                      specs,
                                      num_explainable=3)
     assert not report2["friction"]["flat_wide"]
-    assert "data-equivalent" not in physical_sysid.format_identifiability(
-        report2)
+    assert "data-equivalent" not in format_identifiability(report2)

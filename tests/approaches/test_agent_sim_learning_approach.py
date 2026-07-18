@@ -404,7 +404,7 @@ class _FakeScopeEnv:
 def _make_scope_approach(monkeypatch, prev_env, fresh_env, disposed):
     import predicators.approaches.agent_sim_learning_approach as asla
     monkeypatch.setattr(asla, "create_new_env", lambda *a, **k: fresh_env)
-    monkeypatch.setattr(asla, "_dispose_env", disposed.append)
+    monkeypatch.setattr(asla, "dispose_env", disposed.append)
     approach = asla.AgentSimLearningApproach.__new__(
         asla.AgentSimLearningApproach)
     approach._base_env = prev_env

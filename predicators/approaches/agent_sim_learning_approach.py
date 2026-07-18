@@ -49,11 +49,16 @@ from predicators.code_sim_learning.fitting import FIT_NOISE_SIGMA, \
     compute_sse, compute_sse_recurrent, fit_params, fit_params_recurrent, \
     fit_rule_parameters, fit_rule_parameters_latent, log_param_changes, \
     log_sse_breakdown
-from predicators.code_sim_learning.physical_sysid import RolloutTrajectory, \
-    _dispose_env, compute_residual_scaling, compute_rollout_sse, \
-    fit_params_rollout, fit_params_rollout_trimmed, format_identifiability, \
-    identifiability_report, physical_param_anchors, \
-    select_trustworthy_params, split_at_rest_points, truncate_settled_tail
+from predicators.code_sim_learning.identifiability import \
+    format_identifiability, identifiability_report, \
+    select_trustworthy_params
+from predicators.code_sim_learning.physical_sysid import fit_params_rollout, \
+    fit_params_rollout_trimmed
+from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
+    dispose_env, physical_param_anchors
+from predicators.code_sim_learning.rollout_objective import compute_rollout_sse
+from predicators.code_sim_learning.trajectory_prep import \
+    compute_residual_scaling, split_at_rest_points, truncate_settled_tail
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, apply_rules_with_latent, has_latent_rules, init_latent, \
     iter_feature_residuals, merge_updates, read_latent_init, \
@@ -1660,7 +1665,7 @@ the tools.{probe_note}"""
         When ``process_features`` is given (the fit's scored features)
         and ``CFG.code_sim_learning_rollout_truncate_settled`` is on,
         each trajectory's static tail is cut (see
-        :func:`physical_sysid.truncate_settled_tail`) so the fit scores
+        :func:`trajectory_prep.truncate_settled_tail`) so the fit scores
         the active cascade, not hundreds of settled steps of accumulated
         rollout divergence.
         """
@@ -1991,14 +1996,15 @@ the tools.{probe_note}"""
     ) -> Tuple[FitResult, float]:
         """MCMC over the recurrent (per-trajectory) SSE.
 
-        Counterpart to :func:`fitting.fit_rule_parameters` for rules that carry a
-        latent block. Re-groups the flat ``base_pred_triples`` into per-
-        trajectory chunks (latent threads within a trajectory, not
-        across) via the lengths cached in ``self._fit_trajectories``;
-        falls back to a single trajectory if no grouping info exists.
-        Delegates the actual fit/log to :func:`fitting.fit_rule_parameters_latent`
-        so the agent's ``evaluate_step_fit`` tool scores latent rules
-        through the exact same path.
+        Counterpart to :func:`fitting.fit_rule_parameters` for rules
+        that carry a latent block. Re-groups the flat
+        ``base_pred_triples`` into per- trajectory chunks (latent
+        threads within a trajectory, not across) via the lengths cached
+        in ``self._fit_trajectories``; falls back to a single trajectory
+        if no grouping info exists. Delegates the actual fit/log to
+        :func:`fitting.fit_rule_parameters_latent` so the agent's
+        ``evaluate_step_fit`` tool scores latent rules through the exact
+        same path.
         """
         groups = self._group_triples_by_trajectory(base_pred_triples)
         if not groups:
@@ -2554,7 +2560,7 @@ files to see exactly which rules and predicates produced each failed plan.
                 model.sim_env = prev_sim_env
             if current is not prev_env:
                 try:
-                    _dispose_env(current)
+                    dispose_env(current)
                 except Exception:  # pylint: disable=broad-except
                     pass  # client already dead (crashed mid-rollout)
 
