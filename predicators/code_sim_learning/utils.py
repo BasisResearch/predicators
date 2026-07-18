@@ -38,6 +38,7 @@ from typing import Any, Callable, Dict, Iterable, Iterator, List, Mapping, \
 
 import numpy as np
 
+from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.structs import Action, Object, State
 
 logger = logging.getLogger(__name__)
@@ -188,7 +189,7 @@ def init_latent(
     ``latent_init`` follows the same convention as ``PARAM_SPECS``: it
     may be ``None`` (empty block), a plain ``Dict[str, Any]``, or a
     zero-arg callable returning such a dict. Values may be
-    :class:`~predicators.code_sim_learning.training.ParamSpec`
+    :class:`~predicators.code_sim_learning.fit_space.ParamSpec`
     instances, in which case the corresponding entry from
     ``params[name]`` is used (falling back to ``init_value`` if the
     param hasn't been fit yet) — this lets MCMC fit the initial
@@ -200,9 +201,6 @@ def init_latent(
         latent_init = latent_init()
     if not isinstance(latent_init, dict):
         return {}
-    # Late import to avoid a circular dependency.
-    # pylint: disable=import-outside-toplevel
-    from predicators.code_sim_learning.training import ParamSpec
     out: Dict[str, Any] = {}
     for k, v in latent_init.items():
         if isinstance(v, ParamSpec):
@@ -409,7 +407,7 @@ def stamp_physical_spec_scales(specs: List, base_env: Any) -> List:
     declared (default linear).
     """
     # pylint: disable=import-outside-toplevel
-    from predicators.code_sim_learning.training import ParamSpec
+    from predicators.code_sim_learning.fit_space import ParamSpec
 
     # pylint: enable=import-outside-toplevel
     getter = getattr(base_env, "get_physical_param_info", None)

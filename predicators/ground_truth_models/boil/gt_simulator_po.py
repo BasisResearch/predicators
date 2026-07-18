@@ -42,7 +42,7 @@ from typing import Any, Dict, List
 
 import numpy as np
 
-from predicators.code_sim_learning.training import ParamSpec
+from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.utils import History, Params, \
     ProcessUpdate, objs_by_type
 from predicators.ground_truth_models import GroundTruthSimulatorFactory

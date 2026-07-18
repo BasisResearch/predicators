@@ -14,7 +14,8 @@ import numpy as np
 import predicators.approaches  # noqa: F401  # pylint: disable=unused-import
 from predicators import utils
 from predicators.approaches.agent_model_based_approach import _SketchStep
-from predicators.code_sim_learning.training import ParamSpec, fit_params
+from predicators.code_sim_learning.fit_space import ParamSpec
+from predicators.code_sim_learning.fitting import fit_params
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.ground_truth_models.boil.gt_simulator import PARAM_SPECS, \

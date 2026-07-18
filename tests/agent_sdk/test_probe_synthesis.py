@@ -89,7 +89,7 @@ def test_candidate_probe_model_provider_glue(tmp_path) -> None:
     """
     from predicators.approaches.agent_sim_learning_approach import \
         AgentSimLearningApproach
-    from predicators.code_sim_learning.training import FitResult
+    from predicators.code_sim_learning.fit_space import FitResult
 
     approach = object.__new__(AgentSimLearningApproach)
     approach._fitted_params = {}

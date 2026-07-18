@@ -295,7 +295,7 @@ names. Any predicate you reference in a sketch must exist in \
         from predicators.agent_sdk.proposal_parser import build_exec_context, \
             exec_code_safely, validate_predicate
         from predicators.agent_sdk.tools import _ParamsView
-        from predicators.code_sim_learning.training import ParamSpec
+        from predicators.code_sim_learning.fit_space import ParamSpec
 
         # pylint: enable=import-outside-toplevel
 
