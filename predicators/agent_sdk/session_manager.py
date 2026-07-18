@@ -79,6 +79,10 @@ class AgentSessionManager:
         thinking = resolve_thinking_config(self._model_name)
         options = ClaudeAgentOptions(
             allowed_tools=self._allowed_tools or [],
+            # No tool-search deferral: the predicator MCP schemas are the
+            # whole task surface and are always needed (see
+            # local_sandbox.py for the audit trail).
+            disallowed_tools=["ToolSearch"],
             mcp_servers={"predicator_tools": self._mcp_server},
             permission_mode="bypassPermissions",
             system_prompt=self._system_prompt,

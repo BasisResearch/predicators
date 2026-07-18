@@ -85,6 +85,9 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
                         else None)
     options = ClaudeAgentOptions(
         allowed_tools=allowed_tools,
+        # No tool-search deferral: the predicator MCP schemas are always
+        # needed (see local_sandbox.py for the audit trail).
+        disallowed_tools=["ToolSearch"],
         mcp_servers={"predicator_tools": mcp_server},
         permission_mode="bypassPermissions",
         system_prompt=query_input["system_prompt"],

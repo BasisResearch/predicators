@@ -200,6 +200,14 @@ class LocalSandboxSessionManager:
         reasoning_effort = effort if effort in valid_efforts else None
         options = ClaudeAgentOptions(
             allowed_tools=allowed_tools,
+            # Disallowing ToolSearch turns off tool-search deferral, so
+            # every predicator MCP tool schema is loaded up front. With
+            # deferral on, every audited run burned 5-9 turns on the
+            # ToolSearch ritual (select: misses on unprefixed names, bare
+            # `mcp__predicator_tools` miscalls) and re-paid it after each
+            # compaction - the handful of core tools are always needed,
+            # so deferring their schemas saves nothing.
+            disallowed_tools=["ToolSearch"],
             mcp_servers={"predicator_tools": mcp_server},
             permission_mode="bypassPermissions",
             system_prompt=self._system_prompt,
