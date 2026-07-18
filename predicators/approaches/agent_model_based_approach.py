@@ -29,7 +29,7 @@ import numpy as np
 
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
-from predicators.agent_sdk.bilevel_sketch import SketchStep as _SketchStep
+from predicators.agent_sdk.sketch_types import SketchStep as _SketchStep
 from predicators.agent_sdk.tools import BUILTIN_TOOLS, \
     _load_ground_sampler_fns, explore_python_replaces_tools
 from predicators.approaches import ApproachFailure

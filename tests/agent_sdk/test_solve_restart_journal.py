@@ -369,7 +369,7 @@ def test_explore_python_no_footer_outside_attempt(tmp_path):
 def test_solve_prompt_includes_journal_section():
     """build_solve_prompt renders the journal with its usage guidance."""
     # pylint: disable-next=import-outside-toplevel
-    from predicators.agent_sdk.bilevel_sketch import build_solve_prompt
+    from predicators.agent_sdk.sketch_prompts import build_solve_prompt
     utils.reset_config({})
     ctx = _make_ctx()
     task = ctx.train_tasks[0]

@@ -28,7 +28,6 @@ import numpy as np
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.rendering import save_task_state_image
 from predicators.agent_sdk.tools import agent_render_resolution, \
     explore_python_replaces_tools

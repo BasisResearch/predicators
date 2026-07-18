@@ -1,4 +1,4 @@
-"""Tests for per-skill synthesized samplers in bilevel_sketch refinement.
+"""Tests for per-skill synthesized samplers in ``sketch_refinement``.
 
 Verifies that a sampler registered under an option name in
 ``parameterized_samplers`` is consulted (with the step's subgoal +
@@ -18,8 +18,12 @@ import pytest
 from gym.spaces import Box
 
 from predicators import utils  # noqa: F401  (settles import order)
-from predicators.agent_sdk import bilevel_sketch
-from predicators.agent_sdk.bilevel_sketch import SketchStep, sample_params
+from predicators.agent_sdk.plan_execution import execute_plan_forward
+from predicators.agent_sdk.sketch_parsing import parse_atoms, \
+    parse_sketch_from_text, strip_subgoal_annotations
+from predicators.agent_sdk.sketch_refinement import \
+    refine_and_validate_report, refine_sketch, sample_params
+from predicators.agent_sdk.sketch_types import SketchStep
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, Type
 
@@ -132,7 +136,7 @@ def test_registered_sampler_is_used():
         return np.array([0.95], dtype=np.float32)
 
     model = _FakeOptionModel()
-    plan, success, total = bilevel_sketch.refine_sketch(
+    plan, success, total = refine_sketch(
         _task_hi(),
         _sketch_hi(),
         model,
@@ -163,7 +167,7 @@ def test_missing_entry_falls_back_to_uniform():
     def other(*_args):
         raise AssertionError("sampler for a different option was called")
 
-    plan, success, _ = bilevel_sketch.refine_sketch(
+    plan, success, _ = refine_sketch(
         task,
         sketch,
         _FakeOptionModel(),
@@ -186,17 +190,16 @@ def test_bad_shape_falls_back_to_uniform():
     def bad(*_args):
         return np.array([0.5, 0.5], dtype=np.float32)  # shape (2,) != (1,)
 
-    plan, success, _ = bilevel_sketch.refine_sketch(
-        task,
-        sketch,
-        _FakeOptionModel(),
-        predicates={_Reached},
-        timeout=10.0,
-        rng=np.random.default_rng(0),
-        max_samples_per_step=50,
-        check_subgoals=True,
-        check_final_goal=False,
-        parameterized_samplers={"Move": bad})
+    plan, success, _ = refine_sketch(task,
+                                     sketch,
+                                     _FakeOptionModel(),
+                                     predicates={_Reached},
+                                     timeout=10.0,
+                                     rng=np.random.default_rng(0),
+                                     max_samples_per_step=50,
+                                     check_subgoals=True,
+                                     check_final_goal=False,
+                                     parameterized_samplers={"Move": bad})
     assert success
     assert 0.0 <= float(plan[0].params[0]) <= 1.0
 
@@ -208,17 +211,16 @@ def test_raising_sampler_falls_back_to_uniform():
     def boom(*_args):
         raise ValueError("nope")
 
-    _, success, _ = bilevel_sketch.refine_sketch(
-        task,
-        sketch,
-        _FakeOptionModel(),
-        predicates={_Reached},
-        timeout=10.0,
-        rng=np.random.default_rng(0),
-        max_samples_per_step=50,
-        check_subgoals=True,
-        check_final_goal=False,
-        parameterized_samplers={"Move": boom})
+    _, success, _ = refine_sketch(task,
+                                  sketch,
+                                  _FakeOptionModel(),
+                                  predicates={_Reached},
+                                  timeout=10.0,
+                                  rng=np.random.default_rng(0),
+                                  max_samples_per_step=50,
+                                  check_subgoals=True,
+                                  check_final_goal=False,
+                                  parameterized_samplers={"Move": boom})
     assert success
 
 
@@ -228,17 +230,16 @@ def test_none_samplers_unchanged():
     seed = 7
     first = float(sample_params(_Move, np.random.default_rng(seed))[0])
     task, sketch = _easy_task_and_sketch()
-    plan, success, _ = bilevel_sketch.refine_sketch(
-        task,
-        sketch,
-        _FakeOptionModel(),
-        predicates={_Reached},
-        timeout=10.0,
-        rng=np.random.default_rng(seed),
-        max_samples_per_step=50,
-        check_subgoals=True,
-        check_final_goal=False,
-        parameterized_samplers=None)
+    plan, success, _ = refine_sketch(task,
+                                     sketch,
+                                     _FakeOptionModel(),
+                                     predicates={_Reached},
+                                     timeout=10.0,
+                                     rng=np.random.default_rng(seed),
+                                     max_samples_per_step=50,
+                                     check_subgoals=True,
+                                     check_final_goal=False,
+                                     parameterized_samplers=None)
     assert success
     assert float(plan[0].params[0]) == first
 
@@ -251,7 +252,7 @@ def test_sampler_used_on_info_seeking_path():
         return np.array([0.9 + 0.05 * rng.random()], dtype=np.float32)
 
     model = _FakeOptionModel()
-    plan, success, _ = bilevel_sketch.refine_sketch(
+    plan, success, _ = refine_sketch(
         _task_hi(),
         _sketch_hi(),
         model,
@@ -281,16 +282,15 @@ def test_initial_params_tried_first_without_sampler():
                       subgoal_atoms={GroundAtom(_ReachedHi, [_block])},
                       initial_params=np.array([0.95], dtype=np.float32))
     model = _FakeOptionModel()
-    plan, success, total = bilevel_sketch.refine_sketch(
-        _task_hi(), [step],
-        model,
-        predicates={_ReachedHi},
-        timeout=10.0,
-        rng=np.random.default_rng(0),
-        max_samples_per_step=50,
-        check_subgoals=True,
-        check_final_goal=False,
-        parameterized_samplers=None)
+    plan, success, total = refine_sketch(_task_hi(), [step],
+                                         model,
+                                         predicates={_ReachedHi},
+                                         timeout=10.0,
+                                         rng=np.random.default_rng(0),
+                                         max_samples_per_step=50,
+                                         check_subgoals=True,
+                                         check_final_goal=False,
+                                         parameterized_samplers=None)
     assert success
     # The proposal satisfied the hard subgoal on the very first attempt.
     assert np.isclose(float(plan[0].params[0]), 0.95)
@@ -305,16 +305,15 @@ def test_initial_params_fall_back_to_uniform_on_failure():
                       objects=[_block],
                       subgoal_atoms={GroundAtom(_ReachedHi, [_block])},
                       initial_params=np.array([0.0], dtype=np.float32))
-    plan, success, total = bilevel_sketch.refine_sketch(
-        _task_hi(), [step],
-        _FakeOptionModel(),
-        predicates={_ReachedHi},
-        timeout=10.0,
-        rng=np.random.default_rng(0),
-        max_samples_per_step=200,
-        check_subgoals=True,
-        check_final_goal=False,
-        parameterized_samplers=None)
+    plan, success, total = refine_sketch(_task_hi(), [step],
+                                         _FakeOptionModel(),
+                                         predicates={_ReachedHi},
+                                         timeout=10.0,
+                                         rng=np.random.default_rng(0),
+                                         max_samples_per_step=200,
+                                         check_subgoals=True,
+                                         check_final_goal=False,
+                                         parameterized_samplers=None)
     assert success
     # The failed proposal was the first sample; uniform then found x >= 0.9.
     assert total > 1
@@ -327,16 +326,15 @@ def test_initial_params_clipped_to_box():
                       objects=[_block],
                       subgoal_atoms={GroundAtom(_ReachedHi, [_block])},
                       initial_params=np.array([5.0], dtype=np.float32))
-    plan, success, total = bilevel_sketch.refine_sketch(
-        _task_hi(), [step],
-        _FakeOptionModel(),
-        predicates={_ReachedHi},
-        timeout=10.0,
-        rng=np.random.default_rng(0),
-        max_samples_per_step=50,
-        check_subgoals=True,
-        check_final_goal=False,
-        parameterized_samplers=None)
+    plan, success, total = refine_sketch(_task_hi(), [step],
+                                         _FakeOptionModel(),
+                                         predicates={_ReachedHi},
+                                         timeout=10.0,
+                                         rng=np.random.default_rng(0),
+                                         max_samples_per_step=50,
+                                         check_subgoals=True,
+                                         check_final_goal=False,
+                                         parameterized_samplers=None)
     assert success
     # 5.0 clipped to the option's high bound (1.0), which clears x >= 0.9.
     assert np.isclose(float(plan[0].params[0]), 1.0)
@@ -359,7 +357,7 @@ def test_initial_params_seeded_and_win_on_disagreement():
     def sampler(_s, _a, rng, _o):
         return np.array([0.9 + 0.05 * rng.random()], dtype=np.float32)
 
-    plan, success, _ = bilevel_sketch.refine_sketch(
+    plan, success, _ = refine_sketch(
         _task_hi(), [step],
         model,
         predicates={_ReachedHi},
@@ -386,7 +384,7 @@ def test_initial_params_lose_to_more_informative_draw():
                       objects=[_block],
                       subgoal_atoms={GroundAtom(_ReachedHi, [_block])},
                       initial_params=np.array([0.9], dtype=np.float32))
-    plan, success, _ = bilevel_sketch.refine_sketch(
+    plan, success, _ = refine_sketch(
         _task_hi(), [step],
         _FakeOptionModel(),
         predicates={_ReachedHi},
@@ -412,7 +410,7 @@ def test_initial_params_infeasible_seed_info_seeking_recovers():
                       objects=[_block],
                       subgoal_atoms={GroundAtom(_ReachedHi, [_block])},
                       initial_params=np.array([0.0], dtype=np.float32))
-    plan, success, _ = bilevel_sketch.refine_sketch(
+    plan, success, _ = refine_sketch(
         _task_hi(), [step],
         _FakeOptionModel(),
         predicates={_ReachedHi},
@@ -435,17 +433,17 @@ def test_initial_params_infeasible_seed_info_seeking_recovers():
 
 def test_strip_subgoal_annotations():
     """`-> {atoms}` is removed so the params parser sees only the option."""
-    out = bilevel_sketch.strip_subgoal_annotations(
+    out = strip_subgoal_annotations(
         "Move(block0:block)[0.7] -> {ReachedHi(block0:block)}")
     assert out == "Move(block0:block)[0.7]"
     # A line without an annotation is untouched.
-    assert bilevel_sketch.strip_subgoal_annotations(
+    assert strip_subgoal_annotations(
         "Move(block0:block)[0.7]") == "Move(block0:block)[0.7]"
 
 
 def test_parse_sketch_params_wrong_arity_drops_sketch():
     """Wrong param count is rejected by the canonical parser (empty sketch)."""
-    sketch = bilevel_sketch.parse_sketch_from_text(
+    sketch = parse_sketch_from_text(
         "Move(block0:block)[0.7, 0.8] -> {ReachedHi(block0:block)}",
         _task_hi(),
         predicates={_ReachedHi},
@@ -458,13 +456,12 @@ def test_parse_sketch_params_wrong_arity_drops_sketch():
 def test_parse_sketch_zero_dim_empty_brackets():
     """`[]` on a zero-param option yields an empty initial_params array."""
     task = Task(State({_block: np.array([0.0], dtype=np.float32)}), set())
-    sketch = bilevel_sketch.parse_sketch_from_text(
-        "Wait0(block0:block)[]",
-        task,
-        predicates=set(),
-        options={_Wait0},
-        types={_block_type},
-        parse_continuous_params=True)
+    sketch = parse_sketch_from_text("Wait0(block0:block)[]",
+                                    task,
+                                    predicates=set(),
+                                    options={_Wait0},
+                                    types={_block_type},
+                                    parse_continuous_params=True)
     assert len(sketch) == 1
     assert sketch[0].initial_params is not None
     assert sketch[0].initial_params.shape == (0, )
@@ -475,7 +472,7 @@ def test_parse_sketch_strict_errors_on_bad_line():
     drop or truncate at, so a tool never executes a different plan than the
     agent wrote."""
     with pytest.raises(ValueError, match="continuous parameter"):
-        bilevel_sketch.parse_sketch_from_text(
+        parse_sketch_from_text(
             "Move(block0:block)[0.7, 0.8] -> {ReachedHi(block0:block)}",
             _task_hi(),
             predicates={_ReachedHi},
@@ -484,14 +481,13 @@ def test_parse_sketch_strict_errors_on_bad_line():
             parse_continuous_params=True,
             strict=True)
     with pytest.raises(ValueError, match="too many object arguments"):
-        bilevel_sketch.parse_sketch_from_text(
-            "Move(block0:block, block0:block)[0.7]",
-            _task_hi(),
-            predicates={_ReachedHi},
-            options={_Move},
-            types={_block_type},
-            parse_continuous_params=True,
-            strict=True)
+        parse_sketch_from_text("Move(block0:block, block0:block)[0.7]",
+                               _task_hi(),
+                               predicates={_ReachedHi},
+                               options={_Move},
+                               types={_block_type},
+                               parse_continuous_params=True,
+                               strict=True)
 
 
 def test_parse_sketch_strict_empty_brackets_mean_no_seed():
@@ -499,7 +495,7 @@ def test_parse_sketch_strict_empty_brackets_mean_no_seed():
     documented "no seed": the line parses with ``initial_params`` None so
     refinement samples the parameters (previously the count mismatch silently
     truncated the sketch at that line)."""
-    sketch = bilevel_sketch.parse_sketch_from_text(
+    sketch = parse_sketch_from_text(
         "Move(block0:block)[] -> {ReachedHi(block0:block)}",
         _task_hi(),
         predicates={_ReachedHi},
@@ -512,14 +508,13 @@ def test_parse_sketch_strict_empty_brackets_mean_no_seed():
     assert GroundAtom(_ReachedHi, [_block]) in sketch[0].subgoal_atoms
     # A zero-param option's `[]` stays an exact (empty) param vector.
     task = Task(State({_block: np.array([0.0], dtype=np.float32)}), set())
-    sketch = bilevel_sketch.parse_sketch_from_text(
-        "Wait0(block0:block)[]",
-        task,
-        predicates=set(),
-        options={_Wait0},
-        types={_block_type},
-        parse_continuous_params=True,
-        strict=True)
+    sketch = parse_sketch_from_text("Wait0(block0:block)[]",
+                                    task,
+                                    predicates=set(),
+                                    options={_Wait0},
+                                    types={_block_type},
+                                    parse_continuous_params=True,
+                                    strict=True)
     assert len(sketch) == 1
     assert sketch[0].initial_params is not None
     assert sketch[0].initial_params.shape == (0, )
@@ -527,7 +522,7 @@ def test_parse_sketch_strict_empty_brackets_mean_no_seed():
 
 def test_parse_sketch_from_text_with_params():
     """parse_continuous_params=True populates SketchStep.initial_params."""
-    sketch = bilevel_sketch.parse_sketch_from_text(
+    sketch = parse_sketch_from_text(
         "Move(block0:block)[0.7] -> {ReachedHi(block0:block)}",
         _task_hi(),
         predicates={_ReachedHi},
@@ -542,7 +537,7 @@ def test_parse_sketch_from_text_with_params():
 
 def test_parse_sketch_from_text_params_disabled_by_default():
     """Default (params off) ignores `[..]` and leaves initial_params None."""
-    sketch = bilevel_sketch.parse_sketch_from_text(
+    sketch = parse_sketch_from_text(
         "Move(block0:block)[0.7] -> {ReachedHi(block0:block)}",
         _task_hi(),
         predicates={_ReachedHi},
@@ -556,7 +551,7 @@ def test_parse_sketch_from_text_params_disabled_by_default():
 
 def test_parse_atoms_pos_neg():
     """parse_atoms splits positive and NOT-prefixed (negative) atoms."""
-    pos, neg = bilevel_sketch.parse_atoms(
+    pos, neg = parse_atoms(
         "ReachedHi(block0:block), NOT Reached(block0:block)",
         {_ReachedHi, _Reached}, [_block])
     assert pos == {GroundAtom(_ReachedHi, [_block])}
@@ -565,8 +560,7 @@ def test_parse_atoms_pos_neg():
 
 def test_parse_atoms_unknown_skipped():
     """Atoms with an unknown predicate are skipped (not raised)."""
-    pos, neg = bilevel_sketch.parse_atoms("Nope(block0:block)", {_ReachedHi},
-                                          [_block])
+    pos, neg = parse_atoms("Nope(block0:block)", {_ReachedHi}, [_block])
     assert pos == set()
     assert neg == set()
 
@@ -575,12 +569,11 @@ def test_execute_plan_forward_success():
     """A plan that reaches the goal: success, executed_all, no failure."""
     plan = [_Move.ground([_block], np.array([0.95], dtype=np.float32))]
     seen = []
-    result = bilevel_sketch.execute_plan_forward(
-        _task_hi(),
-        plan,
-        _FakeOptionModel(),
-        predicates={_ReachedHi},
-        on_step=lambda i, o: seen.append(i))
+    result = execute_plan_forward(_task_hi(),
+                                  plan,
+                                  _FakeOptionModel(),
+                                  predicates={_ReachedHi},
+                                  on_step=lambda i, o: seen.append(i))
     assert result.success
     assert result.goal_reached
     assert result.executed_all
@@ -631,10 +624,10 @@ def test_execute_plan_forward_continues_past_zero_action_failure():
         _Stuck.ground([_block], np.array([0.5], dtype=np.float32)),
         _Move.ground([_block], np.array([0.95], dtype=np.float32)),
     ]
-    result = bilevel_sketch.execute_plan_forward(_task_hi(),
-                                                 plan,
-                                                 _StuckThenMoveModel(),
-                                                 predicates={_ReachedHi})
+    result = execute_plan_forward(_task_hi(),
+                                  plan,
+                                  _StuckThenMoveModel(),
+                                  predicates={_ReachedHi})
     assert result.goal_reached  # goal atoms hold in the final state
     assert result.first_failure_idx == 0  # the 0-action Stuck step
     assert result.goal_step_idx == 1  # goal first holds after Move
@@ -653,11 +646,11 @@ def test_execute_plan_forward_stop_on_failure_aborts():
         _Move.ground([_block], np.array([0.95], dtype=np.float32)),
     ]
     model = _StuckThenMoveModel()
-    result = bilevel_sketch.execute_plan_forward(_task_hi(),
-                                                 plan,
-                                                 model,
-                                                 predicates={_ReachedHi},
-                                                 stop_on_failure=True)
+    result = execute_plan_forward(_task_hi(),
+                                  plan,
+                                  model,
+                                  predicates={_ReachedHi},
+                                  stop_on_failure=True)
     assert not result.goal_reached  # aborted before the Move could run
     assert result.first_failure_idx == 0
     assert len(result.steps) == 1  # stopped after the failed step
@@ -670,10 +663,10 @@ def test_execute_plan_forward_clean_to_goal_tracks_actions():
     """A clean plan that reaches the goal is clean_to_goal with the cumulative
     actions-to-goal recorded."""
     plan = [_Move.ground([_block], np.array([0.95], dtype=np.float32))]
-    result = bilevel_sketch.execute_plan_forward(_task_hi(),
-                                                 plan,
-                                                 _FakeOptionModel(),
-                                                 predicates={_ReachedHi})
+    result = execute_plan_forward(_task_hi(),
+                                  plan,
+                                  _FakeOptionModel(),
+                                  predicates={_ReachedHi})
     assert result.clean_to_goal
     assert result.goal_step_idx == 0
     assert result.actions_to_goal == 1
@@ -684,10 +677,10 @@ def test_execute_plan_forward_goal_not_reached():
     """The step executes but doesn't reach the goal: not success, no
     failure."""
     plan = [_Move.ground([_block], np.array([0.5], dtype=np.float32))]
-    result = bilevel_sketch.execute_plan_forward(_task_hi(),
-                                                 plan,
-                                                 _FakeOptionModel(),
-                                                 predicates={_ReachedHi})
+    result = execute_plan_forward(_task_hi(),
+                                  plan,
+                                  _FakeOptionModel(),
+                                  predicates={_ReachedHi})
     assert not result.success
     assert not result.goal_reached
     assert result.executed_all
@@ -702,11 +695,11 @@ def test_execute_plan_forward_subgoal_divergence():
                    subgoal_atoms={GroundAtom(_ReachedHi, [_block])})
     ]
     plan = [_Move.ground([_block], np.array([0.5], dtype=np.float32))]
-    result = bilevel_sketch.execute_plan_forward(_task_hi(),
-                                                 plan,
-                                                 _FakeOptionModel(),
-                                                 predicates={_ReachedHi},
-                                                 sketch=sketch)
+    result = execute_plan_forward(_task_hi(),
+                                  plan,
+                                  _FakeOptionModel(),
+                                  predicates={_ReachedHi},
+                                  sketch=sketch)
     assert result.first_subgoal_divergence_idx == 0
     assert result.steps[0].subgoal_missing == {
         GroundAtom(_ReachedHi, [_block])
@@ -721,10 +714,10 @@ def test_execute_plan_forward_not_initiable_stops():
         _Move.ground([_block], np.array([0.95], dtype=np.float32)),
     ]
     model = _FakeOptionModel()
-    result = bilevel_sketch.execute_plan_forward(_task_hi(),
-                                                 plan,
-                                                 model,
-                                                 predicates={_ReachedHi})
+    result = execute_plan_forward(_task_hi(),
+                                  plan,
+                                  model,
+                                  predicates={_ReachedHi})
     assert result.first_failure_idx == 0
     assert not result.executed_all
     assert result.steps[0].failure_reason == "not initiable"
@@ -742,7 +735,7 @@ def test_refine_and_validate_report_returns_plan():
                       objects=[_block],
                       subgoal_atoms={GroundAtom(_ReachedHi, [_block])},
                       initial_params=np.array([0.95], dtype=np.float32))
-    success, report, plan = bilevel_sketch.refine_and_validate_report(
+    success, report, plan = refine_and_validate_report(
         _task_hi(), [step],
         _FakeOptionModel(),
         predicates={_ReachedHi},
@@ -758,8 +751,8 @@ def test_refine_and_validate_report_returns_plan():
 
 
 class _TrajModel(_FakeOptionModel):
-    """_FakeOptionModel that also exposes per-step low-level trajectories,
-    so the solved_check gate sees a non-coarse rollout."""
+    """_FakeOptionModel that also exposes per-step low-level trajectories, so
+    the solved_check gate sees a non-coarse rollout."""
 
     def get_next_state_and_num_actions(self, state, option):
         nxt, n = super().get_next_state_and_num_actions(state, option)
@@ -769,10 +762,10 @@ class _TrajModel(_FakeOptionModel):
 
 
 def test_refine_sketch_solved_check_rejects_during_search():
-    """A rejecting solved_check fails every goal-reaching candidate as
-    "scored non-solve" DURING backtracking (the search keeps sampling
-    instead of accepting), and the deepest-failure near-miss records the
-    rejection with the candidate's exact params."""
+    """A rejecting solved_check fails every goal-reaching candidate as "scored
+    non-solve" DURING backtracking (the search keeps sampling instead of
+    accepting), and the deepest-failure near-miss records the rejection with
+    the candidate's exact params."""
     task, sketch = _easy_task_and_sketch()
     seen = []
 
@@ -781,18 +774,17 @@ def test_refine_sketch_solved_check_rejects_during_search():
         return False, "solved=False, reward=-0.05"
 
     deepest = []
-    _plan, success, total = bilevel_sketch.refine_sketch(
-        task,
-        sketch,
-        _TrajModel(),
-        predicates={_Reached},
-        timeout=10.0,
-        rng=np.random.default_rng(0),
-        max_samples_per_step=3,
-        check_subgoals=True,
-        check_final_goal=True,
-        deepest_failure_holder=deepest,
-        solved_check=reject_all)
+    _plan, success, total = refine_sketch(task,
+                                          sketch,
+                                          _TrajModel(),
+                                          predicates={_Reached},
+                                          timeout=10.0,
+                                          rng=np.random.default_rng(0),
+                                          max_samples_per_step=3,
+                                          check_subgoals=True,
+                                          check_final_goal=True,
+                                          deepest_failure_holder=deepest,
+                                          solved_check=reject_all)
     assert not success
     # Every candidate passed subgoal+goal checks, reached the gate, and
     # was rejected - the search spent its full budget.
@@ -808,8 +800,8 @@ def test_refine_sketch_solved_check_rejects_during_search():
 
 
 def test_refine_sketch_solved_check_accepts():
-    """An accepting solved_check leaves refinement untouched; a coarse
-    stash (model without last_trajectory) is flagged to the callback."""
+    """An accepting solved_check leaves refinement untouched; a coarse stash
+    (model without last_trajectory) is flagged to the callback."""
     task, sketch = _easy_task_and_sketch()
     seen_coarse = []
 
@@ -817,7 +809,7 @@ def test_refine_sketch_solved_check_accepts():
         seen_coarse.append(coarse)
         return True, ""
 
-    plan, success, total = bilevel_sketch.refine_sketch(
+    plan, success, total = refine_sketch(
         task,
         sketch,
         _FakeOptionModel(),  # no last_trajectory -> coarse
