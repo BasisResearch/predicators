@@ -1,4 +1,5 @@
-"""Tests for info-seeking (draw-until-target) refinement in bilevel_sketch.
+"""Tests for info-seeking (draw-until-target) refinement in
+``sketch_refinement``.
 
 Verifies that, with an ``info_scorer`` supplied, ``refine_sketch`` no
 longer accepts the first feasible continuous-parameter sample but
@@ -23,8 +24,9 @@ import numpy as np
 from gym.spaces import Box
 
 from predicators import utils  # noqa: F401  (settles import order)
-from predicators.agent_sdk import bilevel_sketch
-from predicators.agent_sdk.bilevel_sketch import SketchStep, sample_params
+from predicators.agent_sdk.sketch_refinement import refine_sketch, \
+    sample_params
+from predicators.agent_sdk.sketch_types import SketchStep
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, Type
 
@@ -125,7 +127,7 @@ def _replay_pool(seed, target, budget, feasible_fn):
 
 
 def _refine(seed, info_scorer, n_feasible_target, max_samples_per_step=50):
-    plan, success, _ = bilevel_sketch.refine_sketch(
+    plan, success, _ = refine_sketch(
         _task(),
         _sketch(),
         _FakeOptionModel(),
@@ -211,7 +213,7 @@ def test_infeasible_candidates_filtered_out():
     pool, _ = _replay_pool(seed, target, budget, lambda x: x >= 0.5)
     assert len(pool) == target  # this seed fills the pool within budget
 
-    plan, success, _ = bilevel_sketch.refine_sketch(
+    plan, success, _ = refine_sketch(
         task,
         sketch,
         _FakeOptionModel(),
@@ -254,7 +256,7 @@ def test_draw_until_target_pools_beyond_fixed_batch():
     assert len(pool) == target  # the pool was filled...
     assert n_draws > target  # ...and that took more draws than a fixed batch
 
-    plan, success, _ = bilevel_sketch.refine_sketch(
+    plan, success, _ = refine_sketch(
         task,
         sketch,
         _FakeOptionModel(),
@@ -288,7 +290,7 @@ def test_step_budget_caps_pooling():
     assert 0 < len(pool) < target  # ...leaving a partial (non-empty) pool
 
     model = _FakeOptionModel()
-    plan, success, _ = bilevel_sketch.refine_sketch(
+    plan, success, _ = refine_sketch(
         task,
         sketch,
         model,
@@ -327,7 +329,7 @@ def test_budget_shared_across_attempts_fails_fast():
     task = Task(State({_block: np.array([0.0], dtype=np.float32)}),
                 {GroundAtom(_Unreachable, [_block])})
     model = _FakeOptionModel()
-    plan, success, total_samples = bilevel_sketch.refine_sketch(
+    plan, success, total_samples = refine_sketch(
         task,
         sketch,
         model,
@@ -376,7 +378,7 @@ def test_ranked_stock_replayed_across_backtracks():
     task = Task(State({_block: np.array([0.0], dtype=np.float32)}),
                 {GroundAtom(_Unreachable, [_block])})
     model = _FakeOptionModel()
-    plan, success, total_samples = bilevel_sketch.refine_sketch(
+    plan, success, total_samples = refine_sketch(
         task,
         sketch,
         model,
@@ -424,7 +426,7 @@ def test_ranked_walk_on_goal_miss():
     task = Task(State({_block: np.array([0.0], dtype=np.float32)}),
                 {GroundAtom(goal_low, [_block])})
     model = _FakeOptionModel()
-    plan, success, total_samples = bilevel_sketch.refine_sketch(
+    plan, success, total_samples = refine_sketch(
         task,
         _sketch(),
         model,
@@ -462,7 +464,7 @@ def test_plain_budget_semantics_unchanged():
     task = Task(State({_block: np.array([0.0], dtype=np.float32)}),
                 {GroundAtom(_Unreachable, [_block])})
     model = _FakeOptionModel()
-    plan, success, total_samples = bilevel_sketch.refine_sketch(
+    plan, success, total_samples = refine_sketch(
         task,
         sketch,
         model,
