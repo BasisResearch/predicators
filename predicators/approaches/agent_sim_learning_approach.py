@@ -18,6 +18,7 @@ Example command::
 """
 
 import copy
+import dataclasses
 import hashlib
 import inspect
 import logging
@@ -35,7 +36,8 @@ from predicators.agent_sdk.tools import SAMPLER_SYNTHESIS_TOOL_NAMES, \
     SYNTHESIS_TOOL_NAMES, _SnapshotTarget, create_synthesis_tools, \
     evaluate_states_with, finalize_versioned_snapshot, \
     make_write_snapshot_hook
-from predicators.approaches.agent_model_based_approach import AgentModelBasedApproach
+from predicators.approaches.agent_model_based_approach import \
+    AgentModelBasedApproach
 from predicators.approaches.sampler_learning_mixin import SamplerLearningMixin
 from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
     mean_bernoulli_entropy, perturbation_ensemble, \
@@ -65,6 +67,10 @@ from predicators.structs import Action, Dataset, DerivedPredicate, \
 
 logger = logging.getLogger(__name__)
 
+# Gaussian observation-noise sigma assumed by the fit's log-likelihood
+# readouts; matches the ``fit_params`` default in training.py.
+_FIT_NOISE_SIGMA = 0.05
+
 # Canonical "### Rule signature" block for the synthesis system prompt
 # (fully-observable / legacy 3-arg). Spliced in at the
 # ``__RULE_SIGNATURE_SECTION__`` placeholder by
@@ -85,6 +91,297 @@ def rule(state, updates, params):
     # Return the same dict.
     ...
 ```'''
+
+# Synthesis system prompt, rendered by
+# ``AgentSimLearningApproach._build_synthesis_system_prompt``: the
+# ``__UPPER_SNAKE__`` placeholders are substituted per instance
+# (observability, env parameter menu, tool surface, subclass extras).
+_SYNTHESIS_SYSTEM_PROMPT_TEMPLATE = """\
+You are synthesizing a parameterized process-dynamics simulator for a \
+robotic manipulation environment.
+
+A separate PyBullet base sim handles robot movement, grasping, and rigid- \
+body physics. Your simulator handles **process dynamics** - features \
+that change due to physical or causal processes (gradual level changes, \
+accumulation, propagation between contacting objects, sensor readouts \
+that lag actuators, etc.) that the base sim doesn't model.
+
+## What you produce
+
+One file `simulator.py` (path given in the first message) defining three \
+top-level names:
+
+```python
+PROCESS_RULES:    List[Callable]            # rule functions (see signature below)
+PARAM_SPECS:      List[ParamSpec]           # learnable parameters
+PROCESS_FEATURES: Dict[str, List[str]]      # {type_name: [feature_names]} your rules predict
+```
+
+`PROCESS_FEATURES` defines both the loss scope and the test-time overwrite \
+scope: only the listed `(type, feature)` pairs are scored against \
+observations, and only those are written on top of the base sim at test \
+time. Be honest - listing features your rules don't actually update \
+inflates the loss without giving MCMC anything to optimise.
+__PHYSICAL_PARAMS_SECTION__
+__RULE_SIGNATURE_SECTION__
+
+### Multiple objects of the same type
+
+A task may contain **several objects of the same type** - two widgets, \
+three fixtures, or one of each - and the count varies from task to task. \
+Your rules run once per step over the entire `State`, so they must act on \
+*whatever objects are present*, never a hard-coded slot. Code like \
+`widgets[0]` silently ignores every other instance and breaks the moment \
+a task has more (or fewer) objects than the trajectory you calibrated on.
+
+Gather the relevant objects by type and loop over the binding(s) the rule \
+acts on, emitting updates keyed by the specific object the effect applies \
+to:
+
+```python
+widgets  = [o for o in state.data if o.type.name == "widget"]
+fixtures = [o for o in state.data if o.type.name == "fixture"]
+for widget in widgets:
+    for fixture in fixtures:           # all pairs, or pair each widget
+        if at_fixture(state, widget, fixture, params):   # to its nearest
+            wv = state.get(widget, "progress")
+            updates.setdefault(widget, {})["progress"] = wv + params["rate"]
+```
+
+The same `params` apply to every object of a type: you are learning the \
+shared physics of "a widget", not per-instance constants. If a rule \
+genuinely needs exactly one object (a single global clock, say), assert \
+that rather than silently indexing `[0]`.
+
+### Timing
+
+Each rule fires once per step:
+
+```
+state[t] ──base_sim──▶ draft state[t+1] ──your rules──▶ final state[t+1]
+                                               ^^^^^^^
+                        (only PROCESS_FEATURES are overwritten)
+```
+
+Rules see `state[t]`. They cannot see actions, the base sim's draft, or \
+`state[t+2]`. If a feature changes one step *after* its gating event \
+(e.g. an action toggles a gating flag at `t`, but the feature it drives \
+only starts changing at `t+1`), that's an inherent 1-step lag in the \
+data - accept the single boundary residual or model the delay with an \
+extra parameter rather than chasing it with ever-stricter conditions.
+
+### Geometric gates
+
+If a rule's firing condition depends on the relative position of two \
+bodies, do **not** gate on the raw distance between their recorded \
+poses. `obj.x, obj.y` is the recorded pose origin - usually a body's \
+base or frame center - while the point that actually drives the \
+physics (a contact surface, an outlet on the body's side, an \
+end-effector tip, a container opening, a handle) is typically offset \
+from it. That offset lives in the body's **local frame**, so it \
+rotates with the body's `rot` feature; gating on raw origin distance \
+silently bakes in one task's orientation and breaks on any task where \
+the fixture is rotated differently.
+
+**Default to a learned, rotation-aware anchor offset.** Express every \
+two-body geometric gate as a distance to an *anchored* point - the \
+fixture origin plus a local-frame offset rotated into the world frame \
+by the fixture's `rot` - with the offset declared as learnable params:
+
+```python
+PARAM_SPECS = [
+    # Functional point offset, in the fixture's LOCAL frame:
+    ParamSpec("fixture_local_dx",       0.0,  lo=-0.3, hi=0.3),
+    ParamSpec("fixture_local_dy",       0.0,  lo=-0.3, hi=0.3),
+    ParamSpec("widget_at_fixture_dist", 0.10, lo=0.0,  hi=0.4),
+]
+
+# `fixture`, `widget`: the relevant object pair (bind as your rule needs).
+__PROCESS_RULE_SIGNATURE__
+    rot = state.get(fixture, "rot")
+    cos_r, sin_r = np.cos(rot), np.sin(rot)
+    rot_mat = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
+    local_offset = np.array([params["fixture_local_dx"],
+                             params["fixture_local_dy"]])
+    origin = np.array([state.get(fixture, "x"), state.get(fixture, "y")])
+    anchor = origin + rot_mat @ local_offset  # world-frame point
+    widget_xy = np.array([state.get(widget, "x"), state.get(widget, "y")])
+    if np.linalg.norm(widget_xy - anchor) < params["widget_at_fixture_dist"]:
+        ...  # fire
+```
+
+If the functional point really does coincide with the recorded origin, \
+the fit drives the offsets to ~0 - no harm done. A threshold-only gate \
+(no offset) is the exception: use one only after you have positively \
+confirmed the recorded origin *is* the functional point. Share the \
+offset and distance params with the gating predicate so the rule and \
+predicate anchor to the same point.
+
+**Required check before committing a geometric gate.** Bucket the \
+trajectory steps by whether the gated effect actually fired, compute \
+your gate quantity at each step, and confirm the two buckets separate \
+by a clear margin. If they overlap, or separate only by a knife-edge \
+gap (~5% of the value range or narrower), the gate references the \
+wrong point - a threshold flush against the data boundary is a \
+rejected fit, not a fit. Do **not** nudge the threshold to paper over \
+it: add or refit the anchor offset and re-bucket. To find the offset, \
+__SCENE_VIZ_HINT__; the gap \
+between the origin and the effect-firing cluster is the offset.
+
+### ParamSpec
+
+```python
+ParamSpec(name: str, init_value: float,
+          lo: Optional[float] = None, hi: Optional[float] = None)
+```
+
+Bounds shape both the MCMC prior and the warm-start clamp. Set `lo=0.0` \
+for non-negative rates, etc.
+
+### Pre-injected when `simulator.py` is exec'd
+
+`numpy as np`, `ParamSpec`. Import anything else at the top of the file. \
+The data classes (`State`, `Object`, `Action`, ...) come from \
+`predicators.structs`; source is in the reference file linked in the \
+first message.
+
+## Tools
+
+`Write` / `Edit` `simulator.py` is your normal coding loop. Every \
+successful write is snapshotted to \
+`simulator_versions/cycle_XXX_vers_YYY_simulator.py` (deduped by \
+content; ``XXX`` is the current cycle, ``YYY`` resets per cycle). The \
+synthesis tools below load the file fresh on every call and prefix \
+their output with `[cycle_XXX_vers_YYY]` so you and reviewers can diff \
+iterations.
+
+- `run_python(code)` - ad-hoc data exploration. `trajectories`, `np`, \
+`ParamSpec` in scope; when the learn message states a task objective, \
+`evaluate_trajectory(states, actions=None, task_idx=0)` scores a state \
+sequence with the env's ground-truth evaluator (returns reward / \
+solved; on your own simulator's rollouts the verdict is only as good \
+as the simulator). **Does not** define rules.
+- `evaluate_step_fit` - per-step prediction accuracy: SSE on the step \
+transitions at `init_value` params, plus post-fit SSE and fitted \
+parameters from a parameter fit. Cheap; the inner-loop signal.
+- `report_residuals` - per-feature breakdown: mismatch counts, mean / \
+max abs error, vs-baseline improvement (negative ⇒ rules are adding \
+error), worst-N example transitions. Diagnostic for *which* rule to fix.
+- `evaluate_plan_refinement(plan, task_idx)` - per-task planning \
+success: MCMC-fits, builds the combined simulator, runs backtracking \
+refinement against a plan **you propose** (see "Plan format" below), \
+**and then forward-validates that refined plan continuously** (state \
+carries forward across all options, single shot per step). Reports \
+both verdicts. A SUCCESS line followed by `Forward validation: FAIL` \
+counts as a failure - see "Refinement vs. forward validation" below. \
+Slow; the gate before declaring done.
+
+`evaluate_step_fit` and `evaluate_plan_refinement` test complementary \
+things - pointwise accuracy vs. goal reachability. A rule can have \
+ε-small SSE and still get a saturation threshold or alignment cap *just* \
+wrong enough that refinement can't satisfy a subgoal. Use step-fit + \
+residuals as the fast inner loop and plan-refinement as the slow \
+goal-relevant gate.
+
+### Refinement vs. forward validation (read before tuning a threshold)
+
+`evaluate_plan_refinement` runs two checks under the same option model. \
+Refinement samples continuous params with up to 50 attempts per \
+parametric step and snapshots state at each backtrack - failures are \
+isolated per step. Forward validation runs the refined plan once, \
+continuously, with state carrying forward across all options - \
+matching how test time will execute it. Any divergence between the \
+two indicates the learned model is *more permissive* than the env's \
+effective behavior: refinement's looser gates accept a Place/Wait \
+that the env-driven rollout won't actually achieve.
+
+When you see `Forward validation: FAIL`, the failure mode is almost \
+always one of these:
+
+1. **A learned gate threshold is wider than the env's effective \
+threshold.** Example: the env's process rule only fires when the \
+widget-to-fixture distance < 0.05, but you set \
+`widget_at_fixture_dist = 0.063` for "safety margin". Refinement \
+accepts a Place at distance 0.05–0.063 (your `WidgetAtFixture` \
+predicate is true and your learned rule fires); forward validation \
+runs the same Place, the env's rule never fires (distance > env \
+threshold), and Wait runs to its step cap without `WidgetReady` \
+holding. **Fix:** tighten the gate to match the env's empirical \
+boundary, do not widen for slack.
+2. **A wait-termination cutoff fires before the env-side feature \
+catches up.** Example: `WidgetReady = process_value >= 0.99` fires at \
+the learned simulator's step 34 (process_value=0.9996), but the env's \
+goal-check requires the underlying feature to reach 1.0 - refinement's \
+subgoal passes, but the final-state goal check on env state fails. \
+**Fix:** align the predicate's cutoff with the env's effective \
+cutoff, *and* confirm by re-running plan refinement after the change.
+
+**Rule of thumb:** when in doubt, *tighten* learned thresholds toward \
+the env's empirical boundary, never loosen them. Widening hides \
+discrepancies during refinement and reveals them at test time as \
+0-solve regressions.
+__SYNTHESIS_PROMPT_EXTRA__
+## Plan format for `evaluate_plan_refinement`
+
+One option call per line, **with every option argument supplied and using \
+typed object references** (`obj:type`), matching exactly what the inspect \
+tools report. Use the inspect tools (or `run_python` over a trajectory) to \
+read off the right names and arities - the parser is strict and silently \
+omitting an argument will not be auto-filled. Example:
+
+```
+PickWidget(robot:robot, widget0:widget)
+Place(robot:robot) -> {WidgetAtFixture(widget0:widget, fixture0:fixture)}
+ActivateFixture(robot:robot, fixture0:fixture)
+Wait(robot:robot) -> {WidgetReady(widget0:widget)}
+...
+```
+
+(The names above are illustrative - use whatever options, types, and \
+predicates the inspect tools actually report for your task.) Insert a \
+`Wait` after any action that triggers a delayed process (gradual \
+accumulation, propagation, sensor catch-up) so your rules have steps to \
+fire on.
+
+**Subgoal annotations** (`-> {Atom(obj:type, ...)}` after a step) are \
+optional in general but **effectively required after open-ended skills \
+like `Place`**. Without one the backtracking search has no preference for \
+*where* to put the object, so a `Place; Wait` pair will refine cleanly \
+but skip past the relevant target location and your rules never fire - \
+the run looks like a rule bug but is actually a missing subgoal. For \
+`Wait`, the annotation also specifies when the wait should terminate; \
+prefix an atom with `NOT` if it should become false.
+
+## Workflow
+
+1. Explore data with `run_python` - what features change per step, \
+which ones aren't explained by the base sim.
+2. `Write` `simulator.py`; `Edit` to iterate.
+3. Score with `evaluate_step_fit`, then `report_residuals` to find \
+diverging features. Negative `vs base` ⇒ a rule is actively hurting - \
+usually a wrong gate or sign.
+4. When SSE is plausible, propose an option-skeleton plan and call \
+`evaluate_plan_refinement(plan="...", task_idx=i)`. A stuck step means \
+the rules gating its subgoal atoms are too tight or too loose; fix and \
+re-validate.
+"""
+
+
+@dataclasses.dataclass(frozen=True)
+class _SynthesisPaths:
+    """Host- and agent-visible paths for one synthesis session.
+
+    ``simulator_file`` / ``versions_dir`` are host paths the harness
+    reads and writes; ``simulator_file_for_agent`` /
+    ``sandbox_dir_for_agent`` are how the sandboxed agent must refer to
+    the same locations (see ``_resolve_synthesis_paths``).
+    """
+    base: str
+    simulator_file: str
+    versions_dir: str
+    simulator_file_for_agent: str
+    sandbox_dir_for_agent: Optional[str]
+
 
 # ── Approach ─────────────────────────────────────────────────────
 
@@ -757,199 +1054,305 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         base_pred_triples: List[Tuple[State, Action, State]],
         inferred_hint: Dict[str, List[str]],
     ) -> None:
-        """Synthesize PROCESS_RULES, PARAM_SPECS, PROCESS_FEATURES via agent.
+        """Obtain PROCESS_RULES / PARAM_SPECS / PROCESS_FEATURES, then fit.
 
         ``inferred_hint`` is passed to the agent as a starting point and
         used as the eval/test scope until it declares its own
-        ``PROCESS_FEATURES``. CFG flags
-        ``agent_sim_learn_oracle_sim_program`` and
-        ``agent_sim_learn_oracle_sim_params`` short-circuit the agent
-        and/or MCMC by loading the GT simulator instead.
+        ``PROCESS_FEATURES``. CFG flag
+        ``agent_sim_learn_oracle_sim_program`` short-circuits the agent
+        session by loading the GT simulator instead (and
+        ``agent_sim_learn_oracle_sim_params`` additionally skips the
+        MCMC fit; see :meth:`_fit_params_after_synthesis`).
         """
-
         if CFG.agent_sim_learn_oracle_sim_program:
-            # get_gt_simulator dispatches by observability: in
-            # partially-observable mode it returns the PO GT simulator
-            # (gt_simulator_po.py - latent heat threaded across steps,
-            # surfaced as the observable bubbling_level), which predicts
-            # only observable features; otherwise it returns the
-            # fully-observable gt_simulator.py (which reads/writes
-            # heat_level as a State feature). The two factories gate on
-            # CFG.partially_observable so the env-name dispatch resolves to
-            # exactly one module per run.
-            rules, specs, process_features = get_gt_simulator(CFG.env)
-            self._log_feature_set_diff(inferred_hint, process_features,
-                                       "inferred", "oracle")
-            if not CFG.agent_sim_learn_oracle_sim_params:
-                rng = np.random.default_rng(CFG.seed)
-                noise_scale = CFG.agent_sim_learn_oracle_sim_param_noise_scale
-                if noise_scale < 0.0:
-                    raise ValueError(
-                        "agent_sim_learn_oracle_sim_param_noise_scale must "
-                        "be non-negative.")
-                perturbed = []
-                for s in specs:
-                    val = float(
-                        np.clip(
-                            s.init_value * (1.0 + rng.normal(0, noise_scale)),
-                            s.lo, s.hi))
-                    perturbed.append(
-                        ParamSpec(s.name,
-                                  val,
-                                  lo=s.lo,
-                                  hi=s.hi,
-                                  scale=getattr(s, "scale", "linear")))
-                specs = perturbed
-            logger.info("Loaded oracle sim program (%d rules, %d params).",
-                        len(rules), len(specs))
+            rules, specs, process_features = \
+                self._load_oracle_sim_program(inferred_hint)
         else:
-            # Resolve sandbox_dir without depending on a live session
-            # manager. LocalSandboxSessionManager does set this on
-            # tool_context in __init__, but it isn't constructed until
-            # _ensure_agent_session() runs further below.
-            if CFG.agent_sdk_use_local_sandbox:
-                sandbox_dir: Optional[str] = os.path.abspath(
-                    os.path.join(self._get_log_dir(), "sandbox"))
-            else:
-                sandbox_dir = self._tool_context.sandbox_dir
+            loaded = self._run_agent_synthesis_session(trajectories,
+                                                       obs_triples,
+                                                       base_pred_triples,
+                                                       inferred_hint)
+            if loaded is None:
+                return
+            rules, specs, process_features = loaded
+        self._process_rules = rules
+        self._process_features = process_features
+        self._fit_params_after_synthesis(rules, specs, base_pred_triples,
+                                         process_features)
 
-            base = sandbox_dir or self._get_log_dir()
-            simulator_file = os.path.join(base, "simulator.py")
-            versions_dir = os.path.join(base, "simulator_versions")
-            extra_paths = self._compute_extra_synthesis_paths(base)
-            # Per-skill samplers ride along in this session when enabled.
-            sampler_paths = (self._sampler_paths(base)
-                             if self._do_synthesize_samplers else {})
+    def _load_oracle_sim_program(
+        self, inferred_hint: Dict[str, List[str]]
+    ) -> Tuple[List, List[ParamSpec], Dict[str, List[str]]]:
+        """Load the ground-truth simulator instead of running an agent.
 
-            # Path the agent sees: cwd-relative for local-sandbox (the
-            # validation hook resolves against cwd and rejects literal
-            # ``/sandbox/...`` paths), docker mount point for docker,
-            # absolute host path otherwise.
-            if CFG.agent_sdk_use_local_sandbox:
-                simulator_file_for_agent = "./simulator.py"
-                sandbox_dir_for_agent: Optional[str] = "."
-            elif sandbox_dir:
-                simulator_file_for_agent = "/sandbox/simulator.py"
-                sandbox_dir_for_agent = "/sandbox"
-            else:
-                simulator_file_for_agent = simulator_file
-                sandbox_dir_for_agent = None
+        ``get_gt_simulator`` dispatches by observability: in
+        partially-observable mode it returns the PO GT simulator
+        (gt_simulator_po.py - latent heat threaded across steps,
+        surfaced as the observable bubbling_level), which predicts only
+        observable features; otherwise it returns the fully-observable
+        gt_simulator.py (which reads/writes heat_level as a State
+        feature). The two factories gate on CFG.partially_observable so
+        the env-name dispatch resolves to exactly one module per run.
 
-            exec_ns: Dict[str, Any] = {
-                "trajectories":
-                trajectories,
-                "train_tasks":
-                self._train_tasks,
-                "is_goal_state":
-                lambda state, task_idx: self._train_tasks[task_idx].goal_holds(
-                    state),
-                "np":
-                np,
-                "ParamSpec":
-                ParamSpec,
-            }
-            # Env ground-truth scoring, next to is_goal_state (see
-            # Task.evaluator). Verdict-only surface: dict of
-            # reward/solved on a concrete state sequence - real
-            # trajectories or the agent's own simulator rollouts (there
-            # the verdict is only as good as the sim).
-            if any(t.evaluator is not None for t in self._train_tasks):
-                exec_ns["evaluate_trajectory"] = \
-                    self._make_evaluate_trajectory_fn()
+        Unless ``agent_sim_learn_oracle_sim_params`` also holds, the
+        declared parameter inits are perturbed so the subsequent fit
+        starts from a miscalibrated - not oracle - belief.
+        """
+        rules, specs, process_features = get_gt_simulator(CFG.env)
+        self._log_feature_set_diff(inferred_hint, process_features, "inferred",
+                                   "oracle")
+        if not CFG.agent_sim_learn_oracle_sim_params:
+            specs = self._perturb_spec_inits(specs)
+        logger.info("Loaded oracle sim program (%d rules, %d params).",
+                    len(rules), len(specs))
+        return rules, specs, process_features
 
-            # Build dynamic synthesis tools and attach them to the
-            # tool context *before* opening the session. The attached
-            # set is filtered against ``_get_synthesis_tool_names`` so
-            # that method is the single source of truth for what the
-            # agent sees: anything a builder constructs but the names
-            # list omits is dropped here. The ``finally`` block below
-            # clears the attachment.
-            tools = create_synthesis_tools(
-                exec_ns,
-                base_pred_triples,
-                inferred_hint,
-                simulator_file=simulator_file,
-                versions_dir=versions_dir,
-                approach=self,
-                sandbox_dir=base,
-                sandbox_dir_for_agent=sandbox_dir_for_agent,
-                cycle_index_provider=self._learning_cycle_index,
-            )
-            tools.extend(
-                self._extra_synthesis_tools(exec_ns, base_pred_triples,
-                                            inferred_hint, extra_paths))
-            if self._do_synthesize_samplers:
-                tools.extend(self._make_sampler_tools(sampler_paths))
-            declared = set(self._get_synthesis_tool_names() or ())
-            self._tool_context.extra_mcp_tools = [
-                t for t in tools if getattr(t, "name", "") in declared
-            ]
-            # Point the explore_python probe at the CANDIDATE simulator
-            # for this session (never the stale pre-synthesis option
-            # model; on cycle 1 that wraps the real env). Must be
-            # installed before the session opens: the tool builder reads
-            # it to pick the probe's description. Cleared in `finally`.
-            if CFG.agent_planner_use_explore_python:
-                self._tool_context.probe_option_model_provider = \
-                    self._make_candidate_probe_model_provider(
-                        simulator_file, trajectories, base_pred_triples,
-                        inferred_hint)
-            self._learning_mode = True
+    @staticmethod
+    def _perturb_spec_inits(specs: List[ParamSpec]) -> List[ParamSpec]:
+        """Perturb each spec's init with multiplicative Gaussian noise.
 
-            # PostToolUse hook: snapshot simulator.py / predicates.py on
-            # every successful Write/Edit/MultiEdit, so the version
-            # history covers everything the agent committed to file
-            # (not just states that happened to coincide with an eval
-            # call). Only active for this synthesis session.
-            snapshot_targets = self._build_write_snapshot_targets(
-                simulator_file, versions_dir, extra_paths)
-            if self._do_synthesize_samplers:
-                snapshot_targets.append(
-                    self._sampler_snapshot_target(sampler_paths))
-            self._tool_context.extra_session_hooks = (
-                self._build_synthesis_session_hooks(snapshot_targets, base))
+        Used when the oracle sim PROGRAM is loaded but its param VALUES
+        must still be learned: the fit then starts from a plausible but
+        wrong belief instead of the answer. Each perturbed init is
+        clipped to its spec's box.
+        """
+        rng = np.random.default_rng(CFG.seed)
+        noise_scale = CFG.agent_sim_learn_oracle_sim_param_noise_scale
+        if noise_scale < 0.0:
+            raise ValueError("agent_sim_learn_oracle_sim_param_noise_scale "
+                             "must be non-negative.")
+        perturbed = []
+        for s in specs:
+            val = float(
+                np.clip(s.init_value * (1.0 + rng.normal(0, noise_scale)),
+                        s.lo, s.hi))
+            perturbed.append(
+                ParamSpec(s.name,
+                          val,
+                          lo=s.lo,
+                          hi=s.hi,
+                          scale=getattr(s, "scale", "linear")))
+        return perturbed
 
-            # Fresh session so the synthesis prompt + tools take effect.
+    def _run_agent_synthesis_session(
+        self,
+        trajectories: List[LowLevelTrajectory],
+        obs_triples: List[Tuple[State, Action, State]],
+        base_pred_triples: List[Tuple[State, Action, State]],
+        inferred_hint: Dict[str, List[str]],
+    ) -> Optional[Tuple[List, List[ParamSpec], Dict[str, List[str]]]]:
+        """Run one agent synthesis session and load what it committed.
+
+        Returns ``(rules, specs, process_features)``, or None when the
+        session left no loadable simulator artifact. Per-skill samplers
+        (when enabled) ride along in the same session.
+        """
+        paths = self._resolve_synthesis_paths()
+        extra_paths = self._compute_extra_synthesis_paths(paths.base)
+        sampler_paths = (self._sampler_paths(paths.base)
+                         if self._do_synthesize_samplers else {})
+        exec_ns = self._build_synthesis_exec_ns(trajectories)
+        self._attach_synthesis_session_state(exec_ns, trajectories,
+                                             base_pred_triples, inferred_hint,
+                                             paths, extra_paths, sampler_paths)
+        # Fresh session so the synthesis prompt + tools take effect.
+        self._close_agent_session()
+        self._ensure_agent_session()
+        structs_ref = self._write_structs_reference()
+        message = self._build_synthesis_learn_message(trajectories,
+                                                      obs_triples,
+                                                      inferred_hint, paths,
+                                                      structs_ref, extra_paths,
+                                                      sampler_paths)
+        try:
+            self._query_agent_sync(message, kind="learn")
+        finally:
+            self._tool_context.extra_session_hooks = {}
+            self._tool_context.extra_mcp_tools = []
+            self._tool_context.probe_option_model_provider = None
+            self._learning_mode = False
             self._close_agent_session()
-            self._ensure_agent_session()
+        return self._load_synthesis_artifacts(trajectories, inferred_hint,
+                                              paths, extra_paths,
+                                              sampler_paths)
 
-            structs_ref = self._write_structs_reference()
+    def _resolve_synthesis_paths(self) -> _SynthesisPaths:
+        """Host- and agent-visible paths for one synthesis session.
 
-            n_trajs = len(trajectories)
-            n_demos = sum(1 for t in trajectories if t.is_demo)
-            n_interaction = n_trajs - n_demos
-            predicate_listing = self._format_predicate_signatures(
-                self._get_all_predicates())
-            trajectory_listing = self._format_trajectory_listing(trajectories)
-            prior_state_block = self._format_prior_state_block(base)
-            objective_block = self._format_objective_block()
-            # run_python explores the recorded DATA; explore_python
-            # forward-rolls the CANDIDATE simulator. One sentence so the
-            # two exec tools are not conflated; details live in the tool
-            # description.
-            probe_note = ""
-            if CFG.agent_planner_use_explore_python:
-                probe_note = (
-                    "\n\nTo forward-roll your CURRENT candidate simulator "
-                    "(does the process fire when and where you intended?), "
-                    "use `explore_python`: its `sim` probes the "
-                    "`simulator.py` you are editing, re-fit automatically "
-                    "whenever the file changes; pass task_idx explicitly to "
-                    "`sim.reset`. Exploratory only - "
-                    "`evaluate_plan_refinement` remains the authoritative "
-                    "validation surface.")
-            # Tool surface of the (just-opened) synthesis session,
-            # rendered the same way the solve/explore prompts list
-            # theirs. ``tool_names`` already merges the sandbox
-            # built-ins with the declared MCP subset, prefix-stripped.
-            tools_block = ""
-            session_tool_names = (self._agent_session.tool_names
-                                  if self._agent_session is not None else [])
-            if session_tool_names:
-                tool_listing = "\n".join(f"  - {t}"
-                                         for t in session_tool_names)
-                tools_block = f"## Available Tools\n{tool_listing}\n\n"
-            message = f"""\
+        The sandbox dir is resolved without depending on a live session
+        manager: LocalSandboxSessionManager does set it on tool_context
+        in __init__, but it isn't constructed until
+        ``_ensure_agent_session()`` runs later in the session setup.
+
+        The agent-visible paths differ by sandbox backend: cwd-relative
+        for local-sandbox (the validation hook resolves against cwd and
+        rejects literal ``/sandbox/...`` paths), the docker mount point
+        for docker, the absolute host path otherwise.
+        """
+        if CFG.agent_sdk_use_local_sandbox:
+            sandbox_dir: Optional[str] = os.path.abspath(
+                os.path.join(self._get_log_dir(), "sandbox"))
+        else:
+            sandbox_dir = self._tool_context.sandbox_dir
+        base = sandbox_dir or self._get_log_dir()
+        simulator_file = os.path.join(base, "simulator.py")
+        if CFG.agent_sdk_use_local_sandbox:
+            simulator_file_for_agent = "./simulator.py"
+            sandbox_dir_for_agent: Optional[str] = "."
+        elif sandbox_dir:
+            simulator_file_for_agent = "/sandbox/simulator.py"
+            sandbox_dir_for_agent = "/sandbox"
+        else:
+            simulator_file_for_agent = simulator_file
+            sandbox_dir_for_agent = None
+        return _SynthesisPaths(
+            base=base,
+            simulator_file=simulator_file,
+            versions_dir=os.path.join(base, "simulator_versions"),
+            simulator_file_for_agent=simulator_file_for_agent,
+            sandbox_dir_for_agent=sandbox_dir_for_agent)
+
+    def _build_synthesis_exec_ns(
+            self, trajectories: List[LowLevelTrajectory]) -> Dict[str, Any]:
+        """Variables exposed to the synthesis agent's ``run_python``."""
+        exec_ns: Dict[str, Any] = {
+            "trajectories":
+            trajectories,
+            "train_tasks":
+            self._train_tasks,
+            "is_goal_state":
+            lambda state, task_idx: self._train_tasks[task_idx].goal_holds(
+                state),
+            "np":
+            np,
+            "ParamSpec":
+            ParamSpec,
+        }
+        # Env ground-truth scoring, next to is_goal_state (see
+        # Task.evaluator). Verdict-only surface: dict of reward/solved
+        # on a concrete state sequence - real trajectories or the
+        # agent's own simulator rollouts (there the verdict is only as
+        # good as the sim).
+        if any(t.evaluator is not None for t in self._train_tasks):
+            exec_ns["evaluate_trajectory"] = \
+                self._make_evaluate_trajectory_fn()
+        return exec_ns
+
+    def _attach_synthesis_session_state(
+        self,
+        exec_ns: Dict[str, Any],
+        trajectories: List[LowLevelTrajectory],
+        base_pred_triples: List[Tuple[State, Action, State]],
+        inferred_hint: Dict[str, List[str]],
+        paths: _SynthesisPaths,
+        extra_paths: Dict[str, str],
+        sampler_paths: Dict[str, str],
+    ) -> None:
+        """Install this synthesis session's state on the tool context.
+
+        Everything installed here is cleared by the caller's ``finally``
+        once the session query returns.
+        """
+        # Build dynamic synthesis tools and attach them to the tool
+        # context *before* opening the session. The attached set is
+        # filtered against ``_get_synthesis_tool_names`` so that method
+        # is the single source of truth for what the agent sees:
+        # anything a builder constructs but the names list omits is
+        # dropped here.
+        tools = create_synthesis_tools(
+            exec_ns,
+            base_pred_triples,
+            inferred_hint,
+            simulator_file=paths.simulator_file,
+            versions_dir=paths.versions_dir,
+            approach=self,
+            sandbox_dir=paths.base,
+            sandbox_dir_for_agent=paths.sandbox_dir_for_agent,
+            cycle_index_provider=self._learning_cycle_index,
+        )
+        tools.extend(
+            self._extra_synthesis_tools(exec_ns, base_pred_triples,
+                                        inferred_hint, extra_paths))
+        if self._do_synthesize_samplers:
+            tools.extend(self._make_sampler_tools(sampler_paths))
+        declared = set(self._get_synthesis_tool_names() or ())
+        self._tool_context.extra_mcp_tools = [
+            t for t in tools if getattr(t, "name", "") in declared
+        ]
+        # Point the explore_python probe at the CANDIDATE simulator for
+        # this session (never the stale pre-synthesis option model; on
+        # cycle 1 that wraps the real env). Must be installed before
+        # the session opens: the tool builder reads it to pick the
+        # probe's description.
+        if CFG.agent_planner_use_explore_python:
+            self._tool_context.probe_option_model_provider = \
+                self._make_candidate_probe_model_provider(
+                    paths.simulator_file, trajectories, base_pred_triples,
+                    inferred_hint)
+        self._learning_mode = True
+        # PostToolUse hook: snapshot simulator.py / predicates.py on
+        # every successful Write/Edit/MultiEdit, so the version history
+        # covers everything the agent committed to file (not just
+        # states that happened to coincide with an eval call). Only
+        # active for this synthesis session.
+        snapshot_targets = self._build_write_snapshot_targets(
+            paths.simulator_file, paths.versions_dir, extra_paths)
+        if self._do_synthesize_samplers:
+            snapshot_targets.append(
+                self._sampler_snapshot_target(sampler_paths))
+        self._tool_context.extra_session_hooks = (
+            self._build_synthesis_session_hooks(snapshot_targets, paths.base))
+
+    def _build_synthesis_learn_message(
+        self,
+        trajectories: List[LowLevelTrajectory],
+        obs_triples: List[Tuple[State, Action, State]],
+        inferred_hint: Dict[str, List[str]],
+        paths: _SynthesisPaths,
+        structs_ref: str,
+        extra_paths: Dict[str, str],
+        sampler_paths: Dict[str, str],
+    ) -> str:
+        """Compose the synthesis session's first user message.
+
+        Reads the just-opened session's tool names, so the session must
+        be open before this is called.
+        """
+        n_trajs = len(trajectories)
+        n_demos = sum(1 for t in trajectories if t.is_demo)
+        n_interaction = n_trajs - n_demos
+        predicate_listing = self._format_predicate_signatures(
+            self._get_all_predicates())
+        trajectory_listing = self._format_trajectory_listing(trajectories)
+        prior_state_block = self._format_prior_state_block(paths.base)
+        objective_block = self._format_objective_block()
+        simulator_file_for_agent = paths.simulator_file_for_agent
+        # run_python explores the recorded DATA; explore_python
+        # forward-rolls the CANDIDATE simulator. One sentence so the
+        # two exec tools are not conflated; details live in the tool
+        # description.
+        probe_note = ""
+        if CFG.agent_planner_use_explore_python:
+            probe_note = (
+                "\n\nTo forward-roll your CURRENT candidate simulator "
+                "(does the process fire when and where you intended?), "
+                "use `explore_python`: its `sim` probes the "
+                "`simulator.py` you are editing, re-fit automatically "
+                "whenever the file changes; pass task_idx explicitly to "
+                "`sim.reset`. Exploratory only - "
+                "`evaluate_plan_refinement` remains the authoritative "
+                "validation surface.")
+        # Tool surface of the (just-opened) synthesis session, rendered
+        # the same way the solve/explore prompts list theirs.
+        # ``tool_names`` already merges the sandbox built-ins with the
+        # declared MCP subset, prefix-stripped.
+        tools_block = ""
+        session_tool_names = (self._agent_session.tool_names
+                              if self._agent_session is not None else [])
+        if session_tool_names:
+            tool_listing = "\n".join(f"  - {t}" for t in session_tool_names)
+            tools_block = f"## Available Tools\n{tool_listing}\n\n"
+        message = f"""\
 Synthesize a process dynamics simulator for this environment. \
 There are {n_trajs} trajectories ({len(obs_triples)} step \
 transitions) available: {n_demos} oracle demonstration(s) (goal \
@@ -962,12 +1365,12 @@ Each trajectory carries a `train_task_idx`. You can query the \
 ground-truth goal-atom check by calling \
 `is_goal_state(state, task_idx)`. Equivalently \
 `train_tasks[task_idx].goal_holds(state)`. This checks a single \
-STATE for the goal atoms only — reaching the goal atoms does not by \
+STATE for the goal atoms only - reaching the goal atoms does not by \
 itself mean an episode is solved; when a task objective is stated \
 below, score full trajectories with `evaluate_trajectory`. Use \
 `is_goal_state` to (1) confirm which trajectories reached the goal \
 atoms and (2) treat failed interaction trajectories as \
-counterexamples — places where your predicate or rule said "this \
+counterexamples - places where your predicate or rule said "this \
 should work" but the env disagreed.
 
 {objective_block}{prior_state_block}Data-structure source code is at: \
@@ -975,7 +1378,7 @@ should work" but the env disagreed.
 
 A residual scan between the base simulator's prediction and the \
 observed next state suggests these features carry process dynamics \
-(starting hint, may include base-sim jitter — refine as you go):
+(starting hint, may include base-sim jitter - refine as you go):
 {inferred_hint}
 
 ## Available Predicates (for subgoal annotations)
@@ -991,7 +1394,7 @@ will reject parameter samples that look correct on paper.
 data with `run_python` (variables: `trajectories`, `train_tasks`, \
 `is_goal_state`, `np`, `ParamSpec`, plus `evaluate_trajectory` when a \
 task objective is stated above). Write your simulator to \
-`{simulator_file_for_agent}` — define PROCESS_RULES, PARAM_SPECS, \
+`{simulator_file_for_agent}` - define PROCESS_RULES, PARAM_SPECS, \
 and PROCESS_FEATURES there. Every successful Write/Edit of \
 `{simulator_file_for_agent}` is snapshotted to `simulator_versions/` as \
 `cycle_XXX_vers_YYY_simulator.py` (deduped by content); the synthesis \
@@ -1000,70 +1403,73 @@ load that file fresh on every call and report the version tag \
 [cycle_XXX_vers_YYY] in their output. Iterate with `Edit` and re-run \
 the tools.{probe_note}"""
 
-            extra_message = self._extra_synthesis_message(extra_paths)
-            if extra_message:
-                message = message + "\n\n" + extra_message
-            if self._do_synthesize_samplers:
-                message = message + "\n\n" + \
-                    self._sampler_synthesis_message(sampler_paths)
+        extra_message = self._extra_synthesis_message(extra_paths)
+        if extra_message:
+            message = message + "\n\n" + extra_message
+        if self._do_synthesize_samplers:
+            message = message + "\n\n" + \
+                self._sampler_synthesis_message(sampler_paths)
+        return message
 
-            try:
-                self._query_agent_sync(message, kind="learn")
-            finally:
-                self._tool_context.extra_session_hooks = {}
-                self._tool_context.extra_mcp_tools = []
-                self._tool_context.probe_option_model_provider = None
-                self._learning_mode = False
-                self._close_agent_session()
+    def _load_synthesis_artifacts(
+        self,
+        trajectories: List[LowLevelTrajectory],
+        inferred_hint: Dict[str, List[str]],
+        paths: _SynthesisPaths,
+        extra_paths: Dict[str, str],
+        sampler_paths: Dict[str, str],
+    ) -> Optional[Tuple[List, List[ParamSpec], Dict[str, List[str]]]]:
+        """Load the artifacts the finished session committed to disk.
 
-            final_sim_tag = finalize_versioned_snapshot(
-                simulator_file,
-                versions_dir,
-                cycle_idx=self._learning_cycle_index(),
-                artifact_name="simulator",
-            )
-            if final_sim_tag is not None:
-                self._current_simulator_version = final_sim_tag
-                logger.info("Final simulator snapshot: %s", final_sim_tag)
+        Returns ``(rules, specs, process_features)`` or None when no
+        loadable simulator exists. The optional LATENT_INIT /
+        PHYSICAL_PARAMS side exports are recorded on ``self`` before the
+        loadability check, so they are picked up even from an artifact
+        whose rules fail to load.
+        """
+        final_sim_tag = finalize_versioned_snapshot(
+            paths.simulator_file,
+            paths.versions_dir,
+            cycle_idx=self._learning_cycle_index(),
+            artifact_name="simulator",
+        )
+        if final_sim_tag is not None:
+            self._current_simulator_version = final_sim_tag
+            logger.info("Final simulator snapshot: %s", final_sim_tag)
 
-            rules, specs, declared_features, sim_ns = (
-                self._load_simulator_from_module_file(simulator_file,
-                                                      trajectories))
-            # Pick up the optional LATENT_INIT export (partial
-            # observability). None for fully-observable simulators, which
-            # leaves every latent path dormant.
-            self._latent_init = (read_latent_init(sim_ns) if isinstance(
-                sim_ns, dict) else None)
-            # Optional PHYSICAL_PARAMS export: base-sim parameters to
-            # identify jointly with the rule params (system ID). The fit
-            # scale (log vs linear) is stamped from the env registry;
-            # agents copy name/init/bounds but need not know about it.
-            self._physical_param_specs = stamp_physical_spec_scales(
-                list((read_physical_param_specs(sim_ns) if isinstance(
-                    sim_ns, dict) else None) or []), self._base_env)
-            if self._physical_param_specs:
-                logger.info(
-                    "Agent declared %d physical params for system ID: %s",
-                    len(self._physical_param_specs),
-                    [s.name for s in self._physical_param_specs])
-            if rules is None or specs is None:
-                return
-            assert declared_features is not None, (
-                "Agent did not declare PROCESS_FEATURES; "
-                "synthesis output is incomplete.")
-            process_features = declared_features
-            self._log_feature_set_diff(inferred_hint, process_features,
-                                       "inferred", "declared")
-            logger.info("Agent synthesized %d rules, %d params.", len(rules),
-                        len(specs))
-            self._post_synthesis_loading(extra_paths, specs)
-            if self._do_synthesize_samplers:
-                self._finalize_and_load_samplers(sampler_paths)
-
-        self._process_rules = rules
-        self._process_features = process_features
-        self._fit_params_after_synthesis(rules, specs, base_pred_triples,
-                                         process_features)
+        rules, specs, declared_features, sim_ns = (
+            self._load_simulator_from_module_file(paths.simulator_file,
+                                                  trajectories))
+        # Pick up the optional LATENT_INIT export (partial
+        # observability). None for fully-observable simulators, which
+        # leaves every latent path dormant.
+        self._latent_init = (read_latent_init(sim_ns) if isinstance(
+            sim_ns, dict) else None)
+        # Optional PHYSICAL_PARAMS export: base-sim parameters to
+        # identify jointly with the rule params (system ID). The fit
+        # scale (log vs linear) is stamped from the env registry; agents
+        # copy name/init/bounds but need not know about it.
+        self._physical_param_specs = stamp_physical_spec_scales(
+            list((read_physical_param_specs(sim_ns) if isinstance(
+                sim_ns, dict) else None) or []), self._base_env)
+        if self._physical_param_specs:
+            logger.info("Agent declared %d physical params for system ID: %s",
+                        len(self._physical_param_specs),
+                        [s.name for s in self._physical_param_specs])
+        if rules is None or specs is None:
+            return None
+        assert declared_features is not None, (
+            "Agent did not declare PROCESS_FEATURES; "
+            "synthesis output is incomplete.")
+        process_features = declared_features
+        self._log_feature_set_diff(inferred_hint, process_features, "inferred",
+                                   "declared")
+        logger.info("Agent synthesized %d rules, %d params.", len(rules),
+                    len(specs))
+        self._post_synthesis_loading(extra_paths, specs)
+        if self._do_synthesize_samplers:
+            self._finalize_and_load_samplers(sampler_paths)
+        return rules, specs, process_features
 
     def _fit_params_after_synthesis(
         self,
@@ -1073,7 +1479,6 @@ the tools.{probe_note}"""
         process_features: Dict[str, List[str]],
     ) -> None:
         """Fit/store solver params and, separately, explorer posterior."""
-        noise_sigma = 0.05  # matches fit_params default
         if CFG.agent_sim_learn_oracle_sim_params:
             self._fitted_params.clear()
             self._fitted_params.update({s.name: s.init_value for s in specs})
@@ -1088,7 +1493,7 @@ the tools.{probe_note}"""
                 self._fit_sse = self._oracle_param_sse(rules,
                                                        base_pred_triples,
                                                        process_features,
-                                                       noise_sigma)
+                                                       _FIT_NOISE_SIGMA)
             else:
                 logger.info("No transitions; skipping oracle-param SSE.")
                 self._fit_sse = float("inf")
@@ -1129,35 +1534,9 @@ the tools.{probe_note}"""
             else:
                 logger.info("Fitted %d solver params.", len(specs))
 
-            exploration_fit_num_steps = (
-                self._separate_exploration_fit_num_steps())
-            if exploration_fit_num_steps is not None and \
-                    self._physical_param_specs:
-                logger.info(
-                    "Skipping separate active-experiment fit: the joint "
-                    "rollout sysID posterior is reused for exploration.")
-            elif exploration_fit_num_steps is not None:
-                if has_latent_rules(rules):
-                    exploration_fit_result, exploration_sse = (
-                        self._fit_parameters_recurrent(
-                            rules,
-                            specs,
-                            base_pred_triples,
-                            process_features,
-                            num_steps=exploration_fit_num_steps))
-                else:
-                    exploration_fit_result, exploration_sse = (
-                        self._fit_parameters(
-                            rules,
-                            specs,
-                            base_pred_triples,
-                            process_features,
-                            num_steps=exploration_fit_num_steps))
-                self._last_fit_result = exploration_fit_result
-                logger.info(
-                    "Fitted active-experiment posterior with %d MCMC steps "
-                    "for exploration planning only (SSE: %.6f).",
-                    exploration_fit_num_steps, exploration_sse)
+            self._maybe_refit_exploration_posterior(rules, specs,
+                                                    base_pred_triples,
+                                                    process_features)
 
         # Remember the specs (names + bounds) and rebuild the active-
         # experiment ensemble. Cheap and only consumed when info-seeking
@@ -1165,6 +1544,47 @@ the tools.{probe_note}"""
         # matches the joint rollout fit's theta layout.
         self._param_specs = list(self._physical_param_specs) + list(specs)
         self._rebuild_param_ensemble()
+
+    def _maybe_refit_exploration_posterior(
+        self,
+        rules: List,
+        specs: List[ParamSpec],
+        base_pred_triples: List[Tuple[State, Action, State]],
+        process_features: Dict[str, List[str]],
+    ) -> None:
+        """Run the exploration-only posterior fit, when one is needed.
+
+        A no-op unless info-seeking exploration asks for more MCMC than
+        the solver fit already ran (see
+        :meth:`_separate_exploration_fit_num_steps`). The resulting
+        posterior replaces ``_last_fit_result`` for ensemble calibration
+        only; ``_fitted_params`` (the solver's point estimate) is left
+        untouched.
+        """
+        num_steps = self._separate_exploration_fit_num_steps()
+        if num_steps is None:
+            return
+        if self._physical_param_specs:
+            logger.info("Skipping separate active-experiment fit: the joint "
+                        "rollout sysID posterior is reused for exploration.")
+            return
+        if has_latent_rules(rules):
+            fit_result, sse = self._fit_parameters_recurrent(
+                rules,
+                specs,
+                base_pred_triples,
+                process_features,
+                num_steps=num_steps)
+        else:
+            fit_result, sse = self._fit_parameters(rules,
+                                                   specs,
+                                                   base_pred_triples,
+                                                   process_features,
+                                                   num_steps=num_steps)
+        self._last_fit_result = fit_result
+        logger.info(
+            "Fitted active-experiment posterior with %d MCMC steps "
+            "for exploration planning only (SSE: %.6f).", num_steps, sse)
 
     # ── Parameter fitting ────────────────────────────────────────
 
@@ -1193,7 +1613,7 @@ the tools.{probe_note}"""
         sse = compute_sse(oracle_sim_fn, base_pred_triples,
                           self._fitted_params, process_features)
         fit_ll = -0.5 * sse / (noise_sigma**2)
-        logger.info("Oracle params — SSE: %.6f  log-likelihood: %.2f", sse,
+        logger.info("Oracle params - SSE: %.6f  log-likelihood: %.2f", sse,
                     fit_ll)
         for name, val in sorted(self._fitted_params.items()):
             logger.info("  %-30s  %.4f", name, val)
@@ -1230,12 +1650,11 @@ the tools.{probe_note}"""
                                                                float]) -> Dict:
             return apply_rules(state, rules, params)
 
-        noise_sigma = 0.05  # matches fit_params default
         init_params = {s.name: s.init_value for s in specs}
         pre_sse = compute_sse(sim_fn, base_pred_triples, init_params,
                               process_features)
-        pre_ll = -0.5 * pre_sse / (noise_sigma**2)
-        logger.info("Before fitting — SSE: %.6f  log-likelihood: %.2f",
+        pre_ll = -0.5 * pre_sse / (_FIT_NOISE_SIGMA**2)
+        logger.info("Before fitting - SSE: %.6f  log-likelihood: %.2f",
                     pre_sse, pre_ll)
         log_sse_breakdown(sim_fn,
                           base_pred_triples,
@@ -1254,15 +1673,21 @@ the tools.{probe_note}"""
         fitted_params = result.point_estimate
         post_sse = compute_sse(sim_fn, base_pred_triples, fitted_params,
                                process_features)
-        post_ll = -0.5 * post_sse / (noise_sigma**2)
-        logger.info("After fitting  — SSE: %.6f  log-likelihood: %.2f",
+        post_ll = -0.5 * post_sse / (_FIT_NOISE_SIGMA**2)
+        logger.info("After fitting  - SSE: %.6f  log-likelihood: %.2f",
                     post_sse, post_ll)
         log_sse_breakdown(sim_fn,
                           base_pred_triples,
                           fitted_params,
                           process_features,
                           label="after")
+        AgentSimLearningApproach._log_param_changes(init_params, fitted_params)
+        return result, post_sse
 
+    @staticmethod
+    def _log_param_changes(init_params: Dict[str, float],
+                           fitted_params: Dict[str, float]) -> None:
+        """Log each parameter's init -> fitted move (absolute and %)."""
         for name in sorted(fitted_params):
             init_val = init_params[name]
             fit_val = fitted_params[name]
@@ -1270,8 +1695,6 @@ the tools.{probe_note}"""
             pct = (delta / init_val * 100) if init_val != 0 else float("nan")
             logger.info("  %-30s  %.4f -> %.4f  (Δ=%.4f, %+.1f%%)", name,
                         init_val, fit_val, delta, pct)
-
-        return result, post_sse
 
     # ── System identification (PHYSICAL_PARAMS) support ──────────
 
@@ -1441,7 +1864,7 @@ the tools.{probe_note}"""
         pre_sse = compute_rollout_sse(fit_env, rollouts, init_params,
                                       process_features, physical_names, rules,
                                       self._latent_init, scaling)
-        logger.info("Rollout sysID — pre-SSE: %.6f", pre_sse)
+        logger.info("Rollout sysID - pre-SSE: %.6f", pre_sse)
         result, survivors, rms = fit_params_rollout_trimmed(
             fit_env,
             rollouts,
@@ -1474,7 +1897,7 @@ the tools.{probe_note}"""
         post_sse = compute_rollout_sse(fit_env, probe_rollouts, fitted,
                                        process_features, physical_names, rules,
                                        self._latent_init, scaling)
-        logger.info("Rollout sysID — post-SSE: %.6f", post_sse)
+        logger.info("Rollout sysID - post-SSE: %.6f", post_sse)
 
         def rollout_sse_fn(params: Dict[str, float]) -> float:
             return compute_rollout_sse(fit_env, probe_rollouts, params,
@@ -1489,13 +1912,7 @@ the tools.{probe_note}"""
         self._check_cross_cycle_consistency(result, report, physical_names)
         logger.info("Identifiability (posterior/prior contraction):\n%s",
                     format_identifiability(report))
-        for name in sorted(fitted):
-            init_val = init_params[name]
-            fit_val = fitted[name]
-            delta = fit_val - init_val
-            pct = (delta / init_val * 100) if init_val != 0 else float("nan")
-            logger.info("  %-30s  %.4f -> %.4f  (Δ=%.4f, %+.1f%%)", name,
-                        init_val, fit_val, delta, pct)
+        self._log_param_changes(init_params, fitted)
         self._apply_identified_physical_params(
             select_trustworthy_params(fitted, init_params, physical_names,
                                       report, anchors))
@@ -1696,7 +2113,7 @@ the tools.{probe_note}"""
         init_params = {s.name: s.init_value for s in specs}
         pre_sse = compute_sse_recurrent(rules, groups, init_params,
                                         latent_init, process_features)
-        logger.info("Recurrent fit — pre-SSE: %.6f", pre_sse)
+        logger.info("Recurrent fit - pre-SSE: %.6f", pre_sse)
 
         result = fit_params_recurrent(
             rules=rules,
@@ -1709,14 +2126,8 @@ the tools.{probe_note}"""
         fitted_params = result.point_estimate
         post_sse = compute_sse_recurrent(rules, groups, fitted_params,
                                          latent_init, process_features)
-        logger.info("Recurrent fit — post-SSE: %.6f", post_sse)
-        for name in sorted(fitted_params):
-            init_val = init_params[name]
-            fit_val = fitted_params[name]
-            delta = fit_val - init_val
-            pct = (delta / init_val * 100) if init_val != 0 else float("nan")
-            logger.info("  %-30s  %.4f -> %.4f  (Δ=%.4f, %+.1f%%)", name,
-                        init_val, fit_val, delta, pct)
+        logger.info("Recurrent fit - post-SSE: %.6f", post_sse)
+        AgentSimLearningApproach._log_param_changes(init_params, fitted_params)
         return result, post_sse
 
     def _oracle_param_sse_recurrent(
@@ -1741,7 +2152,7 @@ the tools.{probe_note}"""
                                     self._latent_init, process_features)
         fit_ll = -0.5 * sse / (noise_sigma**2)
         logger.info(
-            "Oracle params (recurrent) — SSE: %.6f  log-likelihood: %.2f", sse,
+            "Oracle params (recurrent) - SSE: %.6f  log-likelihood: %.2f", sse,
             fit_ll)
         for name, val in sorted(self._fitted_params.items()):
             logger.info("  %-30s  %.4f", name, val)
@@ -1931,7 +2342,7 @@ the tools.{probe_note}"""
             line = f"  {pred.name}({type_sig})"
             if pred.natural_language_assertion is not None:
                 names = [t.name for t in pred.types]
-                line += f" — {pred.natural_language_assertion(names)}"
+                line += f" - {pred.natural_language_assertion(names)}"
             lines.append(line)
         return "\n".join(lines)
 
@@ -2010,12 +2421,12 @@ the tools.{probe_note}"""
                 provenance.append(f"sim {sim_v}")
             if preds_v:
                 provenance.append(f"predicates {preds_v}")
-            tail = (f" — generated using {', '.join(provenance)}"
+            tail = (f" - generated using {', '.join(provenance)}"
                     if provenance else "")
             if traj.env_reward is not None:
                 solved = int(
                     bool(traj.env_terminated) and not traj.env_rejected)
-                tail += (f" — env reward={traj.env_reward:.2f} "
+                tail += (f" - env reward={traj.env_reward:.2f} "
                          f"(solved={solved})")
             lines.append(f"  [{idx}] {kind}, {task_str}{tail}")
         return "\n".join(lines) + "\n"
@@ -2071,7 +2482,7 @@ solved=False.
         joined = " and ".join(prior)
         return f"""\
 Prior cycle state: {joined} already exist in the sandbox from a previous \
-learning cycle. Read them first — they are the previous cycle's committed \
+learning cycle. Read them first - they are the previous cycle's committed \
 result and a reasonable starting point for incremental refinement (though \
 a fresh rewrite is fine if the prior approach looks fundamentally wrong). \
 Earlier versions are in `./simulator_versions/` and \
@@ -2161,10 +2572,8 @@ files to see exactly which rules and predicates produced each failed plan.
         with open(ref_path, "w", encoding="utf-8") as f:
             f.write(source)
 
-        # Path the agent sees: relative to its cwd in local-sandbox mode
-        # (the sandbox-validation hook resolves against cwd and rejects
-        # any literal ``/sandbox/...`` path), the docker mount point in
-        # docker mode, or the absolute host path otherwise.
+        # Same backend-dependent agent-visible path mapping as
+        # _resolve_synthesis_paths.
         if CFG.agent_sdk_use_local_sandbox:
             return "./reference/structs.py"
         if self._tool_context.sandbox_dir:
@@ -2331,296 +2740,29 @@ files to see exactly which rules and predicates produced each failed plan.
         return combined_simulate
 
     def _build_synthesis_system_prompt(self) -> str:
-        """Build the system prompt for the synthesis agent."""
-        base_prompt = """\
-You are synthesizing a parameterized process-dynamics simulator for a \
-robotic manipulation environment.
+        """Render the synthesis system prompt from the module template.
 
-A separate PyBullet base sim handles robot movement, grasping, and rigid- \
-body physics. Your simulator handles **process dynamics** — features \
-that change due to physical or causal processes (gradual level changes, \
-accumulation, propagation between contacting objects, sensor readouts \
-that lag actuators, etc.) that the base sim doesn't model.
-
-## What you produce
-
-One file `simulator.py` (path given in the first message) defining three \
-top-level names:
-
-```python
-PROCESS_RULES:    List[Callable]            # rule functions (see signature below)
-PARAM_SPECS:      List[ParamSpec]           # learnable parameters
-PROCESS_FEATURES: Dict[str, List[str]]      # {type_name: [feature_names]} your rules predict
-```
-
-`PROCESS_FEATURES` defines both the loss scope and the test-time overwrite \
-scope: only the listed `(type, feature)` pairs are scored against \
-observations, and only those are written on top of the base sim at test \
-time. Be honest — listing features your rules don't actually update \
-inflates the loss without giving MCMC anything to optimise.
-__PHYSICAL_PARAMS_SECTION__
-__RULE_SIGNATURE_SECTION__
-
-### Multiple objects of the same type
-
-A task may contain **several objects of the same type** — two widgets, \
-three fixtures, or one of each — and the count varies from task to task. \
-Your rules run once per step over the entire `State`, so they must act on \
-*whatever objects are present*, never a hard-coded slot. Code like \
-`widgets[0]` silently ignores every other instance and breaks the moment \
-a task has more (or fewer) objects than the trajectory you calibrated on.
-
-Gather the relevant objects by type and loop over the binding(s) the rule \
-acts on, emitting updates keyed by the specific object the effect applies \
-to:
-
-```python
-widgets  = [o for o in state.data if o.type.name == "widget"]
-fixtures = [o for o in state.data if o.type.name == "fixture"]
-for widget in widgets:
-    for fixture in fixtures:           # all pairs, or pair each widget
-        if at_fixture(state, widget, fixture, params):   # to its nearest
-            wv = state.get(widget, "progress")
-            updates.setdefault(widget, {})["progress"] = wv + params["rate"]
-```
-
-The same `params` apply to every object of a type: you are learning the \
-shared physics of "a widget", not per-instance constants. If a rule \
-genuinely needs exactly one object (a single global clock, say), assert \
-that rather than silently indexing `[0]`.
-
-### Timing
-
-Each rule fires once per step:
-
-```
-state[t] ──base_sim──▶ draft state[t+1] ──your rules──▶ final state[t+1]
-                                               ^^^^^^^
-                        (only PROCESS_FEATURES are overwritten)
-```
-
-Rules see `state[t]`. They cannot see actions, the base sim's draft, or \
-`state[t+2]`. If a feature changes one step *after* its gating event \
-(e.g. an action toggles a gating flag at `t`, but the feature it drives \
-only starts changing at `t+1`), that's an inherent 1-step lag in the \
-data — accept the single boundary residual or model the delay with an \
-extra parameter rather than chasing it with ever-stricter conditions.
-
-### Geometric gates
-
-If a rule's firing condition depends on the relative position of two \
-bodies, do **not** gate on the raw distance between their recorded \
-poses. `obj.x, obj.y` is the recorded pose origin — usually a body's \
-base or frame center — while the point that actually drives the \
-physics (a contact surface, an outlet on the body's side, an \
-end-effector tip, a container opening, a handle) is typically offset \
-from it. That offset lives in the body's **local frame**, so it \
-rotates with the body's `rot` feature; gating on raw origin distance \
-silently bakes in one task's orientation and breaks on any task where \
-the fixture is rotated differently.
-
-**Default to a learned, rotation-aware anchor offset.** Express every \
-two-body geometric gate as a distance to an *anchored* point — the \
-fixture origin plus a local-frame offset rotated into the world frame \
-by the fixture's `rot` — with the offset declared as learnable params:
-
-```python
-PARAM_SPECS = [
-    # Functional point offset, in the fixture's LOCAL frame:
-    ParamSpec("fixture_local_dx",       0.0,  lo=-0.3, hi=0.3),
-    ParamSpec("fixture_local_dy",       0.0,  lo=-0.3, hi=0.3),
-    ParamSpec("widget_at_fixture_dist", 0.10, lo=0.0,  hi=0.4),
-]
-
-# `fixture`, `widget`: the relevant object pair (bind as your rule needs).
-__PROCESS_RULE_SIGNATURE__
-    rot = state.get(fixture, "rot")
-    cos_r, sin_r = np.cos(rot), np.sin(rot)
-    rot_mat = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
-    local_offset = np.array([params["fixture_local_dx"],
-                             params["fixture_local_dy"]])
-    origin = np.array([state.get(fixture, "x"), state.get(fixture, "y")])
-    anchor = origin + rot_mat @ local_offset  # world-frame point
-    widget_xy = np.array([state.get(widget, "x"), state.get(widget, "y")])
-    if np.linalg.norm(widget_xy - anchor) < params["widget_at_fixture_dist"]:
-        ...  # fire
-```
-
-If the functional point really does coincide with the recorded origin, \
-the fit drives the offsets to ~0 — no harm done. A threshold-only gate \
-(no offset) is the exception: use one only after you have positively \
-confirmed the recorded origin *is* the functional point. Share the \
-offset and distance params with the gating predicate so the rule and \
-predicate anchor to the same point.
-
-**Required check before committing a geometric gate.** Bucket the \
-trajectory steps by whether the gated effect actually fired, compute \
-your gate quantity at each step, and confirm the two buckets separate \
-by a clear margin. If they overlap, or separate only by a knife-edge \
-gap (~5% of the value range or narrower), the gate references the \
-wrong point — a threshold flush against the data boundary is a \
-rejected fit, not a fit. Do **not** nudge the threshold to paper over \
-it: add or refit the anchor offset and re-bucket. To find the offset, \
-__SCENE_VIZ_HINT__; the gap \
-between the origin and the effect-firing cluster is the offset.
-
-### ParamSpec
-
-```python
-ParamSpec(name: str, init_value: float,
-          lo: Optional[float] = None, hi: Optional[float] = None)
-```
-
-Bounds shape both the MCMC prior and the warm-start clamp. Set `lo=0.0` \
-for non-negative rates, etc.
-
-### Pre-injected when `simulator.py` is exec'd
-
-`numpy as np`, `ParamSpec`. Import anything else at the top of the file. \
-The data classes (`State`, `Object`, `Action`, ...) come from \
-`predicators.structs`; source is in the reference file linked in the \
-first message.
-
-## Tools
-
-`Write` / `Edit` `simulator.py` is your normal coding loop. Every \
-successful write is snapshotted to \
-`simulator_versions/cycle_XXX_vers_YYY_simulator.py` (deduped by \
-content; ``XXX`` is the current cycle, ``YYY`` resets per cycle). The \
-synthesis tools below load the file fresh on every call and prefix \
-their output with `[cycle_XXX_vers_YYY]` so you and reviewers can diff \
-iterations.
-
-- `run_python(code)` — ad-hoc data exploration. `trajectories`, `np`, \
-`ParamSpec` in scope; when the learn message states a task objective, \
-`evaluate_trajectory(states, actions=None, task_idx=0)` scores a state \
-sequence with the env's ground-truth evaluator (returns reward / \
-solved; on your own simulator's rollouts the verdict is only as good \
-as the simulator). **Does not** define rules.
-- `evaluate_step_fit` — per-step prediction accuracy: SSE on the step \
-transitions at `init_value` params, plus post-fit SSE and fitted \
-parameters from a parameter fit. Cheap; the inner-loop signal.
-- `report_residuals` — per-feature breakdown: mismatch counts, mean / \
-max abs error, vs-baseline improvement (negative ⇒ rules are adding \
-error), worst-N example transitions. Diagnostic for *which* rule to fix.
-- `evaluate_plan_refinement(plan, task_idx)` — per-task planning \
-success: MCMC-fits, builds the combined simulator, runs backtracking \
-refinement against a plan **you propose** (see "Plan format" below), \
-**and then forward-validates that refined plan continuously** (state \
-carries forward across all options, single shot per step). Reports \
-both verdicts. A SUCCESS line followed by `Forward validation: FAIL` \
-counts as a failure — see "Refinement vs. forward validation" below. \
-Slow; the gate before declaring done.
-
-`evaluate_step_fit` and `evaluate_plan_refinement` test complementary \
-things — pointwise accuracy vs. goal reachability. A rule can have \
-ε-small SSE and still get a saturation threshold or alignment cap *just* \
-wrong enough that refinement can't satisfy a subgoal. Use step-fit + \
-residuals as the fast inner loop and plan-refinement as the slow \
-goal-relevant gate.
-
-### Refinement vs. forward validation (read before tuning a threshold)
-
-`evaluate_plan_refinement` runs two checks under the same option model. \
-Refinement samples continuous params with up to 50 attempts per \
-parametric step and snapshots state at each backtrack — failures are \
-isolated per step. Forward validation runs the refined plan once, \
-continuously, with state carrying forward across all options — \
-matching how test time will execute it. Any divergence between the \
-two indicates the learned model is *more permissive* than the env's \
-effective behavior: refinement's looser gates accept a Place/Wait \
-that the env-driven rollout won't actually achieve.
-
-When you see `Forward validation: FAIL`, the failure mode is almost \
-always one of these:
-
-1. **A learned gate threshold is wider than the env's effective \
-threshold.** Example: the env's process rule only fires when the \
-widget-to-fixture distance < 0.05, but you set \
-`widget_at_fixture_dist = 0.063` for "safety margin". Refinement \
-accepts a Place at distance 0.05–0.063 (your `WidgetAtFixture` \
-predicate is true and your learned rule fires); forward validation \
-runs the same Place, the env's rule never fires (distance > env \
-threshold), and Wait runs to its step cap without `WidgetReady` \
-holding. **Fix:** tighten the gate to match the env's empirical \
-boundary, do not widen for slack.
-2. **A wait-termination cutoff fires before the env-side feature \
-catches up.** Example: `WidgetReady = process_value >= 0.99` fires at \
-the learned simulator's step 34 (process_value=0.9996), but the env's \
-goal-check requires the underlying feature to reach 1.0 — refinement's \
-subgoal passes, but the final-state goal check on env state fails. \
-**Fix:** align the predicate's cutoff with the env's effective \
-cutoff, *and* confirm by re-running plan refinement after the change.
-
-**Rule of thumb:** when in doubt, *tighten* learned thresholds toward \
-the env's empirical boundary, never loosen them. Widening hides \
-discrepancies during refinement and reveals them at test time as \
-0-solve regressions.
-__SYNTHESIS_PROMPT_EXTRA__
-## Plan format for `evaluate_plan_refinement`
-
-One option call per line, **with every option argument supplied and using \
-typed object references** (`obj:type`), matching exactly what the inspect \
-tools report. Use the inspect tools (or `run_python` over a trajectory) to \
-read off the right names and arities — the parser is strict and silently \
-omitting an argument will not be auto-filled. Example:
-
-```
-PickWidget(robot:robot, widget0:widget)
-Place(robot:robot) -> {WidgetAtFixture(widget0:widget, fixture0:fixture)}
-ActivateFixture(robot:robot, fixture0:fixture)
-Wait(robot:robot) -> {WidgetReady(widget0:widget)}
-...
-```
-
-(The names above are illustrative — use whatever options, types, and \
-predicates the inspect tools actually report for your task.) Insert a \
-`Wait` after any action that triggers a delayed process (gradual \
-accumulation, propagation, sensor catch-up) so your rules have steps to \
-fire on.
-
-**Subgoal annotations** (`-> {Atom(obj:type, ...)}` after a step) are \
-optional in general but **effectively required after open-ended skills \
-like `Place`**. Without one the backtracking search has no preference for \
-*where* to put the object, so a `Place; Wait` pair will refine cleanly \
-but skip past the relevant target location and your rules never fire — \
-the run looks like a rule bug but is actually a missing subgoal. For \
-`Wait`, the annotation also specifies when the wait should terminate; \
-prefix an atom with `NOT` if it should become false.
-
-## Workflow
-
-1. Explore data with `run_python` — what features change per step, \
-which ones aren't explained by the base sim.
-2. `Write` `simulator.py`; `Edit` to iterate.
-3. Score with `evaluate_step_fit`, then `report_residuals` to find \
-diverging features. Negative `vs base` ⇒ a rule is actively hurting — \
-usually a wrong gate or sign.
-4. When SSE is plausible, propose an option-skeleton plan and call \
-`evaluate_plan_refinement(plan="...", task_idx=i)`. A stuck step means \
-the rules gating its subgoal atoms are too tight or too loose; fix and \
-re-validate.
-"""
-        # Swap in the canonical rule-signature block / geometric-gate def
-        # line. Fully-observable (default) keeps the 3-arg signature; the
-        # partial-observability subclass overrides these so the PO prompt
-        # presents only the recurrent 5-arg signature as canonical (never
-        # the 3-arg form, which previously sat beside the PO guidance and
-        # led the agent to write a 3-arg rule the recurrent engine rejects).
-        base_prompt = base_prompt.replace("__RULE_SIGNATURE_SECTION__",
-                                          self._rule_signature_section())
-        base_prompt = base_prompt.replace("__PROCESS_RULE_SIGNATURE__",
-                                          self._process_rule_signature())
-        base_prompt = base_prompt.replace(
-            "__PHYSICAL_PARAMS_SECTION__",
-            self._physical_params_prompt_section())
-        base_prompt = base_prompt.replace("__SCENE_VIZ_HINT__",
-                                          self._scene_viz_hint())
+        Substitutes the placeholders that vary per instance: the
+        rule-signature blocks (the partial-observability subclass
+        overrides the two signature hooks so its prompt presents only
+        the recurrent 5-arg form as canonical - the 3-arg form sitting
+        beside the PO guidance previously led the agent to write a
+        3-arg rule the recurrent engine rejects), the optional
+        PHYSICAL_PARAMS section (env parameter menu), the
+        scene-visualization hint (tool surface), and the subclass extra
+        section.
+        """
+        prompt = _SYNTHESIS_SYSTEM_PROMPT_TEMPLATE
+        prompt = prompt.replace("__RULE_SIGNATURE_SECTION__",
+                                self._rule_signature_section())
+        prompt = prompt.replace("__PROCESS_RULE_SIGNATURE__",
+                                self._process_rule_signature())
+        prompt = prompt.replace("__PHYSICAL_PARAMS_SECTION__",
+                                self._physical_params_prompt_section())
+        prompt = prompt.replace("__SCENE_VIZ_HINT__", self._scene_viz_hint())
         extra = self._extra_synthesis_system_prompt()
-        if extra:
-            return base_prompt.replace("__SYNTHESIS_PROMPT_EXTRA__",
-                                       "\n" + extra.rstrip() + "\n")
-        return base_prompt.replace("__SYNTHESIS_PROMPT_EXTRA__", "")
+        extra_block = "\n" + extra.rstrip() + "\n" if extra else ""
+        return prompt.replace("__SYNTHESIS_PROMPT_EXTRA__", extra_block)
 
     @staticmethod
     def _scene_viz_hint() -> str:
@@ -2697,7 +2839,7 @@ re-validate.
             "identified from trajectories that contain no collisions). "
             "`evaluate_step_fit` returns a per-parameter identifiability "
             "report (posterior contraction); drop any parameter reported "
-            "as NOT identified — its fitted value is arbitrary noise.",
+            "as NOT identified - its fitted value is arbitrary noise.",
             "- With `PHYSICAL_PARAMS` declared, the fit switches to "
             "matching **free-running rollouts** of full trajectories "
             "(momentum accrues in-sim, which the per-step teacher-forced "
@@ -2707,7 +2849,7 @@ re-validate.
             "- A physics-only artifact is valid: `PROCESS_RULES = []` and "
             "`PARAM_SPECS = []` with a non-empty `PHYSICAL_PARAMS` means "
             "the calibrated base sim carries all the dynamics. "
-            "`PROCESS_FEATURES` must still be declared — it defines which "
+            "`PROCESS_FEATURES` must still be declared - it defines which "
             "features the rollout is scored on (e.g. the pose features "
             "of the objects whose motion you are calibrating).",
             "- After the fit, the identified values are applied to the "
