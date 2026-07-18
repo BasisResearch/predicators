@@ -24,6 +24,7 @@ In synthesis sessions the same facade probes the CANDIDATE simulator
 from __future__ import annotations
 
 import dataclasses
+import time
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from predicators import utils
@@ -33,6 +34,52 @@ from predicators.structs import State, Task
 # ``[{"object": name, "features": {feat: val}}]`` or the terser dict form
 # ``{name: {feat: val}}``.
 Modifications = Union[List[Dict[str, Any]], Dict[str, Dict[str, float]]]
+
+
+class ProbeBudgetExceeded(Exception):
+    """A probe call ran past a wall-clock budget.
+
+    Raised cooperatively at probe checkpoints (every sim call) when the
+    explore_python per-call limit or the solve attempt's wall clock has
+    expired. ``explore_python`` catches it specially: the code's printed
+    output so far is returned with the budget message appended, so a
+    stopped sweep still hands the agent its partial results.
+    """
+
+
+def _check_time_budget(ctx: Any) -> None:
+    """Raise :class:`ProbeBudgetExceeded` when a wall-clock budget is up.
+
+    Never fires during the final-submission nudge
+    (``ctx.capture_best_effort_plan``): with the budget spent, the one
+    thing left is submitting, and blocking that would forfeit the task.
+    """
+    if getattr(ctx, "capture_best_effort_plan", False):
+        return
+    now = time.monotonic()
+    attempt_dl = getattr(ctx, "attempt_deadline", None)
+    if attempt_dl is not None and now > attempt_dl:
+        raise ProbeBudgetExceeded(
+            "the attempt's wall-clock exploration budget is exhausted. Stop "
+            "exploring NOW and submit your single best plan via "
+            "evaluate_option_plan on the current task (omit task_idx).")
+    call_dl = getattr(ctx, "explore_call_deadline", None)
+    if call_dl is not None and now > call_dl:
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.settings import CFG
+        raise ProbeBudgetExceeded(
+            f"this explore_python call exceeded its "
+            f"{CFG.agent_sdk_explore_python_call_timeout:.0f}s time limit "
+            "and was stopped between sim calls; output printed so far is "
+            "returned above. Large sweeps are expensive - narrow the "
+            "candidate set (coarse-to-fine, fewer perturbations per "
+            "candidate) and split work across calls so each returns "
+            "within the limit.")
+
+
+def _count_rollout(ctx: Any, n: int = 1) -> None:
+    """Meter full-plan rollouts for the attempt budget footer."""
+    ctx.attempt_rollout_count = getattr(ctx, "attempt_rollout_count", 0) + n
 
 
 def _fmt_params(params: Any) -> str:
@@ -270,6 +317,7 @@ class ProbeSim:
         # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk.tools import _apply_state_modifications
         ctx = self._ctx
+        _check_time_budget(ctx)
         if task_idx is None and getattr(ctx, "probe_option_model_provider",
                                         None) is not None:
             # Synthesis session: "current task" is a solve-time pointer
@@ -538,6 +586,7 @@ class ProbeSim:
         if trials < 1:
             raise ValueError(f"trials must be >= 1, got {trials}")
         ctx = self._ctx
+        _check_time_budget(ctx)
         ctx.test_call_id += 1
         probe_task, sketch_steps, all_predicates, notices = \
             self._parse_sketch(plan_text)
@@ -573,28 +622,41 @@ class ProbeSim:
             # pylint: disable-next=import-outside-toplevel
             import contextlib
             trial_dicts: List[Dict[str, Any]] = []
-            for _ in range(trials):
-                with (fresh_scope() if fresh_scope is not None else
-                      contextlib.nullcontext()):
-                    r = bilevel_sketch.execute_plan_forward(
-                        probe_task,
-                        grounded,
-                        self._option_model(),
-                        predicates=all_predicates,
-                        sketch=sketch_steps,
-                        stop_on_failure=True)
-                failure: Optional[str] = None
-                if r.first_failure_idx is not None:
-                    fs = r.steps[r.first_failure_idx]
-                    failure = (f"step {r.first_failure_idx} "
-                               f"({_fmt_option(fs.option)}): "
-                               f"{fs.failure_reason or 'not initiable'}")
-                total = sum(s.num_actions for s in r.steps)
-                trial_dicts.append({
-                    "goal_reached": r.goal_reached,
-                    "num_actions": total,
-                    "failure": failure,
-                })
+            try:
+                for _ in range(trials):
+                    _check_time_budget(ctx)
+                    _count_rollout(ctx)
+                    with (fresh_scope() if fresh_scope is not None else
+                          contextlib.nullcontext()):
+                        r = bilevel_sketch.execute_plan_forward(
+                            probe_task,
+                            grounded,
+                            self._option_model(),
+                            predicates=all_predicates,
+                            sketch=sketch_steps,
+                            stop_on_failure=True)
+                    failure: Optional[str] = None
+                    if r.first_failure_idx is not None:
+                        fs = r.steps[r.first_failure_idx]
+                        failure = (f"step {r.first_failure_idx} "
+                                   f"({_fmt_option(fs.option)}): "
+                                   f"{fs.failure_reason or 'not initiable'}")
+                    total = sum(s.num_actions for s in r.steps)
+                    trial_dicts.append({
+                        "goal_reached": r.goal_reached,
+                        "num_actions": total,
+                        "failure": failure,
+                    })
+            except ProbeBudgetExceeded as e:
+                # Completed trials are minutes of sim time and live in the
+                # RETURN VALUE, not stdout - discarding them on a mid-loop
+                # budget stop would force re-simulating them. Return the
+                # partial result instead; only an empty result re-raises.
+                if not trial_dicts:
+                    raise
+                notices.append(
+                    f"time budget expired after {len(trial_dicts)}/{trials} "
+                    f"trials - the remaining trials were skipped ({e})")
             successes = sum(1 for t in trial_dicts if t["goal_reached"])
             over = [
                 t for t in trial_dicts
@@ -636,6 +698,7 @@ class ProbeSim:
                 "image": img.get("saved_path") if img else None,
             })
 
+        _count_rollout(ctx)
         result = bilevel_sketch.execute_plan_forward(probe_task,
                                                      grounded,
                                                      self._option_model(),
@@ -700,6 +763,7 @@ class ProbeSim:
 
         # pylint: enable=import-outside-toplevel
         ctx = self._ctx
+        _check_time_budget(ctx)
         probe_task, sketch_steps, all_predicates, notices = \
             self._parse_sketch(sketch_text)
         solved_check: Optional[Callable[[List[State], List[Any], bool],

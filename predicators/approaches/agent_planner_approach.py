@@ -437,6 +437,8 @@ scene, then annotate_scene overlays markers on it."""
                 tools.append("visualize_state")
             if CFG.agent_planner_use_explore_python:
                 tools.append("explore_python")
+        if CFG.agent_solve_use_journal:
+            tools.append("record_journal")
         return tools
 
     # ------------------------------------------------------------------ #

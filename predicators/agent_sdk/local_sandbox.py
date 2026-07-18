@@ -26,6 +26,7 @@ import json
 import logging
 import os
 import re
+import time
 from typing import Any, Dict, List, Optional
 
 from predicators.agent_sdk.log_formatter import format_conversation_markdown
@@ -254,6 +255,29 @@ class LocalSandboxSessionManager:
         if not self._started:
             await self.start_session()
 
+        # Wall-clock backstop for the solve attempt deadline: the probe
+        # and explore_python enforce it cooperatively (tool calls refuse
+        # past the deadline), so normally the agent wraps up on its own;
+        # interrupt only if the turn stream is still going long after.
+        # The approach clears attempt_deadline before its final-submission
+        # nudge, so the submission query is never interrupted.
+        interrupt_sent = False
+
+        async def _maybe_interrupt_on_deadline() -> None:
+            nonlocal interrupt_sent
+            deadline = getattr(self._tool_context, "attempt_deadline", None)
+            if (interrupt_sent or deadline is None
+                    or time.monotonic() <= deadline + 180):
+                return
+            interrupt_sent = True
+            logging.warning(
+                "Solve-attempt wall clock exceeded by >180s mid-query; "
+                "interrupting the agent turn.")
+            try:
+                await self._client.interrupt()
+            except Exception as e:  # pylint: disable=broad-except
+                logging.warning("Interrupt failed: %s", e)
+
         try:
             await self._client.query(message)
             async for msg in self._client.receive_response():
@@ -261,6 +285,7 @@ class LocalSandboxSessionManager:
                 if entry is None:
                     continue
                 collected.append(entry)
+                await _maybe_interrupt_on_deadline()
 
                 # Log side-effects
                 if entry["type"] == "assistant":

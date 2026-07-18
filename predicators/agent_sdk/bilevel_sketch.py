@@ -344,6 +344,7 @@ def build_solve_prompt(
     propose_params: bool = False,
     require_tool_validation: bool = False,
     ground_samplers: bool = False,
+    journal: str = "",
 ) -> str:
     """Build the bilevel solve/explore prompt asking for a plan sketch.
 
@@ -376,6 +377,12 @@ def build_solve_prompt(
     captured, validated plan is the only output) - used when the approach
     has no refinement fallback. When False, validation is merely
     encouraged.
+
+    ``journal`` is the run's solve-journal content (see
+    ``predicators/agent_sdk/journal.py``): the curated record of earlier
+    attempts' outcomes and lessons, injected so fresh-context sessions
+    inherit what worked (and what was already swept) without inheriting
+    failed attempts' conclusions.
     """
     init_state = task.init
     objects = list(init_state)
@@ -455,6 +462,22 @@ def build_solve_prompt(
             "meaningfully from the plan(s) above, so this cycle's data is "
             "complementary rather than redundant. Only if no meaningfully "
             "different goal-reaching plan exists, repeat the best plan.\n")
+
+    journal_section = ""
+    if journal:
+        journal_section = (
+            "\n## Solve Journal (record of earlier attempts)\n"
+            "You start with fresh context. The journal below is this run's "
+            "persistent record from earlier solve attempts and tasks: "
+            "auto-recorded outcomes (captured plans, rewards, budgets) "
+            "plus agent-recorded lessons. Use it - reproduce what worked, "
+            "do not repeat parameter sweeps it already covers - but treat "
+            "any recorded conclusion skeptically: re-verify cheap claims "
+            "rather than inheriting them, especially from failed "
+            "attempts.\n"
+            "Add your own lessons for future attempts with the "
+            "record_journal tool (facts and measurements only).\n\n"
+            f"{journal}\n")
 
     goal_nl_section = ""
     if task.goal_nl:
@@ -652,7 +675,8 @@ Generate a plan sketch to achieve the goal.
 
 ## Available Predicates (for subgoal annotations)
 {chr(10).join(pred_strs)}
-{trajectory_summary}{tools_str}{prior_failures_section}{scheduled_plans_section}
+{trajectory_summary}{tools_str}{journal_section}{prior_failures_section}\
+{scheduled_plans_section}
 ## Instructions
 Use your available tools to inspect the environment before producing the plan.
 
@@ -851,6 +875,8 @@ def _resolve_ground_sampler(
     if not raw_blocks:
         return None
 
+    # pylint: disable-next=useless-return
+    # pylint: disable-next=useless-return
     # pylint: disable-next=useless-return
     # pylint: disable-next=useless-return
     def _bad(reason: str) -> Optional[GroundSampler]:
