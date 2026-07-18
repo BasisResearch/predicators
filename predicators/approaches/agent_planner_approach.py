@@ -437,6 +437,8 @@ scene, then annotate_scene overlays markers on it."""
                 tools.append("visualize_state")
             if CFG.agent_planner_use_explore_python:
                 tools.append("explore_python")
+        if CFG.agent_solve_use_journal:
+            tools.append("record_journal")
         return tools
 
     # ------------------------------------------------------------------ #
@@ -699,9 +701,8 @@ scene, then annotate_scene overlays markers on it."""
         return self._parse_and_ground_plan(plan_text, task)
 
     def _solve_prompt_visualize_line(self) -> str:
-        """The stuck-step visualization bullet, matching the session's
-        actual visualization surface (visualize_state, explore_python, or
-        neither)."""
+        """The stuck-step visualization bullet, matching the session's actual
+        visualization surface (visualize_state, explore_python, or neither)."""
         if CFG.agent_planner_use_simulator and \
                 CFG.agent_planner_use_explore_python:
             return (

@@ -85,6 +85,12 @@ SCENE_TOOL_NAMES = [
 EXPLORATION_TOOL_NAMES = [
     "explore_python",
 ]
+# Solve-journal writing (CFG.agent_solve_use_journal): agent-authored
+# lessons for future fresh-context attempts. Read side is prompt
+# injection, so this is the only journal tool.
+JOURNAL_TOOL_NAMES = [
+    "record_journal",
+]
 
 
 def explore_python_replaces_tools() -> bool:
@@ -104,7 +110,7 @@ def explore_python_replaces_tools() -> bool:
 ALL_TOOL_NAMES = (INSPECTION_TOOL_NAMES + PROPOSAL_TOOL_NAMES +
                   RETRACTION_TOOL_NAMES + TESTING_TOOL_NAMES +
                   PLANNING_TOOL_NAMES + SCENE_TOOL_NAMES +
-                  EXPLORATION_TOOL_NAMES)
+                  EXPLORATION_TOOL_NAMES + JOURNAL_TOOL_NAMES)
 
 # Names of tools returned by ``create_synthesis_tools`` (sim-learning)
 # and ``create_predicate_synthesis_tools`` (predicate invention). These
@@ -311,6 +317,37 @@ class ToolContext:
     # so subsequent captures on these tasks must clear the escalated
     # CFG.agent_plan_validation_rollouts_after_flaky gate instead.
     flaky_capture_task_keys: Set[Any] = field(default_factory=set)
+    # Task-evaluator reward of the rollout that produced the current
+    # solved_plan capture (None when no evaluator verdict was computed).
+    # The restart loop ranks best-effort captures across attempts by it.
+    # Cleared together with solved_plan.
+    solved_plan_eval_reward: Optional[float] = None
+    # Restart-loop attempt bookkeeping, set by AgentBilevelApproach._solve
+    # around each attempt. ``attempt_start``/``attempt_deadline`` are
+    # time.monotonic() values; the deadline is enforced cooperatively by
+    # the probe (every sim call) and explore_python, and surfaced in tool
+    # results as a budget footer. None ⇒ no attempt in flight / no wall
+    # clock. The deadline is cleared before the final-submission nudge so
+    # nothing blocks the submission itself.
+    attempt_index: int = 0
+    attempt_start: Optional[float] = None
+    attempt_deadline: Optional[float] = None
+    # Count of full-plan belief-sim rollouts this attempt (probe runs,
+    # trials, capture-validation repeats). Reset per attempt; shown in
+    # the budget footer so sweeps carry a visible price.
+    attempt_rollout_count: int = 0
+    # Best submission on the current task this attempt that
+    # evaluate_option_plan evaluated but refused to capture (evaluator
+    # scored it a non-solve, or it was flaky), ranked by evaluator
+    # reward. Reset per attempt; the journal auto-entry records it so a
+    # later attempt (or the final best-effort nudge) can resubmit it
+    # instead of the attempt's work vanishing with its context.
+    best_uncaptured_plan_lines: Optional[List[str]] = None
+    best_uncaptured_reward: Optional[float] = None
+    # Per-call deadline for the explore_python call currently executing
+    # (CFG.agent_sdk_explore_python_call_timeout); enforced at the same
+    # probe checkpoints as attempt_deadline. None ⇒ no call in flight.
+    explore_call_deadline: Optional[float] = None
 
 
 def session_log_filename(query_count: int,
@@ -541,6 +578,82 @@ def _scrub_host_paths(text: str) -> str:
     if home and home != "/":
         text = text.replace(home + os.sep, "~" + os.sep)
     return text
+
+
+def _budget_footer(ctx: "ToolContext", rollouts_before: int = 0) -> str:
+    """``[budget]`` line appended to tool results during a solve attempt.
+
+    Shows attempt wall-clock (elapsed, and the budget when one is set)
+    and the attempt's cumulative sim-rollout count (plus this call's
+    delta). Agents pace well when they can see a clock and terribly when
+    they can't: the 47k-rollout single-call sweep of run_20260717_230436
+    ran 7 h with zero cost feedback. Empty when no attempt is in flight.
+    """
+    start = ctx.attempt_start
+    if start is None:
+        return ""
+    parts = []
+    elapsed_min = (time.monotonic() - start) / 60.0
+    deadline = ctx.attempt_deadline
+    if deadline is not None:
+        total_min = (deadline - start) / 60.0
+        parts.append(f"attempt time {elapsed_min:.1f}/{total_min:.0f} min")
+    else:
+        parts.append(f"attempt time {elapsed_min:.1f} min")
+    total_rollouts = ctx.attempt_rollout_count
+    delta = total_rollouts - rollouts_before
+    rollout_part = f"sim rollouts this attempt: {total_rollouts}"
+    if delta > 0:
+        rollout_part += f" (+{delta} this call)"
+    parts.append(rollout_part)
+    return "\n\n[budget] " + "; ".join(parts)
+
+
+def _arm_budget_watchdog(seconds: float) -> Callable[[], None]:
+    """Schedule a ProbeBudgetExceeded in the CALLING thread after ``seconds``;
+    returns an idempotent disarm callable.
+
+    ``explore_python``'s exec() runs on the event-loop thread, so
+    pure-Python code that never reaches a probe checkpoint blocks every
+    cooperative deadline check AND the sandbox's message-stream
+    interrupt backstop - an async exception from a watchdog timer is the
+    only preemption that reaches it. Delivery happens at the next
+    bytecode boundary, so a long blocking C call (a physics step) defers
+    it; those paths are exactly the ones the cooperative probe checks
+    already cover.
+    """
+    # pylint: disable=import-outside-toplevel
+    import ctypes
+    import threading
+
+    from predicators.agent_sdk.probe_api import ProbeBudgetExceeded
+
+    # pylint: enable=import-outside-toplevel
+    target_id = threading.get_ident()
+    lock = threading.Lock()
+    armed = [True]
+
+    def _fire() -> None:
+        # The lock makes fire/disarm mutually exclusive so the async
+        # exception cannot be injected after the call has already
+        # returned and disarmed.
+        with lock:
+            if not armed[0]:
+                return
+            ctypes.pythonapi.PyThreadState_SetAsyncExc(
+                ctypes.c_long(target_id),
+                ctypes.py_object(ProbeBudgetExceeded))
+
+    timer = threading.Timer(seconds, _fire)
+    timer.daemon = True
+    timer.start()
+
+    def _disarm() -> None:
+        with lock:
+            armed[0] = False
+        timer.cancel()
+
+    return _disarm
 
 
 # Path-like tokens: absolute (``/foo``) or parent-traversal (``..``/``../foo``),
@@ -1978,6 +2091,11 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             utils  # pylint: disable=import-outside-toplevel
 
         ctx.test_call_id += 1
+        # Snapshot for the [budget] footer's per-call delta; this handler
+        # increments the counter itself (initial rollout + validation
+        # repeats), and without the snapshot the footer reports the
+        # attempt's cumulative total as "+N this call".
+        rollouts_before = ctx.attempt_rollout_count
 
         if ctx.option_model is None:
             return _error_result("No option model available in ToolContext.")
@@ -2132,6 +2250,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # failure) instead of pressing on. Otherwise forward simulation can
         # continue past a collision and report a goal that the real rollout —
         # which ends the episode at that failed option — never reaches.
+        ctx.attempt_rollout_count += 1
         result = bilevel_sketch.execute_plan_forward(task,
                                                      grounded_plan,
                                                      ctx.option_model,
@@ -2289,6 +2408,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             # "rollout k FAILED" left agents guessing which
             # (run_20260717_182040 seed0 turn 214).
             for repeat_idx in range(2, n_rollouts + 1):
+                ctx.attempt_rollout_count += 1
                 with (fresh_scope() if fresh_scope is not None else
                       contextlib.nullcontext()):
                     ok, why = _validation_rollout()
@@ -2324,6 +2444,23 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # best-effort capture that executes but cannot count as a solve - the
         # certificate still protects the score. A best-effort capture never
         # displaces a validated-solve capture.
+        def _stash_uncaptured_submission() -> None:
+            """Remember the best refused submission of this attempt.
+
+            The journal auto-entry records it at attempt end, so the
+            plan (and its honest evaluator reward) survives the fresh-
+            context restart and the final best-effort nudge can resubmit
+            it instead of the attempt's work vanishing with its context.
+            """
+            reward = float(verdict["reward"]) if verdict is not None else None
+            prev = ctx.best_uncaptured_reward
+            if ctx.best_uncaptured_plan_lines is not None and (
+                    reward is None or (prev is not None and reward <= prev)):
+                return
+            ctx.best_uncaptured_reward = reward
+            ctx.best_uncaptured_plan_lines = list(
+                bilevel_sketch.format_plan_lines(grounded_plan))
+
         best_effort_capture = (ctx.capture_best_effort_plan
                                and not ctx.solved_plan_reached_goal)
         validated_solve = (goal_achieved and not reward_hack
@@ -2359,6 +2496,8 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             ctx.solved_plan = grounded_plan
             ctx.solved_sketch = captured_sketch
             ctx.solved_plan_reached_goal = validated_solve
+            ctx.solved_plan_eval_reward = (float(verdict["reward"])
+                                           if verdict is not None else None)
             n_annot = sum(1 for s in captured_sketch
                           if s.subgoal_atoms or s.subgoal_neg_atoms)
             if validated_solve:
@@ -2396,6 +2535,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             # evidence the whole parameter region is marginal, not just
             # this point.
             ctx.flaky_capture_task_keys.add(capture_task_key)
+            _stash_uncaptured_submission()
             escalated_n = max(max(1, CFG.agent_plan_validation_rollouts),
                               CFG.agent_plan_validation_rollouts_after_flaky)
             n_ok = 1 + sum(1 for o in rollout_outcomes if "FAILED" not in o)
@@ -2425,6 +2565,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             # captured above, flagged as a non-solve, to execute for its
             # honest reward.)
             assert verdict is not None
+            _stash_uncaptured_submission()
             lines.append(
                 "NOT CAPTURED: the rollout reaches the goal atoms but the "
                 "task evaluator scores it as a non-solve (solved=False, "
@@ -2497,7 +2638,8 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 lines.append(f"  {p}")
 
         # Build result with text only (images are saved to disk)
-        return _text_result("\n".join(lines))
+        return _text_result("\n".join(lines) +
+                            _budget_footer(ctx, rollouts_before))
 
     return {
         "evaluate_predicate_on_trajectory": evaluate_predicate_on_trajectory,
@@ -2965,7 +3107,8 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
                         agent_bilevel_max_samples_per_step,
                         check_subgoals=CFG.agent_bilevel_check_subgoals,
                         log_state=CFG.agent_bilevel_log_state,
-                        parameterized_samplers=ctx.parameterized_samplers or None,
+                        parameterized_samplers=ctx.parameterized_samplers
+                        or None,
                         run_id="planner_refine",
                         timeout_source=timeout_source,
                         solved_check=solved_check,
@@ -3364,59 +3507,130 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
     explore_python = _make_python_exec_tool(
         tool,
         name="explore_python",
-        description=(
-            "Execute Python code for cheap physics/geometry exploration in "
-            "a persistent namespace (variables survive across calls - "
-            "define helpers and sweep loops once, reuse them). Available: "
-            f"{sim_desc}, `ProbeSim()` "
-            "(extra independent instances), `np`. ProbeSim API: "
-            f"{reset_desc}"
-            "`sim.run(plan_text, render=True, trials=1)` executes an option "
-            "plan FROM THE CURRENT "
-            "STATE (same grammar as evaluate_option_plan; print the result "
-            "for per-step outcomes incl. saved per-step scene-image paths - "
-            "view them with the Read tool; pass render=False inside tight "
-            "sweep loops) and advances the state; trials=N repeats the plan "
-            "N times (fresh physics per trial when available) and returns "
-            "the per-trial outcomes + success count WITHOUT advancing the "
-            "state - use it for reliability estimates instead of "
-            "hand-rolled repeat loops (restore/rerun repeats share solver "
-            "state and read optimistic); "
-            "`sim.state()` / "
-            "`sim.state('obj')` full-precision features; `sim.atoms()`; "
-            "`sim.render(label, annotations=None)` saves an image "
-            "(returns its path; Read it to view), "
-            "optionally overlaying marker/line/rectangle dicts "
-            "(`{'type': 'marker', 'position': [x, y, z], 'color': "
-            "[r, g, b], 'size': s}`; lines use `from`/`to`, rectangles "
-            "`min_corner`/`max_corner`) to check offsets and reference "
-            "points visually; `sim.snapshot()` / "
-            "`sim.restore(id)` bank and rewind states (use to re-try "
-            "different actions from one setup, or resume after a fixed "
-            "plan prefix without re-running it); "
-            "`sim.refine(sketch_text, timeout=60, require_goal=False, "
-            "require_solved=False)` runs "
-            "backtracking parameter search FROM THE CURRENT STATE (same "
-            "grammar/search as refine_plan_sketch"
-            f"{_region_syntax_blurb()}; "
-            "success = each step establishes its `-> {subgoals}` "
-            "annotation, and the result's Verdict line states what it "
-            "certifies) - refine a plan SUFFIX from a snapshot so the "
-            "budget goes to the step that matters; the result reports "
-            "best-found params even on timeout, per-step sample counts, and "
-            "the deepest near-miss. require_solved=True (only from an "
-            "unmodified reset() state) additionally requires the task "
-            "evaluator to score the final rollout solved=True, rejecting "
-            "goal-reaching-but-unscored candidates during the search. "
-            "print() output is "
-            "returned; oversize output is spilled to "
-            "`tool_outputs/explore_python/` (Read/Grep it back). "
-            f"{submit_desc}"),
+        description=
+        ("Execute Python code for cheap physics/geometry exploration in "
+         "a persistent namespace (variables survive across calls - "
+         "define helpers and sweep loops once, reuse them). Available: "
+         f"{sim_desc}, `ProbeSim()` "
+         "(extra independent instances), `np`. ProbeSim API: "
+         f"{reset_desc}"
+         "`sim.run(plan_text, render=True, trials=1)` executes an option "
+         "plan FROM THE CURRENT "
+         "STATE (same grammar as evaluate_option_plan; print the result "
+         "for per-step outcomes incl. saved per-step scene-image paths - "
+         "view them with the Read tool; pass render=False inside tight "
+         "sweep loops) and advances the state; trials=N repeats the plan "
+         "N times (fresh physics per trial when available) and returns "
+         "the per-trial outcomes + success count WITHOUT advancing the "
+         "state - use it for reliability estimates instead of "
+         "hand-rolled repeat loops (restore/rerun repeats share solver "
+         "state and read optimistic); "
+         "`sim.state()` / "
+         "`sim.state('obj')` full-precision features; `sim.atoms()`; "
+         "`sim.render(label, annotations=None)` saves an image "
+         "(returns its path; Read it to view), "
+         "optionally overlaying marker/line/rectangle dicts "
+         "(`{'type': 'marker', 'position': [x, y, z], 'color': "
+         "[r, g, b], 'size': s}`; lines use `from`/`to`, rectangles "
+         "`min_corner`/`max_corner`) to check offsets and reference "
+         "points visually; `sim.snapshot()` / "
+         "`sim.restore(id)` bank and rewind states (use to re-try "
+         "different actions from one setup, or resume after a fixed "
+         "plan prefix without re-running it); "
+         "`sim.refine(sketch_text, timeout=60, require_goal=False, "
+         "require_solved=False)` runs "
+         "backtracking parameter search FROM THE CURRENT STATE (same "
+         "grammar/search as refine_plan_sketch"
+         f"{_region_syntax_blurb()}; "
+         "success = each step establishes its `-> {subgoals}` "
+         "annotation, and the result's Verdict line states what it "
+         "certifies) - refine a plan SUFFIX from a snapshot so the "
+         "budget goes to the step that matters; the result reports "
+         "best-found params even on timeout, per-step sample counts, and "
+         "the deepest near-miss. require_solved=True (only from an "
+         "unmodified reset() state) additionally requires the task "
+         "evaluator to score the final rollout solved=True, rejecting "
+         "goal-reaching-but-unscored candidates during the search. "
+         "print() output is "
+         "returned; oversize output is spilled to "
+         "`tool_outputs/explore_python/` (Read/Grep it back). " +
+         (f"Each call has a {CFG.agent_sdk_explore_python_call_timeout:.0f}s "
+          "wall-clock limit (checked between sim calls, plus a hard stop "
+          "for sim-free code; printed output up to the stop is "
+          "returned): budget sweeps accordingly - "
+          "prefer coarse-to-fine over exhaustive grids, and print "
+          "intermediate bests so partial results survive a stop. "
+          if CFG.agent_sdk_explore_python_call_timeout > 0
+          and not synthesis_probe else "") + f"{submit_desc}"),
         exec_ns=build_probe_namespace(ctx),
         sandbox_dir=ctx.sandbox_dir,
         text_result=_text_result,
+        budget_ctx=ctx,
     )
     return {"explore_python": explore_python}
+
+
+def _build_journal_tools(ctx: ToolContext, _text_result: Callable,
+                         tool: Callable) -> Dict[str, Any]:
+    """``record_journal`` - agent-authored entries in the run's solve
+    journal.
+
+    Built only when the journal is enabled. The journal is the curated
+    cross-attempt/cross-task memory channel for fresh-context solve
+    sessions, so the tool guidance insists on facts and measurements:
+    recorded verdicts ("X is impossible") from a failed attempt would
+    re-import exactly the anchoring a restart is meant to shed
+    (run_20260717_230436 seed1 concluded a "hard collision boundary"
+    its sibling run placed through minutes later).
+    """
+    if not CFG.agent_solve_use_journal:
+        return {}
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.agent_sdk import journal as journal_mod
+
+    @tool(
+        "record_journal",
+        ("Append a short entry to the run's persistent solve journal "
+         "(journal.md), which future solve attempts - starting with FRESH "
+         "context - read in their prompt. Record durable, transferable "
+         "facts: what you tried with exact parameters, what you measured, "
+         "what worked (and its load-bearing values), and what a fresh "
+         "attempt should try differently. Facts and measurements ONLY - do "
+         "NOT record conclusions like 'X is impossible' or 'the task "
+         "requires Y' (a wrong verdict anchors every later attempt; the "
+         "evidence lets them re-judge). Keep it skimmable: a few bullets, "
+         f"under {journal_mod.MAX_ENTRY_CHARS} chars."),
+        {
+            "type": "object",
+            "properties": {
+                "entry": {
+                    "type": "string",
+                    "description": "The journal entry (markdown bullets).",
+                }
+            },
+            "required": ["entry"],
+        },
+    )
+    async def record_journal(args: Dict[str, Any]) -> Dict[str, Any]:
+        entry = (args.get("entry") or "").strip()
+        if not entry:
+            return _error_result("`entry` is required.")
+        if not ctx.sandbox_dir:
+            return _error_result("No sandbox directory in this session.")
+        if ctx.test_task_idx is not None:
+            where = f"test task {ctx.test_task_idx}"
+        else:
+            where = "pre-test phase"
+        attempt = f", attempt {ctx.attempt_index}" if ctx.attempt_index else ""
+        note = journal_mod.append_entry(ctx.sandbox_dir,
+                                        f"Agent notes ({where}{attempt})",
+                                        entry)
+        msg = "Recorded to the solve journal."
+        if note is not None:
+            msg += f" NOTE: {note}."
+        return _text_result(msg)
+
+    return {"record_journal": record_journal}
 
 
 def create_mcp_tools(ctx: ToolContext,
@@ -3448,6 +3662,7 @@ def create_mcp_tools(ctx: ToolContext,
         **_build_planning_tools(ctx, _text_result, tool),
         **_build_scene_tools(ctx, _text_result, tool),
         **_build_exploration_tools(ctx, _text_result, tool),
+        **_build_journal_tools(ctx, _text_result, tool),
     }
     if tool_names is None:
         tools = list(_all.values())
@@ -3683,6 +3898,7 @@ def _make_python_exec_tool(
     sandbox_dir: Optional[str],
     sandbox_dir_for_agent: Optional[str] = None,
     text_result: Callable[[str], Dict[str, Any]],
+    budget_ctx: Optional[ToolContext] = None,
 ) -> Any:
     """Build a code-execution MCP tool over a persistent namespace.
 
@@ -3693,6 +3909,13 @@ def _make_python_exec_tool(
     ``<sandbox_dir>/tool_outputs/<name>/``. The namespace persists
     across calls, so agents can define helpers once and reuse them.
 
+    ``budget_ctx`` (the solve session's ToolContext) opts the tool into
+    wall-clock budgeting: each call arms the per-call deadline
+    (``CFG.agent_sdk_explore_python_call_timeout``) that probe sim calls
+    enforce cooperatively, a call arriving after the attempt deadline is
+    refused with a submit-now message, and every result carries a
+    ``[budget]`` footer (attempt time + rollout counts) so sweeps have a
+    visible price.
     """
     # pylint: disable=import-outside-toplevel
     import io
@@ -3735,6 +3958,8 @@ def _make_python_exec_tool(
         },
     )
     async def python_exec(args: Dict[str, Any]) -> Dict[str, Any]:
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.probe_api import ProbeBudgetExceeded
         code = args["code"]
         # The code execs in-process with full filesystem access, and the
         # sandbox's PreToolUse file-path hook does not cover MCP tools, so
@@ -3748,22 +3973,82 @@ def _make_python_exec_tool(
                     f"Error: sandbox guard blocked this code - {reason}. "
                     "Read files with Read/Grep and use the MCP tools and "
                     "./reference/ files instead.")
+        rollouts_before = 0
+        if budget_ctx is not None:
+            rollouts_before = budget_ctx.attempt_rollout_count
+            attempt_dl = budget_ctx.attempt_deadline
+            if (attempt_dl is not None and time.monotonic() > attempt_dl
+                    and not budget_ctx.capture_best_effort_plan):
+                return text_result(
+                    "The attempt's wall-clock exploration budget is "
+                    "exhausted - this call was not run. Submit your single "
+                    "best plan NOW via evaluate_option_plan on the current "
+                    "task (omit task_idx)." +
+                    _budget_footer(budget_ctx, rollouts_before))
+            call_timeout = CFG.agent_sdk_explore_python_call_timeout
+            if budget_ctx.probe_option_model_provider is not None:
+                # Synthesis sessions probe the CANDIDATE simulator, whose
+                # rollouts are far slower than belief-sim ones and whose
+                # reset can trigger a fresh fit - a legitimate single call
+                # can exceed the solve-tuned cap, so synthesis is exempt
+                # from the per-call limit.
+                call_timeout = 0.0
+            budget_ctx.explore_call_deadline = (time.monotonic() + call_timeout
+                                                if call_timeout > 0 else None)
+
+        def _footer() -> str:
+            if budget_ctx is None:
+                return ""
+            return _budget_footer(budget_ctx, rollouts_before)
+
+        # Hard watchdog for pure-Python code that never reaches a probe
+        # checkpoint (see _arm_budget_watchdog): armed to the nearest of
+        # the per-call and attempt deadlines.
+        watchdog_disarm: Optional[Callable[[], None]] = None
+        if budget_ctx is not None:
+            wd_deadlines = []
+            if budget_ctx.explore_call_deadline is not None:
+                wd_deadlines.append(budget_ctx.explore_call_deadline)
+            if (budget_ctx.attempt_deadline is not None
+                    and not budget_ctx.capture_best_effort_plan):
+                wd_deadlines.append(budget_ctx.attempt_deadline)
+            if wd_deadlines:
+                remaining = min(wd_deadlines) - time.monotonic()
+                if remaining > 0:
+                    watchdog_disarm = _arm_budget_watchdog(remaining)
+
         old_stdout = sys.stdout
         sys.stdout = captured = io.StringIO()
         try:
             exec(code, exec_ns)  # pylint: disable=exec-used
+        except ProbeBudgetExceeded as e:
+            partial = captured.getvalue()
+            prefix = f"{partial}\n" if partial else ""
+            # The watchdog's async exception carries no message; give it
+            # the same actionable framing as the cooperative checks.
+            msg = str(e) or (
+                "this call exceeded its wall-clock budget and was stopped "
+                "mid-execution; output printed so far is returned above. "
+                "Split the work into smaller calls, and print intermediate "
+                "results so partial progress survives a stop.")
+            return text_result(f"{prefix}TIME BUDGET: {msg}{_footer()}")
         except Exception:  # pylint: disable=broad-except
             tb = _scrub_host_paths(traceback.format_exc())
             partial = captured.getvalue()
             prefix = f"{partial}\n" if partial else ""
-            return text_result(f"{prefix}Error:\n{tb}")
+            return text_result(f"{prefix}Error:\n{tb}{_footer()}")
         finally:
+            if watchdog_disarm is not None:
+                watchdog_disarm()
             sys.stdout = old_stdout
+            if budget_ctx is not None:
+                budget_ctx.explore_call_deadline = None
 
         output = captured.getvalue()
         if not output:
-            return text_result("(no output)")
+            return text_result(f"(no output){_footer()}")
 
+        output += _footer()
         if len(output) <= inline_char_limit or outputs_dir_host is None:
             return text_result(output)
 

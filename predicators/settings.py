@@ -1380,6 +1380,46 @@ class GlobalSettings:
     # untouched. Default False keeps the current behavior: all test tasks
     # share one continuous agent conversation.
     agent_fresh_session_per_test_task = False
+    # Restart loop for test-task solving. Solve-time outcomes are close to
+    # heavy-tailed in agent-search quality (run_20260717 family split: the
+    # same tasks solved in 9-32 min in one launch and burned 2-11 h without
+    # solving in its identical sibling, anchored on wrong conclusions), so
+    # several short, independent attempts beat one long one. Each attempt
+    # above the first starts from a fresh conversation; the solve journal
+    # (below) carries curated knowledge across attempts. An attempt ends
+    # early with a validated (evaluator-solved) capture; otherwise its
+    # best-effort capture is banked and the best across attempts executes.
+    agent_solve_max_attempts = 1
+    # Wall-clock budget per solve attempt, in seconds (0 disables). The
+    # turn cap bounds turns, not compute - one explore_python sweep hid
+    # 47k rollouts (~7 h) inside a single turn. On expiry, exploration
+    # tools refuse with a submit-now message and the approach runs the
+    # same best-effort submission flow as turn-cap exhaustion.
+    agent_solve_attempt_wall_clock = 0.0
+    # When True, every solve attempt (including the first, i.e. every test
+    # task) begins with a fresh agent conversation; cross-attempt and
+    # cross-task knowledge travels through the solve journal instead of
+    # raw transcript history, which also carries the *wrong* conclusions
+    # of failed attempts.
+    agent_solve_fresh_context = False
+    # Persistent per-run solve journal (<sandbox>/journal.md): the harness
+    # auto-records each attempt's outcome + captured plan, the agent adds
+    # lessons via the record_journal tool, and the journal is injected
+    # into every solve prompt. Entries are capped and guided to record
+    # facts/measurements rather than verdicts, so failed attempts steer
+    # later ones away from repeated sweeps without re-importing their
+    # anchoring mistakes.
+    agent_solve_use_journal = False
+    # Per-call wall-clock limit for explore_python code execution, in
+    # seconds (0 disables). Enforced cooperatively at every probe sim
+    # call, plus a hard async-exception watchdog for sim-free code (a
+    # pure-Python loop blocks the event loop, so nothing else can stop
+    # it), so a combinatorial sweep stops with its printed output
+    # returned (partial results + a cost lesson) instead of blocking the
+    # session for hours. Synthesis sessions (candidate-simulator probes,
+    # whose rollouts are far slower and whose reset can trigger a
+    # refit) are exempt.
+    agent_sdk_explore_python_call_timeout = 600.0
     # Test-time closed-loop recovery. After each option in the refined plan
     # finishes, the subgoal_annotations execution monitor checks the
     # sketch's subgoal annotation for that step against the REAL state; on
