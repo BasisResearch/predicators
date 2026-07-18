@@ -19,6 +19,7 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
+from predicators.agent_sdk.rendering import save_task_state_image
 from predicators.agent_sdk.session_manager import AgentSessionManager, \
     run_query_sync
 from predicators.agent_sdk.tools import ToolContext, \
@@ -361,8 +362,7 @@ class AgentBilevelExplorer(BaseExplorer):
             return ""
         img_name = f"train_task{train_task_idx:03d}_initial_state.png"
         with agent_render_resolution():
-            saved = bilevel_sketch.save_task_state_image(
-                env, task, save_dir, img_name)
+            saved = save_task_state_image(env, task, save_dir, img_name)
         if saved is None:
             return ""
         # cwd of the agent is the sandbox root, so reference test_images/.

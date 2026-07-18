@@ -4,13 +4,12 @@ Extracts common code for ToolContext initialization, lazy
 AgentSessionManager creation, async-to-sync bridging, and agent explorer
 creation shared by AgentModelFreeApproach and its subclasses.
 """
-import asyncio
 import logging
 import os
 from typing import Any, Dict, List, Optional, Set, Union
 
 from predicators.agent_sdk.session_manager import AgentSessionManager, \
-    run_query_sync
+    run_async_sync, run_query_sync
 from predicators.agent_sdk.tools import ALL_TOOL_NAMES, ToolContext, \
     create_mcp_tools, get_allowed_tool_list
 from predicators.explorers import create_explorer
@@ -250,15 +249,7 @@ class AgentSessionMixin:
         session = self._agent_session
         self._agent_session = None
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import nest_asyncio  # type: ignore[import-untyped,import-not-found]  # pylint: disable=import-outside-toplevel
-                nest_asyncio.apply()
-                loop.run_until_complete(session.close())
-            else:
-                loop.run_until_complete(session.close())
-        except RuntimeError:
-            asyncio.run(session.close())
+            run_async_sync(session.close())
         except Exception:  # pylint: disable=broad-except
             pass
 
