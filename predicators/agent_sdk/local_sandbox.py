@@ -41,6 +41,17 @@ from predicators.settings import CFG
 
 logger = logging.getLogger(__name__)
 
+# Grace period past the solve-attempt deadline before interrupting a
+# still-streaming agent turn (cooperative tool refusals normally end
+# the turn well before this).
+_DEADLINE_INTERRUPT_SLACK_S = 180
+
+# Character cap for per-block debug previews of agent output.
+_TEXT_PREVIEW_CHARS = 200
+
+# Timeout for the git add/commit that makes session logs Glob-visible.
+_GIT_TIMEOUT_S = 5
+
 # Build local-sandbox-specific prompts from shared templates.
 # CLAUDE.md is built per-instance with the phase tag so the agent reads
 # phase-appropriate strategy guidance every turn (see build_claude_md).
@@ -266,17 +277,17 @@ class LocalSandboxSessionManager:
         async def _maybe_interrupt_on_deadline() -> None:
             nonlocal interrupt_sent
             deadline = getattr(self._tool_context, "attempt_deadline", None)
-            if (interrupt_sent or deadline is None
-                    or time.monotonic() <= deadline + 180):
+            if (interrupt_sent or deadline is None or time.monotonic() <=
+                    deadline + _DEADLINE_INTERRUPT_SLACK_S):
                 return
             interrupt_sent = True
-            logging.warning(
-                "Solve-attempt wall clock exceeded by >180s mid-query; "
-                "interrupting the agent turn.")
+            logger.warning(
+                "Solve-attempt wall clock exceeded by >%ds mid-query; "
+                "interrupting the agent turn.", _DEADLINE_INTERRUPT_SLACK_S)
             try:
                 await self._client.interrupt()
             except Exception as e:  # pylint: disable=broad-except
-                logging.warning("Interrupt failed: %s", e)
+                logger.warning("Interrupt failed: %s", e)
 
         try:
             await self._client.query(message)
@@ -291,14 +302,15 @@ class LocalSandboxSessionManager:
                 if entry["type"] == "assistant":
                     for block in entry.get("content", []):
                         if block.get("type") == "text":
-                            logging.debug("Agent: %s...", block["text"][:200])
+                            logger.debug("Agent: %s...",
+                                         block["text"][:_TEXT_PREVIEW_CHARS])
                         elif block.get("type") == "tool_use":
                             params = block.get("input") or {}
                             param_summary = ", ".join(
                                 f"{k}={truncate(v)}"
                                 for k, v in params.items())
-                            logging.debug("Agent tool call: %s(%s)",
-                                          block["name"], param_summary)
+                            logger.debug("Agent tool call: %s(%s)",
+                                         block["name"], param_summary)
                 elif entry["type"] == "result":
                     cost = entry.get("total_cost_usd")
                     turns = entry.get("num_turns")
@@ -319,7 +331,7 @@ class LocalSandboxSessionManager:
                             self._total_cost_usd
                     if turns is not None:
                         self._total_turns += turns
-                    logging.info(
+                    logger.info(
                         "Local sandbox iteration complete. Turns: %s, "
                         "Cost this solve: $%s, Total cost so far: $%s", turns
                         or '?',
@@ -331,14 +343,14 @@ class LocalSandboxSessionManager:
                     self._flush_log(log_path, collected)
 
         except Exception as e:  # pylint: disable=broad-except
-            logging.error("Local sandbox session error: %s", e)
+            logger.error("Local sandbox session error: %s", e)
             collected.append({"type": "error", "error": str(e)})
             await self._recover_session(message)
 
         # Final flush
         if log_path:
             self._flush_log(log_path, collected)
-            logging.info("Saved local sandbox query/response to %s", log_path)
+            logger.info("Saved local sandbox query/response to %s", log_path)
 
         # Log proposals (matches Docker sandbox logging)
         proposals = self._tool_context.iteration_proposals
@@ -367,14 +379,14 @@ class LocalSandboxSessionManager:
             try:
                 await self._client.disconnect()
             except Exception as e:  # pylint: disable=broad-except
-                logging.warning("Error closing local sandbox session: %s", e)
+                logger.warning("Error closing local sandbox session: %s", e)
             finally:
                 self._client = None
                 self._started = False
 
     async def _recover_session(self, _last_message: str) -> None:
         """Attempt to recover from a session error."""
-        logging.warning("Attempting local sandbox session recovery...")
+        logger.warning("Attempting local sandbox session recovery...")
         try:
             if self._client is not None:
                 try:
@@ -383,9 +395,9 @@ class LocalSandboxSessionManager:
                     pass
             self._started = False
             await self.start_session()
-            logging.info("Local sandbox session recovered.")
+            logger.info("Local sandbox session recovered.")
         except Exception as e:  # pylint: disable=broad-except
-            logging.error("Local sandbox session recovery failed: %s", e)
+            logger.error("Local sandbox session recovery failed: %s", e)
 
     def save_session_info(self) -> None:
         """Save session metadata to log directory."""
@@ -401,7 +413,7 @@ class LocalSandboxSessionManager:
         path = os.path.join(self._log_dir, "session_info.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(info, f, indent=2)
-        logging.info("Saved session info to %s", path)
+        logger.info("Saved session info to %s", path)
 
     # -- Logging helpers --
 
@@ -459,7 +471,7 @@ class LocalSandboxSessionManager:
         os.makedirs(self._log_dir, exist_ok=True)
 
         # Also write to sandbox/session_logs/ so the agent can read its own logs
-        self._sandbox_log_path = None  # type: ignore[no-redef]
+        self._sandbox_log_path = None
         if self._sandbox_dir is not None:
             sandbox_logs = os.path.join(self._sandbox_dir, "session_logs")
             os.makedirs(sandbox_logs, exist_ok=True)
@@ -484,7 +496,7 @@ class LocalSandboxSessionManager:
                     ["git", "add", self._sandbox_log_path],
                     cwd=self._sandbox_dir,
                     capture_output=True,
-                    timeout=5,
+                    timeout=_GIT_TIMEOUT_S,
                     check=False,
                 )
                 subprocess.run(
@@ -495,15 +507,17 @@ class LocalSandboxSessionManager:
                     ],
                     cwd=self._sandbox_dir,
                     capture_output=True,
-                    timeout=5,
+                    timeout=_GIT_TIMEOUT_S,
                     check=False,
                     env={
                         **os.environ, "GIT_COMMITTER_NAME": "sandbox",
                         "GIT_COMMITTER_EMAIL": "sandbox@local"
                     },
                 )
-            except Exception:  # pylint: disable=broad-except
-                pass
+            except Exception as e:  # pylint: disable=broad-except
+                # A failed commit breaks the agent's Glob discovery of its
+                # own logs, so it is worth a visible warning.
+                logger.warning("git commit of session log failed: %s", e)
         return filepath
 
     def _flush_log(self, filepath: str, response: List[Dict[str,
@@ -522,5 +536,6 @@ class LocalSandboxSessionManager:
             if sandbox_path:
                 with open(sandbox_path, "w", encoding="utf-8") as lf:
                     lf.write(log_content)
-        except Exception:  # pylint: disable=broad-except
-            pass  # Don't let logging errors break the agent
+        except Exception as e:  # pylint: disable=broad-except
+            logger.debug("Session-log flush failed: %s", e)
+            # Don't let logging errors break the agent.
