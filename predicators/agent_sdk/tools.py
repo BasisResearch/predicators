@@ -15,7 +15,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, \
 
 import numpy as np
 
-from predicators.agent_sdk.proposal_parser import ProposalBundle, \
+from predicators.agent_sdk.proposal_exec import ProposalBundle, \
     build_exec_context, exec_code_safely, load_ground_samplers, \
     load_learned_samplers, validate_predicate
 from predicators.option_model import _OptionModelBase
