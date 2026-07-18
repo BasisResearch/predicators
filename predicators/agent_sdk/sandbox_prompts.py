@@ -66,6 +66,12 @@ SYSTEM_ROOTS = (
 )
 INTROSPECTION = ("getsource", "inspect.getfile", "site-packages")
 PATH_RE = re.compile(r"""(?:^|(?<=[\s'"`(=]))((?:/|\.\.)[^\s'"`)<>|;:,]*)""")
+# Hidden-implementation imports (e.g. inside `python -c`); the public
+# authoring surface (predicators.structs / predicators.utils) stays
+# importable. Mirror of _SANDBOX_PREDICATORS_IMPORT_RE in tools.py.
+HIDDEN_IMPORT_RE = re.compile(
+    r"(?:^|[\s;])(?:from|import)\s+predicators\.(?:envs|ground_truth_models)"
+    r"\b")
 
 data = json.load(sys.stdin)
 tool_name = data.get("tool_name", "")
@@ -106,6 +112,10 @@ if tool_name == "Bash":
         if needle in command:
             deny("Blocked: '" + needle + "' may read predicators source "
                  "outside the sandbox; use ./reference/ and the MCP tools")
+    if HIDDEN_IMPORT_RE.search(command):
+        deny("Blocked: importing predicators env/ground-truth modules "
+             "would expose implementation the sandbox hides; use "
+             "./reference/ and the MCP tools")
     for match in PATH_RE.finditer(command):
         token = match.group(1)
         if within(token):

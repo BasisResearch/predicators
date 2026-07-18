@@ -9,12 +9,14 @@ that solve a pybullet_boil task.
 import logging
 import os
 import re
+from types import SimpleNamespace
 from typing import List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 import pytest
 
 from predicators import utils
+from predicators.approaches import agent_sim_learning_approach as asla
 from predicators.approaches.agent_bilevel_approach import _SketchStep
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
@@ -383,6 +385,98 @@ def test_build_option_model_binds_sim_env():
     approach._get_all_options = set  # type: ignore[method-assign]
     model = approach._build_option_model(lambda s, a: s)
     assert model.sim_env is fake_env
+
+
+class _FakeScopeEnv:
+    """Minimal env double for the fresh-validation-env scope tests."""
+
+    def __init__(self):
+        self.overrides = None
+
+    def simulate(self, state, _action):
+        """Bound method, so ``__self__`` identifies the owning env."""
+        return state
+
+    def apply_physical_param_overrides(self, params):
+        """Record the identified physical params re-applied to a fresh env."""
+        self.overrides = dict(params)
+
+
+def _make_scope_approach(monkeypatch, prev_env, fresh_env, disposed):
+    monkeypatch.setattr(asla, "create_new_env", lambda *a, **k: fresh_env)
+    monkeypatch.setattr(asla, "_dispose_env", disposed.append)
+    approach = asla.AgentSimLearningApproach.__new__(
+        asla.AgentSimLearningApproach)
+    approach._base_env = prev_env
+    approach._identified_physical_params = {"lateral_friction": 0.1}
+    return approach
+
+
+def test_fresh_validation_env_scope_swaps_and_restores(monkeypatch):
+    """The scope points every physics consumer at the fresh env, restores
+    everything on exit, and disposes the fresh env.
+
+    Covers the pre-learning option model, whose simulator is the bound
+    method ``_base_env.simulate`` and must be rebound explicitly (the
+    learned combined simulator reads ``self._base_env`` dynamically
+    instead).
+    """
+    prev_env, fresh_env = _FakeScopeEnv(), _FakeScopeEnv()
+    disposed = []
+    approach = _make_scope_approach(monkeypatch, prev_env, fresh_env, disposed)
+    model = SimpleNamespace(_simulator=prev_env.simulate, sim_env=prev_env)
+    approach._option_model = model
+
+    with approach._fresh_validation_env_scope():
+        assert approach._base_env is fresh_env
+        assert model.sim_env is fresh_env
+        assert model._simulator.__self__ is fresh_env
+        # Identified physical params are re-asserted on the fresh env (the
+        # in-place override does not survive env recreation).
+        assert fresh_env.overrides == {"lateral_friction": 0.1}
+        assert prev_env.overrides is None
+    assert approach._base_env is prev_env
+    assert model.sim_env is prev_env
+    assert model._simulator.__self__ is prev_env
+    assert disposed == [fresh_env]
+
+
+def test_fresh_validation_env_scope_learned_simulator(monkeypatch):
+    """A learned (closure) simulator is left untouched: it reads
+    ``self._base_env`` dynamically, so only the attribute swap applies."""
+    prev_env, fresh_env = _FakeScopeEnv(), _FakeScopeEnv()
+    disposed = []
+    approach = _make_scope_approach(monkeypatch, prev_env, fresh_env, disposed)
+    closure_sim = lambda s, a: s  # noqa: E731
+    model = SimpleNamespace(_simulator=closure_sim, sim_env=prev_env)
+    approach._option_model = model
+
+    with approach._fresh_validation_env_scope():
+        assert approach._base_env is fresh_env
+        assert model._simulator is closure_sim
+        assert model.sim_env is fresh_env
+    assert model._simulator is closure_sim
+    assert model.sim_env is prev_env
+    assert disposed == [fresh_env]
+
+
+def test_fresh_validation_env_scope_disposes_crash_replacement(monkeypatch):
+    """If a mid-rollout crash recovery replaced the fresh env, the scope
+    disposes the replacement instead of leaking it."""
+    prev_env, fresh_env = _FakeScopeEnv(), _FakeScopeEnv()
+    crash_replacement = _FakeScopeEnv()
+    disposed = []
+    approach = _make_scope_approach(monkeypatch, prev_env, fresh_env, disposed)
+    model = SimpleNamespace(_simulator=lambda s, a: s, sim_env=prev_env)
+    approach._option_model = model
+
+    with approach._fresh_validation_env_scope():
+        # Emulate _recreate_base_env firing during the rollout.
+        approach._base_env = crash_replacement
+        model.sim_env = crash_replacement
+    assert approach._base_env is prev_env
+    assert model.sim_env is prev_env
+    assert disposed == [crash_replacement]
 
 
 if __name__ == "__main__":

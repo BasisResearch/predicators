@@ -26,6 +26,76 @@ from predicators.structs import Action, State, Task
 logger = logging.getLogger(__name__)
 
 
+def build_candidate_option_model(
+    approach: Any,
+    rules: List,
+    specs: List[ParamSpec],
+    process_features: Dict[str, List[str]],
+    base_pred_triples: List[Tuple[State, Action, State]],
+    latent_init: Any = None,
+) -> Tuple[Any, Dict[str, float], float]:
+    """MCMC-fit ``specs`` and build the candidate's option model.
+
+    The shared front half of every surface that must exercise the
+    candidate simulator at its *deployed* (fitted) parameters -
+    ``evaluate_plan_refinement`` and the synthesis-session
+    ``explore_python`` probe. Returns ``(option_model, fitted_params,
+    fit_sse)``; raises ``RuntimeError`` when fitting fails.
+
+    Publishes side effects onto ``approach`` exactly once, here, so the
+    two surfaces can never disagree: the candidate ``rules`` /
+    ``latent_init`` (the recurrent combined simulator is built from
+    instance state) and the fitted params into ``_fitted_params`` *in
+    place* (invented predicates hold a ``_ParamsView`` over it - the
+    gating rule and the gating predicate must anchor to the same
+    values).
+
+    Recurrent (latent-declaring, 5-arg) rules are fit with the latent
+    threaded per trajectory; fully-observable rules take the legacy
+    per-transition path. Dispatch keys off the candidate rule
+    signatures (:func:`has_latent_rules`), as everywhere else in the
+    fitting stack.
+    """
+    # pylint: disable=protected-access
+    latent = has_latent_rules(rules)
+
+    # Publish the candidate rules / latent_init *before* building the
+    # combined simulator: the recurrent combined sim reads
+    # self._process_rules / self._latent_init / self._fitted_params, so
+    # without this it would validate a stale cycle's rules - or, with
+    # _process_rules still None, mis-dispatch a latent candidate onto
+    # the 3-arg path. Per-cycle state; overwritten when synthesis
+    # finalises.
+    approach._process_rules = rules
+    if latent:
+        approach._latent_init = latent_init
+
+    try:
+        if latent:
+            fit_result, fit_sse = approach._fit_parameters_recurrent(
+                rules, specs, base_pred_triples, process_features)
+        else:
+            fit_result, fit_sse = approach._fit_parameters(
+                rules, specs, base_pred_triples, process_features)
+        params = fit_result.point_estimate
+    except Exception as e:
+        raise RuntimeError(f"param fitting failed:\n{e}") from e
+
+    # In place (clear + update, never replace): see docstring.
+    approach._fitted_params.clear()
+    approach._fitted_params.update(params)
+
+    # Fully-observable rules run through this 3-arg `learned` object; for
+    # recurrent rules _build_combined_simulator bypasses it and threads
+    # state.latent through the candidate rules published above.
+    learned = LearnedSimulator(
+        step_fn=lambda s, _r=rules, _p=params:  # type: ignore[misc]
+        apply_rules(s, _r, _p),
+        name="agent_in_session")
+    combined_sim = approach._build_combined_simulator(learned)
+    return approach._build_option_model(combined_sim), params, fit_sse
+
+
 def run_refinement_for_synthesis(
     approach: Any,
     rules: List,
@@ -81,52 +151,19 @@ def run_refinement_for_synthesis(
         return (f"Error: task_idx {task_idx} out of range "
                 f"[0, {len(approach._train_tasks)}).")
 
-    latent = has_latent_rules(rules)
-
-    # Publish the candidate rules / latent_init onto the approach *before*
-    # building the combined simulator: the recurrent combined sim reads
-    # self._process_rules / self._latent_init / self._fitted_params (it is
-    # built from instance state, not the `learned` object below), so
-    # without this it would validate a stale cycle's rules — or, with
-    # _process_rules still None, mis-dispatch a latent candidate onto the
-    # 3-arg path. Per-cycle state; overwritten when synthesis finalises.
-    approach._process_rules = rules
-    if latent:
-        approach._latent_init = latent_init
-
-    # Fit with the convention the rules declare. Recurrent (5-arg,
-    # latent-declaring) rules thread the latent per trajectory and must
-    # never be rolled through the legacy per-transition path (which would
-    # call them with 3 args); this mirrors evaluate_step_fit /
-    # report_residuals and the approach's own post-session fitting.
+    # Fit + build through the shared helper (also used by the synthesis
+    # explore_python probe), which publishes the candidate rules /
+    # latent_init / fitted params onto the approach - see its docstring.
     try:
-        if latent:
-            fit_result, fit_sse = approach._fit_parameters_recurrent(
-                rules, specs, base_pred_triples, process_features)
-        else:
-            fit_result, fit_sse = approach._fit_parameters(
-                rules, specs, base_pred_triples, process_features)
-        params = fit_result.point_estimate
-    except Exception as e:  # pylint: disable=broad-except
-        return f"Error: param fitting failed:\n{e}"
-
-    # Publish the fit into approach._fitted_params in place (clear +
-    # update, never replace) so the _ParamsView held by invented
-    # predicates picks up exactly the values the simulator below runs at.
-    # Within one refinement run the gating rule and the gating predicate
-    # must anchor to the same parameter set.
-    approach._fitted_params.clear()
-    approach._fitted_params.update(params)
-
-    # Fully-observable rules run through this 3-arg `learned` object; for
-    # recurrent rules _build_combined_simulator bypasses it and threads
-    # state.latent through the candidate rules published above.
-    learned = LearnedSimulator(
-        step_fn=lambda s, _r=rules, _p=params:  # type: ignore[misc]
-        apply_rules(s, _r, _p),
-        name="agent_in_session")
-    combined_sim = approach._build_combined_simulator(learned)
-    candidate_om = approach._build_option_model(combined_sim)
+        candidate_om, _, fit_sse = build_candidate_option_model(
+            approach,
+            rules,
+            specs,
+            process_features,
+            base_pred_triples,
+            latent_init=latent_init)
+    except RuntimeError as e:
+        return f"Error: {e}"
 
     if not plan_text or not plan_text.strip():
         return ("Error: `plan` is required. Pass an option-skeleton plan "

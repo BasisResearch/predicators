@@ -221,18 +221,39 @@ def test_format_step_line_shows_width_and_annotation_round_trips():
     assert GroundAtom(_ReachedHi, [_block]) in sketch[0].subgoal_atoms
 
 
-def test_parse_region_disabled_strict_errors():
-    """With parse_ground_samplers=False any `~` annotation is an error."""
-    with pytest.raises(ValueError, match="ground samplers are disabled"):
-        bilevel_sketch.parse_sketch_from_text(
-            "Move(block0:block)[0.7] ~ [0.1]",
-            _task_hi(),
-            predicates={_ReachedHi},
-            options={_Move},
-            types={_block_type},
-            parse_continuous_params=True,
-            strict=True,
-            parse_ground_samplers=False)
+def test_parse_region_disabled_falls_back_to_uniform():
+    """With parse_ground_samplers=False a `~` annotation is accepted but
+    ignored: the params still seed the search, no ground sampler is
+    installed, and a notice explains the fallback (an error here cost
+    every audited run turns of syntax guessing)."""
+    notices = []
+    sketch = bilevel_sketch.parse_sketch_from_text(
+        "Move(block0:block)[0.7] ~ [0.1]",
+        _task_hi(),
+        predicates={_ReachedHi},
+        options={_Move},
+        types={_block_type},
+        parse_continuous_params=True,
+        strict=True,
+        parse_ground_samplers=False,
+        notices=notices)
+    assert len(sketch) == 1
+    assert np.allclose(sketch[0].initial_params, [0.7])
+    assert sketch[0].ground_sampler is None
+    assert len(notices) == 1
+    assert "IGNORED" in notices[0]
+    assert "uniform" in notices[0]
+    # Without a notices list the annotation is still silently ignored.
+    sketch = bilevel_sketch.parse_sketch_from_text(
+        "Move(block0:block)[0.7] ~ [0.1]",
+        _task_hi(),
+        predicates={_ReachedHi},
+        options={_Move},
+        types={_block_type},
+        parse_continuous_params=True,
+        strict=True,
+        parse_ground_samplers=False)
+    assert sketch[0].ground_sampler is None
 
 
 def _hi_band_fn(state, subgoal_atoms, rng, objects):
@@ -508,9 +529,13 @@ def test_evaluate_option_plan_ignores_region():
     assert "Goal achieved: True" in text
 
 
-def test_refine_plan_sketch_tool_rejects_region_when_disabled():
-    """With agent_bilevel_ground_samplers off, the annotation is an error -
-    baseline arms cannot use the channel by accident."""
+def test_refine_plan_sketch_tool_ignores_region_when_disabled():
+    """With agent_bilevel_ground_samplers off, the annotation is accepted but
+    ignored (uniform sampling; params still seed) and the report says.
+
+    so - baseline arms still cannot use the channel, but agents no longer
+    burn turns on an error.
+    """
     text = _run_tool("refine_plan_sketch", {
         "plan": ("Move(block0:block)[0.85] ~ [0.1] -> "
                  "{ReachedHi(block0:block)}"),
@@ -518,8 +543,9 @@ def test_refine_plan_sketch_tool_rejects_region_when_disabled():
         10,
     },
                      ground_samplers=False)
-    assert "Could not parse plan sketch" in text
-    assert "ground samplers are disabled" in text
+    assert "Could not parse plan sketch" not in text
+    assert "IGNORED" in text
+    assert "uniform" in text
 
 
 def test_refine_plan_sketch_tool_named_ground_sampler(tmp_path):

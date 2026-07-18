@@ -1,4 +1,4 @@
-"""Exploration probe API exposed to solve-phase agents via ``explore_python``.
+"""Exploration probe API exposed to agents via ``explore_python``.
 
 ``ProbeSim`` is a thin facade over the machinery the curated tools
 already use - ``parse_sketch_from_text`` (plan grammar),
@@ -14,6 +14,11 @@ By construction the probe carries NO scoring surface: it never touches a
 task's evaluator, and nothing it executes can be captured as the
 answer - submission happens only through ``evaluate_option_plan`` on the
 true initial state.
+
+In synthesis sessions the same facade probes the CANDIDATE simulator
+(the ``simulator.py`` under edit, freshly fitted - see
+``ProbeSim._option_model``), and the submission surface is
+``evaluate_plan_refinement``.
 """
 
 from __future__ import annotations
@@ -43,21 +48,47 @@ def _fmt_option(option: Any) -> str:
     return f"{option.name}({objs}){_fmt_params(option.params)}"
 
 
+class _StrLikeResult:
+    """String conveniences shared by the probe result types.
+
+    The results print like strings, so agents naturally slice
+    (``res[-800:]``) and search (``'Goal reached: True' in res``) them;
+    without these dunders both moves are ``TypeError``s that cost a
+    recovery turn (and recur after compaction erases the lesson).
+    """
+
+    @property
+    def text(self) -> str:
+        """The full report as a plain string."""
+        return repr(self)
+
+    def __getitem__(self, key: Any) -> str:
+        return repr(self)[key]
+
+    def __contains__(self, item: str) -> bool:
+        return item in repr(self)
+
+    def __len__(self) -> int:
+        return len(repr(self))
+
+
 @dataclasses.dataclass(repr=False)
-class ProbeResult:
+class ProbeResult(_StrLikeResult):
     """Outcome of one ``ProbeSim.run`` call.
 
     Attributes mirror the ``evaluate_option_plan`` report: ``steps`` is
     a list of per-step dicts (``option``, ``num_actions``, ``failure``,
     ``added``, ``deleted``, ``image`` - the saved post-step scene
     image path, if rendering is available), plus ``goal_reached`` and
-    ``final_atoms``. ``print(result)`` renders the same step-by-step
-    summary the tool prints.
+    ``final_atoms``. ``notes`` carries caveats (ignored region
+    annotations, horizon overruns). ``print(result)`` renders the same
+    step-by-step summary the tool prints.
     """
     steps: List[Dict[str, Any]]
     goal_reached: bool
     final_atoms: List[str]
     final_state: State
+    notes: List[str] = dataclasses.field(default_factory=list)
 
     def __repr__(self) -> str:
         lines = []
@@ -75,20 +106,61 @@ class ProbeResult:
         if images:
             lines.append("Saved images (view with Read):")
             lines.extend(f"  {p}" for p in images)
+        lines.extend(f"NOTE: {n}" for n in self.notes)
         return "\n".join(lines)
 
 
 @dataclasses.dataclass(repr=False)
-class ProbeRefineResult:
+class ProbeTrialsResult(_StrLikeResult):
+    """Outcome of one ``ProbeSim.run(..., trials=N)`` call.
+
+    ``trials`` holds one dict per trial (``goal_reached``,
+    ``num_actions``, ``failure`` - ``None`` or ``"step {i} ({option}):
+    {reason}"``). ``successes`` counts goal-reaching trials. The current
+    state is NOT advanced - repeated trials are a measurement, not a
+    navigation step.
+    """
+    trials: List[Dict[str, Any]]
+    successes: int
+    fresh_env_per_trial: bool
+    notes: List[str] = dataclasses.field(default_factory=list)
+
+    def __repr__(self) -> str:
+        n = len(self.trials)
+        env_note = ("fresh physics env per trial"
+                    if self.fresh_env_per_trial else
+                    "shared session env - trials are correlated, treat the "
+                    "rate as optimistic")
+        lines = [f"Trials: {self.successes}/{n} reached the goal ({env_note})"]
+        for i, t in enumerate(self.trials):
+            if t["failure"]:
+                lines.append(f"  trial {i + 1}: FAILED - {t['failure']}")
+            elif t["goal_reached"]:
+                lines.append(f"  trial {i + 1}: goal reached "
+                             f"({t['num_actions']} actions)")
+            else:
+                lines.append(f"  trial {i + 1}: goal NOT reached "
+                             f"({t['num_actions']} actions)")
+        lines.extend(f"NOTE: {n_}" for n_ in self.notes)
+        return "\n".join(lines)
+
+
+@dataclasses.dataclass(repr=False)
+class ProbeRefineResult(_StrLikeResult):
     """Outcome of one ``ProbeSim.refine`` call.
 
-    ``plan_lines`` holds one line per sketch step with the refined
-    params filled in (``[?]`` for steps the search never refined) -
-    paste them into ``sim.run`` or ``evaluate_option_plan``.
-    ``near_miss`` is the deepest validation failure (step index, the
-    exact params that got furthest, and why they failed), also populated
-    on timeout/exhaustion. ``note`` carries caveats (e.g. the
-    require_solved gate having been skipped on coarse rollouts).
+    ``verdict`` states exactly what a SUCCESS certifies - ``executed``
+    (every step established its subgoal annotation; the task goal was
+    never checked), ``goal-reached`` (the goal atoms also held at the
+    last step), or ``evaluator-solved`` (the task evaluator additionally
+    scored the rollout as a solve) - so "SUCCESS" alone is never read
+    as more than it means. ``plan_lines`` holds one line per sketch
+    step with the refined params filled in (``[?]`` for steps the
+    search never refined) - paste them into ``sim.run`` or
+    ``evaluate_option_plan``. ``near_miss`` is the deepest validation
+    failure (step index, the exact params that got furthest, and why
+    they failed), also populated on timeout/exhaustion. ``note``
+    carries caveats.
     """
     success: bool
     reason: str
@@ -97,6 +169,7 @@ class ProbeRefineResult:
     plan_lines: List[str]
     near_miss: Optional[Dict[str, Any]]
     note: str = ""
+    verdict: str = ""
 
     def __repr__(self) -> str:
         lines = [
@@ -104,6 +177,8 @@ class ProbeRefineResult:
             f"({self.reason}): {self.total_samples} samples, per-step "
             f"{self.step_samples}"
         ]
+        if self.verdict:
+            lines.append(f"Verdict: {self.verdict}")
         lines.append("Plan (refined params; [?] = never refined):")
         lines.extend(f"  {l}" for l in self.plan_lines)
         if self.near_miss is not None:
@@ -167,6 +242,22 @@ class ProbeSim:
 
     # ── State control ────────────────────────────────────────────
 
+    def _option_model(self) -> Any:
+        """The option model probes execute against.
+
+        Solve sessions bind the deployed belief model via
+        ``ctx.option_model``. Synthesis sessions install
+        ``ctx.probe_option_model_provider`` instead - a lazy builder
+        over the candidate ``simulator.py`` the agent is editing (fresh
+        MCMC fit, cached until the file changes) - so probes always
+        exercise the latest belief model, never the stale pre-synthesis
+        one (real physics on cycle 1: a live-env leak).
+        """
+        provider = getattr(self._ctx, "probe_option_model_provider", None)
+        if provider is not None:
+            return provider()
+        return self._ctx.option_model
+
     def reset(self,
               task_idx: Optional[int] = None,
               mods: Optional[Modifications] = None) -> "ProbeSim":
@@ -179,6 +270,14 @@ class ProbeSim:
         # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk.tools import _apply_state_modifications
         ctx = self._ctx
+        if task_idx is None and getattr(ctx, "probe_option_model_provider",
+                                        None) is not None:
+            # Synthesis session: "current task" is a solve-time pointer
+            # and may dangle at whatever task the harness touched last -
+            # silently probing it is the stale-current-task bug class.
+            raise ValueError(
+                "During synthesis there is no current solve task; pass "
+                "task_idx explicitly, e.g. sim.reset(task_idx=0).")
         if task_idx is not None:
             if not 0 <= task_idx < len(ctx.train_tasks):
                 raise ValueError(f"Invalid task_idx {task_idx}. Available: "
@@ -212,7 +311,16 @@ class ProbeSim:
         return list(mods)
 
     def snapshot(self) -> int:
-        """Bank a copy of the current state; returns an id for restore."""
+        """Bank a copy of the current state; returns an id for restore.
+
+        Snapshots rewind the ABSTRACT state only: replays from a
+        restored snapshot still share the session env's solver state and
+        velocity residuals, so repeated restore-and-run trials are
+        correlated with each other (and read optimistic vs. a fresh
+        env). For honest reliability estimates pass ``trials=N`` to
+        ``run``, which uses a fresh physics env per trial when the
+        session provides one.
+        """
         sid = self._next_snapshot_id
         self._next_snapshot_id += 1
         self._snapshots[sid] = (self._require_state().copy(), self._pristine)
@@ -325,15 +433,24 @@ class ProbeSim:
         # call (when offered) draws on the state the agent just staged
         # and rendered, not on the pristine task init.
         ctx.visualized_state = cur
-        return img.get("saved_path") if img else None
+        saved = img.get("saved_path") if img else None
+        # The saved filename is prefixed (iter/task/test counters), so a
+        # guessed path never matches - print the real one even when the
+        # agent doesn't print the return value (audited runs lost turns
+        # Read-ing guessed names).
+        if saved:
+            print(f"Saved scene image (view with Read): {saved}")
+        return saved
 
     # ── Execution ────────────────────────────────────────────────
 
     def _parse_sketch(self, plan_text: str) -> Any:
         """Parse ``plan_text`` against the current state.
 
-        Returns ``(probe_task, sketch_steps, all_predicates)``; the
-        probe task starts at the current state and carries no evaluator.
+        Returns ``(probe_task, sketch_steps, all_predicates, notices)``;
+        the probe task starts at the current state and carries no
+        evaluator, and ``notices`` lists parse caveats to surface (e.g.
+        region annotations ignored because ground samplers are off).
         Same grammar and parser as ``evaluate_option_plan`` /
         ``refine_plan_sketch`` (``~ [w]`` search regions included).
         """
@@ -363,6 +480,7 @@ class ProbeSim:
         gs_fns, gs_err = _load_ground_sampler_fns(ctx)
         if gs_err is not None:
             raise ValueError(gs_err)
+        notices: List[str] = []
         sketch_steps = bilevel_sketch.parse_sketch_from_text(
             plan_text,
             probe_task,
@@ -372,15 +490,19 @@ class ProbeSim:
             parse_continuous_params=True,
             strict=True,
             parse_ground_samplers=CFG.agent_bilevel_ground_samplers,
-            ground_sampler_fns=gs_fns or None)
+            ground_sampler_fns=gs_fns or None,
+            notices=notices)
         if not sketch_steps:
             raise ValueError(
                 "Parsed empty plan. Each line must be "
                 "`Option(obj:type, ...)[params]` with a known option, typed "
                 "object refs, and exact params in `[]`.")
-        return probe_task, sketch_steps, all_predicates
+        return probe_task, sketch_steps, all_predicates, notices
 
-    def run(self, plan_text: str, render: bool = True) -> ProbeResult:
+    def run(self,
+            plan_text: str,
+            render: bool = True,
+            trials: int = 1) -> Union[ProbeResult, ProbeTrialsResult]:
         """Execute an option plan from the current state.
 
         ``plan_text`` uses the same grammar as ``evaluate_option_plan``:
@@ -393,6 +515,16 @@ class ProbeSim:
         pass ``render=False`` inside tight sweep loops to skip that.
         Exploratory only: results are never captured and carry no
         evaluator verdict.
+
+        ``trials=N`` (N > 1) runs the SAME plan N times and returns a
+        ``ProbeTrialsResult`` with the per-trial outcomes and success
+        count - use it to estimate a plan's reliability instead of
+        hand-rolled repeat loops. Each trial runs on a freshly
+        constructed physics env when the session provides one (repeats
+        on the shared env - including snapshot/restore replays - share
+        solver state and velocity residuals, so they are correlated
+        and read optimistic). With ``trials > 1`` nothing is rendered
+        and the current state is NOT advanced.
         """
         # pylint: disable-next=import-outside-toplevel
         import numpy as np
@@ -401,9 +533,13 @@ class ProbeSim:
         from predicators.agent_sdk import bilevel_sketch
         # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk.tools import _render_scene_image
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.settings import CFG
+        if trials < 1:
+            raise ValueError(f"trials must be >= 1, got {trials}")
         ctx = self._ctx
         ctx.test_call_id += 1
-        probe_task, sketch_steps, all_predicates = \
+        probe_task, sketch_steps, all_predicates, notices = \
             self._parse_sketch(plan_text)
         grounded: List[Any] = []
         for st in sketch_steps:
@@ -414,6 +550,64 @@ class ProbeSim:
                                  np.asarray(params, dtype=np.float32)))
 
         report_preds = ctx.predicates
+
+        def _horizon_note(total_actions: int) -> Optional[str]:
+            if total_actions > CFG.horizon:
+                return (f"the rollout used {total_actions} low-level steps, "
+                        f"more than the real episode horizon "
+                        f"({CFG.horizon}) - the real executor would run out "
+                        "of steps, so shorten or speed up the plan.")
+            return None
+
+        if trials > 1:
+            # Fresh physics per trial when the session provides the scope
+            # (solve sessions do; a synthesis probe's candidate model has
+            # its own env, which the scope does not manage). Same CFG gate
+            # as evaluate_option_plan's validation rollouts, so the two
+            # surfaces sample the same distribution.
+            fresh_scope = (
+                ctx.validation_env_scope if CFG.agent_plan_validation_fresh_env
+                and getattr(ctx, "validation_env_scope", None) is not None
+                and getattr(ctx, "probe_option_model_provider", None) is None
+                else None)
+            # pylint: disable-next=import-outside-toplevel
+            import contextlib
+            trial_dicts: List[Dict[str, Any]] = []
+            for _ in range(trials):
+                with (fresh_scope() if fresh_scope is not None else
+                      contextlib.nullcontext()):
+                    r = bilevel_sketch.execute_plan_forward(
+                        probe_task,
+                        grounded,
+                        self._option_model(),
+                        predicates=all_predicates,
+                        sketch=sketch_steps,
+                        stop_on_failure=True)
+                failure: Optional[str] = None
+                if r.first_failure_idx is not None:
+                    fs = r.steps[r.first_failure_idx]
+                    failure = (f"step {r.first_failure_idx} "
+                               f"({_fmt_option(fs.option)}): "
+                               f"{fs.failure_reason or 'not initiable'}")
+                total = sum(s.num_actions for s in r.steps)
+                trial_dicts.append({
+                    "goal_reached": r.goal_reached,
+                    "num_actions": total,
+                    "failure": failure,
+                })
+            successes = sum(1 for t in trial_dicts if t["goal_reached"])
+            over = [
+                t for t in trial_dicts
+                if t["goal_reached"] and t["num_actions"] > CFG.horizon
+            ]
+            if over:
+                notices.append(
+                    f"{len(over)} goal-reaching trial(s) exceeded the real "
+                    f"episode horizon ({CFG.horizon} low-level steps) - the "
+                    "real executor would run out of steps.")
+            return ProbeTrialsResult(trial_dicts, successes, fresh_scope
+                                     is not None, notices)
+
         step_dicts: List[Dict[str, Any]] = []
 
         def _on_step(i: int, outcome: Any) -> None:
@@ -444,7 +638,7 @@ class ProbeSim:
 
         result = bilevel_sketch.execute_plan_forward(probe_task,
                                                      grounded,
-                                                     ctx.option_model,
+                                                     self._option_model(),
                                                      predicates=all_predicates,
                                                      sketch=sketch_steps,
                                                      on_step=_on_step,
@@ -455,8 +649,11 @@ class ProbeSim:
             str(a)
             for a in sorted(utils.abstract(result.final_state, report_preds))
         ]
+        hn = _horizon_note(sum(s["num_actions"] for s in step_dicts))
+        if hn is not None:
+            notices.append(hn)
         return ProbeResult(step_dicts, result.goal_reached, final_atoms,
-                           result.final_state)
+                           result.final_state, notices)
 
     def refine(self,
                sketch_text: str,
@@ -472,13 +669,17 @@ class ProbeSim:
         that matters instead of re-descending through the whole plan.
         Annotate each step's ``-> {subgoals}`` - success means every
         step established its annotation (set ``require_goal=True`` to
-        also demand the task goal at the last step). Each step's
-        ``[params]`` seed the search (tried first, then sampled around);
-        add ``~ [w]`` half-width regions to confine the sampling. Does
-        not advance the current state. Returns best-found params (also
-        on TIMEOUT - the refined prefix is reported as far as it got)
-        plus per-step sample counts and the deepest near-miss.
-        Exploratory only: nothing is captured.
+        also demand the task goal at the last step; the result's
+        ``Verdict`` line states which of these a SUCCESS certifies).
+        Each step's ``[params]`` seed the search (tried first, then
+        sampled around); ``~ [w]`` half-width regions confine the
+        sampling ONLY when ground samplers are enabled in the session
+        config - otherwise the annotation is accepted but ignored (a
+        NOTE says so) and sampling stays uniform. Does not advance the
+        current state. Returns best-found params (also on TIMEOUT - the
+        refined prefix is reported as far as it got) plus per-step
+        sample counts and the deepest near-miss. Exploratory only:
+        nothing is captured.
 
         ``require_solved=True`` (implies ``require_goal``) additionally
         gates final-step acceptance on the TASK EVALUATOR's public
@@ -499,11 +700,12 @@ class ProbeSim:
 
         # pylint: enable=import-outside-toplevel
         ctx = self._ctx
-        probe_task, sketch_steps, all_predicates = \
+        probe_task, sketch_steps, all_predicates, notices = \
             self._parse_sketch(sketch_text)
         solved_check: Optional[Callable[[List[State], List[Any], bool],
                                         Tuple[bool, str]]] = None
         gate_ran = [False]
+        gate_called = [False]
         if require_solved:
             require_goal = True
             if not self._pristine:
@@ -523,19 +725,21 @@ class ProbeSim:
             # as refine_plan_sketch, so identical params can't get
             # contradictory verdicts across the two surfaces.
             inner_check = make_solved_check(
-                evaluator, getattr(ctx.option_model, "sim_env", None))
+                evaluator, getattr(self._option_model(), "sim_env", None))
 
-            def gated_solved_check(states: List[State], labels: List[Any],
-                                   coarse: bool) -> Tuple[bool, str]:
-                # Track whether any non-coarse verdict actually ran, so
-                # a SUCCESS whose gate was silently skipped (an option
-                # model without per-step trajectories) is reported as
-                # ungated instead of implying certification.
+            def solved_check(states: List[State], labels: List[Any],
+                             coarse: bool) -> Tuple[bool, str]:
+                # Track whether the gate was consulted at all vs. with a
+                # real (non-coarse) rollout: "never consulted" means no
+                # candidate reached the goal atoms (the blocker is
+                # upstream of scoring), while "only coarse" means the
+                # option model exposed no per-step trajectories - the
+                # two need different explanations (a shared message here
+                # read as a system failure in run_20260717 audits).
+                gate_called[0] = True
                 if not coarse:
                     gate_ran[0] = True
                 return inner_check(states, labels, coarse)
-
-            solved_check = gated_solved_check
 
         if max_samples_per_step is None:
             max_samples_per_step = CFG.agent_bilevel_max_samples_per_step
@@ -552,7 +756,7 @@ class ProbeSim:
         refined_plan, success, total_samples = bilevel_sketch.refine_sketch(
             probe_task,
             sketch_steps,
-            ctx.option_model,
+            self._option_model(),
             predicates=all_predicates,
             timeout=timeout,
             rng=rng,
@@ -585,13 +789,40 @@ class ProbeSim:
                 "option": _fmt_option(df.option),
                 "reason": df.fail_reason,
             }
-        note = ""
+        note_parts = list(notices)
         if require_solved and not gate_ran[0]:
-            note = ("require_solved was requested but no per-step "
-                    "trajectories were available, so the evaluator gate "
-                    "never ran - this result is NOT certified.")
+            if not gate_called[0]:
+                note_parts.append(
+                    "require_solved: no candidate reached the goal atoms at "
+                    "the final step, so the task evaluator was never "
+                    "consulted - the blocker is upstream of scoring (see "
+                    "the near-miss).")
+            else:
+                note_parts.append(
+                    "require_solved: the option model exposed no per-step "
+                    "trajectories, so the evaluator gate only saw coarse "
+                    "rollouts and this result is NOT certified.")
+        # What a SUCCESS actually certifies, so it is never read as more
+        # than it means (a bare "SUCCESS" was disproven with 5 fresh
+        # rollouts in run_20260717_154753 seed2 - it only meant
+        # "executed").
+        if not success:
+            verdict = ""
+        elif require_solved and gate_ran[0]:
+            verdict = ("evaluator-solved - the task evaluator scored a "
+                       "full rollout of these params as a solve.")
+        elif require_goal:
+            verdict = ("goal-reached - the task's goal atoms held at the "
+                       "final step; no evaluator verdict (use "
+                       "require_solved=True from a pristine reset() for "
+                       "that).")
+        else:
+            verdict = ("executed - every step established its subgoal "
+                       "annotation; the task goal was NOT checked (set "
+                       "require_goal=True to demand it).")
         return ProbeRefineResult(success, reason, total_samples, step_samples,
-                                 plan_lines, near_miss, note)
+                                 plan_lines, near_miss, " ".join(note_parts),
+                                 verdict)
 
     # ── Internals ────────────────────────────────────────────────
 
@@ -618,7 +849,7 @@ class ProbeSim:
 
 
 def build_probe_namespace(ctx: Any) -> Dict[str, Any]:
-    """The persistent ``explore_python`` namespace for solve-phase sessions.
+    """The persistent ``explore_python`` namespace (solve and synthesis).
 
     Deliberately small: the probe facade, numpy, and nothing else - the
     single-verdict-surface principle. The agent gets a ready ``sim``

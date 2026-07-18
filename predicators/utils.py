@@ -2967,8 +2967,11 @@ def parse_model_output_into_option_plan(
         # as empty.
         option_str_stripped = strip_enumeration_prefix(option_str.strip())
         option_name = option_str_stripped.split('(')[0]
-        # Skip empty option strs.
-        if not option_str:
+        # Skip empty option strs (including whitespace-only lines, which
+        # indented triple-quoted plan text produces; rejecting those in
+        # strict mode read as "Line      ... doesn't contain a valid
+        # option name" - an error about nothing).
+        if not option_str_stripped:
             continue
         if option_name not in option_name_to_option.keys() or \
             "(" not in option_str:
@@ -3061,9 +3064,20 @@ def parse_model_output_into_option_plan(
                 try:
                     curr_cont_param = float(stripped_continuous_param_str)
                 except ValueError:
+                    # A '~' inside the params block is a misplaced
+                    # ground-sampler region annotation; name the correct
+                    # syntax instead of a bare float-parse failure.
+                    hint = ""
+                    if "~" in stripped_continuous_param_str:
+                        hint = (" Region annotations go AFTER the closing "
+                                "']' of the params block: "
+                                "`Opt(obj:type)[p1, p2] ~ [w1, w2]`, one "
+                                "half-width per parameter - not inside "
+                                "`[...]`.")
                     _reject(f"Line {option_str} output by model has an "
-                            "invalid continouous parameter that can't be"
-                            "converted to a float.")
+                            "invalid continuous parameter "
+                            f"{stripped_continuous_param_str!r} that can't "
+                            f"be converted to a float.{hint}")
                     malformed = True
                     break
                 continuous_params_list.append(curr_cont_param)

@@ -141,6 +141,12 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
             # global 3 mm (run_20260717_230436 test task1 knocked a
             # standing domino the plan had cleared).
             held_bystander_clearance=0.015,
+            # Domino Waits exist to let the cascade settle, not to pass
+            # time: terminate once the scene stops moving (~100-200
+            # steps) instead of paying the full 1000-step rollout cap on
+            # every rollout - the cap dominated probe/validation wall
+            # time in the 2026-07-17 run audits.
+            wait_quiescence_eps=1e-4,
         )
 
     @classmethod

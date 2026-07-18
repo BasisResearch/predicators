@@ -480,6 +480,75 @@ print("line", res.plan_lines[0])
     print("  PASS: explore_python (ProbeSim.refine, no capture)")
 
 
+def test_explore_python_probe_refine_verdict_line(ctx: Any) -> None:
+    """A refine SUCCESS carries a Verdict line saying exactly what it certifies
+    (bare SUCCESS used to be read as goal-reached)."""
+    tools = _make_tools(ctx, ["explore_python"])
+    domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
+    robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
+    code = f"""
+sim.reset()
+res = sim.refine(
+    "Pick({robot.name}:robot, {domino.name}:domino)[0.06] "
+    "-> {{Holding({robot.name}:robot, {domino.name}:domino)}}",
+    timeout=45)
+print(res)
+"""
+    result = _run(tools["explore_python"]({"code": code}))
+    text = result["content"][0]["text"]
+    assert "Verdict: executed" in text
+    assert "require_goal=True" in text
+    print("  PASS: explore_python (refine verdict line)")
+
+
+def test_explore_python_probe_strlike_and_region_note(ctx: Any) -> None:
+    """ProbeResult supports string slicing/containment, and a `~` region
+    annotation is IGNORED with a NOTE when ground samplers are off (previously
+    a hard error that cost turns of syntax guessing)."""
+    tools = _make_tools(ctx, ["explore_python"])
+    robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
+    assert not CFG.agent_bilevel_ground_samplers
+    code = f"""
+sim.reset()
+res = sim.run("Wait({robot.name}:robot)[] ~ [0.1]", render=False)
+print("contains", "Goal reached" in res)
+print("slice_ok", len(res[-40:]) > 0)
+print(res)
+"""
+    result = _run(tools["explore_python"]({"code": code}))
+    text = result["content"][0]["text"]
+    assert "contains True" in text
+    assert "slice_ok True" in text
+    assert "region annotation was IGNORED" in text
+    assert "uniform" in text
+    print("  PASS: explore_python (str-like result + region note)")
+
+
+def test_explore_python_probe_trials(ctx: Any) -> None:
+    """sim.run(plan, trials=N) reports per-trial outcomes and a success count
+    without advancing the current state."""
+    tools = _make_tools(ctx, ["explore_python"])
+    domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
+    robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
+    code = f"""
+sim.reset()
+before = sim.state("{domino.name}")["x"]
+res = sim.run("Wait({robot.name}:robot)[]", trials=2)
+print(res)
+print("n_trials", len(res.trials))
+print("kept", abs(sim.state("{domino.name}")["x"] - before) < 1e-9)
+"""
+    result = _run(tools["explore_python"]({"code": code}))
+    text = result["content"][0]["text"]
+    assert "Trials:" in text
+    assert "n_trials 2" in text
+    # No validation_env_scope installed in this harness: the report must
+    # say the trials shared the session env (correlated).
+    assert "shared session env" in text
+    assert "kept True" in text
+    print("  PASS: explore_python (trials=N)")
+
+
 def test_explore_python_refine_require_solved_guards(ctx: Any) -> None:
     """require_solved refuses to run from a modified start, and from a task.
 

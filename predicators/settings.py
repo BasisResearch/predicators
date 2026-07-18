@@ -1419,6 +1419,24 @@ class GlobalSettings:
     # agent in-session (where it can add margin and resubmit) instead of
     # captured and discovered as a failed real episode. 1 disables repeats.
     agent_plan_validation_rollouts = 3
+    # Escalated rollout count once a task has produced a FLAKY rejection.
+    # A 3-rollout gate passes a plan with per-rollout success rate p with
+    # probability p^3 (p=0.85 -> 61%), so marginal plans slip through and
+    # die on the single real episode (run_20260717_182321: a 20/20-swept
+    # relay placement validated 3/3, then missed the target for real). A
+    # FLAKY rejection is direct evidence the agent is tuning in a marginal
+    # region, so subsequent captures on that task must clear this stricter
+    # gate instead. Never lowers the base count.
+    agent_plan_validation_rollouts_after_flaky = 6
+    # Run each validation rollout inside ``ctx.validation_env_scope`` (a
+    # freshly constructed sim env) when the approach installs one. A shared
+    # env's reset provably cannot reconstruct state exactly (solver
+    # warm-start state, velocity residuals, near-matching bodies skipped by
+    # the reconstruction diff - see rollout_states in physical_sysid.py), so
+    # repeated rollouts on it are correlated with each other and offset from
+    # the fresh real env; fresh envs make them honest i.i.d. samples of what
+    # the real episode will draw. Costs one env construction per rollout.
+    agent_plan_validation_fresh_env = True
     # Agent bilevel explorer settings. Separate from the solve-path budget
     # above because the explorer runs full backtracking while looking for
     # the deepest subgoal-failure to truncate at. Denominated in

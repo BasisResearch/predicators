@@ -21,6 +21,7 @@ its honest reward without counting as a solve.
 """
 
 import asyncio
+import contextlib
 from typing import Any
 
 import numpy as np
@@ -98,15 +99,10 @@ class _StubEvaluator(TaskEvaluator):
         return False, "stub: the cascade was staged, not pushed"
 
 
-def _run_tool(model,
-              evaluator=None,
-              rollouts=3,
-              plan_text=_PLAN_TEXT,
-              best_effort=False):
-    utils.reset_config({"agent_plan_validation_rollouts": rollouts})
+def _make_ctx(model, evaluator=None, best_effort=False, goal_nl=None):
     init = State({_block: np.array([0.0], dtype=np.float32)})
     goal = {GroundAtom(_ReachedHi, [_block])}
-    task = Task(init, goal, evaluator=evaluator)
+    task = Task(init, goal, evaluator=evaluator, goal_nl=goal_nl)
     ctx = ToolContext(
         types={_block_type},
         predicates={_ReachedHi},
@@ -119,6 +115,11 @@ def _run_tool(model,
     )
     ctx.capture_goal_reaching_plans = True
     ctx.capture_best_effort_plan = best_effort
+    return ctx
+
+
+def _call_tool(ctx, plan_text=_PLAN_TEXT):
+    """Invoke the real tool handler once against ``ctx``."""
     tools = {
         t.name: t.handler
         for t in create_mcp_tools(ctx, tool_names=["evaluate_option_plan"])
@@ -132,7 +133,21 @@ def _run_tool(model,
         "plan":
         plan_text
     }))
-    return result["content"][0]["text"], ctx
+    return result["content"][0]["text"]
+
+
+def _run_tool(model,
+              evaluator=None,
+              rollouts=3,
+              plan_text=_PLAN_TEXT,
+              best_effort=False,
+              goal_nl=None):
+    utils.reset_config({"agent_plan_validation_rollouts": rollouts})
+    ctx = _make_ctx(model,
+                    evaluator=evaluator,
+                    best_effort=best_effort,
+                    goal_nl=goal_nl)
+    return _call_tool(ctx, plan_text), ctx
 
 
 def test_robust_plan_is_captured_with_validation_note():
@@ -167,6 +182,48 @@ def test_single_rollout_config_disables_repeats():
     assert "Captured as the current answer" in text
     assert "Validated" not in text
     assert ctx.solved_plan is not None
+
+
+def test_flaky_message_reports_all_rollout_outcomes():
+    """The FLAKY report lists EVERY rollout's outcome and an estimated.
+
+    reliability, instead of stopping at the first failure - the
+    per-rollout list is what distinguishes failure modes.
+    """
+    model = _Model(succeed_first_n=1)
+    text, _ = _run_tool(model, rollouts=3)
+    assert "estimated reliability 1/3" in text
+    assert "rollout 1: goal reached" in text
+    assert "rollout 2: FAILED" in text
+    assert "rollout 3: FAILED" in text
+    # All three rollouts actually ran (no early break).
+    assert model.num_calls == 3
+
+
+def test_flaky_verdict_line_labeled_as_rollout_1():
+    """When the submission is rejected as FLAKY, rollout 1's evaluator.
+
+    verdict is labeled as such - unlabeled it read as a second,
+    contradictory verdict in the same message.
+    """
+    model = _Model(succeed_first_n=1)
+    evaluator = _StubEvaluator({GroundAtom(_ReachedHi, [_block])}, True)
+    text, _ = _run_tool(model, evaluator=evaluator, rollouts=3)
+    assert "FLAKY (plan NOT captured)" in text
+    assert "[rollout 1 only - NOT the operative outcome" in text
+
+
+def test_missing_goal_atoms_printed_even_with_goal_nl():
+    """A goal-nl task still names the missing goal atoms on a shortfall - 'Goal
+    achieved: False' alone left agents unable to tell a near-miss from a non-
+    starter."""
+    model = _Model()
+    text, _ = _run_tool(model,
+                        plan_text=_SHORTFALL_PLAN_TEXT,
+                        goal_nl="topple the target")
+    assert "Goal achieved: False" in text
+    assert "Missing goal atoms" in text
+    assert "ReachedHi" in text
     assert model.num_calls == 1
 
 
@@ -255,6 +312,102 @@ def test_best_effort_certificate_rejected_is_captured():
     assert ctx.solved_plan_reached_goal is False
     # Certificate rejection skips the validation repeats.
     assert model.num_calls == 1
+
+
+def test_flaky_rejection_escalates_later_captures():
+    """A FLAKY rejection escalates the gate for later captures on the task.
+
+    A flaky submission is evidence the agent is tuning in a marginal
+    parameter region, where a lucky streak can pass the base 3-rollout
+    gate and die on the single real episode (run_20260717_182321: a
+    20/20-swept relay placement validated 3/3, then missed the target
+    for real). Resubmissions must therefore clear the escalated
+    ``agent_plan_validation_rollouts_after_flaky`` gate.
+    """
+    utils.reset_config({
+        "agent_plan_validation_rollouts": 3,
+        "agent_plan_validation_rollouts_after_flaky": 6,
+    })
+    flaky_model = _Model(succeed_first_n=1)
+    ctx = _make_ctx(flaky_model)
+    text = _call_tool(ctx)
+    assert "FLAKY (plan NOT captured)" in text
+    assert "captures require 6/6 successful rollouts" in text
+    # The resubmission (robust this time) faces the 6-rollout gate.
+    robust_model = _Model()
+    ctx.option_model = robust_model
+    text2 = _call_tool(ctx)
+    assert "Captured as the current answer" in text2
+    assert "Validated 6/6 rollouts" in text2
+    assert ctx.solved_plan is not None
+    assert robust_model.num_calls == 6
+
+
+def test_flaky_escalation_is_per_task():
+    """Escalation is keyed to the task: a different test task keeps the base
+    gate."""
+    utils.reset_config({
+        "agent_plan_validation_rollouts": 3,
+        "agent_plan_validation_rollouts_after_flaky": 6,
+    })
+    flaky_model = _Model(succeed_first_n=1)
+    ctx = _make_ctx(flaky_model)
+    ctx.test_task_idx = 0
+    text = _call_tool(ctx)
+    assert "FLAKY (plan NOT captured)" in text
+    robust_model = _Model()
+    ctx.option_model = robust_model
+    ctx.test_task_idx = 1
+    text2 = _call_tool(ctx)
+    assert "Validated 3/3 rollouts" in text2
+    assert robust_model.num_calls == 3
+
+
+def test_validation_rollouts_enter_fresh_env_scope():
+    """Each validation repeat runs inside ``ctx.validation_env_scope``; the
+    reported first rollout stays on the shared env."""
+    utils.reset_config({
+        "agent_plan_validation_rollouts": 3,
+        "agent_plan_validation_fresh_env": True,
+    })
+    entered = []
+
+    @contextlib.contextmanager
+    def _scope():
+        entered.append(True)
+        yield
+
+    model = _Model()
+    ctx = _make_ctx(model)
+    ctx.validation_env_scope = _scope
+    text = _call_tool(ctx)
+    assert "Captured as the current answer" in text
+    assert "freshly constructed simulator" in text
+    # Rollouts 2 and 3 of 3; rollout 1 is the reported one.
+    assert len(entered) == 2
+
+
+def test_fresh_env_scope_disabled_by_config():
+    """``agent_plan_validation_fresh_env=False`` keeps repeats on the shared
+    env even when a scope is installed."""
+    utils.reset_config({
+        "agent_plan_validation_rollouts": 3,
+        "agent_plan_validation_fresh_env": False,
+    })
+    entered = []
+
+    @contextlib.contextmanager
+    def _scope():
+        entered.append(True)
+        yield
+
+    model = _Model()
+    ctx = _make_ctx(model)
+    ctx.validation_env_scope = _scope
+    text = _call_tool(ctx)
+    assert "Captured as the current answer" in text
+    assert "freshly constructed simulator" not in text
+    assert not entered
 
 
 def test_best_effort_flaky_plan_is_captured():

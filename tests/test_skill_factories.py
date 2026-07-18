@@ -711,6 +711,61 @@ class TestWaitOption:
         for _ in range(5):
             assert not grounded.terminal(state)
 
+    def test_wait_quiescence_terminates_when_scene_settles(self, robot_scene):
+        """With wait_quiescence_eps set, Wait terminates after the non-robot
+        scene stops moving for wait_quiescence_steps consecutive steps."""
+        from dataclasses import \
+            replace  # pylint: disable=import-outside-toplevel
+        _, robot = robot_scene
+        config = replace(_make_config(robot),
+                         wait_quiescence_eps=1e-4,
+                         wait_quiescence_steps=3)
+        opt = create_wait_option("Wait", config, _ROBOT_TYPE)
+        robot_obj = _make_robot_obj()
+        block = Object("block0", _OBJ_TYPE)
+
+        def state_with_block_x(x):
+            return _build_state(robot_obj,
+                                robot,
+                                *_EE_HOME,
+                                obj=block,
+                                obj_xyz=(x, 0.0, 0.0))
+
+        grounded = opt.ground([robot_obj], np.zeros(0))
+        assert grounded.initiable(state_with_block_x(0.5))
+        # Block moving: never terminal, count resets.
+        assert not grounded.terminal(state_with_block_x(0.5))
+        assert not grounded.terminal(state_with_block_x(0.51))
+        assert not grounded.terminal(state_with_block_x(0.52))
+        # Block settles: three sub-eps deltas in a row terminate.
+        settled = [state_with_block_x(0.52) for _ in range(4)]
+        assert not grounded.terminal(settled[0])
+        # Re-querying the SAME state must not stand in for physics steps.
+        assert not grounded.terminal(settled[0])
+        assert not grounded.terminal(settled[1])
+        assert grounded.terminal(settled[2])
+        # Re-initiating clears the tracking: a rerun of the same grounded
+        # option must not terminate instantly on stale counts.
+        assert grounded.initiable(settled[3])
+        assert not grounded.terminal(settled[3])
+
+    def test_wait_quiescence_disabled_by_default(self, robot_scene):
+        """Without wait_quiescence_eps the legacy never-terminate behavior
+        holds even on a frozen scene."""
+        _, robot = robot_scene
+        config = _make_config(robot)
+        opt = create_wait_option("Wait", config, _ROBOT_TYPE)
+        robot_obj = _make_robot_obj()
+        block = Object("block0", _OBJ_TYPE)
+        grounded = opt.ground([robot_obj], np.zeros(0))
+        for _ in range(6):
+            state = _build_state(robot_obj,
+                                 robot,
+                                 *_EE_HOME,
+                                 obj=block,
+                                 obj_xyz=(0.5, 0.0, 0.0))
+            assert not grounded.terminal(state)
+
     def test_wait_custom_name(self, robot_scene):
         """Test wait custom name."""
         _, robot = robot_scene
