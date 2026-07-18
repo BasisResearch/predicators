@@ -12,6 +12,7 @@ from predicators.agent_sdk.config import RefinementConfig
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.results import _error_result
 from predicators.agent_sdk.tools.sandbox_guard import _scrub_host_paths
+from predicators.agent_sdk.tools.tasks import _resolve_task
 from predicators.agent_sdk.tools.verdicts import _belief_rollout_verdict, \
     _format_evaluator_verdict, _resolve_task_evaluator, \
     load_ground_sampler_fns, make_solved_check
@@ -52,18 +53,12 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
         timeout = args.get("timeout", 30)
 
         # Resolve task
-        if task_idx is not None:
-            if task_idx < 0 or task_idx >= len(ctx.train_tasks):
-                return _error_result(f"Invalid task_idx {task_idx}. "
-                                     f"Available: 0-{len(ctx.train_tasks)-1}")
-            task = ctx.train_tasks[task_idx]
-            task_label = f"train task {task_idx}"
-        elif ctx.current_task is not None:
-            task = ctx.current_task
-            task_label = "current task"
-        else:
-            return _error_result(
-                "No task_idx provided and no current_task set.")
+        resolved, task_err = _resolve_task(ctx, task_idx)
+        if task_err is not None:
+            return task_err
+        assert resolved is not None
+        task = resolved.task
+        task_label = resolved.description
 
         all_preds = ctx.predicates | ctx.iteration_proposals.proposed_predicates
         all_procs = ctx.processes | ctx.iteration_proposals.proposed_processes
@@ -179,18 +174,12 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
         timeout = args.get("timeout", 30)
 
         # Resolve task
-        if task_idx is not None:
-            if task_idx < 0 or task_idx >= len(ctx.train_tasks):
-                return _error_result(f"Invalid task_idx {task_idx}. "
-                                     f"Available: 0-{len(ctx.train_tasks)-1}")
-            task = ctx.train_tasks[task_idx]
-            task_label = f"train task {task_idx}"
-        elif ctx.current_task is not None:
-            task = ctx.current_task
-            task_label = "current task"
-        else:
-            return _error_result(
-                "No task_idx provided and no current_task set.")
+        resolved, task_err = _resolve_task(ctx, task_idx)
+        if task_err is not None:
+            return task_err
+        assert resolved is not None
+        task = resolved.task
+        task_label = resolved.description
 
         all_preds = ctx.predicates | ctx.iteration_proposals.proposed_predicates
         all_procs = ctx.processes | ctx.iteration_proposals.proposed_processes
@@ -336,18 +325,12 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
                 "in ToolContext).")
 
         # Resolve the task (mirrors evaluate_option_plan).
-        task_idx = args.get("task_idx")
-        if task_idx is not None:
-            if task_idx < 0 or task_idx >= len(ctx.train_tasks):
-                return _error_result(f"Invalid task_idx {task_idx}. "
-                                     f"Available: 0-{len(ctx.train_tasks)-1}")
-            task = ctx.train_tasks[task_idx]
-        elif ctx.current_task is not None:
-            task = ctx.current_task
-            task_idx = "current"
-        else:
-            return _error_result(
-                "No task_idx provided and no current_task set.")
+        resolved, task_err = _resolve_task(ctx, args.get("task_idx"))
+        if task_err is not None:
+            return task_err
+        assert resolved is not None
+        task = resolved.task
+        task_idx = resolved.label
 
         all_options = ctx.options | ctx.iteration_proposals.proposed_options
         all_predicates = (ctx.predicates
