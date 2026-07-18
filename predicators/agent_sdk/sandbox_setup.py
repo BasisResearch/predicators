@@ -13,8 +13,9 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from predicators.agent_sdk.tools import SANDBOX_HIDDEN_MODULES_PATTERN, \
-    SANDBOX_INTROSPECTION, SANDBOX_SYSTEM_ROOTS
+from predicators.agent_sdk.tools.sandbox_guard import \
+    SANDBOX_HIDDEN_MODULES_PATTERN, SANDBOX_INTROSPECTION, \
+    SANDBOX_SYSTEM_ROOTS
 
 logger = logging.getLogger(__name__)
 

@@ -328,7 +328,8 @@ def get_gt_simulator(env_name: str) -> tuple:
                               f"env: {env_name}")
 
 
-def get_gt_samplers(env_name: str) -> Optional[Dict[str, ParameterizedSampler]]:
+def get_gt_samplers(
+        env_name: str) -> Optional[Dict[str, ParameterizedSampler]]:
     """Return ``option name -> ground-truth ParameterizedSampler`` for an env.
 
     Merges the samplers from every ``GroundTruthSamplerFactory`` bound

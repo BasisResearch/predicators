@@ -11,11 +11,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any, Iterable, List, Optional, Set
 
-from predicators.approaches.agent_session_mixin import AgentSessionMixin
 from predicators.agent_sdk.tools import ALL_TOOL_NAMES, BUILTIN_TOOLS, \
     MCP_SERVER_NAME, PREDICATE_SYNTHESIS_TOOL_NAMES, SYNTHESIS_TOOL_NAMES, \
     ToolContext, create_mcp_tools, create_predicate_synthesis_tools, \
     create_synthesis_tools, get_allowed_tool_list, list_session_tool_names
+from predicators.approaches.agent_session_mixin import AgentSessionMixin
 
 
 def _required_names(names: Optional[List[str]]) -> List[str]:
@@ -159,7 +159,7 @@ def test_coercing_tool_accepts_numeric_strings() -> None:
     """
     import asyncio
 
-    from predicators.agent_sdk.tools import _make_coercing_tool
+    from predicators.agent_sdk.tools.results import _make_coercing_tool
 
     captured: dict = {}
 
@@ -226,7 +226,7 @@ def test_resolve_task_evaluator_reads_task_field() -> None:
     train tasks / current task (the evaluator rides on the Task itself)."""
     import numpy as np
 
-    from predicators.agent_sdk.tools import _resolve_task_evaluator
+    from predicators.agent_sdk.tools.verdicts import _resolve_task_evaluator
     from predicators.structs import Object, State, Task, TaskEvaluator, Type
 
     cup_type = Type("cup_type", ["f"])
