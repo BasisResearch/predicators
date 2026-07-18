@@ -11,7 +11,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any, Iterable, List, Optional, Set
 
-from predicators.agent_sdk.agent_session_mixin import AgentSessionMixin
+from predicators.approaches.agent_session_mixin import AgentSessionMixin
 from predicators.agent_sdk.tools import ALL_TOOL_NAMES, BUILTIN_TOOLS, \
     MCP_SERVER_NAME, PREDICATE_SYNTHESIS_TOOL_NAMES, SYNTHESIS_TOOL_NAMES, \
     ToolContext, create_mcp_tools, create_predicate_synthesis_tools, \

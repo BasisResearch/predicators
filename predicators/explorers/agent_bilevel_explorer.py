@@ -20,7 +20,7 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.rendering import save_task_state_image
-from predicators.agent_sdk.session_manager import AgentSessionManager, \
+from predicators.agent_sdk.session_manager import SessionManagerProtocol, \
     run_query_sync
 from predicators.agent_sdk.tools import ToolContext, \
     _load_ground_sampler_fns, agent_render_resolution
@@ -37,7 +37,7 @@ class AgentBilevelExplorer(BaseExplorer):
                  options: Set[ParameterizedOption], types: Set[Type],
                  action_space: Box, train_tasks: List[Task],
                  max_steps_before_termination: int, tool_context: ToolContext,
-                 agent_session: AgentSessionManager) -> None:
+                 agent_session: SessionManagerProtocol) -> None:
         super().__init__(predicates, options, types, action_space, train_tasks,
                          max_steps_before_termination)
         self._tool_context = tool_context

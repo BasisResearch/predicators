@@ -29,7 +29,7 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
-from predicators.agent_sdk.agent_session_mixin import AgentSessionMixin
+from predicators.approaches.agent_session_mixin import AgentSessionMixin
 from predicators.agent_sdk.rendering import save_task_state_image
 from predicators.agent_sdk.tools import agent_render_resolution, \
     explore_python_replaces_tools
@@ -668,8 +668,11 @@ scene, then annotate_scene overlays markers on it."""
         self._tool_context.test_task_idx = None
         if self._agent_session is not None \
                 and self._pre_test_conversation_log is not None:
-            self._agent_session._conversation_log = \
-                self._pre_test_conversation_log  # pylint: disable=protected-access
+            # In-place restore through the public property (it returns
+            # the live list), so any other holder of the reference sees
+            # the rollback too.
+            log = self._agent_session.conversation_log
+            log[:] = self._pre_test_conversation_log
         self._pre_test_conversation_log = None
 
     def reset_for_new_episode(self) -> None:
