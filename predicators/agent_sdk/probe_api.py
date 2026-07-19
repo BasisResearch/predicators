@@ -25,11 +25,16 @@ from __future__ import annotations
 
 import dataclasses
 import time
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, \
+    Union
 
 from predicators import utils
 from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig, \
     ValidationConfig
+from predicators.agent_sdk.tools.scene import apply_state_modifications, \
+    draw_pybullet_annotation, render_pybullet_image, render_scene_image
+from predicators.agent_sdk.tools.verdicts import load_ground_sampler_fns, \
+    make_solved_check
 from predicators.structs import State, Task
 
 if TYPE_CHECKING:
@@ -318,8 +323,6 @@ class ProbeSim:
         ``task_idx`` indexes the train tasks; ``None`` uses the current
         solve-time task. Returns ``self`` so calls chain.
         """
-        # pylint: disable-next=import-outside-toplevel
-        from predicators.agent_sdk.tools import _apply_state_modifications
         ctx = self._ctx
         _check_time_budget(ctx)
         if (task_idx is None and ctx.probe_option_model_provider is not None):
@@ -341,7 +344,7 @@ class ProbeSim:
         state = task.init
         if mods:
             mod_list = self._normalize_mods(mods)
-            state, _, err = _apply_state_modifications(state, mod_list)
+            state, _, err = apply_state_modifications(state, mod_list)
             if err:
                 raise ValueError(err)
         else:
@@ -452,9 +455,6 @@ class ProbeSim:
         # pylint: disable=import-outside-toplevel
         import pybullet as pb
 
-        from predicators.agent_sdk.tools import _draw_pybullet_annotation, \
-            _render_pybullet_image
-
         # pylint: enable=import-outside-toplevel
         ctx = self._ctx
         cur = self._require_state()
@@ -467,9 +467,8 @@ class ProbeSim:
             debug_ids: List[int] = []
             try:
                 for ann in annotations:
-                    debug_ids.extend(_draw_pybullet_annotation(
-                        ann, physics_id))
-                img = _render_pybullet_image(ctx, f"probe_{label}")
+                    debug_ids.extend(draw_pybullet_annotation(ann, physics_id))
+                img = render_pybullet_image(ctx, f"probe_{label}")
             finally:
                 # Remove only the drawn bodies (never the env's own),
                 # also on a bad-annotation error mid-draw.
@@ -479,7 +478,7 @@ class ProbeSim:
                     except Exception:  # pylint: disable=broad-except
                         pass
         else:
-            img = _render_pybullet_image(ctx, f"probe_{label}", state=cur)
+            img = render_pybullet_image(ctx, f"probe_{label}", state=cur)
         # Same handoff visualize_state provides: a later annotate_scene
         # call (when offered) draws on the state the agent just staged
         # and rendered, not on the pristine task init.
@@ -507,7 +506,6 @@ class ProbeSim:
         """
         # pylint: disable=import-outside-toplevel
         from predicators.agent_sdk import bilevel_sketch
-        from predicators.agent_sdk.tools import _load_ground_sampler_fns
 
         # pylint: enable=import-outside-toplevel
         ctx = self._ctx
@@ -527,7 +525,7 @@ class ProbeSim:
             types.update(pred.types)
         types.update(o.type for o in cur)
 
-        gs_fns, gs_err = _load_ground_sampler_fns(ctx)
+        gs_fns, gs_err = load_ground_sampler_fns(ctx)
         if gs_err is not None:
             raise ValueError(gs_err)
         notices: List[str] = []
@@ -581,8 +579,6 @@ class ProbeSim:
 
         # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk import bilevel_sketch
-        # pylint: disable-next=import-outside-toplevel
-        from predicators.agent_sdk.tools import _render_scene_image
         # pylint: disable-next=import-outside-toplevel
         from predicators.settings import CFG
         if trials < 1:
@@ -688,7 +684,7 @@ class ProbeSim:
                 deleted = [str(a) for a in sorted(before - after)]
             # Same per-step audit image evaluate_option_plan saves; the
             # env already sits at the post-step state here.
-            img = _render_scene_image(
+            img = render_scene_image(
                 ctx,
                 f"probe_step_{i}_{outcome.option.name}") if render else None
             step_dicts.append({
@@ -760,7 +756,6 @@ class ProbeSim:
         import numpy as np
 
         from predicators.agent_sdk import bilevel_sketch
-        from predicators.agent_sdk.tools import make_solved_check
         from predicators.settings import CFG
 
         # pylint: enable=import-outside-toplevel
@@ -768,7 +763,8 @@ class ProbeSim:
         _check_time_budget(ctx)
         probe_task, sketch_steps, all_predicates, notices = \
             self._parse_sketch(sketch_text)
-        solved_check = None
+        solved_check: Optional[Callable[[List[State], List[Any], bool],
+                                        Tuple[bool, str]]] = None
         gate_ran = [False]
         gate_called = [False]
         if require_solved:
@@ -792,8 +788,8 @@ class ProbeSim:
             inner_check = make_solved_check(
                 evaluator, getattr(self._option_model(), "sim_env", None))
 
-            def _tracking_solved_check(states: List[State], labels: List[Any],
-                                       coarse: bool) -> Tuple[bool, str]:
+            def gated_solved_check(states: List[State], labels: List[Any],
+                                   coarse: bool) -> Tuple[bool, str]:
                 # Track whether the gate was consulted at all vs. with a
                 # real (non-coarse) rollout: "never consulted" means no
                 # candidate reached the goal atoms (the blocker is
@@ -806,7 +802,7 @@ class ProbeSim:
                     gate_ran[0] = True
                 return inner_check(states, labels, coarse)
 
-            solved_check = _tracking_solved_check
+            solved_check = gated_solved_check
 
         if max_samples_per_step is None:
             max_samples_per_step = \

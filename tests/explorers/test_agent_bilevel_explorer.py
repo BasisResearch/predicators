@@ -8,7 +8,7 @@ import pytest
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.agent_sdk.bilevel_sketch import SketchStep
+from predicators.agent_sdk.sketch_types import SketchStep
 from predicators.agent_sdk.tools import ToolContext
 from predicators.explorers import create_explorer
 from predicators.explorers.agent_bilevel_explorer import AgentBilevelExplorer

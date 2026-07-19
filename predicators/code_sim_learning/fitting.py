@@ -35,6 +35,37 @@ StepSimulatorFn = Callable[[State, Action, Dict[str, float]], Dict]
 TrajectoryTriples = List[Tuple[State, Action, State]]
 
 
+def iter_step_terms(
+    state: State,
+    updates: Dict,
+    next_obs: State,
+    process_features: Dict[str, List[str]],
+) -> Any:
+    """Yield one ``(obj, feat, predicted, observed, rule_fired)`` term per
+    (state object x allowed feature) for a single step.
+
+    The single source of truth behind the SSE / residual-vector /
+    breakdown computations, in deterministic object x feature order: a
+    fixed vector length and position across theta perturbations is a
+    hard requirement of the finite-difference Jacobians LM builds, even
+    when a hard gate flips which rule fires. A feature the simulator did
+    not update is predicted as "no change" (the pre-step value).
+    Predicted features for objects absent from ``state`` are ignored -
+    they have no observation to compare against.
+    """
+    for obj in state:
+        type_name = obj.type.name
+        for feat_name in process_features.get(type_name, []):
+            fired = obj in updates and feat_name in updates[obj]
+            if fired:
+                raw = updates[obj][feat_name]
+                pred = raw.item() if hasattr(raw, 'item') else float(raw)
+            else:
+                pred = float(state.get(obj, feat_name))
+            obs = float(next_obs.get(obj, feat_name))
+            yield obj, feat_name, float(pred), obs, fired
+
+
 def compute_sse(
     simulator_fn: StepSimulatorFn,
     transitions: List[Tuple[State, Action, State]],
@@ -50,30 +81,11 @@ def compute_sse(
     to parameter changes.
     """
     total_se = 0.0
-
     for s_t, action, s_next_obs in transitions:
         updates = simulator_fn(s_t, action, params)
-
-        for obj, feat_dict in updates.items():
-            type_name = obj.type.name
-            allowed_feats = process_features.get(type_name, [])
-            for feat_name, pred_val in feat_dict.items():
-                if feat_name not in allowed_feats:
-                    continue
-                v = pred_val.item() if hasattr(pred_val, 'item') else pred_val
-                obs_val = float(s_next_obs.get(obj, feat_name))
-                total_se += (v - obs_val)**2
-
-        # Penalize unpredicted features (model predicts no change).
-        for obj in s_t:
-            type_name = obj.type.name
-            for feat_name in process_features.get(type_name, []):
-                if obj in updates and feat_name in updates[obj]:
-                    continue
-                pred_val = float(s_t.get(obj, feat_name))
-                obs_val = float(s_next_obs.get(obj, feat_name))
-                total_se += (pred_val - obs_val)**2
-
+        for _obj, _feat, pred, obs, _fired in iter_step_terms(
+                s_t, updates, s_next_obs, process_features):
+            total_se += (pred - obs)**2
     return total_se
 
 
@@ -123,26 +135,9 @@ def compute_sse_recurrent(
             updates = apply_rules_with_latent(state_base, latent, history,
                                               rules, params)
 
-            for obj, feat_dict in updates.items():
-                type_name = obj.type.name
-                allowed_feats = process_features.get(type_name, [])
-                for feat_name, pred_val in feat_dict.items():
-                    if feat_name not in allowed_feats:
-                        continue
-                    v = pred_val.item() if hasattr(pred_val,
-                                                   'item') else pred_val
-                    obs_val = float(state_obs.get(obj, feat_name))
-                    total_se += (v - obs_val)**2
-
-            # Penalize unpredicted features (model predicts no change).
-            for obj in state_base:
-                type_name = obj.type.name
-                for feat_name in process_features.get(type_name, []):
-                    if obj in updates and feat_name in updates[obj]:
-                        continue
-                    pred_val = float(state_base.get(obj, feat_name))
-                    obs_val = float(state_obs.get(obj, feat_name))
-                    total_se += (pred_val - obs_val)**2
+            for _obj, _feat, pred, obs, _fired in iter_step_terms(
+                    state_base, updates, state_obs, process_features):
+                total_se += (pred - obs)**2
 
     return total_se
 
@@ -208,41 +203,23 @@ def fit_params_recurrent(
                                    "recurrent",
                                    scales=scales)
 
-    import emcee  # type: ignore[import-untyped]  # pylint: disable=import-outside-toplevel
-
-    ndim = len(param_specs)
-    num_walkers = max(num_walkers, 2 * ndim + 2)
-    burn_in = min(burn_in, max(num_steps - 1, 0))
-
-    def log_posterior(theta: np.ndarray) -> float:
-        # theta lives in the FIT space (log for log-scale params).
-        if np.any(theta < lo) or np.any(theta > hi):
-            return -np.inf
-        ext = from_fit_space(param_specs, theta)
-        params = {n: float(ext[i]) for i, n in enumerate(names)}
-        log_prior = -0.5 * np.sum(((theta - init_int) / prior_sigma)**2)
-        sse = compute_sse_recurrent(rules, trajectories, params, latent_init,
-                                    process_features)
-        return log_prior + (-0.5 * sse / (noise_sigma**2))
-
-    p0 = to_fit_space(param_specs, walker_center) + \
-        0.5 * prior_sigma * np.random.randn(num_walkers, ndim)
-    p0 = np.clip(p0, lo, hi)
-    sampler = emcee.EnsembleSampler(num_walkers, ndim, log_posterior)
     logger.info("Running emcee (recurrent): %d walkers, %d steps, %d burn-in.",
-                num_walkers, num_steps, burn_in)
-    report_interval = 100
-    for i, _result in enumerate(sampler.sample(p0, iterations=num_steps),
-                                start=1):
-        if i % report_interval == 0 or i == num_steps:
-            best_lp = sampler.get_log_prob()[:i].max()
-            logger.info("  emcee step %d/%d  (best log-prob: %.2f)", i,
-                        num_steps, best_lp)
-            for h in logger.handlers + logging.getLogger().handlers:
-                h.flush()
-    samples = rows_from_fit_space(
-        param_specs, sampler.get_chain(discard=burn_in, flat=True))
-    log_probs = sampler.get_log_prob(discard=burn_in, flat=True)
+                max(num_walkers, 2 * len(param_specs) + 2), num_steps,
+                min(burn_in, max(num_steps - 1, 0)))
+    samples, log_probs = run_emcee_posterior(
+        param_specs,
+        lambda p: compute_sse_recurrent(rules, trajectories, p, latent_init,
+                                        process_features),
+        walker_center,
+        init_int,
+        prior_sigma,
+        lo,
+        hi,
+        noise_sigma,
+        num_walkers,
+        num_steps,
+        burn_in,
+        label="recurrent")
     result = FitResult(names=names,
                        samples=samples,
                        log_probs=log_probs,
@@ -272,16 +249,9 @@ def compute_residuals(
     residuals: List[float] = []
     for s_t, action, s_next_obs in transitions:
         updates = simulator_fn(s_t, action, params)
-        for obj in s_t:
-            type_name = obj.type.name
-            for feat_name in process_features.get(type_name, []):
-                if obj in updates and feat_name in updates[obj]:
-                    raw = updates[obj][feat_name]
-                    pred = raw.item() if hasattr(raw, 'item') else float(raw)
-                else:
-                    pred = float(s_t.get(obj, feat_name))
-                obs = float(s_next_obs.get(obj, feat_name))
-                residuals.append(pred - obs)
+        residuals.extend(pred - obs
+                         for _obj, _feat, pred, obs, _fired in iter_step_terms(
+                             s_t, updates, s_next_obs, process_features))
     return np.asarray(residuals, dtype=float)
 
 
@@ -294,11 +264,10 @@ def compute_residuals_recurrent(
 ) -> np.ndarray:
     """Per-feature residuals (predicted - observed) for the recurrent rollout.
 
-    Vector counterpart to :func:`compute_sse_recurrent`, written in the
-    object x feature iteration order of :func:`compute_residuals` (not the
-    predicted-then-unpredicted order of the SSE) so the flat vector keeps a
-    fixed length and position across theta perturbations even when a hard
-    gate flips which rule fires -- required for the finite-difference
+    Vector counterpart to :func:`compute_sse_recurrent`; both draw their
+    terms from :func:`iter_step_terms`, so the flat vector keeps a fixed
+    length and position across theta perturbations even when a hard gate
+    flips which rule fires -- required for the finite-difference
     Jacobian LM builds. By construction
     ``sum(compute_residuals_recurrent(...)**2)`` equals
     ``compute_sse_recurrent(...)``, so minimizing ``0.5 * ||r||^2`` with LM
@@ -322,17 +291,10 @@ def compute_residuals_recurrent(
             history.append((state_base, action))
             updates = apply_rules_with_latent(state_base, latent, history,
                                               rules, params)
-            for obj in state_base:
-                type_name = obj.type.name
-                for feat_name in process_features.get(type_name, []):
-                    if obj in updates and feat_name in updates[obj]:
-                        raw = updates[obj][feat_name]
-                        pred = raw.item() if hasattr(raw,
-                                                     'item') else float(raw)
-                    else:
-                        pred = float(state_base.get(obj, feat_name))
-                    obs = float(state_obs.get(obj, feat_name))
-                    residuals.append(pred - obs)
+            residuals.extend(
+                pred - obs
+                for _obj, _feat, pred, obs, _fired in iter_step_terms(
+                    state_base, updates, state_obs, process_features))
     return np.asarray(residuals, dtype=float)
 
 
@@ -368,33 +330,17 @@ def log_sse_breakdown(
 
     for s_t, action, s_next_obs in transitions:
         updates = simulator_fn(s_t, action, params)
-
-        for obj, feat_dict in updates.items():
-            type_name = obj.type.name
-            allowed_feats = process_features.get(type_name, [])
-            for feat_name, pred_val in feat_dict.items():
-                if feat_name not in allowed_feats:
-                    continue
-                v = pred_val.item() if hasattr(pred_val, 'item') else pred_val
-                obs_val = float(s_next_obs.get(obj, feat_name))
-                err = float(v) - obs_val
-                slot = _slot((type_name, feat_name))
+        for obj, feat_name, pred, obs, fired in iter_step_terms(
+                s_t, updates, s_next_obs, process_features):
+            err = pred - obs
+            slot = _slot((obj.type.name, feat_name))
+            if fired:
                 slot["sse_pred"] += err * err
                 slot["n_pred"] += 1
-                slot["max_abs_err"] = max(slot["max_abs_err"], abs(err))
-
-        for obj in s_t:
-            type_name = obj.type.name
-            for feat_name in process_features.get(type_name, []):
-                if obj in updates and feat_name in updates[obj]:
-                    continue
-                pred_val = float(s_t.get(obj, feat_name))
-                obs_val = float(s_next_obs.get(obj, feat_name))
-                err = pred_val - obs_val
-                slot = _slot((type_name, feat_name))
+            else:
                 slot["sse_no_pred"] += err * err
                 slot["n_no_pred"] += 1
-                slot["max_abs_err"] = max(slot["max_abs_err"], abs(err))
+            slot["max_abs_err"] = max(slot["max_abs_err"], abs(err))
 
     if not bucket:
         return
@@ -419,6 +365,81 @@ def log_sse_breakdown(
             int(s["n_no_pred"]),
             s["max_abs_err"],
         )
+
+
+def run_emcee_posterior(
+    param_specs: List[ParamSpec],
+    sse_fn: Callable[[Dict[str, float]], float],
+    walker_center: np.ndarray,
+    prior_center_int: np.ndarray,
+    prior_sigma: np.ndarray,
+    lo: np.ndarray,
+    hi: np.ndarray,
+    noise_sigma: float,
+    num_walkers: int,
+    num_steps: int,
+    burn_in: int,
+    label: str,
+    report_interval: int = 100,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Shared emcee run behind the three fit entry points.
+
+    Returns ``(samples_external, log_probs)`` with burn-in discarded and
+    chains flattened. All coordinates are in the FIT space internally
+    (``lo``/``hi``/``prior_center_int``/``prior_sigma``); the returned
+    samples are mapped back to EXTERNAL units.
+
+    RNG discipline: the walker init is the single ``np.random`` draw
+    (then emcee's own internal draws); the call sequence is preserved
+    exactly from the three formerly-duplicated blocks so fixed-seed
+    chains are bit-identical across the consolidation.
+    """
+    import emcee  # type: ignore[import-untyped]  # pylint: disable=import-outside-toplevel
+
+    names = [s.name for s in param_specs]
+    ndim = len(param_specs)
+    num_walkers = max(num_walkers, 2 * ndim + 2)
+    burn_in = min(burn_in, max(num_steps - 1, 0))
+
+    def log_posterior(theta: np.ndarray) -> float:
+        # theta lives in the FIT space (log for log-scale params).
+        # Reject samples outside the per-parameter [lo, hi] box.
+        if np.any(theta < lo) or np.any(theta > hi):
+            return -np.inf
+        ext = from_fit_space(param_specs, theta)
+        params = {n: float(ext[i]) for i, n in enumerate(names)}
+        # Broad Gaussian prior centered on the prior center.
+        log_prior = -0.5 * np.sum(
+            ((theta - prior_center_int) / prior_sigma)**2)
+        sse = sse_fn(params)
+        return float(log_prior - 0.5 * sse / (noise_sigma**2))
+
+    # Initialize walkers across the prior support (sigma = half the prior
+    # width). A tight ball around init traps the chain on flat plateaus
+    # of the likelihood (e.g., when threshold-based rules don't fire),
+    # because emcee stretch moves scale with the swarm's spread.
+    p0 = to_fit_space(param_specs, walker_center) + \
+        0.5 * prior_sigma * np.random.randn(num_walkers, ndim)
+    p0 = np.clip(p0, lo, hi)
+
+    sampler = emcee.EnsembleSampler(num_walkers, ndim, log_posterior)
+
+    # Run with periodic progress reports (flushed so long fits stay
+    # observable in the experiment logs).
+    for i, _result in enumerate(sampler.sample(p0, iterations=num_steps),
+                                start=1):
+        if i % report_interval == 0 or i == num_steps:
+            best_lp = sampler.get_log_prob()[:i].max()
+            logger.info("  %s emcee step %d/%d  (best log-prob: %.2f)", label,
+                        i, num_steps, best_lp)
+            for h in logger.handlers + logging.getLogger().handlers:
+                h.flush()
+
+    # Discard burn-in, flatten chains (back to external units).
+    samples = rows_from_fit_space(
+        param_specs, sampler.get_chain(discard=burn_in, flat=True))
+    log_probs = sampler.get_log_prob(discard=burn_in, flat=True)
+    return samples, log_probs
 
 
 def fit_map_lm(
@@ -586,53 +607,22 @@ def fit_params(
                                    "per-transition",
                                    scales=scales)
 
-    import emcee  # type: ignore[import-untyped]  # pylint: disable=import-outside-toplevel
-
-    ndim = len(param_specs)
-    num_walkers = max(num_walkers, 2 * ndim + 2)
-    burn_in = min(burn_in, max(num_steps - 1, 0))
-
-    def log_posterior(theta: np.ndarray) -> float:
-        # theta lives in the FIT space (log for log-scale params).
-        # Reject samples outside the per-parameter [lo, hi] box.
-        if np.any(theta < lo) or np.any(theta > hi):
-            return -np.inf
-        ext = from_fit_space(param_specs, theta)
-        params = {n: float(ext[i]) for i, n in enumerate(names)}
-        # Broad Gaussian prior centered on init values
-        log_prior = -0.5 * np.sum(((theta - init_int) / prior_sigma)**2)
-        # Likelihood
-        sse = compute_sse(simulator_fn, transitions, params, process_features)
-        return log_prior + (-0.5 * sse / (noise_sigma**2))
-
-    # Initialize walkers across the prior support (sigma = half the prior
-    # width). A tight ball around init traps the chain on flat plateaus
-    # of the likelihood (e.g., when threshold-based rules don't fire),
-    # because emcee stretch moves scale with the swarm's spread.
-    p0 = to_fit_space(param_specs, walker_center) + \
-        0.5 * prior_sigma * np.random.randn(num_walkers, ndim)
-    p0 = np.clip(p0, lo, hi)
-
-    sampler = emcee.EnsembleSampler(num_walkers, ndim, log_posterior)
-
     logger.info("Running emcee: %d walkers, %d steps, %d burn-in.",
-                num_walkers, num_steps, burn_in)
-
-    # Run with periodic progress reports.
-    report_interval = 100
-    for i, _result in enumerate(sampler.sample(p0, iterations=num_steps),
-                                start=1):
-        if i % report_interval == 0 or i == num_steps:
-            best_lp = sampler.get_log_prob()[:i].max()
-            logger.info("  emcee step %d/%d  (best log-prob: %.2f)", i,
-                        num_steps, best_lp)
-            for h in logger.handlers + logging.getLogger().handlers:
-                h.flush()
-
-    # Discard burn-in, flatten chains (back to external units).
-    samples = rows_from_fit_space(
-        param_specs, sampler.get_chain(discard=burn_in, flat=True))
-    log_probs = sampler.get_log_prob(discard=burn_in, flat=True)
+                max(num_walkers, 2 * len(param_specs) + 2), num_steps,
+                min(burn_in, max(num_steps - 1, 0)))
+    samples, log_probs = run_emcee_posterior(
+        param_specs,
+        lambda p: compute_sse(simulator_fn, transitions, p, process_features),
+        walker_center,
+        init_int,
+        prior_sigma,
+        lo,
+        hi,
+        noise_sigma,
+        num_walkers,
+        num_steps,
+        burn_in,
+        label="per-transition")
 
     result = FitResult(names=names,
                        samples=samples,

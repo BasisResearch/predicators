@@ -13,7 +13,8 @@ import subprocess
 import sys
 
 from predicators.agent_sdk.sandbox_setup import VALIDATE_SANDBOX_SCRIPT
-from predicators.agent_sdk.tools import _make_spilling_text_result, \
+from predicators.agent_sdk.tools.results import _make_spilling_text_result
+from predicators.agent_sdk.tools.sandbox_guard import \
     _screen_text_for_sandbox_escape
 
 # (text, should_block) — exercised against both the in-process screen and

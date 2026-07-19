@@ -17,9 +17,10 @@ from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
     fit_space_bounds, from_fit_space, prior_widths, rows_from_fit_space, \
     to_fit_space
-from predicators.code_sim_learning.lm import solve_lm
-from predicators.code_sim_learning.physical_sysid import _grid_candidates, \
+from predicators.code_sim_learning.grid_seed import _grid_candidates
+from predicators.code_sim_learning.identifiability import \
     identifiability_report
+from predicators.code_sim_learning.lm import solve_lm
 from predicators.code_sim_learning.utils import stamp_physical_spec_scales
 
 # ── ParamSpec validation ──────────────────────────────────────────
