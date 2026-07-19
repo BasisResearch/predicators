@@ -1,5 +1,5 @@
-"""Tests for per-step region annotations (``[center] ~ [widths]``) in
-bilevel_sketch parsing and refinement.
+"""Tests for per-step region annotations (``[center] ~ [widths]``) in sketch
+parsing (``sketch_parsing``) and refinement (``sketch_refinement``).
 
 A region annotation gives a step's LLM-proposed params per-dimension
 half-widths: the exact center is tried once, then every later draw for
@@ -16,8 +16,10 @@ import pytest
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.agent_sdk import bilevel_sketch
-from predicators.agent_sdk.bilevel_sketch import GroundSampler, SketchStep
+from predicators.agent_sdk.sketch_parsing import format_step_line, \
+    parse_sketch_from_text, strip_region_annotations
+from predicators.agent_sdk.sketch_refinement import refine_sketch
+from predicators.agent_sdk.sketch_types import GroundSampler, SketchStep
 from predicators.agent_sdk.tools import ToolContext, create_mcp_tools
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, Type
@@ -98,12 +100,11 @@ def _refine(step, **kwargs):
                     check_subgoals=True,
                     check_final_goal=False)
     defaults.update(kwargs)
-    return bilevel_sketch.refine_sketch(_task_hi(), [step], _FakeOptionModel(),
-                                        **defaults)
+    return refine_sketch(_task_hi(), [step], _FakeOptionModel(), **defaults)
 
 
 def _parse(text, strict=True, parse_continuous_params=True):
-    return bilevel_sketch.parse_sketch_from_text(
+    return parse_sketch_from_text(
         text,
         _task_hi(),
         predicates={_ReachedHi},
@@ -192,11 +193,11 @@ def test_parse_region_ignored_when_params_disabled():
 
 def test_strip_region_annotations():
     """`~ [widths]` is removed so the params parser sees only `[params]`."""
-    out = bilevel_sketch.strip_region_annotations(
+    out = strip_region_annotations(
         "Move(block0:block)[0.7] ~ [0.1] -> {ReachedHi(block0:block)}")
     assert out == "Move(block0:block)[0.7] -> {ReachedHi(block0:block)}"
     # A line without an annotation is untouched.
-    assert bilevel_sketch.strip_region_annotations(
+    assert strip_region_annotations(
         "Move(block0:block)[0.7]") == "Move(block0:block)[0.7]"
 
 
@@ -206,12 +207,11 @@ def test_format_step_line_shows_width_and_annotation_round_trips():
     format_step_line uses bare object names, so the test retypes the
     refs before parsing the line again.
     """
-    line = bilevel_sketch.format_step_line(
-        0,
-        "Move", [_block],
-        params=[0.85],
-        subgoal_atoms={GroundAtom(_ReachedHi, [_block])},
-        params_width=[0.1])
+    line = format_step_line(0,
+                            "Move", [_block],
+                            params=[0.85],
+                            subgoal_atoms={GroundAtom(_ReachedHi, [_block])},
+                            params_width=[0.1])
     assert "[0.8500] ~ [0.1000]" in line
     sketch = _parse("Move(block0:block)" +
                     line.split("Move(block0)", maxsplit=1)[1])
@@ -227,16 +227,15 @@ def test_parse_region_disabled_falls_back_to_uniform():
     installed, and a notice explains the fallback (an error here cost
     every audited run turns of syntax guessing)."""
     notices = []
-    sketch = bilevel_sketch.parse_sketch_from_text(
-        "Move(block0:block)[0.7] ~ [0.1]",
-        _task_hi(),
-        predicates={_ReachedHi},
-        options={_Move},
-        types={_block_type},
-        parse_continuous_params=True,
-        strict=True,
-        parse_ground_samplers=False,
-        notices=notices)
+    sketch = parse_sketch_from_text("Move(block0:block)[0.7] ~ [0.1]",
+                                    _task_hi(),
+                                    predicates={_ReachedHi},
+                                    options={_Move},
+                                    types={_block_type},
+                                    parse_continuous_params=True,
+                                    strict=True,
+                                    parse_ground_samplers=False,
+                                    notices=notices)
     assert len(sketch) == 1
     assert np.allclose(sketch[0].initial_params, [0.7])
     assert sketch[0].ground_sampler is None
@@ -244,15 +243,14 @@ def test_parse_region_disabled_falls_back_to_uniform():
     assert "IGNORED" in notices[0]
     assert "uniform" in notices[0]
     # Without a notices list the annotation is still silently ignored.
-    sketch = bilevel_sketch.parse_sketch_from_text(
-        "Move(block0:block)[0.7] ~ [0.1]",
-        _task_hi(),
-        predicates={_ReachedHi},
-        options={_Move},
-        types={_block_type},
-        parse_continuous_params=True,
-        strict=True,
-        parse_ground_samplers=False)
+    sketch = parse_sketch_from_text("Move(block0:block)[0.7] ~ [0.1]",
+                                    _task_hi(),
+                                    predicates={_ReachedHi},
+                                    options={_Move},
+                                    types={_block_type},
+                                    parse_continuous_params=True,
+                                    strict=True,
+                                    parse_ground_samplers=False)
     assert sketch[0].ground_sampler is None
 
 
@@ -263,7 +261,7 @@ def _hi_band_fn(state, subgoal_atoms, rng, objects):
 
 def test_parse_named_ground_sampler():
     """`~ name` resolves against ground_sampler_fns into a code sampler."""
-    sketch = bilevel_sketch.parse_sketch_from_text(
+    sketch = parse_sketch_from_text(
         "Move(block0:block)[0.1] ~ hi_band -> {ReachedHi(block0:block)}",
         _task_hi(),
         predicates={_ReachedHi},
@@ -283,7 +281,7 @@ def test_parse_named_ground_sampler():
 
 def test_parse_named_ground_sampler_no_center_ok():
     """Unlike a window, a named sampler needs no center params."""
-    sketch = bilevel_sketch.parse_sketch_from_text(
+    sketch = parse_sketch_from_text(
         "Move(block0:block)[] ~ hi_band",
         _task_hi(),
         predicates={_ReachedHi},
@@ -300,23 +298,22 @@ def test_parse_named_ground_sampler_no_center_ok():
 def test_parse_named_ground_sampler_unknown_errors():
     """An unknown `~ name` is a strict error listing what is available."""
     with pytest.raises(ValueError, match="unknown ground sampler 'nope'"):
-        bilevel_sketch.parse_sketch_from_text(
-            "Move(block0:block)[0.1] ~ nope",
-            _task_hi(),
-            predicates={_ReachedHi},
-            options={_Move},
-            types={_block_type},
-            parse_continuous_params=True,
-            strict=True,
-            ground_sampler_fns={"hi_band": _hi_band_fn})
+        parse_sketch_from_text("Move(block0:block)[0.1] ~ nope",
+                               _task_hi(),
+                               predicates={_ReachedHi},
+                               options={_Move},
+                               types={_block_type},
+                               parse_continuous_params=True,
+                               strict=True,
+                               ground_sampler_fns={"hi_band": _hi_band_fn})
 
 
 def test_format_step_line_shows_sampler_name():
     """A named ground sampler renders as `~ name` after the params."""
-    line = bilevel_sketch.format_step_line(0,
-                                           "Move", [_block],
-                                           params=[0.1],
-                                           sampler_name="hi_band")
+    line = format_step_line(0,
+                            "Move", [_block],
+                            params=[0.1],
+                            sampler_name="hi_band")
     assert "[0.1000] ~ hi_band" in line
 
 

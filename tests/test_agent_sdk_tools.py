@@ -6,8 +6,8 @@ Validates:
 3. evaluate_option_plan shows "Missing goal atoms" when goal not achieved
 4. evaluate_option_plan shows object poses on failure
 5. propose_options saves code to sandbox/proposed_code/
-6. _format_object_poses helper
-7. _render_scene_image helper
+6. format_object_poses helper
+7. render_scene_image helper
 8. _sync_tool_context sets ctx.env from option model
 
 Usage:
@@ -194,7 +194,7 @@ def test_inspect_options_unknown(ctx: Any) -> None:
 
 def test_inspect_options_proposed_code(ctx: Any) -> None:
     """inspect_options returns path for option with code saved to sandbox."""
-    from predicators.agent_sdk.tools import _save_option_to_sandbox
+    from predicators.agent_sdk.tools.results import _save_option_to_sandbox
 
     # Save proposal code to sandbox
     proposal_code = "# test proposal code\nx = 1"
@@ -693,12 +693,12 @@ def test_option_plan_failure_shows_poses(ctx: Any) -> None:
         print("  PASS: evaluate_option_plan (no failures in output)")
 
 
-def test_format_object_poses(ctx: Any) -> None:
-    """_format_object_poses formats object positions correctly."""
-    from predicators.agent_sdk.tools import _format_object_poses
+def testformat_object_poses(ctx: Any) -> None:
+    """format_object_poses formats object positions correctly."""
+    from predicators.agent_sdk.tools import format_object_poses
 
     state = ctx.current_task.init
-    result = _format_object_poses(state)
+    result = format_object_poses(state)
 
     assert isinstance(result, str)
     assert len(result) > 0
@@ -708,17 +708,17 @@ def test_format_object_poses(ctx: Any) -> None:
     assert "x=" in result
     assert "y=" in result
     assert "z=" in result
-    print(f"  PASS: _format_object_poses ({result.count(chr(10))+1} objects)")
+    print(f"  PASS: format_object_poses ({result.count(chr(10))+1} objects)")
 
 
-def test_render_scene_image(ctx: Any) -> None:
-    """_render_scene_image renders a scene and returns image block."""
-    from predicators.agent_sdk.tools import _render_scene_image
+def testrender_scene_image(ctx: Any) -> None:
+    """render_scene_image renders a scene and returns image block."""
+    from predicators.agent_sdk.tools import render_scene_image
 
     with tempfile.TemporaryDirectory() as tmpdir:
         ctx.image_save_dir = tmpdir
 
-        result = _render_scene_image(ctx, "test_render")
+        result = render_scene_image(ctx, "test_render")
 
         if result is not None:
             assert result["type"] == "image"
@@ -732,23 +732,23 @@ def test_render_scene_image(ctx: Any) -> None:
                         f"_test{ctx.test_call_id:03d}_test_render.png")
             assert saved[0] == expected, \
                 f"Expected {expected}, got {saved[0]}"
-            print("  PASS: _render_scene_image (rendered + saved)")
+            print("  PASS: render_scene_image (rendered + saved)")
         else:
-            print("  SKIP: _render_scene_image (rendering not available)")
+            print("  SKIP: render_scene_image (rendering not available)")
 
         ctx.image_save_dir = None
 
 
 def test_render_scene_no_env(ctx: Any) -> None:
-    """_render_scene_image returns None when env is None."""
-    from predicators.agent_sdk.tools import _render_scene_image
+    """render_scene_image returns None when env is None."""
+    from predicators.agent_sdk.tools import render_scene_image
 
     original_env = ctx.env
     ctx.env = None
-    result = _render_scene_image(ctx, "should_be_none")
+    result = render_scene_image(ctx, "should_be_none")
     assert result is None
     ctx.env = original_env
-    print("  PASS: _render_scene_image (no env → None)")
+    print("  PASS: render_scene_image (no env → None)")
 
 
 def test_propose_options_saves_to_sandbox(ctx: Any) -> None:
@@ -984,8 +984,8 @@ def main() -> None:
 
         # Helper function tests
         print("\n3. Helper function tests:")
-        test_format_object_poses(ctx)
-        test_render_scene_image(ctx)
+        testformat_object_poses(ctx)
+        testrender_scene_image(ctx)
         test_render_scene_no_env(ctx)
 
         # propose_options test

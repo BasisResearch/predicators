@@ -865,7 +865,7 @@ class TestQueryAgentForPlanSketch:
 
 
 class TestValidatePlanForward:
-    """Tests for ``bilevel_sketch.validate_plan_forward``.
+    """Tests for ``plan_execution.validate_plan_forward``.
 
     Covers the test-time forward validator that's the entire reason the
     synthesis tool can catch refinement-passes/validation-fails
@@ -880,14 +880,14 @@ class TestValidatePlanForward:
 
     def test_goal_reached_returns_success(self):
         """Plan that reaches the goal — validator passes, no diagnosis."""
-        from predicators.agent_sdk import bilevel_sketch
+        from predicators.agent_sdk import plan_execution
         _, mock_om, task = _make_approach()
         # Final post-state satisfies the goal (On(block0, block1)).
         goal_state = _make_state({_block0: [0.55, 0.6, 0.0]})
         mock_om.get_next_state_and_num_actions.return_value = (goal_state, 3)
 
         plan = [self._grounded(_Pick, [_block0], [0.5])]
-        ok, reason = bilevel_sketch.validate_plan_forward(
+        ok, reason = plan_execution.validate_plan_forward(
             task, plan, mock_om, predicates=_ALL_PREDICATES)
         assert ok is True
         assert reason == ""
@@ -895,14 +895,14 @@ class TestValidatePlanForward:
     def test_goal_not_reached_diagnosis_names_missing_atoms(self):
         """Plan terminates but goal isn't satisfied — diagnosis names the
         missing atom set, not a generic 'validation failed'."""
-        from predicators.agent_sdk import bilevel_sketch
+        from predicators.agent_sdk import plan_execution
         _, mock_om, task = _make_approach()
         # Post-state doesn't satisfy On(block0, block1).
         bad_state = _make_state({_block0: [0.1, 0.2, 0.0]})
         mock_om.get_next_state_and_num_actions.return_value = (bad_state, 3)
 
         plan = [self._grounded(_Pick, [_block0], [0.5])]
-        ok, reason = bilevel_sketch.validate_plan_forward(
+        ok, reason = plan_execution.validate_plan_forward(
             task, plan, mock_om, predicates=_ALL_PREDICATES)
         assert ok is False
         assert "goal not reached" in reason
@@ -914,7 +914,7 @@ class TestValidatePlanForward:
         needs to see *which* step's predicate is spurious."""
         import logging as _logging
 
-        from predicators.agent_sdk import bilevel_sketch
+        from predicators.agent_sdk import plan_execution
         _, mock_om, task = _make_approach()
         # Post-state never establishes Holding(block0). Goal is also
         # missing — but the subgoal log should fire first.
@@ -928,7 +928,7 @@ class TestValidatePlanForward:
                         subgoal_atoms={GroundAtom(_Holding, [_block0])})
         ]
         with caplog.at_level(_logging.INFO):
-            ok, _ = bilevel_sketch.validate_plan_forward(
+            ok, _ = plan_execution.validate_plan_forward(
                 task,
                 plan,
                 mock_om,
@@ -946,7 +946,7 @@ class TestValidatePlanForward:
         """When the option model returns 0 actions (option execution failed),
         the diagnosis identifies the failing step and surfaces the option
         model's last_execution_failure."""
-        from predicators.agent_sdk import bilevel_sketch
+        from predicators.agent_sdk import plan_execution
         _, mock_om, task = _make_approach()
         # Simulate option failure: 0 actions, with a diagnostic message
         # recorded on the option model.
@@ -955,7 +955,7 @@ class TestValidatePlanForward:
         mock_om.last_execution_failure = "IK timed out at waypoint 3"
 
         plan = [self._grounded(_Pick, [_block0], [0.5])]
-        ok, reason = bilevel_sketch.validate_plan_forward(
+        ok, reason = plan_execution.validate_plan_forward(
             task, plan, mock_om, predicates=_ALL_PREDICATES)
         assert ok is False
         assert "option execution failed at step 0" in reason
@@ -964,13 +964,13 @@ class TestValidatePlanForward:
 
     def test_empty_plan_with_goal_already_satisfied(self):
         """Empty plan + init satisfies goal → success."""
-        from predicators.agent_sdk import bilevel_sketch
+        from predicators.agent_sdk import plan_execution
 
         # Goal trivially holds when block0 is already on block1.
         init = _make_state({_block0: [0.55, 0.6, 0.0]})
         task = Task(init, {GroundAtom(_On, [_block0, _block1])})
         mock_om = MagicMock()
-        ok, reason = bilevel_sketch.validate_plan_forward(
+        ok, reason = plan_execution.validate_plan_forward(
             task, [], mock_om, predicates=_ALL_PREDICATES)
         assert ok is True
         assert reason == ""
@@ -978,10 +978,10 @@ class TestValidatePlanForward:
     def test_empty_plan_with_unmet_goal(self):
         """Empty plan + init does NOT satisfy goal → failure with explanatory
         diagnosis."""
-        from predicators.agent_sdk import bilevel_sketch
+        from predicators.agent_sdk import plan_execution
         _, _, task = _make_approach()  # init does not satisfy goal
         mock_om = MagicMock()
-        ok, reason = bilevel_sketch.validate_plan_forward(
+        ok, reason = plan_execution.validate_plan_forward(
             task, [], mock_om, predicates=_ALL_PREDICATES)
         assert ok is False
         assert "init state does not satisfy goal" in reason
@@ -989,7 +989,7 @@ class TestValidatePlanForward:
     def test_sketch_length_mismatch_ignored_gracefully(self):
         """Mismatched sketch length — validator should warn and fall back to
         goal-only checking rather than crash."""
-        from predicators.agent_sdk import bilevel_sketch
+        from predicators.agent_sdk import plan_execution
         _, mock_om, task = _make_approach()
         goal_state = _make_state({_block0: [0.55, 0.6, 0.0]})
         mock_om.get_next_state_and_num_actions.return_value = (goal_state, 3)
@@ -1000,7 +1000,7 @@ class TestValidatePlanForward:
             _SketchStep(option=_Pick, objects=[_block0], subgoal_atoms=None),
             _SketchStep(option=_Pick, objects=[_block0], subgoal_atoms=None),
         ]
-        ok, _ = bilevel_sketch.validate_plan_forward(
+        ok, _ = plan_execution.validate_plan_forward(
             task,
             plan,
             mock_om,
@@ -1344,7 +1344,7 @@ class TestScheduledPlansPromptSection:
 
     @staticmethod
     def _prompt(scheduled_plans):
-        from predicators.agent_sdk import bilevel_sketch
+        from predicators.agent_sdk import sketch_prompts
         utils.reset_config({
             "env": "cover",
             "approach": "agent_bilevel",
@@ -1352,7 +1352,7 @@ class TestScheduledPlansPromptSection:
         })
         state = _make_state()
         task = Task(state, {GroundAtom(_On, [_block0, _block1])})
-        return bilevel_sketch.build_solve_prompt(
+        return sketch_prompts.build_solve_prompt(
             task,
             all_predicates=_ALL_PREDICATES,
             all_options=_ALL_OPTIONS,

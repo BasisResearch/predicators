@@ -159,7 +159,7 @@ def test_coercing_tool_accepts_numeric_strings() -> None:
     """
     import asyncio
 
-    from predicators.agent_sdk.tools import _make_coercing_tool
+    from predicators.agent_sdk.tools.results import _make_coercing_tool
 
     captured: dict = {}
 
@@ -226,7 +226,7 @@ def test_resolve_task_evaluator_reads_task_field() -> None:
     train tasks / current task (the evaluator rides on the Task itself)."""
     import numpy as np
 
-    from predicators.agent_sdk.tools import _resolve_task_evaluator
+    from predicators.agent_sdk.tools.verdicts import _resolve_task_evaluator
     from predicators.structs import Object, State, Task, TaskEvaluator, Type
 
     cup_type = Type("cup_type", ["f"])

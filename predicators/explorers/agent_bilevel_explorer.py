@@ -22,8 +22,8 @@ from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.rendering import save_task_state_image
 from predicators.agent_sdk.session_manager import SessionManagerProtocol, \
     run_query_sync
-from predicators.agent_sdk.tools import ToolContext, \
-    _load_ground_sampler_fns, agent_render_resolution
+from predicators.agent_sdk.tools import ToolContext, agent_render_resolution, \
+    load_ground_sampler_fns
 from predicators.explorers.base_explorer import BaseExplorer
 from predicators.settings import CFG
 from predicators.structs import Action, ExplorationStrategy, \
@@ -114,7 +114,7 @@ class AgentBilevelExplorer(BaseExplorer):
             if not plan_text:
                 raise ValueError("agent returned empty plan text")
 
-            gs_fns, gs_err = _load_ground_sampler_fns(self._tool_context)
+            gs_fns, gs_err = load_ground_sampler_fns(self._tool_context)
             if gs_err is not None:
                 logging.warning("[explore] %s", gs_err)
             sketch = bilevel_sketch.parse_sketch_from_text(

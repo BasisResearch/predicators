@@ -1,4 +1,4 @@
-"""Tests for near-miss reporting in bilevel_sketch refinement.
+"""Tests for near-miss reporting in ``sketch_refinement``.
 
 A failed backtracking search now records the deepest rollout that
 executed but failed validation - the failing step's exact params, the
@@ -11,8 +11,10 @@ step's name.
 import numpy as np
 from gym.spaces import Box
 
-from predicators.agent_sdk import bilevel_sketch
-from predicators.agent_sdk.bilevel_sketch import SketchStep
+from predicators.agent_sdk.plan_execution import _fmt_state_features
+from predicators.agent_sdk.sketch_refinement import \
+    refine_and_validate_report, refine_sketch
+from predicators.agent_sdk.sketch_types import SketchStep
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, Type
 
@@ -86,8 +88,7 @@ def _refine(sketch, holder, **kwargs):
                     check_final_goal=False,
                     deepest_failure_holder=holder)
     defaults.update(kwargs)
-    return bilevel_sketch.refine_sketch(_task(), sketch, _FakeOptionModel(),
-                                        **defaults)
+    return refine_sketch(_task(), sketch, _FakeOptionModel(), **defaults)
 
 
 def test_deepest_failure_recorded_without_truncation():
@@ -136,9 +137,8 @@ def _report(sketch, **kwargs):
                     max_samples_per_step=5,
                     check_subgoals=True)
     defaults.update(kwargs)
-    return bilevel_sketch.refine_and_validate_report(_task(), sketch,
-                                                     _FakeOptionModel(),
-                                                     **defaults)
+    return refine_and_validate_report(_task(), sketch, _FakeOptionModel(),
+                                      **defaults)
 
 
 def test_report_shows_deepest_failure_on_sample_exhausted():
@@ -175,7 +175,7 @@ def test_truncate_on_subgoal_fail_behavior_unchanged():
     """Explorer-mode truncation still returns the deepest consistent prefix
     (inclusive of the failing step), with or without a holder attached."""
     sketch = [_step(subgoal_pred=_Reached), _step(subgoal_pred=_ReachedTwo)]
-    plan_no_holder, success, _ = bilevel_sketch.refine_sketch(
+    plan_no_holder, success, _ = refine_sketch(
         _task(),
         sketch,
         _FakeOptionModel(),
@@ -203,8 +203,8 @@ def test_fmt_state_features_object_filter():
         _block: np.array([0.25], dtype=np.float32),
         _other: np.array([0.75], dtype=np.float32),
     })
-    full = bilevel_sketch._fmt_state_features(state)  # pylint: disable=protected-access
+    full = _fmt_state_features(state)
     assert "block0[x=0.2500]" in full
     assert "other0[x=0.7500]" in full
-    only = bilevel_sketch._fmt_state_features(state, objects=[_block])  # pylint: disable=protected-access
+    only = _fmt_state_features(state, objects=[_block])
     assert only == "block0[x=0.2500]"

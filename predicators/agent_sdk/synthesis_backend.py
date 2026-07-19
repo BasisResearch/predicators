@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, \
 
 if TYPE_CHECKING:
     from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
-    from predicators.code_sim_learning.physical_sysid import RolloutTrajectory
+    from predicators.code_sim_learning.rollout_env import RolloutTrajectory
     from predicators.code_sim_learning.utils import LearnedSimulator
     from predicators.option_model import _OracleOptionModel
     from predicators.structs import Action, LowLevelTrajectory, \
