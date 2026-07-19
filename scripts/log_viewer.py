@@ -1669,16 +1669,18 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
     # Path to paste into a terminal at the server's working directory.
     copy_path = os.path.relpath(os.path.join(LOGS_ROOT, r["rel"]))
     is_live = status == "running"
+    esc_rel = esc(r["rel"])
     kill_btn = ""
     if is_live:
         kill_btn = ("<button class='rowbtn' title='Kill the live process "
-                    "of this run' onclick='killRun(\"%s\")'>kill</button>" %
-                    esc(r["rel"]))
+                    f"of this run' onclick='killRun(\"{esc_rel}\")'>"
+                    "kill</button>")
     del_title = ("Kill the live process, then delete this run"
                  if is_live else "Delete this run's log dir and videos")
-    del_btn = ("<button class='rowbtn' title='%s' "
-               "onclick='deleteRun(\"%s\", %s)'>✕</button>" %
-               (del_title, esc(r["rel"]), "true" if is_live else "false"))
+    live_flag = "true" if is_live else "false"
+    del_btn = (f"<button class='rowbtn' title='{del_title}' "
+               f"onclick='deleteRun(\"{esc_rel}\", {live_flag})'>"
+               "✕</button>")
     return ("<tr class='runrow' "
             f"data-key='{esc(key)}' data-seed='{esc(r['seed'])}' "
             f"data-start='{start_ts:.0f}'>"
