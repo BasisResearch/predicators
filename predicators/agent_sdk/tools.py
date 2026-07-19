@@ -2180,8 +2180,6 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         else:
             return _error_result(
                 "No task_idx provided and no current_task set.")
-        all_options = ctx.options | ctx.iteration_proposals.proposed_options
-        opt_map = {o.name: o for o in all_options}
 
         lines = [f"Testing option plan on task {task_idx}:"]
         saved_image_paths: List[str] = []
@@ -2735,7 +2733,6 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
         import numpy as np  # pylint: disable=reimported,redefined-outer-name,import-outside-toplevel
 
         from predicators import utils
-        from predicators.approaches import ApproachFailure, ApproachTimeout
         from predicators.planning_with_processes import \
             run_task_plan_with_processes_once
 
@@ -2771,7 +2768,7 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
                 seed=CFG.seed,
                 _task_planning_heuristic=CFG.process_task_planning_heuristic,
                 max_horizon=float(CFG.horizon))
-        except (ApproachFailure, ApproachTimeout, Exception) as e:  # pylint: disable=broad-except
+        except Exception as e:  # pylint: disable=broad-except
             return _text_result(f"Planning failed for {task_label}.\n"
                                 f"Reason: {type(e).__name__}: {e}")
 
@@ -2867,7 +2864,6 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
     )
     async def generate_abstract_plan(args: Dict[str, Any]) -> Dict[str, Any]:
         # pylint: disable=import-outside-toplevel
-        from predicators.approaches import ApproachFailure, ApproachTimeout
         from predicators.planning_with_processes import \
             run_task_plan_with_processes_once
 
@@ -2902,7 +2898,7 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
                 seed=CFG.seed,
                 _task_planning_heuristic=CFG.process_task_planning_heuristic,
                 max_horizon=float(CFG.horizon))
-        except (ApproachFailure, ApproachTimeout, Exception) as e:  # pylint: disable=broad-except
+        except Exception as e:  # pylint: disable=broad-except
             return _text_result(f"Planning failed for {task_label}.\n"
                                 f"Reason: {type(e).__name__}: {e}")
 
@@ -3283,7 +3279,7 @@ def _build_scene_tools(ctx: ToolContext, _text_result: Callable,
                                 "items": {
                                     "type": "number"
                                 },
-                                "description": "[x, y, z] for marker or text"
+                                "description": "[x, y, z] for marker"
                             },
                             "from": {
                                 "type": "array",
@@ -3315,10 +3311,6 @@ def _build_scene_tools(ctx: ToolContext, _text_result: Callable,
                                 "description":
                                 "[x_max, y_max, z] for rectangle"
                             },
-                            "text": {
-                                "type": "string",
-                                "description": "Label text (for type=text)"
-                            },
                             "color": {
                                 "type": "array",
                                 "items": {
@@ -3329,13 +3321,6 @@ def _build_scene_tools(ctx: ToolContext, _text_result: Callable,
                             "size": {
                                 "type": "number",
                                 "description": "Marker radius or line width"
-                            },
-                            "label": {
-                                "type":
-                                "string",
-                                "description":
-                                "Optional text label near the "
-                                "annotation"
                             },
                         },
                         "required": ["type"],

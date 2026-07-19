@@ -117,7 +117,6 @@ def test_annotate_marker(ctx: Any) -> None:
                     "type": "marker",
                     "position": [1.05, 1.27, 0.49],
                     "color": [1, 0, 0],
-                    "label": "faucet_target",
                 },
             ],
             "step_label":
@@ -148,7 +147,6 @@ def test_annotate_rectangle(ctx: Any) -> None:
                     "min_corner": [0.95, 1.17, 0.41],
                     "max_corner": [1.15, 1.37, 0.41],
                     "color": [0, 1, 0],
-                    "label": "target_region",
                 },
             ],
             "step_label":
@@ -176,13 +174,11 @@ def test_annotate_multiple(ctx: Any) -> None:
                     "type": "marker",
                     "position": [1.05, 1.27, 0.49],
                     "color": [1, 0, 0],
-                    "label": "place_here",
                 },
                 {
                     "type": "marker",
                     "position": [0.625, 1.295, 0.49],
                     "color": [0, 0, 1],
-                    "label": "burner",
                 },
                 {
                     "type": "line",
