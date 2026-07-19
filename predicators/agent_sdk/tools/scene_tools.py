@@ -5,6 +5,7 @@ from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.results import _error_result
 from predicators.agent_sdk.tools.scene import apply_state_modifications, \
     draw_pybullet_annotation, render_pybullet_image
+from predicators.agent_sdk.tools.tasks import _resolve_task
 
 
 def _build_scene_tools(ctx: ToolContext, _text_result: Callable,
@@ -201,18 +202,12 @@ def _build_scene_tools(ctx: ToolContext, _text_result: Callable,
         except ImportError:
             return _error_result("PyBullet not available.")
 
-        task_idx = args.get("task_idx")
-        if task_idx is not None:
-            if task_idx < 0 or task_idx >= len(ctx.train_tasks):
-                return _error_result(f"Invalid task_idx {task_idx}. "
-                                     f"Available: 0-{len(ctx.train_tasks)-1}")
-            task = ctx.train_tasks[task_idx]
-        elif ctx.current_task is not None:
-            task = ctx.current_task
-            task_idx = "current"
-        else:
-            return _error_result(
-                "No task_idx provided and no current_task set.")
+        resolved, task_err = _resolve_task(ctx, args.get("task_idx"))
+        if task_err is not None:
+            return task_err
+        assert resolved is not None
+        task = resolved.task
+        task_idx = resolved.label
 
         modifications = args.get("modifications", [])
         if not modifications:

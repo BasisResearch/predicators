@@ -801,7 +801,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         assert self._option_model is not None, \
             "agent_bilevel requires a simulator " \
             "(agent_planner_use_simulator=True)."
-        plan, success, _ = bilevel_sketch.refine_sketch(
+        outcome = bilevel_sketch.refine_sketch(
             task,
             sketch,
             self._option_model,
@@ -815,7 +815,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
             parameterized_samplers=self._get_all_samplers(),
             on_step_fail=on_step_fail,
         )
-        return plan, success
+        return outcome.plan, outcome.success
 
     def _attach_initial_latent(self, task: Task) -> Task:
         """Hook for partial-observability approaches to seed the latent.

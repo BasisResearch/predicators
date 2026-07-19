@@ -12,6 +12,44 @@ from predicators.agent_sdk.tools.context import ToolContext
 from predicators.structs import Predicate, State, Task
 
 
+class _EvalStateCollector:
+    """Per-step states + option labels of one rollout, for evaluator verdicts.
+
+    The single collector behind every surface that scores a belief-sim
+    rollout (``evaluate_option_plan``'s first and validation rollouts,
+    ``_belief_rollout_verdict``). The cascade certificate needs per-step
+    states (topple-onset analysis); option-boundary states give garbage
+    verdicts, so prefer the option model's ``last_trajectory`` and flag
+    the verdict as coarse (``self.coarse``) when it is unavailable.
+    """
+
+    def __init__(self, option_model: Any, init_state: State) -> None:
+        self._option_model = option_model
+        self.states: List[State] = [init_state]
+        self.labels: List[Any] = []
+        self.coarse = False
+
+    def collect(self, outcome: Any) -> None:
+        """Record one executed option's outcome."""
+        if outcome.post_state is None:
+            return
+        opt = outcome.option
+        label = (opt.name, tuple(o.name for o in opt.objects),
+                 tuple(float(p) for p in opt.params))
+        step_traj = getattr(self._option_model, "last_trajectory", None)
+        if step_traj is not None and len(step_traj.states) >= 2:
+            self.states.extend(step_traj.states[1:])
+            self.labels.extend([label] * len(step_traj.actions))
+        else:
+            self.states.append(outcome.post_state)
+            self.labels.append(label)
+            self.coarse = True
+
+    def on_step(self, _i: int, outcome: Any) -> None:
+        """``execute_plan_forward`` ``on_step`` adapter."""
+        self.collect(outcome)
+
+
 def evaluate_states_with(evaluator: Any,
                          states: Sequence[State],
                          step_options: Optional[Sequence[Any]],
@@ -180,41 +218,22 @@ def _belief_rollout_verdict(
     evaluator = _resolve_task_evaluator(ctx, task_idx)
     if evaluator is None or not grounded_plan or ctx.option_model is None:
         return None
-    states: List[State] = [task.init]
-    labels: List[Any] = []
-    coarse = False
-
-    def _collect(_i: int, outcome: Any) -> None:
-        nonlocal coarse
-        if outcome.post_state is None:
-            return
-        opt = outcome.option
-        label = (opt.name, tuple(o.name for o in opt.objects),
-                 tuple(float(p) for p in opt.params))
-        step_traj = getattr(ctx.option_model, "last_trajectory", None)
-        if step_traj is not None and len(step_traj.states) >= 2:
-            states.extend(step_traj.states[1:])
-            labels.extend([label] * len(step_traj.actions))
-        else:
-            states.append(outcome.post_state)
-            labels.append(label)
-            coarse = True
-
+    collector = _EvalStateCollector(ctx.option_model, task.init)
     try:
         bilevel_sketch.execute_plan_forward(task,
                                             grounded_plan,
                                             ctx.option_model,
                                             predicates=predicates,
-                                            on_step=_collect,
+                                            on_step=collector.on_step,
                                             stop_on_failure=True)
-        if len(states) < 2:
+        if len(collector.states) < 2:
             return None
         verdict = evaluate_states_with(evaluator,
-                                       states,
-                                       labels,
+                                       collector.states,
+                                       collector.labels,
                                        sim_env=getattr(ctx.option_model,
                                                        "sim_env", None))
-        return verdict, coarse
+        return verdict, collector.coarse
     except Exception as e:  # pylint: disable=broad-except
         logging.debug("Belief-rollout evaluator verdict failed: %s", e)
         return None

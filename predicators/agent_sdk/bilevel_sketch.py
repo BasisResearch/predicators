@@ -28,7 +28,7 @@ from predicators.agent_sdk.sketch_parsing import format_plan_lines, \
     strip_subgoal_annotations
 from predicators.agent_sdk.sketch_prompts import build_solve_prompt
 from predicators.agent_sdk.sketch_refinement import DeepestFailure, \
-    InfoScorer, refine_and_validate_report, refine_sketch, \
+    InfoScorer, RefineOutcome, refine_and_validate_report, refine_sketch, \
     resolve_refine_timeout, sample_params
 from predicators.agent_sdk.sketch_types import GroundSampler, SketchStep
 
@@ -37,6 +37,7 @@ __all__ = [
     "ForwardResult",
     "GroundSampler",
     "InfoScorer",
+    "RefineOutcome",
     "SketchStep",
     "StepOutcome",
     "build_solve_prompt",
