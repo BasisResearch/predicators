@@ -4,10 +4,10 @@ import numpy as np
 import pytest
 
 from predicators import utils
-from predicators.code_sim_learning.training import ParamSpec, \
-    compute_residuals, compute_residuals_recurrent, compute_sse, \
-    compute_sse_recurrent, fit_map_lm_recurrent, fit_params, \
-    fit_params_recurrent
+from predicators.code_sim_learning.fit_space import ParamSpec
+from predicators.code_sim_learning.fitting import compute_residuals, \
+    compute_residuals_recurrent, compute_sse, compute_sse_recurrent, \
+    fit_map_lm_recurrent, fit_params, fit_params_recurrent
 from predicators.code_sim_learning.utils import has_latent_rules, \
     rollout_predictions
 from predicators.structs import Action, Object, State, Type

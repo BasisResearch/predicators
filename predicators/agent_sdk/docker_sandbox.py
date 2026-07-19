@@ -19,7 +19,7 @@ Shared data (pickled context and results) passes through ``/data``.
 
 Usage
 -----
-When ``CFG.agent_sdk_use_docker_sandbox`` is ``True``, the
+When the ``agent_sdk_use_docker_sandbox`` flag is ``True``, the
 ``AgentSessionMixin`` creates a ``DockerSessionManager`` in place of the
 normal ``AgentSessionManager``.  The interface is identical::
 
@@ -45,8 +45,11 @@ from typing import Any, Dict, List, Optional
 
 import dill as pkl
 
+from predicators.agent_sdk.config import SessionConfig
 from predicators.agent_sdk.sandbox_prompts import build_claude_md, \
-    build_sandbox_system_prompt, find_repo_root, setup_sandbox_directory
+    build_sandbox_system_prompt
+from predicators.agent_sdk.sandbox_setup import find_repo_root, \
+    setup_sandbox_directory
 from predicators.agent_sdk.tools import ToolContext, session_log_filename
 from predicators.settings import CFG
 
@@ -132,11 +135,14 @@ class DockerSessionManager:
         image: str = "predicators-sandbox",
         extra_reference_files: Optional[Dict[str, str]] = None,
         phase: Optional[str] = None,
+        config: Optional[SessionConfig] = None,
     ) -> None:
         # Append sandbox instructions to the system prompt
         self._system_prompt = system_prompt + _SANDBOX_SYSTEM_PROMPT
         self._log_dir = log_dir
         self._model_name = model_name
+        self._config = config if config is not None else \
+            SessionConfig.from_cfg()
         self._tool_context = tool_context
         self._tool_names = tool_names
         self._image = image
@@ -200,7 +206,7 @@ class DockerSessionManager:
             claude_md_content=build_claude_md(phase=self._phase),
             system_prompt=self._system_prompt,
             log_dir=self._log_dir,
-            seed_scratchpad=CFG.agent_planner_use_scratchpad,
+            seed_scratchpad=self._config.use_scratchpad,
             phase=self._phase,
         )
 
@@ -261,8 +267,8 @@ class DockerSessionManager:
                 "message": message,
                 "system_prompt": self._system_prompt,
                 "model_name": self._model_name,
-                "max_turns": CFG.agent_sdk_max_agent_turns_per_iteration,
-                "reasoning_effort": CFG.agent_sdk_reasoning_effort,
+                "max_turns": self._config.max_turns,
+                "reasoning_effort": self._config.reasoning_effort,
                 "tool_names": self._tool_names,
                 "cfg_snapshot": dict(CFG.__dict__),
                 "log_path": container_log_path,
@@ -301,7 +307,7 @@ class DockerSessionManager:
             # appear on the host terminal as they happen.
             stderr_lines: List[str] = []
             try:
-                timeout_sec = (CFG.agent_sdk_agent_timeout +
+                timeout_sec = (self._config.agent_timeout +
                                _CONTAINER_TIMEOUT_SLACK_S)
                 import threading  # pylint: disable=import-outside-toplevel
 
@@ -440,7 +446,7 @@ class DockerSessionManager:
         """No-op: sandbox directory is kept for inspection."""
         self._sandbox_dir = None
 
-    async def _recover_session(self, last_message: str) -> None:
+    async def _recover_session(self) -> None:
         """No-op: each query is independent."""
 
     def save_session_info(self) -> None:

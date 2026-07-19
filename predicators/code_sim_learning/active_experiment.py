@@ -38,16 +38,11 @@ from typing import Dict, List, Sequence, Union
 
 import numpy as np
 
-from predicators.code_sim_learning.training import ParamSpec
+from predicators.code_sim_learning.fit_space import ParamSpec, is_log
 
 # Smallest representable disagreement; below this two members count as
 # agreeing (guards against float dust in the entropy sum).
 _ENTROPY_EPS = 1e-9
-
-
-def _is_log(spec: ParamSpec) -> bool:
-    """Whether ``spec`` fits in log-space (tolerates legacy instances)."""
-    return getattr(spec, "scale", "linear") == "log"
 
 
 def _param_width(spec: ParamSpec) -> float:
@@ -63,10 +58,10 @@ def _param_width(spec: ParamSpec) -> float:
     lo, hi = spec.lo, spec.hi
     if lo is not None and hi is not None and np.isfinite(lo) and np.isfinite(
             hi) and hi > lo:
-        if _is_log(spec):
+        if is_log(spec):
             return float(np.log(hi) - np.log(lo))
         return float(hi - lo)
-    if _is_log(spec):
+    if is_log(spec):
         return 1.0
     mag = abs(float(spec.init_value))
     return mag if mag > 0 else 1.0
@@ -113,7 +108,7 @@ def perturbation_ensemble(
             if spec is None:
                 continue
             sigma = perturb_frac * _param_width(spec)
-            if _is_log(spec) and value > 0:
+            if is_log(spec) and value > 0:
                 perturbed = value * float(np.exp(rng.normal(0.0, sigma)))
             else:
                 perturbed = value + rng.normal(0.0, sigma)
@@ -193,7 +188,7 @@ def laplace_ensemble(
     if the covariance cannot be formed (degenerate/empty Jacobian).
 
     ``J`` and ``prior_sigma`` live in the FIT space (``z = log(theta)``
-    for log-scale specs — see ``training._solve_lm``), so the Laplace
+    for log-scale specs — see ``lm.solve_lm``), so the Laplace
     covariance and the draws are fit-space too; each draw is mapped
     back to external units (exponentiated for log params) before the
     box clip.
@@ -225,7 +220,7 @@ def laplace_ensemble(
     eigvals = np.clip(eigvals, 0.0, None)
     scale = eigvecs * np.sqrt(eigvals)  # (ndim, ndim); scale @ z ~ N(0, cov)
     log_mask = [
-        n in spec_by_name and _is_log(spec_by_name[n])
+        n in spec_by_name and is_log(spec_by_name[n])
         and anchor.get(n, 0.0) > 0 for n in name_list
     ]
     mean = np.array([

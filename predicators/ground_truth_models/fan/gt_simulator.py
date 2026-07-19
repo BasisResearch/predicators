@@ -40,7 +40,7 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
-from predicators.code_sim_learning.training import ParamSpec
+from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.utils import Params, ProcessUpdate, \
     objs_by_type
 from predicators.envs.pybullet_fan import PyBulletFanEnv

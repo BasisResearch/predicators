@@ -4,30 +4,34 @@ These helpers run inside an active synthesis-agent session: they need
 approach state (base env, train tasks, predicates, options) but never
 re-enter the agent — no sketch-prompt query, no new session — so they
 can be invoked from a synthesis tool without disturbing the live
-session's prompt or tool set. They live here (rather than on the
-approach class) to keep the approach module focused on orchestration and
-to group them with the other ``code_sim_learning`` simulation / fitting
-primitives.
+session's prompt or tool set. They live in the approaches layer (not
+``code_sim_learning``) because they orchestrate approach state and the
+planner; the ``SynthesisBackend`` protocol declares exactly the approach
+surface they touch.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from predicators.code_sim_learning.training import ParamSpec
+from predicators.code_sim_learning.fit_space import ParamSpec
+from predicators.code_sim_learning.fitting import fit_rule_parameters
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, has_latent_rules
 from predicators.settings import CFG
 from predicators.structs import Action, State, Task
 
+if TYPE_CHECKING:
+    from predicators.agent_sdk.synthesis_backend import SynthesisBackend
+
 logger = logging.getLogger(__name__)
 
 
 def build_candidate_option_model(
-    approach: Any,
+    approach: "SynthesisBackend",
     rules: List,
     specs: List[ParamSpec],
     process_features: Dict[str, List[str]],
@@ -75,8 +79,9 @@ def build_candidate_option_model(
             fit_result, fit_sse = approach._fit_parameters_recurrent(
                 rules, specs, base_pred_triples, process_features)
         else:
-            fit_result, fit_sse = approach._fit_parameters(
-                rules, specs, base_pred_triples, process_features)
+            fit_result, fit_sse = fit_rule_parameters(rules, specs,
+                                                      base_pred_triples,
+                                                      process_features)
         params = fit_result.point_estimate
     except Exception as e:
         raise RuntimeError(f"param fitting failed:\n{e}") from e
@@ -97,7 +102,7 @@ def build_candidate_option_model(
 
 
 def run_refinement_for_synthesis(
-    approach: Any,
+    approach: "SynthesisBackend",
     rules: List,
     specs: List[ParamSpec],
     process_features: Dict[str, List[str]],
@@ -225,7 +230,7 @@ def run_refinement_for_synthesis(
 
 
 def get_or_build_sketch(
-    approach: Any,
+    approach: "SynthesisBackend",
     task: Task,
     plan_text: str = "",
 ) -> Tuple[List, str]:

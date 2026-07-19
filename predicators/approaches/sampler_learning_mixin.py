@@ -23,20 +23,21 @@ synthesis session. The host approach keeps only the call sites.
 """
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, cast
 
 import numpy as np
 
 from predicators.agent_sdk.tools import _SnapshotTarget, \
     create_sampler_synthesis_tools, create_synthesis_tools, \
     finalize_versioned_snapshot
-from predicators.code_sim_learning.training import ParamSpec
+from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.ground_truth_models import get_gt_samplers
 from predicators.settings import CFG
 from predicators.structs import Action, LowLevelTrajectory, \
     ParameterizedOption, ParameterizedSampler, Predicate, State, Task, Type
 
 if TYPE_CHECKING:
+    from predicators.agent_sdk.synthesis_backend import SynthesisBackend
     from predicators.agent_sdk.tools import ToolContext
 
 logger = logging.getLogger(__name__)
@@ -259,7 +260,7 @@ as `cycle_XXX_vers_YYY_samplers.py`."""
         the ``evaluate_sampler`` tool via ``load_learned_samplers``.
         """
         # pylint: disable=import-outside-toplevel
-        from predicators.agent_sdk.proposal_parser import build_exec_context, \
+        from predicators.agent_sdk.proposal_exec import build_exec_context, \
             load_learned_samplers
         from predicators.agent_sdk.tools import _ParamsView
 
@@ -344,7 +345,10 @@ as `cycle_XXX_vers_YYY_samplers.py`."""
             inferred_hint,
             simulator_file=simulator_file,
             versions_dir=versions_dir,
-            approach=self,
+            # The host class (AgentSimLearningApproach) provides the
+            # full backend surface; the mixin's own type covers only
+            # the sampler slice.
+            approach=cast("SynthesisBackend", self),
             sandbox_dir=base,
             sandbox_dir_for_agent=sandbox_dir_for_agent,
             cycle_index_provider=self._learning_cycle_index,
