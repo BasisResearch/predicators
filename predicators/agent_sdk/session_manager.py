@@ -4,14 +4,14 @@ import datetime
 import json
 import logging
 import os
-import time
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 from predicators.agent_sdk.config import SessionConfig
-from predicators.agent_sdk.log_formatter import truncate
-from predicators.agent_sdk.response_parser import parse_message
-from predicators.agent_sdk.thinking import resolve_thinking_config
+from predicators.agent_sdk.session_base import BaseAgentSessionManager, \
+    build_agent_options
 from predicators.settings import CFG
+
+logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
@@ -21,7 +21,7 @@ class SessionManagerProtocol(Protocol):
     Implemented by :class:`AgentSessionManager` (in-process, no
     sandbox), ``LocalSandboxSessionManager`` (in-process, sandbox cwd +
     hooks), and ``DockerSessionManager`` (stateless container per
-    query). Consumers — ``AgentSessionMixin`` and the agent explorers —
+    query). Consumers - ``AgentSessionMixin`` and the agent explorers -
     must depend on this, not a concrete manager.
     """
 
@@ -56,8 +56,13 @@ class SessionManagerProtocol(Protocol):
         ...  # pylint: disable=unnecessary-ellipsis
 
 
-class AgentSessionManager:
-    """Wraps ClaudeSDKClient for persistent sessions with custom MCP tools."""
+class AgentSessionManager(BaseAgentSessionManager):
+    """Wraps ClaudeSDKClient for persistent sessions with custom MCP tools.
+
+    Unlike the sandboxed managers, this one takes a pre-built MCP server
+    and fully-qualified tool list, runs without a sandbox cwd, and
+    writes its incremental query logs as JSON (not markdown).
+    """
 
     def __init__(self,
                  system_prompt: str,
@@ -67,83 +72,44 @@ class AgentSessionManager:
                  allowed_tools: Optional[List[str]] = None,
                  tool_context: Any = None,
                  config: Optional[SessionConfig] = None) -> None:
-        self._system_prompt = system_prompt
+        # tool_context is an optional ToolContext reference - read at
+        # session start so the caller can inject ``extra_session_hooks``
+        # between sessions without rebuilding the manager.
+        super().__init__(system_prompt=system_prompt,
+                         log_dir=log_dir,
+                         model_name=model_name,
+                         tool_context=tool_context,
+                         config=config)
         self._mcp_server = mcp_server
-        self._log_dir = log_dir
-        self._model_name = model_name
-        self._config = config if config is not None else \
-            SessionConfig.from_cfg()
         self._allowed_tools = allowed_tools
-        # Optional ToolContext reference — read at session start so the
-        # caller can inject ``extra_session_hooks`` between sessions
-        # without rebuilding the manager.
-        self._tool_context = tool_context
-        self._client: Any = None
-        self._session_id: Optional[str] = None
-        self._total_cost_usd: float = 0.0
-        # total_cost_usd from the SDK is the cumulative session cost; track
-        # the last value to derive each query's per-solve (marginal) cost.
-        self._last_cost_usd: float = 0.0
-        self._total_turns: int = 0
-        self._started = False
-        self._query_count: int = 0
-        self._conversation_log: List[Dict[str, Any]] = []
-        self._current_log_meta: Dict[str, Any] = {}
 
-    @property
-    def session_id(self) -> Optional[str]:
-        """Return the current session ID."""
-        return self._session_id
-
-    @session_id.setter
-    def session_id(self, value: Optional[str]) -> None:
-        self._session_id = value
-
-    @property
-    def tool_names(self) -> List[str]:
-        """Return short tool names (without MCP prefix)."""
-        if not self._allowed_tools:
-            return []
-        prefix = "mcp__predicator_tools__"
-        return [
-            t[len(prefix):] if t.startswith(prefix) else t
-            for t in self._allowed_tools
-        ]
+    def _qualified_tool_names(self) -> List[str]:
+        return list(self._allowed_tools or [])
 
     async def start_session(self) -> None:
         """Start a new Claude SDK client session."""
-        from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient \
-            # pylint: disable=import-outside-toplevel
+        from claude_agent_sdk import \
+            ClaudeSDKClient  # pylint: disable=import-outside-toplevel
 
         extra_hooks: Dict[str, Any] = {}
         if self._tool_context is not None:
             extra_hooks = dict(
                 getattr(self._tool_context, "extra_session_hooks", {}) or {})
-        # Model-dependent thinking config: adaptive on sonnet-5+ (where
-        # budget_tokens is rejected with a 400), manual extended thinking
-        # with a fixed budget on older models like claude-sonnet-4-6.
-        thinking = resolve_thinking_config(self._model_name)
-        options = ClaudeAgentOptions(
-            allowed_tools=self._allowed_tools or [],
-            # No tool-search deferral: the predicator MCP schemas are the
-            # whole task surface and are always needed (see
-            # local_sandbox.py for the audit trail).
-            disallowed_tools=["ToolSearch"],
-            mcp_servers={"predicator_tools": self._mcp_server},
-            permission_mode="bypassPermissions",
+        options = build_agent_options(
             system_prompt=self._system_prompt,
-            model=self._model_name,
+            model_name=self._model_name,
+            allowed_tools=self._allowed_tools or [],
+            mcp_server=self._mcp_server,
             max_turns=self._config.max_turns,
             max_buffer_size=self._config.max_buffer_size,
-            thinking=thinking,  # type: ignore[arg-type]
-            hooks=(extra_hooks
-                   if extra_hooks else None),  # type: ignore[arg-type]
+            reasoning_effort=self._config.reasoning_effort,
+            hooks=extra_hooks,
         )
 
         self._client = ClaudeSDKClient(options=options)
         await self._client.connect()
         self._started = True
-        logging.info("Agent SDK session started.")
+        logger.info("Agent SDK session started.")
 
     def _init_incremental_log(self,
                               query: str,
@@ -190,142 +156,10 @@ class AgentSessionManager:
         """
         if not self._started:
             await self.start_session()
-
-        collected: List[Dict[str, Any]] = []
         log_path = self._init_incremental_log(message, kind=kind)
-        start = time.perf_counter()
-        # Wall-clock of the previous response message, so each logged step
-        # can report how long it took (model thinking before a tool call,
-        # tool execution before the next message, etc.).
-        prev_t = start
-
-        try:
-            await self._client.query(message)
-            async for msg in self._client.receive_response():
-                entry = parse_message(msg)
-                if entry is None:
-                    continue
-                collected.append(entry)
-                now = time.perf_counter()
-                dt = now - prev_t
-                prev_t = now
-
-                # Log side-effects
-                if entry["type"] == "assistant":
-                    for block in entry.get("content", []):
-                        if block.get("type") == "text":
-                            logging.debug("[+%.2fs] Agent: %s...", dt,
-                                          block["text"][:200])
-                        elif block.get("thinking") is not None:
-                            logging.debug("[+%.2fs] Agent [thinking]: %s...",
-                                          dt, block["thinking"][:200])
-                        elif block.get("type") == "tool_use":
-                            params = block.get("input") or {}
-                            param_summary = ", ".join(
-                                f"{k}={truncate(v)}"
-                                for k, v in params.items())
-                            logging.debug("[+%.2fs] Agent tool call: %s(%s)",
-                                          dt, block["name"], param_summary)
-                elif entry["type"] == "result":
-                    cost = entry.get("total_cost_usd")
-                    turns = entry.get("num_turns")
-                    solve_cost: Optional[float] = None
-                    if cost is not None:
-                        # cost is cumulative; the per-solve cost is the
-                        # delta since the last result (a drop means the
-                        # session reset, so the new total is the delta).
-                        if cost >= self._last_cost_usd:
-                            solve_cost = float(cost - self._last_cost_usd)
-                        else:
-                            solve_cost = float(cost)
-                        self._last_cost_usd = cost
-                        self._total_cost_usd += solve_cost
-                        self._current_log_meta["solve_cost_usd"] = solve_cost
-                        self._current_log_meta["total_cost_usd"] = \
-                            self._total_cost_usd
-                    if turns is not None:
-                        self._total_turns += turns
-                    logging.info(
-                        "Agent iteration complete. Turns: %s, "
-                        "Cost this solve: $%s, Total cost so far: $%s", turns
-                        or '?',
-                        f"{solve_cost:.4f}" if solve_cost is not None else '?',
-                        f"{self._total_cost_usd:.4f}")
-
-                # Flush log after each message
-                if log_path:
-                    self._flush_log(log_path, collected)
-
-        except Exception as e:  # pylint: disable=broad-except
-            logging.error("Agent session error: %s", e)
-            collected.append({"type": "error", "error": str(e)})
-            await self._recover_session()
-
-        elapsed = time.perf_counter() - start
-        logging.info("[agent-interaction] kind=%s took %.2fs (%d messages)",
-                     kind, elapsed, len(collected))
-
-        # Final flush to ensure everything is saved
-        if log_path:
-            self._flush_log(log_path, collected)
-            logging.info("Saved agent query/response to %s", log_path)
-
-        # Track in-memory for conversation replay
-        self._conversation_log.append({
-            "query": message,
-            "response": collected,
-        })
-
-        return collected
-
-    @property
-    def conversation_log(self) -> List[Dict[str, Any]]:
-        """Return the in-memory log of all query/response pairs."""
-        return self._conversation_log
-
-    async def _recover_session(self) -> None:
-        """Attempt to recover from a session error.
-
-        Reconnects only; the failed message is NOT resent — the caller
-        sees the error entry and decides whether to retry.
-        """
-        logging.warning("Attempting agent session recovery...")
-        try:
-            if self._client is not None:
-                try:
-                    await self._client.disconnect()
-                except Exception:  # pylint: disable=broad-except
-                    pass
-            self._started = False
-            await self.start_session()
-            logging.info("Session recovered successfully.")
-        except Exception as e:  # pylint: disable=broad-except
-            logging.error("Session recovery failed: %s", e)
-
-    async def close(self) -> None:
-        """Close the agent session."""
-        if self._client is not None:
-            try:
-                await self._client.disconnect()
-            except Exception as e:  # pylint: disable=broad-except
-                logging.warning("Error closing agent session: %s", e)
-            finally:
-                self._client = None
-                self._started = False
-
-    def save_session_info(self) -> None:
-        """Save session metadata to log directory."""
-        os.makedirs(self._log_dir, exist_ok=True)
-        info = {
-            "session_id": self._session_id,
-            "total_cost_usd": self._total_cost_usd,
-            "total_turns": self._total_turns,
-            "model": self._model_name,
-        }
-        path = os.path.join(self._log_dir, "session_info.json")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(info, f, indent=2)
-        logging.info("Saved session info to %s", path)
+        return await self._run_streamed_query(message,
+                                              log_path=log_path,
+                                              kind=kind)
 
 
 def run_async_sync(coro: Any) -> Any:

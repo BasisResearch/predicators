@@ -215,7 +215,7 @@ class AgentBilevelExplorer(BaseExplorer):
                     " WARNING: no ensemble scorer wired (atom_disagreement_fn "
                     "is None) — probing disabled.")
 
-            plan, success, _ = bilevel_sketch.refine_sketch(
+            outcome = bilevel_sketch.refine_sketch(
                 task,
                 sketch,
                 option_model,
@@ -234,6 +234,7 @@ class AgentBilevelExplorer(BaseExplorer):
                 parameterized_samplers=self._tool_context.
                 parameterized_samplers,
             )
+            plan, success = outcome.plan, outcome.success
             # Record the honest verdict so get_interaction_requests can stamp
             # it onto this request: early stopping must not treat a task as
             # solved when the mental model couldn't reach its goal, even if
