@@ -302,7 +302,8 @@ class ToolContext:
     # below). Cleared together with solved_plan.
     solved_plan_reached_goal: Optional[bool] = None
     # Gate for the above: only approaches that consume captured plans
-    # (AgentModelBasedApproach) set this True. Keeps the open-loop planner, which
+    # (AgentModelBasedApproach) set this True. Keeps the open-loop
+    # planner, which
     # also uses evaluate_option_plan, from recording spurious captures.
     capture_goal_reaching_plans: bool = False
     # Set (with capture_goal_reaching_plans) only for the final-submission

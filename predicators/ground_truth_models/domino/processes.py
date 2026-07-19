@@ -341,7 +341,8 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
 
 
 # ---------------------------------------------------------------------------
-# Grid-free per-skill samplers (NSRTSampler / ParameterizedSampler signature) for
+# Grid-free per-skill samplers (NSRTSampler / ParameterizedSampler
+# signature) for
 # bilevel refinement. The NSRT samplers above read the placement off grid
 # ``loc``/``angle`` objects in ``objs``; these instead compute it
 # geometrically from the step's ``InFront`` subgoal (passed in the atoms

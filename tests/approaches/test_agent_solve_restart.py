@@ -15,7 +15,7 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk import journal as journal_mod
-from predicators.approaches import ApproachFailure
+from predicators.approaches import ApproachFailure, ApproachTimeout
 from predicators.approaches.agent_model_based_approach import \
     AgentModelBasedApproach, _CaptureInfo
 from predicators.structs import Action, GroundAtom, Object, \
@@ -293,7 +293,6 @@ def test_unexpected_error_without_bank_reraises_after_cleanup():
     after attempt bookkeeping is cleared - stale fields would pollute
     later sessions sharing the ToolContext.
     """
-    from predicators.approaches import ApproachTimeout
     approach, task = _make_approach({
         "agent_solve_max_attempts": 3,
         "agent_solve_attempt_wall_clock": 2700,

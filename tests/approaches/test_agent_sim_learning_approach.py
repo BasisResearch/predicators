@@ -9,13 +9,17 @@ that solve a pybullet_boil task.
 import logging
 import os
 import re
+from types import SimpleNamespace
 from typing import List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 import pytest
 
 from predicators import utils
+from predicators.approaches import agent_sim_learning_approach as asla
 from predicators.approaches.agent_model_based_approach import _SketchStep
+from predicators.approaches.agent_sim_learning_approach import \
+    AgentSimLearningApproach
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, merge_updates
 from predicators.envs import create_new_env
@@ -375,13 +379,11 @@ def test_build_option_model_binds_sim_env():
     push probe. Without the binding the probe is silently unavailable
     and captures are accepted on the pure rules only.
     """
-    from predicators.approaches.agent_sim_learning_approach import \
-        AgentSimLearningApproach
     utils.reset_config({"wait_option_terminate_on_atom_change": False})
     approach = AgentSimLearningApproach.__new__(AgentSimLearningApproach)
     fake_env = object()
     approach._base_env = fake_env
-    approach._get_all_options = lambda: set()  # type: ignore[method-assign]
+    approach._get_all_options = set  # type: ignore[method-assign]
     model = approach._build_option_model(lambda s, a: s)
     assert model.sim_env is fake_env
 
@@ -402,7 +404,6 @@ class _FakeScopeEnv:
 
 
 def _make_scope_approach(monkeypatch, prev_env, fresh_env, disposed):
-    import predicators.approaches.agent_sim_learning_approach as asla
     monkeypatch.setattr(asla, "create_new_env", lambda *a, **k: fresh_env)
     monkeypatch.setattr(asla, "_dispose_env", disposed.append)
     approach = asla.AgentSimLearningApproach.__new__(
@@ -421,7 +422,6 @@ def test_fresh_validation_env_scope_swaps_and_restores(monkeypatch):
     learned combined simulator reads ``self._base_env`` dynamically
     instead).
     """
-    from types import SimpleNamespace
     prev_env, fresh_env = _FakeScopeEnv(), _FakeScopeEnv()
     disposed = []
     approach = _make_scope_approach(monkeypatch, prev_env, fresh_env, disposed)
@@ -445,7 +445,6 @@ def test_fresh_validation_env_scope_swaps_and_restores(monkeypatch):
 def test_fresh_validation_env_scope_learned_simulator(monkeypatch):
     """A learned (closure) simulator is left untouched: it reads
     ``self._base_env`` dynamically, so only the attribute swap applies."""
-    from types import SimpleNamespace
     prev_env, fresh_env = _FakeScopeEnv(), _FakeScopeEnv()
     disposed = []
     approach = _make_scope_approach(monkeypatch, prev_env, fresh_env, disposed)
@@ -465,7 +464,6 @@ def test_fresh_validation_env_scope_learned_simulator(monkeypatch):
 def test_fresh_validation_env_scope_disposes_crash_replacement(monkeypatch):
     """If a mid-rollout crash recovery replaced the fresh env, the scope
     disposes the replacement instead of leaking it."""
-    from types import SimpleNamespace
     prev_env, fresh_env = _FakeScopeEnv(), _FakeScopeEnv()
     crash_replacement = _FakeScopeEnv()
     disposed = []
