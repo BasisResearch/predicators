@@ -77,7 +77,7 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
 
         ``annotate_scene`` and ``visualize_state`` let the agent confirm
         geometry it would otherwise infer numerically. The parent
-        (``AgentPlannerApproach``) gates these on
+        (``AgentModelFreeApproach``) gates these on
         ``agent_planner_use_*`` CFG flags, but those target a different
         use case; for predicate invention we always want the capability
         available - as the standalone tools, or through explore_python

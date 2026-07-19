@@ -418,9 +418,9 @@ class PhaseSkill:
     def _finger_target(self, phase: Phase, state: State, memory: Dict,
                        objects: Sequence[Object],
                        params: Array) -> Tuple[float, float]:
-        """(current, target) finger values for a CHANGE_FINGERS phase,
-        freezing the target at its first evaluation when the phase asks
-        for anchoring (grasp-relative targets would otherwise ratchet)."""
+        """(current, target) finger values for a CHANGE_FINGERS phase, freezing
+        the target at its first evaluation when the phase asks for anchoring
+        (grasp-relative targets would otherwise ratchet)."""
         current_val, target_val = phase.target_fn(state, objects, params,
                                                   self._config)
         if phase.anchor_finger_target:

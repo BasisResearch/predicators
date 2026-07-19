@@ -33,7 +33,7 @@ _Move = ParameterizedOption(
 )
 
 
-class _Host(SamplerLearningMixin):
+class _Host(SamplerLearningMixin):  # pylint: disable=abstract-method
     """Minimal host supplying the mixin's contract surface."""
 
     def __init__(self):
@@ -67,8 +67,8 @@ def _host(**config):
 def test_load_samplers_missing_file_returns_empty(tmp_path):
     """A missing samplers.py loads as the empty dict (samplers optional)."""
     host = _host()
-    assert host._load_samplers_from_module_file(  # pylint: disable=protected-access
-        str(tmp_path / "samplers.py")) == {}
+    assert not host._load_samplers_from_module_file(  # pylint: disable=protected-access
+        str(tmp_path / "samplers.py"))
 
 
 def test_load_samplers_exec_error_returns_empty(tmp_path):
@@ -76,7 +76,8 @@ def test_load_samplers_exec_error_returns_empty(tmp_path):
     path = tmp_path / "samplers.py"
     path.write_text("raise RuntimeError('boom')\n", encoding="utf-8")
     host = _host()
-    assert host._load_samplers_from_module_file(str(path)) == {}  # pylint: disable=protected-access
+    assert not host._load_samplers_from_module_file(  # pylint: disable=protected-access
+        str(path))
 
 
 def test_load_samplers_non_dict_returns_empty(tmp_path):
@@ -84,7 +85,8 @@ def test_load_samplers_non_dict_returns_empty(tmp_path):
     path = tmp_path / "samplers.py"
     path.write_text("LEARNED_SAMPLERS = [1, 2]\n", encoding="utf-8")
     host = _host()
-    assert host._load_samplers_from_module_file(str(path)) == {}  # pylint: disable=protected-access
+    assert not host._load_samplers_from_module_file(  # pylint: disable=protected-access
+        str(path))
 
 
 def test_load_samplers_skips_unknown_and_non_callable_entries(tmp_path):
@@ -118,8 +120,8 @@ LEARNED_SAMPLERS = {"Move": _fn}
     loaded = host._load_samplers_from_module_file(str(path))  # pylint: disable=protected-access
     assert set(loaded) == {"Move"}
     draw = loaded["Move"](
-        host._train_tasks[0].init,
-        set(),  # pylint: disable=protected-access
+        host._train_tasks[0].init,  # pylint: disable=protected-access
+        set(),
         np.random.default_rng(0),
         [_block])
     assert np.asarray(draw).shape == (1, )

@@ -1244,9 +1244,10 @@ class _FakeGoalIkRobot:
         self.validated_calls = 0
 
     def set_joints(self, joints):
-        pass
+        """No-op; the fake tracks nothing."""
 
     def inverse_kinematics(self, target_pose, validate, set_joints=True):
+        """Scripted joints; validated calls get the good solution."""
         del target_pose, set_joints  # scripted result
         if validate:
             self.validated_calls += 1
@@ -1254,6 +1255,7 @@ class _FakeGoalIkRobot:
         return [0.2] * 7
 
     def forward_kinematics(self, joints):
+        """Good joints hit the target; others land short by the error."""
         x, y, z = self._target.position
         if joints == [0.1] * 7:
             return Pose((x, y, z))

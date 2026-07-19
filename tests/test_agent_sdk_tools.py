@@ -352,10 +352,8 @@ def test_explore_python_render_annotations(ctx: Any) -> None:
     """sim.render(annotations=...) overlays annotate_scene-format geometry for
     one render (bodies removed after), sets the annotate handoff, and surfaces
     bad annotations as loud errors."""
-    import os as _os
-    import tempfile as _tempfile
     tools = _make_tools(ctx, ["explore_python"])
-    with _tempfile.TemporaryDirectory() as img_dir:
+    with tempfile.TemporaryDirectory() as img_dir:
         prior_dir = ctx.image_save_dir
         ctx.image_save_dir = img_dir
         try:
@@ -370,7 +368,7 @@ print("saved", path is not None)
             result = _run(tools["explore_python"]({"code": code}))
             text = result["content"][0]["text"]
             assert "saved True" in text
-            assert len(_os.listdir(img_dir)) == 1
+            assert len(os.listdir(img_dir)) == 1
             # The staged state is handed to annotate_scene-style consumers.
             assert ctx.visualized_state is not None
             # A malformed annotation errors loudly (after cleanup).
@@ -483,8 +481,8 @@ print("line", res.plan_lines[0])
 
 
 def test_explore_python_probe_refine_verdict_line(ctx: Any) -> None:
-    """A refine SUCCESS carries a Verdict line saying exactly what it
-    certifies (bare SUCCESS used to be read as goal-reached)."""
+    """A refine SUCCESS carries a Verdict line saying exactly what it certifies
+    (bare SUCCESS used to be read as goal-reached)."""
     tools = _make_tools(ctx, ["explore_python"])
     domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
     robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
@@ -505,8 +503,8 @@ print(res)
 
 def test_explore_python_probe_strlike_and_region_note(ctx: Any) -> None:
     """ProbeResult supports string slicing/containment, and a `~` region
-    annotation is IGNORED with a NOTE when ground samplers are off
-    (previously a hard error that cost turns of syntax guessing)."""
+    annotation is IGNORED with a NOTE when ground samplers are off (previously
+    a hard error that cost turns of syntax guessing)."""
     tools = _make_tools(ctx, ["explore_python"])
     robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
     assert not CFG.agent_bilevel_ground_samplers
@@ -527,8 +525,8 @@ print(res)
 
 
 def test_explore_python_probe_trials(ctx: Any) -> None:
-    """sim.run(plan, trials=N) reports per-trial outcomes and a success
-    count without advancing the current state."""
+    """sim.run(plan, trials=N) reports per-trial outcomes and a success count
+    without advancing the current state."""
     tools = _make_tools(ctx, ["explore_python"])
     domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
     robot = next(o for o in ctx.current_task.init if o.type.name == "robot")

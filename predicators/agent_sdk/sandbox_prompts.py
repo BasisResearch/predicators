@@ -303,6 +303,7 @@ def build_claude_md(phase: Optional[str] = None) -> str:
     if phase == "synthesis":
         strategy = _CLAUDE_MD_SYNTHESIS_STRATEGY
     else:
+        # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk.tools import explore_python_replaces_tools
         if explore_python_replaces_tools():
             hint = _VISUALIZE_HINT_PROBE

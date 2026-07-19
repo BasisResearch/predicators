@@ -1,4 +1,4 @@
-"""Tests for the time-boxed restart loop in AgentBilevelApproach._solve.
+"""Tests for the time-boxed restart loop in AgentModelBasedApproach._solve.
 
 The loop runs up to ``agent_solve_max_attempts`` solve attempts, each on
 a fresh conversation when ``agent_solve_fresh_context`` is set: a
@@ -15,9 +15,9 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk import journal as journal_mod
-from predicators.approaches import ApproachFailure
-from predicators.approaches.agent_bilevel_approach import \
-    AgentBilevelApproach, _CaptureInfo
+from predicators.approaches import ApproachFailure, ApproachTimeout
+from predicators.approaches.agent_model_based_approach import \
+    AgentModelBasedApproach, _CaptureInfo
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, Type
 
@@ -54,7 +54,7 @@ def _make_approach(overrides=None, sandbox_dir=None):
     }
     config.update(overrides or {})
     utils.reset_config(config)
-    approach = AgentBilevelApproach(
+    approach = AgentModelBasedApproach(
         initial_predicates={_Reached},
         initial_options={_Move},
         types={_block_type},
@@ -293,7 +293,6 @@ def test_unexpected_error_without_bank_reraises_after_cleanup():
     after attempt bookkeeping is cleared - stale fields would pollute
     later sessions sharing the ToolContext.
     """
-    from predicators.approaches import ApproachTimeout
     approach, task = _make_approach({
         "agent_solve_max_attempts": 3,
         "agent_solve_attempt_wall_clock": 2700,

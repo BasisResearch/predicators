@@ -51,7 +51,7 @@ class BilevelPlanningApproach(BaseApproach):
         # this, Wait runs to max_num_steps_option_rollout during
         # refinement and the step is rejected for "exceeded individual
         # horizon", even when the expected atoms have already become
-        # true. Mirrors AgentPlannerApproach.__init__.
+        # true. Mirrors AgentModelFreeApproach.__init__.
         # Looked up lazily so subclasses whose _get_current_predicates
         # depends on attributes set after super().__init__() (e.g.
         # GrammarSearchInventionApproach._learned_predicates) don't break,

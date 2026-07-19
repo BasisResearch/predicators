@@ -4,7 +4,8 @@ One markdown file per run (``<sandbox>/journal.md``) that accumulates
 knowledge across solve attempts and test tasks: the harness auto-records
 each task's goal + initial state (one entry, at the top of the task's
 section) and each attempt's outcome and captured or best refused plan,
-and the agent records lessons via the ``record_journal`` MCP tool. Fresh-context solve sessions read
+and the agent records lessons via the ``record_journal`` MCP tool.
+Fresh-context solve sessions read
 the journal from their prompt, so knowledge travels through this curated
 channel instead of raw transcript history (which also carries the wrong
 conclusions of failed attempts - the anchoring failure mode).

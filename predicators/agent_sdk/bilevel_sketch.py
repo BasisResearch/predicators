@@ -1,6 +1,6 @@
 """Shared helpers for bilevel plan-sketch construction and refinement.
 
-Extracted from ``AgentBilevelApproach`` so both the approach (at solve
+Extracted from ``AgentModelBasedApproach`` so both the approach (at solve
 time) and ``AgentBilevelExplorer`` (at exploration time) can build plan
 sketches, parse subgoal annotations, and run backtracking refinement
 against an arbitrary ``_OptionModelBase``.
@@ -352,7 +352,7 @@ def build_solve_prompt(
     ``CFG.agent_bilevel_ground_samplers``; when False the prompt never
     mentions the ``~`` annotation channel.
 
-    Mirrors ``AgentBilevelApproach._build_solve_prompt`` but takes
+    Mirrors ``AgentModelBasedApproach._build_solve_prompt`` but takes
     dependencies explicitly so explorers can reuse it.
 
     ``prior_failures`` is a pre-formatted block summarizing earlier
@@ -875,6 +875,8 @@ def _resolve_ground_sampler(
     if not raw_blocks:
         return None
 
+    # Explicit final return: pylint calls it useless, mypy requires it.
+    # pylint: disable-next=useless-return
     def _bad(reason: str) -> Optional[GroundSampler]:
         msg = (f"step {step_idx} ({option.name}): bad '~' ground-sampler "
                f"annotation - {reason}")
@@ -1586,6 +1588,7 @@ def refine_sketch(
             deepest_fail_prefix[0] = list(cur_plan[:idx + 1])
             if deepest_failure_holder is not None:
                 stash = last_fail_post[0]
+                # pylint: disable-next=unsubscriptable-object
                 post = stash[1] if stash and stash[0] == idx else None
                 opt = cur_plan[idx]
                 assert opt is not None

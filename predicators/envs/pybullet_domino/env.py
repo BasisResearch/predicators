@@ -591,12 +591,12 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                 use_gui=False,
                 skip_process_dynamics=self._skip_domain_specific_dynamics)
         probe_env = self._cascade_probe_env
-        if self._domino_component is not None \
-                and probe_env._domino_component is not None:  # pylint: disable=protected-access
+        # pylint: disable-next=protected-access
+        probe_component = probe_env._domino_component
+        if self._domino_component is not None and probe_component is not None:
             override = self._domino_component.physical_param_override
             if override:
-                # pylint: disable-next=protected-access
-                probe_env._domino_component.set_physical_params(**override)
+                probe_component.set_physical_params(**override)
         return probe_env
 
     def run_counterfactual_cascade_probe(

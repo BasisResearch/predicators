@@ -13,6 +13,8 @@ import numpy as np
 from gym.spaces import Box
 
 from predicators import utils
+from predicators.agent_sdk.proposal_parser import build_exec_context, \
+    load_ground_samplers
 from predicators.agent_sdk.tools import create_sampler_synthesis_tools
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, Type
@@ -190,8 +192,6 @@ LEARNED_SAMPLERS = {"Move": _needs_subgoal}
 
 def test_load_ground_samplers_happy_and_bad_entries():
     """GROUND_SAMPLERS loads callables; bad keys/values warn and drop."""
-    from predicators.agent_sdk.proposal_parser import build_exec_context, \
-        load_ground_samplers
     ctx = build_exec_context(types={_block_type},
                              predicates={_Reached},
                              options={_Move})
@@ -212,8 +212,6 @@ GROUND_SAMPLERS = {"hi_band": _fn, "not-an-identifier": _fn, "seven": 7}
 
 def test_load_ground_samplers_errors():
     """Exec failures and non-dict bindings load nothing, with an error."""
-    from predicators.agent_sdk.proposal_parser import build_exec_context, \
-        load_ground_samplers
     ctx = build_exec_context(types={_block_type},
                              predicates={_Reached},
                              options={_Move})

@@ -16,6 +16,9 @@ import pytest
 from predicators import utils
 from predicators.agent_sdk.probe_api import ProbeSim
 from predicators.agent_sdk.tools import ToolContext, create_mcp_tools
+from predicators.approaches.agent_sim_learning_approach import \
+    AgentSimLearningApproach
+from predicators.code_sim_learning.training import FitResult
 from predicators.option_model import _OptionModelBase
 from predicators.structs import Object, State, Task, Type
 
@@ -87,10 +90,6 @@ def test_candidate_probe_model_provider_glue(tmp_path) -> None:
     ``build_candidate_option_model`` is stubbed (its body is the shared
     ``evaluate_plan_refinement`` path).
     """
-    from predicators.approaches.agent_sim_learning_approach import \
-        AgentSimLearningApproach
-    from predicators.code_sim_learning.training import FitResult
-
     approach = object.__new__(AgentSimLearningApproach)
     approach._fitted_params = {}
     approach._latent_init = None

@@ -790,8 +790,8 @@ class ProbeSim:
             inner_check = make_solved_check(
                 evaluator, getattr(self._option_model(), "sim_env", None))
 
-            def solved_check(states: List[State], labels: List[Any],
-                             coarse: bool) -> Tuple[bool, str]:
+            def _tracking_solved_check(states: List[State], labels: List[Any],
+                                       coarse: bool) -> Tuple[bool, str]:
                 # Track whether the gate was consulted at all vs. with a
                 # real (non-coarse) rollout: "never consulted" means no
                 # candidate reached the goal atoms (the blocker is
@@ -803,6 +803,8 @@ class ProbeSim:
                 if not coarse:
                     gate_ran[0] = True
                 return inner_check(states, labels, coarse)
+
+            solved_check = _tracking_solved_check
 
         if max_samples_per_step is None:
             max_samples_per_step = CFG.agent_bilevel_max_samples_per_step

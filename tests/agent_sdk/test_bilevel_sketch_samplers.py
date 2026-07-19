@@ -758,8 +758,10 @@ def test_refine_and_validate_report_returns_plan():
 
 
 class _TrajModel(_FakeOptionModel):
-    """_FakeOptionModel that also exposes per-step low-level trajectories,
-    so the solved_check gate sees a non-coarse rollout."""
+    """_FakeOptionModel that also exposes per-step low-level trajectories, so
+    the solved_check gate sees a non-coarse rollout."""
+
+    last_trajectory = None
 
     def get_next_state_and_num_actions(self, state, option):
         nxt, n = super().get_next_state_and_num_actions(state, option)
@@ -769,10 +771,10 @@ class _TrajModel(_FakeOptionModel):
 
 
 def test_refine_sketch_solved_check_rejects_during_search():
-    """A rejecting solved_check fails every goal-reaching candidate as
-    "scored non-solve" DURING backtracking (the search keeps sampling
-    instead of accepting), and the deepest-failure near-miss records the
-    rejection with the candidate's exact params."""
+    """A rejecting solved_check fails every goal-reaching candidate as "scored
+    non-solve" DURING backtracking (the search keeps sampling instead of
+    accepting), and the deepest-failure near-miss records the rejection with
+    the candidate's exact params."""
     task, sketch = _easy_task_and_sketch()
     seen = []
 
@@ -808,8 +810,8 @@ def test_refine_sketch_solved_check_rejects_during_search():
 
 
 def test_refine_sketch_solved_check_accepts():
-    """An accepting solved_check leaves refinement untouched; a coarse
-    stash (model without last_trajectory) is flagged to the callback."""
+    """An accepting solved_check leaves refinement untouched; a coarse stash
+    (model without last_trajectory) is flagged to the callback."""
     task, sketch = _easy_task_and_sketch()
     seen_coarse = []
 

@@ -862,6 +862,7 @@ def test_domino_evaluator_reward_decomposition():
                                              greens,
                                              goal_atoms,
                                              push_params=None):
+            """Always certify."""
             del pre_push_state, greens, goal_atoms, push_params
             return True, "fake probe: cascades"
 
@@ -1125,6 +1126,7 @@ def test_domino_evaluator_binds_probe_from_sim_env():
                                              greens,
                                              goal,
                                              push_params=None):
+            """Delegate to the fake probe."""
             return self.probe(pre_push_state, greens, goal, push_params)
 
     objs, states, step_options = _legit_chain_case()

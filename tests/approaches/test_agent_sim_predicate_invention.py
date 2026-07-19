@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 
 # Bootstrap circular imports before pulling from predicators.approaches.
-import predicators.utils  # noqa: F401
+from predicators import utils
 from predicators.structs import DerivedPredicate, Object, Predicate, State, \
     Type
 
@@ -116,7 +116,6 @@ def test_sim_learning_keeps_all_predicates_by_default(cup_type):
     The sim-learning class default is None and the CFG flag is unset, so
     even goal predicates remain available to the agent.
     """
-    import predicators.utils as utils
     utils.reset_config({"agent_sim_learn_kept_predicates_names": []})
     holding = Predicate("Holding", [cup_type], _classifier)
     toppled = Predicate("Toppled", [cup_type], _classifier)
@@ -129,7 +128,6 @@ def test_sim_learning_cfg_allowlist_strips_goal_predicates(cup_type):
 
     Here the stripped predicate is a goal predicate.
     """
-    import predicators.utils as utils
     utils.reset_config({"agent_sim_learn_kept_predicates_names": ["Holding"]})
     try:
         holding = Predicate("Holding", [cup_type], _classifier)

@@ -530,10 +530,12 @@ def test_evaluate_option_plan_ignores_region():
 
 
 def test_refine_plan_sketch_tool_ignores_region_when_disabled():
-    """With agent_bilevel_ground_samplers off, the annotation is accepted
-    but ignored (uniform sampling; params still seed) and the report says
-    so - baseline arms still cannot use the channel, but agents no longer
-    burn turns on an error."""
+    """With agent_bilevel_ground_samplers off, the annotation is a no-op.
+
+    The params still seed the search but sampling stays uniform, and
+    the report says so - baseline arms still cannot use the channel,
+    but agents no longer burn turns on an error.
+    """
     text = _run_tool("refine_plan_sketch", {
         "plan": ("Move(block0:block)[0.85] ~ [0.1] -> "
                  "{ReachedHi(block0:block)}"),
