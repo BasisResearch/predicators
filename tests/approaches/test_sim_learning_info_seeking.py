@@ -285,8 +285,8 @@ def test_exploration_mcmc_does_not_replace_solver_params(monkeypatch):
         return exploration_result, 5.0
 
     monkeypatch.setattr(
-        "predicators.approaches.agent_sim_learning_approach.fit_rule_parameters",
-        _fake_fit)
+        "predicators.approaches.agent_sim_learning_approach"
+        ".fit_rule_parameters", _fake_fit)
     utils.reset_config({
         "agent_sim_learn_oracle_sim_params": False,
         "agent_explorer_info_seeking": True,
@@ -334,8 +334,8 @@ def test_fit_params_no_data_seeds_declared_inits(monkeypatch):
         raise AssertionError("fit must not run with no data")
 
     monkeypatch.setattr(
-        "predicators.approaches.agent_sim_learning_approach.fit_rule_parameters",
-        _fail_fit)
+        "predicators.approaches.agent_sim_learning_approach"
+        ".fit_rule_parameters", _fail_fit)
     utils.reset_config({
         "agent_sim_learn_oracle_sim_params": False,
         "agent_explorer_info_seeking": False,

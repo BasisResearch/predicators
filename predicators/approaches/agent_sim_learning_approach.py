@@ -46,9 +46,8 @@ from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
     posterior_subsample_ensemble
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
 from predicators.code_sim_learning.fitting import FIT_NOISE_SIGMA, \
-    compute_sse, compute_sse_recurrent, fit_params, fit_params_recurrent, \
-    fit_rule_parameters, fit_rule_parameters_latent, log_param_changes, \
-    log_sse_breakdown
+    compute_sse, compute_sse_recurrent, fit_rule_parameters, \
+    fit_rule_parameters_latent, log_param_changes, log_sse_breakdown
 from predicators.code_sim_learning.physical_sysid import RolloutTrajectory, \
     _dispose_env, compute_residual_scaling, compute_rollout_sse, \
     fit_params_rollout, fit_params_rollout_trimmed, format_identifiability, \
@@ -1991,14 +1990,15 @@ the tools.{probe_note}"""
     ) -> Tuple[FitResult, float]:
         """MCMC over the recurrent (per-trajectory) SSE.
 
-        Counterpart to :func:`fitting.fit_rule_parameters` for rules that carry a
-        latent block. Re-groups the flat ``base_pred_triples`` into per-
-        trajectory chunks (latent threads within a trajectory, not
-        across) via the lengths cached in ``self._fit_trajectories``;
-        falls back to a single trajectory if no grouping info exists.
-        Delegates the actual fit/log to :func:`fitting.fit_rule_parameters_latent`
-        so the agent's ``evaluate_step_fit`` tool scores latent rules
-        through the exact same path.
+        Counterpart to :func:`fitting.fit_rule_parameters` for rules
+        that carry a latent block. Re-groups the flat
+        ``base_pred_triples`` into per-trajectory chunks (latent threads
+        within a trajectory, not across) via the lengths cached in
+        ``self._fit_trajectories``; falls back to a single trajectory if
+        no grouping info exists. Delegates the actual fit/log to
+        :func:`fitting.fit_rule_parameters_latent` so the agent's
+        ``evaluate_step_fit`` tool scores latent rules through the exact
+        same path.
         """
         groups = self._group_triples_by_trajectory(base_pred_triples)
         if not groups:

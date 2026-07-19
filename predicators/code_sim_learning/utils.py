@@ -406,10 +406,6 @@ def stamp_physical_spec_scales(specs: List, base_env: Any) -> List:
     parameters the registry does not mark keep whatever the agent
     declared (default linear).
     """
-    # pylint: disable=import-outside-toplevel
-    from predicators.code_sim_learning.fit_space import ParamSpec
-
-    # pylint: enable=import-outside-toplevel
     getter = getattr(base_env, "get_physical_param_info", None)
     info = getter() if callable(getter) else {}
     stamped = []

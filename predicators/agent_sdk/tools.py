@@ -5006,7 +5006,7 @@ class _ParamsView:
 def create_predicate_synthesis_tools(
     predicates_file: str,
     predicates_versions_dir: str,
-    approach: "PredicateSynthesisBackend",
+    approach: PredicateSynthesisBackend,
     trajectories: List[LowLevelTrajectory],
     cycle_index_provider: Optional[Callable[[], int]] = None,
 ) -> list:
@@ -5317,7 +5317,7 @@ def create_predicate_synthesis_tools(
 def create_sampler_synthesis_tools(
     samplers_file: str,
     samplers_versions_dir: str,
-    approach: "SamplerSynthesisBackend",
+    approach: SamplerSynthesisBackend,
     cycle_index_provider: Optional[Callable[[], int]] = None,
 ) -> list:
     """Create the per-skill sampler-synthesis tool.

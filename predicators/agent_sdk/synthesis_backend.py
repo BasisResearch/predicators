@@ -124,7 +124,7 @@ class SynthesisBackend(Protocol):
         self,
         traj: LowLevelTrajectory,
     ) -> List[Optional[Dict[str, Any]]]:
-        ...
+        """Per-step latent dicts for a trajectory, if the rule has one."""
 
 
 class PredicateSynthesisBackend(SynthesisBackend, Protocol):

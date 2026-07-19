@@ -11,11 +11,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any, Iterable, List, Optional, Set
 
-from predicators.approaches.agent_session_mixin import AgentSessionMixin
 from predicators.agent_sdk.tools import ALL_TOOL_NAMES, BUILTIN_TOOLS, \
     MCP_SERVER_NAME, PREDICATE_SYNTHESIS_TOOL_NAMES, SYNTHESIS_TOOL_NAMES, \
     ToolContext, create_mcp_tools, create_predicate_synthesis_tools, \
     create_synthesis_tools, get_allowed_tool_list, list_session_tool_names
+from predicators.approaches.agent_session_mixin import AgentSessionMixin
 
 
 def _required_names(names: Optional[List[str]]) -> List[str]:
