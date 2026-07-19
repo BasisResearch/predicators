@@ -39,19 +39,20 @@ from predicators.agent_sdk.tools import SAMPLER_SYNTHESIS_TOOL_NAMES, \
 from predicators.approaches.agent_model_based_approach import \
     AgentModelBasedApproach
 from predicators.approaches.sampler_learning_mixin import SamplerLearningMixin
+from predicators.approaches.synthesis_validation import \
+    build_candidate_option_model
 from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
     mean_bernoulli_entropy, perturbation_ensemble, \
     posterior_subsample_ensemble
+from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
+from predicators.code_sim_learning.fitting import FIT_NOISE_SIGMA, \
+    compute_sse, compute_sse_recurrent, fit_rule_parameters, \
+    fit_rule_parameters_latent, log_param_changes, log_sse_breakdown
 from predicators.code_sim_learning.physical_sysid import RolloutTrajectory, \
     _dispose_env, compute_residual_scaling, compute_rollout_sse, \
     fit_params_rollout, fit_params_rollout_trimmed, format_identifiability, \
     identifiability_report, physical_param_anchors, \
     select_trustworthy_params, split_at_rest_points, truncate_settled_tail
-from predicators.code_sim_learning.synthesis_validation import \
-    build_candidate_option_model
-from predicators.code_sim_learning.training import FitResult, ParamSpec, \
-    compute_sse, compute_sse_recurrent, fit_params, fit_params_recurrent, \
-    log_sse_breakdown
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, apply_rules_with_latent, has_latent_rules, init_latent, \
     iter_feature_residuals, merge_updates, read_latent_init, \
@@ -66,10 +67,6 @@ from predicators.structs import Action, Dataset, DerivedPredicate, \
     Predicate, State, Task, Type, step_option_labels
 
 logger = logging.getLogger(__name__)
-
-# Gaussian observation-noise sigma assumed by the fit's log-likelihood
-# readouts; matches the ``fit_params`` default in training.py.
-_FIT_NOISE_SIGMA = 0.05
 
 # Canonical "### Rule signature" block for the synthesis system prompt
 # (fully-observable / legacy 3-arg). Spliced in at the
@@ -1493,7 +1490,7 @@ the tools.{probe_note}"""
                 self._fit_sse = self._oracle_param_sse(rules,
                                                        base_pred_triples,
                                                        process_features,
-                                                       _FIT_NOISE_SIGMA)
+                                                       FIT_NOISE_SIGMA)
             else:
                 logger.info("No transitions; skipping oracle-param SSE.")
                 self._fit_sse = float("inf")
@@ -1523,7 +1520,7 @@ the tools.{probe_note}"""
                 fit_result, self._fit_sse = self._fit_parameters_recurrent(
                     rules, specs, base_pred_triples, process_features)
             else:
-                fit_result, self._fit_sse = self._fit_parameters(
+                fit_result, self._fit_sse = fit_rule_parameters(
                     rules, specs, base_pred_triples, process_features)
             self._last_fit_result = fit_result
             self._fitted_params.clear()
@@ -1576,11 +1573,11 @@ the tools.{probe_note}"""
                 process_features,
                 num_steps=num_steps)
         else:
-            fit_result, sse = self._fit_parameters(rules,
-                                                   specs,
-                                                   base_pred_triples,
-                                                   process_features,
-                                                   num_steps=num_steps)
+            fit_result, sse = fit_rule_parameters(rules,
+                                                  specs,
+                                                  base_pred_triples,
+                                                  process_features,
+                                                  num_steps=num_steps)
         self._last_fit_result = fit_result
         logger.info(
             "Fitted active-experiment posterior with %d MCMC steps "
@@ -1623,78 +1620,6 @@ the tools.{probe_note}"""
                           process_features,
                           label="oracle")
         return sse
-
-    @staticmethod
-    def _fit_parameters(
-        rules: List,
-        specs: List[ParamSpec],
-        base_pred_triples: List[Tuple[State, Action, State]],
-        process_features: Dict[str, List[str]],
-        num_steps: Optional[int] = None,
-    ) -> Tuple[FitResult, float]:
-        """Fit parameters for the synthesized rules via MCMC.
-
-        ``base_pred_triples`` must already have the base step applied;
-        precomputing avoids re-running it inside the MCMC inner loop.
-
-        ``num_steps`` overrides the global MCMC budget for this fit
-        (``None`` falls back to ``CFG.code_sim_learning_num_mcmc_steps``);
-        see :meth:`_exploration_fit_num_steps`.
-
-        Returns the full :class:`FitResult` (so callers can reach the
-        posterior ``samples`` / Laplace ``jacobian`` for ensemble
-        construction) alongside the post-fit SSE.
-        """
-
-        def sim_fn(state: State, _action: Action, params: Dict[str,
-                                                               float]) -> Dict:
-            return apply_rules(state, rules, params)
-
-        init_params = {s.name: s.init_value for s in specs}
-        pre_sse = compute_sse(sim_fn, base_pred_triples, init_params,
-                              process_features)
-        pre_ll = -0.5 * pre_sse / (_FIT_NOISE_SIGMA**2)
-        logger.info("Before fitting - SSE: %.6f  log-likelihood: %.2f",
-                    pre_sse, pre_ll)
-        log_sse_breakdown(sim_fn,
-                          base_pred_triples,
-                          init_params,
-                          process_features,
-                          label="before")
-
-        result = fit_params(
-            simulator_fn=sim_fn,
-            transitions=base_pred_triples,
-            param_specs=specs,
-            process_features=process_features,
-            num_steps=num_steps,
-        )
-
-        fitted_params = result.point_estimate
-        post_sse = compute_sse(sim_fn, base_pred_triples, fitted_params,
-                               process_features)
-        post_ll = -0.5 * post_sse / (_FIT_NOISE_SIGMA**2)
-        logger.info("After fitting  - SSE: %.6f  log-likelihood: %.2f",
-                    post_sse, post_ll)
-        log_sse_breakdown(sim_fn,
-                          base_pred_triples,
-                          fitted_params,
-                          process_features,
-                          label="after")
-        AgentSimLearningApproach._log_param_changes(init_params, fitted_params)
-        return result, post_sse
-
-    @staticmethod
-    def _log_param_changes(init_params: Dict[str, float],
-                           fitted_params: Dict[str, float]) -> None:
-        """Log each parameter's init -> fitted move (absolute and %)."""
-        for name in sorted(fitted_params):
-            init_val = init_params[name]
-            fit_val = fitted_params[name]
-            delta = fit_val - init_val
-            pct = (delta / init_val * 100) if init_val != 0 else float("nan")
-            logger.info("  %-30s  %.4f -> %.4f  (Δ=%.4f, %+.1f%%)", name,
-                        init_val, fit_val, delta, pct)
 
     # ── System identification (PHYSICAL_PARAMS) support ──────────
 
@@ -1912,7 +1837,7 @@ the tools.{probe_note}"""
         self._check_cross_cycle_consistency(result, report, physical_names)
         logger.info("Identifiability (posterior/prior contraction):\n%s",
                     format_identifiability(report))
-        self._log_param_changes(init_params, fitted)
+        log_param_changes(init_params, fitted)
         self._apply_identified_physical_params(
             select_trustworthy_params(fitted, init_params, physical_names,
                                       report, anchors))
@@ -2065,70 +1990,27 @@ the tools.{probe_note}"""
     ) -> Tuple[FitResult, float]:
         """MCMC over the recurrent (per-trajectory) SSE.
 
-        Counterpart to :meth:`_fit_parameters` for rules that carry a
-        latent block. Re-groups the flat ``base_pred_triples`` into per-
-        trajectory chunks (latent threads within a trajectory, not
-        across) via the lengths cached in ``self._fit_trajectories``;
-        falls back to a single trajectory if no grouping info exists.
-        Delegates the actual fit/log to :meth:`_fit_parameters_latent`
-        so the agent's ``evaluate_step_fit`` tool scores latent rules
-        through the exact same path.
+        Counterpart to :func:`fitting.fit_rule_parameters` for rules
+        that carry a latent block. Re-groups the flat
+        ``base_pred_triples`` into per-trajectory chunks (latent threads
+        within a trajectory, not across) via the lengths cached in
+        ``self._fit_trajectories``; falls back to a single trajectory if
+        no grouping info exists. Delegates the actual fit/log to
+        :func:`fitting.fit_rule_parameters_latent` so the agent's
+        ``evaluate_step_fit`` tool scores latent rules through the exact
+        same path.
         """
         groups = self._group_triples_by_trajectory(base_pred_triples)
         if not groups:
             logger.warning("No trajectory groups for recurrent fitting; "
                            "falling back to single-trajectory rollout.")
             groups = [base_pred_triples]
-        return self._fit_parameters_latent(rules,
-                                           specs,
-                                           groups,
-                                           self._latent_init,
-                                           process_features,
-                                           num_steps=num_steps)
-
-    @staticmethod
-    def _fit_parameters_latent(
-        rules: List,
-        specs: List[ParamSpec],
-        groups: List[List[Tuple[State, Action, State]]],
-        latent_init: Any,
-        process_features: Dict[str, List[str]],
-        num_steps: Optional[int] = None,
-    ) -> Tuple[FitResult, float]:
-        """Recurrent MCMC fit over pre-grouped trajectories.
-
-        Shared source of truth for the recurrent (latent-threaded) fit:
-        the instance method :meth:`_fit_parameters_recurrent` calls it
-        with groups derived from ``self._fit_trajectories`` and
-        ``self._latent_init``; the synthesis tools call it with groups
-        they regroup and ``LATENT_INIT`` read fresh from
-        ``simulator.py``. Both therefore score latent rules identically,
-        with no tool/engine drift in the rule call convention.
-
-        ``num_steps`` overrides the global MCMC budget (``None`` falls
-        back to ``CFG.code_sim_learning_num_mcmc_steps``). The tools
-        never pass it, so repeated tool calls stay at the fast global
-        setting while the post-synthesis fit can run real MCMC.
-        """
-        init_params = {s.name: s.init_value for s in specs}
-        pre_sse = compute_sse_recurrent(rules, groups, init_params,
-                                        latent_init, process_features)
-        logger.info("Recurrent fit - pre-SSE: %.6f", pre_sse)
-
-        result = fit_params_recurrent(
-            rules=rules,
-            trajectories=groups,
-            param_specs=specs,
-            latent_init=latent_init,
-            process_features=process_features,
-            num_steps=num_steps,
-        )
-        fitted_params = result.point_estimate
-        post_sse = compute_sse_recurrent(rules, groups, fitted_params,
-                                         latent_init, process_features)
-        logger.info("Recurrent fit - post-SSE: %.6f", post_sse)
-        AgentSimLearningApproach._log_param_changes(init_params, fitted_params)
-        return result, post_sse
+        return fit_rule_parameters_latent(rules,
+                                          specs,
+                                          groups,
+                                          self._latent_init,
+                                          process_features,
+                                          num_steps=num_steps)
 
     def _oracle_param_sse_recurrent(
         self,

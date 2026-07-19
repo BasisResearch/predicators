@@ -13,7 +13,7 @@ import numpy as np
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.agent_sdk.proposal_parser import build_exec_context, \
+from predicators.agent_sdk.proposal_exec import build_exec_context, \
     load_ground_samplers
 from predicators.agent_sdk.tools import create_sampler_synthesis_tools
 from predicators.structs import Action, GroundAtom, Object, \

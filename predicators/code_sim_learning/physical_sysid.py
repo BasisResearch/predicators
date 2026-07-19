@@ -1,6 +1,6 @@
 """System identification of PyBullet physical parameters by rollout matching.
 
-The process-rule fitting in :mod:`predicators.code_sim_learning.training` is
+The process-rule fitting in :mod:`predicators.code_sim_learning.fitting` is
 *teacher-forced and single-step*: it resets the base sim to each observed
 ``s_t`` and predicts one step. That is correct for slow process features
 (heating, filling) but wrong for **momentum-driven** dynamics such as a domino
@@ -27,7 +27,7 @@ Design notes (mirroring MuJoCo's official ``mujoco.sysid`` toolbox):
   posterior (one theta vector, one MCMC run) so rules cannot silently absorb
   physics error and vice versa. With no rules the fit degenerates to pure
   physical identification; rule-only artifacts keep using the (cheaper)
-  teacher-forced / recurrent objectives in ``training.py``.
+  teacher-forced / recurrent objectives in ``fitting.py``.
 * Non-identifiability is *reported*, not regularized away: the posterior
   contraction per parameter (:func:`identifiability_report`) is surfaced to
   the agent so it can drop null parameters from its declaration.
@@ -48,10 +48,12 @@ from typing import Any, Callable, Dict, FrozenSet, Iterator, List, Optional, \
 import numpy as np
 import pybullet as p
 
-from predicators.code_sim_learning.training import FitResult, ParamSpec, \
-    _internal_bounds, _is_log, _lm_point_fit_result, _lm_prefit, \
-    _param_bounds, _prior_widths, _rows_to_external, _solve_lm, _to_external, \
-    _to_internal
+from predicators.code_sim_learning.fit_space import LOG_FLOOR, FitResult, \
+    ParamSpec, fit_space_bounds, from_fit_space, is_log, param_bounds, \
+    prior_widths, rows_from_fit_space, scalar_from_fit_space, \
+    scalar_to_fit_space, to_fit_space
+from predicators.code_sim_learning.lm import lm_point_fit_result, lm_prefit, \
+    solve_lm
 from predicators.settings import CFG
 from predicators.structs import Action, State
 
@@ -83,9 +85,6 @@ _ROLLOUT_PRIOR_SIGMA_SCALE = 0.75
 # Same-theta SSE evaluations used to estimate the nondeterminism noise
 # floor (grid sweep and identifiability probe use the same count).
 _NOISE_FLOOR_EVALS = 3
-
-# Floor before taking logs of nonnegative values, to keep log(0) finite.
-_LOG_FLOOR = 1e-300
 
 # Fit-space (z) bisection tolerance when refining a flat-interval edge.
 _FLAT_EDGE_Z_TOL = 1e-3
@@ -577,7 +576,7 @@ def fit_map_lm_rollout(
 
     Rollout counterpart of :func:`training.fit_map_lm`, built on
     :func:`compute_rollout_residuals` and the shared bound-aware
-    ``_solve_lm`` core. Uses a coarse relative finite-difference step
+    ``solve_lm`` core. Uses a coarse relative finite-difference step
     (``_ROLLOUT_LM_DIFF_STEP``) because simulation residuals are flat
     under scipy's default ~1e-8 perturbations. Returns ``(theta_map,
     jacobian_at_optimum)``; the Jacobian feeds both the identifiability
@@ -605,15 +604,15 @@ def fit_map_lm_rollout(
                                         rules, latent_init, scaling)
         if not use_prior:
             return res
-        z = _to_internal(all_specs, theta)
+        z = to_fit_space(all_specs, theta)
         prior_res = noise_sigma * (z - prior_centers) / prior_sigmas
         return np.concatenate([res, prior_res])
 
-    theta_map, jac = _solve_lm(residuals_fn,
-                               all_specs,
-                               max_nfev,
-                               "rollout",
-                               diff_step=_ROLLOUT_LM_DIFF_STEP)
+    theta_map, jac = solve_lm(residuals_fn,
+                              all_specs,
+                              max_nfev,
+                              "rollout",
+                              diff_step=_ROLLOUT_LM_DIFF_STEP)
     if use_prior and jac is not None and jac.shape[0] > len(all_specs):
         jac = jac[:-len(all_specs)]
     return theta_map, jac
@@ -631,21 +630,9 @@ def _grid_candidates(spec: ParamSpec, num_points: int) -> np.ndarray:
     puts a candidate at ~0.098.
     """
     assert spec.lo is not None and spec.hi is not None
-    if _is_log(spec):
+    if is_log(spec):
         return np.geomspace(spec.lo, spec.hi, num_points)
     return np.linspace(spec.lo, spec.hi, num_points)
-
-
-def _fit_space(spec: ParamSpec, value: float) -> float:
-    """``value`` in ``spec``'s fit space (log for log-scale params)."""
-    if _is_log(spec):
-        return float(np.log(max(value, _LOG_FLOOR)))
-    return float(value)
-
-
-def _from_fit_space(spec: ParamSpec, z: float) -> float:
-    """Inverse of :func:`_fit_space`."""
-    return float(np.exp(z)) if _is_log(spec) else float(z)
 
 
 def _flat_candidates(
@@ -680,11 +667,11 @@ def _closest_to_anchor(spec: ParamSpec, flat: Sequence[Tuple[float, float]],
     fit stable across cycles - a jitter-argmin wanders around the
     plateau as segments come and go, the anchor-side edge does not.
     """
-    z_anchor = _fit_space(spec, anchor)
+    z_anchor = scalar_to_fit_space(spec, anchor)
 
     def _rank(entry: Tuple[float, float]) -> Tuple[float, float]:
         value, sse = entry
-        return (abs(_fit_space(spec, value) - z_anchor), sse)
+        return (abs(scalar_to_fit_space(spec, value) - z_anchor), sse)
 
     return min(flat, key=_rank)[0]
 
@@ -711,17 +698,17 @@ def _refine_flat_edge(spec: ParamSpec, pool: List[Tuple[float, float]],
     reveals a genuinely better basin re-anchors everything on it.
     Appends its evaluations to ``pool`` and returns the refined choice.
     """
-    z_anchor = _fit_space(spec, anchor)
+    z_anchor = scalar_to_fit_space(spec, anchor)
     for _ in range(refine_evals):
         flat, _best, _tol = _flat_candidates(pool, noise_floor)
         chosen = _closest_to_anchor(spec, flat, anchor)
-        z_chosen = _fit_space(spec, chosen)
+        z_chosen = scalar_to_fit_space(spec, chosen)
         if z_chosen == z_anchor:
             break  # The anchor itself became data-equivalent.
         lo_z, hi_z = sorted((z_anchor, z_chosen))
         between = [
-            _fit_space(spec, v) for v, _s in pool
-            if lo_z < _fit_space(spec, v) < hi_z
+            scalar_to_fit_space(spec, v) for v, _s in pool
+            if lo_z < scalar_to_fit_space(spec, v) < hi_z
         ]
         if z_chosen > z_anchor:
             z_far = max(between) if between else z_anchor
@@ -729,7 +716,7 @@ def _refine_flat_edge(spec: ParamSpec, pool: List[Tuple[float, float]],
             z_far = min(between) if between else z_anchor
         if abs(z_chosen - z_far) <= _FLAT_EDGE_Z_TOL:
             break
-        mid = _from_fit_space(spec, 0.5 * (z_chosen + z_far))
+        mid = scalar_from_fit_space(spec, 0.5 * (z_chosen + z_far))
         pool.append((mid, sse_for(spec, mid)))
     flat, _best, _tol = _flat_candidates(pool, noise_floor)
     return _closest_to_anchor(spec, flat, anchor)
@@ -944,7 +931,7 @@ def fit_params_rollout(
     if num_steps < 0:
         raise ValueError("code_sim_learning_rollout_num_mcmc_steps must be "
                          "non-negative.")
-    lo, hi = _internal_bounds(all_specs)
+    lo, hi = fit_space_bounds(all_specs)
     anchors = anchors or {}
     center_values = np.array(
         [anchors.get(s.name, s.init_value) for s in all_specs], dtype=float)
@@ -959,8 +946,8 @@ def fit_params_rollout(
                   scale=getattr(s, "scale", "linear"))
         for s, c in zip(all_specs, center_values)
     ]
-    center_int = _to_internal(all_specs, center_values)
-    prior_sigma = _prior_widths(center_specs, prior_sigma_scale)
+    center_int = to_fit_space(all_specs, center_values)
+    prior_sigma = prior_widths(center_specs, prior_sigma_scale)
 
     # Coarse grid sweep to place the LM start in the right basin (see
     # _grid_seed_physical_specs for why LM alone can stall). Also
@@ -1017,9 +1004,9 @@ def fit_params_rollout(
                 "values will not be applied.", insensitive, sens_factor,
                 noise_floor)
 
-    # One-shot rollout LM fit (see _lm_prefit for its three uses). With
+    # One-shot rollout LM fit (see lm_prefit for its three uses). With
     # the default rollout MCMC budget of 0 this LM MAP *is* the fit.
-    walker_center, lm_theta, lm_jac = _lm_prefit(
+    walker_center, lm_theta, lm_jac = lm_prefit(
         lambda: fit_map_lm_rollout(base_env,
                                    trajectories,
                                    lm_physical_specs,
@@ -1036,14 +1023,14 @@ def fit_params_rollout(
         names, init_values, noise_sigma, prior_sigma, "rollout")
 
     if num_steps == 0:
-        result = _lm_point_fit_result(walker_center,
-                                      lm_theta,
-                                      lm_jac,
-                                      names,
-                                      noise_sigma,
-                                      prior_sigma,
-                                      "rollout",
-                                      scales=scales)
+        result = lm_point_fit_result(walker_center,
+                                     lm_theta,
+                                     lm_jac,
+                                     names,
+                                     noise_sigma,
+                                     prior_sigma,
+                                     "rollout",
+                                     scales=scales)
         result.sensitivity = sensitivity
         return result
 
@@ -1057,7 +1044,7 @@ def fit_params_rollout(
         # theta lives in the FIT space (log for log-scale params).
         if np.any(theta < lo) or np.any(theta > hi):
             return -np.inf
-        ext = _to_external(all_specs, theta)
+        ext = from_fit_space(all_specs, theta)
         params = {n: float(ext[i]) for i, n in enumerate(names)}
         log_prior = -0.5 * np.sum(((theta - center_int) / prior_sigma)**2)
         sse = compute_rollout_sse(base_env, trajectories, params,
@@ -1065,7 +1052,7 @@ def fit_params_rollout(
                                   latent_init, scaling)
         return float(log_prior - 0.5 * sse / (noise_sigma**2))
 
-    p0 = _to_internal(all_specs, walker_center) + \
+    p0 = to_fit_space(all_specs, walker_center) + \
         0.5 * prior_sigma * np.random.randn(num_walkers, ndim)
     p0 = np.clip(p0, lo, hi)
     sampler = emcee.EnsembleSampler(num_walkers, ndim, log_posterior)
@@ -1084,8 +1071,8 @@ def fit_params_rollout(
             for h in logger.handlers + logging.getLogger().handlers:
                 h.flush()
 
-    samples = _rows_to_external(all_specs,
-                                sampler.get_chain(discard=burn_in, flat=True))
+    samples = rows_from_fit_space(
+        all_specs, sampler.get_chain(discard=burn_in, flat=True))
     log_probs = sampler.get_log_prob(discard=burn_in, flat=True)
     result = FitResult(names=names,
                        samples=samples,
@@ -1200,7 +1187,7 @@ def _init_point_fit_result(all_specs: Sequence[ParamSpec],
     verdicts.
     """
     init_values = np.array([s.init_value for s in all_specs], dtype=float)
-    prior_sigma = _prior_widths(list(all_specs), _ROLLOUT_PRIOR_SIGMA_SCALE)
+    prior_sigma = prior_widths(list(all_specs), _ROLLOUT_PRIOR_SIGMA_SCALE)
     return FitResult(names=[s.name for s in all_specs],
                      samples=init_values[None, :],
                      log_probs=np.zeros(1),
@@ -1437,7 +1424,7 @@ def identifiability_report(
         arr = np.array(result.samples, dtype=float, copy=True)
         for j, scale in enumerate(scales):
             if scale == "log":
-                arr[:, j] = np.log(np.maximum(arr[:, j], _LOG_FLOOR))
+                arr[:, j] = np.log(np.maximum(arr[:, j], LOG_FLOOR))
         post_std = arr.std(axis=0)
     elif sse_fn is not None:
         post_std = _probe_posterior_widths(result, sse_fn, param_specs)
@@ -1500,8 +1487,8 @@ def identifiability_report(
                 # surface that instead of false precision.
                 if scales[i] == "log":
                     width = float(
-                        np.log(max(interval[1], _LOG_FLOOR)) -
-                        np.log(max(interval[0], _LOG_FLOOR)))
+                        np.log(max(interval[1], LOG_FLOOR)) -
+                        np.log(max(interval[0], LOG_FLOOR)))
                 else:
                     width = float(interval[1] - interval[0])
                 report[name]["flat_wide"] = bool(
@@ -1524,7 +1511,7 @@ def _params_at_bound(
     if not param_specs:
         return {}
     point = result.point_estimate
-    lo, hi = _param_bounds(list(param_specs))
+    lo, hi = param_bounds(list(param_specs))
     out: Dict[str, str] = {}
     for i, spec in enumerate(param_specs):
         name = spec.name
@@ -1532,7 +1519,7 @@ def _params_at_bound(
             continue
         x, lo_i, hi_i = float(point[name]), float(lo[i]), float(hi[i])
         if scales[i] == "log":
-            x = float(np.log(max(x, _LOG_FLOOR)))
+            x = float(np.log(max(x, LOG_FLOOR)))
             lo_i = float(np.log(lo_i)) if lo_i > 0 else -np.inf
             hi_i = float(np.log(hi_i)) if np.isfinite(hi_i) else np.inf
         if np.isfinite(lo_i) and np.isfinite(hi_i):
@@ -1586,7 +1573,7 @@ def _probe_posterior_widths(
     assert result.prior_sigma is not None
     scales = _result_scales(result, param_specs)
     if param_specs:
-        lo, hi = _param_bounds(list(param_specs))
+        lo, hi = param_bounds(list(param_specs))
         bounds = {
             s.name: (float(lo[i]), float(hi[i]))
             for i, s in enumerate(param_specs)

@@ -5,12 +5,55 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
+from predicators.agent_sdk.config import SessionConfig
+from predicators.agent_sdk.log_formatter import truncate
 from predicators.agent_sdk.response_parser import parse_message
-from predicators.agent_sdk.sandbox_prompts import truncate
 from predicators.agent_sdk.thinking import resolve_thinking_config
 from predicators.settings import CFG
+
+
+@runtime_checkable
+class SessionManagerProtocol(Protocol):
+    """Structural interface shared by the three session managers.
+
+    Implemented by :class:`AgentSessionManager` (in-process, no
+    sandbox), ``LocalSandboxSessionManager`` (in-process, sandbox cwd +
+    hooks), and ``DockerSessionManager`` (stateless container per
+    query). Consumers — ``AgentSessionMixin`` and the agent explorers —
+    must depend on this, not a concrete manager.
+    """
+
+    session_id: Optional[str]
+
+    @property
+    def tool_names(self) -> List[str]:
+        """Fully-qualified allowed tool names for this session."""
+        ...  # pylint: disable=unnecessary-ellipsis
+
+    @property
+    def conversation_log(self) -> List[Dict[str, Any]]:
+        """In-memory log of all query/response pairs."""
+        ...  # pylint: disable=unnecessary-ellipsis
+
+    async def start_session(self) -> None:
+        """Start (or lazily prepare) the underlying agent session."""
+        ...  # pylint: disable=unnecessary-ellipsis
+
+    async def query(self,
+                    message: str,
+                    kind: str = "query") -> List[Dict[str, Any]]:
+        """Send one message and return the collected response entries."""
+        ...  # pylint: disable=unnecessary-ellipsis
+
+    async def close(self) -> None:
+        """Tear down the underlying agent session, if any."""
+        ...  # pylint: disable=unnecessary-ellipsis
+
+    def save_session_info(self) -> None:
+        """Persist session metadata to the log directory."""
+        ...  # pylint: disable=unnecessary-ellipsis
 
 
 class AgentSessionManager:
@@ -22,11 +65,14 @@ class AgentSessionManager:
                  log_dir: str,
                  model_name: str,
                  allowed_tools: Optional[List[str]] = None,
-                 tool_context: Any = None) -> None:
+                 tool_context: Any = None,
+                 config: Optional[SessionConfig] = None) -> None:
         self._system_prompt = system_prompt
         self._mcp_server = mcp_server
         self._log_dir = log_dir
         self._model_name = model_name
+        self._config = config if config is not None else \
+            SessionConfig.from_cfg()
         self._allowed_tools = allowed_tools
         # Optional ToolContext reference — read at session start so the
         # caller can inject ``extra_session_hooks`` between sessions
@@ -87,8 +133,8 @@ class AgentSessionManager:
             permission_mode="bypassPermissions",
             system_prompt=self._system_prompt,
             model=self._model_name,
-            max_turns=CFG.agent_sdk_max_agent_turns_per_iteration,
-            max_buffer_size=CFG.agent_sdk_max_buffer_size,
+            max_turns=self._config.max_turns,
+            max_buffer_size=self._config.max_buffer_size,
             thinking=thinking,  # type: ignore[arg-type]
             hooks=(extra_hooks
                    if extra_hooks else None),  # type: ignore[arg-type]
@@ -188,9 +234,10 @@ class AgentSessionManager:
                         # cost is cumulative; the per-solve cost is the
                         # delta since the last result (a drop means the
                         # session reset, so the new total is the delta).
-                        solve_cost = float(cost -
-                                           self._last_cost_usd if cost >= self.
-                                           _last_cost_usd else cost)
+                        if cost >= self._last_cost_usd:
+                            solve_cost = float(cost - self._last_cost_usd)
+                        else:
+                            solve_cost = float(cost)
                         self._last_cost_usd = cost
                         self._total_cost_usd += solve_cost
                         self._current_log_meta["solve_cost_usd"] = solve_cost
@@ -212,7 +259,7 @@ class AgentSessionManager:
         except Exception as e:  # pylint: disable=broad-except
             logging.error("Agent session error: %s", e)
             collected.append({"type": "error", "error": str(e)})
-            await self._recover_session(message)
+            await self._recover_session()
 
         elapsed = time.perf_counter() - start
         logging.info("[agent-interaction] kind=%s took %.2fs (%d messages)",
@@ -236,8 +283,12 @@ class AgentSessionManager:
         """Return the in-memory log of all query/response pairs."""
         return self._conversation_log
 
-    async def _recover_session(self, _last_message: str) -> None:
-        """Attempt to recover from a session error."""
+    async def _recover_session(self) -> None:
+        """Attempt to recover from a session error.
+
+        Reconnects only; the failed message is NOT resent — the caller
+        sees the error entry and decides whether to retry.
+        """
         logging.warning("Attempting agent session recovery...")
         try:
             if self._client is not None:
@@ -277,21 +328,27 @@ class AgentSessionManager:
         logging.info("Saved session info to %s", path)
 
 
-def run_query_sync(session: Any, message: str,
-                   **query_kwargs: Any) -> List[Dict[str, Any]]:
-    """Synchronously run ``session.query(message, **query_kwargs)``.
+def run_async_sync(coro: Any) -> Any:
+    """Run ``coro`` to completion from synchronous code.
 
     Reuses a running event loop via nest_asyncio when one is active,
-    otherwise falls back to ``asyncio.run``. Extra kwargs (e.g.
-    ``kind="learn"`` for log-file tagging) are forwarded to ``query``.
+    otherwise falls back to ``asyncio.run``.
     """
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
             import nest_asyncio  # type: ignore[import-untyped,import-not-found]  # pylint: disable=import-outside-toplevel
             nest_asyncio.apply()
-            return loop.run_until_complete(
-                session.query(message, **query_kwargs))
-        return loop.run_until_complete(session.query(message, **query_kwargs))
+        return loop.run_until_complete(coro)
     except RuntimeError:
-        return asyncio.run(session.query(message, **query_kwargs))
+        return asyncio.run(coro)
+
+
+def run_query_sync(session: Any, message: str,
+                   **query_kwargs: Any) -> List[Dict[str, Any]]:
+    """Synchronously run ``session.query(message, **query_kwargs)``.
+
+    Extra kwargs (e.g. ``kind="learn"`` for log-file tagging) are
+    forwarded to ``query``.
+    """
+    return run_async_sync(session.query(message, **query_kwargs))

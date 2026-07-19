@@ -12,7 +12,7 @@ import json
 import subprocess
 import sys
 
-from predicators.agent_sdk.sandbox_prompts import VALIDATE_SANDBOX_SCRIPT
+from predicators.agent_sdk.sandbox_setup import VALIDATE_SANDBOX_SCRIPT
 from predicators.agent_sdk.tools import _make_spilling_text_result, \
     _screen_text_for_sandbox_escape
 

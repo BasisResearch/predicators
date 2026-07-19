@@ -12,10 +12,10 @@ import pybullet as p
 
 import predicators.approaches  # noqa: F401  # pylint: disable=unused-import
 from predicators.code_sim_learning import physical_sysid
+from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
 from predicators.code_sim_learning.physical_sysid import \
     fit_params_rollout_trimmed, identifiability_report, \
     select_trustworthy_params, truncate_settled_tail
-from predicators.code_sim_learning.training import FitResult, ParamSpec
 from predicators.structs import Action, Object, State, Type
 
 _DOMINO_TYPE = Type("domino", ["x"])

@@ -28,11 +28,11 @@ import numpy as np
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.agent_sdk import bilevel_sketch
-from predicators.agent_sdk.agent_session_mixin import AgentSessionMixin
+from predicators.agent_sdk.rendering import save_task_state_image
 from predicators.agent_sdk.tools import agent_render_resolution, \
     explore_python_replaces_tools
 from predicators.approaches import ApproachFailure
+from predicators.approaches.agent_session_mixin import AgentSessionMixin
 from predicators.approaches.base_approach import BaseApproach
 from predicators.explorers import create_explorer
 from predicators.explorers.base_explorer import BaseExplorer
@@ -620,8 +620,7 @@ scene, then annotate_scene overlays markers on it."""
             filename = f"{stem}_replan{replan_idx}_state.png" if stem \
                 else f"replan{replan_idx}_state.png"
         with agent_render_resolution():
-            saved_path = bilevel_sketch.save_task_state_image(
-                env, task, save_dir, filename)
+            saved_path = save_task_state_image(env, task, save_dir, filename)
         if saved_path is not None:
             self._last_scene_image_name = filename
         return saved_path
@@ -668,8 +667,11 @@ scene, then annotate_scene overlays markers on it."""
         self._tool_context.test_task_idx = None
         if self._agent_session is not None \
                 and self._pre_test_conversation_log is not None:
-            self._agent_session._conversation_log = \
-                self._pre_test_conversation_log  # pylint: disable=protected-access
+            # In-place restore through the public property (it returns
+            # the live list), so any other holder of the reference sees
+            # the rollback too.
+            log = self._agent_session.conversation_log
+            log[:] = self._pre_test_conversation_log
         self._pre_test_conversation_log = None
 
     def reset_for_new_episode(self) -> None:

@@ -41,8 +41,8 @@ logger = logging.getLogger(__name__)
 # pylint: disable=wrong-import-position
 from predicators.agent_sdk.log_formatter import \
     format_conversation_markdown  # noqa: E402
+from predicators.agent_sdk.log_formatter import truncate  # noqa: E402
 from predicators.agent_sdk.response_parser import parse_message  # noqa: E402
-from predicators.agent_sdk.sandbox_prompts import truncate  # noqa: E402
 from predicators.agent_sdk.thinking import \
     resolve_thinking_config  # noqa: E402
 from predicators.agent_sdk.tools import BUILTIN_TOOLS  # noqa: E402

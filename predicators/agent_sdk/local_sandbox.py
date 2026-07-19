@@ -13,7 +13,7 @@ agent to read.  The agent can write and run Python scripts in the sandbox.
 
 Usage
 -----
-When ``CFG.agent_sdk_use_local_sandbox`` is ``True``, the
+When the ``agent_sdk_use_local_sandbox`` flag is ``True``, the
 ``AgentSessionMixin`` creates a ``LocalSandboxSessionManager`` in place
 of the normal ``AgentSessionManager``::
 
@@ -29,15 +29,17 @@ import re
 import time
 from typing import Any, Dict, List, Optional
 
-from predicators.agent_sdk.log_formatter import format_conversation_markdown
+from predicators.agent_sdk.config import SessionConfig
+from predicators.agent_sdk.log_formatter import format_conversation_markdown, \
+    truncate
 from predicators.agent_sdk.response_parser import parse_message
 from predicators.agent_sdk.sandbox_prompts import build_claude_md, \
-    build_sandbox_system_prompt, find_repo_root, setup_sandbox_directory, \
-    truncate
+    build_sandbox_system_prompt
+from predicators.agent_sdk.sandbox_setup import find_repo_root, \
+    git_commit_all, setup_sandbox_directory
 from predicators.agent_sdk.thinking import resolve_thinking_config
 from predicators.agent_sdk.tools import BUILTIN_TOOLS, ToolContext, \
     session_log_filename
-from predicators.settings import CFG
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +50,6 @@ _DEADLINE_INTERRUPT_SLACK_S = 180
 
 # Character cap for per-block debug previews of agent output.
 _TEXT_PREVIEW_CHARS = 200
-
-# Timeout for the git add/commit that makes session logs Glob-visible.
-_GIT_TIMEOUT_S = 5
 
 # Build local-sandbox-specific prompts from shared templates.
 # CLAUDE.md is built per-instance with the phase tag so the agent reads
@@ -78,10 +77,13 @@ class LocalSandboxSessionManager:
         tool_names: Optional[List[str]] = None,
         extra_reference_files: Optional[Dict[str, str]] = None,
         phase: Optional[str] = None,
+        config: Optional[SessionConfig] = None,
     ) -> None:
         self._system_prompt = system_prompt + _LOCAL_SANDBOX_SYSTEM_PROMPT
         self._log_dir = log_dir
         self._model_name = model_name
+        self._config = config if config is not None else \
+            SessionConfig.from_cfg()
         self._tool_context = tool_context
         self._tool_names = tool_names
         self._extra_reference_files = extra_reference_files or {}
@@ -162,7 +164,7 @@ class LocalSandboxSessionManager:
             claude_md_content=build_claude_md(phase=self._phase),
             system_prompt=self._system_prompt,
             log_dir=self._log_dir,
-            seed_scratchpad=CFG.agent_planner_use_scratchpad,
+            seed_scratchpad=self._config.use_scratchpad,
             phase=self._phase,
         )
         self._sandbox_populated = True
@@ -203,12 +205,12 @@ class LocalSandboxSessionManager:
         thinking = resolve_thinking_config(self._model_name)
         # Reasoning effort: pass through to the agent when set to one of the
         # SDK's accepted levels; "" / "default" leaves it unset.
-        effort = CFG.agent_sdk_reasoning_effort.strip().lower()
+        effort = self._config.reasoning_effort.strip().lower()
         valid_efforts = {"low", "medium", "high", "max"}
         if effort and effort not in valid_efforts and effort != "default":
             raise ValueError(f"agent_sdk_reasoning_effort must be one of "
                              f"{sorted(valid_efforts)} or ''/'default'; got "
-                             f"{CFG.agent_sdk_reasoning_effort!r}")
+                             f"{self._config.reasoning_effort!r}")
         reasoning_effort = effort if effort in valid_efforts else None
         options = ClaudeAgentOptions(
             allowed_tools=allowed_tools,
@@ -224,8 +226,8 @@ class LocalSandboxSessionManager:
             permission_mode="bypassPermissions",
             system_prompt=self._system_prompt,
             model=self._model_name,
-            max_turns=CFG.agent_sdk_max_agent_turns_per_iteration,
-            max_buffer_size=CFG.agent_sdk_max_buffer_size,
+            max_turns=self._config.max_turns,
+            max_buffer_size=self._config.max_buffer_size,
             thinking=thinking,  # type: ignore[arg-type]
             effort=reasoning_effort,  # type: ignore[arg-type]
             cwd=self._sandbox_dir,
@@ -345,7 +347,7 @@ class LocalSandboxSessionManager:
         except Exception as e:  # pylint: disable=broad-except
             logger.error("Local sandbox session error: %s", e)
             collected.append({"type": "error", "error": str(e)})
-            await self._recover_session(message)
+            await self._recover_session()
 
         # Final flush
         if log_path:
@@ -384,7 +386,7 @@ class LocalSandboxSessionManager:
                 self._client = None
                 self._started = False
 
-    async def _recover_session(self, _last_message: str) -> None:
+    async def _recover_session(self) -> None:
         """Attempt to recover from a session error."""
         logger.warning("Attempting local sandbox session recovery...")
         try:
@@ -491,29 +493,9 @@ class LocalSandboxSessionManager:
         # file must be committed before start_session() is called.
         if self._sandbox_log_path and self._sandbox_dir:
             try:
-                import subprocess  # pylint: disable=import-outside-toplevel
-                subprocess.run(
-                    ["git", "add", self._sandbox_log_path],
-                    cwd=self._sandbox_dir,
-                    capture_output=True,
-                    timeout=_GIT_TIMEOUT_S,
-                    check=False,
-                )
-                subprocess.run(
-                    [
-                        "git", "commit", "-q", "-m",
-                        f"log query {self._query_count}", "--author",
-                        "sandbox <sandbox@local>"
-                    ],
-                    cwd=self._sandbox_dir,
-                    capture_output=True,
-                    timeout=_GIT_TIMEOUT_S,
-                    check=False,
-                    env={
-                        **os.environ, "GIT_COMMITTER_NAME": "sandbox",
-                        "GIT_COMMITTER_EMAIL": "sandbox@local"
-                    },
-                )
+                git_commit_all(self._sandbox_dir,
+                               f"log query {self._query_count}",
+                               paths=[self._sandbox_log_path])
             except Exception as e:  # pylint: disable=broad-except
                 # A failed commit breaks the agent's Glob discovery of its
                 # own logs, so it is worth a visible warning.
