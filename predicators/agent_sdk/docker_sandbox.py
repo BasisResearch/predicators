@@ -52,6 +52,14 @@ from predicators.settings import CFG
 
 logger = logging.getLogger(__name__)
 
+# Grace period past the per-query agent timeout before the container is
+# force-killed (covers container startup + result pickling).
+_CONTAINER_TIMEOUT_SLACK_S = 120
+
+# Tail sizes for error reporting when a container run fails.
+_STDIO_TAIL_CHARS = 2000
+_STDERR_TAIL_LINES = 20
+
 # Build Docker-specific prompts from shared templates.
 # CLAUDE.md is built per-instance with the phase tag so the agent reads
 # phase-appropriate strategy guidance every turn (see build_claude_md).
@@ -88,8 +96,7 @@ def _get_claude_oauth_token() -> Optional[str]:
         )
         if result.returncode != 0:
             return None
-        import json as _json  # pylint: disable=reimported,import-outside-toplevel
-        creds = _json.loads(result.stdout.strip())
+        creds = json.loads(result.stdout.strip())
         return creds.get("claudeAiOauth", {}).get("accessToken")
     except (subprocess.SubprocessError, json.JSONDecodeError, KeyError):
         return None
@@ -294,7 +301,8 @@ class DockerSessionManager:
             # appear on the host terminal as they happen.
             stderr_lines: List[str] = []
             try:
-                timeout_sec = CFG.agent_sdk_agent_timeout + 120
+                timeout_sec = (CFG.agent_sdk_agent_timeout +
+                               _CONTAINER_TIMEOUT_SLACK_S)
                 import threading  # pylint: disable=import-outside-toplevel
 
                 def _stream_stderr() -> None:
@@ -324,8 +332,9 @@ class DockerSessionManager:
                     "Docker container exited with code %d.\nstdout: %s\n"
                     "stderr (last 2000 chars): %s",
                     proc.returncode,
-                    stdout_data[-2000:] if stdout_data else "(empty)",
-                    "\n".join(stderr_lines)[-2000:]
+                    stdout_data[-_STDIO_TAIL_CHARS:]
+                    if stdout_data else "(empty)",
+                    "\n".join(stderr_lines)[-_STDIO_TAIL_CHARS:]
                     if stderr_lines else "(empty)",
                 )
             else:
@@ -382,9 +391,10 @@ class DockerSessionManager:
                 responses = [{
                     "type":
                     "error",
-                    "error": (f"Docker container failed (exit code "
-                              f"{proc.returncode}). "
-                              f"stderr: {''.join(stderr_lines[-20:])}"),
+                    "error":
+                    (f"Docker container failed (exit code "
+                     f"{proc.returncode}). "
+                     f"stderr: {''.join(stderr_lines[-_STDERR_TAIL_LINES:])}"),
                 }]
 
             # 7. Finalize query log — the incremental log was written
@@ -542,7 +552,7 @@ class DockerSessionManager:
             return
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        kind = getattr(self, "_last_kind", "query")
+        kind = self._last_kind
         filename = session_log_filename(
             self._query_count, kind, timestamp,
             getattr(self._tool_context, "test_task_idx", None))

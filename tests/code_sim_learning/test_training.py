@@ -5,8 +5,9 @@ import pytest
 
 from predicators import utils
 from predicators.code_sim_learning.training import ParamSpec, \
-    compute_residuals_recurrent, compute_sse_recurrent, fit_map_lm_recurrent, \
-    fit_params, fit_params_recurrent
+    compute_residuals, compute_residuals_recurrent, compute_sse, \
+    compute_sse_recurrent, fit_map_lm_recurrent, fit_params, \
+    fit_params_recurrent
 from predicators.code_sim_learning.utils import has_latent_rules, \
     rollout_predictions
 from predicators.structs import Action, Object, State, Type
@@ -282,3 +283,42 @@ def test_fit_params_recurrent_no_bundle_when_lm_fully_disabled():
     )
     assert result.point_estimate["rate"] == pytest.approx(0.35)
     assert result.jacobian is None
+
+
+def test_compute_residuals_matches_sse():
+    """sum(r**2) must equal compute_sse for the per-transition pair.
+
+    Locks in the equivalence before any unification of the residual
+    loops: the two functions iterate in different orders (predicted
+    then unpredicted vs obj x feature) but must agree on the total.
+    """
+    jug = Type("jug", ["bubbling", "temp"])
+    j = jug("jug0")
+    act = Action(np.zeros(1, dtype=np.float32))
+
+    def s(bub, temp):
+        return State({j: np.array([bub, temp], dtype=np.float32)})
+
+    # Two transitions; the simulator predicts only "bubbling", so
+    # "temp" exercises the penalize-unpredicted branch.
+    transitions = [
+        (s(0.0, 1.0), act, s(0.4, 1.2)),
+        (s(0.4, 1.2), act, s(0.9, 1.1)),
+    ]
+    feats = {"jug": ["bubbling", "temp"]}
+
+    def simulator_fn(state, action, params):
+        del action
+        return {
+            j: {
+                "bubbling": float(state.get(j, "bubbling")) + params["rate"]
+            }
+        }
+
+    for rate in (0.1, 0.4, 0.7):
+        params = {"rate": rate}
+        res = compute_residuals(simulator_fn, transitions, params, feats)
+        sse = compute_sse(simulator_fn, transitions, params, feats)
+        # One residual per (transition, object, feature): 2 x 1 x 2.
+        assert res.shape == (4, )
+        assert float(np.sum(res**2)) == pytest.approx(sse, abs=1e-12)

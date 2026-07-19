@@ -75,6 +75,29 @@ _WEAK_CONTRACTION = 0.7
 # domain's LM fit stalls well above the MCMC-quality SSE.
 _ROLLOUT_LM_DIFF_STEP = 2e-2
 
+# Prior width as a fraction of each param's box; shared by the rollout
+# fit default and the pinned-at-init fallback result so the two cannot
+# silently diverge.
+_ROLLOUT_PRIOR_SIGMA_SCALE = 0.75
+
+# Same-theta SSE evaluations used to estimate the nondeterminism noise
+# floor (grid sweep and identifiability probe use the same count).
+_NOISE_FLOOR_EVALS = 3
+
+# Floor before taking logs of nonnegative values, to keep log(0) finite.
+_LOG_FLOOR = 1e-300
+
+# Fit-space (z) bisection tolerance when refining a flat-interval edge.
+_FLAT_EDGE_Z_TOL = 1e-3
+
+# Absolute RMS slack in the trim-consistency test, so exact ties and
+# floating-point jitter never count as violations.
+_CONSISTENCY_RMS_EPS = 1e-3
+
+# A fitted value within this fraction of the box width of a bound is
+# reported "at bound" (untrustworthy: the optimizer hit the wall).
+_AT_BOUND_BOX_FRAC = 1e-3
+
 
 def _zero_all_velocities(base_env: Any) -> None:
     """Zero every velocity in the env's client: base velocities of all bodies
@@ -616,7 +639,7 @@ def _grid_candidates(spec: ParamSpec, num_points: int) -> np.ndarray:
 def _fit_space(spec: ParamSpec, value: float) -> float:
     """``value`` in ``spec``'s fit space (log for log-scale params)."""
     if _is_log(spec):
-        return float(np.log(max(value, 1e-300)))
+        return float(np.log(max(value, _LOG_FLOOR)))
     return float(value)
 
 
@@ -704,7 +727,7 @@ def _refine_flat_edge(spec: ParamSpec, pool: List[Tuple[float, float]],
             z_far = max(between) if between else z_anchor
         else:
             z_far = min(between) if between else z_anchor
-        if abs(z_chosen - z_far) <= 1e-3:
+        if abs(z_chosen - z_far) <= _FLAT_EDGE_Z_TOL:
             break
         mid = _from_fit_space(spec, 0.5 * (z_chosen + z_far))
         pool.append((mid, sse_for(spec, mid)))
@@ -871,7 +894,7 @@ def fit_params_rollout(
     num_steps: Optional[int] = None,
     burn_in: int = 40,
     noise_sigma: float = 0.05,
-    prior_sigma_scale: float = 0.75,
+    prior_sigma_scale: float = _ROLLOUT_PRIOR_SIGMA_SCALE,
     scaling: Optional[ResidualScaling] = None,
     anchors: Optional[Dict[str, float]] = None,
 ) -> FitResult:
@@ -957,7 +980,8 @@ def fit_params_rollout(
         floor_evals = [
             compute_rollout_sse(base_env, trajectories, anchor_point,
                                 process_features, physical_names, rules,
-                                latent_init, scaling) for _ in range(3)
+                                latent_init, scaling)
+            for _ in range(_NOISE_FLOOR_EVALS)
         ]
         noise_floor = float(np.max(floor_evals) - np.min(floor_evals))
         lm_physical_specs, sweep_info = _grid_seed_physical_specs(
@@ -1176,7 +1200,7 @@ def _init_point_fit_result(all_specs: Sequence[ParamSpec],
     verdicts.
     """
     init_values = np.array([s.init_value for s in all_specs], dtype=float)
-    prior_sigma = _prior_widths(list(all_specs), 0.75)
+    prior_sigma = _prior_widths(list(all_specs), _ROLLOUT_PRIOR_SIGMA_SCALE)
     return FitResult(names=[s.name for s in all_specs],
                      samples=init_values[None, :],
                      log_probs=np.zeros(1),
@@ -1348,7 +1372,7 @@ def fit_params_rollout_trimmed(
                                      scaling)
         violated = [
             i for i in range(len(survivors))
-            if fit_rms[i] > consistency * best[i] + 1e-3
+            if fit_rms[i] > consistency * best[i] + _CONSISTENCY_RMS_EPS
         ]
         if not violated:
             break
@@ -1413,7 +1437,7 @@ def identifiability_report(
         arr = np.array(result.samples, dtype=float, copy=True)
         for j, scale in enumerate(scales):
             if scale == "log":
-                arr[:, j] = np.log(np.maximum(arr[:, j], 1e-300))
+                arr[:, j] = np.log(np.maximum(arr[:, j], _LOG_FLOOR))
         post_std = arr.std(axis=0)
     elif sse_fn is not None:
         post_std = _probe_posterior_widths(result, sse_fn, param_specs)
@@ -1476,8 +1500,8 @@ def identifiability_report(
                 # surface that instead of false precision.
                 if scales[i] == "log":
                     width = float(
-                        np.log(max(interval[1], 1e-300)) -
-                        np.log(max(interval[0], 1e-300)))
+                        np.log(max(interval[1], _LOG_FLOOR)) -
+                        np.log(max(interval[0], _LOG_FLOOR)))
                 else:
                     width = float(interval[1] - interval[0])
                 report[name]["flat_wide"] = bool(
@@ -1508,11 +1532,11 @@ def _params_at_bound(
             continue
         x, lo_i, hi_i = float(point[name]), float(lo[i]), float(hi[i])
         if scales[i] == "log":
-            x = float(np.log(max(x, 1e-300)))
+            x = float(np.log(max(x, _LOG_FLOOR)))
             lo_i = float(np.log(lo_i)) if lo_i > 0 else -np.inf
             hi_i = float(np.log(hi_i)) if np.isfinite(hi_i) else np.inf
         if np.isfinite(lo_i) and np.isfinite(hi_i):
-            tol = 1e-3 * (hi_i - lo_i)
+            tol = _AT_BOUND_BOX_FRAC * (hi_i - lo_i)
         else:
             tol = 1e-6
         if np.isfinite(lo_i) and x - lo_i <= tol:
@@ -1569,7 +1593,7 @@ def _probe_posterior_widths(
         }
     else:
         bounds = {}
-    sse0_evals = [sse_fn(dict(point)) for _ in range(3)]
+    sse0_evals = [sse_fn(dict(point)) for _ in range(_NOISE_FLOOR_EVALS)]
     sse0 = float(np.median(sse0_evals))
     noise_floor = float(np.max(sse0_evals) - np.min(sse0_evals))
     if noise_floor > 0:
