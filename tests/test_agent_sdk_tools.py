@@ -582,6 +582,81 @@ def test_explore_python_refine_require_solved_guards(ctx: Any) -> None:
     print("  PASS: explore_python (require_solved guards)")
 
 
+def test_explore_python_run_solved_guards(ctx: Any) -> None:
+    """sim.run(solved=True) refuses single runs, modified starts, and tasks
+    with no evaluator; contacts=True refuses trials mode."""
+    tools = _make_tools(ctx, ["explore_python"])
+    domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
+    robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
+    wait_line = f"Wait({robot.name}:robot)[]"
+
+    code = f'sim.reset()\nsim.run("{wait_line}", solved=True)'
+    result = _run(tools["explore_python"]({"code": code}))
+    assert "needs trials >= 2" in result["content"][0]["text"]
+
+    code = f'sim.reset()\nsim.run("{wait_line}", trials=2, contacts=True)'
+    result = _run(tools["explore_python"]({"code": code}))
+    assert "single-run mode" in result["content"][0]["text"]
+
+    code = (f'sim.reset(mods={{"{domino.name}": {{"x": 0.9}}}})\n'
+            f'sim.run("{wait_line}", trials=2, solved=True)')
+    result = _run(tools["explore_python"]({"code": code}))
+    assert "unmodified initial state" in result["content"][0]["text"]
+
+    import dataclasses
+    saved_task = ctx.current_task
+    try:
+        ctx.current_task = dataclasses.replace(saved_task, evaluator=None)
+        code = f'sim.reset()\nsim.run("{wait_line}", trials=2, solved=True)'
+        result = _run(tools["explore_python"]({"code": code}))
+        assert "defines no task evaluator" in result["content"][0]["text"]
+    finally:
+        ctx.current_task = saved_task
+    print("  PASS: explore_python (run solved/contacts guards)")
+
+
+def test_explore_python_run_solved_trials(ctx: Any) -> None:
+    """sim.run(trials=N, solved=True) reports a per-trial task-evaluator
+    verdict and a solved count in the headline."""
+    tools = _make_tools(ctx, ["explore_python"])
+    robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
+    code = f"""
+sim.reset()
+res = sim.run("Wait({robot.name}:robot)[]", trials=2, solved=True)
+print(res)
+print("verdicts", [t["solved"] for t in res.trials])
+"""
+    result = _run(tools["explore_python"]({"code": code}))
+    text = result["content"][0]["text"]
+    assert "scored solved=True by the task evaluator" in text
+    assert "evaluator: solved=" in text
+    # A Wait-only plan cannot reach the goal, so no trial scores a solve.
+    assert "verdicts [False, False]" in text
+    print("  PASS: explore_python (trials solved verdicts)")
+
+
+def test_explore_python_run_contacts(ctx: Any) -> None:
+    """sim.run(contacts=True) reports per-step contact-pair spans; a Pick must
+    show a robot-link contact with the grasped domino."""
+    tools = _make_tools(ctx, ["explore_python"])
+    domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
+    robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
+    code = f"""
+sim.reset()
+res = sim.run("Pick({robot.name}:robot, {domino.name}:domino)[0.05]",
+              render=False, contacts=True)
+print(res)
+"""
+    result = _run(tools["explore_python"]({"code": code}))
+    text = result["content"][0]["text"]
+    assert "contact recording unavailable" not in text
+    assert "Contacts:" in text
+    # The grasp squeeze puts a robot link in contact with the domino.
+    assert "robot:" in text
+    assert domino.name in text.split("Contacts:", 1)[1]
+    print("  PASS: explore_python (contact recording)")
+
+
 def test_option_plan_not_initiable_shows_poses(ctx: Any) -> None:
     """evaluate_option_plan shows object poses when option is NOT INITIABLE."""
     tools = _make_tools(ctx, ["evaluate_option_plan"])

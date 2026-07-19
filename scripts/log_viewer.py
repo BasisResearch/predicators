@@ -10,6 +10,8 @@ logs/<family>/<env>-<approach>/seed<N>/run_<timestamp>/. Features:
   * unified diffs between simulator_versions / predicates_versions files
   * image galleries, ANSI-colored info.log / debug.log, and a full file tree
     so every logged file is inspectable
+  * per-run kill buttons for live runs and per-run deletion of the log dir
+    (and its mirrored videos dir), targeted at that run's PIDs only
 
 Format contracts this viewer relies on:
   * episode filenames {query:03d}_{kind}[_task{K}]_{YYYYMMDD_HHMMSS}.md from
@@ -36,8 +38,11 @@ import difflib
 import mimetypes
 import os
 import re
+import shutil
+import signal
 import subprocess
 import sys
+import time
 import traceback
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -281,6 +286,44 @@ def _open_run_names(pids: List[str]) -> Dict[str, Set[Tuple[str, str]]]:
     return names
 
 
+def _live_proc_matches() -> List[Tuple[str, str, str, Set[str]]]:
+    """One (pid, exp, seed, pinned run names) per live main.py process.
+
+    The run names are those lsof pins the process to; the set is empty
+    when lsof could not resolve any, in which case the process belongs
+    to the newest run of its experiment and seed (see live_runs).
+    """
+    try:
+        out = subprocess.run(["ps", "-Axo", "pid=,args="],
+                             capture_output=True,
+                             text=True,
+                             check=False,
+                             timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []  # no ps: fall back to marker-only statuses
+    procs: Dict[str, Tuple[str, str]] = {}
+    for line in out.splitlines():
+        if "main.py" not in line:
+            continue
+        pid, _, args = line.strip().partition(" ")
+        flags = dict(PS_ARG_RE.findall(args))
+        if pid.isdigit() and "approach" in flags and "experiment_id" in flags:
+            procs[pid] = (f"{flags['approach']}/{flags['experiment_id']}",
+                          f"seed{flags.get('seed', '0')}")
+    open_names = _open_run_names(list(procs)) if procs else {}
+    matches: List[Tuple[str, str, str, Set[str]]] = []
+    for pid, (exp, seed) in procs.items():
+        # Parallel launches stamp sibling seeds with the same run name,
+        # so a pin only counts when the open path agrees on the seed.
+        matched = {
+            name
+            for path_seed, name in open_names.get(pid, set())
+            if path_seed in ("", seed)
+        }
+        matches.append((pid, exp, seed, matched))
+    return matches
+
+
 def live_runs() -> LiveProcs:
     """Live main.py processes, pinned to the runs they log into.
 
@@ -292,39 +335,134 @@ def live_runs() -> LiveProcs:
     returned as bare keys, which run_status attributes to the key's
     newest run: the one such a process made when it started.
     """
+    pinned: Set[Tuple[str, str, str]] = set()
+    unpinned: Set[Tuple[str, str]] = set()
+    for _, exp, seed, names in _live_proc_matches():
+        if names:
+            pinned.update((exp, seed, name) for name in names)
+        else:
+            unpinned.add((exp, seed))
+    return pinned, unpinned
+
+
+# -------------------------------------------------------- kill and delete
+
+
+def pids_for_run(run_rel: str) -> List[str]:
+    """PIDs of the live main.py processes attributed to this run.
+
+    Attribution mirrors run_status on the index page: a pinned process
+    must name the run among its open files, and a process lsof could
+    not pin owns the newest run of its experiment and seed. Only these
+    PIDs are ever signalled - never a name-based sweep, since parallel
+    sessions share the machine.
+    """
+    parts = run_rel.split("/")
+    name = parts[-1]
+    seed = next((p for p in parts if p.startswith("seed")), "")
+    exp = "/".join(p
+                   for p in parts[:-1] if not p.startswith("seed")) or "(root)"
+    matches = [m for m in _live_proc_matches() if (m[1], m[2]) == (exp, seed)]
+    if not matches:
+        return []
+    # find_runs sorts newest first within each (exp, seed).
+    newest = next(
+        (r["name"]
+         for r in find_runs() if (r["exp"], r["seed"]) == (exp, seed)), "")
+    return [
+        pid for pid, _, _, names in matches
+        if name in names or (not names and name == newest)
+    ]
+
+
+def _descendant_pids(pids: List[str]) -> List[str]:
+    """Transitive child PIDs of pids, from a single ps snapshot."""
     try:
-        out = subprocess.run(["ps", "-Axo", "pid=,args="],
+        out = subprocess.run(["ps", "-Axo", "pid=,ppid="],
                              capture_output=True,
                              text=True,
                              check=False,
                              timeout=10).stdout
     except (OSError, subprocess.SubprocessError):
-        return set(), set()  # no ps: fall back to marker-only statuses
-    procs: Dict[str, Tuple[str, str]] = {}
+        return []
+    children: Dict[str, List[str]] = {}
     for line in out.splitlines():
-        if "main.py" not in line:
-            continue
-        pid, _, args = line.strip().partition(" ")
-        flags = dict(PS_ARG_RE.findall(args))
-        if pid.isdigit() and "approach" in flags and "experiment_id" in flags:
-            procs[pid] = (f"{flags['approach']}/{flags['experiment_id']}",
-                          f"seed{flags.get('seed', '0')}")
-    pinned: Set[Tuple[str, str, str]] = set()
-    unpinned: Set[Tuple[str, str]] = set()
-    open_names = _open_run_names(list(procs)) if procs else {}
-    for pid, (exp, seed) in procs.items():
-        # Parallel launches stamp sibling seeds with the same run name,
-        # so a pin only counts when the open path agrees on the seed.
-        matched = {
-            name
-            for path_seed, name in open_names.get(pid, set())
-            if path_seed in ("", seed)
-        }
-        if matched:
-            pinned.update((exp, seed, name) for name in matched)
-        else:
-            unpinned.add((exp, seed))
-    return pinned, unpinned
+        pid, _, ppid = line.strip().partition(" ")
+        children.setdefault(ppid.strip(), []).append(pid)
+    seen = set(pids)
+    stack = list(pids)
+    found: List[str] = []
+    while stack:
+        for child in children.get(stack.pop(), []):
+            if child not in seen:
+                seen.add(child)
+                found.append(child)
+                stack.append(child)
+    return found
+
+
+def kill_run(run_rel: str, sig: int = signal.SIGTERM) -> Tuple[bool, str]:
+    """Signal every process attributed to this run, children included.
+
+    Workers and helper subprocesses would survive a signal to the
+    main.py process alone, so its whole descendant tree is signalled.
+    """
+    pids = pids_for_run(run_rel)
+    if not pids:
+        return False, "no live process found for this run"
+    targets = pids + _descendant_pids(pids)
+    for pid in targets:
+        try:
+            os.kill(int(pid), sig)
+        except (OSError, ValueError):
+            pass  # already exited, or a stale ps line
+    return True, (f"sent signal {int(sig)} to {len(targets)} "
+                  f"process(es): {', '.join(targets)}")
+
+
+def _prune_empty_parents(path: str, root: str) -> None:
+    """Remove now-empty ancestor dirs of path, stopping at root."""
+    root = os.path.realpath(root)
+    cur = os.path.dirname(os.path.realpath(path))
+    while cur.startswith(root + os.sep):
+        try:
+            os.rmdir(cur)
+        except OSError:
+            return  # not empty (or gone): nothing further can be empty
+        cur = os.path.dirname(cur)
+
+
+def delete_run(run_rel: str, kill: bool) -> Tuple[bool, str]:
+    """Delete a run's log dir and its mirrored videos dir.
+
+    A run with a live process is refused unless kill is set, in which
+    case the process tree gets SIGTERM, a grace period to shut down,
+    then SIGKILL for stragglers before the files go.
+    """
+    run_abs = safe_join(run_rel)
+    if (not run_abs or not os.path.isdir(run_abs)
+            or not os.path.basename(run_abs).startswith("run_")):
+        return False, "not a run directory"
+    if pids_for_run(run_rel):
+        if not kill:
+            return False, "run has a live process; kill it first"
+        kill_run(run_rel)
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and pids_for_run(run_rel):
+            time.sleep(0.5)
+        if pids_for_run(run_rel):
+            kill_run(run_rel, signal.SIGKILL)
+            time.sleep(0.5)
+    try:
+        shutil.rmtree(run_abs)
+    except OSError as e:
+        return False, f"delete failed: {e}"
+    _prune_empty_parents(run_abs, LOGS_ROOT)
+    video_abs = safe_join_video(run_rel)
+    if video_abs and os.path.isdir(video_abs):
+        shutil.rmtree(video_abs, ignore_errors=True)
+        _prune_empty_parents(video_abs, VIDEOS_ROOT)
+    return True, "deleted"
 
 
 def _parse_episode(path: str) -> Dict[str, Any]:
@@ -1023,6 +1161,11 @@ button.copybtn { padding: 0 3px; margin-left: 5px; border: none;
 tr.runrow:hover button.copybtn { visibility: visible; }
 button.copybtn:hover { color: var(--accent); }
 button.copybtn.copied { color: var(--ok); visibility: visible; }
+button.rowbtn { padding: 0 5px; margin-left: 5px;
+  border: 1px solid transparent; border-radius: 4px; background: none;
+  color: var(--muted); font-size: 11px; visibility: hidden; }
+tr.runrow:hover button.rowbtn { visibility: visible; }
+button.rowbtn:hover { color: var(--bad); border-color: var(--bad); }
 """ + f"""
 table.epgrid td.task {{ width: {TASK_W}px; }}
 table.epgrid td.misc {{ width: {MISC_W}px; }}
@@ -1165,6 +1308,31 @@ function compareSelected() {
   var sel = $all('input.cmp:checked').map(function(c) { return c.value; });
   if (sel.length < 2) { alert('Select at least two runs to compare.'); return; }
   location.href = '/compare?runs=' + encodeURIComponent(sel.join(';'));
+}
+
+// Kill / delete buttons on index run rows. POST only, so the auto-
+// refresh GETs can never trip these; reload shortly after success so
+// the status chip reflects the process actually exiting.
+function postRun(url, msg) {
+  if (!confirm(msg)) return;
+  fetch(url, {method: 'POST'}).then(function(r) {
+    r.text().then(function(t) {
+      if (!r.ok) { alert(t); return; }
+      setTimeout(function() { location.reload(); }, 600);
+    });
+  }).catch(function(e) { alert('request failed: ' + e); });
+}
+function killRun(rel) {
+  postRun('/kill?d=' + encodeURIComponent(rel),
+          'Kill the live process of\\n' + rel + ' ?');
+}
+function deleteRun(rel, live) {
+  var msg = live
+    ? 'This run appears LIVE:\\n' + rel +
+      '\\nKill its process AND delete its log dir (and videos)?'
+    : 'Delete the log dir (and videos) of\\n' + rel + ' ?';
+  postRun('/delete?d=' + encodeURIComponent(rel) + (live ? '&kill=1' : ''),
+          msg);
 }
 
 // Run page: hash routing into the content pane.
@@ -1500,6 +1668,19 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
     cost_str = f"${cost:.2f}" if cost else "-"
     # Path to paste into a terminal at the server's working directory.
     copy_path = os.path.relpath(os.path.join(LOGS_ROOT, r["rel"]))
+    is_live = status == "running"
+    esc_rel = esc(r["rel"])
+    kill_btn = ""
+    if is_live:
+        kill_btn = ("<button class='rowbtn' title='Kill the live process "
+                    f"of this run' onclick='killRun(\"{esc_rel}\")'>"
+                    "kill</button>")
+    del_title = ("Kill the live process, then delete this run"
+                 if is_live else "Delete this run's log dir and videos")
+    live_flag = "true" if is_live else "false"
+    del_btn = (f"<button class='rowbtn' title='{del_title}' "
+               f"onclick='deleteRun(\"{esc_rel}\", {live_flag})'>"
+               "✕</button>")
     return ("<tr class='runrow' "
             f"data-key='{esc(key)}' data-seed='{esc(r['seed'])}' "
             f"data-start='{start_ts:.0f}'>"
@@ -1507,9 +1688,9 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
             "</td>"
             f"<td><a href='/run?d={q(r['rel'])}'>{esc(r['name'])}</a>"
             f"<button class='copybtn' data-copy='{esc(copy_path)}' "
-            "title='Copy run path'>⧉</button></td>"
+            f"title='Copy run path'>⧉</button>{del_btn}</td>"
             f"<td>{esc(r['seed'])}</td>"
-            f"<td>{status_chip(r, summary, live, is_newest)}</td>"
+            f"<td>{status_chip(r, summary, live, is_newest)}{kill_btn}</td>"
             f"<td>{episode_grid(eps, layout)}</td><td>{esc(tr_str)}</td>"
             f"<td>{cost_str}</td>"
             f"<td class='muted'>{sstr}</td>"
@@ -2064,6 +2245,15 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def send_text(self, text: str, status: int = 200) -> None:
+        """Send a plain-text response with the given status code."""
+        data = text.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def send_raw(self, path: str) -> None:
         """Stream a file to the client, honoring HTTP Range requests."""
         ctype = mimetypes.guess_type(path)[0]
@@ -2104,6 +2294,38 @@ class Handler(BaseHTTPRequestHandler):
                     break
                 self.wfile.write(chunk)
                 remaining -= len(chunk)
+
+    def do_POST(self) -> None:
+        """Dispatch a POST (kill / delete) request with plain-text reply."""
+        try:
+            # A web page anywhere can fire a cross-origin POST at
+            # localhost; destructive endpoints only honor same-origin.
+            origin = self.headers.get("Origin")
+            if origin and origin != f"http://{self.headers.get('Host', '')}":
+                self.send_text("cross-origin POST rejected", status=403)
+                return
+            parsed = urllib.parse.urlparse(self.path)
+            params = {
+                k: v[0]
+                for k, v in urllib.parse.parse_qs(parsed.query).items()
+            }
+            if parsed.path == "/kill":
+                ok, msg = kill_run(params.get("d", ""))
+            elif parsed.path == "/delete":
+                ok, msg = delete_run(params.get("d", ""),
+                                     kill=params.get("kill") == "1")
+            else:
+                self.send_text("not found", status=404)
+                return
+            self.send_text(msg, status=200 if ok else 409)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as e:  # pylint: disable=broad-except
+            traceback.print_exc()
+            try:
+                self.send_text(str(e), status=500)
+            except OSError:
+                pass
 
     def do_GET(self) -> None:
         """Dispatch a GET request, rendering a 500 page on errors."""
@@ -2148,13 +2370,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_html(compare_page(rels))
         elif route == "/stamp":
             d = params.get("d", "")
-            stamp = run_stamp(d) if d else index_stamp()
-            data = stamp.encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
+            self.send_text(run_stamp(d) if d else index_stamp())
         elif route == "/raw":
             path = safe_join(params.get("p", ""))
             if not path or not os.path.isfile(path):

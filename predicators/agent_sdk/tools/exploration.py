@@ -56,10 +56,10 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
             "feature overrides (`mods={'obj': {'x': 1.05}}`); ")
         submit_desc = (
             "EXPLORATORY "
-            "ONLY: nothing run here is captured as your answer and no "
-            "task-evaluator verdict is computed - validate and submit the "
-            "final plan via evaluate_option_plan from the true initial "
-            "state.")
+            "ONLY: nothing run here is captured as your answer - preview "
+            "the evaluator's verdict with sim.run(solved=True), then "
+            "validate and submit the final plan via evaluate_option_plan "
+            "from the true initial state.")
     explore_python = _make_python_exec_tool(
         tool,
         name="explore_python",
@@ -70,7 +70,8 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
             f"{sim_desc}, `ProbeSim()` "
             "(extra independent instances), `np`. ProbeSim API: "
             f"{reset_desc}"
-            "`sim.run(plan_text, render=True, trials=1)` executes an option "
+            "`sim.run(plan_text, render=True, trials=1, solved=False, "
+            "contacts=False)` executes an option "
             "plan FROM THE CURRENT "
             "STATE (same grammar as evaluate_option_plan; print the result "
             "for per-step outcomes incl. saved per-step scene-image paths - "
@@ -80,7 +81,15 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
             "the per-trial outcomes + success count WITHOUT advancing the "
             "state - use it for reliability estimates instead of "
             "hand-rolled repeat loops (restore/rerun repeats share solver "
-            "state and read optimistic); "
+            "state and read optimistic); solved=True (trials>=2, from an "
+            "unmodified reset() state) also scores each trial with the "
+            "TASK EVALUATOR (per-trial solved/reward) - reaching the goal "
+            "atoms is NOT the same as being scored a solve, so check this "
+            "BEFORE submitting; contacts=True (single run) reports, per "
+            "step, which robot links touched which objects and which "
+            "object pairs touched, with action spans - use it to verify "
+            "WHAT caused motion (e.g. an intended push vs. the arm "
+            "brushing the scene); "
             "`sim.state()` / "
             "`sim.state('obj')` full-precision features; `sim.atoms()`; "
             "`sim.render(label, annotations=None)` saves an image "

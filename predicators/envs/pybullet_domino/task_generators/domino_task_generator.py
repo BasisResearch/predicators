@@ -218,6 +218,10 @@ class DominoTaskGenerator(TaskGenerator):
                         f"out of place) costs {cost:g}, so a solve that "
                         f"uses one blue scores +{1.0 - cost:g}. Using "
                         f"blues never disqualifies a solve.")
+            # Same reasoning for the legitimacy rule (see
+            # goal_text.CASCADE_VERIFICATION_NL): an arm-assisted layout
+            # otherwise fails with verdicts the agent cannot explain.
+            goal_nl += goal_text.CASCADE_VERIFICATION_NL
 
         return EnvironmentTask(init_state,
                                goal_atoms,
