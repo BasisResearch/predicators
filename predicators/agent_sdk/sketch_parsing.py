@@ -280,6 +280,8 @@ def _resolve_ground_sampler(
     if not raw_blocks:
         return None
 
+    # Explicit final return: pylint calls it useless, mypy requires it.
+    # pylint: disable-next=useless-return
     def _bad(reason: str) -> Optional[GroundSampler]:
         msg = (f"step {step_idx} ({option.name}): bad '~' ground-sampler "
                f"annotation - {reason}")

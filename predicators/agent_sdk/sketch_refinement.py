@@ -623,6 +623,7 @@ def refine_sketch(
             deepest_fail_prefix[0] = list(cur_plan[:idx + 1])
             if deepest_failure_holder is not None:
                 stash = last_fail_post[0]
+                # pylint: disable-next=unsubscriptable-object
                 post = stash[1] if stash and stash[0] == idx else None
                 opt = cur_plan[idx]
                 assert opt is not None

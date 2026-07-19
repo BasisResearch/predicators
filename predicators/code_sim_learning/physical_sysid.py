@@ -70,8 +70,7 @@ import numpy as np
 
 from predicators.code_sim_learning.config import SysIdConfig
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
-    fit_space_bounds, from_fit_space, prior_widths, rows_from_fit_space, \
-    to_fit_space
+    fit_space_bounds, prior_widths, to_fit_space
 from predicators.code_sim_learning.fitting import run_emcee_posterior
 from predicators.code_sim_learning.grid_seed import \
     _grid_seed_physical_specs, min_explainable_rms
