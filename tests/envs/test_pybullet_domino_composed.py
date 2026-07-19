@@ -164,6 +164,11 @@ def test_plain_task_attaches_domino_evaluator() -> None:
     assert isinstance(task.evaluator, DominoEvaluator)
     assert task.goal_nl is not None
     assert "Only the green domino may ever be pushed." in task.goal_nl
+    # Every enforced rule is stated in the goal text, including the
+    # counterfactual fingertip verification - without it an arm-assisted
+    # layout fails with verdicts the agent cannot explain
+    # (run_20260718_141716).
+    assert "every robot link except the fingertips" in task.goal_nl
 
     # A ball/fan-style extra component can topple dominoes without a
     # robot Push, which the certificate would falsely reject - so its

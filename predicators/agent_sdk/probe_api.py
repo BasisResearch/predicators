@@ -10,10 +10,12 @@ modified copy), read full-precision features, run partial plans, render,
 snapshot/restore, and write sweep loops in one ``explore_python`` call
 instead of one tool round-trip per experiment.
 
-By construction the probe carries NO scoring surface: it never touches a
-task's evaluator, and nothing it executes can be captured as the
+By construction nothing the probe executes can be captured as the
 answer - submission happens only through ``evaluate_option_plan`` on the
-true initial state.
+true initial state. The task evaluator is reachable, but only as a
+read-only preview: ``run(trials>=2, solved=True)`` and
+``refine(require_solved=True)`` score rollouts through the same gate the
+capture path uses (see ``_require_solved_evaluator``).
 
 In synthesis sessions the same facade probes the CANDIDATE simulator
 (the ``simulator.py`` under edit, freshly fitted - see
@@ -24,6 +26,7 @@ In synthesis sessions the same facade probes the CANDIDATE simulator
 from __future__ import annotations
 
 import dataclasses
+import logging
 import time
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, \
     Union
@@ -33,8 +36,8 @@ from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig, \
     ValidationConfig
 from predicators.agent_sdk.tools.scene import apply_state_modifications, \
     draw_pybullet_annotation, render_pybullet_image, render_scene_image
-from predicators.agent_sdk.tools.verdicts import load_ground_sampler_fns, \
-    make_solved_check
+from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
+    evaluate_states_with, load_ground_sampler_fns, make_solved_check
 from predicators.structs import State, Task
 
 if TYPE_CHECKING:
@@ -104,6 +107,64 @@ def _fmt_option(option: Any) -> str:
     return f"{option.name}({objs}){_fmt_params(option.params)}"
 
 
+# Contact-pair lines reported per step before eliding the rest: enough
+# for a busy step's story, small enough to not drown the step report.
+_MAX_CONTACT_LINES_PER_STEP = 12
+
+
+def _attach_step_contacts(events: List[Dict[str, Any]],
+                          step_dicts: List[Dict[str, Any]]) -> None:
+    """Bucket recorded contact events into per-option-step summaries.
+
+    ``events`` come from ``stop_contact_recording`` (step-ordered, one
+    env step per low-level action, so cumulative ``num_actions`` gives
+    the option-step boundaries). Each step dict gains ``contacts``: one
+    line per contact pair with its 0-based action span within the step,
+    robot links listed first. The LAST step's bucket absorbs any events
+    past the counted boundary: a partially-executed failing option
+    reports ``num_actions=0`` while the env genuinely stepped, and
+    dropping those events would blank the contacts of exactly the step
+    under diagnosis.
+    """
+    idx = 0
+    start = 0
+    for i, s in enumerate(step_dicts):
+        is_last = i == len(step_dicts) - 1
+        end = float("inf") if is_last else start + s["num_actions"]
+        # Insertion-ordered dict doubles as the report order.
+        spans: Dict[Tuple[str, str], Tuple[int, int]] = {}
+        while idx < len(events) and events[idx]["step"] <= end:
+            ev = events[idx]
+            idx += 1
+            if ev["step"] <= start:
+                continue
+            a, b = ev["a"], ev["b"]
+            # Canonicalize the unordered pair: robot link first, else
+            # lexicographic, so the two orientations merge into one span.
+            if a.startswith("robot:") != b.startswith("robot:"):
+                if b.startswith("robot:"):
+                    a, b = b, a
+            elif a > b:
+                a, b = b, a
+            key = (a, b)
+            rel = ev["step"] - start - 1
+            if key not in spans:
+                spans[key] = (rel, rel)
+            else:
+                spans[key] = (spans[key][0], rel)
+        lines = []
+        for key, (lo, hi) in spans.items():
+            span = f"action {lo}" if lo == hi else f"actions {lo}-{hi}"
+            lines.append(f"{key[0]} <-> {key[1]} ({span})")
+        if len(lines) > _MAX_CONTACT_LINES_PER_STEP:
+            extra = len(lines) - _MAX_CONTACT_LINES_PER_STEP
+            lines = lines[:_MAX_CONTACT_LINES_PER_STEP] + [
+                f"... +{extra} more pairs"
+            ]
+        s["contacts"] = lines
+        start += s["num_actions"]
+
+
 class _StrLikeResult:
     """String conveniences shared by the probe result types.
 
@@ -135,10 +196,11 @@ class ProbeResult(_StrLikeResult):
     Attributes mirror the ``evaluate_option_plan`` report: ``steps`` is
     a list of per-step dicts (``option``, ``num_actions``, ``failure``,
     ``added``, ``deleted``, ``image`` - the saved post-step scene
-    image path, if rendering is available), plus ``goal_reached`` and
-    ``final_atoms``. ``notes`` carries caveats (ignored region
-    annotations, horizon overruns). ``print(result)`` renders the same
-    step-by-step summary the tool prints.
+    image path, if rendering is available; with ``contacts=True`` also
+    ``contacts`` - the step's contact-pair span lines), plus
+    ``goal_reached`` and ``final_atoms``. ``notes`` carries caveats
+    (ignored region annotations, horizon overruns). ``print(result)``
+    renders the same step-by-step summary the tool prints.
     """
     steps: List[Dict[str, Any]]
     goal_reached: bool
@@ -155,6 +217,10 @@ class ProbeResult(_StrLikeResult):
             if s["added"] or s["deleted"]:
                 line += (f"\n  Added: {{{', '.join(s['added'])}}}"
                          f"\n  Deleted: {{{', '.join(s['deleted'])}}}")
+            if "contacts" in s:
+                line += (
+                    "\n  Contacts: " +
+                    ("; ".join(s["contacts"]) if s["contacts"] else "none"))
             lines.append(line)
         lines.append(f"Goal reached: {self.goal_reached}")
         lines.append(f"Final atoms: {{{', '.join(self.final_atoms)}}}")
@@ -172,9 +238,10 @@ class ProbeTrialsResult(_StrLikeResult):
 
     ``trials`` holds one dict per trial (``goal_reached``,
     ``num_actions``, ``failure`` - ``None`` or ``"step {i} ({option}):
-    {reason}"``). ``successes`` counts goal-reaching trials. The current
-    state is NOT advanced - repeated trials are a measurement, not a
-    navigation step.
+    {reason}"``; with ``solved=True`` also ``solved``/``reward`` from
+    the task evaluator, ``None`` when the verdict errored). ``successes``
+    counts goal-reaching trials. The current state is NOT advanced -
+    repeated trials are a measurement, not a navigation step.
     """
     trials: List[Dict[str, Any]]
     successes: int
@@ -187,16 +254,33 @@ class ProbeTrialsResult(_StrLikeResult):
                     if self.fresh_env_per_trial else
                     "shared session env - trials are correlated, treat the "
                     "rate as optimistic")
-        lines = [f"Trials: {self.successes}/{n} reached the goal ({env_note})"]
+        scored = [t for t in self.trials if t.get("solved") is not None]
+        headline = f"Trials: {self.successes}/{n} reached the goal"
+        if scored:
+            n_solved = sum(1 for t in scored if t["solved"])
+            headline += (f", {n_solved}/{n} scored solved=True by the task "
+                         f"evaluator")
+        lines = [f"{headline} ({env_note})"]
         for i, t in enumerate(self.trials):
             if t["failure"]:
-                lines.append(f"  trial {i + 1}: FAILED - {t['failure']}")
+                line = f"  trial {i + 1}: FAILED - {t['failure']}"
             elif t["goal_reached"]:
-                lines.append(f"  trial {i + 1}: goal reached "
-                             f"({t['num_actions']} actions)")
+                line = (f"  trial {i + 1}: goal reached "
+                        f"({t['num_actions']} actions)")
             else:
-                lines.append(f"  trial {i + 1}: goal NOT reached "
-                             f"({t['num_actions']} actions)")
+                line = (f"  trial {i + 1}: goal NOT reached "
+                        f"({t['num_actions']} actions)")
+            if t.get("solved") is not None:
+                line += (f" - evaluator: solved={t['solved']}, "
+                         f"reward={t['reward']:.2f}")
+            lines.append(line)
+        if scored and any(t["goal_reached"] and not t["solved"]
+                          for t in scored):
+            lines.append(
+                "  goal atoms held but the evaluator scored a non-solve: "
+                "this plan reaches the goal by a route the task's rules "
+                "reject, so tuning its parameters cannot make it pass - "
+                "re-read the goal's rules and plan a different route.")
         lines.extend(f"NOTE: {n_}" for n_ in self.notes)
         return "\n".join(lines)
 
@@ -547,10 +631,35 @@ class ProbeSim:
                 "object refs, and exact params in `[]`.")
         return probe_task, sketch_steps, all_predicates, notices
 
+    def _require_solved_evaluator(self, flag: str) -> Any:
+        """Precondition gate shared by ``run(solved=True)`` and
+        ``refine(require_solved=True)``, so the two evaluator-scored surfaces
+        can never drift apart.
+
+        Returns the task evaluator. Raises when the current state is not
+        the task's unmodified initial state (the evaluator's rules
+        reference the true init, so any other start would give silently-
+        wrong verdicts) or when the task defines no evaluator.
+        """
+        if not self._pristine:
+            raise ValueError(
+                f"{flag} needs the task's unmodified initial state (call "
+                "reset() with no mods first, before any state-advancing "
+                "run()): the evaluator's rules reference the true init, so "
+                "a verdict from a modified or advanced state would be "
+                "silently wrong.")
+        assert self._base_task is not None
+        evaluator = self._base_task.evaluator
+        if evaluator is None:
+            raise ValueError(f"{flag}: this task defines no task evaluator.")
+        return evaluator
+
     def run(self,
             plan_text: str,
             render: bool = True,
-            trials: int = 1) -> Union[ProbeResult, ProbeTrialsResult]:
+            trials: int = 1,
+            solved: bool = False,
+            contacts: bool = False) -> Union[ProbeResult, ProbeTrialsResult]:
         """Execute an option plan from the current state.
 
         ``plan_text`` uses the same grammar as ``evaluate_option_plan``:
@@ -561,8 +670,7 @@ class ProbeSim:
         Like ``evaluate_option_plan``, each step's post-state is
         rendered to a saved image whose path lands in the step report;
         pass ``render=False`` inside tight sweep loops to skip that.
-        Exploratory only: results are never captured and carry no
-        evaluator verdict.
+        Exploratory only: results are never captured.
 
         ``trials=N`` (N > 1) runs the SAME plan N times and returns a
         ``ProbeTrialsResult`` with the per-trial outcomes and success
@@ -573,6 +681,23 @@ class ProbeSim:
         solver state and velocity residuals, so they are correlated
         and read optimistic). With ``trials > 1`` nothing is rendered
         and the current state is NOT advanced.
+
+        ``solved=True`` (needs ``trials`` >= 2 and the task's UNMODIFIED
+        initial state - plain ``reset()``, no rollout since) additionally
+        scores every trial with the TASK EVALUATOR, reporting per-trial
+        ``solved``/``reward``. Reaching the goal atoms is NOT the same as
+        being scored a solve - the evaluator can reject a goal-reaching
+        route - so check ``solved`` counts here BEFORE submitting via
+        ``evaluate_option_plan`` instead of discovering rejections one
+        submission at a time.
+
+        ``contacts=True`` (single-run mode only, ``trials=1``) records
+        every physical contact during the rollout and reports, per step,
+        which robot links touched which objects and which object pairs
+        came into contact, with low-level action spans. Use it to check
+        WHAT actually caused motion - e.g. whether a topple was driven
+        by the object you pushed or by the robot's body brushing the
+        scene.
         """
         # pylint: disable-next=import-outside-toplevel
         import numpy as np
@@ -583,6 +708,18 @@ class ProbeSim:
         from predicators.settings import CFG
         if trials < 1:
             raise ValueError(f"trials must be >= 1, got {trials}")
+        if solved and trials < 2:
+            raise ValueError(
+                "solved=True needs trials >= 2: a single shared-env rollout "
+                "is a correlated sample, so a one-off verdict would read "
+                "optimistic. Use trials>=2 (fresh env per trial), or "
+                "refine(..., require_solved=True) to search for "
+                "evaluator-solved params.")
+        if contacts and trials > 1:
+            raise ValueError(
+                "contacts=True is only available in single-run mode "
+                "(trials=1): per-contact recording is a diagnostic for one "
+                "rollout, not a statistic.")
         ctx = self._ctx
         _check_time_budget(ctx)
         ctx.test_call_id += 1
@@ -606,6 +743,10 @@ class ProbeSim:
                         "of steps, so shorten or speed up the plan.")
             return None
 
+        evaluator: Any = None
+        if solved:
+            evaluator = self._require_solved_evaluator("solved=True")
+
         if trials > 1:
             # Fresh physics per trial when the session provides the scope
             # (solve sessions do; a synthesis probe's candidate model has
@@ -624,15 +765,49 @@ class ProbeSim:
                 for _ in range(trials):
                     _check_time_budget(ctx)
                     _count_rollout(ctx)
+                    trial_solved: Optional[bool] = None
+                    trial_reward: Optional[float] = None
+                    coarse = False
                     with (fresh_scope() if fresh_scope is not None else
                           contextlib.nullcontext()):
+                        model = self._option_model()
+                        collector = (_EvalStateCollector(
+                            model, probe_task.init)
+                                     if evaluator is not None else None)
                         r = bilevel_sketch.execute_plan_forward(
                             probe_task,
                             grounded,
-                            self._option_model(),
+                            model,
                             predicates=all_predicates,
                             sketch=sketch_steps,
+                            on_step=(collector.on_step
+                                     if collector is not None else None),
                             stop_on_failure=True)
+                        # Score INSIDE the scope: the evaluator's
+                        # certificate probes at the (fresh) env the
+                        # rollout ran on, same as the capture path.
+                        if (collector is not None
+                                and len(collector.states) > 1):
+                            try:
+                                verdict = evaluate_states_with(
+                                    evaluator,
+                                    collector.states,
+                                    collector.labels,
+                                    sim_env=getattr(model, "sim_env", None))
+                                # Reward first: it is the only fallible
+                                # conversion, so a malformed verdict is
+                                # caught below with BOTH fields still None
+                                # instead of crashing the loop and losing
+                                # the completed trials.
+                                trial_reward = float(verdict["reward"])
+                                trial_solved = bool(verdict["solved"])
+                                # Only a produced verdict can be coarse; an
+                                # errored one must not trip the coarse
+                                # caveat.
+                                coarse = collector.coarse
+                            except Exception as e:  # pylint: disable=broad-except
+                                logging.debug(
+                                    "Trial evaluator verdict failed: %s", e)
                     failure: Optional[str] = None
                     if r.first_failure_idx is not None:
                         fs = r.steps[r.first_failure_idx]
@@ -644,6 +819,9 @@ class ProbeSim:
                         "goal_reached": r.goal_reached,
                         "num_actions": total,
                         "failure": failure,
+                        "solved": trial_solved,
+                        "reward": trial_reward,
+                        "verdict_coarse": coarse,
                     })
             except ProbeBudgetExceeded as e:
                 # Completed trials are minutes of sim time and live in the
@@ -656,6 +834,17 @@ class ProbeSim:
                     f"time budget expired after {len(trial_dicts)}/{trials} "
                     f"trials - the remaining trials were skipped ({e})")
             successes = sum(1 for t in trial_dicts if t["goal_reached"])
+            if evaluator is not None:
+                if any(t["verdict_coarse"] for t in trial_dicts):
+                    notices.append(
+                        "some verdicts are coarse (per-step states were "
+                        "unavailable, scored on option-boundary states "
+                        "only) - a coarse verdict can falsely reject.")
+                if any(t["goal_reached"] and t["solved"] is None
+                       for t in trial_dicts):
+                    notices.append(
+                        "the evaluator errored on some goal-reaching "
+                        "trials, so their solved verdicts are missing.")
             over = [
                 t for t in trial_dicts
                 if t["goal_reached"] and t["num_actions"] > CFG.horizon
@@ -697,13 +886,45 @@ class ProbeSim:
             })
 
         _count_rollout(ctx)
-        result = bilevel_sketch.execute_plan_forward(probe_task,
-                                                     grounded,
-                                                     self._option_model(),
-                                                     predicates=all_predicates,
-                                                     sketch=sketch_steps,
-                                                     on_step=_on_step,
-                                                     stop_on_failure=True)
+        model = self._option_model()
+        # Contact recording rides on the physics env the option model
+        # steps (its ``sim_env``, the same binding certificate probes
+        # use); a candidate-simulator model without one degrades to a
+        # notice instead of an error.
+        contact_env: Any = None
+        if contacts:
+            env = getattr(model, "sim_env", None)
+            if env is None or not hasattr(env, "start_contact_recording"):
+                notices.append(
+                    "contact recording unavailable: this session's option "
+                    "model exposes no physics env.")
+            else:
+                contact_env = env
+                contact_env.start_contact_recording()
+        contact_events: List[Dict[str, Any]] = []
+        try:
+            result = bilevel_sketch.execute_plan_forward(
+                probe_task,
+                grounded,
+                model,
+                predicates=all_predicates,
+                sketch=sketch_steps,
+                on_step=_on_step,
+                stop_on_failure=True)
+        finally:
+            if contact_env is not None:
+                contact_events = contact_env.stop_contact_recording()
+        if contact_env is not None:
+            counted = sum(s["num_actions"] for s in step_dicts)
+            recorded = contact_env.contact_steps_recorded
+            if recorded != counted:
+                notices.append(
+                    f"contact recording saw {recorded} env steps but the "
+                    f"step report counts {counted} actions - a partially "
+                    "executed failing step reports 0 actions, so its "
+                    "contacts are attached to the last step and spans "
+                    "there are relative to that step's start.")
+            _attach_step_contacts(contact_events, step_dicts)
         self._state = result.final_state
         self._pristine = False
         final_atoms = [
@@ -769,18 +990,7 @@ class ProbeSim:
         gate_called = [False]
         if require_solved:
             require_goal = True
-            if not self._pristine:
-                raise ValueError(
-                    "require_solved needs the task's unmodified initial "
-                    "state (call reset() with no mods and refine before "
-                    "any run()): the evaluator's rules reference the true "
-                    "init, so a verdict from a modified or advanced state "
-                    "would be silently wrong.")
-            assert self._base_task is not None
-            evaluator = self._base_task.evaluator
-            if evaluator is None:
-                raise ValueError("require_solved: this task defines no "
-                                 "task evaluator.")
+            evaluator = self._require_solved_evaluator("require_solved")
             # Same gate (and therefore same accept policy: coarse and
             # evaluator errors never block, non-terminated never blocks)
             # as refine_plan_sketch, so identical params can't get
