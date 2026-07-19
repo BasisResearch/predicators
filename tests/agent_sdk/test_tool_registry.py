@@ -30,11 +30,11 @@ def _names(tools: Iterable[Any]) -> Set[str]:
 
 
 def test_create_mcp_tools_matches_all_tool_names() -> None:
-    """``create_mcp_tools`` exposes exactly the names in ``ALL_TOOL_NAMES``
-    when the config opts into every conditionally-built tool; without the opt-
-    ins the surface must NOT carry them (baseline arms would otherwise gain the
-    code-execution tool silently).
+    """``create_mcp_tools`` exposes exactly the ``ALL_TOOL_NAMES`` names.
 
+    That holds when the config opts into every conditionally-built tool;
+    without the opt-ins the surface must NOT carry them (baseline arms
+    would otherwise gain the code-execution tool silently).
     Conditionally-built tools MUST still appear in ``ALL_TOOL_NAMES``:
     the session-open sanity check classifies any declared name outside
     it as a dynamic tool and asserts when no builder attached it
@@ -151,9 +151,9 @@ def test_get_allowed_tool_list_passes_dynamic_names_through() -> None:
 
 
 def test_coercing_tool_accepts_numeric_strings() -> None:
-    """Top-level integer/number schema properties accept numeric strings.
+    """Numeric strings are coerced for integer/number schema properties.
 
-    and are coerced before the handler runs - harness-side validation
+    Coercion happens before the handler runs - harness-side validation
     used to hard-reject '0' for an integer arg, costing agents whole
     tools (inspect_trajectories went 0-for-6 in one audited run).
     """
@@ -295,8 +295,8 @@ def test_explore_python_replaces_visualize_and_refine() -> None:
     """When explore_python is on, the tools it subsumes are dropped unless
     agent_planner_explore_python_keep_replaced_tools asks for both."""
     from predicators import utils
-    from predicators.approaches.agent_bilevel_approach import \
-        AgentBilevelApproach
+    from predicators.approaches.agent_model_based_approach import \
+        AgentModelBasedApproach
     base = {
         "env": "cover",
         "approach": "agent_bilevel",
@@ -304,7 +304,7 @@ def test_explore_python_replaces_visualize_and_refine() -> None:
         "agent_planner_use_visualize_state": True,
         "agent_planner_use_annotate_scene": True,
     }
-    obj = object.__new__(AgentBilevelApproach)
+    obj = object.__new__(AgentModelBasedApproach)
 
     utils.reset_config(base)
     names = _required_names(obj._get_solve_tool_names())

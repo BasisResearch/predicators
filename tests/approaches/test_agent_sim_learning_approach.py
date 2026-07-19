@@ -17,7 +17,7 @@ import pytest
 
 from predicators import utils
 from predicators.approaches import agent_sim_learning_approach as asla
-from predicators.approaches.agent_bilevel_approach import _SketchStep
+from predicators.approaches.agent_model_based_approach import _SketchStep
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
 from predicators.code_sim_learning.utils import LearnedSimulator, \
@@ -123,7 +123,8 @@ def _parse_sketch_from_file(
     predicates: Set[Predicate],
     objects: Sequence[Object],
 ) -> List[_SketchStep]:
-    """Parse a plan sketch from a text file, same as agent_bilevel_approach."""
+    """Parse a plan sketch from a text file, as the model-based approach
+    does."""
     with open(sketch_file, "r", encoding="utf-8") as f:
         plan_text = f.read().strip()
 

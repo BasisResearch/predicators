@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import dataclasses
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from predicators import utils
 from predicators.structs import State, Task
@@ -766,8 +766,7 @@ class ProbeSim:
         _check_time_budget(ctx)
         probe_task, sketch_steps, all_predicates, notices = \
             self._parse_sketch(sketch_text)
-        solved_check: Optional[Callable[[List[State], List[Any], bool],
-                                        Tuple[bool, str]]] = None
+        solved_check = None
         gate_ran = [False]
         gate_called = [False]
         if require_solved:
@@ -791,8 +790,8 @@ class ProbeSim:
             inner_check = make_solved_check(
                 evaluator, getattr(self._option_model(), "sim_env", None))
 
-            def solved_check(states: List[State], labels: List[Any],
-                             coarse: bool) -> Tuple[bool, str]:
+            def _tracking_solved_check(states: List[State], labels: List[Any],
+                                       coarse: bool) -> Tuple[bool, str]:
                 # Track whether the gate was consulted at all vs. with a
                 # real (non-coarse) rollout: "never consulted" means no
                 # candidate reached the goal atoms (the blocker is
@@ -804,6 +803,8 @@ class ProbeSim:
                 if not coarse:
                     gate_ran[0] = True
                 return inner_check(states, labels, coarse)
+
+            solved_check = _tracking_solved_check
 
         if max_samples_per_step is None:
             max_samples_per_step = CFG.agent_bilevel_max_samples_per_step

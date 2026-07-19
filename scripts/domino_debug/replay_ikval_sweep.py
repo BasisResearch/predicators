@@ -16,8 +16,6 @@ import time
 from glob import glob
 from typing import Any, Callable, Dict, List, Tuple
 
-import numpy as np
-
 logging.disable(logging.CRITICAL)
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -108,7 +106,6 @@ def main() -> None:
     from predicators.approaches import create_approach
     from predicators.envs import get_or_create_env
     from predicators.ground_truth_models import get_gt_options
-    from predicators.settings import CFG
     env = get_or_create_env("pybullet_domino")
     options = get_gt_options(env.get_name())
     preds, _ = utils.parse_config_excluded_predicates(env)
@@ -167,25 +164,14 @@ def main() -> None:
 
                     return rc
 
-                # pylint: disable=protected-access
-                option_model = ap._option_model
-                all_preds = ap._get_all_predicates()
-                all_samplers = ap._get_all_samplers()
-                # pylint: enable=protected-access
-                _, ok, _ = bilevel_sketch.refine_sketch(
-                    task,
-                    sk,
-                    option_model,
-                    predicates=all_preds,
-                    timeout=budget,
-                    rng=np.random.default_rng(CFG.seed + si * 5 + r),
-                    max_samples_per_step=CFG.
-                    agent_bilevel_max_samples_per_step,
-                    check_subgoals=True,
-                    log_state=False,
-                    run_id="iv",
-                    parameterized_samplers=all_samplers,
-                    on_step_fail=make_rc(fail))
+                # attempt reproduces this script's historical RNG streams
+                # (rng = CFG.seed + attempt inside _refine_sketch).
+                # pylint: disable-next=protected-access
+                _, ok = ap._refine_sketch(task,
+                                          sk,
+                                          timeout=budget,
+                                          attempt=si * 5 + r,
+                                          on_step_fail=make_rc(fail))
                 if ok:
                     solved_by = (si, r)
                     break

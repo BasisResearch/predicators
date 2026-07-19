@@ -24,8 +24,6 @@ import sys
 from glob import glob
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
-
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
 from predicators.approaches import create_approach
@@ -33,13 +31,12 @@ from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
 from predicators.envs import get_or_create_env
 from predicators.ground_truth_models import get_gt_options
-from predicators.settings import CFG
 
 logging.disable(logging.CRITICAL)
 
-# Refine retries per sketch, matching the approach-side refinement-fallback
-# loop the audited runs used (agent_bilevel_max_refine_retries=5; the mode
-# and flag have since been deleted, so the loop is preserved here).
+# Refine retries per sketch, matching the refine loop the audited runs
+# ran with (their agent_bilevel_max_refine_retries setting); preserved
+# here so old recordings keep replaying faithfully.
 _REFINE_RETRIES = 5
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -203,29 +200,16 @@ def main() -> None:
             deepest_idx, deepest_reason = -1, ""
             for r in range(_REFINE_RETRIES):
                 fail = _DeepestFail()
-                attempt = si * _REFINE_RETRIES + r
-                # Mirrors the deleted AgentBilevelApproach._solve refine
-                # loop (and _refine_sketch's delegation), including its
-                # per-(sketch,refine) RNG seeding, so recorded failures
-                # still reproduce exactly.
-                # pylint: disable=protected-access
-                assert approach._option_model is not None
-                _, success, _ = bilevel_sketch.refine_sketch(
-                    approach._attach_initial_latent(task),
+                # attempt reproduces the audited runs' per-(sketch,refine)
+                # RNG seeding (rng = CFG.seed + attempt inside
+                # _refine_sketch), so recorded failures replay exactly.
+                # pylint: disable-next=protected-access
+                _, success = approach._refine_sketch(
+                    task,
                     sketch,
-                    approach._option_model,
-                    predicates=approach._get_all_predicates(),
                     timeout=600.0,
-                    rng=np.random.default_rng(CFG.seed + attempt),
-                    max_samples_per_step=CFG.
-                    agent_bilevel_max_samples_per_step,
-                    check_subgoals=CFG.agent_bilevel_check_subgoals,
-                    log_state=CFG.agent_bilevel_log_state,
-                    run_id="replay",
-                    parameterized_samplers=approach._get_all_samplers(),
-                    on_step_fail=fail.record,
-                )
-                # pylint: enable=protected-access
+                    attempt=si * _REFINE_RETRIES + r,
+                    on_step_fail=fail.record)
                 if success:
                     any_success = True
                     break

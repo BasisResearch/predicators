@@ -21,20 +21,21 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk.proposal_parser import ProposalBundle
-from predicators.approaches.agent_planner_approach import AgentPlannerApproach
+from predicators.approaches.agent_model_free_approach import \
+    AgentModelFreeApproach
 from predicators.settings import CFG
 from predicators.structs import Action, ParameterizedOption, Predicate, \
     State, Task, Type
 
 
-class AgentOptionLearningApproach(AgentPlannerApproach):
+class AgentOptionLearningApproach(AgentModelFreeApproach):
     """Option-learning planning approach using Claude Agent SDK.
 
-    Extends AgentPlannerApproach with the ability to invent and retract
-    parameterized options at solve time.  The agent reads skill factory
-    reference files and writes Python code using skill factory functions
-    (create_pick_skill, create_place_skill, etc.) to define new options,
-    then plans with them in the same query.
+    Extends AgentModelFreeApproach with the ability to invent and
+    retract parameterized options at solve time.  The agent reads skill
+    factory reference files and writes Python code using skill factory
+    functions (create_pick_skill, create_place_skill, etc.) to define
+    new options, then plans with them in the same query.
     """
 
     _save_suffix = "AgentOptionLearning"
@@ -155,11 +156,11 @@ Also available: `Phase`, `PhaseSkill`, `PhaseAction`,
 
     def _get_sandbox_reference_files(  # pylint: disable=useless-super-delegation
             self) -> Dict[str, str]:
-        # Inherit skill_factories + options.py from AgentPlannerApproach
+        # Inherit skill_factories + options.py from AgentModelFreeApproach
         return super()._get_sandbox_reference_files()
 
     # ------------------------------------------------------------------ #
-    # Overridable helpers (from AgentPlannerApproach)
+    # Overridable helpers (from AgentModelFreeApproach)
     # ------------------------------------------------------------------ #
 
     def _get_all_options(self) -> Set[ParameterizedOption]:
