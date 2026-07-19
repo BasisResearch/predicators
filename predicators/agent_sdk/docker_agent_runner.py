@@ -215,6 +215,7 @@ def _rehash_objects_after_unpickle(ctx: Any) -> None:
         # comprehension (not ``dict(...)``) is load-bearing: ``dict(d)``
         # copies each entry's stored hash without calling ``__hash__``,
         # so it would preserve exactly the stale table this repairs.
+        # pylint: disable-next=unnecessary-comprehension
         state.data = {obj: vals for obj, vals in state.data.items()}
 
     def _process_atoms(atoms: Any) -> None:

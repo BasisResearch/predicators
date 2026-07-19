@@ -132,6 +132,7 @@ def test_rehash_makes_newly_built_dicts_consistent():
     _rehash_objects_after_unpickle(ctx)
     # Re-inserting under the repaired hashes (what a comprehension or
     # any post-rehash construction does) restores fresh-object lookups.
+    # pylint: disable-next=unnecessary-comprehension
     rekeyed = {obj: val for obj, val in state.data.items()}
     fresh_obj = Object("block0", _block_type)
     assert fresh_obj in rekeyed
