@@ -114,6 +114,9 @@ def _get_claude_oauth_token() -> Optional[str]:
         return None
 
 
+# _flush_log stays unimplemented on purpose: logs flush inside the
+# container, and a host-side call should fail loudly.
+# pylint: disable-next=abstract-method
 class DockerSessionManager(SandboxSessionManagerBase):
     """Runs ClaudeSDKClient inside Docker with built-in + custom MCP tools.
 

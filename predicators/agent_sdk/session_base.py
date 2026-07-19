@@ -459,6 +459,9 @@ class BaseAgentSessionManager:
         logger.info("Saved session info to %s", path)
 
 
+# An intermediate abstract base: transport methods stay unimplemented
+# on purpose (loud NotImplementedError beats a silent no-op).
+# pylint: disable-next=abstract-method
 class SandboxSessionManagerBase(BaseAgentSessionManager):
     """Shared state and sandbox scaffolding for the sandboxed managers.
 
