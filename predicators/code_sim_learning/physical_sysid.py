@@ -415,7 +415,7 @@ def fit_params_rollout_trimmed(
     input trajectories, so the trimming threshold compares
     dimensionless RMS values. ``rms_cache`` (a caller-owned dict, e.g.
     per learn phase) memoizes the explainability sweep - the most
-    expensive part of repeated ``evaluate_step_fit`` calls - under a
+    expensive part of repeated ``sim.fit`` calls - under a
     key that captures everything the verdict depends on, which both
     saves rollouts and pins the verdict for identical inputs.
 

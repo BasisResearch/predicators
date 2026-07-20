@@ -19,8 +19,11 @@ capture path uses (see ``_require_solved_evaluator``).
 
 In synthesis sessions the same facade probes the CANDIDATE simulator
 (the ``simulator.py`` under edit, freshly fitted - see
-``ProbeSim._option_model``), and the submission surface is
-``evaluate_plan_refinement``.
+``ProbeSim._option_model``), ``fit`` exposes the fitting stack
+(``ctx.probe_fit_provider``), and validation is hand-composed:
+``fit()`` then ``refine`` then a continuous ``run`` of the refined
+plan (the forward pass; ``run`` reports the first step whose subgoal
+annotation failed to hold).
 """
 
 from __future__ import annotations
@@ -195,9 +198,11 @@ class ProbeResult(_StrLikeResult):
 
     Attributes mirror the ``evaluate_option_plan`` report: ``steps`` is
     a list of per-step dicts (``option``, ``num_actions``, ``failure``,
-    ``added``, ``deleted``, ``image`` - the saved post-step scene
-    image path, if rendering is available; with ``contacts=True`` also
-    ``contacts`` - the step's contact-pair span lines), plus
+    ``added``, ``deleted``, ``subgoals_missing`` - the step's ``->
+    {atoms}`` annotations that did NOT hold in the post-state (the
+    forward-pass divergence signal), ``image`` - the saved post-step
+    scene image path, if rendering is available; with ``contacts=True``
+    also ``contacts`` - the step's contact-pair span lines), plus
     ``goal_reached`` and ``final_atoms``. ``notes`` carries caveats
     (ignored region annotations, horizon overruns). ``print(result)``
     renders the same step-by-step summary the tool prints.
@@ -217,6 +222,9 @@ class ProbeResult(_StrLikeResult):
             if s["added"] or s["deleted"]:
                 line += (f"\n  Added: {{{', '.join(s['added'])}}}"
                          f"\n  Deleted: {{{', '.join(s['deleted'])}}}")
+            if s.get("subgoals_missing"):
+                line += ("\n  SUBGOAL NOT REACHED: "
+                         f"{{{', '.join(s['subgoals_missing'])}}}")
             if "contacts" in s:
                 line += (
                     "\n  Contacts: " +
@@ -336,6 +344,8 @@ class ProbeSim:
 
     Typical loop::
 
+        print(sim.task())      # goal + objects + init details (no state
+                               # change; pass task_idx in synthesis)
         sim.reset()                                   # true task init
         sim.reset(mods={"domino_1": {"x": 0.46}})     # modified copy
         sid = sim.snapshot()
@@ -487,6 +497,106 @@ class ProbeSim:
 
     # ── Introspection ────────────────────────────────────────────
 
+    def task(self, task_idx: Optional[int] = None) -> str:
+        """Describe a task: goal (NL preferred), initial atoms, objects, and
+        initial-state details.
+
+        ``task_idx`` indexes the train tasks; ``None`` (solve sessions
+        only) describes the current solve-time task. Purely
+        informational - does not change the probe's current state. Use
+        ``reset(task_idx)`` + ``render()`` for the scene image.
+        """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.tools.inspection import render_task_digest
+        ctx = self._ctx
+        if task_idx is None and ctx.probe_option_model_provider is not None:
+            raise ValueError(
+                "During synthesis there is no current solve task; pass "
+                "task_idx explicitly, e.g. sim.task(0).")
+        if task_idx is not None:
+            if not 0 <= task_idx < len(ctx.train_tasks):
+                raise ValueError(f"Invalid task_idx {task_idx}. Available: "
+                                 f"0-{len(ctx.train_tasks) - 1}")
+            task = ctx.train_tasks[task_idx]
+            label: Union[int, str] = task_idx
+        elif ctx.current_task is not None:
+            task = ctx.current_task
+            label = "(current solve task)"
+        else:
+            raise ValueError("No task_idx given and no current task set.")
+        # The is_goal_state/train_tasks query hint only makes sense in
+        # synthesis sessions, whose exec namespace binds those names.
+        return render_task_digest(
+            task,
+            label,
+            ctx.predicates,
+            include_goal_query_hint=(ctx.probe_option_model_provider
+                                     is not None))
+
+    def fit(self,
+            traj_idxs: Optional[List[int]] = None,
+            fixed: Optional[Dict[str, float]] = None,
+            path: Optional[str] = None) -> str:
+        """Fit the candidate simulator's parameters and return the report.
+
+        Synthesis sessions only (at solve time the deployed belief
+        model is fixed). With no arguments this is the CANONICAL fit -
+        the same fit the probe deploys for ``run``/``refine``, on the
+        full data - and, when ``simulator.py`` declares
+        ``PHYSICAL_PARAMS``, the identified physical values are applied
+        to the planning base env. Passing ``traj_idxs`` (fit only those
+        trajectories' transitions) or ``fixed`` (pin parameters at
+        given values) makes the fit EXPLORATORY: a diagnostic report
+        only - nothing is published or applied, and the probe keeps
+        running the canonical fit. Reports SSE at init vs post-fit,
+        fitted values with deltas, and (system-ID path) per-parameter
+        identifiability. MCMC - the expensive probe call; use
+        deliberately.
+        """
+        ctx = self._ctx
+        _check_time_budget(ctx)
+        provider = ctx.probe_fit_provider
+        if provider is None:
+            raise RuntimeError(
+                "sim.fit is unavailable in this session: fitting happens "
+                "during learning; the solve-time belief model is fixed.")
+        return provider(path=path, traj_idxs=traj_idxs, fixed=fixed)
+
+    def residuals(self,
+                  max_transitions: int = 100,
+                  abs_tol: float = 1e-4,
+                  rel_tol: float = 1e-3,
+                  num_worst_examples: int = 3,
+                  fit_params: bool = False,
+                  path: Optional[str] = None) -> str:
+        """Per-feature residual report for the current simulator rules.
+
+        Synthesis sessions only. Loads PROCESS_RULES fresh from
+        ``simulator.py`` and reports, per feature in PROCESS_FEATURES,
+        mismatch counts, mean/max abs error, improvement over the
+        no-rule baseline (negative = the rules hurt), and the worst-N
+        example transitions - the fast inner loop for finding where the
+        rules disagree with the data. Uses init_value params unless
+        ``fit_params=True`` (MCMC-fits first; diagnostic only, nothing
+        published). Tolerance: ``|pred - obs| > rel_tol * |obs| +
+        abs_tol``. Snapshots the simulator file and tags the report
+        ``[cycle_XXX_vers_YYY]``.
+        """
+        ctx = self._ctx
+        _check_time_budget(ctx)
+        provider = ctx.probe_residuals_provider
+        if provider is None:
+            raise RuntimeError(
+                "sim.residuals is unavailable in this session: residual "
+                "reports are a learning diagnostic; there is no candidate "
+                "simulator to score at solve time.")
+        return provider(max_transitions=max_transitions,
+                        abs_tol=abs_tol,
+                        rel_tol=rel_tol,
+                        num_worst_examples=num_worst_examples,
+                        fit_params=fit_params,
+                        path=path)
+
     def state(
         self,
         obj_name: Optional[str] = None
@@ -528,8 +638,8 @@ class ProbeSim:
                                             Any]]] = None) -> Optional[str]:
         """Render the current state; returns the saved image path.
 
-        ``annotations`` overlays temporary geometry for this render only
-        (the annotate_scene format): dicts with ``type`` of ``marker``
+        ``annotations`` overlays temporary geometry for this render
+        only: dicts with ``type`` of ``marker``
         (``position`` [x, y, z]), ``line`` (``from``/``to``), or
         ``rectangle`` (``min_corner``/``max_corner``), plus optional
         ``color`` [r, g, b], ``size``, and ``label`` text. Use it to
@@ -563,10 +673,6 @@ class ProbeSim:
                         pass
         else:
             img = render_pybullet_image(ctx, f"probe_{label}", state=cur)
-        # Same handoff visualize_state provides: a later annotate_scene
-        # call (when offered) draws on the state the agent just staged
-        # and rendered, not on the pristine task init.
-        ctx.visualized_state = cur
         saved = img.get("saved_path") if img else None
         # The saved filename is prefixed (iter/task/test counters), so a
         # guessed path never matches - print the real one even when the
@@ -665,7 +771,13 @@ class ProbeSim:
         ``plan_text`` uses the same grammar as ``evaluate_option_plan``:
         one option per line, ``Option(obj:type, ...)[params]`` with
         exact continuous params (``[]`` for none); ``-> {atoms}``
-        subgoals are accepted but optional. Advances the current state
+        subgoal annotations are optional but CHECKED - each step's
+        report lists any annotated atoms that did not hold in its
+        post-state, which makes a single continuous ``run`` of a
+        refined plan the forward-validation pass (``refine`` resets
+        state between options and resamples, so a refine-pass that
+        diverges here means a rule is more permissive than the env).
+        Advances the current state
         to the rollout's final state (``restore`` a snapshot to rewind).
         Like ``evaluate_option_plan``, each step's post-state is
         rendered to a saved image whose path lands in the step report;
@@ -877,12 +989,20 @@ class ProbeSim:
                 ctx,
                 f"probe_step_{i}_{outcome.option.name}") if render else None
             step_dicts.append({
-                "option": sig,
-                "num_actions": outcome.num_actions,
-                "failure": failure,
-                "added": added,
-                "deleted": deleted,
-                "image": img.get("saved_path") if img else None,
+                "option":
+                sig,
+                "num_actions":
+                outcome.num_actions,
+                "failure":
+                failure,
+                "added":
+                added,
+                "deleted":
+                deleted,
+                "subgoals_missing":
+                [str(a) for a in sorted(outcome.subgoal_missing or set())],
+                "image":
+                img.get("saved_path") if img else None,
             })
 
         _count_rollout(ctx)
@@ -1120,12 +1240,43 @@ class ProbeSim:
 
 
 def build_probe_namespace(ctx: "ToolContext") -> Dict[str, Any]:
-    """The persistent ``explore_python`` namespace (solve and synthesis).
+    """The persistent ``explore_python`` namespace (solve sessions).
 
-    Deliberately small: the probe facade, numpy, and nothing else - the
-    single-verdict-surface principle. The agent gets a ready ``sim``
-    plus the class for extra independent instances.
+    The probe facade, numpy, and the collected REAL trajectories as
+    read-only evidence (``trajectories`` plus a ``describe_trajectory``
+    digest helper) - so the agent can check the belief model against
+    what actually happened. Deliberately NOT here: anything
+    evaluator-shaped (``evaluate_trajectory`` scores arbitrary state
+    sequences, which in a solve session is a free oracle for searching
+    over sequences the evaluator likes without paying for physics;
+    evaluator access stays behind the gated ``run(solved=True)`` /
+    ``refine(require_solved=True)`` paths) and authoring bindings
+    (``Predicate``, ``ParamSpec`` - synthesis-role, see
+    ``_build_synthesis_exec_ns``).
     """
     # pylint: disable-next=import-outside-toplevel
     import numpy as np
-    return {"sim": ProbeSim(ctx), "ProbeSim": lambda: ProbeSim(ctx), "np": np}
+
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.agent_sdk.tools.inspection import render_trajectory_digest
+    all_trajs = list(ctx.offline_trajectories) + list(ctx.online_trajectories)
+
+    def describe_trajectory(traj_idx: int,
+                            include_states: bool = True,
+                            include_atoms: bool = False,
+                            max_timesteps: int = 10) -> str:
+        return render_trajectory_digest(all_trajs,
+                                        ctx.train_tasks,
+                                        ctx.predicates,
+                                        traj_idx,
+                                        include_states=include_states,
+                                        include_atoms=include_atoms,
+                                        max_timesteps=max_timesteps)
+
+    return {
+        "sim": ProbeSim(ctx),
+        "ProbeSim": lambda: ProbeSim(ctx),
+        "np": np,
+        "trajectories": all_trajs,
+        "describe_trajectory": describe_trajectory,
+    }

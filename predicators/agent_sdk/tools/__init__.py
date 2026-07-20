@@ -10,8 +10,8 @@ This package replaces the former single-module ``tools.py``. Layout:
 - ``scene``: scene rendering and state-manipulation helpers.
 - ``verdicts``: task-evaluator verdicts and ground-sampler loading.
 - ``inspection`` / ``proposals`` / ``testing`` / ``planning`` /
-  ``scene_tools`` / ``exploration`` / ``journal_tools``: the static MCP
-  tool builders, assembled by ``assembly.create_mcp_tools``.
+  ``exploration`` / ``journal_tools``: the static MCP tool builders,
+  assembled by ``assembly.create_mcp_tools``.
 - ``snapshots``: versioned write-time snapshots of agent-edited files.
 - ``python_exec``: shared python-exec core (run_python /
   explore_python).
@@ -32,7 +32,7 @@ from predicators.agent_sdk.tools.registry import ALL_TOOL_NAMES, \
     BUILTIN_TOOLS, EXPLORATION_TOOL_NAMES, INSPECTION_TOOL_NAMES, \
     JOURNAL_TOOL_NAMES, MCP_SERVER_NAME, PLANNING_TOOL_NAMES, \
     PREDICATE_SYNTHESIS_TOOL_NAMES, PROPOSAL_TOOL_NAMES, \
-    RETRACTION_TOOL_NAMES, SAMPLER_SYNTHESIS_TOOL_NAMES, SCENE_TOOL_NAMES, \
+    RETRACTION_TOOL_NAMES, SAMPLER_SYNTHESIS_TOOL_NAMES, \
     SYNTHESIS_TOOL_NAMES, TESTING_TOOL_NAMES, explore_python_replaces_tools, \
     get_allowed_tool_list, list_session_tool_names
 from predicators.agent_sdk.tools.results import _make_coercing_tool, \
@@ -67,7 +67,6 @@ __all__ = [
     "SANDBOX_HIDDEN_MODULES_PATTERN",
     "SANDBOX_INTROSPECTION",
     "SANDBOX_SYSTEM_ROOTS",
-    "SCENE_TOOL_NAMES",
     "SYNTHESIS_TOOL_NAMES",
     "TESTING_TOOL_NAMES",
     "PlanCapture",

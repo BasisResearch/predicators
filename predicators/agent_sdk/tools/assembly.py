@@ -10,7 +10,6 @@ from predicators.agent_sdk.tools.proposals import _build_proposal_tools, \
     _build_retraction_tools
 from predicators.agent_sdk.tools.results import _make_coercing_tool, \
     _make_spilling_text_result
-from predicators.agent_sdk.tools.scene_tools import _build_scene_tools
 from predicators.agent_sdk.tools.testing import _build_testing_tools
 
 
@@ -41,7 +40,6 @@ def create_mcp_tools(ctx: ToolContext,
         **_build_retraction_tools(ctx, _text_result, tool),
         **_build_testing_tools(ctx, _text_result, tool),
         **_build_planning_tools(ctx, _text_result, tool),
-        **_build_scene_tools(ctx, _text_result, tool),
         **_build_exploration_tools(ctx, _text_result, tool),
         **_build_journal_tools(ctx, _text_result, tool),
     }

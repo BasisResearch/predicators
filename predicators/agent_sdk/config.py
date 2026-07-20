@@ -122,7 +122,6 @@ class ToolSurfaceConfig:
     """
     use_explore_python: bool
     explore_python_keep_replaced_tools: bool
-    use_visualize_state: bool
     use_base_simulator: bool
     explore_python_call_timeout: float
     image_max_px: int
@@ -140,7 +139,6 @@ class ToolSurfaceConfig:
             use_explore_python=CFG.agent_planner_use_explore_python,
             explore_python_keep_replaced_tools=(
                 CFG.agent_planner_explore_python_keep_replaced_tools),
-            use_visualize_state=CFG.agent_planner_use_visualize_state,
             use_base_simulator=CFG.agent_planner_use_base_simulator,
             explore_python_call_timeout=(
                 CFG.agent_sdk_explore_python_call_timeout),

@@ -31,6 +31,8 @@ from predicators import utils
 from predicators.agent_sdk.rendering import save_task_state_image
 from predicators.agent_sdk.tools import agent_render_resolution, \
     explore_python_replaces_tools
+from predicators.agent_sdk.tools.inspection import render_options_digest, \
+    render_types_digest
 from predicators.approaches import ApproachFailure
 from predicators.approaches.agent_session_mixin import AgentSessionMixin
 from predicators.approaches.base_approach import BaseApproach
@@ -127,8 +129,8 @@ class AgentModelFreeApproach(AgentSessionMixin, BaseApproach):
         # model wraps ``env.simulate`` (a bound method), so ``__self__`` is the
         # env. Later cycles may rebuild ``_option_model`` with a plain learned
         # simulator that has no ``__self__``; pinning the env reference here
-        # keeps scene rendering tools (annotate_scene, visualize_state) working
-        # in every synthesis/solve cycle.
+        # keeps scene rendering (the probe's sim.render) working in every
+        # synthesis/solve cycle.
         env_self = getattr(getattr(self._option_model, '_simulator', None),
                            '__self__', None)
         if env_self is not None:
@@ -274,58 +276,10 @@ as your lab notebook - write after every single experiment.
 **If you notice you have NOT updated notes after a test, STOP \
 and update before doing anything else.**"""
 
-    _VISUALIZE_STATE_SECTION = """
-**visualize_state** modifies any object features (x, y, z, \
-rotation, water_volume, is_on, etc.) and renders the scene \
-WITHOUT running the full simulation. It is FREE (no physics, \
-no failure modes) - use it liberally to build spatial \
-understanding before spending expensive evaluate_option_plan calls.
-
-**When to use visualize_state:**
-- **At the start**: visualize key objects to understand the \
-layout and geometry (e.g. which direction does a part extend? \
-where exactly would spatial relations like "under" or "on" \
-be satisfied?)
-- **Before testing params**: visualize the object at your \
-candidate position to check if it looks right. Try multiple \
-positions AND orientations - orientation changes how the \
-object sits relative to nearby objects.
-- **After a failed action**: visualize the object at BOTH \
-where it actually ended up AND where you wanted it. Compare \
-visually to understand the offset.
-- **When stuck (3+ failures on the same step)**: STOP testing \
-and switch to visualize_state. Move the object to 4-5 spread \
-out positions to visually locate the right region. Also try \
-different orientations - they change the offset between the \
-action's target coordinates and the object's final position.
-- **To understand reference geometry**: Visualize nearby \
-objects and look at their shapes. The functional point of an \
-object is often offset from its reported (x,y) position."""
-
-    _ANNOTATE_SCENE_SECTION = """
-**annotate_scene** draws markers, lines, and rectangles on \
-the scene to mark reference points (object origins, target \
-positions, reachable boundaries)."""
-
-    _COMPOSE_SECTION = """
-The two compose: visualize_state sets up the hypothetical \
-scene, then annotate_scene overlays markers on it."""
-
     # -- System prompt --------------------------------------------------- #
 
     def _get_agent_system_prompt(self) -> str:
         use_scratchpad = CFG.agent_planner_use_scratchpad
-        # visualize_state / annotate_scene render a live env, so they are
-        # only available when the planner has a simulator. When
-        # explore_python replaces visualize_state (see
-        # explore_python_replaces_tools), the tool is absent from the
-        # session, so the prompt must not mandate it.
-        use_visualize = (CFG.agent_planner_use_simulator
-                         and CFG.agent_planner_use_visualize_state
-                         and not explore_python_replaces_tools())
-        use_annotate = (CFG.agent_planner_use_simulator
-                        and CFG.agent_planner_use_annotate_scene
-                        and not explore_python_replaces_tools())
 
         sections = [self._SYSTEM_PROMPT_BASE]
 
@@ -333,31 +287,8 @@ scene, then annotate_scene overlays markers on it."""
         if use_scratchpad:
             sections.append(self._SCRATCHPAD_SECTION)
 
-        # Scene visualization
-        if use_visualize or use_annotate:
-            tools_str = " and ".join(t for flag, t in [
-                (use_visualize, "visualize_state"),
-                (use_annotate, "annotate_scene"),
-            ] if flag)
-            sections.append(
-                f"\n## Scene Visualization - CRITICAL\n"
-                f"You MUST use {tools_str} throughout debugging. "
-                f"Without them you are guessing blindly at spatial parameters."
-            )
-            if use_visualize:
-                sections.append(self._VISUALIZE_STATE_SECTION)
-            if use_annotate:
-                sections.append(self._ANNOTATE_SCENE_SECTION)
-            if use_visualize and use_annotate:
-                sections.append(self._COMPOSE_SECTION)
-
         # Tuning workflow (numbered steps, dynamic)
         steps = []
-        if use_visualize or use_annotate:
-            viz_tool = "visualize_state" if use_visualize else "annotate_scene"
-            steps.append(
-                f"**Use {viz_tool} first** to understand the spatial "
-                "layout and narrow candidate positions before testing.")
         if use_scratchpad:
             steps.append(
                 "**Read `./notes.md` before every test**, then **update it "
@@ -420,27 +351,28 @@ scene, then annotate_scene overlays markers on it."""
         return files
 
     def _get_solve_tool_names(self) -> Optional[List[str]]:
-        tools = [
-            "inspect_options", "inspect_trajectories", "inspect_train_tasks"
-        ]
-        # The remaining tools all require a simulator / live env:
-        # evaluate_option_plan rolls fully-specified plans out through the
-        # option model; visualize_state / annotate_scene render env states.
+        # inspect_types / inspect_options are never offered: their
+        # digests are static per session, so the solve prompt injects
+        # them directly (same renderers - see _build_solve_prompt);
+        # a zero-turn prompt section beats a one-turn tool call that
+        # every fresh-context attempt would re-pay.
+        tools = []
+        # When the probe is present it subsumes the remaining inspect
+        # tools too: `trajectories` / `describe_trajectory` in
+        # explore_python's namespace and `sim.task()`. The extra
+        # use_simulator guard keeps them for (hypothetical) sim-free
+        # configs where explore_python itself is never offered below.
+        probe_subsumes = (CFG.agent_planner_use_simulator
+                          and explore_python_replaces_tools())
+        if not probe_subsumes:
+            tools += ["inspect_trajectories", "inspect_train_tasks"]
+        # The remaining tools require a simulator: evaluate_option_plan
+        # rolls fully-specified plans out through the option model.
         # None are offered when the planner has no simulator.
         # (refine_plan_sketch, which backtracking-refines a param-free sketch,
         # is exposed only by AgentModelBasedApproach.)
         if CFG.agent_planner_use_simulator:
             tools.append("evaluate_option_plan")
-            # explore_python subsumes annotate_scene (sim.render with
-            # annotations) and visualize_state (sim.reset(mods) +
-            # sim.render); when it replaces the subsumed tools (see
-            # explore_python_replaces_tools), both are dropped.
-            if CFG.agent_planner_use_annotate_scene and \
-                    not explore_python_replaces_tools():
-                tools.append("annotate_scene")
-            if CFG.agent_planner_use_visualize_state and \
-                    not explore_python_replaces_tools():
-                tools.append("visualize_state")
             if CFG.agent_planner_use_explore_python:
                 tools.append("explore_python")
         if CFG.agent_solve_use_journal:
@@ -708,8 +640,9 @@ scene, then annotate_scene overlays markers on it."""
         return self._parse_and_ground_plan(plan_text, task)
 
     def _solve_prompt_visualize_line(self) -> str:
-        """The stuck-step visualization bullet, matching the session's actual
-        visualization surface (visualize_state, explore_python, or neither)."""
+        """The stuck-step visualization bullet: the probe's staging + render is
+        the only visualization surface, so the bullet appears only when
+        explore_python is offered."""
         if CFG.agent_planner_use_simulator and \
                 CFG.agent_planner_use_explore_python:
             return (
@@ -717,14 +650,6 @@ scene, then annotate_scene overlays markers on it."""
                 "the same step, STOP testing and use explore_python "
                 "(`sim.reset(mods={...})`, then `sim.render(...)`) to move "
                 "the object to several candidate positions and "
-                "orientations. It's free (no physics). Find the right "
-                "region visually, then test.\n")
-        if CFG.agent_planner_use_simulator and \
-                CFG.agent_planner_use_visualize_state:
-            return (
-                "- **Use visualize_state when stuck** - after 3+ failures "
-                "on the same step, STOP testing and use visualize_state to "
-                "move the object to several candidate positions and "
                 "orientations. It's free (no physics). Find the right "
                 "region visually, then test.\n")
         return ""
@@ -761,24 +686,13 @@ scene, then annotate_scene overlays markers on it."""
             if a.predicate in visible_preds
         ]
 
-        # Options
-        option_strs = []
-        for opt in sorted(self._get_all_options(), key=lambda o: o.name):
-            type_sig = ", ".join(t.name for t in opt.types)
-            params_dim = opt.params_space.shape[0]
-            if params_dim > 0:
-                low = opt.params_space.low.tolist()
-                high = opt.params_space.high.tolist()
-                if opt.params_description:
-                    desc = ", ".join(opt.params_description)
-                    param_info = (f", params=[{desc}], "
-                                  f"low={low}, high={high}")
-                else:
-                    param_info = (f", params_dim={params_dim}, "
-                                  f"low={low}, high={high}")
-            else:
-                param_info = ""
-            option_strs.append(f"  {opt.name}({type_sig}{param_info})")
+        # Types and options: the same digests the inspect_types /
+        # inspect_options tools would serve, injected here so those
+        # tools need not be offered (see _get_solve_tool_names).
+        types_digest = render_types_digest(self._tool_context.types)
+        options_digest = render_options_digest(
+            self._get_all_options(),
+            gt_options_ref_path=self._tool_context.gt_options_ref_path)
 
         # Current atoms
         atoms = utils.abstract(init_state, self._get_all_predicates())
@@ -833,8 +747,11 @@ Generate an option plan to achieve the goal.
 ## Objects
 {chr(10).join(obj_strs)}
 
+## Object Types
+{types_digest}
+
 ## Available Options
-{chr(10).join(option_strs)}
+{options_digest}
 {traj_summary}{tools_str}
 ## Instructions
 {instructions_intro}
