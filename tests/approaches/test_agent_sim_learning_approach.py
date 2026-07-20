@@ -484,3 +484,22 @@ if __name__ == "__main__":
     import sys
     _model = sys.argv[1] if len(sys.argv) > 1 else "oracle"
     test_boil_sketch_refinement(_model)
+
+
+def test_rollout_fit_trajectories_subset() -> None:
+    """traj_idxs subsets the SOURCE trajectories (agent-facing indexing,
+    applied before truncation/segmentation and before the completeness filter)
+    and raises on an out-of-range index."""
+    obj = object.__new__(AgentSimLearningApproach)
+    t0 = SimpleNamespace(states=[0, 1], actions=["a"])
+    t1 = SimpleNamespace(states=[0, 1, 2], actions=["a", "b"])
+    t2 = SimpleNamespace(states=[0], actions=[])  # incomplete: filtered out
+    obj._fit_trajectories = [t0, t1, t2]
+
+    assert len(obj._rollout_fit_trajectories()) == 2
+    sub = obj._rollout_fit_trajectories(traj_idxs=[1])
+    assert len(sub) == 1 and len(sub[0][1]) == 2  # t1's two actions
+    # Selecting only the incomplete trajectory leaves no usable rollouts.
+    assert obj._rollout_fit_trajectories(traj_idxs=[2]) == []
+    with pytest.raises(ValueError, match="out of range"):
+        obj._rollout_fit_trajectories(traj_idxs=[3])

@@ -82,6 +82,7 @@ class SynthesisBackend(Protocol):
     def _rollout_fit_trajectories(
         self,
         process_features: Optional[Dict[str, List[str]]] = None,
+        traj_idxs: Optional[Sequence[int]] = None,
     ) -> List[RolloutTrajectory]:
         ...
 

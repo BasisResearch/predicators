@@ -9,7 +9,7 @@ without updating the constants, these tests fail.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any, Iterable, List, Optional, Set
+from typing import Any, Iterable, List, Optional, Set, cast
 
 from predicators.agent_sdk.tools import ALL_TOOL_NAMES, BUILTIN_TOOLS, \
     MCP_SERVER_NAME, PREDICATE_SYNTHESIS_TOOL_NAMES, SYNTHESIS_TOOL_NAMES, \
@@ -76,6 +76,47 @@ def test_create_synthesis_tools_matches_constant(tmp_path) -> None:
     assert "simulator.py" in report and "Write" in report
     report = toolkit.residuals_runner()
     assert "simulator.py" in report and "Write" in report
+
+
+def test_sysid_fit_gate_traj_idxs_vs_fixed(tmp_path) -> None:
+    """On the PHYSICAL_PARAMS path, ``fixed`` is rejected (pinning goes through
+    the param's bounds in the declaration) while ``traj_idxs`` passes.
+
+    the gate as an exploratory subset fit - with no approach bound it then
+    stops at the no-approach error rather than the gate.
+    """
+    sim_file = tmp_path / "simulator.py"
+    sim_file.write_text("PHYSICAL_PARAMS = [\n"
+                        "    ParamSpec('lateral_friction', 0.2, lo=0.01, "
+                        "hi=1.0)\n"
+                        "]\n")
+    toolkit = create_synthesis_tools(
+        exec_ns={},
+        base_pred_triples=[],
+        inferred_process_features={},
+        simulator_file=str(sim_file),
+        versions_dir=str(tmp_path / "simulator_versions"),
+        approach=None,
+    )
+    out = toolkit.fit_runner(fixed={"lateral_friction": 0.3})
+    assert "fixed is not supported" in out
+    assert "narrowing" in out
+    out = toolkit.fit_runner(traj_idxs=[0])
+    assert "fixed is not supported" not in out
+    assert "requires a bound approach" in out
+    # With an approach bound, an empty subset is refused before any fit
+    # machinery runs (the guard precedes all approach attribute access,
+    # so a bare stub suffices).
+    toolkit = create_synthesis_tools(
+        exec_ns={},
+        base_pred_triples=[],
+        inferred_process_features={},
+        simulator_file=str(sim_file),
+        versions_dir=str(tmp_path / "simulator_versions"),
+        approach=cast(Any, SimpleNamespace()),
+    )
+    out = toolkit.fit_runner(traj_idxs=[])
+    assert "traj_idxs is empty" in out
 
 
 def test_create_predicate_synthesis_tools_matches_constant(tmp_path) -> None:

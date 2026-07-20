@@ -216,29 +216,46 @@ def create_synthesis_tools(
                 return grouped
         return [triples]
 
-    def _evaluate_rollout_fit(rules: list, rule_specs: list,
-                              physical_specs: list, latent_init: Any,
+    def _evaluate_rollout_fit(rules: list,
+                              rule_specs: list,
+                              physical_specs: list,
+                              latent_init: Any,
                               process_features: Dict[str, List[str]],
-                              scope_note: str, version_tag: str) -> str:
+                              scope_note: str,
+                              version_tag: str,
+                              traj_idxs: Optional[List[int]] = None) -> str:
         """Joint physical+rule system-ID fit on free-running rollouts.
 
         Reached from ``run_fit`` (``sim.fit``) when the artifact
         declares ``PHYSICAL_PARAMS``. Needs the bound approach for the
         raw (states, actions) trajectories and the dedicated headless
-        fit env. On success the identified physical values are applied
-        in place to the approach's planning base env, so subsequent
-        probe rollouts run against the calibrated sim.
+        fit env. With ``traj_idxs=None`` (canonical) the identified
+        physical values are applied in place to the approach's planning
+        base env on success, so subsequent probe rollouts run against
+        the calibrated sim. With ``traj_idxs`` the fit is EXPLORATORY:
+        it runs on only those trajectories' data and applies nothing - a
+        consistency diagnostic (per-trajectory fits that disagree mean
+        heterogeneous data, not a parameter).
         """
         if approach is None:
             return (f"[{version_tag}] Error: PHYSICAL_PARAMS requires a bound "
                     "approach (raw trajectories + base env) — unavailable in "
                     "this session.")
+        exploratory = traj_idxs is not None
+        if exploratory and not traj_idxs:
+            return (f"[{version_tag}] Error: traj_idxs is empty - pass the "
+                    "trajectory indices to fit on, or omit it for the "
+                    "canonical all-data fit.")
         # Stamp the fit scale (log vs linear) from the env registry —
         # the agent's declaration carries name/init/bounds only.
         physical_specs = stamp_physical_spec_scales(physical_specs,
                                                     approach._base_env)  # pylint: disable=protected-access
-        rollouts = approach._rollout_fit_trajectories(  # pylint: disable=protected-access
-            process_features)
+        try:
+            rollouts = approach._rollout_fit_trajectories(  # pylint: disable=protected-access
+                process_features,
+                traj_idxs=traj_idxs)
+        except ValueError as e:
+            return f"[{version_tag}] Error: {e}"
         if not rollouts:
             return (f"[{version_tag}] Error: no complete (states, actions) "
                     "trajectories are available, so the rollout system-ID fit "
@@ -271,7 +288,14 @@ def create_synthesis_tools(
                 latent_init=latent_init,
                 scaling=scaling,
                 anchors=anchors,
-                rms_cache=getattr(approach, "_explainability_cache", None))
+                # The phase-shared cache keys trajectory identity by
+                # segment lengths only - exact when every fit sees the
+                # full recording set, but two different traj_idxs
+                # subsets with equal-length segments would collide and
+                # cross-assign explainability verdicts. Exploratory
+                # subset fits therefore never share it.
+                rms_cache=(None if exploratory else getattr(
+                    approach, "_explainability_cache", None)))
             if not survivors:
                 # Honest empty-data output: no fit ran, nothing was
                 # applied - do NOT print fitted values or identifiability
@@ -317,21 +341,25 @@ def create_synthesis_tools(
         applied = select_trustworthy_params(fitted, init_params,
                                             physical_names, ident_report,
                                             anchors)
-        approach._apply_identified_physical_params(applied)  # pylint: disable=protected-access
-        if hasattr(approach, "_record_sysid_diagnostics"):
-            approach._record_sysid_diagnostics(  # pylint: disable=protected-access
-                ident_report, physical_names, len(survivors), len(rollouts),
-                traj_rms)
+        if not exploratory:
+            approach._apply_identified_physical_params(applied)  # pylint: disable=protected-access
+            if hasattr(approach, "_record_sysid_diagnostics"):
+                approach._record_sysid_diagnostics(  # pylint: disable=protected-access
+                    ident_report, physical_names, len(survivors),
+                    len(rollouts), traj_rms)
         kept_at_init = sorted(n for n in physical_names
                               if applied[n] != fitted[n])
         if pre_sse > 0:
             pct_str = f"({(pre_sse - post_sse) / pre_sse * 100:+.1f}% vs init)"
         else:
             pct_str = "(init SSE was 0)"
+        mode_note = (
+            f"EXPLORATORY, trajectories {sorted(traj_idxs or [])} only"
+            if exploratory else "canonical")
         lines = [
             f"[{version_tag}] JOINT ROLLOUT SYSTEM-ID FIT (PHYSICAL_PARAMS "
-            f"declared) on {len(rollouts)} motion segments (scope: "
-            f"{scope_note}; {len(physical_names)} physical + "
+            f"declared; {mode_note}) on {len(rollouts)} motion segments "
+            f"(scope: {scope_note}; {len(physical_names)} physical + "
             f"{len(list(rule_specs))} rule params). Residuals are "
             "per-feature normalized (angles wrapped), so SSE/RMS are "
             "dimensionless fractions of typical motion.",
@@ -371,7 +399,16 @@ def create_synthesis_tools(
             format_identifiability(ident_report),
             "",
         ])
-        if kept_at_init:
+        if exploratory:
+            lines.append(
+                "EXPLORATORY subset fit: nothing was applied or recorded - "
+                "the deployed physical params are unchanged. Compare the "
+                "identified values across subsets (and against the "
+                "canonical no-arg fit): parameters that disagree between "
+                "individually-explainable trajectories indicate "
+                "heterogeneous data (e.g. an arm-touched episode), not a "
+                "parameter value.")
+        elif kept_at_init:
             lines.append(
                 "Applied to the planning base env: fitted values for the "
                 "identified params only; "
@@ -456,12 +493,14 @@ def create_synthesis_tools(
         the fit EXPLORATORY: a diagnostic report only, publishing and
         applying nothing.
 
-        ``traj_idxs`` restricts the fit to those trajectories' step
-        transitions; ``fixed`` pins parameters at given values while
-        the rest are fit (both rule-param paths only - the rollout
-        system-ID path rejects them). Each call snapshots the simulator
-        file into simulator_versions/ and tags output
-        ``[cycle_XXX_vers_YYY]``.
+        ``traj_idxs`` restricts the fit to those trajectories' data
+        (step transitions on the rule paths; whole recorded rollouts on
+        the system-ID path - a consistency diagnostic across
+        trajectories). ``fixed`` pins parameters at given values while
+        the rest are fit (rule paths only - the system-ID path rejects
+        it; narrow the param's bounds in PHYSICAL_PARAMS instead). Each
+        call snapshots the simulator file into simulator_versions/ and
+        tags output ``[cycle_XXX_vers_YYY]``.
         """
         p = path or simulator_file
         rules, specs, declared, latent_init, physical_specs, version_tag, \
@@ -478,16 +517,24 @@ def create_synthesis_tools(
         # PHYSICAL_PARAMS declared -> joint system-identification fit on
         # free-running rollouts (the per-transition/teacher-forced paths
         # below cannot see physical params: State carries no velocities).
+        # traj_idxs is allowed (exploratory subset fit; applies nothing);
+        # fixed is not - pinning a physical param has a versioned channel
+        # already (its lo/hi bounds in the PHYSICAL_PARAMS declaration).
         if physical_specs:
-            if not canonical:
-                return (f"[{version_tag}] Error: traj_idxs/fixed are not "
-                        "supported with PHYSICAL_PARAMS (the rollout "
-                        "system-ID fit trims and weights motion segments "
-                        "itself). Pin a physical param by narrowing its "
-                        "lo/hi bounds in PHYSICAL_PARAMS instead.")
-            return _evaluate_rollout_fit(rules, specs, physical_specs,
-                                         latent_init, process_features,
-                                         scope_note, version_tag)
+            if fixed:
+                return (f"[{version_tag}] Error: fixed is not supported "
+                        "with PHYSICAL_PARAMS. Pin a physical param by "
+                        "narrowing its lo/hi bounds in PHYSICAL_PARAMS "
+                        "instead (versioned in simulator.py, respected by "
+                        "the whole fit stack).")
+            return _evaluate_rollout_fit(rules,
+                                         specs,
+                                         physical_specs,
+                                         latent_init,
+                                         process_features,
+                                         scope_note,
+                                         version_tag,
+                                         traj_idxs=traj_idxs)
 
         if fixed:
             known = {s.name for s in specs}

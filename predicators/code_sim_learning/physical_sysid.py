@@ -366,8 +366,11 @@ def _explainability_cache_key(
     the segment shapes. Rule-spec INIT values matter (rule params are
     not swept, so candidates hold them at their anchor-or-init).
     Trajectory identity is approximated by per-segment lengths - exact
-    within one learn phase, where the underlying recordings are fixed
-    and segmentation is deterministic.
+    within one learn phase ONLY when every cache-sharing caller fits on
+    the same full recording set (fixed recordings, deterministic
+    segmentation). Callers fitting on data subsets (e.g. exploratory
+    ``sim.fit(traj_idxs=...)``) must NOT share the cache: different
+    subsets with equal-length segments collide.
     """
     return (
         tuple((s.name, s.lo, s.hi, getattr(s, "scale", "linear"))

@@ -1717,6 +1717,7 @@ re-score.{probe_note}"""
     def _rollout_fit_trajectories(
         self,
         process_features: Optional[Dict[str, List[str]]] = None,
+        traj_idxs: Optional[Sequence[int]] = None,
     ) -> List[RolloutTrajectory]:
         """Raw observed (states, actions) sequences for rollout matching.
 
@@ -1728,9 +1729,22 @@ re-score.{probe_note}"""
         :func:`trajectory_prep.truncate_settled_tail`) so the fit scores
         the active cascade, not hundreds of settled steps of accumulated
         rollout divergence.
+
+        ``traj_idxs`` restricts the source to those trajectories (same
+        indexing as the synthesis session's ``trajectories`` list) -
+        subsetting happens *before* truncation/segmentation so the
+        indices the agent reasons about are the ones that apply. Raises
+        ``ValueError`` on an out-of-range index.
         """
+        source = self._fit_trajectories
+        if traj_idxs is not None:
+            bad = sorted(i for i in traj_idxs if not 0 <= i < len(source))
+            if bad:
+                raise ValueError(
+                    f"traj_idxs {bad} out of range (0-{len(source) - 1})")
+            source = [source[i] for i in traj_idxs]
         rollouts: List[RolloutTrajectory] = []
-        for traj in self._fit_trajectories:
+        for traj in source:
             if traj.actions and len(traj.states) == len(traj.actions) + 1:
                 rollouts.append((list(traj.states), list(traj.actions)))
         if (process_features is not None
