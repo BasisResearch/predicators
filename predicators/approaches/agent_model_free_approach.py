@@ -109,6 +109,14 @@ class AgentModelFreeApproach(AgentSessionMixin, BaseApproach):
         # ``test_task_idx``. Incremented per test solve; threaded into the
         # session-log filename via the ToolContext.
         self._test_task_idx = -1
+        # Solve-journal snapshot taken at begin_test_phase (None = no
+        # journal file existed) and whether it was captured successfully.
+        # end_test_phase archives the full test-phase journal outside the
+        # sandbox and rolls the file back to this snapshot, so learning
+        # entries persist across cycles while one evaluation's test-task
+        # entries never leak into the next evaluation.
+        self._pre_test_journal: Optional[str] = None
+        self._pre_test_journal_valid = False
         # Scene renders attempted this episode. The first is the true initial
         # state; later ones come from mid-episode replans and get distinct
         # filenames so they don't overwrite the init snapshot. Reset in
@@ -584,7 +592,7 @@ and update before doing anything else.**"""
     # ------------------------------------------------------------------ #
 
     def begin_test_phase(self) -> None:
-        """Snapshot the learning conversation log before testing."""
+        """Snapshot the learning conversation log and solve journal."""
         self._in_test_phase = True
         self._test_task_idx = -1
         if self._agent_session is not None:
@@ -592,9 +600,10 @@ and update before doing anything else.**"""
                 self._agent_session.conversation_log)
         else:
             self._pre_test_conversation_log = None
+        self._snapshot_journal_for_test_phase()
 
     def end_test_phase(self) -> None:
-        """Restore the conversation log to its pre-test state."""
+        """Restore the conversation log and journal to pre-test state."""
         self._in_test_phase = False
         self._tool_context.test_task_idx = None
         if self._agent_session is not None \
@@ -605,6 +614,78 @@ and update before doing anything else.**"""
             log = self._agent_session.conversation_log
             log[:] = self._pre_test_conversation_log
         self._pre_test_conversation_log = None
+        self._archive_and_rollback_test_journal()
+
+    def _journal_active(self) -> bool:
+        """Whether solve-journal entries can be written at all."""
+        return bool(CFG.agent_solve_use_journal
+                    and self._tool_context.sandbox_dir)
+
+    def _snapshot_journal_for_test_phase(self) -> None:
+        """Capture the learning-only journal content at test-phase entry.
+
+        The snapshot is what ``end_test_phase`` rolls the journal back
+        to. A failed capture leaves ``_pre_test_journal_valid`` False so
+        the rollback is skipped rather than destroying learning entries.
+        """
+        self._pre_test_journal = None
+        self._pre_test_journal_valid = False
+        if not self._journal_active():
+            return
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk import journal as journal_mod
+        try:
+            self._pre_test_journal = journal_mod.read_raw(
+                self._tool_context.sandbox_dir)
+            self._pre_test_journal_valid = True
+        except OSError as e:
+            logging.warning(
+                "[%s] Failed to snapshot the solve journal at test-phase "
+                "start; test-phase entries will NOT be rolled back: %s",
+                self._run_id, e)
+
+    def _archive_and_rollback_test_journal(self) -> None:
+        """Archive the test-phase journal, then roll it back.
+
+        Each evaluation must be independent of previous evaluations:
+        entries recorded while solving test tasks (harness auto-entries
+        and agent notes) would otherwise leak this evaluation's test
+        tasks into the next one. Learning entries - the pre-test
+        snapshot - persist across cycles. Before the rollback, the full
+        journal (learning + this evaluation's additions) is copied to
+        the run's log dir, which lives outside the sandbox so the agent
+        cannot read it, for later inspection.
+        """
+        if not self._pre_test_journal_valid:
+            return
+        snapshot = self._pre_test_journal
+        self._pre_test_journal = None
+        self._pre_test_journal_valid = False
+        sandbox_dir = self._tool_context.sandbox_dir
+        if not self._journal_active():
+            return
+        assert sandbox_dir is not None
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk import journal as journal_mod
+        try:
+            content = journal_mod.read_raw(sandbox_dir)
+            if content is not None:
+                # One archive per online-learning cycle; the cycle counter
+                # advances with each learning phase, so evaluations map to
+                # distinct files (a same-cycle re-eval overwrites its own).
+                archive_path = os.path.join(
+                    self._get_log_dir(),
+                    f"journal_eval_cycle{self._online_learning_cycle}.md")
+                with open(archive_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                logging.info(
+                    "[%s] Archived the test-phase solve journal to %s",
+                    self._run_id, archive_path)
+            journal_mod.restore(sandbox_dir, snapshot)
+        except OSError as e:
+            logging.warning(
+                "[%s] Failed to archive/roll back the test-phase solve "
+                "journal: %s", self._run_id, e)
 
     def reset_for_new_episode(self) -> None:
         """Advance the test-task counter at each test episode start.
