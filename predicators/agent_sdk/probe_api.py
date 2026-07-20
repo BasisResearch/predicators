@@ -545,13 +545,16 @@ class ProbeSim:
         full data - and, when ``simulator.py`` declares
         ``PHYSICAL_PARAMS``, the identified physical values are applied
         to the planning base env. Passing ``traj_idxs`` (fit only those
-        trajectories' transitions) or ``fixed`` (pin parameters at
-        given values) makes the fit EXPLORATORY: a diagnostic report
-        only - nothing is published or applied, and the probe keeps
-        running the canonical fit. Reports SSE at init vs post-fit,
-        fitted values with deltas, and (system-ID path) per-parameter
-        identifiability. MCMC - the expensive probe call; use
-        deliberately.
+        trajectories' data) or ``fixed`` (pin parameters at given
+        values) makes the fit EXPLORATORY: a diagnostic report only -
+        nothing is published or applied, and the probe keeps running
+        the canonical fit. On the system-ID path ``traj_idxs`` is a
+        cross-trajectory consistency check (subset fits that disagree
+        mean heterogeneous data); ``fixed`` is rejected there - pin by
+        narrowing the param's bounds in PHYSICAL_PARAMS. Reports SSE at
+        init vs post-fit, fitted values with deltas, and (system-ID
+        path) per-parameter identifiability. MCMC - the expensive probe
+        call; use deliberately.
         """
         ctx = self._ctx
         _check_time_budget(ctx)
