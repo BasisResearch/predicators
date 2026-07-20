@@ -52,8 +52,8 @@ the environment.
 
 ## Proposed Code
 All proposal code and option source code is saved to ./proposed_code/.
-Proposals are numbered (e.g. `001_propose_options_Pick.py`); option source
-saved via `inspect_options` uses the option name (e.g. `Pick.py`):
+Proposals are numbered (e.g. `001_propose_options_Pick.py`); saved
+option source uses the option name (e.g. `Pick.py`):
 
     Glob ./proposed_code/*.py
     Read ./proposed_code/001_propose_options_Pick.py
@@ -88,10 +88,9 @@ _CLAUDE_MD_SOLVE_STRATEGY = """\
   different region.
 """
 
-# The solve strategy's visualization pointer depends on which tool the
-# session actually has (see agent_planner_explore_python_keep_replaced
-# _tools): explore_python subsumes visualize_state when it replaces it.
-_VISUALIZE_HINT_TOOL = "use visualize_state."
+# The solve strategy's visualization pointer depends on whether the
+# session has the probe: explore_python's sim.reset staging +
+# sim.render overlays are the only visualization surface.
 _VISUALIZE_HINT_PROBE = ("use explore_python (`sim.reset(mods={...})`, "
                          "then `sim.render(...)`).")
 _VISUALIZE_HINT_GENERIC = ("render candidate layouts with whatever "
@@ -126,8 +125,9 @@ condition compares a recorded feature against a learned cutoff:
    fixture's `rot` (origin + R(rot) @ (local_dx, local_dy)), with
    local_dx/local_dy declared as ParamSpecs and shared between the rule
    and its gating predicate — not a raw origin-distance threshold. To
-   find the offset, call `visualize_state` at one representative state
-   from each bucket and use `annotate_scene` to overlay, on one render,
+   find the offset, stage one representative state from each bucket
+   with `sim.reset(task_idx=..., mods={...})` and use
+   `sim.render(label, annotations=[...])` to overlay, on one render,
    the recorded object origin and the positions where the effect did
    vs. did not fire. The gap between the origin and the effect-firing
    cluster is the offset.
@@ -145,8 +145,9 @@ condition compares a recorded feature against a learned cutoff:
 - You're choosing between candidate reference points (body center vs.
   contact surface, frame origin vs. tool tip, etc.).
 
-`visualize_state` and `annotate_scene` are free (no physics, no failure
-modes). Reach for them before, not after, you commit a numeric fit.
+`sim.reset` staging and `sim.render` overlays are free (no physics, no
+failure modes). Reach for them before, not after, you commit a numeric
+fit.
 """
 
 
@@ -165,12 +166,8 @@ def build_claude_md(phase: Optional[str] = None) -> str:
     if phase == "synthesis":
         strategy = _CLAUDE_MD_SYNTHESIS_STRATEGY
     else:
-        # pylint: disable-next=import-outside-toplevel
-        from predicators.agent_sdk.tools import explore_python_replaces_tools
-        if explore_python_replaces_tools():
+        if ToolSurfaceConfig.from_cfg().use_explore_python:
             hint = _VISUALIZE_HINT_PROBE
-        elif ToolSurfaceConfig.from_cfg().use_visualize_state:
-            hint = _VISUALIZE_HINT_TOOL
         else:
             hint = _VISUALIZE_HINT_GENERIC
         strategy = _CLAUDE_MD_SOLVE_STRATEGY.format(visualize_hint=hint)
@@ -229,8 +226,8 @@ after each plan step for later review.
 
 ### Proposed Code
 All proposal code and option source code is saved to ./proposed_code/.
-Proposals are numbered (e.g. `001_propose_options_Pick.py`); option source
-saved via `inspect_options` uses the option name (e.g. `Pick.py`):
+Proposals are numbered (e.g. `001_propose_options_Pick.py`); saved
+option source uses the option name (e.g. `Pick.py`):
 ```
 Glob ./proposed_code/*.py
 Read ./proposed_code/001_propose_options_Pick.py

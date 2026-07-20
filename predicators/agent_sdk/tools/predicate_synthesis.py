@@ -133,7 +133,7 @@ def create_predicate_synthesis_tools(
             valid.append(entry)
             seen_names.add(entry.name)
 
-        # Mutate approach state so evaluate_plan_refinement sees draft.
+        # Mutate approach state so sim.refine sees the draft.
         approach._learned_predicates = set(valid)  # pylint: disable=protected-access
         return valid, version_tag, None, warnings
 
@@ -182,7 +182,7 @@ def create_predicate_synthesis_tools(
         "transition counts, first-flip step, and monotonicity (ideal "
         "milestone flips False->True exactly once and stays true). "
         "After loading, the predicate set used by "
-        "evaluate_plan_refinement is updated — so call this tool any "
+        "sim.refine is updated — so call this tool any "
         "time you edit predicates.py before re-running refinement. "
         "Snapshots the predicates file into predicates_versions/; "
         "output tagged [cycle_XXX_vers_YYY].",

@@ -187,14 +187,12 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
 
     def _get_agent_system_prompt(self) -> str:
         propose = CFG.agent_bilevel_use_llm_initial_params
-        # When explore_python replaces the standalone refine/visualize
-        # tools, every guidance mention must point at the probe
-        # equivalents instead of tools the session lacks.
+        # When explore_python replaces the standalone refine tool, every
+        # guidance mention must point at the probe equivalent instead of
+        # a tool the session lacks.
         probe_replaces = explore_python_replaces_tools()
         refine_ref = ("sim.refine (in explore_python)"
                       if probe_replaces else "refine_plan_sketch")
-        visualize_ref = ("explore_python"
-                         if probe_replaces else "visualize_state")
         # What a sketch step consists of (shared between modes).
         if propose:
             sketch_desc = (
@@ -221,7 +219,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
                f"values you MAY use {refine_ref} while reasoning (it "
                "searches for parameters but is slower); read the parameters "
                "it reports and submit them via evaluate_option_plan. Use "
-               f"whatever tools help (inspection, {visualize_ref}).")
+               "whatever tools help.")
         if propose:
             job += (" Where many values work, any reasonable parameter is "
                     "fine; where good values are hard to hit (tight "

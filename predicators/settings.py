@@ -1311,8 +1311,6 @@ class GlobalSettings:
 
     # Agent planner approach settings
     agent_planner_use_scratchpad = False  # include notes.md scratchpad
-    agent_planner_use_visualize_state = False  # include visualize_state tool
-    agent_planner_use_annotate_scene = False  # include annotate_scene tool
     # Include the solve-phase explore_python tool: a persistent Python
     # namespace over the ProbeSim exploration facade (set the sim to any task
     # state or a modified copy, run option plans from it, read full-precision
@@ -1321,11 +1319,12 @@ class GlobalSettings:
     # Exploratory only: nothing run through it can be captured as the answer.
     agent_planner_use_explore_python = False
     # When explore_python is on, whether the tools it subsumes
-    # (visualize_state -> sim.reset(mods)+sim.render; annotate_scene ->
-    # sim.render(annotations=...); refine_plan_sketch -> sim.refine) are
-    # STILL offered alongside it. Default False: one surface
-    # per capability, so the agent's habits don't split across redundant
-    # tools. No effect when agent_planner_use_explore_python is False.
+    # (refine_plan_sketch -> sim.refine; inspect_trajectories /
+    # inspect_train_tasks -> trajectories / describe_trajectory /
+    # sim.task() in the probe namespace) are STILL offered alongside it.
+    # Default False: one surface per capability, so the agent's habits
+    # don't split across redundant tools. No effect when
+    # agent_planner_use_explore_python is False.
     agent_planner_explore_python_keep_replaced_tools = False
     # Whether the planner is given a simulator to test candidate plans with
     # (the evaluate_option_plan tool / option-model rollouts). When False, the
@@ -1445,8 +1444,8 @@ class GlobalSettings:
     # under scripts/; the file may be a bare name or an absolute path.
     agent_bilevel_plan_sketch_dir = "plan_sketches"
     agent_bilevel_plan_sketch_file = ""
-    # When evaluate_plan_refinement is called without an explicit timeout,
-    # the synthesis tool computes
+    # When refine_plan_sketch is called without an explicit timeout,
+    # the tool computes
     #   max(_min, _per_step * len(sketch))
     # so plans with more steps automatically get more wall-clock budget.
     agent_bilevel_refinement_timeout_per_step = 30.0  # seconds per step

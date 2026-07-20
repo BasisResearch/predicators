@@ -66,7 +66,7 @@ class AgentBilevelExplorer(BaseExplorer):
         self._tool_context.last_mental_model_solved = None
 
         # Point the agent's interactive tools (refine_plan_sketch,
-        # evaluate_option_plan, visualize_state) at the EXPLORE task. They
+        # evaluate_option_plan, the sim probe) at the EXPLORE task. They
         # default to ctx.current_task when the agent omits task_idx, and
         # test-time _solve leaves current_task on the last TEST task.
         # Without this the agent tunes/validates its exploration plan against

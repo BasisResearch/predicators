@@ -47,6 +47,17 @@ class ToolContext:
     # deployed belief model).
     probe_option_model_provider: Optional[Callable[[],
                                                    _OptionModelBase]] = None
+    # The ``sim.fit`` backend for synthesis sessions: fits the candidate
+    # simulator's PARAM_SPECS against the recorded data and returns the
+    # report text (see ``SynthesisToolkit.fit_runner``). None in solve
+    # sessions - the deployed belief model is fixed there, so the probe
+    # rejects ``fit`` calls.
+    probe_fit_provider: Optional[Callable[..., str]] = None
+    # Synthesis-session ``sim.residuals`` backend: computes the
+    # per-feature residual report for the current simulator.py rules
+    # (see ``SynthesisToolkit.residuals_runner``). None in solve
+    # sessions - residuals are a learning diagnostic.
+    probe_residuals_provider: Optional[Callable[..., str]] = None
     # Active-experiment info-gain scorer, synced from the learning
     # approach when info-seeking exploration is on:
     # ``(state, atoms) -> disagreement``. The agent_bilevel explorer
@@ -80,7 +91,6 @@ class ToolContext:
     # the saved session-log filename so test queries are attributable to a task.
     test_task_idx: Optional[int] = None
     test_call_id: int = 0  # incremented per evaluate_option_plan call
-    visualized_state: Optional[State] = None  # last state from visualize_state
     # Managed by AgentSessionMixin: populated from
     # `_build_synthesis_mcp_tools` at session-open, reset to [] for
     # solve sessions. Approaches should not write to this directly —
