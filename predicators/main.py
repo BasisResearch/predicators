@@ -473,12 +473,16 @@ def _early_stop_below_bar_msg(episode_reward: float,
     Returns a log-ready description when the episode reward falls short
     of ``env_task.early_stop_min_reward`` (minus the configured slack),
     meaning the solve must NOT count toward early stopping; returns None
-    when the task sets no bar or the reward clears it. The comparison
-    carries a small tolerance so a reward computed exactly at the bar is
-    never rejected on float rounding.
+    when the task sets no bar, the bar is ignored via
+    ``CFG.online_learning_early_stopping_ignore_reward_bar``, or the
+    reward clears it. The comparison carries a small tolerance so a
+    reward computed exactly at the bar is never rejected on float
+    rounding.
     """
     reward_bar = env_task.early_stop_min_reward
     if reward_bar is None:
+        return None
+    if CFG.online_learning_early_stopping_ignore_reward_bar:
         return None
     slack = CFG.online_learning_early_stopping_reward_slack
     if episode_reward >= reward_bar - slack - 1e-9:

@@ -281,6 +281,15 @@ def test_early_stop_below_bar_msg():
     utils.update_config({"online_learning_early_stopping_reward_slack": 0.05})
     assert _early_stop_below_bar_msg(0.80, task) is None
     assert _early_stop_below_bar_msg(0.75, task) is not None
+    # Ignoring the bar makes any solved episode count, regardless of slack.
+    utils.update_config({
+        "online_learning_early_stopping_reward_slack":
+        0.0,
+        "online_learning_early_stopping_ignore_reward_bar":
+        True,
+    })
+    assert _early_stop_below_bar_msg(0.75, task) is None
+    assert _early_stop_below_bar_msg(-1.0, task) is None
 
 
 def test_env_failure():
