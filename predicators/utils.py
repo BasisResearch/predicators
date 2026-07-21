@@ -4524,6 +4524,14 @@ def reset_config(args: Optional[Dict[str, Any]] = None,
     parser = create_arg_parser()
     reset_config_with_parser(parser, args, default_seed,
                              default_render_state_dpi)
+    # The fatal-query counter is process-wide state alongside CFG (a
+    # class attribute so it survives per-attempt manager recreation);
+    # a config reset starts a fresh run, so it must not inherit another
+    # run's (or test's) consecutive failures. Imported lazily: utils is
+    # imported by the agent_sdk package, so a top-level import cycles.
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.agent_sdk.session_base import BaseAgentSessionManager
+    BaseAgentSessionManager._consecutive_fatal_queries = 0  # pylint: disable=protected-access
 
 
 def reset_config_with_parser(parser: ArgumentParser,

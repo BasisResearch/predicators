@@ -325,6 +325,28 @@ def test_run_episode_and_get_observations():
         pass
     assert monitor.num_observations == 1
 
+    # AgentSessionFatalError (broken agent backend, e.g. an auth failure
+    # surfacing on a mid-episode replan) must terminate the episode loop
+    # even when keep_failed_demos would otherwise absorb the exception
+    # into a returned failed trajectory.
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.agent_sdk.session_base import AgentSessionFatalError
+
+    def _fatal_policy(_):
+        raise AgentSessionFatalError("agent backend is unusable")
+
+    utils.reset_config({"env": "cover", "keep_failed_demos": True})
+    approach = _MockApproach(_fatal_policy)
+    cogman = CogMan(approach, perceiver, exec_monitor)
+    cogman.reset(task)
+    with pytest.raises(AgentSessionFatalError):
+        run_episode_and_get_observations(cogman,
+                                         env,
+                                         "test",
+                                         0,
+                                         max_num_steps=3)
+    utils.reset_config({"env": "cover"})
+
 
 def test_run_episode_trajectory_certificate():
     """Goal atoms holding is not enough when the env rejects the episode

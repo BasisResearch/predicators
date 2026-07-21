@@ -15,6 +15,7 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk import journal as journal_mod
+from predicators.agent_sdk.session_base import AgentSessionFatalError
 from predicators.approaches import ApproachFailure, ApproachTimeout
 from predicators.approaches.agent_model_based_approach import \
     AgentModelBasedApproach, _CaptureInfo
@@ -282,6 +283,25 @@ def test_unexpected_error_salvages_banked_capture():
     assert policy is script.policies[0]
     assert script.calls == 2  # attempt 3 never runs
     # Bookkeeping fully cleaned despite the unexpected error.
+    assert ctx.attempt_start is None
+    assert ctx.attempt_deadline is None
+    assert ctx.attempt_index == 0
+
+
+def test_fatal_session_error_reraises_even_with_banked_capture():
+    """AgentSessionFatalError is never salvaged by a banked capture: the
+    session backend is unusable, so the run must terminate (bookkeeping still
+    cleaned by the finally)."""
+    approach, task = _make_approach({"agent_solve_max_attempts": 3})
+    ctx = approach._tool_context
+    script = _AttemptScript(approach, [
+        ("best_effort", 0.40),
+        ("error", AgentSessionFatalError("3 consecutive agent queries died")),
+    ])
+    approach._solve_attempt = script
+    with pytest.raises(AgentSessionFatalError):
+        approach._solve(task, timeout=10)
+    assert script.calls == 2  # attempt 3 never runs
     assert ctx.attempt_start is None
     assert ctx.attempt_deadline is None
     assert ctx.attempt_index == 0

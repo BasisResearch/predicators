@@ -29,6 +29,7 @@ import numpy as np
 
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
+from predicators.agent_sdk.session_base import AgentSessionFatalError
 from predicators.agent_sdk.sketch_types import SketchStep as _SketchStep
 from predicators.agent_sdk.tools import BUILTIN_TOOLS, \
     explore_python_replaces_tools, load_ground_sampler_fns
@@ -375,6 +376,12 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
                 policy = self._solve_attempt(task)
             except ApproachFailure as e:
                 last_failure = e
+            except AgentSessionFatalError:
+                # The session backend is unusable (auth/billing/config);
+                # neither a banked capture nor further restarts can help.
+                # Re-raise so the run terminates (the finally still runs
+                # for bookkeeping).
+                raise
             except Exception as e:  # pylint: disable=broad-except
                 # ApproachTimeout is a SIBLING of ApproachFailure (both
                 # subclass ExceptionWithInfo), and env/SDK errors can
@@ -612,6 +619,8 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
             try:
                 self._query_agent_for_plan_sketch(
                     task, prior_failures=prior_failures)
+            except AgentSessionFatalError:
+                raise
             except Exception as e:  # pylint: disable=broad-except
                 # The agent may have validated a working plan via
                 # refine_plan_sketch even if its final text didn't parse.
@@ -963,6 +972,8 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         self._tool_context.capture_best_effort_plan = accept_best_effort
         try:
             self._query_agent_sync(nudge, kind="test")
+        except AgentSessionFatalError:
+            raise
         except Exception as e:  # pylint: disable=broad-except
             logging.warning("Final-submission nudge failed: %s", e)
         finally:
