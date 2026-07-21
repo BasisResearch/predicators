@@ -410,10 +410,14 @@ def _run_online_learning_loop(
         # cycle already tested, so re-testing only re-samples test-time
         # stochasticity at full test-set cost. When
         # skip_test_until_last_ite_or_early_stopping is True the early-stopping
-        # cycle is the model's only test, so we must still run it.
+        # cycle is the model's only test, so we must still run it. Likewise,
+        # when no test has run yet at all (e.g. skip_initial_test and early
+        # stopping on cycle 0), there is no prior result the re-test would
+        # duplicate, so run it to get at least one evaluation.
         force_early_stop_test = not (
             CFG.online_learning_early_stopping_skip_redundant_test
-            and not CFG.skip_test_until_last_ite_or_early_stopping)
+            and not CFG.skip_test_until_last_ite_or_early_stopping
+            and last_test_summary is not None)
         if train_driven_early_stop:
             logging.info(train_early_stop_msg)
             early_stopping = True
