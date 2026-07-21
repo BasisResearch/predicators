@@ -394,6 +394,7 @@ class DockerSessionManager(SandboxSessionManagerBase):
                 "response": responses,
             })
 
+            self._track_fatal_response(responses)
             return responses
 
         finally:

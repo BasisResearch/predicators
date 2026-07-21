@@ -1274,6 +1274,17 @@ class GlobalSettings:
     # agent SDK online abstraction learning parameters
     agent_sdk_model_name = "claude-sonnet-5"
     agent_sdk_max_agent_turns_per_iteration = 50
+    # Consecutive agent queries that die without the agent doing ANY work
+    # (an auth/billing banner as the only assistant text, an error result,
+    # or a stream error before the first tool call) before the run
+    # terminates with AgentSessionFatalError. Such failures make every
+    # future query hopeless, but each one returns in ~1 s at $0.00 and is
+    # otherwise indistinguishable from a no-capture attempt, so without
+    # this check the solve restart / replan / online-cycle budgets grind
+    # through hundreds of instant failures (run_20260721_161159: 300
+    # "organization has disabled Claude subscription access" queries
+    # across 10 cycles, agent never ran). 0 disables the check.
+    agent_sdk_max_consecutive_fatal_queries = 3
     # Reasoning effort for the agent SDK's Claude agent. One of "low",
     # "medium", "high", "max" to set it, or "" / "default" to leave it unset
     # (the model's own default). With adaptive thinking this is the control

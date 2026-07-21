@@ -29,6 +29,7 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk.rendering import save_task_state_image
+from predicators.agent_sdk.session_base import AgentSessionFatalError
 from predicators.agent_sdk.tools import agent_render_resolution, \
     explore_python_replaces_tools
 from predicators.agent_sdk.tools.inspection import render_options_digest, \
@@ -501,6 +502,10 @@ and update before doing anything else.**"""
         self._render_initial_state_image(task)
         try:
             option_plan = self._query_agent_for_option_plan(task)
+        except AgentSessionFatalError:
+            # An ApproachFailure would be absorbed per-task; the broken
+            # session backend must terminate the run instead.
+            raise
         except Exception as e:
             raise ApproachFailure(f"Agent failed to produce option plan: {e}")
 
