@@ -42,6 +42,12 @@ class GlobalSettings:
     # the bar (or cycles run out) instead of stopping on an inefficient
     # solve. Tasks that leave the bar None keep the plain solved criterion.
     online_learning_early_stopping_reward_slack = 0.0
+    # When True, ignore ``EnvironmentTask.early_stop_min_reward`` entirely:
+    # any solved (env-accepted) training episode counts toward early
+    # stopping, regardless of its reward. Episode legitimacy is still
+    # enforced by the env's solved verdict itself; only the optimality
+    # requirement is dropped. Subsumes any reward_slack setting.
+    online_learning_early_stopping_ignore_reward_bar = False
     # When True, the early-stopping cycle does NOT re-run testing, provided
     # every cycle is already being tested (skip_test_until_last_ite_or_early
     # _stopping is False). On the early-stopping cycle learning is skipped, so
