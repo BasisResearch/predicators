@@ -20,9 +20,9 @@ ENVS:
     SKIP: True
   # Reverse (under-reach) arm: true friction 0.5, planner believes 0.1.
   domino_high_friction:
-    SKIP: False
-  domino_high_friction_turn:
     SKIP: True
+  domino_high_friction_turn:
+    SKIP: False
 APPROACHES:
   agent_oracle_hybrid_sim:
     SKIP: True
