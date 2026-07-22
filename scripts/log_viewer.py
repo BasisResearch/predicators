@@ -533,15 +533,21 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
     "rounds": [{task_idx0: {"solved": bool, "msg": str,
     "reward": float?}, ...}, ...],
     "explore": {episode_num: {"reward": float, "terminated": bool,
-    "accepted": bool, "msg": str}, ...}} where each round is one test
-    phase, closed by a "Tasks solved: X / Y" line.
+    "accepted": bool, "msg": str}, ...},
+    "test_round": {episode_num: round_idx, ...}} where each round is one
+    test phase, closed by a "Tasks solved: X / Y" line.
 
-    Explore verdicts are paired by stream order: within a cycle every
-    explore session logs its transcript save line before any interaction
-    episode executes, and interaction episodes run in session order, so
-    the oldest unmatched explore session owns the next verdict. A learn
-    save line closes the cycle and drops sessions that never produced an
-    interaction episode.
+    Both explore and test verdicts are paired by stream order. Explore:
+    within a cycle every explore session logs its transcript save line
+    before any interaction episode executes, and interaction episodes run
+    in session order, so the oldest unmatched explore session owns the
+    next verdict; a learn save line closes the cycle and drops sessions
+    that never produced an interaction episode. Test: every test session
+    of a round logs its save line before the "Tasks solved" line that
+    closes the round, so all test episodes saved since the previous round
+    belong to the round that line closes. (Counting learn episodes
+    instead is wrong: only some configs run an initial pre-learning test
+    round, so the offset between learn count and round index varies.)
     """
     text, _ = read_text(path, max_bytes=8 * 1024 * 1024)
     text = ANSI_RE.sub("", text)
@@ -549,7 +555,9 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
     rounds: List[Dict[int, Dict[str, Any]]] = []
     current: Dict[int, Dict[str, Any]] = {}
     explore: Dict[int, Dict[str, Any]] = {}
+    test_round: Dict[int, int] = {}
     pending: List[int] = []
+    pending_test: List[int] = []
     last_explore: Optional[int] = None
     done = False
     for line in text.splitlines():
@@ -577,6 +585,9 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
         if TASKS_SOLVED_RE.search(line):
             rounds.append(current)
             current = {}
+            for num in pending_test:
+                test_round[num] = len(rounds) - 1
+            pending_test.clear()
             continue
         # Logged after the "Tasks solved" line, so this decorates the
         # round that line just closed.
@@ -592,6 +603,8 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
                 pending.append(int(m.group(1)))
             elif m.group(2) == "learn":
                 pending.clear()
+            elif m.group(2) == "test":
+                pending_test.append(int(m.group(1)))
             continue
         m = INTERACTION_RE.match(line)
         if m:
@@ -617,6 +630,7 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
         "totals": totals,
         "rounds": rounds,
         "explore": explore,
+        "test_round": test_round,
         "done": done,
     }
 
@@ -671,8 +685,10 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
     parsed = _cached(os.path.join(run_abs, "info.log"), _parse_info_log) or {}
     rounds = parsed.get("rounds", [])
     explore_verdicts = parsed.get("explore", {})
-    # A test round r happens after r learn episodes, so each test episode
-    # maps to the round given by the number of learn episodes before it.
+    test_round = parsed.get("test_round", {})
+    # ep["round"] (learn episodes seen so far) drives only the grid-row
+    # layout; env verdicts pair by the stream-order test_round map, since
+    # the learn count offset from the round index varies per config.
     learn_seen = 0
     for ep in episodes:
         ep["round"] = learn_seen
@@ -685,9 +701,10 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
                 ep["env_terminated"] = verdict["terminated"]
                 ep["env_accepted"] = verdict["accepted"]
                 ep["env_msg"] = verdict["msg"]
+        round_i = test_round.get(ep["num"])
         if (ep["kind"] == "test" and ep["task"] is not None
-                and ep["round"] < len(rounds)):
-            verdict = rounds[ep["round"]].get(ep["task"])
+                and round_i is not None and round_i < len(rounds)):
+            verdict = rounds[round_i].get(ep["task"])
             if verdict is not None:
                 ep["env_solved"] = verdict["solved"]
                 ep["env_msg"] = verdict["msg"]
