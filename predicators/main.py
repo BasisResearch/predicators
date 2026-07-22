@@ -883,7 +883,13 @@ def _run_testing(env: BaseEnv,
             fresh_env = env.make_fresh_test_instance()
             if fresh_env is not None:
                 episode_env = fresh_env
+            else:
+                logging.info(
+                    "test_fresh_env_per_episode: env does not support a "
+                    "fresh instance here (GUI/real-robot/base env); "
+                    "executing in the shared long-lived env.")
 
+        monitor: Optional[utils.LoggingMonitor] = None
         try:
             # Decide if we need to record video. Image saving needs the
             # raw frames after the episode, so it gets the buffering
@@ -892,7 +898,6 @@ def _run_testing(env: BaseEnv,
             # whole episode.
             need_images = CFG.make_test_images or CFG.make_failure_images
             need_video = CFG.make_test_videos or CFG.make_failure_videos
-            monitor: Optional[utils.LoggingMonitor] = None
             if need_images:
                 monitor = utils.VideoMonitor(episode_env.render)
             elif need_video:
@@ -973,12 +978,14 @@ def _run_testing(env: BaseEnv,
                                  is_failure=True,
                                  task_idx=test_task_idx)
 
+        finally:
             # Drop the streamed clip when no branch above finalized it
-            # (e.g. a solved episode with only make_failure_videos on);
-            # no-op otherwise.
+            # (a solved episode with only make_failure_videos on, or an
+            # exception past the save calls); no-op otherwise. In the
+            # finally so a raise inside the try cannot leak the
+            # monitor's temp file and open writer.
             if isinstance(monitor, utils.StreamingVideoMonitor):
                 monitor.discard()
-        finally:
             if fresh_env is not None:
                 fresh_env.dispose()
 
