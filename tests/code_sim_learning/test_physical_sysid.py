@@ -948,8 +948,17 @@ def test_grid_sweep_sharp_basin_not_dragged_to_anchor(monkeypatch):
     assert 0.12 <= lo and hi <= 0.165
 
 
-def test_flat_interval_annotates_identified_report():
-    """A wide data-equivalent interval is surfaced next to "identified"."""
+def test_flat_interval_drives_verdict_over_local_curvature():
+    """The landscape's data-equivalent interval IS the posterior width.
+
+    Regression for run_20260722_123949: the local curvature probe
+    stamped every parameter "identified" while its own report noted the
+    fitted value was merely "the edge of this interval ... not a unique
+    optimum". A plateau-wide interval must read NOT identified no
+    matter how sharp the local curvature at the chosen edge is - and
+    the probe must not even be consulted (or spend rollouts) for a
+    swept parameter.
+    """
     specs = [ParamSpec("friction", 0.6, lo=0.01, hi=2.0, scale="log")]
     result = _single_sample_result(["friction"], [0.6], [0.75])
     result.sensitivity = {
@@ -960,8 +969,10 @@ def test_flat_interval_annotates_identified_report():
             "flat_interval": (0.5, 2.0),
         }
     }
+    probe_calls = {"n": 0}
 
     def sharp_sse(params):
+        probe_calls["n"] += 1
         return 1e3 * (np.log(params["friction"]) - np.log(0.6))**2
 
     report = identifiability_report(result,
@@ -969,19 +980,22 @@ def test_flat_interval_annotates_identified_report():
                                     specs,
                                     num_explainable=3)
     entry = report["friction"]
-    assert entry["verdict"] is Verdict.IDENTIFIED
+    # log half-width ln(2.0/0.5)/2 ~= 0.693 vs prior 0.75 -> ~0.92.
+    assert entry["verdict"] is Verdict.NOT_IDENTIFIED
     assert entry["flat_interval"] == (0.5, 2.0)
-    assert entry["flat_wide"]
+    assert probe_calls["n"] == 0
     text = format_identifiability(report)
     assert "data-equivalent over [0.5, 2]" in text
     assert "not a unique optimum" in text
-    # A degenerate interval is neither rendered nor flagged wide.
+    # A degenerate interval means the sweep resolved the value: width 0,
+    # contraction 0, identified - and nothing rendered.
     result.sensitivity["friction"]["flat_interval"] = (0.6, 0.6)
     report2 = identifiability_report(result,
                                      sharp_sse,
                                      specs,
                                      num_explainable=3)
-    assert not report2["friction"]["flat_wide"]
+    assert report2["friction"]["verdict"] is Verdict.IDENTIFIED
+    assert probe_calls["n"] == 0
     assert "data-equivalent" not in format_identifiability(report2)
 
 
@@ -1093,6 +1107,47 @@ def test_anchor_ablation_reverts_compensatory_param():
     assert applied["gain_b"] == 0.02
     text = format_identifiability(report)
     assert "anchor ablation" in text
+
+
+def test_anchor_ablation_cheap_pretest_skips_lm_refit(monkeypatch):
+    """A tiny drift that is data-equivalent when pinned alone must revert
+    via the one-eval cheap pre-test, without any LM refit.
+
+    The common case on real runs (run_20260722_123949 seed2: spinning
+    0.4993 -> 0.5, restitution 0.02021 -> 0.02): the LM refits were the
+    dominant ablation cost and are unnecessary when pinning the param
+    with everything else unchanged already explains the data.
+    """
+    spec_a, spec_b, _anchors, prior_sigma, config, traj = _ablation_fixtures()
+    env = _CompensatingEnv()
+    # Standing belief already carries gain_a's true value, so gain_b is
+    # the only movable param (a genuinely-moved co-declared param would
+    # legitimately get - and fail - its own pinned refit attempt).
+    anchors = {"gain_a": 2.0, "gain_b": 0.02}
+    refits = {"n": 0}
+    real_fit = physical_sysid.fit_map_lm_rollout
+
+    def counting_fit(*args, **kwargs):
+        refits["n"] += 1
+        return real_fit(*args, **kwargs)
+
+    monkeypatch.setattr(physical_sysid, "fit_map_lm_rollout", counting_fit)
+    # gain_b drifted slightly (0.021 vs anchor 0.02 - a per-step x
+    # error of 5e-4, well inside the flat tolerance).
+    result = FitResult(names=["gain_a", "gain_b"],
+                       samples=np.array([[2.0, 0.021]]),
+                       log_probs=np.zeros(1),
+                       noise_sigma=0.05,
+                       prior_sigma=prior_sigma,
+                       scales=["log", "linear"])
+    out = physical_sysid._anchor_backward_elimination(
+        env, [traj], [spec_a, spec_b], [], _PROCESS_FEATURES, [], None, None,
+        anchors, 0.05, 0.75, result, 0.01, config)
+    assert out.anchor_ablation is not None
+    assert set(out.anchor_ablation) == {"gain_b"}
+    assert out.point_estimate["gain_b"] == 0.02
+    assert abs(out.point_estimate["gain_a"] - 2.0) < 1e-9
+    assert refits["n"] == 0
 
 
 def test_anchor_ablation_keeps_genuinely_moved_param():

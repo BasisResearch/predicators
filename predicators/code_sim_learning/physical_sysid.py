@@ -64,6 +64,7 @@ working:
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -78,7 +79,7 @@ from predicators.code_sim_learning.identifiability import NOISE_FLOOR_EVALS, \
     select_trustworthy_params
 from predicators.code_sim_learning.lm import log_hessian_identifiability
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
-    dispose_env, physical_param_anchors, rollout_states
+    dispose_env, num_rollouts_run, physical_param_anchors, rollout_states
 from predicators.code_sim_learning.rollout_objective import \
     compute_rollout_residuals, compute_rollout_sse, fit_map_lm_rollout, \
     per_trajectory_rms
@@ -193,6 +194,9 @@ def fit_params_rollout(
     center_int = to_fit_space(all_specs, center_values)
     prior_sigma = prior_widths(center_specs, prior_sigma_scale)
 
+    fit_t0 = time.monotonic()
+    n_start = num_rollouts_run()
+
     # Coarse grid sweep to place the LM start in the right basin (see
     # _grid_seed_physical_specs for why LM alone can stall). Also
     # yields the per-param SSE spans and data-equivalent flat intervals
@@ -250,6 +254,8 @@ def fit_params_rollout(
                 "values will not be applied.", insensitive, sens_factor,
                 noise_floor)
 
+    n_grid = num_rollouts_run() - n_start
+
     # The grid-seeded, prior-folded LM MAP IS the fit. The Jacobian at
     # the MAP is kept on the result as the Laplace bundle for the
     # info-seeking explorer's calibrated ensemble.
@@ -275,8 +281,8 @@ def fit_params_rollout(
                        prior_sigma=prior_sigma,
                        scales=scales,
                        sensitivity=sensitivity)
-    if (config.anchor_ablation and config.grid_flat_frac > 0
-            and trajectories):
+    n_lm = num_rollouts_run() - n_start - n_grid
+    if (config.anchor_ablation and config.grid_flat_frac > 0 and trajectories):
         result = _anchor_backward_elimination(
             base_env,
             trajectories,
@@ -293,6 +299,13 @@ def fit_params_rollout(
             noise_floor,
             config,
         )
+    n_total = num_rollouts_run() - n_start
+    if trajectories:
+        logger.info(
+            "Rollout sysID fit cost: %d rollouts (grid+floor %d, LM %d, "
+            "ablation %d) in %.1fs.", n_total, n_grid, n_lm,
+            n_total - n_grid - n_lm,
+            time.monotonic() - fit_t0)
     return result
 
 
@@ -382,6 +395,12 @@ def _anchor_backward_elimination(
         held EXPLICITLY at their anchor values throughout the fit - so
         the SSE that justifies a revert is measured at exactly the value
         recorded and applied, whatever the env registry's defaults."""
+        if not surviving and not rule_specs:
+            # Nothing left to refit: the candidate is the pins alone.
+            # (Calling LM with zero specs raises on the empty theta -
+            # observed as 'zero-size array to reduction operation' on
+            # run_20260722_123949 seed2 when 4 of 5 params ablated.)
+            return {}
         warm_physical = [
             ParamSpec(s.name,
                       float(point[s.name]),
@@ -459,11 +478,25 @@ def _anchor_backward_elimination(
             reduced = [t for t in surviving if t is not s]
             pins = dict(pinned_values)
             pins[s.name] = float(anchors[s.name])
-            cand_fit = refit_pinned(reduced, pins)
-            cand_sse = sse_at({
-                **cand_fit,
-                **pins
-            }, [t.name for t in reduced] + list(pins))
+            declared = [t.name for t in reduced] + list(pins)
+            # Cheap pre-test first: pin the param with everything else
+            # UNCHANGED (one SSE eval). When the move was a small
+            # compensatory drift - the common case, e.g. spinning
+            # 0.4993 -> 0.5 on run_20260722_123949 seed2 - this alone
+            # is data-equivalent and the LM refit (~a dozen full-
+            # trajectory evals) is skipped. The refit still runs when
+            # the cheap test fails, because data-equivalence may only
+            # emerge after the OTHER params re-adjust.
+            cheap_fit = {t.name: float(point[t.name]) for t in reduced}
+            cheap_fit.update(
+                {r.name: float(point[r.name])
+                 for r in rule_specs})
+            cand_sse = sse_at({**cheap_fit, **pins}, declared)
+            if cand_sse <= sse_curr + tol:
+                cand_fit = cheap_fit
+            else:
+                cand_fit = refit_pinned(reduced, pins)
+                cand_sse = sse_at({**cand_fit, **pins}, declared)
             if cand_sse > sse_curr + tol:
                 continue
             cand_point = dict(point)
@@ -651,6 +684,8 @@ def fit_params_rollout_trimmed(
             logger.info(
                 "Rollout sysID trimming: reusing cached explainability "
                 "verdicts for this declaration/data signature.")
+    sweep_t0 = time.monotonic()
+    sweep_n0 = num_rollouts_run()
     if rms is None:
         rms = min_explainable_rms(base_env,
                                   trajectories,
@@ -664,6 +699,11 @@ def fit_params_rollout_trimmed(
                                   config=config)
         if rms_cache is not None and cache_key is not None:
             rms_cache[cache_key] = rms
+        logger.info(
+            "Rollout sysID explainability sweep cost: %d rollouts in "
+            "%.1fs.",
+            num_rollouts_run() - sweep_n0,
+            time.monotonic() - sweep_t0)
     threshold = factor * noise_sigma
     survivors = [t for t, r in zip(trajectories, rms) if r <= threshold]
     if len(survivors) < len(trajectories):
