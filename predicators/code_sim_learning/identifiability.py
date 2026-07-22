@@ -89,6 +89,7 @@ def identifiability_report(
         post_std = np.full(len(result.names), np.nan)
     at_bound = _params_at_bound(result, param_specs, scales)
     sensitivity = result.sensitivity or {}
+    ablation = getattr(result, "anchor_ablation", None) or {}
     report: Dict[str, Dict[str, Any]] = {}
     for i, name in enumerate(result.names):
         prior = (float(result.prior_sigma[i])
@@ -124,6 +125,14 @@ def identifiability_report(
             verdict = ("insensitive (rollouts do not respond to this param "
                        "anywhere in its box on this data; fitted value is "
                        "noise and was NOT applied)")
+        abl = ablation.get(name)
+        if abl is not None:
+            # The probe's local curvature at a co-adapted MAP is real,
+            # so it cannot see that the move was compensatory; the
+            # ablation refit's global data-equivalence verdict wins.
+            verdict = ("anchored (a refit with this param at its baseline "
+                       "is data-equivalent; the fitted move was "
+                       "compensatory and the baseline is applied)")
         report[name] = {
             "posterior_std": post,
             "prior_std": prior,
@@ -150,6 +159,8 @@ def identifiability_report(
                     width = float(interval[1] - interval[0])
                 report[name]["flat_wide"] = bool(
                     np.isfinite(post) and width > 2.0 * post)
+        if abl is not None:
+            report[name]["anchor_ablation"] = dict(abl)
     return report
 
 
@@ -336,4 +347,10 @@ def format_identifiability(report: Dict[str, Dict[str, Any]]) -> str:
                     if info.get("flat_wide") else "")
             lines.append(f"      data-equivalent over [{interval[0]:.4g}, "
                          f"{interval[1]:.4g}]{note}")
+        abl = info.get("anchor_ablation")
+        if abl is not None:
+            lines.append(f"      anchor ablation: SSE {abl['sse_pinned']:.4g} "
+                         f"with it refit-pinned at baseline "
+                         f"{abl['anchor']:.4g} vs {abl['sse_map']:.4g} at the "
+                         f"joint MAP (tol {abl['tol']:.4g})")
     return "\n".join(lines)

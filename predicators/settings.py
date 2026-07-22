@@ -1622,6 +1622,24 @@ class GlobalSettings:
     # 0.827 grid point (+65%) every cycle, LM being unable to descend
     # a chaotic replay landscape from a coarse seed.
     code_sim_learning_rollout_grid_refine_evals = 4
+    # Post-fit anchor-ablation backward elimination (False disables):
+    # for each physical param the LM MAP moved off its env-registry
+    # anchor, refit the REMAINING params with that param pinned at the
+    # anchor; if the refit is data-equivalent (SSE within
+    # max(noise floor, grid_flat_frac * SSE)), the move was compensatory
+    # and the param is reverted to its anchor. This is a global
+    # alternative-hypothesis test the local curvature probe cannot make:
+    # a co-adapted MAP has real curvature in every direction, so the
+    # probe stamps a compensating param "identified" even when an
+    # anchor-consistent basin explains the data equally well (measured on
+    # run_20260721_205821 seed1: the coordinate sweep overshot
+    # lateral_friction to 0.827 (true 0.5) and restitution 0.02 -> 0.75
+    # (true 0.02) / spinning_friction 0.5 -> 0.01 (true 0.5) then
+    # compensated for it, all three declared "identified"; the resulting
+    # belief sim invalidated every test plan). Uses the same
+    # data-equivalence tolerance as the grid flat set, so a genuinely
+    # identified param (whose revert destroys the SSE) is never touched.
+    code_sim_learning_rollout_anchor_ablation = True
     # Goodness-of-fit trimming threshold for rollout sysID, as a
     # multiple of the fit's noise_sigma (0 disables): a segment whose
     # best-achievable RMS over the candidate param grid exceeds
