@@ -10,7 +10,7 @@ import logging
 import os
 import re
 from types import SimpleNamespace
-from typing import List, Optional, Sequence, Set, Tuple
+from typing import List, Optional, Sequence, Set, Tuple, cast
 
 import numpy as np
 import pytest
@@ -28,8 +28,8 @@ from predicators.ground_truth_models.boil.gt_simulator import PARAM_SPECS, \
     PROCESS_RULES
 from predicators.option_model import _OracleOptionModel
 from predicators.planning import run_backtracking_refinement
-from predicators.structs import GroundAtom, Object, ParameterizedOption, \
-    Predicate
+from predicators.structs import GroundAtom, LowLevelTrajectory, Object, \
+    ParameterizedOption, Predicate
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -494,7 +494,9 @@ def test_rollout_fit_trajectories_subset() -> None:
     t0 = SimpleNamespace(states=[0, 1], actions=["a"])
     t1 = SimpleNamespace(states=[0, 1, 2], actions=["a", "b"])
     t2 = SimpleNamespace(states=[0], actions=[])  # incomplete: filtered out
-    obj._fit_trajectories = [t0, t1, t2]
+    # SimpleNamespace stubs stand in for LowLevelTrajectory (only the
+    # states/actions attributes are read).
+    obj._fit_trajectories = cast(List[LowLevelTrajectory], [t0, t1, t2])
 
     assert len(obj._rollout_fit_trajectories()) == 2
     sub = obj._rollout_fit_trajectories(traj_idxs=[1])
