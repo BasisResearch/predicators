@@ -51,7 +51,7 @@ from predicators.code_sim_learning.fitting import FIT_NOISE_SIGMA, \
     compute_sse, compute_sse_recurrent, fit_rule_parameters, \
     fit_rule_parameters_latent, log_param_changes, log_sse_breakdown
 from predicators.code_sim_learning.identifiability import \
-    format_identifiability, identifiability_report, \
+    Verdict, format_identifiability, identifiability_report, \
     select_trustworthy_params
 from predicators.code_sim_learning.physical_sysid import fit_params_rollout, \
     fit_params_rollout_trimmed
@@ -1916,8 +1916,13 @@ re-score.{probe_note}"""
                     format_identifiability(report))
         log_param_changes(init_params, fitted)
         self._apply_identified_physical_params(
-            select_trustworthy_params(fitted, init_params, physical_names,
-                                      report, anchors))
+            select_trustworthy_params(fitted,
+                                      init_params,
+                                      physical_names,
+                                      report,
+                                      anchors,
+                                      held=dict(
+                                          self._identified_physical_params)))
         self._record_sysid_diagnostics(report, physical_names, len(survivors),
                                        len(rollouts), rms)
         return result, post_sse
@@ -1935,10 +1940,12 @@ re-score.{probe_note}"""
         final fits in FIT space (log for log-scale params) catches
         exactly this: a jump above
         ``CFG.code_sim_learning_rollout_cross_cycle_sigma`` combined
-        sigmas downgrades "identified" to weakly identified with an
-        explicit note (the value is still applied - the new fit has
-        strictly more data - but the planner-facing confidence is
-        honest, and the explorer diagnostics pick it up). History
+        sigmas sets ``Verdict.INCONSISTENT``, and the trust selection
+        then HOLDS the currently-applied value instead of hopping to
+        the new fit - neither of two mutually-incompatible confident
+        fits can be preferred on this evidence, and hopping churned the
+        belief env for whole runs (run_20260721_205821 seed1:
+        restitution 0.71 -> 0.52 -> 0.02 -> 0.32 -> 0.02). History
         records only these final per-cycle fits, not the agent's
         in-session tool fits, whose param sets churn.
         """
@@ -1948,7 +1955,7 @@ re-score.{probe_note}"""
         for i, name in enumerate(result.names):
             if name not in physical_names:
                 continue
-            if report.get(name, {}).get("verdict", "").startswith("anchored"):
+            if report.get(name, {}).get("verdict") is Verdict.ANCHORED:
                 # An ablation-reverted param's point estimate IS the
                 # baseline, not a fit. Recording it would make the next
                 # cycle's genuine fit read as a many-sigma jump (and
@@ -1980,12 +1987,13 @@ re-score.{probe_note}"""
                             "is overconfident.", name, prev_val, value,
                             n_sigma, k)
                         entry = report.get(name)
-                        if entry is not None and entry["verdict"].startswith(
-                                "identified"):
-                            entry["verdict"] = (
-                                "weakly identified (INCONSISTENT across "
-                                f"cycles: {prev_val:.4f} -> {value:.4f} is "
-                                f"{n_sigma:.1f} combined sigmas)")
+                        if (entry is not None
+                                and entry["verdict"] is Verdict.IDENTIFIED):
+                            entry["verdict"] = Verdict.INCONSISTENT
+                            entry["note"] = (
+                                f"{prev_val:.4f} -> {value:.4f} is "
+                                f"{n_sigma:.1f} combined sigmas; holding "
+                                "the currently-applied value")
             self._sysid_fit_history[name] = (value, post, scale)
 
     def _record_sysid_diagnostics(self, report: Dict[str, Dict[str, Any]],
@@ -2015,8 +2023,10 @@ re-score.{probe_note}"""
                 "evolve and settle on its own.")
         for name in physical_names:
             entry = report.get(name, {})
-            verdict = entry.get("verdict", "unknown")
-            if verdict.startswith("identified"):
+            verdict = entry.get("verdict", Verdict.UNKNOWN)
+            note = entry.get("note", "")
+            label = verdict.value + (f" ({note})" if note else "")
+            if verdict is Verdict.IDENTIFIED:
                 if entry.get("flat_wide"):
                     interval = entry["flat_interval"]
                     lines.append(
@@ -2027,7 +2037,7 @@ re-score.{probe_note}"""
                         "experiment whose observable outcome DIFFERS across "
                         "this interval would pin it down.")
                 continue
-            if verdict.startswith("anchored"):
+            if verdict is Verdict.ANCHORED:
                 # Anchor ablation handled this param correctly (the move
                 # was compensatory; the baseline is applied) - it is NOT
                 # a failed identification, so don't advise dropping it.
@@ -2039,8 +2049,16 @@ re-score.{probe_note}"""
                     "(not jointly with the others) would distinguish the "
                     "two explanations.")
                 continue
+            if verdict is Verdict.INCONSISTENT:
+                lines.append(
+                    f"- physical param '{name}': successive cycles produced "
+                    f"confident but mutually-incompatible fits ({note}). "
+                    "The objective is biased somewhere: collect a clean, "
+                    "repeatable interaction that excites this parameter and "
+                    "little else, so one of the two values can be refuted.")
+                continue
             lines.append(
-                f"- physical param '{name}': {verdict}. An experiment whose "
+                f"- physical param '{name}': {label}. An experiment whose "
                 "observable outcome CHANGES when this parameter changes "
                 "would identify it; if none exists, drop it from "
                 "PHYSICAL_PARAMS.")

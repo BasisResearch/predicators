@@ -9,6 +9,7 @@ for why non-identifiability is reported rather than regularized away.
 
 from __future__ import annotations
 
+import enum
 import logging
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
@@ -18,6 +19,41 @@ from predicators.code_sim_learning.fit_space import LOG_FLOOR, FitResult, \
     ParamSpec, param_bounds
 
 logger = logging.getLogger(__name__)
+
+
+class Verdict(enum.Enum):
+    """Per-parameter trust verdict of the rollout sysID fit.
+
+    The enum is the single decision surface: every consumer (trust
+    selection, explorer diagnostics, cross-cycle bookkeeping) branches
+    on the member, never on rendered prose. The human/agent-facing
+    explanation travels separately in the report entry's ``note`` field
+    and is attached by :func:`format_identifiability` at render time.
+    """
+
+    IDENTIFIED = "identified"
+    WEAKLY_IDENTIFIED = "weakly identified"
+    NOT_IDENTIFIED = "NOT identified"
+    # The grid-sweep SSE span never cleared the noise floor: rollouts do
+    # not respond to this param anywhere in its box on this data.
+    INSENSITIVE = "insensitive"
+    # The MAP sits on its box edge: the data pushes the param out of its
+    # physically-plausible range (usually model error being absorbed).
+    AT_BOUND = "at bound"
+    # Anchor ablation reverted the param: a refit with it at its
+    # baseline is data-equivalent, so the fitted move was compensatory.
+    ANCHORED = "anchored"
+    # This cycle's confident fit jumped many combined sigmas from the
+    # previous cycle's: the posterior is overconfident, and neither
+    # value can be preferred on this evidence.
+    INCONSISTENT = "INCONSISTENT across cycles"
+    UNKNOWN = "unknown"
+
+    @property
+    def applies_fitted(self) -> bool:
+        """Whether the fitted value is trustworthy enough to deploy."""
+        return self in (Verdict.IDENTIFIED, Verdict.WEAKLY_IDENTIFIED)
+
 
 # Posterior/prior-width ratio thresholds for the identifiability verdicts.
 _IDENTIFIED_CONTRACTION = 0.3
@@ -97,18 +133,21 @@ def identifiability_report(
         post = float(post_std[i])
         contraction = (post / prior
                        if np.isfinite(prior) and prior > 0 else float("nan"))
+        note = ""
         if np.isnan(contraction):
-            verdict = "unknown"
+            verdict = Verdict.UNKNOWN
         elif contraction < _IDENTIFIED_CONTRACTION:
-            verdict = "identified"
+            verdict = Verdict.IDENTIFIED
         elif contraction < _WEAK_CONTRACTION:
-            verdict = "weakly identified"
+            verdict = Verdict.WEAKLY_IDENTIFIED
         else:
-            verdict = "NOT identified (posterior ~= prior; MAP arbitrary)"
-        if (verdict == "identified" and num_explainable is not None
+            verdict = Verdict.NOT_IDENTIFIED
+            note = "posterior ~= prior; MAP arbitrary"
+        if (verdict is Verdict.IDENTIFIED and num_explainable is not None
                 and num_explainable < 2):
-            verdict = ("weakly identified (sharp posterior, but only "
-                       f"{num_explainable} explainable segment(s) back it)")
+            verdict = Verdict.WEAKLY_IDENTIFIED
+            note = ("sharp posterior, but only "
+                    f"{num_explainable} explainable segment(s) back it")
         if name in at_bound:
             # A MAP pinned at its box edge means the optimizer ran out
             # of box: the data pushes the parameter outside its
@@ -118,26 +157,30 @@ def identifiability_report(
             # the 1.0 hi bound with posterior_std 5e-11 on
             # run_20260711_141026 replay data), so the probe verdict
             # cannot be trusted there.
-            verdict = (f"at box {at_bound[name]} bound (data pushes it out "
-                       "of its plausible range; fitted value NOT applied)")
+            verdict = Verdict.AT_BOUND
+            note = (f"box {at_bound[name]} edge; data pushes it out of its "
+                    "plausible range; fitted value NOT applied")
         sens = sensitivity.get(name)
         if sens is not None and not sens.get("sensitive", True):
-            verdict = ("insensitive (rollouts do not respond to this param "
-                       "anywhere in its box on this data; fitted value is "
-                       "noise and was NOT applied)")
+            verdict = Verdict.INSENSITIVE
+            note = ("rollouts do not respond to this param anywhere in its "
+                    "box on this data; fitted value is noise and was NOT "
+                    "applied")
         abl = ablation.get(name)
         if abl is not None:
             # The probe's local curvature at a co-adapted MAP is real,
             # so it cannot see that the move was compensatory; the
             # ablation refit's global data-equivalence verdict wins.
-            verdict = ("anchored (a refit with this param at its baseline "
-                       "is data-equivalent; the fitted move was "
-                       "compensatory and the baseline is applied)")
+            verdict = Verdict.ANCHORED
+            note = ("a refit with this param at its baseline is "
+                    "data-equivalent; the fitted move was compensatory and "
+                    "the baseline is applied")
         report[name] = {
             "posterior_std": post,
             "prior_std": prior,
             "contraction": contraction,
             "verdict": verdict,
+            "note": note,
         }
         if sens is not None:
             for key in ("sse_span", "noise_floor"):
@@ -297,11 +340,12 @@ def select_trustworthy_params(
     physical_names: Sequence[str],
     report: Dict[str, Dict[str, Any]],
     anchors: Optional[Dict[str, float]] = None,
+    held: Optional[Dict[str, float]] = None,
 ) -> Dict[str, float]:
     """Pick which fitted physical values are safe to apply to the planner.
 
-    A parameter whose posterior did not contract ("NOT identified" /
-    "unknown") or that failed the sensitivity screen ("insensitive") has
+    A parameter whose posterior did not contract (NOT_IDENTIFIED /
+    UNKNOWN) or that failed the sensitivity screen (INSENSITIVE) has
     an arbitrary MAP — on uninformative data the grid seed and LM land
     wherever the rollout noise happened to be lowest — so applying it
     would move the planner's belief randomly, possibly further from the
@@ -311,24 +355,42 @@ def select_trustworthy_params(
     agent hypothesis, which unsupported data must not smuggle into the
     planner (observed: a declared restitution init of 0.15 surviving as
     "kept init" against a 0.02 baseline). Apply the fitted value only
-    for parameters the data actually constrained (identified / weakly
-    identified, including annotated variants).
+    for parameters the data actually constrained
+    (``Verdict.applies_fitted``).
+
+    An INCONSISTENT parameter (this cycle's confident fit jumped many
+    combined sigmas from the previous cycle's) keeps its entry in
+    ``held`` — the value the planner is currently running with — when
+    one exists: neither of the two mutually-incompatible fits can be
+    preferred on this evidence, and hopping between them churned the
+    belief env for whole runs (run_20260721_205821 seed1: restitution
+    0.71 -> 0.52 -> 0.02 -> 0.32 -> 0.02 across cycles, every hop
+    "identified"). Without a held value it falls back to the anchor
+    like the other untrusted verdicts.
     """
     anchors = anchors or {}
+    held = held or {}
     applied: Dict[str, float] = {}
     for name in physical_names:
-        verdict = report.get(name, {}).get("verdict", "unknown")
-        if verdict.startswith(("identified", "weakly identified")):
+        verdict = report.get(name, {}).get("verdict", Verdict.UNKNOWN)
+        if verdict.applies_fitted:
             applied[name] = fitted[name]
-        else:
-            fallback = anchors.get(name, declared_inits[name])
-            applied[name] = fallback
-            if fitted[name] != fallback:
-                logger.info(
-                    "Rollout sysID: NOT applying %s=%.4f (verdict: %s); "
-                    "keeping the %s %.4f.", name, fitted[name], verdict,
-                    "registry anchor" if name in anchors else "declared init",
-                    fallback)
+            continue
+        if verdict is Verdict.INCONSISTENT and name in held:
+            applied[name] = held[name]
+            logger.info(
+                "Rollout sysID: NOT applying %s=%.4f (%s); holding the "
+                "currently-applied %.4f.", name, fitted[name], verdict.value,
+                held[name])
+            continue
+        fallback = anchors.get(name, declared_inits[name])
+        applied[name] = fallback
+        if fitted[name] != fallback:
+            logger.info(
+                "Rollout sysID: NOT applying %s=%.4f (verdict: %s); "
+                "keeping the %s %.4f.", name, fitted[name], verdict.value,
+                "registry anchor" if name in anchors else "declared init",
+                fallback)
     return applied
 
 
@@ -336,10 +398,13 @@ def format_identifiability(report: Dict[str, Dict[str, Any]]) -> str:
     """Human/agent-readable rendering of :func:`identifiability_report`."""
     lines = []
     for name, info in report.items():
+        verdict = info["verdict"]
+        note = info.get("note", "")
+        label = verdict.value + (f" ({note})" if note else "")
         lines.append(f"  {name:<28} posterior_std={info['posterior_std']:.4g}"
                      f"  prior_std={info['prior_std']:.4g}"
                      f"  contraction={info['contraction']:.2f}"
-                     f"  -> {info['verdict']}")
+                     f"  -> {label}")
         interval = info.get("flat_interval")
         if interval is not None and interval[0] != interval[1]:
             note = (" - the fitted value is the edge of this interval "
