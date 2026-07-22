@@ -963,7 +963,7 @@ class _CompensatingEnv:
     ``x`` advances by ``0.01*gain_a + 0.5*(gain_b - 0.02)`` per step, so
     the observed motion constrains only the combination: a co-adapted
     (gain_a=1.0, gain_b=0.04) reproduces data generated at the true
-    (gain_a=2.0, gain_b=0.02) exactly — the compensation ridge the
+    (gain_a=2.0, gain_b=0.02) exactly - the compensation ridge the
     ablation must resolve toward the standing belief.
     """
 

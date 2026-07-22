@@ -309,6 +309,11 @@ def fit_params_rollout(
             )
         return result
 
+    if config.anchor_ablation and trajectories and physical_specs:
+        logger.warning(
+            "Rollout sysID: anchor ablation is only implemented for the LM "
+            "point fit (rollout_num_mcmc_steps == 0); the MCMC posterior "
+            "below gets NO compensatory-move screening.")
     logger.info(
         "Rollout sysID emcee: %d walkers, %d steps, %d burn-in "
         "(%d physical + %d rule params, %d trajectories).",
@@ -377,16 +382,16 @@ def _anchor_backward_elimination(
     reads "identified" (run_20260721_205821 seed1: the coordinate sweep
     overshot lateral_friction past its true value, then restitution and
     spinning_friction moved 26x / 23x off their true values to
-    compensate — all three "identified", and the resulting belief sim
+    compensate - all three "identified", and the resulting belief sim
     invalidated every downstream plan). The global test the probe
     cannot make: is there a DATA-EQUIVALENT solution with this param at
-    its env-registry anchor? Greedy backward elimination answers it —
+    its env-registry anchor? Greedy backward elimination answers it -
     for each moved param, refit the remaining params (warm-started at
     the current MAP, priors still centered on the anchors) with that
     param pinned at its anchor; accept a refit only when it is BOTH
     data-equivalent (SSE within the grid flat set's tolerance,
     ``max(noise_floor, grid_flat_frac * SSE)``) AND strictly closer to
-    the standing belief (lower total fit-space prior cost) — the grid's
+    the standing belief (lower total fit-space prior cost) - the grid's
     anchor-nearest flat-set principle applied jointly, which also stops
     a symmetric ridge from merely swapping WHICH param carries the
     move. Among acceptable refits the one nearest the belief wins;
@@ -426,10 +431,13 @@ def _anchor_backward_elimination(
         z = to_fit_space(all_specs, [pt[s.name] for s in all_specs])
         return float(np.sum(((z - belief_z) / prior_sig)**2))
 
-    def refit_pinned(surviving: List[ParamSpec]) -> Dict[str, float]:
+    def refit_pinned(surviving: List[ParamSpec],
+                     pins: Dict[str, float]) -> Dict[str, float]:
         """LM refit of ``surviving`` physical + all rule params, warm-
-        started at the current point; anything absent is pinned at its
-        env-registry default (== anchor) by the rollout plumbing."""
+        started at the current point, with ``pins`` (the ablated params)
+        held EXPLICITLY at their anchor values throughout the fit - so
+        the SSE that justifies a revert is measured at exactly the value
+        recorded and applied, whatever the env registry's defaults."""
         warm_physical = [
             ParamSpec(s.name,
                       float(point[s.name]),
@@ -470,7 +478,8 @@ def _anchor_backward_elimination(
             scaling=scaling,
             prior_centers=to_fit_space(specs, center_values),
             prior_sigmas=prior_widths(center_specs, prior_sigma_scale),
-            noise_sigma=noise_sigma)
+            noise_sigma=noise_sigma,
+            fixed_physical=pins)
         return {s.name: float(v) for s, v in zip(specs, theta)}
 
     surviving = list(physical_specs)
@@ -483,12 +492,13 @@ def _anchor_backward_elimination(
         noise_floor = float(np.max(floor_evals) - np.min(floor_evals))
 
     pinned: Dict[str, Dict[str, float]] = {}
+    pinned_values: Dict[str, float] = {}
     while True:
         movable = []
         for s in surviving:
             if s.name in insensitive or s.name not in anchors:
                 # Insensitive values are withheld anyway; a param
-                # without a registry anchor cannot be env-pinned.
+                # without a declared anchor has no baseline to pin to.
                 continue
             dist = abs(
                 to_fit_space([s], [point[s.name]])[0] -
@@ -503,8 +513,13 @@ def _anchor_backward_elimination(
         best_cost = float("inf")
         for s in movable:
             reduced = [t for t in surviving if t is not s]
-            cand_fit = refit_pinned(reduced)
-            cand_sse = sse_at(cand_fit, [t.name for t in reduced])
+            pins = dict(pinned_values)
+            pins[s.name] = float(anchors[s.name])
+            cand_fit = refit_pinned(reduced, pins)
+            cand_sse = sse_at({
+                **cand_fit,
+                **pins
+            }, [t.name for t in reduced] + list(pins))
             if cand_sse > sse_curr + tol:
                 continue
             cand_point = dict(point)
@@ -531,12 +546,20 @@ def _anchor_backward_elimination(
             cand_sse, sse_curr, tol)
         pinned[spec.name] = {
             "anchor": float(anchor),
+            "fitted": float(point[spec.name]),
             "sse_map": float(sse_curr),
             "sse_pinned": float(cand_sse),
             "tol": float(tol),
         }
+        pinned_values[spec.name] = float(anchor)
         surviving = [t for t in surviving if t is not spec]
         point = cand_point
+        # The baseline stays at the running minimum ON PURPOSE: each
+        # accepted revert may cost up to tol, and re-baselining to the
+        # reduced point would let successive reverts drift the SSE
+        # arbitrarily far in tol-sized steps. Anchoring to the minimum
+        # bounds the CUMULATIVE degradation to ~tol of the original MAP
+        # (conservative: a borderline second revert may be kept fitted).
         sse_curr = min(sse_curr, cand_sse)
     if not pinned:
         return result

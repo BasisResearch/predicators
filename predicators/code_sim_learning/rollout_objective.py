@@ -169,8 +169,14 @@ def fit_map_lm_rollout(
     prior_centers: Optional[np.ndarray] = None,
     prior_sigmas: Optional[np.ndarray] = None,
     noise_sigma: float = 0.05,
+    fixed_physical: Optional[Dict[str, float]] = None,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """MAP estimate of the joint physical+rule theta via Levenberg-Marquardt.
+
+    ``fixed_physical`` holds extra physical params at EXPLICIT constant
+    values throughout the fit (pushed into the env alongside the fitted
+    ones, not left to the env registry's defaults) - used by the anchor
+    ablation to pin reverted params at exactly the anchor it records.
 
     Rollout counterpart of :func:`training.fit_map_lm`, built on
     :func:`compute_rollout_residuals` and the shared bound-aware
@@ -192,11 +198,13 @@ def fit_map_lm_rollout(
     """
     all_specs = list(physical_specs) + list(rule_specs)
     names = [s.name for s in all_specs]
-    physical_names = [s.name for s in physical_specs]
+    fixed = dict(fixed_physical or {})
+    physical_names = list(fixed) + [s.name for s in physical_specs]
     use_prior = prior_centers is not None and prior_sigmas is not None
 
     def residuals_fn(theta: np.ndarray) -> np.ndarray:
         params = {n: float(theta[i]) for i, n in enumerate(names)}
+        params.update(fixed)
         res = compute_rollout_residuals(base_env, trajectories, params,
                                         process_features, physical_names,
                                         rules, latent_init, scaling)

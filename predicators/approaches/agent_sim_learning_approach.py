@@ -1951,6 +1951,13 @@ re-score.{probe_note}"""
         for i, name in enumerate(result.names):
             if name not in physical_names:
                 continue
+            if report.get(name, {}).get("verdict", "").startswith("anchored"):
+                # An ablation-reverted param's point estimate IS the
+                # baseline, not a fit. Recording it would make the next
+                # cycle's genuine fit read as a many-sigma jump (and
+                # spuriously downgrade it); keep the previous history
+                # entry, which holds the last real fit.
+                continue
             post = float(
                 report.get(name, {}).get("posterior_std", float("nan")))
             scale = scales[i]
@@ -2022,6 +2029,18 @@ re-score.{probe_note}"""
                         "interval edge nearest the baseline belief). An "
                         "experiment whose observable outcome DIFFERS across "
                         "this interval would pin it down.")
+                continue
+            if verdict.startswith("anchored"):
+                # Anchor ablation handled this param correctly (the move
+                # was compensatory; the baseline is applied) - it is NOT
+                # a failed identification, so don't advise dropping it.
+                lines.append(
+                    f"- physical param '{name}': the fitted move was "
+                    "compensatory (a refit with it at its baseline explains "
+                    "the data equally well), so the baseline was kept. An "
+                    "experiment that excites this parameter SPECIFICALLY "
+                    "(not jointly with the others) would distinguish the "
+                    "two explanations.")
                 continue
             lines.append(
                 f"- physical param '{name}': {verdict}. An experiment whose "

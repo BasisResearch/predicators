@@ -349,8 +349,11 @@ def format_identifiability(report: Dict[str, Dict[str, Any]]) -> str:
                          f"{interval[1]:.4g}]{note}")
         abl = info.get("anchor_ablation")
         if abl is not None:
+            fitted = (f" (reverted from {abl['fitted']:.4g})"
+                      if "fitted" in abl else "")
             lines.append(f"      anchor ablation: SSE {abl['sse_pinned']:.4g} "
                          f"with it refit-pinned at baseline "
-                         f"{abl['anchor']:.4g} vs {abl['sse_map']:.4g} at the "
-                         f"joint MAP (tol {abl['tol']:.4g})")
+                         f"{abl['anchor']:.4g}{fitted} vs "
+                         f"{abl['sse_map']:.4g} at the joint MAP "
+                         f"(tol {abl['tol']:.4g})")
     return "\n".join(lines)

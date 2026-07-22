@@ -71,9 +71,9 @@ class GlobalSettings:
     # Run each test episode in a freshly-constructed env instance (the
     # generated test tasks are shared, so the tasks are identical).
     # State-level resets on a long-lived PyBullet env leave
-    # history-dependent residuals — velocities the reconstruction diff
+    # history-dependent residuals - velocities the reconstruction diff
     # skips, auxiliary joints no reset touches, contact-solver state
-    # that survives ``restoreState`` — so by test time the world's
+    # that survives ``restoreState`` - so by test time the world's
     # behavior depends on everything the run executed before it
     # (measured on run_20260721_205821 seed0: the captured plan's
     # cascade stalled mid-chain in the run's long-lived env but
