@@ -18,7 +18,7 @@ from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
     fit_space_bounds, from_fit_space, prior_widths, rows_from_fit_space, \
     to_fit_space
 from predicators.code_sim_learning.grid_seed import _grid_candidates
-from predicators.code_sim_learning.identifiability import \
+from predicators.code_sim_learning.identifiability import Verdict, \
     identifiability_report
 from predicators.code_sim_learning.lm import solve_lm
 from predicators.code_sim_learning.utils import stamp_physical_spec_scales
@@ -166,7 +166,7 @@ def test_probe_flat_low_basin_not_identified_in_log_space():
         return 0.0 if params["friction"] < 0.3 else 1e6
 
     report = identifiability_report(result, sse_fn, specs)
-    assert "NOT identified" in report["friction"]["verdict"]
+    assert report["friction"]["verdict"] is Verdict.NOT_IDENTIFIED
 
 
 def test_probe_sharp_log_curvature_identified():
@@ -178,7 +178,7 @@ def test_probe_sharp_log_curvature_identified():
         return 1e4 * (np.log(params["friction"]) - np.log(0.1))**2
 
     report = identifiability_report(result, sse_fn, specs)
-    assert report["friction"]["verdict"] == "identified"
+    assert report["friction"]["verdict"] is Verdict.IDENTIFIED
 
 
 def test_mcmc_samples_contraction_measured_in_log_space():
@@ -196,8 +196,8 @@ def test_mcmc_samples_contraction_measured_in_log_space():
                        prior_sigma=np.array([0.75, 0.75]),
                        scales=["log", "log"])
     report = identifiability_report(result)
-    assert report["friction"]["verdict"] == "identified"
-    assert "NOT identified" in report["mass"]["verdict"]
+    assert report["friction"]["verdict"] is Verdict.IDENTIFIED
+    assert report["mass"]["verdict"] is Verdict.NOT_IDENTIFIED
 
 
 # ── Ensembles ─────────────────────────────────────────────────────
