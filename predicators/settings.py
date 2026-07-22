@@ -553,8 +553,9 @@ class GlobalSettings:
     # contains (or avoids) a turn90 to meet the same quota, turn tasks
     # first. Turn tasks are the hard family (tighter topple reach ~0.11 vs
     # ~0.15 straight, corner-relay staging). 0.0 = all straight, 1.0 = all
-    # turns.
-    domino_turn_ratio = 0.5
+    # turns. Split per task set: train tasks default to straight-only.
+    domino_train_turn_ratio = 0.0
+    domino_test_turn_ratio = 0.5
     domino_train_num_pos_x = 3
     domino_train_num_pos_y = 2
     domino_test_num_pos_x = 4  # 5 is too large for robot to reach sometimes
@@ -675,7 +676,7 @@ class GlobalSettings:
     domino_min_block_turn_exit_hi: Optional[float] = None
     # Heavy-block (immovable obstacle) task type — the single switch for the
     # variant. A HEAVY gray domino-shaped block sits with natural alignment
-    # in one of two shapes (mixed per domino_turn_ratio):
+    # in one of two shapes (mixed per domino_{train,test}_turn_ratio):
     #   * straight: start -> gray -> target on ONE line, all co-facing; the
     #     true solution is a half-circle swerve around the gray;
     #   * turn: an L whose believed-cheapest corner layout is found first,

@@ -48,13 +48,16 @@ class DominoTaskGenerator(TaskGenerator):
             possible_num_dominos: Optional[List[int]] = None,
             possible_num_targets: Optional[List[int]] = None,
             possible_num_pivots: Optional[List[int]] = None,
-            domino_in_upper_half: bool = False) -> List[EnvironmentTask]:
+            domino_in_upper_half: bool = False,
+            turn_ratio: Optional[float] = None) -> List[EnvironmentTask]:
         """Generate domino sequence tasks.
 
         Args:
             domino_in_upper_half: If True, shift dominoes to upper
                 half of workspace (useful when ball needs space
                 in lower half).
+            turn_ratio: Fraction of tasks that must contain a turn90
+                corner (the caller picks the train or test flag).
         """
         if possible_num_dominos is None:
             possible_num_dominos = CFG.domino_test_num_dominos
@@ -62,11 +65,13 @@ class DominoTaskGenerator(TaskGenerator):
             possible_num_targets = CFG.domino_test_num_targets
         if possible_num_pivots is None:
             possible_num_pivots = CFG.domino_test_num_pivots
+        if turn_ratio is None:
+            turn_ratio = CFG.domino_test_turn_ratio
 
-        # Turn/straight quota (CFG.domino_turn_ratio, shared with min-block
-        # generation): the first n_turn tasks must contain a turn90 corner
-        # and the rest are generated straight-only.
-        n_turn = int(round(num_tasks * CFG.domino_turn_ratio))
+        # Turn/straight quota (domino_{train,test}_turn_ratio, shared with
+        # min-block generation): the first n_turn tasks must contain a
+        # turn90 corner and the rest are generated straight-only.
+        n_turn = int(round(num_tasks * turn_ratio))
 
         tasks = []
         for i_task in range(num_tasks):
@@ -95,8 +100,9 @@ class DominoTaskGenerator(TaskGenerator):
             force_turn: bool = False) -> Optional[EnvironmentTask]:
         """Generate a single domino task.
 
-        ``force_turn`` is this task's slot in the ``domino_turn_ratio``
-        quota: True means the chain must contain a turn90 corner (chains
+        ``force_turn`` is this task's slot in the turn-ratio quota
+        (``domino_{train,test}_turn_ratio``): True means the chain must
+        contain a turn90 corner (chains
         without one are resampled), False means it is generated
         straight-only. Ignored on the min-block path, which fills its
         own quota from the same ratio.
@@ -327,7 +333,7 @@ class DominoTaskGenerator(TaskGenerator):
         With ``force_turn`` True the completed chain must contain at
         least one turn90 (otherwise ``None``, so the caller's attempt
         loop resamples); with False the per-step choice is restricted to
-        straight placements. See ``domino_turn_ratio``.
+        straight placements. See ``domino_{train,test}_turn_ratio``.
         """
         obj_dict: Dict[Object, Dict[str, Any]] = {}
         domino_count = 0
@@ -535,7 +541,7 @@ class DominoTaskGenerator(TaskGenerator):
         if just_turned_90 and "turn90" in turn_choices:
             turn_choices.remove("turn90")
         if just_placed_target or not force_turn:
-            # Straight-only slot in the domino_turn_ratio quota (or a
+            # Straight-only slot in the turn-ratio quota (or a
             # cooldown step right after a target).
             turn_choices = ["straight"]
 
