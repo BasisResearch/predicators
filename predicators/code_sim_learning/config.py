@@ -33,7 +33,6 @@ class SysIdConfig:
 
     warm_start_with_lm: bool
     num_mcmc_steps: int
-    rollout_num_mcmc_steps: int
     grid_seed_points: int
     grid_sweep_passes: int
     grid_refine_evals: int
@@ -60,8 +59,6 @@ class SysIdConfig:
         return cls(
             warm_start_with_lm=CFG.code_sim_learning_warm_start_with_lm,
             num_mcmc_steps=CFG.code_sim_learning_num_mcmc_steps,
-            rollout_num_mcmc_steps=(
-                CFG.code_sim_learning_rollout_num_mcmc_steps),
             grid_seed_points=CFG.code_sim_learning_rollout_grid_seed_points,
             grid_sweep_passes=(
                 CFG.code_sim_learning_rollout_grid_sweep_passes),
