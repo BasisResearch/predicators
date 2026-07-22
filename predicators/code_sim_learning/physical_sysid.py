@@ -24,7 +24,7 @@ Design notes (mirroring MuJoCo's official ``mujoco.sysid`` toolbox):
   (``env.get_physical_param_info()``) as ``PHYSICAL_PARAMS`` — never "all
   params by default". Undeclared parameters keep the env's built-in values.
 * Physical parameters and learned-rule parameters are fit **jointly** in one
-  posterior (one theta vector, one MCMC run) so rules cannot silently absorb
+  posterior (one theta vector, one fit) so rules cannot silently absorb
   physics error and vice versa. With no rules the fit degenerates to pure
   physical identification; rule-only artifacts keep using the (cheaper)
   teacher-forced / recurrent objectives in ``fitting.py``.
@@ -34,8 +34,8 @@ Design notes (mirroring MuJoCo's official ``mujoco.sysid`` toolbox):
 
 The interface deliberately mirrors :func:`training.fit_params` (declare an
 initialization via :class:`ParamSpec`, a Gaussian prior around it, a Gaussian
-likelihood, emcee MCMC) so the agent-facing flow is unchanged: pick an init,
-let the solver refine it.
+likelihood) so the agent-facing flow is unchanged: pick an init, let the
+solver refine it.
 
 The stack is split across subsystem modules; this module keeps the fit
 orchestrators and re-exports the public API so existing importers keep
@@ -56,8 +56,8 @@ working:
   the :func:`min_explainable_rms` explainability sweep).
 * :mod:`.identifiability` - :func:`identifiability_report`,
   :func:`select_trustworthy_params`, :func:`format_identifiability`.
-* This module - :func:`fit_params_rollout` (grid seed + LM MAP + optional
-  emcee posterior) and :func:`fit_params_rollout_trimmed` (explainability
+* This module - :func:`fit_params_rollout` (grid seed + LM MAP + anchor
+  ablation) and :func:`fit_params_rollout_trimmed` (explainability
   trimming + consistency loop).
 """
 
@@ -70,14 +70,13 @@ import numpy as np
 
 from predicators.code_sim_learning.config import SysIdConfig
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
-    fit_space_bounds, prior_widths, to_fit_space
-from predicators.code_sim_learning.fitting import run_emcee_posterior
+    prior_widths, to_fit_space
 from predicators.code_sim_learning.grid_seed import \
     _grid_seed_physical_specs, min_explainable_rms
 from predicators.code_sim_learning.identifiability import NOISE_FLOOR_EVALS, \
     format_identifiability, identifiability_report, \
     select_trustworthy_params
-from predicators.code_sim_learning.lm import lm_point_fit_result, lm_prefit
+from predicators.code_sim_learning.lm import log_hessian_identifiability
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
     dispose_env, physical_param_anchors, rollout_states
 from predicators.code_sim_learning.rollout_objective import \
@@ -130,9 +129,6 @@ def fit_params_rollout(
     rules: Sequence[Any] = (),
     rule_specs: Sequence[ParamSpec] = (),
     latent_init: Any = None,
-    num_walkers: int = 8,
-    num_steps: Optional[int] = None,
-    burn_in: int = 40,
     noise_sigma: float = 0.05,
     prior_sigma_scale: float = _ROLLOUT_PRIOR_SIGMA_SCALE,
     scaling: Optional[ResidualScaling] = None,
@@ -141,16 +137,16 @@ def fit_params_rollout(
 ) -> FitResult:
     """Jointly identify physical + rule params against rollout SSE.
 
-    Mirrors :func:`training.fit_params` end to end: Gaussian prior,
-    Gaussian likelihood ``-0.5*SSE/noise^2``, shared bounds/prior-width
-    conventions, the same LM-prefit flow (Hessian diagnostic / warm
-    start / Laplace bundle behind the usual CFG flags), and the same
-    ``num_steps == 0`` short-circuit to the **LM point fit** — which is
-    the experiment default (``CFG.code_sim_learning_rollout_num_mcmc_
-    steps = 0``, matching the configs' ``code_sim_learning_num_mcmc_
-    steps: 0``); MCMC is opt-in. The forward model is a base-sim
-    rollout (:func:`compute_rollout_sse`) rather than the per-step
-    process rules, and theta concatenates ``physical_specs`` with
+    The fit is a grid-seeded, prior-folded Levenberg-Marquardt MAP
+    point fit - always. (A rollout emcee branch existed historically
+    behind ``code_sim_learning_rollout_num_mcmc_steps`` but was never
+    enabled by any experiment; it was removed 2026-07 rather than
+    carried as dead scaffolding. The identifiability verdicts come from
+    the grid landscape and the curvature probe, and the info-seeking
+    explorer's calibrated ensemble comes from the Laplace bundle at the
+    LM MAP.) The forward model is a base-sim rollout
+    (:func:`compute_rollout_sse`) rather than the per-step process
+    rules, and theta concatenates ``physical_specs`` with
     ``rule_specs``.
 
     The Gaussian prior is centered on each param's ``anchors`` entry
@@ -180,13 +176,6 @@ def fit_params_rollout(
     physical_names = [s.name for s in physical_specs]
     names = [s.name for s in all_specs]
     scales = [getattr(s, "scale", "linear") for s in all_specs]
-    init_values = np.array([s.init_value for s in all_specs], dtype=float)
-    if num_steps is None:
-        num_steps = config.rollout_num_mcmc_steps
-    if num_steps < 0:
-        raise ValueError("code_sim_learning_rollout_num_mcmc_steps must be "
-                         "non-negative.")
-    lo, hi = fit_space_bounds(all_specs)
     anchors = anchors or {}
     center_values = np.array(
         [anchors.get(s.name, s.init_value) for s in all_specs], dtype=float)
@@ -261,94 +250,49 @@ def fit_params_rollout(
                 "values will not be applied.", insensitive, sens_factor,
                 noise_floor)
 
-    # One-shot rollout LM fit (see lm_prefit for its three uses). With
-    # the default rollout MCMC budget of 0 this LM MAP *is* the fit.
-    walker_center, lm_theta, lm_jac = lm_prefit(
-        lambda: fit_map_lm_rollout(base_env,
-                                   trajectories,
-                                   lm_physical_specs,
-                                   process_features,
-                                   rules,
-                                   rule_specs,
-                                   latent_init,
-                                   scaling=scaling,
-                                   prior_centers=center_int,
-                                   prior_sigmas=prior_sigma,
-                                   noise_sigma=noise_sigma), lambda p:
-        compute_rollout_sse(base_env, trajectories, p, process_features,
-                            physical_names, rules, latent_init, scaling),
-        names, init_values, noise_sigma, prior_sigma, "rollout")
-
-    if num_steps == 0:
-        result = lm_point_fit_result(walker_center,
-                                     lm_theta,
-                                     lm_jac,
-                                     names,
-                                     noise_sigma,
-                                     prior_sigma,
-                                     "rollout",
-                                     scales=scales)
-        result.sensitivity = sensitivity
-        if (config.anchor_ablation and config.grid_flat_frac > 0
-                and trajectories and lm_theta is not None):
-            result = _anchor_backward_elimination(
-                base_env,
-                trajectories,
-                physical_specs,
-                rule_specs,
-                process_features,
-                rules,
-                latent_init,
-                scaling,
-                anchors,
-                noise_sigma,
-                prior_sigma_scale,
-                result,
-                noise_floor,
-                config,
-            )
-        return result
-
-    if config.anchor_ablation and trajectories and physical_specs:
-        logger.warning(
-            "Rollout sysID: anchor ablation is only implemented for the LM "
-            "point fit (rollout_num_mcmc_steps == 0); the MCMC posterior "
-            "below gets NO compensatory-move screening.")
-    logger.info(
-        "Rollout sysID emcee: %d walkers, %d steps, %d burn-in "
-        "(%d physical + %d rule params, %d trajectories).",
-        max(num_walkers, 2 * len(all_specs) + 2), num_steps,
-        min(burn_in, max(num_steps - 1, 0)), len(physical_names),
-        len(list(rule_specs)), len(trajectories))
-    samples, log_probs = run_emcee_posterior(
-        list(all_specs),
-        lambda p:
-        compute_rollout_sse(base_env, trajectories, p, process_features,
-                            physical_names, rules, latent_init, scaling),
-        walker_center,
-        center_int,
-        prior_sigma,
-        lo,
-        hi,
-        noise_sigma,
-        num_walkers,
-        num_steps,
-        burn_in,
-        label="rollout",
-        # Rollout evaluations are ~100x costlier than analytic SSEs, so
-        # report much more often.
-        report_interval=25)
+    # The grid-seeded, prior-folded LM MAP IS the fit. The Jacobian at
+    # the MAP is kept on the result as the Laplace bundle for the
+    # info-seeking explorer's calibrated ensemble.
+    lm_theta, lm_jac = fit_map_lm_rollout(base_env,
+                                          trajectories,
+                                          lm_physical_specs,
+                                          process_features,
+                                          rules,
+                                          rule_specs,
+                                          latent_init,
+                                          scaling=scaling,
+                                          prior_centers=center_int,
+                                          prior_sigmas=prior_sigma,
+                                          noise_sigma=noise_sigma)
+    if (config.log_hessian_identifiability and lm_jac is not None
+            and lm_jac.size > 0):
+        log_hessian_identifiability(lm_jac, names, noise_sigma, prior_sigma)
     result = FitResult(names=names,
-                       samples=samples,
-                       log_probs=log_probs,
+                       samples=np.asarray(lm_theta, dtype=float)[None, :],
+                       log_probs=np.zeros(1),
                        jacobian=lm_jac,
                        noise_sigma=noise_sigma,
                        prior_sigma=prior_sigma,
                        scales=scales,
                        sensitivity=sensitivity)
-    logger.info("Rollout sysID done. MAP: %s",
-                {k: f"{v:.4f}"
-                 for k, v in result.point_estimate.items()})
+    if (config.anchor_ablation and config.grid_flat_frac > 0
+            and trajectories):
+        result = _anchor_backward_elimination(
+            base_env,
+            trajectories,
+            physical_specs,
+            rule_specs,
+            process_features,
+            rules,
+            latent_init,
+            scaling,
+            anchors,
+            noise_sigma,
+            prior_sigma_scale,
+            result,
+            noise_floor,
+            config,
+        )
     return result
 
 
@@ -638,7 +582,6 @@ def fit_params_rollout_trimmed(
     rules: Sequence[Any] = (),
     rule_specs: Sequence[ParamSpec] = (),
     latent_init: Any = None,
-    num_steps: Optional[int] = None,
     noise_sigma: float = 0.05,
     scaling: Optional[ResidualScaling] = None,
     anchors: Optional[Dict[str, float]] = None,
@@ -692,7 +635,6 @@ def fit_params_rollout_trimmed(
                                     rules=rules,
                                     rule_specs=rule_specs,
                                     latent_init=latent_init,
-                                    num_steps=num_steps,
                                     noise_sigma=noise_sigma,
                                     scaling=scaling,
                                     anchors=anchors,
@@ -759,7 +701,6 @@ def fit_params_rollout_trimmed(
                                     rules=rules,
                                     rule_specs=rule_specs,
                                     latent_init=latent_init,
-                                    num_steps=num_steps,
                                     noise_sigma=noise_sigma,
                                     scaling=scaling,
                                     anchors=anchors,

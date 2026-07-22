@@ -1820,7 +1820,6 @@ re-score.{probe_note}"""
         rules: List,
         rule_specs: List[ParamSpec],
         process_features: Dict[str, List[str]],
-        num_steps: Optional[int] = None,
     ) -> Tuple[FitResult, float]:
         """Joint physical+rule fit against free-running base-sim rollouts.
 
@@ -1828,9 +1827,9 @@ re-score.{probe_note}"""
         the RAW observed trajectories rather than ``base_pred_triples``:
         physical parameters only manifest when momentum free-runs, which
         the teacher-forced triples destroy (``State`` has no
-        velocities). One theta = physical + rule params, one MCMC, so
-        rules cannot silently absorb physics error; with no rules this
-        degenerates to pure identification. The identified physical
+        velocities). One theta = physical + rule params, one joint fit,
+        so rules cannot silently absorb physics error; with no rules
+        this degenerates to pure identification. The identified physical
         values are applied in place to the planning base env, and the
         per-parameter identifiability report (posterior contraction) is
         logged so null parameters are visible rather than silently
@@ -1856,7 +1855,6 @@ re-score.{probe_note}"""
                                         rules=rules,
                                         rule_specs=rule_specs,
                                         latent_init=self._latent_init,
-                                        num_steps=0,
                                         anchors=anchors)
             self._apply_identified_physical_params(
                 {n: init_params[n]
@@ -1878,7 +1876,6 @@ re-score.{probe_note}"""
             rules=rules,
             rule_specs=rule_specs,
             latent_init=self._latent_init,
-            num_steps=num_steps,
             scaling=scaling,
             anchors=anchors,
             rms_cache=self._explainability_cache)
