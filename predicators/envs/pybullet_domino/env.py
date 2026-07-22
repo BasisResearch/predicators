@@ -703,6 +703,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             possible_num_dominos=CFG.domino_train_num_dominos,
             possible_num_targets=CFG.domino_train_num_targets,
             possible_num_pivots=CFG.domino_train_num_pivots,
+            turn_ratio=CFG.domino_train_turn_ratio,
             rng=self._train_rng,
             cache_tag="train")
 
@@ -713,6 +714,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             possible_num_dominos=CFG.domino_test_num_dominos,
             possible_num_targets=CFG.domino_test_num_targets,
             possible_num_pivots=CFG.domino_test_num_pivots,
+            turn_ratio=CFG.domino_test_turn_ratio,
             rng=self._test_rng,
             cache_tag="test")
 
@@ -734,6 +736,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                     possible_num_dominos: List[int],
                     possible_num_targets: List[int],
                     possible_num_pivots: List[int],
+                    turn_ratio: float,
                     rng: np.random.Generator,
                     log_debug: bool = False,
                     cache_tag: str = "") -> List[EnvironmentTask]:
@@ -768,7 +771,8 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                 possible_num_dominos=possible_num_dominos,
                 possible_num_targets=possible_num_targets,
                 possible_num_pivots=possible_num_pivots,
-                domino_in_upper_half=domino_in_upper_half)
+                domino_in_upper_half=domino_in_upper_half,
+                turn_ratio=turn_ratio)
 
         # Non-min-block mode: single generation pass, unchanged behaviour.
         if not (CFG.domino_min_block_tasks or CFG.domino_heavy_block_tasks):
@@ -784,7 +788,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         from predicators.envs.pybullet_domino.task_generators.min_block_generation import \
             make_min_block_tasks
         return make_min_block_tasks(self, generator, _generate_batch,
-                                    num_tasks, rng, cache_tag)
+                                    num_tasks, rng, cache_tag, turn_ratio)
 
 
 # =============================================================================

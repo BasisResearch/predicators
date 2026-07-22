@@ -198,7 +198,7 @@ def test_counterfactual_cascade_probe() -> None:
         "seed": 0,
         "num_train_tasks": 0,
         "num_test_tasks": 1,
-        "domino_turn_ratio": 1.0,
+        "domino_test_turn_ratio": 1.0,
         "domino_initialize_at_finished_state": True,
         "domino_use_domino_blocks_as_target": True,
         "domino_use_continuous_place": True,

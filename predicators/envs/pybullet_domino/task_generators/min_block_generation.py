@@ -122,14 +122,16 @@ def make_min_block_tasks(env: "PyBulletDominoComposedEnv",
                          generate_batch: Callable[[int],
                                                   List[EnvironmentTask]],
                          num_tasks: int, rng: np.random.Generator,
-                         cache_tag: str) -> List[EnvironmentTask]:
+                         cache_tag: str,
+                         turn_ratio: float) -> List[EnvironmentTask]:
     """Generate (or reload) the min-block task set.
 
     Min-block generation is expensive (each kept task runs simulated K*
     searches), but fully deterministic given the seed, the config, and
     the code - so finished tasks are cached and reloaded on repeat runs.
 
-    A fraction (``domino_turn_ratio``) of tasks are L-shaped
+    A fraction (``turn_ratio``, from ``domino_{train,test}_turn_ratio``
+    per task set) of tasks are L-shaped
     (one 90-degree domino turn), the rest straight. Both drop tasks that
     can't be pushed / don't topple, so the quota loop keeps going until
     enough of each survive (or the attempt cap is hit). ``rng`` is
@@ -154,7 +156,7 @@ def make_min_block_tasks(env: "PyBulletDominoComposedEnv",
     ], Optional[EnvironmentTask]]
     turn_maker: maker_t
     straight_maker: Optional[maker_t] = None
-    n_turn = int(round(num_tasks * CFG.domino_turn_ratio))
+    n_turn = int(round(num_tasks * turn_ratio))
     n_straight = num_tasks - n_turn
     if CFG.domino_heavy_block_tasks:
         turn_maker = _make_heavy_turn_task
