@@ -390,11 +390,14 @@ def _anchor_backward_elimination(
 
     def refit_pinned(surviving: List[ParamSpec],
                      pins: Dict[str, float]) -> Dict[str, float]:
-        """LM refit of ``surviving`` physical + all rule params, warm-
-        started at the current point, with ``pins`` (the ablated params)
-        held EXPLICITLY at their anchor values throughout the fit - so
-        the SSE that justifies a revert is measured at exactly the value
-        recorded and applied, whatever the env registry's defaults."""
+        """LM refit of the surviving physical + all rule params.
+
+        Warm-started at the current point, with ``pins`` (the ablated
+        params) held EXPLICITLY at their anchor values throughout the
+        fit - so the SSE that justifies a revert is measured at exactly
+        the value recorded and applied, whatever the env registry's
+        defaults.
+        """
         if not surviving and not rule_specs:
             # Nothing left to refit: the candidate is the pins alone.
             # (Calling LM with zero specs raises on the empty theta -

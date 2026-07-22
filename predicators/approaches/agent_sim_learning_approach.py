@@ -50,16 +50,14 @@ from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
 from predicators.code_sim_learning.fitting import FIT_NOISE_SIGMA, \
     compute_sse, compute_sse_recurrent, fit_rule_parameters, \
     fit_rule_parameters_latent, log_param_changes, log_sse_breakdown
-from predicators.code_sim_learning.identifiability import \
-    Verdict, format_identifiability, identifiability_report, \
-    select_trustworthy_params
-from predicators.code_sim_learning.physical_sysid import fit_params_rollout, \
-    fit_params_rollout_trimmed
+from predicators.code_sim_learning.identifiability import Verdict, \
+    format_identifiability
+from predicators.code_sim_learning.orchestrator import run_rollout_sysid
+from predicators.code_sim_learning.physical_sysid import fit_params_rollout
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
     dispose_env, physical_param_anchors
-from predicators.code_sim_learning.rollout_objective import compute_rollout_sse
 from predicators.code_sim_learning.trajectory_prep import \
-    compute_residual_scaling, split_at_rest_points, truncate_settled_tail
+    split_at_rest_points, truncate_settled_tail
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, apply_rules_with_latent, has_latent_rules, init_latent, \
     iter_feature_residuals, merge_updates, read_latent_init, \
@@ -531,6 +529,13 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # reuse the sweep instead of re-rolling it, which both saves
         # rollouts and pins the verdict for identical inputs.
         self._explainability_cache: Dict[Tuple, List[float]] = {}
+        # Whole-fit memoization for the orchestrator (same lifecycle as
+        # the explainability cache): repeated canonical sim.fit calls on
+        # an unchanged artifact version + data reuse the entire fit core
+        # instead of re-rolling it. Keyed by (artifact version tag,
+        # declaration/data signature); values are
+        # orchestrator._FitComputation bundles.
+        self._sysid_fit_cache: Dict[Tuple, Any] = {}
         # Final per-cycle fit history for the cross-cycle consistency
         # check: name -> (map_value, posterior_std_fit_space, scale).
         # Mutually-incompatible confident fits across cycles are the
@@ -743,8 +748,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # (latent threads within a trajectory, not across). Harmless for
         # fully-observable (legacy) simulators, which never regroup.
         self._fit_trajectories = list(trajectories)
-        # New data invalidates the memoized explainability verdicts.
+        # New data invalidates the memoized explainability verdicts and
+        # the memoized whole fits.
         self._explainability_cache.clear()
+        self._sysid_fit_cache.clear()
         # Decide how samplers are obtained this cycle: ground-truth (if
         # requested and available for the env) else agent synthesis. GT
         # samplers are static, so install them up front, independent of
@@ -1861,29 +1868,22 @@ re-score.{probe_note}"""
                  for n in physical_names})
             return result, float("nan")
 
-        # One scaling object per fit: every SSE/RMS below must share it
-        # or their values are incomparable.
-        scaling = compute_residual_scaling(rollouts, process_features)
-        pre_sse = compute_rollout_sse(fit_env, rollouts, init_params,
-                                      process_features, physical_names, rules,
-                                      self._latent_init, scaling)
-        logger.info("Rollout sysID - pre-SSE: %.6f", pre_sse)
-        result, survivors, rms = fit_params_rollout_trimmed(
-            fit_env,
-            rollouts,
-            physical_specs,
-            process_features,
-            rules=rules,
-            rule_specs=rule_specs,
-            latent_init=self._latent_init,
-            scaling=scaling,
-            anchors=anchors,
-            rms_cache=self._explainability_cache)
-        # Post-SSE and the identifiability probe are computed on the
-        # SURVIVING trajectories: a trimmed (unexplainable) recording
-        # would otherwise re-poison the verdicts with its noise.
-        if not survivors:
-            # NO fit ran (result is pinned at the declared inits).
+        outcome = run_rollout_sysid(fit_env,
+                                    rollouts,
+                                    physical_specs,
+                                    process_features,
+                                    rules=rules,
+                                    rule_specs=rule_specs,
+                                    latent_init=self._latent_init,
+                                    anchors=anchors,
+                                    rms_cache=self._explainability_cache,
+                                    report_adjuster=lambda result, report:
+                                    (self._check_cross_cycle_consistency(
+                                        result, report, physical_names)),
+                                    held=dict(
+                                        self._identified_physical_params))
+        if outcome.num_survivors == 0:
+            # NO fit ran (the result is pinned at the declared inits).
             # Apply nothing: the planner keeps its standing belief -
             # the previous cycle's applied values - rather than being
             # reverted to baselines (or moved to this call's declared
@@ -1892,40 +1892,16 @@ re-score.{probe_note}"""
                 "Rollout sysID: no explainable segments this cycle; "
                 "leaving the planner's physical params untouched.")
             self._record_sysid_diagnostics({}, physical_names, 0,
-                                           len(rollouts), rms)
-            return result, float("nan")
-        probe_rollouts = survivors
-        fitted = result.point_estimate
-        post_sse = compute_rollout_sse(fit_env, probe_rollouts, fitted,
-                                       process_features, physical_names, rules,
-                                       self._latent_init, scaling)
-        logger.info("Rollout sysID - post-SSE: %.6f", post_sse)
-
-        def rollout_sse_fn(params: Dict[str, float]) -> float:
-            return compute_rollout_sse(fit_env, probe_rollouts, params,
-                                       process_features, physical_names, rules,
-                                       self._latent_init, scaling)
-
-        report = identifiability_report(result,
-                                        rollout_sse_fn,
-                                        list(physical_specs) +
-                                        list(rule_specs),
-                                        num_explainable=len(survivors))
-        self._check_cross_cycle_consistency(result, report, physical_names)
+                                           len(rollouts), outcome.traj_rms)
+            return outcome.fit_result, float("nan")
         logger.info("Identifiability (posterior/prior contraction):\n%s",
-                    format_identifiability(report))
-        log_param_changes(init_params, fitted)
-        self._apply_identified_physical_params(
-            select_trustworthy_params(fitted,
-                                      init_params,
-                                      physical_names,
-                                      report,
-                                      anchors,
-                                      held=dict(
-                                          self._identified_physical_params)))
-        self._record_sysid_diagnostics(report, physical_names, len(survivors),
-                                       len(rollouts), rms)
-        return result, post_sse
+                    format_identifiability(outcome.report))
+        log_param_changes(init_params, outcome.fitted)
+        self._apply_identified_physical_params(outcome.applied)
+        self._record_sysid_diagnostics(outcome.report,
+                                       physical_names, outcome.num_survivors,
+                                       len(rollouts), outcome.traj_rms)
+        return outcome.fit_result, outcome.post_sse
 
     def _check_cross_cycle_consistency(self, result: FitResult,
                                        report: Dict[str, Dict[str, Any]],
