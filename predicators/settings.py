@@ -68,6 +68,21 @@ class GlobalSettings:
     pretty_print_when_loading = False
     # Used for random seeding in test environment.
     test_env_seed_offset = 10000
+    # Run each test episode in a freshly-constructed env instance (the
+    # generated test tasks are shared, so the tasks are identical).
+    # State-level resets on a long-lived PyBullet env leave
+    # history-dependent residuals — velocities the reconstruction diff
+    # skips, auxiliary joints no reset touches, contact-solver state
+    # that survives ``restoreState`` — so by test time the world's
+    # behavior depends on everything the run executed before it
+    # (measured on run_20260721_205821 seed0: the captured plan's
+    # cascade stalled mid-chain in the run's long-lived env but
+    # completes deterministically, 10/10 across placement jitters, in a
+    # fresh env). Same rationale as the fresh-env-per-rollout sysID fix
+    # in code_sim_learning.rollout_env. Envs that cannot be duplicated
+    # (GUI mode: one client only) fall back to the shared instance; see
+    # ``BaseEnv.make_fresh_test_instance``.
+    test_fresh_env_per_episode = True
     # Optionally define test tasks in JSON format
     test_task_json_dir = None
     # The method to use for segmentation. By default, segment using options.

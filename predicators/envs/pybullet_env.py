@@ -1774,6 +1774,34 @@ class PyBulletEnv(BaseEnv):
 
         return obs
 
+    def make_fresh_test_instance(self) -> Optional[BaseEnv]:
+        """Fresh same-class instance sharing this env's generated tasks.
+
+        A long-lived PyBullet world accumulates history that state-level
+        resets do not clear (residual velocities the reconstruction diff
+        skips, auxiliary joints no reset touches, contact-solver state
+        that survives ``restoreState``), so a test episode's physics
+        depends on everything executed before it. A fresh instance is
+        the only proven-deterministic reset (see
+        ``code_sim_learning.rollout_env.rollout_states``). Not available
+        with the GUI (PyBullet allows one GUI client) or when episodes
+        execute on real hardware (``CFG.real_robot_execute``: a fresh
+        instance would re-open the robot bridge mid-run).
+        """
+        if self.using_gui or CFG.real_robot_execute:
+            return None
+        fresh = type(self)(use_gui=False)
+        # Share the generated task lists: identical tasks, no re-
+        # generation. Tasks are immutable data, so sharing is safe.
+        # pylint: disable=protected-access
+        fresh._train_tasks = self._train_tasks
+        fresh._test_tasks = self._test_tasks
+        return fresh
+
+    def dispose(self) -> None:
+        """Disconnect this instance's PyBullet client."""
+        p.disconnect(self._physics_client_id)
+
     # ── Task Utilities ──────────────────────────────────────────
 
     def _add_pybullet_state_to_tasks(
