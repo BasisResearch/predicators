@@ -19,6 +19,17 @@ from predicators.structs import Action, State
 # (states, actions) with len(states) == len(actions) + 1 and states[0] at rest.
 RolloutTrajectory = Tuple[List[State], List[Action]]
 
+# Monotonic count of free-running rollouts executed by this process.
+# Each SSE evaluation runs one rollout per trajectory, so this is the
+# honest unit of sysID compute; the fit orchestrators snapshot it
+# around their stages to log where the budget actually went.
+_NUM_ROLLOUTS = 0
+
+
+def num_rollouts_run() -> int:
+    """Total :func:`rollout_states` invocations so far (cost telemetry)."""
+    return _NUM_ROLLOUTS
+
 
 def _zero_all_velocities(base_env: Any) -> None:
     """Zero every velocity in the env's client: base velocities of all bodies
@@ -125,6 +136,8 @@ def rollout_states(base_env: Any, init_state: State, actions: List[Action],
     resetting so momentum accrues in-sim. Returns the post-step state
     after each action (length == ``len(actions)``).
     """
+    global _NUM_ROLLOUTS  # pylint: disable=global-statement
+    _NUM_ROLLOUTS += 1
     env = base_env() if callable(base_env) else base_env
     try:
         _pin_all_physical_params(env, physical_params)

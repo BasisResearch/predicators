@@ -2027,15 +2027,16 @@ re-score.{probe_note}"""
             note = entry.get("note", "")
             label = verdict.value + (f" ({note})" if note else "")
             if verdict is Verdict.IDENTIFIED:
-                if entry.get("flat_wide"):
-                    interval = entry["flat_interval"]
-                    lines.append(
-                        f"- physical param '{name}': the data cannot "
-                        f"distinguish values in [{interval[0]:.4g}, "
-                        f"{interval[1]:.4g}] (the applied value is the "
-                        "interval edge nearest the baseline belief). An "
-                        "experiment whose observable outcome DIFFERS across "
-                        "this interval would pin it down.")
+                continue
+            interval = entry.get("flat_interval")
+            if (verdict in (Verdict.WEAKLY_IDENTIFIED, Verdict.NOT_IDENTIFIED)
+                    and interval is not None and interval[0] != interval[1]):
+                lines.append(
+                    f"- physical param '{name}': the data cannot "
+                    f"distinguish values in [{interval[0]:.4g}, "
+                    f"{interval[1]:.4g}]. An experiment whose observable "
+                    "outcome DIFFERS across this interval would pin it "
+                    "down.")
                 continue
             if verdict is Verdict.ANCHORED:
                 # Anchor ablation handled this param correctly (the move

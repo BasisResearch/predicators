@@ -84,33 +84,47 @@ def identifiability_report(
     intervals: non-identifiability is diagnosed and reported, never
     regularized away silently.
 
-    Posterior widths come from the MCMC chain when one ran. For the
-    default LM point fit (single-sample result), pass ``sse_fn`` (the
-    rollout SSE at a params dict) and ``param_specs`` (for bounds): the
-    widths then come from a prior-scale SSE **curvature probe** around
-    the MAP — two rollout evals per parameter (see
-    :func:`_probe_posterior_widths`). The Laplace covariance from the
-    LM Jacobian is deliberately NOT used: finite-difference Jacobians
-    of contact-rich rollouts are noise-dominated, and (measured on the
-    domino smoke test) declare every parameter identified — the exact
-    failure this report exists to catch. The curvature probe reproduces
-    the MCMC ground truth (friction identified / restitution null).
-    Without ``sse_fn`` a single-sample result reports "unknown".
+    Posterior widths, in preference order per parameter:
 
-    Two verdict overrides guard the probe's blind spots:
+    * The MCMC chain's marginal widths, when a chain ran.
+    * The **grid landscape**: for a parameter the coordinate sweep
+      covered, the width is the half-width (in FIT space) of its
+      data-equivalent ``flat_interval`` — the set of values the sweep
+      could not distinguish on this data. This makes the verdict agree
+      with the landscape by construction: a plateau-wide interval reads
+      NOT identified instead of the local curvature at an arbitrary
+      plateau point reading "identified" (audited on
+      run_20260722_123949, where the probe stamped every param
+      identified while its own report noted "the fitted value is the
+      edge of this interval ... not a unique optimum").
+    * The prior-scale SSE **curvature probe** around the MAP (two
+      rollout evals per parameter, see
+      :func:`_probe_posterior_widths`) for parameters WITHOUT sweep
+      coverage — rule params (never gridded) and fits run with the grid
+      disabled — when ``sse_fn`` and ``param_specs`` are given. The
+      Laplace covariance from the LM Jacobian is deliberately NOT used:
+      finite-difference Jacobians of contact-rich rollouts are
+      noise-dominated, and (measured on the domino smoke test) declare
+      every parameter identified — the exact failure this report exists
+      to catch.
+    * Otherwise "unknown".
+
+    Two verdict overrides guard the remaining blind spots:
 
     * ``num_explainable`` (how many trimmed-in segments back the fit):
-      the probe measures local *precision*, which a single clean
-      recording can make arbitrarily sharp while the value is still
-      biased; "identified" on n < 2 segments is downgraded to weakly
-      identified with an explicit note.
+      widths measure local *precision*, which a single clean recording
+      can make arbitrarily sharp while the value is still biased;
+      "identified" on n < 2 segments is downgraded to weakly identified
+      with an explicit note.
     * ``result.sensitivity`` (pre-fit screen): a param whose grid-sweep
       SSE span sat inside the same-theta noise floor does not affect
-      the rollouts at all on this data; chaos can still hand the probe
-      apparent curvature for it, so the screen's verdict wins
-      ("insensitive", fitted value not applied).
+      the rollouts at all on this data; its flat interval spans the box
+      trivially, and the screen's dedicated verdict ("insensitive",
+      fitted value not applied) says WHY.
     """
     scales = _result_scales(result, param_specs)
+    sensitivity = result.sensitivity or {}
+    ablation = getattr(result, "anchor_ablation", None) or {}
     if result.samples.shape[0] > 1:
         # Widths in FIT space (log for log-scale params), so the
         # contraction against the fit-space prior width is meaningful.
@@ -119,13 +133,23 @@ def identifiability_report(
             if scale == "log":
                 arr[:, j] = np.log(np.maximum(arr[:, j], LOG_FLOOR))
         post_std = arr.std(axis=0)
-    elif sse_fn is not None:
-        post_std = _probe_posterior_widths(result, sse_fn, param_specs)
     else:
         post_std = np.full(len(result.names), np.nan)
+        swept = set()
+        for i, name in enumerate(result.names):
+            interval = (sensitivity.get(name) or {}).get("flat_interval")
+            if interval is not None:
+                post_std[i] = _interval_half_width(interval, scales[i])
+                swept.add(name)
+        if sse_fn is not None and swept != set(result.names):
+            probe_std = _probe_posterior_widths(result,
+                                                sse_fn,
+                                                param_specs,
+                                                skip=swept)
+            for i, name in enumerate(result.names):
+                if name not in swept:
+                    post_std[i] = probe_std[i]
     at_bound = _params_at_bound(result, param_specs, scales)
-    sensitivity = result.sensitivity or {}
-    ablation = getattr(result, "anchor_ablation", None) or {}
     report: Dict[str, Dict[str, Any]] = {}
     for i, name in enumerate(result.names):
         prior = (float(result.prior_sigma[i])
@@ -189,22 +213,28 @@ def identifiability_report(
             interval = sens.get("flat_interval")
             if interval is not None:
                 report[name]["flat_interval"] = interval
-                # The probe measures LOCAL curvature at the chosen point;
-                # when the sweep's data-equivalent interval is much wider
-                # than the claimed posterior width, the point estimate is
-                # representative of a plateau, not a unique optimum -
-                # surface that instead of false precision.
-                if scales[i] == "log":
-                    width = float(
-                        np.log(max(interval[1], LOG_FLOOR)) -
-                        np.log(max(interval[0], LOG_FLOOR)))
-                else:
-                    width = float(interval[1] - interval[0])
-                report[name]["flat_wide"] = bool(
-                    np.isfinite(post) and width > 2.0 * post)
         if abl is not None:
             report[name]["anchor_ablation"] = dict(abl)
     return report
+
+
+def _interval_half_width(interval: Sequence[float], scale: str) -> float:
+    """Half-width of a data-equivalent interval, in FIT space.
+
+    The landscape-derived stand-in for a posterior std: the coordinate
+    sweep could not distinguish any value inside ``interval`` on this
+    data, so treating its half-width as the marginal uncertainty makes
+    the contraction verdict agree with the landscape by construction. A
+    degenerate interval (single flat member) reads as width 0 - the
+    sweep resolved the value to within its own (bisected, sub-grid)
+    resolution.
+    """
+    lo, hi = float(interval[0]), float(interval[1])
+    if scale == "log":
+        width = float(np.log(max(hi, LOG_FLOOR)) - np.log(max(lo, LOG_FLOOR)))
+    else:
+        width = hi - lo
+    return 0.5 * max(width, 0.0)
 
 
 def _params_at_bound(
@@ -258,6 +288,7 @@ def _probe_posterior_widths(
     result: FitResult,
     sse_fn: Callable[[Dict[str, float]], float],
     param_specs: Optional[Sequence[ParamSpec]],
+    skip: Optional[set] = None,
 ) -> np.ndarray:
     """Posterior widths via a prior-scale SSE curvature probe at the MAP.
 
@@ -278,7 +309,12 @@ def _probe_posterior_widths(
     — the failure mode of run_20260705_203314, where a ~5k prior-scale
     d_sse sat inside a ~±8k same-theta noise floor yet reported
     contraction 0.00 on all params.
+
+    Parameters named in ``skip`` (those whose width the grid landscape
+    already supplies) are not perturbed and get ``nan`` placeholders,
+    saving two rollout evals each.
     """
+    skip = skip or set()
     point = result.point_estimate
     noise = result.noise_sigma if result.noise_sigma else 0.05
     assert result.prior_sigma is not None
@@ -301,6 +337,9 @@ def _probe_posterior_widths(
             [f"{v:.4f}" for v in sse0_evals])
     widths: List[float] = []
     for i, name in enumerate(result.names):
+        if name in skip:
+            widths.append(float("nan"))
+            continue
         sigma = float(result.prior_sigma[i])
         x = point[name]
         lo_i, hi_i = bounds.get(name, (-np.inf, np.inf))
@@ -409,7 +448,8 @@ def format_identifiability(report: Dict[str, Dict[str, Any]]) -> str:
         if interval is not None and interval[0] != interval[1]:
             note = (" - the fitted value is the edge of this interval "
                     "nearest the baseline belief, not a unique optimum"
-                    if info.get("flat_wide") else "")
+                    if verdict in (Verdict.WEAKLY_IDENTIFIED,
+                                   Verdict.NOT_IDENTIFIED) else "")
             lines.append(f"      data-equivalent over [{interval[0]:.4g}, "
                          f"{interval[1]:.4g}]{note}")
         abl = info.get("anchor_ablation")
