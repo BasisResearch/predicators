@@ -210,6 +210,7 @@ def fit_params_rollout(
     # the sensitivity screen and the identifiability report consume.
     lm_physical_specs = list(physical_specs)
     sensitivity: Optional[Dict[str, Dict[str, Any]]] = None
+    noise_floor: Optional[float] = None
     if (config.grid_seed_points > 0 and trajectories):
         # Same-theta noise floor at the anchor point (3 repeated evals).
         # Fresh-env rollouts are deterministic so this is normally 0.0;
@@ -288,6 +289,24 @@ def fit_params_rollout(
                                      "rollout",
                                      scales=scales)
         result.sensitivity = sensitivity
+        if (config.anchor_ablation and config.grid_flat_frac > 0
+                and trajectories and lm_theta is not None):
+            result = _anchor_backward_elimination(
+                base_env,
+                trajectories,
+                physical_specs,
+                rule_specs,
+                process_features,
+                rules,
+                latent_init,
+                scaling,
+                anchors,
+                noise_sigma,
+                prior_sigma_scale,
+                result,
+                noise_floor,
+                config,
+            )
         return result
 
     logger.info(
@@ -326,6 +345,211 @@ def fit_params_rollout(
                 {k: f"{v:.4f}"
                  for k, v in result.point_estimate.items()})
     return result
+
+
+# A MAP within this fit-space distance of its anchor counts as unmoved
+# (the prior-folded LM keeps data-flat directions exactly at the anchor,
+# so this only absorbs float noise).
+_ANCHOR_ABLATION_EPS = 1e-9
+
+
+def _anchor_backward_elimination(
+    base_env: Any,
+    trajectories: List[RolloutTrajectory],
+    physical_specs: Sequence[ParamSpec],
+    rule_specs: Sequence[ParamSpec],
+    process_features: Dict[str, List[str]],
+    rules: Sequence[Any],
+    latent_init: Any,
+    scaling: Optional[ResidualScaling],
+    anchors: Dict[str, float],
+    noise_sigma: float,
+    prior_sigma_scale: float,
+    result: FitResult,
+    noise_floor: Optional[float],
+    config: SysIdConfig,
+) -> FitResult:
+    """Revert compensatory physical-param moves via anchor-pinned refits.
+
+    The curvature probe measures LOCAL precision at the joint MAP: a
+    co-adapted parameter set has real curvature in every direction, so
+    a param that only moved to compensate another's overshoot still
+    reads "identified" (run_20260721_205821 seed1: the coordinate sweep
+    overshot lateral_friction past its true value, then restitution and
+    spinning_friction moved 26x / 23x off their true values to
+    compensate — all three "identified", and the resulting belief sim
+    invalidated every downstream plan). The global test the probe
+    cannot make: is there a DATA-EQUIVALENT solution with this param at
+    its env-registry anchor? Greedy backward elimination answers it —
+    for each moved param, refit the remaining params (warm-started at
+    the current MAP, priors still centered on the anchors) with that
+    param pinned at its anchor; accept a refit only when it is BOTH
+    data-equivalent (SSE within the grid flat set's tolerance,
+    ``max(noise_floor, grid_flat_frac * SSE)``) AND strictly closer to
+    the standing belief (lower total fit-space prior cost) — the grid's
+    anchor-nearest flat-set principle applied jointly, which also stops
+    a symmetric ridge from merely swapping WHICH param carries the
+    move. Among acceptable refits the one nearest the belief wins;
+    repeat on the reduced set. A genuinely identified param is never
+    touched: pinning it destroys the SSE by construction. Pinned params
+    re-enter the returned result AT their anchors, listed in
+    ``FitResult.anchor_ablation`` so the identifiability report renders
+    them "anchored" instead of "identified".
+
+    The returned result drops the Jacobian when anything was pinned
+    (the reduced refit's columns no longer match the full param list);
+    Laplace-ensemble consumers already handle ``jacobian=None``.
+    """
+    all_specs = list(physical_specs) + list(rule_specs)
+    orig_by_name = {s.name: s for s in all_specs}
+    point = dict(result.point_estimate)
+    insensitive = {
+        n
+        for n, d in (result.sensitivity or {}).items()
+        if not d.get("sensitive", True)
+    }
+
+    def sse_at(params: Dict[str, float], declared: List[str]) -> float:
+        return compute_rollout_sse(base_env, trajectories, params,
+                                   process_features, declared, rules,
+                                   latent_init, scaling)
+
+    assert list(result.names) == [s.name for s in all_specs]
+    assert result.prior_sigma is not None
+    prior_sig = result.prior_sigma
+    belief_values = np.array(
+        [anchors.get(s.name, s.init_value) for s in all_specs], dtype=float)
+    belief_z = to_fit_space(all_specs, belief_values)
+
+    def prior_cost(pt: Dict[str, float]) -> float:
+        """Total fit-space prior cost of a full param point (all specs)."""
+        z = to_fit_space(all_specs, [pt[s.name] for s in all_specs])
+        return float(np.sum(((z - belief_z) / prior_sig)**2))
+
+    def refit_pinned(surviving: List[ParamSpec]) -> Dict[str, float]:
+        """LM refit of ``surviving`` physical + all rule params, warm-
+        started at the current point; anything absent is pinned at its
+        env-registry default (== anchor) by the rollout plumbing."""
+        warm_physical = [
+            ParamSpec(s.name,
+                      float(point[s.name]),
+                      lo=s.lo,
+                      hi=s.hi,
+                      scale=getattr(s, "scale", "linear")) for s in surviving
+        ]
+        warm_rules = [
+            ParamSpec(s.name,
+                      float(point[s.name]),
+                      lo=s.lo,
+                      hi=s.hi,
+                      scale=getattr(s, "scale", "linear")) for s in rule_specs
+        ]
+        specs = warm_physical + warm_rules
+        # Prior centers stay at the anchors (declared inits for rule
+        # params), NOT the warm starts, mirroring the main fit.
+        center_values = np.array([
+            anchors.get(s.name, orig_by_name[s.name].init_value) for s in specs
+        ],
+                                 dtype=float)
+        center_specs = [
+            ParamSpec(s.name,
+                      float(c),
+                      lo=s.lo,
+                      hi=s.hi,
+                      scale=getattr(s, "scale", "linear"))
+            for s, c in zip(specs, center_values)
+        ]
+        theta, _ = fit_map_lm_rollout(
+            base_env,
+            trajectories,
+            warm_physical,
+            process_features,
+            rules,
+            warm_rules,
+            latent_init,
+            scaling=scaling,
+            prior_centers=to_fit_space(specs, center_values),
+            prior_sigmas=prior_widths(center_specs, prior_sigma_scale),
+            noise_sigma=noise_sigma)
+        return {s.name: float(v) for s, v in zip(specs, theta)}
+
+    surviving = list(physical_specs)
+    declared = [s.name for s in surviving]
+    sse_curr = sse_at(point, declared)
+    if noise_floor is None:
+        floor_evals = [
+            sse_at(point, declared) for _ in range(NOISE_FLOOR_EVALS - 1)
+        ] + [sse_curr]
+        noise_floor = float(np.max(floor_evals) - np.min(floor_evals))
+
+    pinned: Dict[str, Dict[str, float]] = {}
+    while True:
+        movable = []
+        for s in surviving:
+            if s.name in insensitive or s.name not in anchors:
+                # Insensitive values are withheld anyway; a param
+                # without a registry anchor cannot be env-pinned.
+                continue
+            dist = abs(
+                to_fit_space([s], [point[s.name]])[0] -
+                to_fit_space([s], [anchors[s.name]])[0])
+            if dist > _ANCHOR_ABLATION_EPS:
+                movable.append(s)
+        if not movable:
+            break
+        tol = max(noise_floor, config.grid_flat_frac * sse_curr)
+        cost_curr = prior_cost(point)
+        best: Optional[Tuple[float, ParamSpec, Dict[str, float]]] = None
+        best_cost = float("inf")
+        for s in movable:
+            reduced = [t for t in surviving if t is not s]
+            cand_fit = refit_pinned(reduced)
+            cand_sse = sse_at(cand_fit, [t.name for t in reduced])
+            if cand_sse > sse_curr + tol:
+                continue
+            cand_point = dict(point)
+            cand_point.update(cand_fit)
+            cand_point[s.name] = float(anchors[s.name])
+            cand_cost = prior_cost(cand_point)
+            # Data-equivalent alone is not enough: on a symmetric ridge
+            # it would merely swap WHICH param carries the move. Require
+            # the refit to be strictly closer to the standing belief.
+            if cand_cost + 1e-9 >= cost_curr:
+                continue
+            if cand_cost < best_cost:
+                best = (cand_sse, s, cand_point)
+                best_cost = cand_cost
+        if best is None:
+            break
+        cand_sse, spec, cand_point = best
+        anchor = anchors[spec.name]
+        logger.info(
+            "Rollout sysID anchor ablation: %s %.4g -> baseline %.4g is "
+            "data-equivalent (SSE %.4g vs %.4g at the joint MAP, tol "
+            "%.4g) and nearer the standing belief - the move was "
+            "compensatory, reverting it.", spec.name, point[spec.name], anchor,
+            cand_sse, sse_curr, tol)
+        pinned[spec.name] = {
+            "anchor": float(anchor),
+            "sse_map": float(sse_curr),
+            "sse_pinned": float(cand_sse),
+            "tol": float(tol),
+        }
+        surviving = [t for t in surviving if t is not spec]
+        point = cand_point
+        sse_curr = min(sse_curr, cand_sse)
+    if not pinned:
+        return result
+    values = np.array([point[n] for n in result.names], dtype=float)
+    return FitResult(names=list(result.names),
+                     samples=values[None, :],
+                     log_probs=np.zeros(1),
+                     jacobian=None,
+                     noise_sigma=result.noise_sigma,
+                     prior_sigma=result.prior_sigma,
+                     scales=result.scales,
+                     sensitivity=result.sensitivity,
+                     anchor_ablation=pinned)
 
 
 def _init_point_fit_result(all_specs: Sequence[ParamSpec],

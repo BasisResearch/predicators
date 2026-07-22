@@ -952,3 +952,133 @@ def test_flat_interval_annotates_identified_report():
                                      num_explainable=3)
     assert not report2["friction"]["flat_wide"]
     assert "data-equivalent" not in format_identifiability(report2)
+
+
+# ── Anchor-ablation backward elimination ──────────────────────────
+
+
+class _CompensatingEnv:
+    """DIRECT-client rollout env whose per-step motion mixes two params.
+
+    ``x`` advances by ``0.01*gain_a + 0.5*(gain_b - 0.02)`` per step, so
+    the observed motion constrains only the combination: a co-adapted
+    (gain_a=1.0, gain_b=0.04) reproduces data generated at the true
+    (gain_a=2.0, gain_b=0.02) exactly — the compensation ridge the
+    ablation must resolve toward the standing belief.
+    """
+
+    def __init__(self):
+        self._physics_client_id = p.connect(p.DIRECT)
+        self._params = {"gain_a": 1.0, "gain_b": 0.02}
+        self._x = 0.0
+
+    def get_physical_param_info(self):
+        """Registry with a wide log param and a tight linear param."""
+        return {
+            "gain_a": {
+                "default": 1.0,
+                "lo": 0.1,
+                "hi": 10.0,
+                "scale": "log",
+                "description": "",
+            },
+            "gain_b": {
+                "default": 0.02,
+                "lo": 0.0,
+                "hi": 0.9,
+                "description": "",
+            },
+        }
+
+    def apply_physical_param_overrides(self, params):
+        """Sticky per-param merge, like the real env API."""
+        self._params.update(params)
+
+    def _set_state(self, state):
+        self._x = float(state.get(Object("d0", _DOMINO_TYPE), "x"))
+
+    def step(self, action):
+        """Advance ``x`` by the params' combined per-step motion."""
+        del action
+        self._x += (0.01 * self._params["gain_a"] + 0.5 *
+                    (self._params["gain_b"] - 0.02))
+        domino = Object("d0", _DOMINO_TYPE)
+        robot = Object("r0", _ROBOT_TYPE)
+        return State({
+            domino: np.array([self._x], dtype=float),
+            robot: np.array([0.0], dtype=float),
+        })
+
+
+def _ablation_fixtures():
+    import dataclasses
+
+    from predicators.code_sim_learning.config import SysIdConfig
+    from predicators.code_sim_learning.fit_space import prior_widths
+    spec_a = ParamSpec("gain_a", 1.0, lo=0.1, hi=10.0, scale="log")
+    spec_b = ParamSpec("gain_b", 0.02, lo=0.0, hi=0.9)
+    anchors = {"gain_a": 1.0, "gain_b": 0.02}
+    prior_sigma = prior_widths([spec_a, spec_b], 0.75)
+    config = dataclasses.replace(SysIdConfig.from_cfg(),
+                                 anchor_ablation=True,
+                                 grid_flat_frac=0.05)
+    # Observed data generated at the TRUE params (gain_a=2, gain_b=0.02):
+    # dx = 0.02 per step.
+    traj = _trajectory([0.02 * t for t in range(11)])
+    return spec_a, spec_b, anchors, prior_sigma, config, traj
+
+
+def test_anchor_ablation_reverts_compensatory_param():
+    """A co-adapted MAP on the compensation ridge is resolved to the
+    anchor-consistent basin: the tight-prior param reverts to its anchor
+    and the wide-prior param refits to its true value."""
+    spec_a, spec_b, anchors, prior_sigma, config, traj = _ablation_fixtures()
+    env = _CompensatingEnv()
+    # Co-adapted MAP: gain_a stuck at its anchor, gain_b compensating.
+    result = FitResult(names=["gain_a", "gain_b"],
+                       samples=np.array([[1.0, 0.04]]),
+                       log_probs=np.zeros(1),
+                       noise_sigma=0.05,
+                       prior_sigma=prior_sigma,
+                       scales=["log", "linear"])
+    out = physical_sysid._anchor_backward_elimination(
+        env, [traj], [spec_a, spec_b], [], _PROCESS_FEATURES, [], None, None,
+        anchors, 0.05, 0.75, result, 0.01, config)
+    assert out.anchor_ablation is not None
+    assert set(out.anchor_ablation) == {"gain_b"}
+    point = out.point_estimate
+    assert point["gain_b"] == 0.02
+    assert abs(point["gain_a"] - 2.0) < 0.15
+    entry = out.anchor_ablation["gain_b"]
+    assert entry["anchor"] == 0.02
+    assert entry["sse_pinned"] <= entry["sse_map"] + entry["tol"]
+    # The verdict pipeline renders it "anchored" and applies the anchor.
+    report = identifiability_report(out)
+    assert report["gain_b"]["verdict"].startswith("anchored")
+    applied = select_trustworthy_params(point, {
+        "gain_a": 1.0,
+        "gain_b": 0.04
+    }, ["gain_a", "gain_b"], report, anchors)
+    assert applied["gain_b"] == 0.02
+    text = format_identifiability(report)
+    assert "anchor ablation" in text
+
+
+def test_anchor_ablation_keeps_genuinely_moved_param():
+    """A MAP whose single move the data requires (and whose alternative is
+    farther from the belief) is returned unchanged."""
+    spec_a, spec_b, anchors, _prior_sigma, config, traj = _ablation_fixtures()
+    env = _CompensatingEnv()
+    from predicators.code_sim_learning.fit_space import prior_widths
+    result = FitResult(names=["gain_a", "gain_b"],
+                       samples=np.array([[2.0, 0.02]]),
+                       log_probs=np.zeros(1),
+                       noise_sigma=0.05,
+                       prior_sigma=prior_widths([spec_a, spec_b], 0.75),
+                       scales=["log", "linear"])
+    out = physical_sysid._anchor_backward_elimination(
+        env, [traj], [spec_a, spec_b], [], _PROCESS_FEATURES, [], None, None,
+        anchors, 0.05, 0.75, result, 0.01, config)
+    assert out is result
+    assert out.anchor_ablation is None
+    assert out.point_estimate == {"gain_a": 2.0, "gain_b": 0.02}

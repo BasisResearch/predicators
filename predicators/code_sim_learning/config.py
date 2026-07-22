@@ -38,6 +38,7 @@ class SysIdConfig:
     grid_sweep_passes: int
     grid_refine_evals: int
     grid_flat_frac: float
+    anchor_ablation: bool
     trim_rms_factor: float
     settle_tol: float
     settle_margin: int
@@ -67,6 +68,7 @@ class SysIdConfig:
             grid_refine_evals=(
                 CFG.code_sim_learning_rollout_grid_refine_evals),
             grid_flat_frac=CFG.code_sim_learning_rollout_grid_flat_frac,
+            anchor_ablation=(CFG.code_sim_learning_rollout_anchor_ablation),
             trim_rms_factor=CFG.code_sim_learning_rollout_trim_rms_factor,
             settle_tol=CFG.code_sim_learning_rollout_settle_tol,
             settle_margin=CFG.code_sim_learning_rollout_settle_margin,
