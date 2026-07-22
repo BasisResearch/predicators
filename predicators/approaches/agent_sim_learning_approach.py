@@ -2798,13 +2798,23 @@ files to see exactly which rules and predicates produced each failed plan.
             "",
             "Guidance:",
             "",
-            "- **Declare a sparse subset**, not everything: include only "
-            "parameters you hypothesize are both execution-relevant and "
-            "identifiable from the data (a collision parameter cannot be "
-            "identified from trajectories that contain no collisions). "
-            "`sim.fit()` returns a per-parameter identifiability "
-            "report (posterior contraction); drop any parameter reported "
-            "as NOT identified - its fitted value is arbitrary noise.",
+            "- **Start with ONE parameter** - the single one with a "
+            "physical story for the observed residual (e.g. cascades "
+            "stopping short of the sim's prediction implicates sliding "
+            "friction) - and add another only if the calibrated fit "
+            "still leaves structure unexplained. Co-declared parameters "
+            "can compensate each other's errors along a data-equivalent "
+            "ridge, so every extra parameter costs fit budget and adds a "
+            "way to be confidently wrong; a parameter cannot be "
+            "identified from data that does not exercise it (a collision "
+            "parameter needs collisions).",
+            "- `sim.fit()` returns a per-parameter identifiability "
+            "report (posterior contraction). Drop any parameter reported "
+            "NOT identified or insensitive - its fitted value is "
+            "arbitrary noise. A parameter reported 'anchored' moved only "
+            "to compensate the others and was reverted to its baseline; "
+            "keep it only if you can collect an interaction that excites "
+            "it specifically.",
             "- With `PHYSICAL_PARAMS` declared, the fit switches to "
             "matching **free-running rollouts** of full trajectories "
             "(momentum accrues in-sim, which the per-step teacher-forced "
