@@ -31,6 +31,10 @@ APPROACHES:
   agent_oracle_hybrid_sim_ground_sampler:
     SKIP: True
   agent_po_predicate_invention_al:
+    SKIP: True
+    FLAGS:
+      skip_initial_test: True
+  agent_po_predicate_invention_al_margin:
     SKIP: False
     FLAGS:
       skip_initial_test: True
