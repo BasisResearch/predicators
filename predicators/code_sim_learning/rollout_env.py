@@ -108,7 +108,18 @@ def _pin_all_physical_params(base_env: Any,
 
 
 def dispose_env(env: Any) -> None:
-    """Free a fresh rollout env by disconnecting its PyBullet client."""
+    """Free a fresh rollout env, releasing EVERY client it owns.
+
+    Delegates to ``env.dispose()`` so envs with secondary worlds (the
+    domino env's counterfactual-probe client) release them too - a raw
+    ``p.disconnect(_physics_client_id)`` leaked the probe world per
+    fresh validation env (~150MB each, machine-freezing across
+    parallel runs).
+    """
+    dispose = getattr(env, "dispose", None)
+    if callable(dispose):
+        dispose()
+        return
     p.disconnect(env._physics_client_id)  # pylint: disable=protected-access
 
 

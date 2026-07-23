@@ -569,6 +569,23 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             raise ValueError(f"Unknown physical param(s) {sorted(unknown)}.")
         self.set_domino_physical_params(**params)
 
+    def dispose(self) -> None:
+        """Disconnect every client this instance owns.
+
+        The counterfactual-probe world is a second full PyBullet client
+        created lazily by :meth:`_get_cascade_probe_env`; disconnecting
+        only ``_physics_client_id`` (what generic callers used to do)
+        leaked it - ~150MB per fresh validation env, enough to freeze a
+        16GB machine across parallel runs. Probe world first: the main
+        client may already be dead (crash recovery), and ``super()``
+        raising must not strand the probe.
+        """
+        if self._cascade_probe_env is not None:
+            probe = self._cascade_probe_env
+            self._cascade_probe_env = None
+            probe.dispose()
+        super().dispose()
+
     def _get_cascade_probe_env(self) -> "PyBulletDominoComposedEnv":
         """The dedicated probe world for the counterfactual push probe.
 

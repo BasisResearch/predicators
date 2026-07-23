@@ -781,10 +781,11 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 base_pred_triples = self._compute_base_pred_triples(
                     obs_triples, fit_env)
             finally:
-                # This env is rebuilt every learning cycle; disconnect
-                # its PyBullet client or each cycle leaks a full physics
-                # world (~145MB for the domino env).
-                pybullet.disconnect(fit_env._physics_client_id)  # type: ignore[attr-defined]  # pylint: disable=protected-access
+                # This env is rebuilt every learning cycle; dispose it
+                # (main client AND any secondary probe world) or each
+                # cycle leaks a full physics world (~145MB for the
+                # domino env).
+                dispose_env(fit_env)
             inferred_hint = self._infer_process_features_from_residuals(
                 obs_triples, base_pred_triples)
             logger.info("Process features (data-driven hint): %s",
@@ -2568,8 +2569,10 @@ files to see exactly which rules and predicates produced each failed plan.
     def _recreate_base_env(self) -> None:
         """Reconnect after a PyBullet physics-server crash."""
         try:
-            client_id = self._base_env._physics_client_id  # type: ignore[attr-defined]  # pylint: disable=protected-access
-            pybullet.disconnect(client_id)
+            # dispose_env releases the secondary probe world too; the
+            # domino override disposes it BEFORE the (possibly dead)
+            # main client so a raise here cannot strand it.
+            dispose_env(self._base_env)
         except Exception:  # pylint: disable=broad-except  # client may already be dead
             pass
         logging.warning(
