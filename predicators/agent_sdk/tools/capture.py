@@ -23,6 +23,11 @@ class CaptureDecision(enum.Enum):
     # Goal reached on rollout 1 but a validation repeat failed: refused,
     # and later submissions on the task face the escalated gate.
     FLAKY_NO_CAPTURE = "flaky_no_capture"
+    # Execution validation passed, but a rollout at +-1-posterior-sigma
+    # perturbed physical params failed: the plan has no margin to the
+    # physics fit's parameter error, so it is refused (the real env may
+    # sit anywhere in that range).
+    PARAM_SENSITIVE_NO_CAPTURE = "param_sensitive_no_capture"
     # Goal atoms reached via a route the task evaluator scores as a
     # non-solve: refused.
     REWARD_HACK_NO_CAPTURE = "reward_hack_no_capture"
@@ -38,6 +43,7 @@ class BestEffortReason(enum.Enum):
     GOAL_NOT_REACHED = "goal_not_reached"  # honest shortfall
     REWARD_HACK = "reward_hack"  # evaluator scores the rollout a non-solve
     FLAKY = "flaky"  # a validation repeat failed
+    PARAM_SENSITIVE = "param_sensitive"  # failed at perturbed physics
 
 
 @dataclass(frozen=True)
@@ -54,11 +60,17 @@ class CaptureOutcome:
                                  CaptureDecision.BEST_EFFORT_CAPTURE)
 
 
-def _decide_capture(*, capture_enabled: bool, is_current_task: bool,
-                    have_plan: bool, goal_achieved: bool,
-                    evaluator_rejected: bool, reward_hack: bool, flaky: bool,
+def _decide_capture(*,
+                    capture_enabled: bool,
+                    is_current_task: bool,
+                    have_plan: bool,
+                    goal_achieved: bool,
+                    evaluator_rejected: bool,
+                    reward_hack: bool,
+                    flaky: bool,
                     best_effort_mode: bool,
-                    have_validated_capture: bool) -> CaptureOutcome:
+                    have_validated_capture: bool,
+                    param_sensitive: bool = False) -> CaptureOutcome:
     """Decide what ``evaluate_option_plan`` does with an evaluated plan.
 
     Pure: no ctx access, no I/O - the caller supplies exactly what the
@@ -82,6 +94,9 @@ def _decide_capture(*, capture_enabled: bool, is_current_task: bool,
       turn budget.
     - ``have_validated_capture``: a validated-solve capture already
       exists (``ctx.solved_plan_reached_goal``).
+    - ``param_sensitive``: execution validation passed but a rollout at
+      +-1-posterior-sigma perturbed physical params failed - the plan
+      has no margin to the physics fit's parameter error.
 
     With ``best_effort_mode`` (final-submission nudge after turn-cap
     exhaustion) capture the submission unconditionally: honest
@@ -96,7 +111,8 @@ def _decide_capture(*, capture_enabled: bool, is_current_task: bool,
     """
     # A best-effort capture never displaces a validated-solve capture.
     best_effort_capture = best_effort_mode and not have_validated_capture
-    validated_solve = goal_achieved and not reward_hack and not flaky
+    validated_solve = (goal_achieved and not reward_hack and not flaky
+                       and not param_sensitive)
     if (capture_enabled and is_current_task
             and (validated_solve or best_effort_capture) and have_plan):
         if validated_solve:
@@ -105,8 +121,10 @@ def _decide_capture(*, capture_enabled: bool, is_current_task: bool,
             reason = BestEffortReason.GOAL_NOT_REACHED
         elif reward_hack:
             reason = BestEffortReason.REWARD_HACK
-        else:
+        elif flaky:
             reason = BestEffortReason.FLAKY
+        else:
+            reason = BestEffortReason.PARAM_SENSITIVE
         return CaptureOutcome(CaptureDecision.BEST_EFFORT_CAPTURE, reason)
     if (capture_enabled and is_current_task and goal_achieved
             and not evaluator_rejected and flaky):
@@ -114,6 +132,14 @@ def _decide_capture(*, capture_enabled: bool, is_current_task: bool,
         # session to add margin and resubmit, which beats discovering
         # the flakiness as a failed real episode.
         return CaptureOutcome(CaptureDecision.FLAKY_NO_CAPTURE)
+    if (capture_enabled and is_current_task and goal_achieved
+            and not evaluator_rejected and param_sensitive):
+        # Loudly refuse a physics-margin failure: the fitted params are
+        # uncertain at the reported sigma, and the real env may sit
+        # anywhere in that range (run_20260723_091108: a capture
+        # validated 8/8 at the fitted friction failed deterministically
+        # at the true value just outside the design's success band).
+        return CaptureOutcome(CaptureDecision.PARAM_SENSITIVE_NO_CAPTURE)
     if capture_enabled and is_current_task and reward_hack:
         # Loudly refuse a reward hack: the rollout reaches the goal atoms
         # but the evaluator's certificate rejects the route (e.g. the

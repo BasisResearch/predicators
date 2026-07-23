@@ -97,6 +97,7 @@ class ValidationConfig:
     rollouts: int
     rollouts_after_flaky: int
     fresh_env: bool
+    physics_margin: bool
     use_journal: bool
 
     @classmethod
@@ -108,6 +109,7 @@ class ValidationConfig:
             rollouts_after_flaky=(
                 CFG.agent_plan_validation_rollouts_after_flaky),
             fresh_env=CFG.agent_plan_validation_fresh_env,
+            physics_margin=CFG.agent_plan_validation_physics_margin,
             use_journal=CFG.agent_solve_use_journal,
         )
 

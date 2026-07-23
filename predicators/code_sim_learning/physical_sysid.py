@@ -239,6 +239,7 @@ def fit_params_rollout(
                 "sse_span": info["span"],
                 "noise_floor": noise_floor,
                 "flat_interval": info["flat_interval"],
+                "resolved_interval": info["resolved_interval"],
             }
             if sens_factor > 0:
                 entry["sensitive"] = (info["span"] >
