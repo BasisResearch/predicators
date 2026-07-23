@@ -180,6 +180,28 @@ def _settle(env: Any, steps: int) -> State:
     return env._get_state()
 
 
+def _probe_toppled(comp: Any, final: State, target: Object) -> bool:
+    """Probe-side topple criterion for the currently loaded physics.
+
+    At the TRUE friction the probe stands in for the certificate, so the
+    topple must happen on the table (an off-table shove is rejected at
+    scoring time). At the believed/planning friction it stands in for
+    the uncalibrated planner, whose success check is the roll-only
+    Toppled goal atom - an off-table shove convinces that planner, and
+    believed-K* must measure what the planner believes, not what would
+    certify. With on-table required on both sides, believed-K* at low
+    friction is None for every k (the rammed target always slides off)
+    and the differentiation filter drops every candidate - the
+    2026-07-23 zero-test-task regression.
+    """
+    # pylint: disable=protected-access
+    override = comp._physical_param_override.get("lateral_friction")
+    current = (CFG.domino_true_friction if override is None else override)
+    if abs(float(current) - float(CFG.domino_true_friction)) < 1e-9:
+        return comp.toppled_on_table(final, target)
+    return abs(final.get(target, "roll")) >= comp.fallen_threshold
+
+
 def _chain_topples(env: Any, init_state: State, start: Object, target: Object,
                    blues: List[Object], k: int, push_opt: Any) -> bool:
     """Place k evenly-spaced blues between start and target, push, and report
@@ -208,7 +230,7 @@ def _chain_topples(env: Any, init_state: State, start: Object, target: Object,
     if not _execute_push(env, state, push_opt, start):
         return False
     final = _settle(env, _SETTLE_STEPS)
-    return comp.toppled_on_table(final, target)
+    return _probe_toppled(comp, final, target)
 
 
 def build_turn_layout(env: Any, gen: Any, rng: Any, n1: int, n2: int,
@@ -326,7 +348,7 @@ def _layout_topples(env: Any,
     if not _execute_push(env, pstate, push_opt, start):
         return False
     final = _settle(env, _SETTLE_STEPS)
-    return comp.toppled_on_table(final, target)
+    return _probe_toppled(comp, final, target)
 
 
 def _assembled_state(env: Any, comp: Any, obj_dict: dict, target: Any,
