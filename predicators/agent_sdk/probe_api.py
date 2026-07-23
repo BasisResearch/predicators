@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, \
 from predicators import utils
 from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig, \
     ValidationConfig
+from predicators.agent_sdk.tools.context import decorrelated_rollout_seed
 from predicators.agent_sdk.tools.scene import apply_state_modifications, \
     draw_pybullet_annotation, render_pybullet_image, render_scene_image
 from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
@@ -258,7 +259,8 @@ class ProbeTrialsResult(_StrLikeResult):
 
     def __repr__(self) -> str:
         n = len(self.trials)
-        env_note = ("fresh physics env per trial"
+        env_note = ("fresh physics env + varied motion-planner seed per "
+                    "trial - the rate estimates real execution reliability"
                     if self.fresh_env_per_trial else
                     "shared session env - trials are correlated, treat the "
                     "rate as optimistic")
@@ -877,14 +879,20 @@ class ProbeSim:
             import contextlib
             trial_dicts: List[Dict[str, Any]] = []
             try:
-                for _ in range(trials):
+                for trial_idx in range(trials):
                     _check_time_budget(ctx)
                     _count_rollout(ctx)
                     trial_solved: Optional[bool] = None
                     trial_reward: Optional[float] = None
                     coarse = False
+                    # decorrelated_rollout_seed: a fresh env alone gives
+                    # bit-identical repeats (motion planning reads the
+                    # constant CFG.seed), so without it N trials are one
+                    # effective sample. Entered inside the fresh scope so
+                    # env construction keeps the base seed.
                     with (fresh_scope() if fresh_scope is not None else
-                          contextlib.nullcontext()):
+                          contextlib.nullcontext()), \
+                            decorrelated_rollout_seed(trial_idx):
                         model = self._option_model()
                         collector = (_EvalStateCollector(
                             model, probe_task.init)

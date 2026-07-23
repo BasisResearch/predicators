@@ -1,10 +1,12 @@
 """Shared mutable state between the approach and the MCP tools."""
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, Iterator, List, Optional, Set
 
 from predicators.agent_sdk.proposal_exec import ProposalBundle
 from predicators.option_model import _OptionModelBase
+from predicators.settings import CFG
 from predicators.structs import CausalProcess, LowLevelTrajectory, \
     ParameterizedOption, ParameterizedSampler, Predicate, State, Task, Type
 
@@ -255,3 +257,36 @@ def _capture_task_key(ctx: ToolContext) -> Any:
     if ctx.test_task_idx is not None:
         return ("test", ctx.test_task_idx)
     return ("iter", ctx.iteration_id)
+
+
+@contextmanager
+def decorrelated_rollout_seed(rollout_idx: int) -> Iterator[None]:
+    """Give one repeat rollout its own motion-planner seed.
+
+    A fresh env per rollout is NOT sufficient for independent samples:
+    every stochastic step of a rollout (BiRRT sampling, IK restarts)
+    reads the constant ``CFG.seed`` at call time, so N fresh-env repeats
+    of the same plan are bit-identical replays and "N/N reliable" is one
+    effective sample. run_20260722_204632 (domino_high_friction_turn
+    seed 2) captured a plan validated 13/13 that was a coin flip on the
+    real episode; every trials-mode result in that run's sessions was
+    0/N or N/N, never mixed. Offsetting the seed per rollout varies the
+    planned motion paths within the tolerance the planner already
+    accepts - the same execution variability that separates the
+    validation context from the real episode - so repeats become a real
+    sample of execution noise.
+
+    ``rollout_idx`` 0 keeps the base seed: the canonical first rollout
+    stays reproducible and single-run (``trials=1``) behavior is
+    unchanged. Enter this scope AFTER any fresh env is created so env
+    construction (and its task-cache key) still sees the base seed.
+    """
+    if rollout_idx == 0:
+        yield
+        return
+    base_seed = CFG.seed
+    CFG.seed = base_seed + rollout_idx
+    try:
+        yield
+    finally:
+        CFG.seed = base_seed

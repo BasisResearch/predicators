@@ -12,7 +12,8 @@ from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig, \
 from predicators.agent_sdk.tools.budget import _budget_footer
 from predicators.agent_sdk.tools.capture import BestEffortReason, \
     CaptureDecision, _decide_capture
-from predicators.agent_sdk.tools.context import ToolContext, _capture_task_key
+from predicators.agent_sdk.tools.context import ToolContext, \
+    _capture_task_key, decorrelated_rollout_seed
 from predicators.agent_sdk.tools.results import _error_result
 from predicators.agent_sdk.tools.scene import format_object_poses, \
     render_scene_image
@@ -456,8 +457,15 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             # (run_20260717_182040 seed0 turn 214).
             for repeat_idx in range(2, n_rollouts + 1):
                 ctx.attempt_rollout_count += 1
+                # decorrelated_rollout_seed: a fresh env alone gives
+                # bit-identical repeats (motion planning reads the
+                # constant CFG.seed at call time), so without it the
+                # validation repeats re-run the capture rollout verbatim
+                # and detect nothing. The capture rollout itself keeps
+                # the base seed; repeats sample execution variability.
                 with (fresh_scope() if fresh_scope is not None else
-                      contextlib.nullcontext()):
+                      contextlib.nullcontext()), \
+                        decorrelated_rollout_seed(repeat_idx - 1):
                     ok, why = _validation_rollout()
                 if ok:
                     rollout_outcomes.append(

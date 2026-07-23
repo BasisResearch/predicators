@@ -470,3 +470,38 @@ def test_no_budget_footer_outside_attempt():
     model = _Model()
     text, _ctx = _run_tool(model, rollouts=1)
     assert "[budget]" not in text
+
+
+def test_validation_repeats_use_decorrelated_planner_seeds():
+    """Each validation repeat rolls out under its own ``CFG.seed``.
+
+    A fresh env per repeat is not enough for independent samples: the
+    skills' motion planning reads the constant ``CFG.seed`` at call
+    time, so identical-seed repeats are bit-identical replays and the
+    flaky gate detects nothing (run_20260722_204632: a 13/13-validated
+    capture was a coin flip on the real episode). The capture rollout
+    itself must keep the base seed; the repeats offset it; the base
+    seed must be restored afterward.
+    """
+
+    class _SeedRecordingModel(_Model):
+        """Records ``CFG.seed`` at each rollout step."""
+
+        def __init__(self):
+            super().__init__()
+            self.seeds = []
+
+        def get_next_state_and_num_actions(self, state, option):
+            from predicators.settings import \
+                CFG  # pylint: disable=import-outside-toplevel
+            self.seeds.append(CFG.seed)
+            return super().get_next_state_and_num_actions(state, option)
+
+    model = _SeedRecordingModel()
+    _, ctx = _run_tool(model, rollouts=3)
+    from predicators.settings import \
+        CFG  # pylint: disable=import-outside-toplevel
+    base = CFG.seed
+    assert ctx.solved_plan is not None
+    # One capture rollout at the base seed, two decorrelated repeats.
+    assert model.seeds == [base, base + 1, base + 2]
