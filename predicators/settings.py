@@ -1509,6 +1509,25 @@ class GlobalSettings:
     # the fresh real env; fresh envs make them honest i.i.d. samples of what
     # the real episode will draw. Costs one env construction per rollout.
     agent_plan_validation_fresh_env = True
+    # Physics-margin gate on captures: after a goal-reaching plan passes
+    # the execution-validation rollouts, re-run it at each +-1-sigma
+    # perturbation of the identified physical parameters (sigma = the
+    # posterior width the sysID fit reported, floored by
+    # code_sim_learning_rollout_min_posterior_width). The execution
+    # repeats above only sample motion-planner/physics-stepping
+    # variability AT the fitted values; a plan can pass them all and
+    # still have zero margin to the fit's parameter error
+    # (run_20260723_091108: a capture validated 8/8 at fitted
+    # lateral_friction 0.5319 failed deterministically at true 0.5 -
+    # the design's success band started at the fitted value). A failing
+    # perturbed rollout refuses the capture as PARAM-SENSITIVE so the
+    # agent adds design margin in-session. Runs only when the approach
+    # installs a fresh-env scope (perturbing the shared env would leak)
+    # and a fit with nonzero posterior width has been applied. Default
+    # False so existing arms keep their behavior; the treatment arm
+    # (approaches/all.yaml agent_po_predicate_invention_al_margin)
+    # turns it on.
+    agent_plan_validation_physics_margin = False
     # Agent bilevel explorer settings. Separate from the solve-path budget
     # above because the explorer runs full backtracking while looking for
     # the deepest subgoal-failure to truncate at. Denominated in
@@ -1606,6 +1625,23 @@ class GlobalSettings:
     # 0.827 grid point (+65%) every cycle, LM being unable to descend
     # a chaotic replay landscape from a coarse seed.
     code_sim_learning_rollout_grid_refine_evals = 4
+    # Floor (in FIT space, so ~fractional for log-scale params) on the
+    # posterior width the identifiability report assigns to a
+    # rollout-fit parameter. Two systematic errors make a raw landscape
+    # width dishonest at the low end: (1) the flat-edge bisection can
+    # collapse the flat set to a single point (each midpoint lowers the
+    # best SSE, shrinking the relative flat tolerance until only the
+    # newest point survives), which reads as posterior_std = 0 -
+    # certainty the sweep's finite evaluations cannot support; (2) the
+    # free-running replay objective carries model bias that no local
+    # landscape statistic can see (measured fits land 1-40% off truth
+    # on clean data: lateral_friction 0.5319 vs 0.5 on
+    # run_20260723_091108, 0.1414 vs 0.1 on run_20260708_213258). The
+    # default 0.1 (~+-10% for log params) brackets the typical bias;
+    # the consumers of the reported width (verdict contraction, the
+    # capture gate's physics-margin sigma points) inherit the floor.
+    # 0 disables.
+    code_sim_learning_rollout_min_posterior_width = 0.1
     # Post-fit anchor-ablation backward elimination (False disables):
     # for each physical param the LM MAP moved off its env-registry
     # anchor, refit the REMAINING params with that param pinned at the

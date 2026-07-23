@@ -134,6 +134,37 @@ def _refine_flat_edge(spec: ParamSpec, pool: List[Tuple[float, float]],
     return _closest_to_anchor(spec, flat, anchor)
 
 
+def _resolved_interval(spec: ParamSpec, pool: Sequence[Tuple[float, float]],
+                       flat_values: Sequence[float]) -> Tuple[float, float]:
+    """The interval the sweep actually RESOLVED the flat set to.
+
+    The flat interval spans only the evaluated flat members, but the
+    sweep established nothing about the landscape between a flat edge
+    and the nearest evaluated value it REJECTED - the true
+    data-equivalent region can extend anywhere in that gap. Each edge of
+    the resolved interval is therefore the fit-space midpoint between
+    the flat edge and its nearest rejected neighbor (the edge itself
+    when no rejected value exists on that side, e.g. a flat set running
+    to the box bound). This is what keeps a bisection-collapsed
+    single-point flat set (best SSE dropped, relative tolerance shrank,
+    every other candidate fell out) from reading as zero posterior
+    width: the collapse says nothing about values the sweep never
+    evaluated.
+    """
+    z_flat = [scalar_to_fit_space(spec, v) for v in flat_values]
+    z_lo, z_hi = min(z_flat), max(z_flat)
+    z_rejected = [
+        scalar_to_fit_space(spec, v) for v, _sse in pool
+        if v not in set(flat_values)
+    ]
+    below = [z for z in z_rejected if z < z_lo]
+    above = [z for z in z_rejected if z > z_hi]
+    z_res_lo = 0.5 * (max(below) + z_lo) if below else z_lo
+    z_res_hi = 0.5 * (min(above) + z_hi) if above else z_hi
+    return (float(scalar_from_fit_space(spec, z_res_lo)),
+            float(scalar_from_fit_space(spec, z_res_hi)))
+
+
 def _grid_seed_physical_specs(
     base_env: Any,
     trajectories: List[RolloutTrajectory],
@@ -274,6 +305,7 @@ def _grid_seed_physical_specs(
             "span": float(max(sses) - min(sses)),
             "flat_interval":
             (float(min(flat_values)), float(max(flat_values))),
+            "resolved_interval": _resolved_interval(spec, pool, flat_values),
         }
         seeded.append(
             ParamSpec(spec.name,

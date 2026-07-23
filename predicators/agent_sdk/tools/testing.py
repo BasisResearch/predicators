@@ -139,6 +139,10 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         "replan-on-divergence). Capture is gated: a goal-reaching plan is "
         "re-run several times (simulation varies across runs) and a FLAKY "
         "plan is reported instead of captured - add margin and resubmit. "
+        "When identified physical parameters are active, it is also re-run "
+        "at +-1-sigma perturbations of those parameters (the physics fit's "
+        "own uncertainty); a PARAM-SENSITIVE plan is reported instead of "
+        "captured - add design margin so it succeeds across the range. "
         "When the task has an evaluator, a goal-reaching plan the evaluator "
         "still scores as a non-solve (no success credit in its reward) is "
         "NOT captured (the real env applies the same scoring, so it could "
@@ -485,6 +489,42 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                     "across runs; repeats sample that execution "
                     f"variability{fresh_note}).")
 
+        # Physics-margin gate: the execution repeats above all run AT the
+        # fitted physical params, so they cannot see a plan whose success
+        # band excludes the fit's parameter error (run_20260723_091108: a
+        # capture validated 8/8 at fitted lateral_friction 0.5319 failed
+        # deterministically at true 0.5, just outside the design's band).
+        # Re-run the plan at each +-1-posterior-sigma perturbation of the
+        # identified params, on a fresh env (perturbing the shared env
+        # would leak into later tool calls) at the BASE planner seed, so a
+        # failure is attributable to the physics perturbation alone.
+        param_sensitive_detail: Optional[str] = None
+        margin_outcomes: List[str] = []
+        if (validation_cfg.physics_margin and fresh_scope is not None
+                and ctx.physics_margin_provider is not None
+                and ctx.capture_goal_reaching_plans and is_current
+                and goal_achieved and not evaluator_rejected and grounded_plan
+                and flaky_detail is None):
+            for point in ctx.physics_margin_provider() or []:
+                ctx.attempt_rollout_count += 1
+                with fresh_scope(physical_overrides=point):
+                    ok, why = _validation_rollout()
+                desc = ", ".join(f"{k}={v:.4g}"
+                                 for k, v in sorted(point.items()))
+                if ok:
+                    margin_outcomes.append(
+                        f"physics point ({desc}): goal reached")
+                else:
+                    margin_outcomes.append(
+                        f"physics point ({desc}): FAILED - {why}")
+                    if param_sensitive_detail is None:
+                        param_sensitive_detail = f"at {desc}: {why}"
+            if margin_outcomes and param_sensitive_detail is None:
+                validation_note += (
+                    " Physics-margin check passed: the plan also reached "
+                    "the goal at +-1-sigma perturbations of the identified "
+                    "physical parameters.")
+
         def _stash_uncaptured_submission() -> None:
             """Remember the best refused submission of this attempt.
 
@@ -514,7 +554,8 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             reward_hack=reward_hack,
             flaky=flaky_detail is not None,
             best_effort_mode=ctx.capture_best_effort_plan,
-            have_validated_capture=bool(ctx.solved_plan_reached_goal))
+            have_validated_capture=bool(ctx.solved_plan_reached_goal),
+            param_sensitive=param_sensitive_detail is not None)
         decision = capture_outcome.decision
         captured = capture_outcome.captured
         if captured:
@@ -568,13 +609,19 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                                     "because the attempt budget is exhausted "
                                     "- it executes for its honest reward but "
                                     "will not count as a solve)")
-            else:
-                assert reason is BestEffortReason.FLAKY
+            elif reason is BestEffortReason.FLAKY:
                 best_effort_note = (f" (best-effort: {flaky_detail}; "
                                     "accepted because the attempt budget is "
                                     "exhausted - it executes for its honest "
                                     "reward but may not reproduce its "
                                     "solve)")
+            else:
+                assert reason is BestEffortReason.PARAM_SENSITIVE
+                best_effort_note = (" (best-effort: failed "
+                                    f"{param_sensitive_detail}; accepted "
+                                    "because the attempt budget is exhausted "
+                                    "- it executes for its honest reward but "
+                                    "may fail under the true physics)")
             lines.append(f"Captured as the current answer{best_effort_note}: "
                          f"{len(grounded_plan)} steps, "
                          f"{n_annot} with subgoal annotations for closed-loop "
@@ -604,6 +651,23 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 f"submission, captures require {escalated_n}/{escalated_n} "
                 "successful rollouts: fix the margin rather than "
                 "resubmitting near-identical parameters.")
+        elif decision is CaptureDecision.PARAM_SENSITIVE_NO_CAPTURE:
+            _stash_uncaptured_submission()
+            per_point = "\n".join(f"  {o}" for o in margin_outcomes)
+            lines.append(
+                "PARAM-SENSITIVE (plan NOT captured): the plan passed "
+                "execution validation at the fitted physical parameters "
+                f"but FAILED {param_sensitive_detail}.\n"
+                "Physics-margin rollouts (each at a +-1-sigma perturbation "
+                "of the identified physical parameters, the sysID fit's "
+                f"own uncertainty):\n{per_point}\n"
+                "The fitted values are uncertain at this scale and the "
+                "real environment may sit anywhere in that range, so a "
+                "plan that only succeeds AT the fitted values will likely "
+                "fail for real. Add margin to the DESIGN (not the "
+                "execution) - e.g. tighter spacing or impacts nearer the "
+                "middle of the fall path, so it succeeds across the whole "
+                "range - then resubmit.")
         elif decision is CaptureDecision.REWARD_HACK_NO_CAPTURE:
             assert verdict is not None
             _stash_uncaptured_submission()

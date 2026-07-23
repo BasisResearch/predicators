@@ -241,10 +241,12 @@ def _compute_fit(
                                    process_features, physical_names, rules,
                                    latent_init, scaling)
 
-    report = identifiability_report(result,
-                                    rollout_sse_fn,
-                                    list(physical_specs) + list(rule_specs),
-                                    num_explainable=len(survivors))
+    report = identifiability_report(
+        result,
+        rollout_sse_fn,
+        list(physical_specs) + list(rule_specs),
+        num_explainable=len(survivors),
+        min_posterior_width=(config.min_posterior_width))
     return _FitComputation(fit_result=result,
                            report=report,
                            num_survivors=len(survivors),

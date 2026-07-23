@@ -65,6 +65,35 @@ def test_flaky_no_capture():
     assert not outcome.captured
 
 
+def test_param_sensitive_no_capture():
+    """A physics-margin rollout failure refuses the capture.
+
+    e2e: test_param_sensitive_plan_is_not_captured.
+    """
+    outcome = _decide(param_sensitive=True)
+    assert outcome.decision is CaptureDecision.PARAM_SENSITIVE_NO_CAPTURE
+    assert outcome.best_effort_reason is None
+    assert not outcome.captured
+
+
+def test_best_effort_param_sensitive():
+    """Best-effort mode captures a param-sensitive submission."""
+    outcome = _decide(best_effort_mode=True, param_sensitive=True)
+    assert outcome.decision is CaptureDecision.BEST_EFFORT_CAPTURE
+    assert outcome.best_effort_reason is BestEffortReason.PARAM_SENSITIVE
+
+
+def test_flaky_outranks_param_sensitive_reason():
+    """When both gates fail in best-effort mode, FLAKY is the reason (the.
+
+    handler never produces this combination - the margin loop is skipped
+    after a flaky repeat - but the reason ordering is pinned).
+    """
+    outcome = _decide(best_effort_mode=True, flaky=True, param_sensitive=True)
+    assert outcome.decision is CaptureDecision.BEST_EFFORT_CAPTURE
+    assert outcome.best_effort_reason is BestEffortReason.FLAKY
+
+
 def test_reward_hack_no_capture():
     """A goal-atoms-reaching but evaluator-rejected rollout is refused.
 

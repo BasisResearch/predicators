@@ -16,7 +16,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 import numpy as np
 
 from predicators.code_sim_learning.fit_space import LOG_FLOOR, FitResult, \
-    ParamSpec, param_bounds
+    ParamSpec, param_bounds, scalar_from_fit_space, scalar_to_fit_space
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,7 @@ def identifiability_report(
     sse_fn: Optional[Callable[[Dict[str, float]], float]] = None,
     param_specs: Optional[Sequence[ParamSpec]] = None,
     num_explainable: Optional[int] = None,
+    min_posterior_width: float = 0.0,
 ) -> Dict[str, Dict[str, Any]]:
     """Per-parameter posterior-vs-prior contraction from a rollout fit.
 
@@ -89,14 +90,15 @@ def identifiability_report(
     * The MCMC chain's marginal widths, when a chain ran.
     * The **grid landscape**: for a parameter the coordinate sweep
       covered, the width is the half-width (in FIT space) of its
-      data-equivalent ``flat_interval`` — the set of values the sweep
-      could not distinguish on this data. This makes the verdict agree
-      with the landscape by construction: a plateau-wide interval reads
-      NOT identified instead of the local curvature at an arbitrary
-      plateau point reading "identified" (audited on
-      run_20260722_123949, where the probe stamped every param
-      identified while its own report noted "the fitted value is the
-      edge of this interval ... not a unique optimum").
+      ``resolved_interval`` — the data-equivalent flat set widened to
+      the midpoints toward the nearest evaluations the sweep actually
+      REJECTED (``flat_interval`` as the legacy fallback). This makes
+      the verdict agree with the landscape by construction: a
+      plateau-wide interval reads NOT identified instead of the local
+      curvature at an arbitrary plateau point reading "identified"
+      (audited on run_20260722_123949, where the probe stamped every
+      param identified while its own report noted "the fitted value is
+      the edge of this interval ... not a unique optimum").
     * The prior-scale SSE **curvature probe** around the MAP (two
       rollout evals per parameter, see
       :func:`_probe_posterior_widths`) for parameters WITHOUT sweep
@@ -108,6 +110,12 @@ def identifiability_report(
       every parameter identified — the exact failure this report exists
       to catch.
     * Otherwise "unknown".
+
+    ``min_posterior_width`` floors every landscape/probe width in FIT
+    space (see ``code_sim_learning_rollout_min_posterior_width``): those
+    widths measure local precision, while the replay objective's model
+    bias — invisible to any local statistic — dominates the true error
+    at the low end.
 
     Two verdict overrides guard the remaining blind spots:
 
@@ -137,7 +145,14 @@ def identifiability_report(
         post_std = np.full(len(result.names), np.nan)
         swept = set()
         for i, name in enumerate(result.names):
-            interval = (sensitivity.get(name) or {}).get("flat_interval")
+            # The resolved interval (flat set widened to the midpoints
+            # toward the nearest REJECTED evaluations) is the honest
+            # landscape width: the raw flat interval can collapse to a
+            # single point under flat-edge bisection (posterior_std = 0,
+            # certainty the sweep's finite evaluations cannot support).
+            sweep_entry = sensitivity.get(name) or {}
+            interval = sweep_entry.get("resolved_interval") or sweep_entry.get(
+                "flat_interval")
             if interval is not None:
                 post_std[i] = _interval_half_width(interval, scales[i])
                 swept.add(name)
@@ -149,6 +164,13 @@ def identifiability_report(
             for i, name in enumerate(result.names):
                 if name not in swept:
                     post_std[i] = probe_std[i]
+        # Landscape/probe widths measure local precision only; the
+        # free-running replay objective carries model bias no local
+        # statistic can see (fits land 1-40% off truth on clean data),
+        # so the reported width is floored at the configured minimum.
+        # NaN (unknown) entries propagate through np.maximum untouched.
+        if min_posterior_width > 0:
+            post_std = np.maximum(post_std, min_posterior_width)
     at_bound = _params_at_bound(result, param_specs, scales)
     report: Dict[str, Dict[str, Any]] = {}
     for i, name in enumerate(result.names):
@@ -213,6 +235,9 @@ def identifiability_report(
             interval = sens.get("flat_interval")
             if interval is not None:
                 report[name]["flat_interval"] = interval
+            resolved = sens.get("resolved_interval")
+            if resolved is not None:
+                report[name]["resolved_interval"] = resolved
         if abl is not None:
             report[name]["anchor_ablation"] = dict(abl)
     return report
@@ -235,6 +260,63 @@ def _interval_half_width(interval: Sequence[float], scale: str) -> float:
     else:
         width = hi - lo
     return 0.5 * max(width, 0.0)
+
+
+def physics_sigma_points(
+        applied: Dict[str, float], report: Dict[str, Dict[str, Any]],
+        param_specs: Sequence[ParamSpec]) -> List[Dict[str, float]]:
+    """The +-1-posterior-sigma perturbations of the applied physical params.
+
+    Consumed by the capture gate's physics-margin check
+    (``agent_plan_validation_physics_margin``): validation rollouts AT
+    the fitted values sample execution variability only, so a plan can
+    pass them all while having zero margin to the fit's parameter error
+    (run_20260723_091108: a capture validated 8/8 at fitted
+    lateral_friction 0.5319 failed deterministically at true 0.5). Each
+    param whose FITTED value was deployed (``Verdict.applies_fitted``)
+    and whose reported ``posterior_std`` is finite and nonzero is moved
+    one sigma in FIT space (multiplicative for log-scale params), all
+    params together, and clipped to its box. Params kept at their
+    anchor (NOT identified / insensitive / at-bound / anchored) are NOT
+    perturbed: their reported width is prior-scale (the data never
+    constrained them), and swinging the belief physics that far would
+    reject every plan for uncertainty the fit was never asked to
+    resolve. Returns the two full override dicts (down, then up) - or
+    an empty list when nothing is perturbable, in which case the margin
+    check is honestly vacuous (see the min-width floor in
+    :func:`identifiability_report`, which exists precisely so a
+    degenerate landscape width cannot silence it).
+    """
+    spec_by_name = {s.name: s for s in param_specs}
+    lo_point = {k: float(v) for k, v in applied.items()}
+    hi_point = {k: float(v) for k, v in applied.items()}
+    perturbed = False
+    for name, value in applied.items():
+        spec = spec_by_name.get(name)
+        entry = report.get(name)
+        if spec is None or entry is None:
+            continue
+        verdict = entry.get("verdict")
+        if verdict is not None and not verdict.applies_fitted:
+            continue
+        width = float(entry.get("posterior_std", float("nan")))
+        if not np.isfinite(width) or width <= 0:
+            continue
+        z_val = scalar_to_fit_space(spec, float(value))
+        box_lo, box_hi = param_bounds([spec])
+        lo_val = float(
+            np.clip(scalar_from_fit_space(spec, z_val - width), box_lo[0],
+                    box_hi[0]))
+        hi_val = float(
+            np.clip(scalar_from_fit_space(spec, z_val + width), box_lo[0],
+                    box_hi[0]))
+        lo_point[name] = lo_val
+        hi_point[name] = hi_val
+        if lo_val != float(value) or hi_val != float(value):
+            perturbed = True
+    if not perturbed:
+        return []
+    return [lo_point, hi_point]
 
 
 def _params_at_bound(

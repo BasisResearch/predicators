@@ -152,16 +152,28 @@ class ToolContext:
     # honest reward) instead of paying for another full-budget attempt. A
     # best-effort capture never displaces a validated-solve capture.
     capture_best_effort_plan: bool = False
-    # Fresh-physics scope for capture-validation rollouts: a zero-arg
-    # callable returning a context manager. While entered,
-    # ``ctx.option_model`` simulates on a freshly constructed env instance
-    # instead of the shared session env, whose reset cannot reconstruct
-    # state exactly (solver warm-start state, velocity residuals), making
-    # repeated rollouts correlated with each other and systematically
-    # offset from the fresh real env. Installed by AgentSimLearningApproach
-    # (see ``_fresh_validation_env_scope``); None ⇒ validation rollouts
-    # share the session env. Gated by agent_plan_validation_fresh_env.
-    validation_env_scope: Optional[Callable[[], Any]] = None
+    # Fresh-physics scope for capture-validation rollouts: a callable
+    # returning a context manager. While entered, ``ctx.option_model``
+    # simulates on a freshly constructed env instance instead of the shared
+    # session env, whose reset cannot reconstruct state exactly (solver
+    # warm-start state, velocity residuals), making repeated rollouts
+    # correlated with each other and systematically offset from the fresh
+    # real env. Accepts an optional ``physical_overrides`` keyword (a
+    # param-name -> value dict applied to the fresh env on top of the
+    # identified params) for the physics-margin rollouts. Installed by
+    # AgentSimLearningApproach (see ``_fresh_validation_env_scope``);
+    # None ⇒ validation rollouts share the session env. Gated by
+    # agent_plan_validation_fresh_env.
+    validation_env_scope: Optional[Callable[..., Any]] = None
+    # Physics-margin points for the capture gate: a zero-arg callable
+    # returning the current +-1-posterior-sigma perturbations of the
+    # identified physical params (full override dicts; empty when no fit
+    # with nonzero posterior width is deployed). A callable rather than a
+    # stored list so the points always track the LATEST applied fit.
+    # Installed by AgentSimLearningApproach; consumed by
+    # evaluate_option_plan under agent_plan_validation_physics_margin.
+    physics_margin_provider: Optional[Callable[[], List[Dict[str,
+                                                             float]]]] = None
     # Capture-task keys (see ``_capture_task_key``) that have produced a
     # FLAKY rejection in evaluate_option_plan. A flaky submission is direct
     # evidence the agent is tuning in a marginal region where a lucky
