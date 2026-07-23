@@ -1,6 +1,6 @@
 """Exploration probe API exposed to agents via ``explore_python``.
 
-``ProbeSim`` is a thin facade over the machinery the curated tools
+``BeliefProbe`` is a thin facade over the machinery the curated tools
 already use - ``parse_sketch_from_text`` (plan grammar),
 ``execute_plan_forward`` (forward executor over the option model), the
 tools' state-modification and rendering helpers - so probe rollouts
@@ -19,7 +19,7 @@ capture path uses (see ``_require_solved_evaluator``).
 
 In synthesis sessions the same facade probes the CANDIDATE simulator
 (the ``simulator.py`` under edit, freshly fitted - see
-``ProbeSim._option_model``), ``fit`` exposes the fitting stack
+``BeliefProbe._option_model``), ``fit`` exposes the fitting stack
 (``ctx.probe_fit_provider``), and validation is hand-composed:
 ``fit()`` then ``refine`` then a continuous ``run`` of the refined
 plan (the forward pass; ``run`` reports the first step whose subgoal
@@ -195,7 +195,7 @@ class _StrLikeResult:
 
 @dataclasses.dataclass(repr=False)
 class ProbeResult(_StrLikeResult):
-    """Outcome of one ``ProbeSim.run`` call.
+    """Outcome of one ``BeliefProbe.run`` call.
 
     Attributes mirror the ``evaluate_option_plan`` report: ``steps`` is
     a list of per-step dicts (``option``, ``num_actions``, ``failure``,
@@ -243,7 +243,7 @@ class ProbeResult(_StrLikeResult):
 
 @dataclasses.dataclass(repr=False)
 class ProbeTrialsResult(_StrLikeResult):
-    """Outcome of one ``ProbeSim.run(..., trials=N)`` call.
+    """Outcome of one ``BeliefProbe.run(..., trials=N)`` call.
 
     ``trials`` holds one dict per trial (``goal_reached``,
     ``num_actions``, ``failure`` - ``None`` or ``"step {i} ({option}):
@@ -297,7 +297,7 @@ class ProbeTrialsResult(_StrLikeResult):
 
 @dataclasses.dataclass(repr=False)
 class ProbeRefineResult(_StrLikeResult):
-    """Outcome of one ``ProbeSim.refine`` call.
+    """Outcome of one ``BeliefProbe.refine`` call.
 
     ``verdict`` states exactly what a SUCCESS certifies - ``executed``
     (every step established its subgoal annotation; the task goal was
@@ -341,7 +341,7 @@ class ProbeRefineResult(_StrLikeResult):
         return "\n".join(lines)
 
 
-class ProbeSim:
+class BeliefProbe:
     """Stateful exploration handle over the belief simulator.
 
     Typical loop::
@@ -384,8 +384,8 @@ class ProbeSim:
         self._snapshots: Dict[int, Tuple[State, bool]] = {}
         self._next_snapshot_id = 1
         self._refine_calls = 0
-        self._instance_id = ProbeSim._next_instance_id
-        ProbeSim._next_instance_id += 1
+        self._instance_id = BeliefProbe._next_instance_id
+        BeliefProbe._next_instance_id += 1
         # True while the current state IS the task's unmodified initial
         # state (no mods, no rollout since reset). Gates require_solved:
         # the task evaluator's staging rules reference the true init, so
@@ -412,7 +412,7 @@ class ProbeSim:
 
     def reset(self,
               task_idx: Optional[int] = None,
-              mods: Optional[Modifications] = None) -> "ProbeSim":
+              mods: Optional[Modifications] = None) -> "BeliefProbe":
         """Set the current state to a task's initial state, optionally with
         object-feature overrides applied to a copy.
 
@@ -476,7 +476,7 @@ class ProbeSim:
         self._snapshots[sid] = (self._require_state().copy(), self._pristine)
         return sid
 
-    def restore(self, snapshot_id: int) -> "ProbeSim":
+    def restore(self, snapshot_id: int) -> "BeliefProbe":
         """Set the current state back to a snapshot."""
         self._require_state()  # follow a task change before restoring
         if snapshot_id not in self._snapshots:
@@ -487,12 +487,12 @@ class ProbeSim:
         self._pristine = pristine
         return self
 
-    def drop(self, snapshot_id: int) -> "ProbeSim":
+    def drop(self, snapshot_id: int) -> "BeliefProbe":
         """Free a banked snapshot (they otherwise live for the session)."""
         self._snapshots.pop(snapshot_id, None)
         return self
 
-    def clear_snapshots(self) -> "ProbeSim":
+    def clear_snapshots(self) -> "BeliefProbe":
         """Free every banked snapshot."""
         self._snapshots.clear()
         return self
@@ -1285,8 +1285,8 @@ def build_probe_namespace(ctx: "ToolContext") -> Dict[str, Any]:
                                         max_timesteps=max_timesteps)
 
     return {
-        "sim": ProbeSim(ctx),
-        "ProbeSim": lambda: ProbeSim(ctx),
+        "sim": BeliefProbe(ctx),
+        "BeliefProbe": lambda: BeliefProbe(ctx),
         "np": np,
         "trajectories": all_trajs,
         "describe_trajectory": describe_trajectory,

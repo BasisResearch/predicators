@@ -51,7 +51,7 @@ def _arm_budget_watchdog(seconds: float) -> Callable[[], None]:
     import ctypes
     import threading
 
-    from predicators.agent_sdk.probe_api import ProbeBudgetExceeded
+    from predicators.agent_sdk.belief_probe import ProbeBudgetExceeded
 
     # pylint: enable=import-outside-toplevel
     target_id = threading.get_ident()

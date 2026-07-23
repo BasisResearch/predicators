@@ -231,9 +231,9 @@ def apply_state_modifications(
         modifications: List[Dict[str, Any]]) -> Tuple[State, List[str], str]:
     """Apply ``[{object, features}]`` overrides to a copy of ``state``.
 
-    Used by ``ProbeSim.reset`` (the ``sim`` probe) to stage hypothetical
-    states. Returns ``(modified_state, summaries, error)``; ``error`` is
-    ``""`` on success.
+    Used by ``BeliefProbe.reset`` (the ``sim`` probe) to stage
+    hypothetical states. Returns ``(modified_state, summaries, error)``;
+    ``error`` is ``""`` on success.
     """
     modified_state = state.copy()
     obj_lookup = {o.name: o for o in modified_state}

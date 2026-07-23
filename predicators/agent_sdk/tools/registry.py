@@ -51,8 +51,8 @@ PLANNING_TOOL_NAMES = [
     "generate_abstract_plan",
     "refine_plan_sketch",
 ]
-# Solve-phase exploration: ``explore_python`` over the ProbeSim facade
-# (predicators/agent_sdk/probe_api.py). Named distinctly from the
+# Solve-phase exploration: ``explore_python`` over the BeliefProbe facade
+# (predicators/agent_sdk/belief_probe.py). Named distinctly from the
 # synthesis-phase ``run_python`` (same execution core, different
 # namespace) so sessions, transcripts, and log greps never conflate the
 # two capabilities. Built only when agent_planner_use_explore_python

@@ -366,10 +366,10 @@ as `cycle_XXX_vers_YYY_samplers.py`."""
         self._tool_context.probe_residuals_provider = \
             toolkit.residuals_runner
         # pylint: disable-next=import-outside-toplevel
-        from predicators.agent_sdk.probe_api import build_probe_namespace
+        from predicators.agent_sdk.belief_probe import build_probe_namespace
         probe_ns = build_probe_namespace(self._tool_context)
         exec_ns["sim"] = probe_ns["sim"]
-        exec_ns["ProbeSim"] = probe_ns["ProbeSim"]
+        exec_ns["BeliefProbe"] = probe_ns["BeliefProbe"]
         self._learning_mode = True
         self._tool_context.extra_session_hooks = (
             self._build_synthesis_session_hooks(

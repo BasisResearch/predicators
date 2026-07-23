@@ -87,7 +87,7 @@ def make_solved_check(
     """Build the evaluator gate used inside refinement searches.
 
     One policy for every surface (the MCP ``refine_plan_sketch`` and
-    ``ProbeSim.refine``), so identical parameters can never get
+    ``BeliefProbe.refine``), so identical parameters can never get
     contradictory verdicts across tools:
     - a coarse rollout (option-boundary states only) never blocks, the
       same rule the capture path applies (a coarse certificate can

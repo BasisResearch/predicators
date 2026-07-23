@@ -40,7 +40,7 @@ class ToolContext:
     option_model: Optional[_OptionModelBase] = None
     # Synthesis-session override for the explore_python probe: a lazy
     # builder over the CANDIDATE simulator.py (fresh MCMC fit, cached
-    # until the file changes). When set, ProbeSim executes against it
+    # until the file changes). When set, BeliefProbe executes against it
     # instead of ``option_model`` - which during synthesis is the stale
     # pre-synthesis model (real physics on cycle 1: a live-env leak).
     # Installed by the sim-learning approach around its synthesis
