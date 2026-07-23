@@ -1352,7 +1352,7 @@ class GlobalSettings:
     # Agent planner approach settings
     agent_planner_use_scratchpad = False  # include notes.md scratchpad
     # Include the solve-phase explore_python tool: a persistent Python
-    # namespace over the ProbeSim exploration facade (set the sim to any task
+    # namespace over the BeliefProbe exploration facade (set the sim to any task
     # state or a modified copy, run option plans from it, read full-precision
     # features, render, snapshot/restore) so the agent writes sweep loops in
     # one call instead of one evaluate_option_plan round-trip per probe.

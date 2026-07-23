@@ -402,7 +402,7 @@ def create_synthesis_tools(
 
     # ── run_python ──────────────────────────────────────────
 
-    # The approach merges the ProbeSim facade (`sim` over the CANDIDATE
+    # The approach merges the BeliefProbe facade (`sim` over the CANDIDATE
     # simulator.py) into this same namespace - one exec namespace per
     # synthesis session, so helpers defined next to the data are
     # visible to probe sweeps. Since the fit/refine/forward-validate
@@ -411,10 +411,10 @@ def create_synthesis_tools(
     # so the wording cannot drift from the solve-phase explore_python
     # surface.
     # pylint: disable-next=import-outside-toplevel
-    from predicators.agent_sdk.tools.exploration import probe_api_blurb
+    from predicators.agent_sdk.tools.exploration import belief_probe_blurb
     probe_blurb = (
         " This namespace ALSO binds the candidate-simulator probe: " +
-        probe_api_blurb(synthesis_probe=True) +
+        belief_probe_blurb(synthesis_probe=True) +
         " Probe rollouts are CANDIDATE-simulator predictions - do not "
         "mix them up with the recorded real `trajectories`. Nothing the "
         "probe runs is captured; the validation protocol before declaring "

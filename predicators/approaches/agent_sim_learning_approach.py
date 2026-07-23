@@ -1335,7 +1335,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # documents the policy). Unconditional: with fit / refine /
         # forward-validation all living on ``sim``, the probe IS the
         # validation surface, so a synthesis session without it would
-        # have no way to test what it writes. Only ``sim``/``ProbeSim``
+        # have no way to test what it writes. Only ``sim``/``BeliefProbe``
         # are taken from the probe namespace: ``trajectories`` already
         # binds the fit list and solve-only extras do not apply.
         self._tool_context.probe_option_model_provider = \
@@ -1346,10 +1346,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         self._tool_context.probe_residuals_provider = \
             toolkit.residuals_runner
         # pylint: disable-next=import-outside-toplevel
-        from predicators.agent_sdk.probe_api import build_probe_namespace
+        from predicators.agent_sdk.belief_probe import build_probe_namespace
         probe_ns = build_probe_namespace(self._tool_context)
         exec_ns["sim"] = probe_ns["sim"]
-        exec_ns["ProbeSim"] = probe_ns["ProbeSim"]
+        exec_ns["BeliefProbe"] = probe_ns["BeliefProbe"]
         self._learning_mode = True
         # PostToolUse hook: snapshot simulator.py / predicates.py on
         # every successful Write/Edit/MultiEdit, so the version history

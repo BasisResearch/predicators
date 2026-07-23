@@ -57,7 +57,7 @@ class RefinementConfig:
 
     Consumed at handler entry by ``refine_plan_sketch`` /
     ``evaluate_option_plan`` (tools.py) and by the probe's ``refine``
-    (probe_api.py).
+    (belief_probe.py).
     """
     ground_samplers: bool
     refinement_timeout_per_step: float
@@ -91,8 +91,8 @@ class ValidationConfig:
     """Capture-validation rollouts and the cross-attempt journal.
 
     Consumed at handler entry by ``evaluate_option_plan`` (tools.py) and
-    the probe's ``run(trials=N)`` (probe_api.py); ``use_journal`` gates
-    the ``record_journal`` tool.
+    the probe's ``run(trials=N)`` (belief_probe.py); ``use_journal``
+    gates the ``record_journal`` tool.
     """
     rollouts: int
     rollouts_after_flaky: int
