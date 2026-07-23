@@ -21,7 +21,12 @@ The certificate decides legitimacy in two layers:
    its staged xy, and stands upright (below the tilting band, so a
    pre-tilted target cannot hand the probe a half-fallen scene). Only
    the green may ever be the target of a Push, and once anything
-   topples such a Push must exist.
+   topples such a Push must exist. On goal-reaching episodes, every
+   goal target's fall must also have BEGUN at table level: the goal's
+   Toppled atoms are deliberately roll-only (a topple that later
+   slides off the table still counts), so this trajectory rule closes
+   the loophole where a target rammed off the edge upright "topples"
+   only by falling over on the floor.
 2. **The counterfactual push probe** (physics, via the injected
    ``probe``): on goal-reaching episodes, the episode's own Push skill
    re-runs from the recorded pre-push state - the real controller with
@@ -68,6 +73,12 @@ from predicators.structs import GroundAtom, Object, State, StepOption
 # The name of the option through which the robot is allowed to topple
 # the green start block.
 _PUSH_OPTION_NAME = "Push"
+
+# Env-frame table-top z (mirrors PyBulletDominoComposedEnv.table_height;
+# the real env normalizes its world z into this frame too). Mirrored as
+# a constant because the certificate is a pure function of states and
+# importing the env here would be an import cycle.
+_TABLE_TOP_Z = 0.4
 
 # Minimum base displacement for a movable blue to count as consumed by
 # the cascade (shoved off its stand) in ``count_movable_blocks_used``.
@@ -154,6 +165,17 @@ def _role_label(state: State, domino: Object) -> str:
     return "non-movable domino"
 
 
+def _fall_index(states: Sequence[State], domino: Object) -> Optional[int]:
+    """First state index where ``domino``'s |roll| reaches ``fallen_threshold``
+    while not held, or None if it never falls."""
+    for t, state in enumerate(states):
+        if state.get(domino, "is_held") > 0.5:
+            continue
+        if abs(state.get(domino, "roll")) >= DominoComponent.fallen_threshold:
+            return t
+    return None
+
+
 def _topple_onset(states: Sequence[State], domino: Object) -> Optional[int]:
     """State index where ``domino``'s final fall began, or None.
 
@@ -164,13 +186,7 @@ def _topple_onset(states: Sequence[State], domino: Object) -> Optional[int]:
     so placement wobbles that recover never register and a wobble that
     precedes the real fall is not mistaken for it.
     """
-    fall_idx: Optional[int] = None
-    for t, state in enumerate(states):
-        if state.get(domino, "is_held") > 0.5:
-            continue
-        if abs(state.get(domino, "roll")) >= DominoComponent.fallen_threshold:
-            fall_idx = t
-            break
+    fall_idx = _fall_index(states, domino)
     if fall_idx is None:
         return None
     onset = None
@@ -280,7 +296,13 @@ def check_cascade_legitimacy(
            the tilting band, so a pre-tilted block cannot hand the
            probe a half-fallen scene). Only the blue movable blocks are
            the robot's to carry and place;
-      (d)  when the goal atoms hold at the episode's end, the injected
+      (d)  when the goal atoms hold at the episode's end, two checks
+           run. First, every goal target's fall must have BEGUN at
+           table level: the goal's Toppled atoms are deliberately
+           roll-only (a topple that later slides off the table still
+           counts), so this trajectory rule closes the loophole where
+           a target rammed off the edge upright acquires its roll only
+           in freefall and "topples" on the floor. Second, the injected
            counterfactual ``probe`` must reproduce the cascade: the
            episode's own Push skill re-run (real controller, the
            plan's recorded continuous parameters) on the green(s) from
@@ -405,9 +427,29 @@ def check_cascade_legitimacy(
                 "it must still stand upright as staged; a pre-tilted "
                 "block is a disturbed scene, not a cascade")
 
-    # Rule (d): the counterfactual push probe, on goal-reaching episodes.
+    # Rule (d), on goal-reaching episodes only.
     if not all(atom.holds(states[-1]) for atom in goal):
         return True, ""
+    # Every goal target's fall must have begun at table level. At an
+    # on-table topple's first fallen-threshold crossing the block still
+    # pivots on its base edge (z near standing height); a block that
+    # left the table upright crosses the threshold only in freefall,
+    # far below the table top (observed z 0.07 vs >= 0.42).
+    for atom in goal:
+        for target in atom.objects:
+            if target.type.name != "domino":
+                continue
+            fall_idx = _fall_index(states, target)
+            if fall_idx is None:
+                continue
+            z_fall = states[fall_idx].get(target, "z")
+            if z_fall < _TABLE_TOP_Z - DominoComponent.off_table_z_tol:
+                return False, (
+                    f"{target.name} only fell over below table level "
+                    f"(z={z_fall:.2f} when its roll first passed the "
+                    "fallen threshold) - it left the table still standing, "
+                    "and falling over on the floor does not count; the "
+                    "cascade must topple it ON the table")
     if probe is None:
         return False, (
             "the goal atoms hold, but no counterfactual push probe is "

@@ -168,8 +168,12 @@ class GridComponent(DominoEnvComponent):
             self._debug_line_ids.append(line_id)
 
     def extract_feature(self, obj: Object, feature: str) -> Optional[float]:
-        # Grid helper-object features (loc/angle/direction) are encoded in
-        # their names; reuse the canonical name-based reconstruction.
+        # Grid-mode position objects carry their coordinates as attributes
+        # (set in create_position_objects, where names are grid indices like
+        # "loc_y0_x0"); helper-injected loc/angle/direction objects encode
+        # the values in their names instead.
+        if hasattr(obj, feature):
+            return float(getattr(obj, feature))
         return self.reconstruct_feature_from_name(obj, feature)
 
     @staticmethod
@@ -189,9 +193,13 @@ class GridComponent(DominoEnvComponent):
         through to its own error handling.
         """
         if obj.type.name == "loc" and feature in ("xx", "yy"):
-            # Name format: "loc_<x>_<y>", e.g. "loc_0.47_1.28".
-            _, x_str, y_str = obj.name.split("_")
-            return float(x_str) if feature == "xx" else float(y_str)
+            # Name format: "loc_<x>_<y>", e.g. "loc_0.47_1.28". Grid-index
+            # names ("loc_y0_x0") don't encode coordinates: fall through.
+            try:
+                _, x_str, y_str = obj.name.split("_")
+                return float(x_str) if feature == "xx" else float(y_str)
+            except ValueError:
+                return None
         if obj.type.name == "angle" and feature == "angle":
             # Name format: "ang_<degrees>", e.g. "ang_-90".
             return float(obj.name.split("_")[1])
