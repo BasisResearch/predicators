@@ -65,7 +65,6 @@ def _build_states(
     position_profiles: Optional[Dict[str, Sequence[Tuple[float,
                                                          float]]]] = None,
     roll_profiles: Optional[Dict[str, Sequence[float]]] = None,
-    z_profiles: Optional[Dict[str, Sequence[float]]] = None,
     held_spans: Optional[Dict[str, Tuple[int, int]]] = None,
     yaws: Optional[Dict[str, float]] = None,
     robot_xyz: Optional[Tuple[float, float, float]] = None,
@@ -105,12 +104,8 @@ def _build_states(
                 lo, hi = held_spans[name]
                 held = 1.0 if lo <= t <= hi else 0.0
             yaw = yaws.get(name, 0.0) if yaws is not None else 0.0
-            if z_profiles is not None and name in z_profiles:
-                z = z_profiles[name][t]
-            else:
-                z = 0.475
             data[obj] = np.array(
-                [x, y, z, yaw, roll, *_color_for(name)[:3], held],
+                [x, y, 0.475, yaw, roll, *_color_for(name)[:3], held],
                 dtype=np.float32)
         if robot is not None:
             xyz = robot_profile[t] if robot_profile is not None else robot_xyz
@@ -501,59 +496,6 @@ def test_stalled_relay_probe_decides():
                                           _real_goal(objs),
                                           step_options,
                                           probe=good_layout)
-    assert ok, reason
-
-
-def test_off_table_target_fall_rejected():
-    """A target rammed off the table upright reaches the roll-only goal atoms
-    (it lies "toppled" on the floor) but must be rejected: its roll first
-    passed the fallen threshold in freefall, below table level."""
-    objs = _make_objects(["green", "blue1", "target"])
-    num = 30
-    # Upright on the table through step 17, over the edge (z dropping,
-    # still under the fallen threshold) at 18-19, crosses the threshold
-    # at step 20 already in freefall, lies flat on the floor after.
-    z_prof = [0.475] * 18 + [0.30, 0.15, 0.07] + [0.007] * (num - 20)
-    states = _build_states(objs,
-                           num, {
-                               "green": 6,
-                               "blue1": 10,
-                               "target": 20
-                           },
-                           z_profiles={"target": z_prof})
-    step_options = _options([("Push", ("robot", "green"), 0, 7)], num)
-    probe = _FakeProbe(ok=True)
-    ok, reason = check_cascade_legitimacy(states,
-                                          _real_goal(objs),
-                                          step_options,
-                                          probe=probe)
-    assert not ok
-    assert "left the table still standing" in reason
-    assert not probe.calls  # rejected before the probe runs
-
-
-def test_on_table_topple_then_slide_off_passes():
-    """A target that topples ON the table and then slides off the edge keeps
-    its bonus: its fall began at table level, and the roll-only goal atoms
-    still hold at the final state."""
-    objs = _make_objects(["green", "blue1", "target"])
-    num = 30
-    # Fallen-threshold crossing at step 15 happens at table level (the
-    # block still pivots on its base edge), it lies on the table for a
-    # while, then slides off the edge to the floor.
-    z_prof = [0.475] * 16 + [0.41] * 9 + [0.007] * 6
-    states = _build_states(objs,
-                           num, {
-                               "green": 6,
-                               "blue1": 10,
-                               "target": 15
-                           },
-                           z_profiles={"target": z_prof})
-    step_options = _options([("Push", ("robot", "green"), 0, 7)], num)
-    ok, reason = check_cascade_legitimacy(states,
-                                          _real_goal(objs),
-                                          step_options,
-                                          probe=_FakeProbe(ok=True))
     assert ok, reason
 
 

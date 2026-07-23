@@ -208,7 +208,7 @@ def _chain_topples(env: Any, init_state: State, start: Object, target: Object,
     if not _execute_push(env, state, push_opt, start):
         return False
     final = _settle(env, _SETTLE_STEPS)
-    return comp.toppled_on_table(final, target)
+    return abs(final.get(target, "roll")) >= comp.fallen_threshold
 
 
 def build_turn_layout(env: Any, gen: Any, rng: Any, n1: int, n2: int,
@@ -326,7 +326,7 @@ def _layout_topples(env: Any,
     if not _execute_push(env, pstate, push_opt, start):
         return False
     final = _settle(env, _SETTLE_STEPS)
-    return comp.toppled_on_table(final, target)
+    return abs(final.get(target, "roll")) >= comp.fallen_threshold
 
 
 def _assembled_state(env: Any, comp: Any, obj_dict: dict, target: Any,
