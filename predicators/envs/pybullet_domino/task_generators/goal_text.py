@@ -21,7 +21,9 @@ CASCADE_VERIFICATION_NL = (
 
 MIN_BLOCK_GOAL_NL = (
     "Arrange the blue dominoes so that when the green domino is pushed, "
-    "the purple domino is toppled -- using AS FEW blue dominoes as "
+    "the purple domino is toppled on the table (a domino that leaves the "
+    "table still standing and only falls over on the floor does not "
+    "count) -- using AS FEW blue dominoes as "
     "possible (possibly none). Only the blue dominoes may be rearranged: "
     "the green and purple dominoes must stay untouched at their staged "
     "poses, upright and never held, until the green is pushed, and nothing "
@@ -30,7 +32,9 @@ MIN_BLOCK_GOAL_NL = (
 
 HEAVY_GOAL_NL = (
     "Arrange the blue dominoes so that when the green domino is pushed, "
-    "the purple domino is toppled -- using AS FEW blue dominoes as "
+    "the purple domino is toppled on the table (a domino that leaves the "
+    "table still standing and only falls over on the floor does not "
+    "count) -- using AS FEW blue dominoes as "
     "possible (possibly none). Only the blue dominoes may be rearranged: "
     "the green and purple dominoes and the gray heavy blocks must stay "
     "untouched at their staged poses, upright and never held, until the "

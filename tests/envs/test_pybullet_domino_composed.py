@@ -16,8 +16,7 @@ from predicators.structs import Object, State, Type
 class TestDominoComponent:
     """Tests for DominoComponent."""
 
-    def __init__(self) -> None:
-        self.comp: DominoComponent = None  # type: ignore
+    comp: DominoComponent
 
     def setup_method(self) -> None:
         """setup method."""
@@ -77,6 +76,34 @@ class TestDominoComponent:
         d = self.comp.place_domino(1, 0.6, 1.3, 0.0, is_target_block=True)
         # Target should have purple/pink color
         assert d["r"] == pytest.approx(0.85, abs=0.01)
+
+    def test_toppled_roll_only_and_table_level_helper(self) -> None:
+        """The Toppled predicate is deliberately roll-only, so a topple that
+        later slides off the table still counts at the final state; the off-
+        table loophole (block rammed off the edge upright) is closed by the
+        certificate's trajectory-side onset rule and, at design time, by the
+        ``toppled_on_table`` helper the generation probes use."""
+        domino_type = next(t for t in self.comp.get_types()
+                           if t.name == "domino")
+        d = Object("d0", domino_type)
+        toppled = next(p for p in self.comp.get_predicates()
+                       if p.name == "Toppled")
+
+        def state_with(z: float, roll: float) -> State:
+            return State(
+                {d: np.array([0.5, 1.3, z, 0.0, roll, 0.6, 0.8, 1.0, 0.0])})
+
+        lying_on_table = 0.4 + 0.01  # z_lb + depth/2
+        # Predicate: roll-only - holds at table level AND on the floor.
+        assert toppled.holds(state_with(lying_on_table, np.pi / 2), [d])
+        assert toppled.holds(state_with(0.007, np.pi / 2), [d])
+        # Standing upright: not toppled anywhere.
+        assert not toppled.holds(state_with(0.475, 0.0), [d])
+        # Design-time helper: additionally requires table level.
+        assert self.comp.toppled_on_table(
+            state_with(lying_on_table, np.pi / 2), d)
+        assert not self.comp.toppled_on_table(state_with(0.007, np.pi / 2), d)
+        assert not self.comp.toppled_on_table(state_with(0.475, 0.0), d)
 
 
 def test_unfinished_state_avoids_staging_collisions() -> None:
@@ -233,10 +260,9 @@ def test_counterfactual_cascade_probe() -> None:
 class TestGridComponent:
     """Tests for GridComponent."""
 
-    def __init__(self) -> None:
-        self.workspace_bounds: dict = {}
-        self.domino_type: Type = None  # type: ignore
-        self.comp: GridComponent = None  # type: ignore
+    workspace_bounds: dict
+    domino_type: Type
+    comp: GridComponent
 
     def setup_method(self) -> None:
         """setup method."""

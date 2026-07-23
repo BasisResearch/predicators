@@ -81,6 +81,17 @@ class DominoComponent(DominoEnvComponent):
     # bimodal (< 3 deg placement jitter or > 79 deg full topples), so the
     # 10 deg line sits in a wide empty band.
     fallen_threshold: ClassVar[float] = np.deg2rad(10)
+    # A cascade topple must happen ON the table: a block rammed off the
+    # edge upright acquires its roll only while falling and ends flat on
+    # the floor, which is not a topple (observed at low sim friction,
+    # where a struck relay slides like a puck and shoves the target off).
+    # Anything at table level sits above z_lb, so a small band below the
+    # table top separates it from mid-fall and floor configurations.
+    # Enforced trajectory-side (the certificate's topple-onset rule and
+    # the generation probes' ``toppled_on_table``), NOT in the Toppled
+    # state predicate: a state classifier cannot tell "toppled on the
+    # table, then slid off" (counts) from "fell off standing" (does not).
+    off_table_z_tol: ClassVar[float] = 0.02
 
     # Domino colors
     start_domino_color: ClassVar[Tuple[float, float, float,
@@ -619,8 +630,27 @@ class DominoComponent(DominoEnvComponent):
     # Predicate hold functions
     # -------------------------------------------------------------------------
 
+    def toppled_on_table(self, state: State, obj: Object) -> bool:
+        """Whether ``obj`` lies toppled at table level (not on the floor).
+
+        Design-time check for the generation probes: a reference chain
+        whose target ends off the table is a mis-designed task. Episode
+        acceptance uses the certificate's onset rule instead (see
+        ``off_table_z_tol``).
+        """
+        if abs(state.get(obj, "roll")) < self.fallen_threshold:
+            return False
+        return state.get(obj, "z") >= self.z_lb - self.off_table_z_tol
+
     def _Toppled_holds(self, state: State, objects: Sequence[Object]) -> bool:
-        """Check if target/domino is toppled."""
+        """Check if target/domino is toppled.
+
+        Deliberately roll-only: a topple that happened on the table
+        still counts after the block slides off. The off-table loophole
+        (block rammed off the edge upright, falling over only on the
+        floor) is closed by the certificate's trajectory-side onset
+        rule, which can see WHERE the fall began.
+        """
         obj, = objects
         if CFG.domino_use_domino_blocks_as_target:
             roll_angle = abs(state.get(obj, "roll"))
