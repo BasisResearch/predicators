@@ -296,6 +296,54 @@ class ProbeTrialsResult(_StrLikeResult):
 
 
 @dataclasses.dataclass(repr=False)
+class ProbeSweepResult(_StrLikeResult):
+    """Outcome of one ``BeliefProbe.run(..., physics_sweep=True)`` call.
+
+    ``points`` holds one dict per sweep point in ascending-sigma order
+    (``params`` - the physical-parameter override dict, ``None`` for
+    the fitted-values reference point run first; ``goal_reached``,
+    ``num_actions``, ``failure``). ``successes`` counts goal-reaching
+    points. Each point runs once on a fresh env at the BASE
+    motion-planner seed, so its outcome is a deterministic measurement
+    of the plan at those physical parameters - a failing point is a
+    hole in the design's success band, not noise. The current state is
+    NOT advanced.
+    """
+    points: List[Dict[str, Any]]
+    successes: int
+    notes: List[str] = dataclasses.field(default_factory=list)
+
+    def __repr__(self) -> str:
+        n = len(self.points)
+        lines = [
+            f"Physics sweep: {self.successes}/{n} points reached the goal "
+            "(fresh env + base planner seed per point - each point is a "
+            "deterministic measurement, not a sample)"
+        ]
+        for p in self.points:
+            desc = ("fitted params" if p["params"] is None else ", ".join(
+                f"{k}={v:.4g}" for k, v in sorted(p["params"].items())))
+            if p["failure"]:
+                line = f"  {desc}: FAILED - {p['failure']}"
+            elif p["goal_reached"]:
+                line = f"  {desc}: goal reached ({p['num_actions']} actions)"
+            else:
+                line = (f"  {desc}: goal NOT reached "
+                        f"({p['num_actions']} actions)")
+            lines.append(line)
+        if self.successes < n:
+            lines.append(
+                "  the plan fails INSIDE the identified-parameter "
+                "uncertainty range. The real environment may sit at any "
+                "of these points (success can be non-monotonic: passing "
+                "neighbors do NOT cover the points between them), and the "
+                "capture gate re-runs this same sweep - add design margin "
+                "until every point passes before submitting.")
+        lines.extend(f"NOTE: {n_}" for n_ in self.notes)
+        return "\n".join(lines)
+
+
+@dataclasses.dataclass(repr=False)
 class ProbeRefineResult(_StrLikeResult):
     """Outcome of one ``BeliefProbe.refine`` call.
 
@@ -765,12 +813,15 @@ class BeliefProbe:
             raise ValueError(f"{flag}: this task defines no task evaluator.")
         return evaluator
 
-    def run(self,
-            plan_text: str,
-            render: bool = True,
-            trials: int = 1,
-            solved: bool = False,
-            contacts: bool = False) -> Union[ProbeResult, ProbeTrialsResult]:
+    def run(
+        self,
+        plan_text: str,
+        render: bool = True,
+        trials: int = 1,
+        solved: bool = False,
+        contacts: bool = False,
+        physics_sweep: bool = False
+    ) -> Union[ProbeResult, ProbeTrialsResult, ProbeSweepResult]:
         """Execute an option plan from the current state.
 
         ``plan_text`` uses the same grammar as ``evaluate_option_plan``:
@@ -815,6 +866,26 @@ class BeliefProbe:
         WHAT actually caused motion - e.g. whether a topple was driven
         by the object you pushed or by the robot's body brushing the
         scene.
+
+        ``physics_sweep=True`` (its own mode - incompatible with
+        ``trials``/``solved``/``contacts``) re-runs the plan once at
+        each point of a grid spanning the +-1-sigma uncertainty range
+        of the identified physical parameters (the SAME points the
+        capture gate checks), each on a fresh env at the base
+        motion-planner seed, plus once at the fitted values, and
+        returns a ``ProbeSweepResult`` with per-point outcomes. The
+        fitted values carry real uncertainty and the true environment
+        may sit anywhere in the range - and success can be
+        NON-MONOTONIC in a physical parameter (a cascade that topples
+        just above and just below some friction can fail exactly at
+        it), so ``trials=`` at the fitted values CANNOT see this. A
+        design near a feasibility boundary (e.g. the minimal block
+        count) is exactly where such holes live: sweep it and add
+        margin until EVERY point passes before submitting, instead of
+        discovering PARAM-SENSITIVE rejections one capture at a time.
+        Rollouts are deterministic per point, so each point costs one
+        rollout and its outcome is a measurement, not a sample. The
+        current state is NOT advanced and nothing is rendered.
         """
         # pylint: disable-next=import-outside-toplevel
         import numpy as np
@@ -825,6 +896,12 @@ class BeliefProbe:
         from predicators.settings import CFG
         if trials < 1:
             raise ValueError(f"trials must be >= 1, got {trials}")
+        if physics_sweep and (trials > 1 or solved or contacts):
+            raise ValueError(
+                "physics_sweep=True is its own mode: it varies the PHYSICS "
+                "per rollout (one deterministic rollout per parameter "
+                "point), while trials/solved/contacts measure the plan at "
+                "the fitted values. Run them as separate calls.")
         if solved and trials < 2:
             raise ValueError(
                 "solved=True needs trials >= 2: a single shared-env rollout "
@@ -863,6 +940,88 @@ class BeliefProbe:
         evaluator: Any = None
         if solved:
             evaluator = self._require_solved_evaluator("solved=True")
+
+        if physics_sweep:
+            fresh_scope = (ctx.validation_env_scope
+                           if ValidationConfig.from_cfg().fresh_env
+                           and ctx.validation_env_scope is not None
+                           and ctx.probe_option_model_provider is None else
+                           None)
+            if fresh_scope is None:
+                raise ValueError(
+                    "physics_sweep=True needs the session's fresh-env "
+                    "scope (unavailable here): perturbing the shared "
+                    "session env would leak the perturbation into every "
+                    "later call.")
+            provider = ctx.physics_margin_provider
+            sweep_points = list(provider() or []) if provider else []
+            if not sweep_points:
+                raise ValueError(
+                    "physics_sweep=True, but no identified physical "
+                    "parameters with nonzero posterior width are deployed "
+                    "this cycle, so there is no uncertainty range to "
+                    "sweep. Use trials= to measure execution reliability "
+                    "at the current physics instead.")
+            point_dicts: List[Dict[str, Any]] = []
+            all_points: List[Optional[Dict[str, float]]] = \
+                [None] + sweep_points
+            try:
+                for point in all_points:
+                    _check_time_budget(ctx)
+                    _count_rollout(ctx)
+                    # Base planner seed at every point (no
+                    # decorrelated_rollout_seed), matching the capture
+                    # gate's margin rollouts: with the seed held fixed, an
+                    # outcome flip between points is attributable to the
+                    # physics perturbation alone.
+                    with (fresh_scope() if point is None else fresh_scope(
+                            physical_overrides=point)):
+                        model = self._option_model()
+                        r = bilevel_sketch.execute_plan_forward(
+                            probe_task,
+                            grounded,
+                            model,
+                            predicates=all_predicates,
+                            sketch=sketch_steps,
+                            stop_on_failure=True)
+                    point_failure: Optional[str] = None
+                    if r.first_failure_idx is not None:
+                        fs = r.steps[r.first_failure_idx]
+                        point_failure = (
+                            f"step {r.first_failure_idx} "
+                            f"({_fmt_option(fs.option)}): "
+                            f"{fs.failure_reason or 'not initiable'}")
+                    point_dicts.append({
+                        "params":
+                        point,
+                        "goal_reached":
+                        r.goal_reached,
+                        "num_actions":
+                        sum(s.num_actions for s in r.steps),
+                        "failure":
+                        point_failure,
+                    })
+            except ProbeBudgetExceeded as e:
+                # Same salvage rule as trials mode: completed points are
+                # sim time living in the return value, not stdout.
+                if not point_dicts:
+                    raise
+                notices.append(
+                    f"time budget expired after {len(point_dicts)}/"
+                    f"{len(all_points)} sweep points - the remaining "
+                    f"points were skipped ({e})")
+            sweep_over = [
+                p for p in point_dicts
+                if p["goal_reached"] and p["num_actions"] > CFG.horizon
+            ]
+            if sweep_over:
+                notices.append(
+                    f"{len(sweep_over)} goal-reaching sweep point(s) "
+                    f"exceeded the real episode horizon ({CFG.horizon} "
+                    "low-level steps) - the real executor would run out "
+                    "of steps.")
+            sweep_successes = sum(1 for p in point_dicts if p["goal_reached"])
+            return ProbeSweepResult(point_dicts, sweep_successes, notices)
 
         if trials > 1:
             # Fresh physics per trial when the session provides the scope

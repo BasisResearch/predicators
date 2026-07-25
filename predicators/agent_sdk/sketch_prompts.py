@@ -26,6 +26,7 @@ def build_solve_prompt(
     require_tool_validation: bool = False,
     ground_samplers: bool = False,
     journal: str = "",
+    physics_margin: bool = False,
 ) -> str:
     """Build the bilevel solve/explore prompt asking for a plan sketch.
 
@@ -64,6 +65,14 @@ def build_solve_prompt(
     attempts' outcomes and lessons, injected so fresh-context sessions
     inherit what worked (and what was already swept) without inheriting
     failed attempts' conclusions.
+
+    ``physics_margin`` is the caller-threaded value of
+    ``CFG.agent_plan_validation_physics_margin``: when True (and
+    ``require_tool_validation``), the submit guidance tells the agent
+    the capture gate also sweeps the identified physical parameters'
+    uncertainty range, and to pre-check designs with
+    ``sim.run(..., physics_sweep=True)`` instead of discovering
+    PARAM-SENSITIVE rejections one submission at a time.
     """
     init_state = task.init
     objects = list(init_state)
@@ -290,6 +299,21 @@ def build_solve_prompt(
     if require_tool_validation:
         stuck_advice = (deep_tune_advice
                         if propose_params else revise_sketch_advice)
+        margin_guidance = ""
+        if physics_margin:
+            margin_guidance = (
+                "Capture also requires the plan to succeed at a grid of "
+                "perturbations spanning +-1 sigma of the identified "
+                "physical parameters (the physics fit's own uncertainty); "
+                "a plan that fails any point is reported PARAM-SENSITIVE "
+                "instead of captured. Success can be NON-MONOTONIC in a "
+                "physical parameter - a design can pass just above and "
+                "just below a value and fail exactly at it - so tune "
+                "designs that pass the WHOLE range: pre-check with "
+                "`sim.run(plan_text, physics_sweep=True)` in explore_python "
+                "(same points as the gate, one deterministic rollout each) "
+                "instead of discovering rejections one submission at a "
+                "time. ")
         submit_guidance = (
             "SUBMIT via `evaluate_option_plan`: pass your full plan as text "
             "(one option per line, `Option(obj:type)[params] -> {subgoals}`, "
@@ -298,7 +322,8 @@ def build_solve_prompt(
             "your answer, so do NOT finish until evaluate_option_plan "
             "CONFIRMS the capture. A goal-reaching plan is re-run several "
             "times before capture (simulation varies across runs); if it is "
-            "reported FLAKY, add margin to the fragile step and resubmit. "
+            "reported FLAKY, add margin to the fragile step and resubmit. " +
+            margin_guidance +
             "It runs your EXACT parameters with no sampling. To find "
             f"working parameters you MAY use {refine_ref} (it searches "
             "but is slower); read the parameters it reports and submit them "

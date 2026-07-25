@@ -166,12 +166,14 @@ class ToolContext:
     # agent_plan_validation_fresh_env.
     validation_env_scope: Optional[Callable[..., Any]] = None
     # Physics-margin points for the capture gate: a zero-arg callable
-    # returning the current +-1-posterior-sigma perturbations of the
-    # identified physical params (full override dicts; empty when no fit
-    # with nonzero posterior width is deployed). A callable rather than a
-    # stored list so the points always track the LATEST applied fit.
-    # Installed by AgentSimLearningApproach; consumed by
-    # evaluate_option_plan under agent_plan_validation_physics_margin.
+    # returning the current grid of perturbations spanning +-1 posterior
+    # sigma of the identified physical params (full override dicts,
+    # ascending; empty when no fit with nonzero posterior width is
+    # deployed). A callable rather than a stored list so the points
+    # always track the LATEST applied fit. Installed by
+    # AgentSimLearningApproach; consumed by evaluate_option_plan under
+    # agent_plan_validation_physics_margin and by the sim.run physics
+    # sweep.
     physics_margin_provider: Optional[Callable[[], List[Dict[str,
                                                              float]]]] = None
     # Capture-task keys (see ``_capture_task_key``) that have produced a

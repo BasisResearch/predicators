@@ -140,9 +140,10 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         "re-run several times (simulation varies across runs) and a FLAKY "
         "plan is reported instead of captured - add margin and resubmit. "
         "When identified physical parameters are active, it is also re-run "
-        "at +-1-sigma perturbations of those parameters (the physics fit's "
-        "own uncertainty); a PARAM-SENSITIVE plan is reported instead of "
-        "captured - add design margin so it succeeds across the range. "
+        "at a grid of perturbations spanning +-1 sigma of those parameters "
+        "(the physics fit's own uncertainty); a PARAM-SENSITIVE plan is "
+        "reported instead of captured - add design margin so it succeeds "
+        "across the whole range. "
         "When the task has an evaluator, a goal-reaching plan the evaluator "
         "still scores as a non-solve (no success credit in its reward) is "
         "NOT captured (the real env applies the same scoring, so it could "
@@ -522,8 +523,9 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             if margin_outcomes and param_sensitive_detail is None:
                 validation_note += (
                     " Physics-margin check passed: the plan also reached "
-                    "the goal at +-1-sigma perturbations of the identified "
-                    "physical parameters.")
+                    f"the goal at all {len(margin_outcomes)} grid points "
+                    "spanning +-1 sigma of the identified physical "
+                    "parameters.")
 
         def _stash_uncaptured_submission() -> None:
             """Remember the best refused submission of this attempt.
@@ -658,16 +660,17 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 "PARAM-SENSITIVE (plan NOT captured): the plan passed "
                 "execution validation at the fitted physical parameters "
                 f"but FAILED {param_sensitive_detail}.\n"
-                "Physics-margin rollouts (each at a +-1-sigma perturbation "
-                "of the identified physical parameters, the sysID fit's "
+                "Physics-margin rollouts (a grid spanning +-1 sigma of "
+                "the identified physical parameters, the sysID fit's "
                 f"own uncertainty):\n{per_point}\n"
                 "The fitted values are uncertain at this scale and the "
-                "real environment may sit anywhere in that range, so a "
-                "plan that only succeeds AT the fitted values will likely "
-                "fail for real. Add margin to the DESIGN (not the "
-                "execution) - e.g. tighter spacing or impacts nearer the "
-                "middle of the fall path, so it succeeds across the whole "
-                "range - then resubmit.")
+                "real environment may sit anywhere in that range - "
+                "including BETWEEN passing points: success can be "
+                "non-monotonic in a physical parameter, so a design must "
+                "hold across the whole range, not just at the values you "
+                "tuned at. Add margin to the DESIGN (not the execution) - "
+                "e.g. tighter spacing or impacts nearer the middle of the "
+                "fall path - then resubmit.")
         elif decision is CaptureDecision.REWARD_HACK_NO_CAPTURE:
             assert verdict is not None
             _stash_uncaptured_submission()
