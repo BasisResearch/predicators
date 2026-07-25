@@ -1588,6 +1588,15 @@ class GlobalSettings:
     # Code sim-learning parameter fitting settings.
     # Set to 0 to skip MCMC and use initial parameter values directly.
     code_sim_learning_num_mcmc_steps = 0
+    # Persist the raw rollout-fit trajectories (states + actions per
+    # recorded episode) to <log_dir>/fit_data/ at every cycle-level
+    # fit. The fit data otherwise lives only in memory, which made the
+    # wrong fits of run_20260724_232411 (lateral_friction 1.0358 /
+    # 0.3236 vs true 0.5) impossible to replay offline: approximate
+    # re-execution from logged plans cannot reproduce mid-episode
+    # replans or the warm-env recording context, the very channel
+    # suspected of corrupting the fits. Cost: one small pickle per fit.
+    code_sim_learning_persist_fit_data = True
     # Truncate each rollout-fit trajectory once the scored features have
     # settled (physical_sysid.truncate_settled_tail): keep everything up
     # to the last observed motion plus a margin, drop the static tail.
