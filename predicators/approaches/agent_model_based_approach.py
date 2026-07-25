@@ -320,6 +320,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
             require_tool_validation=True,
             ground_samplers=CFG.agent_bilevel_ground_samplers,
             journal=journal_text,
+            physics_margin=CFG.agent_plan_validation_physics_margin,
         )
 
     def _solve_prompt_tool_names(self) -> Optional[List[str]]:

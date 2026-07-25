@@ -686,9 +686,11 @@ class GlobalSettings:
     # untopple-able and unmovable, but planning sims believe it has normal
     # domino mass (env init sets the ``heavy_block_mass`` override), so the
     # believed-cheapest plan runs THROUGH the gray (a free link/corner) and
-    # dies against it at execution. Run WITHOUT domino_planning_friction:
-    # corners never propagate at friction 0.5, which would kill the turn
-    # lure — this task type isolates the MASS dimension. Reuses the
+    # dies against it at execution. Run WITHOUT domino_planning_friction -
+    # this task type isolates the MASS dimension. (2026-07-25: generation
+    # verified at the default true friction 0.5 - turn lures and skip-around
+    # detours both certify; an older note claimed corners cannot propagate
+    # at 0.5, no longer true after the short-leg corner retune.) Reuses the
     # min-block machinery (DominoEvaluator; the offline k_star = the
     # STAGED blues: heavy tasks differentiate on topple-vs-not, and the
     # searched K* certifies solvability only — corner minima are
@@ -1510,11 +1512,11 @@ class GlobalSettings:
     # the real episode will draw. Costs one env construction per rollout.
     agent_plan_validation_fresh_env = True
     # Physics-margin gate on captures: after a goal-reaching plan passes
-    # the execution-validation rollouts, re-run it at each +-1-sigma
-    # perturbation of the identified physical parameters (sigma = the
-    # posterior width the sysID fit reported, floored by
-    # code_sim_learning_rollout_min_posterior_width). The execution
-    # repeats above only sample motion-planner/physics-stepping
+    # the execution-validation rollouts, re-run it at a grid of
+    # perturbations spanning +-1 sigma of the identified physical
+    # parameters (sigma = the posterior width the sysID fit reported,
+    # floored by code_sim_learning_rollout_min_posterior_width). The
+    # execution repeats above only sample motion-planner/physics-stepping
     # variability AT the fitted values; a plan can pass them all and
     # still have zero margin to the fit's parameter error
     # (run_20260723_091108: a capture validated 8/8 at fitted
@@ -1528,6 +1530,22 @@ class GlobalSettings:
     # (approaches/all.yaml agent_po_predicate_invention_al_margin)
     # turns it on.
     agent_plan_validation_physics_margin = False
+    # Number of grid points the margin gate (and the sim.run physics
+    # sweep) spreads evenly across the +-1-sigma range, endpoints
+    # included. Endpoints alone (2) are provably insufficient: near a
+    # feasibility boundary success is a SPECKLED function of the
+    # params, and run_20260724_140531's capture passed both +-1-sigma
+    # endpoints (lateral_friction 0.4295/0.5246) while failing
+    # deterministically at the true 0.5 between them. Replaying that
+    # capture mapped the speckle: a hazard band [~0.494, 0.511] holding
+    # ~30% failures at ~0.001 grain, so ANY even grid is a
+    # probabilistic detector - a 16-point grid's two in-band points
+    # both passed (would still have captured), while the 32-point
+    # grid's 0.5046 fails (rejects it). Per-point rollouts are
+    # deterministic measurements costing one rollout (~seconds), and
+    # captures are infrequent, so density is cheap sensitivity; designs
+    # with real margin pass every density identically.
+    agent_plan_validation_physics_margin_points = 32
     # Agent bilevel explorer settings. Separate from the solve-path budget
     # above because the explorer runs full backtracking while looking for
     # the deepest subgoal-failure to truncate at. Denominated in

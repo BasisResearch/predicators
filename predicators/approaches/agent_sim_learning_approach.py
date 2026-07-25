@@ -1915,10 +1915,13 @@ re-score.{probe_note}"""
         log_param_changes(init_params, outcome.fitted)
         self._apply_identified_physical_params(outcome.applied)
         # Physics-margin points for the capture gate: the fit's posterior
-        # widths (floored, see identifiability_report) turned into
-        # +-1-sigma perturbations of the applied values.
+        # widths (floored, see identifiability_report) turned into a grid
+        # of perturbations spanning +-1 sigma of the applied values.
         self._identified_physical_sigma_points = physics_sigma_points(
-            outcome.applied, outcome.report, physical_specs)
+            outcome.applied,
+            outcome.report,
+            physical_specs,
+            num_points=CFG.agent_plan_validation_physics_margin_points)
         if self._identified_physical_sigma_points:
             logger.info("Physics-margin points for capture validation: %s",
                         [{k: f"{v:.4f}"
