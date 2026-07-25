@@ -46,6 +46,8 @@ class SysIdConfig:
     sensitivity_factor: float
     segment_min_rest_steps: int
     scale_residuals: bool
+    huber_delta: float
+    summary_weight: float
     consistency_factor: float
     log_hessian_identifiability: bool
 
@@ -79,6 +81,8 @@ class SysIdConfig:
             segment_min_rest_steps=(
                 CFG.code_sim_learning_rollout_segment_min_rest_steps),
             scale_residuals=CFG.code_sim_learning_rollout_scale_residuals,
+            huber_delta=CFG.code_sim_learning_rollout_huber_delta,
+            summary_weight=CFG.code_sim_learning_rollout_summary_weight,
             consistency_factor=(
                 CFG.code_sim_learning_rollout_consistency_factor),
             log_hessian_identifiability=(
