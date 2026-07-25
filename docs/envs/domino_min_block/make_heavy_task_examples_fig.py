@@ -35,7 +35,7 @@ from predicators.envs import create_new_env
 from predicators.envs.pybullet_domino.task_generators import \
     min_block_utils as mbu
 from predicators.envs.pybullet_domino.task_generators.min_block_generation import \
-    _with_believed_physics
+    _believed_physics
 from predicators.settings import CFG
 
 utils.reset_config({
@@ -48,7 +48,8 @@ utils.reset_config({
     'pybullet_ik_validate': False,
     'pybullet_camera_height': 900,
     'pybullet_camera_width': 900,
-    # envs/all.yaml domino_heavy (mass-only mismatch: no planning friction)
+    # envs/all.yaml domino_heavy (mass-only mismatch: no planning friction,
+    # true friction stays at the settings default, 0.5 - matching launches)
     'max_initial_demos': 0,
     'excluded_objects_in_state_str': "loc,rot,angle,direction",
     'horizon': 500,
@@ -62,7 +63,6 @@ utils.reset_config({
     'pybullet_birrt_extend_num_interp': 20,
     'pybullet_birrt_path_subsample_ratio': 2,
     'domino_heavy_block_tasks': True,
-    'domino_true_friction': 0.1,
     'domino_min_block_num_blues': 4,
 })
 env = create_new_env('pybullet_domino', do_cache=False, use_gui=False)
@@ -235,7 +235,8 @@ def believed_straight(start, target, gray, s_pose, t_pose, h_pose, k_max):
                         return od, k
         return None
 
-    return _with_believed_physics(env, _probe)
+    with _believed_physics(env, believed_heavy_mass=True):
+        return _probe()
 
 
 def believed_gray_corner(start, target, gray, s_pose, t_pose, h_pose, k_max):
@@ -259,7 +260,8 @@ def believed_gray_corner(start, target, gray, s_pose, t_pose, h_pose, k_max):
                     return lure, k - 1
         return None
 
-    return _with_believed_physics(env, _probe)
+    with _believed_physics(env, believed_heavy_mass=True):
+        return _probe()
 
 
 tasks = env.get_test_tasks()

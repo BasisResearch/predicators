@@ -722,9 +722,10 @@ def heavy_dogleg_k_star(env: Any,
     """Minimum blues whose dogleg chain THROUGH the heavy (gray) block topples
     the target at the env's CURRENT physics, or None.
 
-    The gray block stands on the start's fall line and acts as a free
-    bend link: k1 blues run evenly from the start to the gray, the chain
-    bends at the gray, and k2 = k - k1 blues run from just past the gray
+    The gray block stands on (or slightly off) the start's fall line and
+    acts as a free bend link: k1 blues run evenly from the start to the
+    gray, the chain bends at the gray, and k2 = k - k1 blues run from
+    just past the gray
     (first exit gap swept over ``_DOGLEG_EXIT_GAPS``, the rest evenly to
     the target). ALL splits are tried, so the result is the best cost a
     planner could commit to within this natural family. Probed at
@@ -761,8 +762,17 @@ def heavy_dogleg_k_star(env: Any,
     yaw1 = geometry.heading_yaw(d1_vec[0], d1_vec[1])
     h_dir = np.array([np.sin(hyaw), np.cos(hyaw)])
     bend = geometry.wrap_angle(hyaw - syaw)
+    # Signed perpendicular offset of the gray from the start->target
+    # line: a 2-3 cm off-line gray changes len1/len2 only at second
+    # order (sub-bucket) yet bends the dogleg by ~10 degrees, so the
+    # lengths alone would alias physically different lures.
+    st_vec = t_pt - s_pt
+    st_len = float(np.linalg.norm(st_vec))
+    h_perp = 0.0 if st_len <= 0 else float(
+        (st_vec[0] * (h_pt[1] - s_pt[1]) - st_vec[1] *
+         (h_pt[0] - s_pt[0])) / st_len)
     memo_key = (round(len1 / _SPAN_BUCKET), round(len2 / _SPAN_BUCKET),
-                round(bend, 2), budget, only_k,
+                round(h_perp / _SPAN_BUCKET), round(bend, 2), budget, only_k,
                 tuple(sorted(comp._physical_param_override.items())))
     if memo_key in _dogleg_probe_memo:
         return _dogleg_probe_memo[memo_key]
@@ -839,10 +849,10 @@ _swerve_probe_memo: Dict[Tuple[Any, ...], Optional[int]] = {}
 
 def _candidate_swerve_layouts(comp: Any, k: int, start_pose: Any,
                               target_pose: Any, heavy_pose: Any) -> Any:
-    """Yield k-blue "half-circle" swerves around a collinear gray block.
+    """Yield k-blue "half-circle" swerves around a near-line gray block.
 
-    The heavy block sits ON the segment from start to target (all three
-    aligned with the line). Each candidate follows the heading profile
+    The heavy block sits on (or slightly off) the segment from start to
+    target, facing along it. Each candidate follows the heading profile
     m_i = phi * sin(2*pi*(i+0.5)/(k+1)): aligned with the line at both
     ends (head-on first knock, head-on target hit), bulging sideways
     mid-path to clear the gray block, with net lateral displacement
@@ -898,7 +908,7 @@ def swerve_k_star(env: Any,
                   heavy_pose: Any,
                   budget: int,
                   min_hits: int = 1) -> Optional[int]:
-    """Minimum blues whose half-circle swerve AROUND the collinear gray block
+    """Minimum blues whose half-circle swerve AROUND the near-line gray block
     topples the target at the env's CURRENT physics, or None.
 
     The constructive counterpart of ``heavy_dogleg_k_star``'s straight
@@ -918,11 +928,18 @@ def swerve_k_star(env: Any,
     sx, sy, syaw = (float(v) for v in start_pose)
     tx, ty, _ = (float(v) for v in target_pose)
     hx, hy, _ = (float(v) for v in heavy_pose)
+    # Signed perpendicular offset of the gray from the start->target
+    # line (see ``heavy_dogleg_k_star``): distances alone alias
+    # off-line grays, which need different swerve depths per side.
+    st_len = float(np.hypot(tx - sx, ty - sy))
+    h_perp = 0.0 if st_len <= 0 else float(
+        ((tx - sx) * (hy - sy) - (ty - sy) * (hx - sx)) / st_len)
     memo_key = (round(sx / _SPAN_BUCKET), round(sy / _SPAN_BUCKET),
                 round(syaw,
                       2), round(np.hypot(tx - sx, ty - sy) / _SPAN_BUCKET),
-                round(np.hypot(hx - sx, hy - sy) / _SPAN_BUCKET), budget,
-                min_hits, tuple(sorted(comp._physical_param_override.items())))
+                round(np.hypot(hx - sx, hy - sy) / _SPAN_BUCKET),
+                round(h_perp / _SPAN_BUCKET), budget, min_hits,
+                tuple(sorted(comp._physical_param_override.items())))
     if memo_key in _swerve_probe_memo:
         return _swerve_probe_memo[memo_key]
     push_opt = _get_push_option(env)
