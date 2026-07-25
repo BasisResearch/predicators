@@ -13,7 +13,7 @@ import pytest
 
 import predicators.approaches  # noqa: F401  # pylint: disable=unused-import
 from predicators.code_sim_learning import grid_seed, physical_sysid, \
-    rollout_env, trajectory_prep
+    rollout_env, rollout_objective, trajectory_prep
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
 from predicators.code_sim_learning.identifiability import Verdict, \
     format_identifiability, identifiability_report, \
@@ -1449,3 +1449,71 @@ def test_anchor_ablation_keeps_genuinely_moved_param():
     assert out is result
     assert out.anchor_ablation is None
     assert out.point_estimate == {"gain_a": 2.0, "gain_b": 0.02}
+
+
+def test_huberize_caps_outliers():
+    """Squared huberized residual follows the Huber loss; 0 disables."""
+    from predicators.code_sim_learning.rollout_objective import _huberize
+    assert _huberize(0.5, 1.0) == 0.5
+    assert _huberize(-0.5, 1.0) == -0.5
+    # Outside delta: r'^2 == 2*delta*|r| - delta^2 (linear growth).
+    big = _huberize(10.0, 1.0)
+    assert big**2 == pytest.approx(2 * 1.0 * 10.0 - 1.0)
+    assert _huberize(-10.0, 1.0) == -big
+    # delta <= 0 disables the cap.
+    assert _huberize(10.0, 0.0) == 10.0
+
+
+def test_rollout_sse_summary_residuals(monkeypatch):
+    """Endpoint + onset summary terms are appended with the flag weight.
+
+    The observed domino starts moving at step 1 and ends at x=0.3; the
+    (faked) rollout never moves it. With summary_weight w: per-step
+    residuals (huber-capped), plus w * endpoint residual squared per
+    scored feature, plus w * ((sim_onset - obs_onset)/horizon)^2 with
+    the never-moving sim onset clamped to the horizon.
+    """
+    from predicators.settings import CFG
+    monkeypatch.setattr(CFG, "code_sim_learning_rollout_huber_delta", 0.0)
+    states, actions = _trajectory([0.0, 0.1, 0.2, 0.3])
+    sim_static = [states[0]] * len(actions)  # sim: domino never moves
+
+    monkeypatch.setattr(rollout_objective, "rollout_states",
+                        lambda *_a, **_k: sim_static)
+
+    def sse(weight):
+        monkeypatch.setattr(CFG, "code_sim_learning_rollout_summary_weight",
+                            weight)
+        return rollout_objective.compute_rollout_sse(None, [(states, actions)],
+                                                     {"friction": 0.5},
+                                                     _PROCESS_FEATURES,
+                                                     ["friction"])
+
+    base = sse(0.0)
+    # Per-step residuals: sim x stays 0.0 vs obs 0.1, 0.2, 0.3.
+    assert base == pytest.approx(0.01 + 0.04 + 0.09)
+    with_summary = sse(4.0)
+    # Endpoint: 4 * 0.3^2. Onset: obs moves at state 1, sim never
+    # (clamped to horizon 3): 4 * ((3 - 1) / 3)^2.
+    assert with_summary == pytest.approx(base + 4 * 0.09 + 4 * (2 / 3)**2)
+
+
+def test_rollout_sse_huber_caps_spike(monkeypatch):
+    """A qualitatively-diverged replay contributes linearly, not squared."""
+    from predicators.settings import CFG
+    monkeypatch.setattr(CFG, "code_sim_learning_rollout_summary_weight", 0.0)
+    states, actions = _trajectory([0.0, 0.0, 100.0])
+    sim_static = [states[0]] * len(actions)
+    monkeypatch.setattr(rollout_objective, "rollout_states",
+                        lambda *_a, **_k: sim_static)
+
+    def sse(delta):
+        monkeypatch.setattr(CFG, "code_sim_learning_rollout_huber_delta",
+                            delta)
+        return rollout_objective.compute_rollout_sse(None, [(states, actions)],
+                                                     {"friction": 0.5},
+                                                     _PROCESS_FEATURES,
+                                                     ["friction"])
+
+    assert sse(0.0) == pytest.approx(100.0**2)
+    assert sse(1.0) == pytest.approx(2 * 100.0 - 1.0)
