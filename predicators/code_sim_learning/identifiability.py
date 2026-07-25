@@ -16,7 +16,8 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 import numpy as np
 
 from predicators.code_sim_learning.fit_space import LOG_FLOOR, FitResult, \
-    ParamSpec, param_bounds, scalar_from_fit_space, scalar_to_fit_space
+    ParamSpec, is_log, param_bounds, scalar_from_fit_space, \
+    scalar_to_fit_space
 
 logger = logging.getLogger(__name__)
 
@@ -289,18 +290,33 @@ def physics_sigma_points(applied: Dict[str, float],
     dense grid (see agent_plan_validation_physics_margin_points) makes
     interior holes at grid resolution visible; rollouts are
     deterministic per point, so each point is a measurement, not a
-    sample. Params kept at their anchor (NOT identified / insensitive /
+    sample.
+
+    The swept interval per param is the DISAGREEMENT HULL: the +-1
+    sigma band around the applied value, widened to cover every
+    ``candidate_values`` entry in the report (per-segment fits the
+    consistency loop dropped, cross-cycle fits the INCONSISTENT
+    adjuster recorded). The floored posterior_std alone is provably
+    too narrow when data subsets disagree - run_20260724_232411 seed1
+    shipped 1.0358 at the 0.1 floor while its segment fits spanned
+    [~0.27, ~1.04] around the true 0.5, and only the hull contains the
+    truth (an inflated sigma centered on the survivors' fit,
+    [0.533, 2.013], still misses it). An INCONSISTENT param IS swept
+    (its applied value is the held/trusted one and the hull covers
+    both incompatible fits) - excluding it disarmed the gate exactly
+    when uncertainty was largest (run_20260724_232411 seed2 cycle 2).
+    Params kept at their anchor (NOT identified / insensitive /
     at-bound / anchored) are NOT perturbed: their reported width is
     prior-scale (the data never constrained them), and swinging the
     belief physics that far would reject every plan for uncertainty the
     fit was never asked to resolve. Returns the override dicts in
-    ascending sigma order, the exact fitted point and clipping
+    ascending order along the hull, the exact fitted point and clipping
     duplicates dropped - or an empty list when nothing is perturbable,
     in which case the margin check is honestly vacuous (see the
     min-width floor in :func:`identifiability_report`, which exists
     precisely so a degenerate landscape width cannot silence it).
     """
-    assert num_points >= 2, "need at least the two +-1-sigma endpoints"
+    assert num_points >= 2, "need at least the two hull endpoints"
     spec_by_name = {s.name: s for s in param_specs}
     perturbable: Dict[str, Any] = {}
     for name, value in applied.items():
@@ -309,24 +325,33 @@ def physics_sigma_points(applied: Dict[str, float],
         if spec is None or entry is None:
             continue
         verdict = entry.get("verdict")
-        if verdict is not None and not verdict.applies_fitted:
-            continue
-        width = float(entry.get("posterior_std", float("nan")))
-        if not np.isfinite(width) or width <= 0:
+        if (verdict is not None and not verdict.applies_fitted
+                and verdict is not Verdict.INCONSISTENT):
             continue
         z_val = scalar_to_fit_space(spec, float(value))
+        zs = [z_val]
+        width = float(entry.get("posterior_std", float("nan")))
+        if np.isfinite(width) and width > 0:
+            zs.extend([z_val - width, z_val + width])
+        for cand in entry.get("candidate_values", ()):
+            if float(cand) > 0 or not is_log(spec):
+                zs.append(scalar_to_fit_space(spec, float(cand)))
+        z_lo, z_hi = min(zs), max(zs)
+        if z_hi - z_lo <= 0:
+            continue
         box_lo, box_hi = param_bounds([spec])
-        perturbable[name] = (spec, z_val, width, box_lo[0], box_hi[0])
+        perturbable[name] = (spec, z_lo, z_hi, box_lo[0], box_hi[0])
     if not perturbable:
         return []
     points: List[Dict[str, float]] = []
-    for t in np.linspace(-1.0, 1.0, num_points):
+    for t in np.linspace(0.0, 1.0, num_points):
         point = {k: float(v) for k, v in applied.items()}
         moved = False
-        for name, (p_spec, z_val, width, lo, hi) in perturbable.items():
+        for name, (p_spec, z_lo, z_hi, lo, hi) in perturbable.items():
             val = float(
-                np.clip(scalar_from_fit_space(p_spec, z_val + t * width), lo,
-                        hi))
+                np.clip(
+                    scalar_from_fit_space(p_spec, z_lo + t * (z_hi - z_lo)),
+                    lo, hi))
             point[name] = val
             if val != float(applied[name]):
                 moved = True
@@ -517,8 +542,8 @@ def select_trustworthy_params(
             applied[name] = held[name]
             logger.info(
                 "Rollout sysID: NOT applying %s=%.4f (%s); holding the "
-                "currently-applied %.4f.", name, fitted[name], verdict.value,
-                held[name])
+                "last trusted value %.4f (the margin sweep spans both).", name,
+                fitted[name], verdict.value, held[name])
             continue
         fallback = anchors.get(name, declared_inits[name])
         applied[name] = fallback
@@ -550,6 +575,12 @@ def format_identifiability(report: Dict[str, Dict[str, Any]]) -> str:
                                    Verdict.NOT_IDENTIFIED) else "")
             lines.append(f"      data-equivalent over [{interval[0]:.4g}, "
                          f"{interval[1]:.4g}]{note}")
+        cands = info.get("candidate_values", ())
+        if len(cands) > 1:
+            lines.append(
+                f"      disagreement hull [{min(cands):.4g}, "
+                f"{max(cands):.4g}]: data subsets preferred incompatible "
+                "explanations; the physics-margin sweep spans this hull")
         abl = info.get("anchor_ablation")
         if abl is not None:
             fitted = (f" (reverted from {abl['fitted']:.4g})"

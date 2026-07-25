@@ -351,6 +351,45 @@ def min_explainable_rms(
     and unexplainable as the agent re-declared inits across calls
     (observed on run_20260711_141026, cycle 2).
     """
+    best, _ = min_explainable_fits(base_env,
+                                   trajectories,
+                                   physical_specs,
+                                   process_features,
+                                   rules=rules,
+                                   rule_specs=rule_specs,
+                                   latent_init=latent_init,
+                                   extra_candidates=extra_candidates,
+                                   scaling=scaling,
+                                   anchors=anchors,
+                                   config=config)
+    return best
+
+
+def min_explainable_fits(
+    base_env: Any,
+    trajectories: List[RolloutTrajectory],
+    physical_specs: Sequence[ParamSpec],
+    process_features: Dict[str, List[str]],
+    rules: Sequence[Any] = (),
+    rule_specs: Sequence[ParamSpec] = (),
+    latent_init: Any = None,
+    extra_candidates: Sequence[Dict[str, float]] = (),
+    scaling: Optional[ResidualScaling] = None,
+    anchors: Optional[Dict[str, float]] = None,
+    config: Optional[SysIdConfig] = None,
+) -> Tuple[List[float], List[Dict[str, float]]]:
+    """:func:`min_explainable_rms` plus each trajectory's argmin params.
+
+    The second return is, per trajectory, the PHYSICAL portion of the
+    candidate that achieved its best RMS. This is each recording's own
+    preferred explanation, and disagreement between them is the honest
+    uncertainty signal the consistency loop acts on: when a segment
+    gets dropped, its argmin becomes a hull candidate that widens the
+    physics-margin sweep instead of vanishing with the data (see
+    ``fit_params_rollout_trimmed``). The sweep is unchanged, so the
+    argmins are grid-resolution (coarse) - adequate for a hull bound,
+    not a point estimate.
+    """
     config = config or SysIdConfig.from_cfg()
     anchors = anchors or {}
     base = {
@@ -369,9 +408,16 @@ def min_explainable_rms(
     candidates.extend(dict(c) for c in extra_candidates)
     physical_names = [s.name for s in physical_specs]
     best = [float("inf")] * len(trajectories)
+    best_params: List[Dict[str, float]] = [{
+        n: float(base[n])
+        for n in physical_names
+    } for _ in trajectories]
     for params in candidates:
         rms = per_trajectory_rms(base_env, trajectories, params,
                                  process_features, physical_names, rules,
                                  latent_init, scaling)
-        best = [min(b, r) for b, r in zip(best, rms)]
-    return best
+        for i, r in enumerate(rms):
+            if r < best[i]:
+                best[i] = r
+                best_params[i] = {n: float(params[n]) for n in physical_names}
+    return best, best_params

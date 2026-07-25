@@ -12,6 +12,7 @@ import re
 from types import SimpleNamespace
 from typing import List, Optional, Sequence, Set, Tuple, cast
 
+import dill as pkl
 import numpy as np
 import pytest
 
@@ -20,6 +21,8 @@ from predicators.approaches import agent_sim_learning_approach as asla
 from predicators.approaches.agent_model_based_approach import _SketchStep
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
+from predicators.code_sim_learning.fit_space import FitResult
+from predicators.code_sim_learning.identifiability import Verdict
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, merge_updates
 from predicators.envs import create_new_env
@@ -28,6 +31,7 @@ from predicators.ground_truth_models.boil.gt_simulator import PARAM_SPECS, \
     PROCESS_RULES
 from predicators.option_model import _OracleOptionModel
 from predicators.planning import run_backtracking_refinement
+from predicators.settings import CFG
 from predicators.structs import GroundAtom, LowLevelTrajectory, Object, \
     ParameterizedOption, Predicate
 
@@ -555,3 +559,81 @@ def test_rollout_fit_trajectories_subset() -> None:
     assert obj._rollout_fit_trajectories(traj_idxs=[2]) == []
     with pytest.raises(ValueError, match="out of range"):
         obj._rollout_fit_trajectories(traj_idxs=[3])
+
+
+def _cross_cycle_fit(value: float) -> Tuple[FitResult, dict]:
+    result = FitResult(names=["friction"],
+                       samples=np.array([[value]]),
+                       log_probs=np.zeros(1),
+                       jacobian=None,
+                       noise_sigma=0.05,
+                       prior_sigma=np.array([0.75]),
+                       scales=["log"])
+    report = {
+        "friction": {
+            "posterior_std": 0.1,
+            "prior_std": 0.75,
+            "contraction": 0.13,
+            "verdict": Verdict.IDENTIFIED,
+            "note": "",
+        }
+    }
+    return result, report
+
+
+def test_cross_cycle_inconsistent_holds_then_confirms() -> None:
+    """A many-sigma jump is held once, accepted on independent repeat.
+
+    Regression for run_20260724_232411 seed2: cycle fits 0.3236 ->
+    0.6267 (4.7 combined sigmas). The first jump must flag INCONSISTENT
+    (trusted history unchanged, both fits recorded as hull candidates);
+    a following cycle re-fitting near the new value confirms the jump
+    and the history moves - without confirmation the stale reference
+    would flag every future fit forever.
+    """
+    obj = object.__new__(AgentSimLearningApproach)
+    obj._sysid_fit_history = {}
+    obj._sysid_pending_fit = {}
+
+    result, report = _cross_cycle_fit(0.3236)
+    obj._check_cross_cycle_consistency(result, report, ["friction"])
+    assert report["friction"]["verdict"] is Verdict.IDENTIFIED
+    assert obj._sysid_fit_history["friction"][0] == 0.3236
+
+    result, report = _cross_cycle_fit(0.6267)
+    obj._check_cross_cycle_consistency(result, report, ["friction"])
+    assert report["friction"]["verdict"] is Verdict.INCONSISTENT
+    assert report["friction"]["candidate_values"] == [0.3236, 0.6267]
+    # Trusted history holds; the rejected fit waits as pending.
+    assert obj._sysid_fit_history["friction"][0] == 0.3236
+    assert obj._sysid_pending_fit["friction"][0] == 0.6267
+
+    result, report = _cross_cycle_fit(0.63)
+    obj._check_cross_cycle_consistency(result, report, ["friction"])
+    assert report["friction"]["verdict"] is Verdict.IDENTIFIED
+    assert obj._sysid_fit_history["friction"][0] == 0.63
+    assert "friction" not in obj._sysid_pending_fit
+
+
+def test_persist_fit_trajectories(tmp_path, monkeypatch) -> None:
+    """Fit data lands in <log_dir>/fit_data/, one numbered pickle per fit."""
+    obj = object.__new__(AgentSimLearningApproach)
+    obj._fit_trajectories = cast(List[LowLevelTrajectory],
+                                 ["fake_traj_a", "fake_traj_b"])
+    obj._physical_param_specs = []
+    obj._identified_physical_params = {"friction": 0.5}
+    obj._get_log_dir = lambda: str(tmp_path)  # type: ignore[method-assign]
+
+    obj._persist_fit_trajectories()
+    obj._persist_fit_trajectories()
+    out_dir = tmp_path / "fit_data"
+    files = sorted(f.name for f in out_dir.glob("*.pkl"))
+    assert files == ["fit_trajectories_000.pkl", "fit_trajectories_001.pkl"]
+    with open(out_dir / files[0], "rb") as f:
+        payload = pkl.load(f)
+    assert payload["trajectories"] == ["fake_traj_a", "fake_traj_b"]
+    assert payload["identified_physical_params"] == {"friction": 0.5}
+
+    monkeypatch.setattr(CFG, "code_sim_learning_persist_fit_data", False)
+    obj._persist_fit_trajectories()
+    assert len(list(out_dir.glob("*.pkl"))) == 2

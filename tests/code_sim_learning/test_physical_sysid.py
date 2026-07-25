@@ -9,6 +9,7 @@ trajectory truncation, and the fresh-env-per-rollout plumbing.
 
 import numpy as np
 import pybullet as p
+import pytest
 
 import predicators.approaches  # noqa: F401  # pylint: disable=unused-import
 from predicators.code_sim_learning import grid_seed, physical_sysid, \
@@ -384,6 +385,70 @@ def test_physics_sigma_points_skip_untrusted_verdicts():
     assert not physics_sigma_points({"friction": 0.53}, report_none, specs[:1])
 
 
+def test_physics_sigma_points_hull_widens_beyond_sigma():
+    """candidate_values (segment/cycle disagreement) widen the sweep.
+
+    Regression for run_20260724_232411 seed1: applied 1.0358 at the
+    0.1 sigma floor swept only [0.937, 1.145] while the dropped
+    segment's fits pointed at ~0.27; the hull sweep must span from the
+    lowest candidate through the +1 sigma endpoint (true 0.5 then lies
+    inside the swept interval).
+    """
+    from predicators.code_sim_learning.identifiability import \
+        physics_sigma_points
+    specs = [ParamSpec("friction", 1.0358, lo=0.01, hi=2.0, scale="log")]
+    applied = {"friction": 1.0358}
+    report = {
+        "friction": {
+            "posterior_std": 0.1,
+            "verdict": Verdict.IDENTIFIED,
+            "candidate_values": [0.2742, 1.0358],
+        }
+    }
+    pts = physics_sigma_points(applied, report, specs, num_points=32)
+    vals = [p["friction"] for p in pts]
+    assert min(vals) == pytest.approx(0.2742, rel=1e-6)
+    # The upper end is still the +1 sigma endpoint, not the raw fit.
+    assert max(vals) == pytest.approx(1.0358 * np.exp(0.1), rel=1e-6)
+    assert any(0.45 < v < 0.55 for v in vals)
+
+
+def test_physics_sigma_points_inconsistent_is_swept():
+    """An INCONSISTENT param is swept across both incompatible fits.
+
+    Regression for run_20260724_232411 seed2 cycle 2: the INCONSISTENT
+    verdict emptied the sweep entirely (capture ran with NO margin
+    check) although the cross-cycle interval [0.3236, 0.6267] contained
+    the true 0.5. The applied value is the held/trusted one; the sweep
+    must cover the whole disagreement.
+    """
+    from predicators.code_sim_learning.identifiability import \
+        physics_sigma_points
+    specs = [ParamSpec("friction", 0.3236, lo=0.01, hi=2.0, scale="log")]
+    applied = {"friction": 0.3236}  # held value
+    report = {
+        "friction": {
+            "posterior_std": 0.1,
+            "verdict": Verdict.INCONSISTENT,
+            "candidate_values": [0.3236, 0.6267],
+        }
+    }
+    pts = physics_sigma_points(applied, report, specs, num_points=16)
+    vals = [p["friction"] for p in pts]
+    assert min(vals) == pytest.approx(0.3236 * np.exp(-0.1), rel=1e-6)
+    assert max(vals) == pytest.approx(0.6267, rel=1e-6)
+    assert any(0.45 < v < 0.55 for v in vals)
+    # Without candidates the +-1 sigma band still keeps the gate armed.
+    report_plain = {
+        "friction": {
+            "posterior_std": 0.1,
+            "verdict": Verdict.INCONSISTENT,
+        }
+    }
+    pts_plain = physics_sigma_points(applied, report_plain, specs)
+    assert pts_plain, "INCONSISTENT must not disarm the margin sweep"
+
+
 def test_select_trustworthy_params_keeps_init_for_unidentified():
     """Un-contracted params keep the declared init; identified ones apply.
 
@@ -458,7 +523,7 @@ def test_trimming_drops_unexplainable_and_refits(monkeypatch):
         2: [0.7, 0.001],
         1: [0.001]
     })
-    result, survivors, rms = fit_params_rollout_trimmed(
+    result, survivors, rms, _hull = fit_params_rollout_trimmed(
         None, trajs, specs, {"domino": ["x"]})
     assert survivors == ["clean"]
     assert rms == [0.7, 0.001]
@@ -470,7 +535,7 @@ def test_trimming_keeps_all_when_explainable(monkeypatch):
     specs = [ParamSpec("friction", 0.5, lo=0.01, hi=2)]
     trajs = ["a", "b"]
     _patch_fit_and_rms(monkeypatch, {2: 0.1}, {2: [0.001, 0.002]})
-    result, survivors, rms = fit_params_rollout_trimmed(
+    result, survivors, rms, _hull = fit_params_rollout_trimmed(
         None, trajs, specs, {"domino": ["x"]})
     assert survivors == ["a", "b"]
     assert result.point_estimate["friction"] == 0.1
@@ -518,10 +583,15 @@ def test_consistency_loop_drops_disagreeing_survivor(monkeypatch):
     monkeypatch.setattr(grid_seed, "per_trajectory_rms", fake_rms)
     monkeypatch.setattr(physical_sysid, "compute_residual_scaling",
                         lambda *_a, **_k: None)
-    result, survivors, _rms = fit_params_rollout_trimmed(
+    result, survivors, _rms, hull = fit_params_rollout_trimmed(
         None, [shove, clean], specs, {"domino": ["x"]})
     assert survivors == ["clean"]
     assert result.point_estimate["friction"] == 0.1
+    # The disagreement survives as hull candidates: the pre-drop joint
+    # fit and the dropped segment's own-best (grid-argmin) values (the
+    # sweep fake returns identical RMS at every candidate, so the
+    # argmin stays at the base candidate, friction=0.5).
+    assert hull == [{"friction": 1.34}, {"friction": 0.5}]
 
 
 def test_trimming_all_dropped_pins_result_at_inits(monkeypatch):
@@ -536,7 +606,7 @@ def test_trimming_all_dropped_pins_result_at_inits(monkeypatch):
     trajs = ["chaos1", "chaos2"]
     # No fit_thetas entries: any call to the (stubbed) fit would KeyError.
     _patch_fit_and_rms(monkeypatch, {}, {2: [0.8, 0.6]})
-    result, survivors, _rms = fit_params_rollout_trimmed(
+    result, survivors, _rms, _hull = fit_params_rollout_trimmed(
         None, trajs, specs, {"domino": ["x"]})
     assert survivors == []
     assert result.point_estimate["friction"] == 0.5
@@ -969,9 +1039,11 @@ def test_trimming_uses_rms_cache(monkeypatch):
     trajs = [_trajectory([0.0, 0.1, 0.2]), _trajectory([0.0, 0.05, 0.1])]
     calls = {"sweep": 0}
 
-    def fake_min_rms(_env, trajectories, *_args, **_kwargs):
+    def fake_min_fits(_env, trajectories, *_args, **_kwargs):
         calls["sweep"] += 1
-        return [0.001] * len(trajectories)
+        return ([0.001] * len(trajectories), [{
+            "friction": 0.1
+        } for _ in trajectories])
 
     def fake_fit(_env, _trajectories, *_args, **_kwargs):
         return FitResult(names=["friction"],
@@ -981,13 +1053,13 @@ def test_trimming_uses_rms_cache(monkeypatch):
                          noise_sigma=0.05,
                          prior_sigma=np.array([0.375]))
 
-    monkeypatch.setattr(physical_sysid, "min_explainable_rms", fake_min_rms)
+    monkeypatch.setattr(physical_sysid, "min_explainable_fits", fake_min_fits)
     monkeypatch.setattr(physical_sysid, "fit_params_rollout", fake_fit)
     monkeypatch.setattr(physical_sysid, "per_trajectory_rms",
                         lambda *_a, **_k: [0.001, 0.001])
     cache = {}
     for _ in range(2):
-        _result, survivors, _rms = fit_params_rollout_trimmed(
+        _result, survivors, _rms, _hull = fit_params_rollout_trimmed(
             None,
             trajs,
             specs, {"domino": ["x"]},
