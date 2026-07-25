@@ -70,10 +70,20 @@ def _domino_code_digest() -> str:
 # scripts/domino_debug/probe_min_block_bands.py when the friction pair moves).
 _DEFAULT_TURN_ENTRY_BAND = (0.26, 0.34)
 _DEFAULT_TURN_EXIT_BAND = (0.18, 0.26)
-# Heavy straight variant: start->target span, and the gray block's fraction
-# along that span.
+# Heavy turn variant: shorter legs than the plain-turn defaults, so the
+# skip-around detour fits in num_blues - 1 (one blue of slack); the
+# maker additionally REQUIRES that slack, so the bands only control how
+# often a sample certifies, not the shipped difficulty.
+_HEAVY_TURN_ENTRY_BAND = (0.22, 0.28)
+_HEAVY_TURN_EXIT_BAND = (0.16, 0.22)
+# Heavy straight variant: start->target span, the gray block's fraction
+# along that span, and its small signed perpendicular offset OFF the
+# line (sign sampled). An off-line gray still lures the believed
+# planner (the dogleg family bends through it) but shrinks the swerve
+# depth needed on the far side, so the true solution's arc is gentler.
 _HEAVY_SPAN_BAND = (0.36, 0.44)
 _HEAVY_GRAY_FRACTIONS = (0.45, 0.5, 0.55)
+_HEAVY_GRAY_LATERAL_OFFSETS = (0.02, 0.03)
 
 
 def _early_stop_bar(k_star: float) -> float:
@@ -848,14 +858,15 @@ def _make_heavy_straight_task(
         rng: np.random.Generator) -> Optional[EnvironmentTask]:
     """Build one straight-variant heavy-block task, or None.
 
-    Natural alignment: start, GRAY block, and target sit on ONE line,
-    all facing along it. The believed physics (normal gray mass, see the
-    env init / ``heavy_block_mass`` override) makes the cheapest plan a
-    straight chain THROUGH the gray -- a free link, head-on knocks
-    everywhere. At the true mass the chain dies against the gray, and
-    the real solution is a half-circle swerve around it (the
+    Natural alignment: start and target sit on one line, and the GRAY
+    block stands a small sampled offset OFF that line
+    (``_HEAVY_GRAY_LATERAL_OFFSETS``), all facing along it. The believed
+    physics (normal gray mass, see the env init / ``heavy_block_mass``
+    override) makes the cheapest plan a shallow dogleg THROUGH the gray
+    -- a free link. At the true mass the chain dies against the gray,
+    and the real solution is a half-circle swerve around it (the
     ``swerve_k_star`` family: aligned at both ends, bulging sideways to
-    clear the block).
+    clear the block - gentler on the side the gray leans away from).
 
     Certificate (lure probes at the canonical anchor, memoized):
     1. believed straight-through exists (k_bel blues);
@@ -871,18 +882,24 @@ def _make_heavy_straight_task(
         return None
     span = round(float(rng.uniform(*_HEAVY_SPAN_BAND)), 2)
     h_frac = float(rng.choice(_HEAVY_GRAY_FRACTIONS))
+    h_off = float(rng.choice(_HEAVY_GRAY_LATERAL_OFFSETS)) * float(
+        rng.choice([-1.0, 1.0]))
     num_blues = min(CFG.domino_min_block_num_blues, len(comp.dominos) - 3)
     ax, ay = _PROBE_ANCHOR
+    # Canonical line runs along +x (start yaw pi/2), so the gray's
+    # small lateral offset is along +-y; it keeps facing the line.
     c_start = (ax, ay, np.pi / 2)
-    c_heavy = (ax + h_frac * span, ay, np.pi / 2)
+    c_heavy = (ax + h_frac * span, ay + h_off, np.pi / 2)
     c_target = (ax + span, ay, np.pi / 2)
-    # 1) The believed straight-through must exist (the lure).
+    # 1) The believed straight-through must exist (the lure): with the
+    # off-line gray this is a shallow dogleg bending through it.
     with _believed_physics(env, believed_heavy_mass=True):
         k_bel = heavy_dogleg_k_star(env, c_start, c_target, c_heavy, num_blues)
     if k_bel is None:
         logging.warning(
             "Dropping heavy straight task (no believed straight-through "
-            "within %d blues, span %.2f).", num_blues, span)
+            "within %d blues, span %.2f, gray offset %.2f).", num_blues, span,
+            h_off)
         return None
     # 2) The true straight-through must be dead AT THE BELIEVED COST: a
     # block-minimizing planner only builds believed-cheapest (k_bel)
@@ -906,7 +923,8 @@ def _make_heavy_straight_task(
     if k_star_c is None or k_bel >= k_star_c:
         logging.warning(
             "Dropping heavy straight task (swerve K*=%s vs believed "
-            "k=%d, span %.2f).", k_star_c, k_bel, span)
+            "k=%d, span %.2f, gray offset %.2f).", k_star_c, k_bel, span,
+            h_off)
         return None
     # Place the certified shape; retry poses on placement-local failures.
     staged = None
@@ -919,7 +937,10 @@ def _make_heavy_straight_task(
             sx = float(rng.uniform(env.x_lb + span + 0.03, comp.domino_x_ub))
         sy = float(rng.uniform(comp.domino_y_lb, comp.domino_y_ub))
         u_vec = np.array([np.sin(syaw), np.cos(syaw)])
-        h_pt = np.array([sx, sy]) + h_frac * span * u_vec
+        # Same perpendicular convention as the canonical frame: for the
+        # canonical u = (1, 0) this perp is (0, 1), i.e. +y = +h_off.
+        perp_vec = np.array([-u_vec[1], u_vec[0]])
+        h_pt = np.array([sx, sy]) + h_frac * span * u_vec + h_off * perp_vec
         t_pt = np.array([sx, sy]) + span * u_vec
         # The swerve needs sideways room on at least one side.
         if not all(env.x_lb < pt[0] < env.x_ub and env.y_lb +
@@ -1088,16 +1109,18 @@ def _make_heavy_turn_task(
 
     Certificate: believed corner blueprint exists with a mid-chain
     corner; the gray-substituted lure still propagates believedly and
-    dies at the true physics; the true detour K* fits the staged blues.
-    K* certifies SOLVABILITY only; the reward budget is the staged
-    blues (see ``_finish_min_block_task``).
+    dies at the true physics; the true detour K* fits the staged blues
+    with at least one blue of SLACK (legs sampled from the shortened
+    ``_HEAVY_TURN_*`` bands so this certifies often). K* certifies
+    SOLVABILITY only; the reward budget is the staged blues (see
+    ``_finish_min_block_task``).
     """
     # pylint: disable=protected-access
     comp = env._domino_component
     if comp is None:
         return None
-    entry = round(float(rng.uniform(*_DEFAULT_TURN_ENTRY_BAND)), 2)
-    exit_leg = round(float(rng.uniform(*_DEFAULT_TURN_EXIT_BAND)), 2)
+    entry = round(float(rng.uniform(*_HEAVY_TURN_ENTRY_BAND)), 2)
+    exit_leg = round(float(rng.uniform(*_HEAVY_TURN_EXIT_BAND)), 2)
     side = float(rng.choice([-1.0, 1.0]))
     num_blues = min(CFG.domino_min_block_num_blues, len(comp.dominos) - 3)
     bp = _believed_corner_blueprint(env, comp, entry, exit_leg, side,
@@ -1210,10 +1233,16 @@ def _make_heavy_turn_task(
         # TWO independent toppling layouts: a task whose only solution
         # is one knife-edge layout can flip under a fresh simulator's
         # contact-solver history and become unsolvable at execution.
+        # The detour must also leave at least ONE blue of slack under
+        # the staged budget (scan capped at num_blues - 1, so the
+        # exact-budget layer is never even probed): an exact-budget
+        # task forces the solver onto a single knife-edge layout
+        # family (2026-07-25 figure: a 4-of-4-blue detour at friction
+        # 0.5 admits zero margin).
         k_true = compute_turn_k_star(env,
                                      start_pose,
                                      target_pose,
-                                     budget=num_blues,
+                                     budget=num_blues - 1,
                                      extra=gray_scene,
                                      min_hits=2)
         if k_true is None or k_true < 1:
