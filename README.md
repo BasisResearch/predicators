@@ -41,8 +41,7 @@ predicators carries as the git submodule `third_party/BabyRobotPredicator`. It i
 **private** repository and is deliberately **not** in `install_requires`, so:
 
 * Everything except real-robot execution works without it. The submodule simply does
-  not clone if you lack access, `pip install -e .` still succeeds, and the test suite
-  is green — only the tests that need it skip.
+  not clone if you lack access.
 * With access, check it out and install it from the submodule path:
 
   ```bash
@@ -50,12 +49,9 @@ predicators carries as the git submodule `third_party/BabyRobotPredicator`. It i
   pip install -e third_party/BabyRobotPredicator
   ```
 
-Predicators then drives the arm **in-process**: it constructs babyrobot's `RealRobot`
-and calls it like any Python object, in the same interpreter — there is no server to
-launch and no address to configure. Set `--real_robot_execute True` to execute (and
-`--real_robot_dry True` to run the whole path with no arm attached). Asking for
-real-robot execution without the submodule raises one error naming it and the two
-commands above.
+Predicators then drives the arm in-process: it constructs babyrobot's `RealRobot`
+and calls it like any Python object, in the same interpreter. Set `--real_robot_execute True`
+to execute (and `--real_robot_dry True` to run the whole path with no arm).
 
 ## Instructions For Running Code
 

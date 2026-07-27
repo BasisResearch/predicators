@@ -549,13 +549,11 @@ class GlobalSettings:
     # --- real robot (any env driving a real arm; see
     # pybullet_helpers.real_robot_bridge) ------------------------------------
     # When True, a real-robot env's TEST-mode rollout is executed on the arm;
-    # default False = safe dry-run (pure sim, no motion). The arm is driven
-    # in-process through babyrobot's RealRobot, so there is no server address
-    # to configure -- see third_party/BabyRobotPredicator.
+    # default False = safe dry-run (pure sim, no motion).
     real_robot_execute = False
     # Construct the RealRobot without an arm: every method still runs (and the
-    # gripper state is still tracked) but nothing moves. Lets the whole real
-    # path be exercised at a desk. Only consulted when real_robot_execute.
+    # gripper state is still tracked) but nothing moves. Only consulted when
+    # real_robot_execute.
     real_robot_dry = False
     # Perception source handed to the RealRobot: "none" (no cameras, which is
     # all open-loop execution needs -- it never looks at the scene) or
