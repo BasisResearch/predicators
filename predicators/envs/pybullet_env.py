@@ -51,6 +51,8 @@ from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
 from predicators.pybullet_helpers.joint import JointPositions
 from predicators.pybullet_helpers.link import get_link_state
 from predicators.pybullet_helpers.objects import update_object
+from predicators.pybullet_helpers.real_robot_bridge import \
+    GripperJointLayout, gripper_joint_layout_from_robot
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot, \
     create_single_arm_pybullet_robot, get_robot_home_ee_position
 from predicators.settings import CFG
@@ -705,6 +707,52 @@ class PyBulletEnv(BaseEnv):
         """
 
     # ── State Write (State → PyBullet) ──────────────────────────
+
+    def sync_to_state(self, state: State) -> None:
+        """Overwrite this env's PyBullet world from ``state``, leaving no stale
+        momentum behind.
+
+        ``_set_state`` alone is not enough to adopt a state that came
+        from *outside* this simulation (a perceived pose, say). It writes
+        body poses through ``update_object``, which calls
+        ``resetBasePositionAndOrientation`` and does **not** touch
+        velocities, so every body keeps whatever momentum the previous
+        rollout gave it and starts drifting on the next
+        ``stepSimulation``. This zeroes those velocities explicitly, the
+        same way the domino component already does after it places
+        blocks.
+
+        Written here rather than on a subclass because it is simulator
+        knowledge, not domain knowledge: any future real-world
+        environment correcting a PyBullet twin from perception needs
+        exactly this.
+
+        Robot joints need no equivalent: ``_set_state`` routes them
+        through ``SingleArmPyBulletRobot.set_joints``, which already
+        resets each joint with ``targetVelocity=0``.
+        """
+        self._set_state(state)
+        self._zero_object_velocities()
+
+    def _zero_object_velocities(self) -> None:
+        """Zero the linear and angular velocity of every body in the state."""
+        for obj in self._objects:
+            obj_id = getattr(obj, "id", None)
+            if obj_id is None:  # virtual object with no PyBullet body
+                continue
+            p.resetBaseVelocity(obj_id, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0],
+                                physicsClientId=self._physics_client_id)
+
+    def gripper_joint_layout(self) -> GripperJointLayout:
+        """Where the finger joints sit in an action array, and what open /
+        closed finger values look like.
+
+        Splitting a buffered trajectory into move / gripper segments
+        needs exactly these four numbers, and they are a property of the
+        simulated robot rather than of any domain — so this lives here
+        and every PyBullet-backed real environment gets it for free.
+        """
+        return gripper_joint_layout_from_robot(self._pybullet_robot)
 
     def _set_state(self, state: State) -> None:
         """State -> PyBullet: write the requested State into the simulator.
