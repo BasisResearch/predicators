@@ -70,12 +70,23 @@ def _domino_code_digest() -> str:
 # scripts/domino_debug/probe_min_block_bands.py when the friction pair moves).
 _DEFAULT_TURN_ENTRY_BAND = (0.26, 0.34)
 _DEFAULT_TURN_EXIT_BAND = (0.18, 0.26)
-# Heavy turn variant: shorter legs than the plain-turn defaults, so the
-# skip-around detour fits in num_blues - 1 (one blue of slack); the
-# maker additionally REQUIRES that slack, so the bands only control how
-# often a sample certifies, not the shipped difficulty.
-_HEAVY_TURN_ENTRY_BAND = (0.22, 0.28)
-_HEAVY_TURN_EXIT_BAND = (0.16, 0.22)
+# Heavy turn variant: legs from the 2026-07-25 canonical-anchor design
+# grid, where the whole certificate chain holds together: the believed
+# corner blueprint exists at k_full=3 (entry blue + corner + exit blue,
+# so the gray-corner lure costs k_bel=2), the lure propagates believedly
+# and dies truly, AND the noise-robust skip-around detour costs k=3 -
+# STRICTLY dearer than the lure. Strictness matters: a noise-robust
+# gray-free detour at the lure's own cost would let a block-minimizing
+# believed planner tie-break AWAY from the gray and solve with no
+# learning (the maker enforces this with the k_true <= k_bel drop; the
+# bands only control how often a sample certifies). Shorter chords
+# admit robust 2-blue detours (tie), longer ones lose the blueprint,
+# and exits past ~0.20 make the believed LURE itself knife-edge (the
+# gray's believed fall barely relays the long exit) - every grid edge
+# fails some certificate leg, so keep the bands inside the verified
+# window.
+_HEAVY_TURN_ENTRY_BAND = (0.26, 0.29)
+_HEAVY_TURN_EXIT_BAND = (0.17, 0.20)
 # Heavy straight variant: start->target span, the gray block's fraction
 # along that span, and its small signed perpendicular offset OFF the
 # line (sign sampled). An off-line gray still lures the believed
@@ -1109,11 +1120,12 @@ def _make_heavy_turn_task(
 
     Certificate: believed corner blueprint exists with a mid-chain
     corner; the gray-substituted lure still propagates believedly and
-    dies at the true physics; the true detour K* fits the staged blues
-    with at least one blue of SLACK (legs sampled from the shortened
-    ``_HEAVY_TURN_*`` bands so this certifies often). K* certifies
-    SOLVABILITY only; the reward budget is the staged blues (see
-    ``_finish_min_block_task``).
+    dies at the true physics; the true detour K* (noise-robust, see
+    ``heavy_detour_k_star_robust``) fits the staged blues with at least
+    one blue of SLACK and is STRICTLY dearer than the lure (legs
+    sampled from the short ``_HEAVY_TURN_*`` bands so both certify
+    often). K* certifies SOLVABILITY only; the reward budget is the
+    staged blues (see ``_finish_min_block_task``).
     """
     # pylint: disable=protected-access
     comp = env._domino_component
@@ -1192,11 +1204,17 @@ def _make_heavy_turn_task(
                                     target_pose, heavy_pose)
         if staged is None:
             continue
-        # Re-verify the LURE at THIS pose (2 rollouts): the anchor
-        # checks above are cheap pre-filters, but pose transfer is only
-        # approximately physics-preserving and knife-edge corners can
-        # flip under it - a task whose real-pose lure fails believedly
-        # would not lure the baseline at all.
+        # Re-verify the LURE at THIS pose: the anchor checks above are
+        # cheap pre-filters, but pose transfer is only approximately
+        # physics-preserving and knife-edge corners can flip under it -
+        # a task whose real-pose lure fails believedly would not lure
+        # the baseline at all. The lure must also be believedly
+        # NOISE-ROBUST (its blues survive the same placement scatter the
+        # detour certificate demands): a knife-edge lure fails the
+        # believed baseline's own flaky-plan validation, and a
+        # block-minimizing believed planner would then walk off the
+        # gray onto the (dearer but robust) detour and solve with no
+        # learning.
         lure_real = {}
         for lure_obj, lure_p in lure_od.items():
             rx, ry, ryaw = _to_real_pose(lure_p["x"], lure_p["y"],
@@ -1210,9 +1228,12 @@ def _make_heavy_turn_task(
                 is_target_block=lure_obj is target,
                 is_heavy_block=lure_obj is heavy_obj)
 
+        pose_seed = int(round(sx * 1e3)) * 7919 + int(round(sy * 1e3))
         with _believed_physics(env, believed_heavy_mass=True):
             ok_real = mbu._layout_topples(env, lure_real, start, target,
-                                          push_opt)
+                                          push_opt) \
+                and mbu._layout_noise_robust(env, comp, lure_real, push_opt,
+                                             pose_seed)
         if not ok_real:
             staged = None
             continue
@@ -1220,32 +1241,33 @@ def _make_heavy_turn_task(
             # Jump-over leak at this pose (true physics).
             staged = None
             continue
-        gray_scene = {
-            heavy_obj:
-            comp.place_domino(0,
-                              heavy_pose[0],
-                              heavy_pose[1],
-                              heavy_pose[2],
-                              is_heavy_block=True)
-        }
         # The detour must exist at THIS pose (skip around the gray with
         # an own corner; doubles as the push-reachability check) - with
-        # TWO independent toppling layouts: a task whose only solution
-        # is one knife-edge layout can flip under a fresh simulator's
-        # contact-solver history and become unsolvable at execution.
-        # The detour must also leave at least ONE blue of slack under
-        # the staged budget (scan capped at num_blues - 1, so the
-        # exact-budget layer is never even probed): an exact-budget
-        # task forces the solver onto a single knife-edge layout
-        # family (2026-07-25 figure: a 4-of-4-blue detour at friction
-        # 0.5 admits zero margin).
-        k_true = compute_turn_k_star(env,
-                                     start_pose,
-                                     target_pose,
-                                     budget=num_blues - 1,
-                                     extra=gray_scene,
-                                     min_hits=2)
+        # TWO independent toppling layouts that also SURVIVE placement
+        # noise: nominal-only certification accepts knife-edge layouts
+        # that flip under a fresh simulator's contact-solver history
+        # (the task becomes unreproducible) and that the real Place
+        # skill's ~1-2 cm settle scatter cannot build (2026-07-25 runs:
+        # 0/3 turn seeds solved). The detour must also leave at least
+        # ONE blue of slack under the staged budget (scan capped at
+        # num_blues - 1, so the exact-budget layer is never even
+        # probed): an exact-budget task forces the solver onto a single
+        # knife-edge layout family.
+        k_true = mbu.heavy_detour_k_star_robust(env,
+                                                start_pose,
+                                                target_pose,
+                                                heavy_pose,
+                                                budget=num_blues - 1,
+                                                min_hits=2)
         if k_true is None or k_true < 1:
+            staged = None
+            continue
+        # The robust detour must be STRICTLY dearer than the believed
+        # gray-corner lure: at a tie, a block-minimizing believed
+        # planner may tie-break away from the gray onto the (robust,
+        # gray-free, physics-mismatch-immune) detour and solve with no
+        # learning at all - the task would stop differentiating.
+        if k_true <= k_bel:
             staged = None
             continue
         break
