@@ -257,6 +257,7 @@ ENVS:
       # --- heavy-block / system-ID experiment ---
       domino_heavy_block_tasks: True
       domino_min_block_num_blues: 4
+      domino_test_turn_ratio: 1.0
   # coffee:
   #   NAME: "pybullet_coffee"
   #   FLAGS:
