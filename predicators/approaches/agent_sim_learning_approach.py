@@ -1508,7 +1508,14 @@ data with `run_python` (variables: `trajectories`, `train_tasks`, \
 digest, `np`, `ParamSpec`, plus `evaluate_trajectory` when a \
 task objective is stated above). Write your simulator to \
 `{simulator_file_for_agent}` - define PROCESS_RULES, PARAM_SPECS, \
-and PROCESS_FEATURES there. Every successful Write/Edit of \
+and PROCESS_FEATURES there. Begin the file with a short DECISION \
+RECORD comment stating your key modeling choices and the evidence \
+behind them: which dynamics the base sim carries vs. your process \
+rules, which features the rules own, any latent structure, and any \
+other structural commitments (e.g. whether base-sim parameters are \
+declared for identification, when the environment discloses them). \
+Later cycles read this record before deciding what to keep. Every \
+successful Write/Edit of \
 `{simulator_file_for_agent}` is snapshotted to `simulator_versions/` as \
 `cycle_XXX_vers_YYY_simulator.py` (deduped by content); `sim.fit` and \
 `sim.residuals` \
@@ -2603,7 +2610,15 @@ Prior cycle state: {joined} already exist in the sandbox from a previous \
 learning cycle. Read them first - they are the previous cycle's committed \
 result and a reasonable starting point for incremental refinement (though \
 a fresh rewrite is fine if the prior approach looks fundamentally wrong). \
-Earlier versions are in `./simulator_versions/` and \
+Structural decisions are NOT binding across cycles: re-read the decision \
+record at the top of `simulator.py` and re-decide the architecture itself \
+- what the base sim carries vs. what the rules model, which features the \
+rules own, the latent structure, and whether disclosed base-sim \
+parameters should be identified - rather than only tuning what exists. \
+In particular, if the trajectory roster shows goal-reaching episodes \
+scored solved=0, suspect a structural modeling error (e.g. mis-calibrated \
+base physics, which no rule change can fix downstream), not just \
+parameter values. Earlier versions are in `./simulator_versions/` and \
 `./predicates_versions/` (named `cycle_XXX_vers_YYY_*.py`); \
 cross-reference the trajectory roster's provenance tags against those \
 files to see exactly which rules and predicates produced each failed plan.
@@ -2927,8 +2942,8 @@ files to see exactly which rules and predicates produced each failed plan.
             return ""
         lines = [
             "",
-            "## Optional: base-sim system identification "
-            "(`PHYSICAL_PARAMS`)",
+            "## Base-sim system identification "
+            "(`PHYSICAL_PARAMS`) - decide, don't default",
             "",
             "The base sim's rigid-body physics is itself parameterized, "
             "and its built-in values may be MIS-CALIBRATED (the real "
@@ -2955,6 +2970,11 @@ files to see exactly which rules and predicates produced each failed plan.
             "",
             "Guidance:",
             "",
+            "- **Undeclared parameters keep their built-in values in "
+            "every base-sim rollout** - including checks that "
+            "re-simulate the scene in the base sim WITHOUT your rules "
+            "(e.g. an evaluator's verification replay deciding what "
+            "counts as a SOLVE).",
             "- **Start with ONE parameter** - the single one with a "
             "physical story for the observed residual (e.g. cascades "
             "stopping short of the sim's prediction implicates sliding "
