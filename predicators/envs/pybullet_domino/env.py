@@ -127,7 +127,7 @@ class DominoEvaluator(TaskEvaluator):
         return ("Success (+1 reward) = the target domino topples via a "
                 "legitimate cascade seeded by pushing the green start block. "
                 "Only the blue dominoes may be rearranged: the green start "
-                "block, the targets, and any heavy blocks must stay "
+                "block, the targets, and any gray blocks must stay "
                 "untouched at their staged poses, upright and never held, "
                 "until the green is pushed, and nothing may topple before "
                 "that push. Only the green block may ever be pushed, so the "
@@ -278,7 +278,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                 and self._domino_component is not None \
                 and self._skip_domain_specific_dynamics \
                 and not CFG.agent_sim_learn_oracle_sim_params:
-            self.set_domino_physical_params(heavy_block_mass=self.domino_mass)
+            self.set_domino_physical_params(block_mass=self.domino_mass)
         # Snapshot the believed baseline AFTER the role adjustments above:
         # ``get_physical_param_info`` reports these values as the defaults,
         # and the sysID revert path restores dropped params to them (the
@@ -489,7 +489,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         # which is how run_20260706_171526 fit friction 0.0114 for a
         # true 0.1. Params whose lo is 0 (restitution,
         # rolling_friction) stay linear.
-        return {
+        info: Dict[str, Dict[str, Any]] = {
             "lateral_friction": {
                 "default":
                 lateral_friction,
@@ -559,6 +559,43 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                 "lateral friction value at body creation.",
             },
         }
+        # Gray ``block``-typed bodies form their own parameter class:
+        # the ``block_*`` family applies to them only (and beats the
+        # global param for those bodies). Descriptions are deliberately
+        # neutral - whether blocks differ physically from dominoes is
+        # for the fit to establish, not the registry to reveal.
+        if comp.blocks:
+            info["block_mass"] = {
+                "default":
+                baseline.get("block_mass", comp.domino_mass),
+                "lo":
+                0.005,
+                "hi":
+                2000.0,
+                "scale":
+                "log",
+                "description":
+                "Mass in kg of each block (the gray block type); applies "
+                "to block bodies only, independently of the dominoes' "
+                "``mass``.",
+            }
+            info["block_lateral_friction"] = {
+                "default":
+                baseline.get(
+                    "block_lateral_friction",
+                    baseline.get("lateral_friction", comp.domino_friction)),
+                "lo":
+                0.01,
+                "hi":
+                2.0,
+                "scale":
+                "log",
+                "description":
+                "Lateral (sliding) friction of each block (the gray "
+                "block type) against the table and other bodies; applies "
+                "to block bodies only.",
+            }
+        return info
 
     def apply_physical_param_overrides(self, params: Dict[str, float]) -> None:
         """Sticky in-place dynamics override (delegates to the domino

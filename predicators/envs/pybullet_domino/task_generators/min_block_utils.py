@@ -729,7 +729,7 @@ def heavy_dogleg_k_star(env: Any,
     (first exit gap swept over ``_DOGLEG_EXIT_GAPS``, the rest evenly to
     the target). ALL splits are tried, so the result is the best cost a
     planner could commit to within this natural family. Probed at
-    whatever friction / ``heavy_block_mass`` the env currently has, so
+    whatever friction / ``block_mass`` the env currently has, so
     callers flip between the believed physics (normal mass - the chain
     runs through) and the true physics (untopple-able - the chain dies
     at the gray).

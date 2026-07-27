@@ -94,7 +94,7 @@ class DominoComponent(DominoEnvComponent):
     glued_percentage: ClassVar[float] = 0.5
     # Heavy (immovable-obstacle) blocks: domino-shaped, gray. Their TRUE
     # mass makes them untopple-able/unmovable; planning sims can believe a
-    # different (normal) mass via the ``heavy_block_mass`` physical-param
+    # different (normal) mass via the ``block_mass`` physical-param
     # override, which is what the heavy-block tasks exploit.
     heavy_block_color: ClassVar[Tuple[float, float, float,
                                       float]] = (0.35, 0.35, 0.35, 1.0)
@@ -223,6 +223,19 @@ class DominoComponent(DominoEnvComponent):
             ["x", "y", "z", "yaw", "roll", "r", "g", "b", "is_held"],
             angular_features=["yaw", "roll"],
         )
+        # Separate agent-facing class for the gray blocks of heavy-block
+        # tasks: same feature layout as a domino (so the shared body pool
+        # and state assembly stay uniform), but a distinct type, so typed
+        # options (Pick/Place/Push take dominoes) structurally exclude
+        # them and the physical-param registry can expose a per-class
+        # ``block_*`` parameter family. The name is deliberately neutral
+        # ("block", not "heavy"): whether these bodies differ physically
+        # from dominoes is exactly what a learning agent must discover.
+        self._block_type = Type(
+            "block",
+            ["x", "y", "z", "yaw", "roll", "r", "g", "b", "is_held"],
+            angular_features=["yaw", "roll"],
+        )
         self._target_type = Type("target", ["x", "y", "z", "yaw"],
                                  sim_features=["id", "joint_id"],
                                  angular_features=["yaw"])
@@ -243,6 +256,15 @@ class DominoComponent(DominoEnvComponent):
         for i in range(num_dominos):
             obj = Object(f"domino_{i}", self._domino_type)
             self.dominos.append(obj)
+        # Heavy-block mode: the LAST slot of the shared body pool is the
+        # gray block, minted as its own ``block``-typed object (the body
+        # and all slot-indexed machinery are unchanged; only the object
+        # identity differs).
+        self.blocks: List[Object] = []
+        if CFG.domino_heavy_block_tasks and num_dominos > 0:
+            block_obj = Object("block_0", self._block_type)
+            self.dominos[-1] = block_obj
+            self.blocks.append(block_obj)
 
         self.targets: List[Object] = []
         for i in range(num_targets):
@@ -313,6 +335,8 @@ class DominoComponent(DominoEnvComponent):
 
     def get_types(self) -> Set[Type]:
         types = {self._domino_type}
+        if self.blocks:
+            types.add(self._block_type)
         if self.targets:
             types.add(self._target_type)
         if self.pivots:
@@ -415,7 +439,7 @@ class DominoComponent(DominoEnvComponent):
 
     _PHYSICAL_PARAM_KEYS = frozenset({
         "mass", "lateral_friction", "restitution", "rolling_friction",
-        "spinning_friction", "heavy_block_mass"
+        "spinning_friction", "block_mass", "block_lateral_friction"
     })
 
     # Map override keys -> p.changeDynamics kwarg names. ``mass`` is handled
@@ -432,11 +456,13 @@ class DominoComponent(DominoEnvComponent):
 
         Accepts any of ``mass``, ``lateral_friction`` (PyBullet's
         ``lateralFriction``, i.e. sliding friction), ``restitution``,
-        ``rolling_friction``, ``spinning_friction``, ``heavy_block_mass``
-        (pass ``None`` to leave a param at its current value).
-        ``heavy_block_mass`` applies only to heavy (gray) blocks — it is a
-        planning sim's BELIEF about them (the true value is
-        ``heavy_block_true_mass``, asserted at every reset). Applies
+        ``rolling_friction``, ``spinning_friction``, ``block_mass``,
+        ``block_lateral_friction`` (pass ``None`` to leave a param at its
+        current value). The ``block_*`` variants apply only to the gray
+        ``block``-typed bodies (and beat the global param for those
+        bodies); ``block_mass`` is a planning sim's BELIEF about them
+        (the true value is ``heavy_block_true_mass``, asserted at every
+        reset). Applies
         ``p.changeDynamics`` to every
         domino body in *this* component's physics client, so one env
         instance's physics can diverge from another's without disturbing the
@@ -486,12 +512,16 @@ class DominoComponent(DominoEnvComponent):
             if "mass" in override and domino.id not in self.fixed_domino_ids \
                     and domino.id not in self.heavy_domino_ids:
                 kwargs["mass"] = override["mass"]
-            # ``heavy_block_mass`` overrides gray blocks only — a planning
-            # sim believing heavy blocks are ordinary dominoes sets this to
-            # the normal domino mass.
-            if "heavy_block_mass" in override \
+            # ``block_*`` params override gray blocks only — a planning
+            # sim believing gray blocks are ordinary dominoes sets
+            # ``block_mass`` to the normal domino mass. A block-specific
+            # value beats the global one for the same body.
+            if "block_mass" in override \
                     and domino.id in self.heavy_domino_ids:
-                kwargs["mass"] = override["heavy_block_mass"]
+                kwargs["mass"] = override["block_mass"]
+            if "block_lateral_friction" in override \
+                    and domino.id in self.heavy_domino_ids:
+                kwargs["lateralFriction"] = override["block_lateral_friction"]
             if kwargs:
                 p.changeDynamics(domino.id,
                                  -1,
@@ -501,7 +531,10 @@ class DominoComponent(DominoEnvComponent):
     def reset_state(self, state: State) -> None:
         """Reset dominoes, targets, and pivots to match state."""
         assert self._physics_client_id is not None
-        domino_objs = state.get_objects(self._domino_type)
+        # Gray blocks share the domino body pool but carry their own
+        # type, so every pool sweep must cover both.
+        domino_objs = (state.get_objects(self._domino_type) +
+                       state.get_objects(self._block_type))
 
         # Remove old constraints
         for constraint in self.block_constraints:
@@ -877,6 +910,11 @@ class DominoComponent(DominoEnvComponent):
     def domino_type(self) -> Type:
         """Domino type."""
         return self._domino_type
+
+    @property
+    def block_type(self) -> Type:
+        """Block type (the gray blocks of heavy-block tasks)."""
+        return self._block_type
 
     @property
     def target_type(self) -> Type:
