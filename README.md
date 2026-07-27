@@ -33,6 +33,30 @@ Predicators ships **RoboDisco** (Robot Model Discovery Benchmark), a collection 
 * This repository uses Python versions 3.10-3.11. We recommend 3.10.14.
 * Run `pip install -e .` to install dependencies.
 
+### Optional: real-robot execution (BabyRobotPredicator)
+
+Driving a real Franka arm additionally needs
+[BabyRobotPredicator](https://github.com/BasisResearch/BabyRobotPredicator), which
+predicators carries as the git submodule `third_party/BabyRobotPredicator`. It is a
+**private** repository and is deliberately **not** in `install_requires`, so:
+
+* Everything except real-robot execution works without it. The submodule simply does
+  not clone if you lack access, `pip install -e .` still succeeds, and the test suite
+  is green — only the tests that need it skip.
+* With access, check it out and install it from the submodule path:
+
+  ```bash
+  git submodule update --init third_party/BabyRobotPredicator
+  pip install -e third_party/BabyRobotPredicator
+  ```
+
+Predicators then drives the arm **in-process**: it constructs babyrobot's `RealRobot`
+and calls it like any Python object, in the same interpreter — there is no server to
+launch and no address to configure. Set `--real_robot_execute True` to execute (and
+`--real_robot_dry True` to run the whole path with no arm attached). Asking for
+real-robot execution without the submodule raises one error naming it and the two
+commands above.
+
 ## Instructions For Running Code
 
 ### `PYTHONHASHSEED`

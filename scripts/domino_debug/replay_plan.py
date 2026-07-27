@@ -107,8 +107,8 @@ def main() -> None:
     for g in plan:
         print("   ", g.simple_str())
     print(f"# EXECUTE_REAL = {CFG.real_robot_execute}  "
-          f"(bridge {CFG.real_robot_bridge_host}:{CFG.real_robot_bridge_port})"
-          if CFG.real_robot_execute else "# DRY-RUN (pure sim, no motion)")
+          f"(in-process RealRobot, dry={CFG.real_robot_dry})" if CFG.
+          real_robot_execute else "# DRY-RUN (pure sim, no motion)")
 
     policy = utils.option_plan_to_policy(
         plan, abstract_function=lambda s: utils.abstract(s, env.predicates))

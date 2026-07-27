@@ -18,8 +18,8 @@ from predicators.envs.pybullet_domino.real_geometry import Pose6D, \
     domino_upright_yaw, domino_world_z_offset, pose_base_to_world
 from predicators.pybullet_helpers.objects import create_object, \
     create_pybullet_block
-from predicators.pybullet_helpers.real_robot_bridge import \
-    RealRobotBridgeClient
+from predicators.pybullet_helpers.real_robot_bridge import execute_actions, \
+    gripper_joint_layout_from_robot, make_real_robot, reset_arm
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, \
     Observation
@@ -35,7 +35,9 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
         # scene order, so slot i <-> capture id self._scene_ids[i].
         self._real_mode = False
         self._action_buffer: List[Action] = []
-        self._bridge: Optional[RealRobotBridgeClient] = None
+        # babyrobot's RealRobot, constructed lazily on the first real reset so
+        # the env imports (and runs in sim) without the private submodule.
+        self._real_robot: Optional[Any] = None
         with open(CFG.domino_real_scene, encoding="utf-8") as f:
             self._scene_ids = [int(d["id"]) for d in json.load(f)["dominoes"]]
         super().__init__(use_gui=use_gui, **kwargs)
@@ -50,19 +52,22 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
     # boundary, the buffered joint trajectory is executed on the Franka (when
     # real_robot_execute). The env state stays the sim's prediction -- no
     # option-boundary re-perception yet. Dry-run == pure sim.
+    #
+    # The arm is driven in-process: babyrobot's RealRobot is an ordinary Python
+    # object this env holds and calls. It is built on the first real reset, so
+    # the private submodule is only needed by a run that actually executes.
     def reset(self,
               train_or_test: str,
               task_idx: int,
               render: bool = False) -> Observation:
         self._real_mode = (train_or_test == "test")
         self._action_buffer = []
-        if self._real_mode and CFG.real_robot_execute and \
-                self._bridge is None:
-            self._bridge = RealRobotBridgeClient(CFG.real_robot_bridge_host,
-                                                 CFG.real_robot_bridge_port)
+        real = self._real_mode and CFG.real_robot_execute
+        if real and self._real_robot is None:
+            self._real_robot = make_real_robot()
         obs = super().reset(train_or_test, task_idx, render=render)
-        if self._real_mode and CFG.real_robot_execute:
-            assert self._bridge is not None
+        if real:
+            assert self._real_robot is not None
             # Home the real arm to the env-home joint config the option
             # trajectories are planned from, so the first option's streamed
             # waypoints start where the robot is (else the drift guard trips).
@@ -72,7 +77,7 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
                 float(v) for i, v in enumerate(pyb.get_joints())
                 if i not in fingers
             ]
-            self._bridge.go_home(home_arm)
+            reset_arm(self._real_robot, home_arm)
         return obs
 
     def step(self, action: Action, render_obs: bool = False) -> Observation:
@@ -106,11 +111,17 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
         ``close``, i.e. a SECOND force-grasp on the already-clamped
         domino. That leaves the Franka Hand stuck and the later release
         is dropped.
+
+        RealRobot now drops a gripper command that repeats the session's
+        current state, so the second force-grasp cannot reach the hand
+        even if a chunk does re-emit it. This env still ships whole
+        episodes; per-option chunking is the wrapper's job.
         """
         actions, self._action_buffer = self._action_buffer, []
         if actions and CFG.real_robot_execute:
-            assert self._bridge is not None
-            self._bridge.execute_actions(actions, self._pybullet_robot)
+            assert self._real_robot is not None
+            layout = gripper_joint_layout_from_robot(self._pybullet_robot)
+            execute_actions(self._real_robot, actions, layout)
 
     # -- geometry + pybullet build + decoration -----------------------------
     @classmethod

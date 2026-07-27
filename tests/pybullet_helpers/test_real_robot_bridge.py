@@ -1,0 +1,313 @@
+"""Unit tests for predicators.pybullet_helpers.real_robot_bridge.
+
+Two halves, deliberately split by what they need:
+
+* The optionality tests (this module imports with babyrobot absent, and the
+  factory raises one clear error naming the submodule only when called) must
+  run **everywhere**, including on CI, where the private submodule is not
+  checked out. They must never skip -- they exist to catch exactly the
+  regression that would break a submodule-less checkout.
+* The segment tests construct ``babyrobot.realrobot.messages.Segment``, which is
+  the shared contract type, so they ``importorskip("babyrobot")``.
+"""
+# Deferred imports are the subject of this file, not an oversight: babyrobot is
+# absent on CI, and the helpers under test must be reachable without it.
+# pylint: disable=import-outside-toplevel,import-error
+import ast
+import builtins
+import sys
+
+import numpy as np
+import pytest
+from gym.spaces import Box
+
+from predicators import utils
+from predicators.pybullet_helpers.real_robot_bridge import \
+    GripperJointLayout, MissingBabyRobotError, _make_perception, \
+    _split_actions, make_real_robot, split_actions_by_option
+from predicators.structs import Action, ParameterizedOption
+
+# The Franka layout: 7 arm joints then the 2 finger joints. The waypoint width
+# is not cosmetic -- babyrobot's Segment rejects anything but 7 joints.
+_N_ARM = 7
+_LAYOUT = GripperJointLayout(left_finger_joint_idx=7,
+                             right_finger_joint_idx=8,
+                             open_fingers=0.04,
+                             closed_fingers=0.0)
+
+
+def _action(arm_value, fingers):
+    """A joint-target action: 7 identical arm joints plus both finger joints.
+
+    One value per action keeps the expected waypoints readable.
+    """
+    arm = [arm_value] * _N_ARM
+    return Action(np.array([*arm, fingers, fingers], dtype=np.float32))
+
+
+def _make_option(name):
+    """A grounded option, so actions can carry an option boundary."""
+    params_space = Box(0, 1, (1, ))
+    param_opt = ParameterizedOption(name, [], params_space,
+                                    lambda s, m, o, p: Action(p),
+                                    lambda s, m, o, p: True,
+                                    lambda s, m, o, p: False)
+    return param_opt.ground([], [0.5])
+
+
+# -- optionality: these must run with or without the submodule ---------------
+
+
+def test_no_module_level_babyrobot_import():
+    """babyrobot is imported only inside function bodies, so this module -- and
+    everything that imports it, up to `predicators.envs` -- loads on a checkout
+    that cannot clone the private submodule.
+
+    Checked on the parse tree rather than by reloading, so it holds
+    whether or not babyrobot happens to be installed here.
+    """
+    from predicators.pybullet_helpers import real_robot_bridge as mod
+    with open(mod.__file__, encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    for node in tree.body:  # top level only; nested imports are the point
+        if isinstance(node, ast.Import):
+            names = [a.name for a in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            names = [node.module or ""]
+        else:
+            continue
+        for name in names:
+            assert not name.startswith("babyrobot"), \
+                f"babyrobot imported at module level: {name}"
+
+
+def test_make_real_robot_raises_naming_the_submodule(monkeypatch):
+    """With babyrobot unimportable, the factory raises ONE clear error naming
+    the submodule and the install command -- and only when actually called."""
+    real_import = builtins.__import__
+
+    def _no_babyrobot(name, *args, **kwargs):
+        if name.startswith("babyrobot"):
+            raise ImportError(f"No module named {name!r}")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _no_babyrobot)
+    for mod_name in list(sys.modules):
+        if mod_name.startswith("babyrobot"):
+            monkeypatch.delitem(sys.modules, mod_name)
+
+    with pytest.raises(MissingBabyRobotError) as excinfo:
+        make_real_robot()
+    msg = str(excinfo.value)
+    assert "third_party/BabyRobotPredicator" in msg
+    assert "git submodule update --init" in msg
+    assert "pip install -e" in msg
+
+
+def test_gripper_joint_layout_finger_idxs():
+    """The layout exposes the finger entries that arm waypoints drop."""
+    assert _LAYOUT.finger_joint_idxs == (7, 8)
+
+
+def test_perception_defaults_to_none_and_rejects_unknown_kinds():
+    """Open-loop execution never looks at the scene, so the default perception
+    source is nothing at all; an unrecognised name fails loudly."""
+    utils.reset_config({"real_robot_perception": "none"})
+    assert _make_perception() is None
+    utils.reset_config({"real_robot_perception": "telepathy"})
+    with pytest.raises(ValueError, match="unknown real_robot_perception"):
+        _make_perception()
+    utils.reset_config({"real_robot_perception": "none"})
+
+
+# -- split_actions_by_option: pure predicators, no babyrobot needed ----------
+
+
+def test_split_actions_by_option_groups_consecutive_actions():
+    """Consecutive actions from one option form one chunk, one chunk per
+    option."""
+    pick, place = _make_option("Pick"), _make_option("Place")
+    actions = []
+    for opt, count in [(pick, 3), (place, 2)]:
+        for _ in range(count):
+            act = _action(0.0, 0.04)
+            act.set_option(opt)
+            actions.append(act)
+
+    chunks = split_actions_by_option(actions)
+    assert [len(c) for c in chunks] == [3, 2]
+    assert all(a.get_option() is pick for a in chunks[0])
+    assert all(a.get_option() is place for a in chunks[1])
+
+
+def test_split_actions_by_option_separates_identical_options():
+    """Two rollouts of the same parameterized option with identical parameters
+    are still two boundaries, so they must not be merged."""
+    first, second = _make_option("Pick"), _make_option("Pick")
+    assert first.name == second.name  # identical but distinct rollouts
+    actions = []
+    for opt in (first, second):
+        act = _action(0.0, 0.04)
+        act.set_option(opt)
+        actions.append(act)
+
+    chunks = split_actions_by_option(actions)
+    assert [len(c) for c in chunks] == [1, 1]
+
+
+def test_split_actions_by_option_optionless_actions_stand_alone():
+    """An action with no option has no boundary to belong to, so it gets its
+    own chunk rather than being folded into a neighbour's."""
+    pick = _make_option("Pick")
+    with_opt = _action(0.0, 0.04)
+    with_opt.set_option(pick)
+    bare = _action(1.0, 0.04)
+
+    chunks = split_actions_by_option([with_opt, bare, bare])
+    assert [len(c) for c in chunks] == [1, 1, 1]
+    assert not split_actions_by_option([])
+
+
+# -- _split_actions: needs the shared Segment type ---------------------------
+
+
+def test_split_actions_emits_gripper_transitions_and_arm_moves():
+    """A pick-and-place shape splits into open/move/close/move/open/move, with
+    the finger joints dropped from every waypoint."""
+    pytest.importorskip("babyrobot")
+    actions = [
+        _action(0.0, 0.04),  # open: approach
+        _action(0.1, 0.04),
+        _action(0.1, 0.0),  # close: grasp
+        _action(0.2, 0.0),  # still closed: carry
+        _action(0.2, 0.04),  # open: release
+    ]
+    segments = _split_actions(actions, _LAYOUT)
+
+    assert [s.type for s in segments] == \
+        ["gripper", "move", "gripper", "move", "gripper", "move"]
+    assert [s.command for s in segments if s.type == "gripper"] == \
+        ["open", "close", "open"]
+    moves = [s for s in segments if s.type == "move"]
+    # Consecutive same-gripper steps coalesce; the fingers are dropped, so each
+    # waypoint is the 7 arm joints only.
+    assert [len(m.waypoints) for m in moves] == [2, 2, 1]
+    # approx: the actions are float32, the waypoints plain floats.
+    assert moves[0].waypoints[0] == pytest.approx((0.0, ) * _N_ARM)
+    assert moves[0].waypoints[1] == pytest.approx((0.1, ) * _N_ARM)
+    assert all(len(wp) == _N_ARM for m in moves for wp in m.waypoints)
+
+
+def test_split_actions_classifies_fingers_by_nearest_value():
+    """A finger value is a `close` when it is nearer closed_fingers than
+    open_fingers, so a partially-closed gripper does not flip mid-carry."""
+    pytest.importorskip("babyrobot")
+    nearly_closed = _action(0.0, 0.015)
+    nearly_open = _action(0.0, 0.03)
+
+    assert _split_actions([nearly_closed], _LAYOUT)[0].command == "close"
+    assert _split_actions([nearly_open], _LAYOUT)[0].command == "open"
+
+
+def test_split_actions_is_stateless_across_calls():
+    """Gripper tracking restarts every call, so a chunk that begins already
+    holding an object re-emits its leading `close`.
+
+    RealRobot deduplicates that command session-wide -- this test pins
+    the split's half of that contract.
+    """
+    pytest.importorskip("babyrobot")
+    closed = _action(0.0, 0.0)
+    for _ in range(2):
+        segments = _split_actions([closed], _LAYOUT)
+        assert segments[0].type == "gripper"
+        assert segments[0].command == "close"
+
+
+def test_split_actions_empty_input():
+    """No actions means nothing to ship."""
+    pytest.importorskip("babyrobot")
+    assert not _split_actions([], _LAYOUT)
+
+
+def test_split_actions_matches_layout_read_off_a_robot():
+    """`gripper_joint_layout_from_robot` reproduces the four numbers the split
+    needs, so the env and the helpers cannot disagree about the layout."""
+    pytest.importorskip("babyrobot")
+    from predicators.pybullet_helpers.real_robot_bridge import \
+        gripper_joint_layout_from_robot
+
+    class _FakeRobot:
+        left_finger_joint_idx = 7
+        right_finger_joint_idx = 8
+        open_fingers = 0.04
+        closed_fingers = 0.0
+
+    assert gripper_joint_layout_from_robot(_FakeRobot()) == _LAYOUT
+
+
+def test_execute_actions_ships_one_chunk_without_observing():
+    """Open-loop shipping: the whole buffer goes out as ONE chunk and no
+    observation is requested, so the env's state stays the sim's prediction."""
+    pytest.importorskip("babyrobot")
+    from predicators.pybullet_helpers.real_robot_bridge import execute_actions
+
+    class _RecordingRobot:
+
+        def __init__(self):
+            self.requests = []
+
+        def step(self, req):
+            """Record the StepRequest instead of driving an arm."""
+            self.requests.append(req)
+
+    robot = _RecordingRobot()
+    actions = [_action(0.0, 0.04), _action(0.1, 0.0)]
+    execute_actions(robot, actions, _LAYOUT)
+
+    assert len(robot.requests) == 1
+    req = robot.requests[0]
+    assert len(req.chunks) == 1
+    assert req.observe is False
+    assert [s.type for s in req.chunks[0]] == \
+        ["gripper", "move", "gripper", "move"]
+
+    # An empty buffer ships nothing at all.
+    execute_actions(robot, [], _LAYOUT)
+    assert len(robot.requests) == 1
+
+
+def test_reset_arm_passes_joints_through():
+    """`reset_arm` hands the requested home joints to the robot and returns
+    what the arm reports."""
+    pytest.importorskip("babyrobot")
+    from predicators.pybullet_helpers.real_robot_bridge import reset_arm
+
+    home = (0.0, -0.5, 0.0, -2.0, 0.0, 1.5, 0.7)
+
+    class _HomingRobot:
+
+        def __init__(self):
+            self.requested = None
+
+        def reset_arm(self, req):
+            """Echo the requested joints back as the arm's new position."""
+            from babyrobot.realrobot.messages import ResetArmReply
+            self.requested = req.joints
+            return ResetArmReply(joints=req.joints)
+
+    robot = _HomingRobot()
+    assert reset_arm(robot, home) == home
+    assert robot.requested == home
+
+
+def test_make_real_robot_dry_constructs_an_armless_robot():
+    """A dry RealRobot builds no arm, so the whole real path is exercisable at
+    a desk; `dry` / `has_perception` are readable off the instance."""
+    pytest.importorskip("babyrobot")
+    robot = make_real_robot(dry=True)
+    try:
+        assert robot.dry is True
+        assert robot.has_perception is False
+    finally:
+        robot.close()
