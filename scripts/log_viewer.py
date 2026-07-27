@@ -18,7 +18,9 @@ Format contracts this viewer relies on:
     session_log_filename() in predicators/agent_sdk/tools.py
   * markdown layout (## sections, ### Turn N, trailing "**Result:** ..." line)
     from format_conversation_markdown() in agent_sdk/log_formatter.py
-  * "Goal achieved: True|False" lines inside tool-result blocks (tools.py)
+  * "Captured as the current answer"/"NOT CAPTURED" capture verdicts and
+    "Goal achieved: True|False" rollout lines inside tool-result blocks,
+    from evaluate_option_plan in agent_sdk/tools/testing.py
   * "Test results: defaultdict(..., {...})" lines in info.log
 
 Format contracts, continued:
@@ -69,6 +71,13 @@ INTERACTION_CYCLE_VIDEO_RE = re.compile(r"__cycle([^.]*)\.mp4$")
 RESULT_RE = re.compile(
     r"\*\*Result:\*\* (\d+) turns, \$([\d.]+) this solve, \$([\d.]+) total")
 GOAL_RE = re.compile(r"Goal achieved: (True|False)")
+# Session-level capture verdicts from evaluate_option_plan (agent_sdk/
+# tools/testing.py). A "Goal achieved" line only says one sim rollout
+# reached the goal atoms; the capture verdict is what decides whether the
+# session actually produced an answer. A best-effort capture (budget
+# exhausted) is not an agent-side solve.
+CAPTURED_RE = re.compile(r"Captured as the current answer( \(best-effort\b)?")
+NOT_CAPTURED_RE = re.compile(r"NOT CAPTURED|\(plan NOT captured\)")
 NUM_SOLVED_RE = re.compile(r"'num_solved': ([\d.]+)")
 NUM_TOTAL_RE = re.compile(r"'num_total': ([\d.]+)")
 AVG_TEST_REWARD_RE = re.compile(r"'avg_test_reward': (-?[\d.]+)")
@@ -500,8 +509,18 @@ def delete_run(run_rel: str, kill: bool) -> Tuple[bool, str]:
 def _parse_episode(path: str) -> Dict[str, Any]:
     text, _ = read_text(path)
     info: Dict[str, Any] = {}
-    goals = GOAL_RE.findall(text)
-    info["goal"] = (goals[-1] == "True") if goals else None
+    captures = CAPTURED_RE.findall(text)
+    if captures or NOT_CAPTURED_RE.search(text):
+        # The session used evaluate_option_plan: its capture verdicts are
+        # the agent-side outcome. "Goal achieved" lines are per-rollout
+        # goal-atom checks that stay True even when the evaluator rejects
+        # the plan (solved=False), so they must not decide the session.
+        # A later clean capture is never displaced by a rejected one, so
+        # any non-best-effort capture means the session holds an answer.
+        info["goal"] = any(note == "" for note in captures)
+    else:
+        goals = GOAL_RE.findall(text)
+        info["goal"] = (goals[-1] == "True") if goals else None
     m: Optional[re.Match[str]] = None
     for m in RESULT_RE.finditer(text):
         pass
