@@ -37,7 +37,7 @@ Predicators ships **RoboDisco** (Robot Model Discovery Benchmark), a collection 
 
 Driving a real Franka arm additionally needs
 [BabyRobotPredicator](https://github.com/BasisResearch/BabyRobotPredicator), which
-predicators carries as the git submodule `third_party/BabyRobotPredicator`. It is a
+predicators carries as the git submodule `submodules/BabyRobotPredicator`. It is a
 **private** repository and is deliberately **not** in `install_requires`, so:
 
 * Everything except real-robot execution works without it. The submodule simply does
@@ -45,8 +45,8 @@ predicators carries as the git submodule `third_party/BabyRobotPredicator`. It i
 * With access, check it out and install it from the submodule path:
 
   ```bash
-  git submodule update --init third_party/BabyRobotPredicator
-  pip install -e third_party/BabyRobotPredicator
+  git submodule update --init submodules/BabyRobotPredicator
+  pip install -e submodules/BabyRobotPredicator
   ```
 
 Predicators then drives the arm in-process: it constructs babyrobot's `RealRobot`

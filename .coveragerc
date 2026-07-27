@@ -2,7 +2,7 @@
 omit =
     predicators/third_party/**
     # Git submodules; covered by their own repos' suites.
-    third_party/**
+    submodules/**
     predicators/envs/kitchen.py
     predicators/perception/kitchen_perceiver.py
     predicators/ground_truth_models/kitchen/**

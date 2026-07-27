@@ -1,3 +1,3 @@
-[submodule "third_party/BabyRobotPredicator"]
-	path = third_party/BabyRobotPredicator
+[submodule "submodules/BabyRobotPredicator"]
+	path = submodules/BabyRobotPredicator
 	url = git@github.com:BasisResearch/BabyRobotPredicator.git

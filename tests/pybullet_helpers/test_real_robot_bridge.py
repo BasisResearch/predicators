@@ -99,7 +99,7 @@ def test_make_real_robot_raises_naming_the_submodule(monkeypatch):
     with pytest.raises(MissingBabyRobotError) as excinfo:
         make_real_robot()
     msg = str(excinfo.value)
-    assert "third_party/BabyRobotPredicator" in msg
+    assert "submodules/BabyRobotPredicator" in msg
     assert "git submodule update --init" in msg
     assert "pip install -e" in msg
 

@@ -8,7 +8,7 @@ calls in the same interpreter, so a failure inside it is an ordinary Python
 exception with its own traceback.
 
 **babyrobot is optional and must never be imported at module level.**  It ships
-as the private git submodule ``third_party/BabyRobotPredicator`` and is
+as the private git submodule ``submodules/BabyRobotPredicator`` and is
 deliberately absent from ``install_requires``, so predicators' CI -- and any
 checkout without access to that repo -- has no ``babyrobot`` on the path. Every
 import of it here is inside a function body, so ``import predicators.envs``
@@ -37,9 +37,9 @@ if TYPE_CHECKING:  # pragma: no cover -- typing only; never imported at runtime
 _MISSING_BABYROBOT = (
     "real-robot execution needs the private BabyRobotPredicator package, "
     "which predicators carries as the git submodule "
-    "third_party/BabyRobotPredicator. Check it out and install it:\n"
-    "    git submodule update --init third_party/BabyRobotPredicator\n"
-    "    pip install -e third_party/BabyRobotPredicator")
+    "submodules/BabyRobotPredicator. Check it out and install it:\n"
+    "    git submodule update --init submodules/BabyRobotPredicator\n"
+    "    pip install -e submodules/BabyRobotPredicator")
 
 
 class MissingBabyRobotError(ImportError):
