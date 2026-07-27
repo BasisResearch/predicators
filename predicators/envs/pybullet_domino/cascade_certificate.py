@@ -150,7 +150,7 @@ def _role_label(state: State, domino: Object) -> str:
     if DominoComponent._TargetDomino_holds(state, [domino]):
         return "target domino"
     if DominoComponent._HeavyBlock_holds(state, [domino]):
-        return "heavy block"
+        return "gray block"
     return "non-movable domino"
 
 

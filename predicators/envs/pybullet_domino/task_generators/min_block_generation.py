@@ -117,8 +117,8 @@ def _believed_physics(env: "PyBulletDominoComposedEnv",
         believed["lateral_friction"] = CFG.domino_planning_friction
     restore: Dict[str, float] = {"lateral_friction": CFG.domino_true_friction}
     if believed_heavy_mass:
-        believed["heavy_block_mass"] = comp.domino_mass
-        restore["heavy_block_mass"] = comp.heavy_block_true_mass
+        believed["block_mass"] = comp.domino_mass
+        restore["block_mass"] = comp.heavy_block_true_mass
     if believed:
         env.set_domino_physical_params(**believed)
     try:
@@ -861,7 +861,7 @@ def _make_heavy_straight_task(
     Natural alignment: start and target sit on one line, and the GRAY
     block stands a small sampled offset OFF that line
     (``_HEAVY_GRAY_LATERAL_OFFSETS``), all facing along it. The believed
-    physics (normal gray mass, see the env init / ``heavy_block_mass``
+    physics (normal gray mass, see the env init / ``block_mass``
     override) makes the cheapest plan a shallow dogleg THROUGH the gray
     -- a free link. At the true mass the chain dies against the gray,
     and the real solution is a half-circle swerve around it (the

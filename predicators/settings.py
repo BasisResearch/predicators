@@ -684,7 +684,7 @@ class GlobalSettings:
     #     go; the true solution skips around it with an own corner.
     # The gray's true mass (DominoComponent.heavy_block_true_mass) makes it
     # untopple-able and unmovable, but planning sims believe it has normal
-    # domino mass (env init sets the ``heavy_block_mass`` override), so the
+    # domino mass (env init sets the ``block_mass`` override), so the
     # believed-cheapest plan runs THROUGH the gray (a free link/corner) and
     # dies against it at execution. Run WITHOUT domino_planning_friction -
     # this task type isolates the MASS dimension. (2026-07-25: generation
