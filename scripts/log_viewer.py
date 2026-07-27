@@ -25,9 +25,10 @@ Format contracts, continued:
   * videos/<approach>/<experiment_id>/seed<N>/run_<timestamp>/ mirrors the log
     dir, via the run subdir utils.configure_logging shares with save_video
   * video names ...__task<K+1>[_failure]__cycle<C>.mp4 from main.py _save_video
-  * interaction video names ...__cycle<C>.mp4 (no __task part) from main.py
-    _generate_interaction_results under CFG.make_interaction_videos; one per
-    learning cycle, concatenating all of that cycle's explore episodes
+  * interaction video names ...__ep<i>__cycle<C>.mp4 (no __task part) from
+    main.py _generate_interaction_results under CFG.make_interaction_videos;
+    one per interaction episode, <i> its 0-based index within the cycle
+    (older runs wrote one ...__cycle<C>.mp4 concatenating the whole cycle)
 
 Usage:
     python scripts/log_viewer.py [--logs logs] [--videos videos] [--port 8765]
@@ -59,9 +60,12 @@ EPISODE_RE = re.compile(r"^(\d{3})_([a-z]+)(?:_task(\d+))?_(\d{8}_\d{6})\.md$")
 # 1-based (task_idx+1) unlike the 0-based task in an episode filename.
 VIDEO_RE = re.compile(r"__task(\d+)(_failure)?__cycle([^.]*)\.mp4$")
 # Tail of an interaction video from _generate_interaction_results (under
-# CFG.make_interaction_videos): per learning cycle, no __task part. Test
-# videos also end in __cycle<C>.mp4, so check VIDEO_RE first.
-INTERACTION_VIDEO_RE = re.compile(r"__cycle([^.]*)\.mp4$")
+# CFG.make_interaction_videos): one per interaction episode, no __task
+# part. Test videos also end in __cycle<C>.mp4, so check VIDEO_RE first.
+INTERACTION_VIDEO_RE = re.compile(r"__ep(\d+)__cycle([^.]*)\.mp4$")
+# Legacy tail from before per-episode saving: one video per learning
+# cycle concatenating all of its explore episodes.
+INTERACTION_CYCLE_VIDEO_RE = re.compile(r"__cycle([^.]*)\.mp4$")
 RESULT_RE = re.compile(
     r"\*\*Result:\*\* (\d+) turns, \$([\d.]+) this solve, \$([\d.]+) total")
 GOAL_RE = re.compile(r"Goal achieved: (True|False)")
@@ -696,10 +700,12 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
     # layout; env verdicts pair by the stream-order test_round map, since
     # the learn count offset from the round index varies per config.
     learn_seen = 0
+    interactions_seen = 0
     for ep in episodes:
         ep["round"] = learn_seen
         if ep["kind"] == "learn":
             learn_seen += 1
+            interactions_seen = 0
         if ep["kind"] == "explore":
             verdict = explore_verdicts.get(ep["num"])
             if verdict is not None:
@@ -707,6 +713,11 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
                 ep["env_terminated"] = verdict["terminated"]
                 ep["env_accepted"] = verdict["accepted"]
                 ep["env_msg"] = verdict["msg"]
+                # Interaction episodes execute in session order, so this
+                # session's episode -- and its __ep<i> video -- is the
+                # i-th among the cycle's verdict-earning explore sessions.
+                ep["interaction_idx"] = interactions_seen
+                interactions_seen += 1
         round_i = test_round.get(ep["num"])
         if (ep["kind"] == "test" and ep["task"] is not None
                 and round_i is not None and round_i < len(rounds)):
@@ -2104,14 +2115,17 @@ def videos_for_run(run_rel: str) -> VidMap:
     return out
 
 
-def interaction_videos_for_run(run_rel: str) -> Dict[str, List[str]]:
+def interaction_videos_for_run(
+        run_rel: str) -> Dict[str, List[Tuple[Optional[int], str]]]:
     """Interaction videos of a run, keyed by cycle tag (e.g. "cycle0").
 
-    These are the CFG.make_interaction_videos recordings of a cycle's
+    These are the CFG.make_interaction_videos recordings of the cycle's
     explore episodes; they carry no __task part, unlike test videos.
+    Each entry is (episode index within the cycle, filename), or (None,
+    filename) for a legacy whole-cycle concatenation.
     """
     base = safe_join_video(run_rel)
-    out: Dict[str, List[str]] = {}
+    out: Dict[str, List[Tuple[Optional[int], str]]] = {}
     if not base or not os.path.isdir(base):
         return out
     try:
@@ -2122,9 +2136,13 @@ def interaction_videos_for_run(run_rel: str) -> Dict[str, List[str]]:
         if VIDEO_RE.search(name):
             continue  # a test video, keyed by task in videos_for_run
         m = INTERACTION_VIDEO_RE.search(name)
-        if not m:
+        if m:
+            out.setdefault("cycle" + m.group(2), []).append(
+                (int(m.group(1)), name))
             continue
-        out.setdefault("cycle" + m.group(1), []).append(name)
+        m = INTERACTION_CYCLE_VIDEO_RE.search(name)
+        if m:
+            out.setdefault("cycle" + m.group(1), []).append((None, name))
     return out
 
 
@@ -2142,9 +2160,10 @@ def episode_videos(ep: Dict[str, Any], run_rel: str) -> str:
     main.py names a test video by task and learning cycle rather than by
     query, so the two transcripts of a replanned task (001/002
     ..._task0) are two views of one env episode and correctly share its
-    video. Likewise, one interaction video concatenates all explore
-    episodes of a cycle, so each of that cycle's explore transcripts
-    shows the same video.
+    video. An explore transcript gets the video of its own interaction
+    episode, matched by index within the cycle; on legacy runs whose one
+    interaction video concatenates the whole cycle, each of that cycle's
+    explore transcripts shows that shared video.
     """
     out = []
     if ep["kind"] == "test" and ep["task"] is not None:
@@ -2158,12 +2177,16 @@ def episode_videos(ep: Dict[str, Any], run_rel: str) -> str:
         # directly (no cycleNone offset like test rounds), and an explore
         # episode's round -- learn episodes seen before it -- IS its cycle.
         tag = f"cycle{int(ep.get('round', 0))}"
-        for name in interaction_videos_for_run(run_rel).get(tag, []):
+        for ep_idx, name in interaction_videos_for_run(run_rel).get(tag, []):
+            if ep_idx is None:
+                label = ("interaction video (all explore episodes "
+                         "of this cycle)")
+            elif ep_idx == ep.get("interaction_idx"):
+                label = "interaction video"
+            else:
+                continue  # another explore session's episode
             url = "/rawvideo?p=" + q(run_rel + "/" + name)
-            out.append(
-                _video_figure(
-                    url, "interaction video (all explore episodes "
-                    "of this cycle)"))
+            out.append(_video_figure(url, label))
     return f"<div class='vids'>{''.join(out)}</div>" if out else ""
 
 
