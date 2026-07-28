@@ -546,27 +546,51 @@ class GlobalSettings:
     domino_restricted_push = False
     # Use skill_factories-based option implementations
     domino_use_skill_factories = True
-    # --- real robot (any env driving a real arm; see
+    # --- real robot (any env driving a real arm; see envs.real_world_env and
     # pybullet_helpers.real_robot_bridge) ------------------------------------
-    # When True, a real-robot env's TEST-mode rollout is executed on the arm;
-    # default False = safe dry-run (pure sim, no motion).
+    # When True, the executed env is wrapped in RealWorldEnv and its rollouts
+    # drive the arm -- BOTH splits, so exploration episodes execute like
+    # evaluation ones. Default False = safe dry-run (pure sim, no motion).
+    # Only the env at main.setup_environment is wrapped; the planner's own
+    # envs never are (see real_world_env.wrap_for_real_robot).
     real_robot_execute = False
     # Construct the RealRobot without an arm: every method still runs (and the
     # gripper state is still tracked) but nothing moves. Only consulted when
     # real_robot_execute.
     real_robot_dry = False
     # Perception source handed to the RealRobot: "none" (no cameras, which is
-    # all open-loop execution needs -- it never looks at the scene) or
-    # "scene_file" (replay domino_real_scene).
+    # all blind open-loop execution needs) or "scene_file" (replay
+    # domino_real_scene). Looking at the bench between options needs one of the
+    # camera-backed sources.
     real_robot_perception = "none"
-    # Roll the WHOLE episode out in sim, then ship every segment to the robot in
-    # one call (the caller flushes via env.flush_real_execution). The gripper
-    # split must span the whole plan: shipping per option restarts its finger
-    # tracking, so a Place re-grasps the object it is already holding and the
-    # gripper then drops the release. RealRobot now deduplicates gripper
-    # commands session-wide, so per-option shipping is safe too, but this stays
-    # True until the real-world wrapper owns the chunking.
-    # False = ship at each option boundary.
+    # Look at the bench at each option boundary and correct the twin from what
+    # was seen. This is the point of running on real hardware -- the learner
+    # sees perceived transitions rather than the simulator's guesses -- so it
+    # defaults on; False gives a blind open-loop run that executes motion and
+    # never looks. Only consulted when shipping per option (see below).
+    real_robot_observe_at_option_boundary = True
+    # Dwell before a capture, so the dominoes come to rest after the motion
+    # that preceded it. Costs wall-clock on every look and does nothing
+    # without cameras.
+    real_robot_settle_s = 0.5
+    # How far (metres) the bench may be from where the twin predicted before
+    # the disagreement is worth logging. Placement jitter and perception noise
+    # live well below this; a domino the twin thinks is standing and the
+    # cameras find on its face is well above it.
+    real_robot_divergence_atol = 0.02
+    # Roll the WHOLE episode out in sim, then ship every segment to the robot
+    # in one call (the caller flushes via env.flush_real_execution). This is
+    # the degenerate open-loop case: one chunk, no mid-episode look, so
+    # real_robot_observe_at_option_boundary has no effect. False = ship at each
+    # option boundary, which is what the closed loop needs.
+    #
+    # Still True by default, even though the wrapper now owns the chunking that
+    # this was waiting on: turning it off means looking at the bench between
+    # options, and the only perception sources babyrobot currently offers are
+    # file replay and a mock. Flip this to False, and real_robot_perception to
+    # a camera-backed source, once live perception lands there -- and validate
+    # per-option shipping on the bench when you do, since every hardware run so
+    # far has been whole-episode.
     real_robot_ship_whole_episode = True
     # --- real-world domino bench (pybullet_domino_real env) ------------------
     # The reconstructed-scene JSON (robot_base frame) the pybullet_domino_real

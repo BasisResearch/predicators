@@ -19,13 +19,12 @@ import sys
 
 import numpy as np
 import pytest
-from gym.spaces import Box
 
 from predicators import utils
 from predicators.pybullet_helpers.real_robot_bridge import \
     GripperJointLayout, MissingBabyRobotError, _make_perception, \
-    _split_actions, make_real_robot, split_actions_by_option
-from predicators.structs import Action, ParameterizedOption
+    _split_actions, make_real_robot
+from predicators.structs import Action
 
 # The Franka layout: 7 arm joints then the 2 finger joints. The waypoint width
 # is not cosmetic -- babyrobot's Segment rejects anything but 7 joints.
@@ -43,16 +42,6 @@ def _action(arm_value, fingers):
     """
     arm = [arm_value] * _N_ARM
     return Action(np.array([*arm, fingers, fingers], dtype=np.float32))
-
-
-def _make_option(name):
-    """A grounded option, so actions can carry an option boundary."""
-    params_space = Box(0, 1, (1, ))
-    param_opt = ParameterizedOption(name, [], params_space,
-                                    lambda s, m, o, p: Action(p),
-                                    lambda s, m, o, p: True,
-                                    lambda s, m, o, p: False)
-    return param_opt.ground([], [0.5])
 
 
 # -- optionality: these must run with or without the submodule ---------------
@@ -118,54 +107,6 @@ def test_perception_defaults_to_none_and_rejects_unknown_kinds():
     with pytest.raises(ValueError, match="unknown real_robot_perception"):
         _make_perception()
     utils.reset_config({"real_robot_perception": "none"})
-
-
-# -- split_actions_by_option: pure predicators, no babyrobot needed ----------
-
-
-def test_split_actions_by_option_groups_consecutive_actions():
-    """Consecutive actions from one option form one chunk, one chunk per
-    option."""
-    pick, place = _make_option("Pick"), _make_option("Place")
-    actions = []
-    for opt, count in [(pick, 3), (place, 2)]:
-        for _ in range(count):
-            act = _action(0.0, 0.04)
-            act.set_option(opt)
-            actions.append(act)
-
-    chunks = split_actions_by_option(actions)
-    assert [len(c) for c in chunks] == [3, 2]
-    assert all(a.get_option() is pick for a in chunks[0])
-    assert all(a.get_option() is place for a in chunks[1])
-
-
-def test_split_actions_by_option_separates_identical_options():
-    """Two rollouts of the same parameterized option with identical parameters
-    are still two boundaries, so they must not be merged."""
-    first, second = _make_option("Pick"), _make_option("Pick")
-    assert first.name == second.name  # identical but distinct rollouts
-    actions = []
-    for opt in (first, second):
-        act = _action(0.0, 0.04)
-        act.set_option(opt)
-        actions.append(act)
-
-    chunks = split_actions_by_option(actions)
-    assert [len(c) for c in chunks] == [1, 1]
-
-
-def test_split_actions_by_option_optionless_actions_stand_alone():
-    """An action with no option has no boundary to belong to, so it gets its
-    own chunk rather than being folded into a neighbour's."""
-    pick = _make_option("Pick")
-    with_opt = _action(0.0, 0.04)
-    with_opt.set_option(pick)
-    bare = _action(1.0, 0.04)
-
-    chunks = split_actions_by_option([with_opt, bare, bare])
-    assert [len(c) for c in chunks] == [1, 1, 1]
-    assert not split_actions_by_option([])
 
 
 # -- _split_actions: needs the shared Segment type ---------------------------
@@ -246,24 +187,30 @@ def test_split_actions_matches_layout_read_off_a_robot():
     assert gripper_joint_layout_from_robot(_FakeRobot()) == _LAYOUT
 
 
-def test_execute_actions_ships_one_chunk_without_observing():
-    """Open-loop shipping: the whole buffer goes out as ONE chunk and no
-    observation is requested, so the env's state stays the sim's prediction."""
+class _RecordingRobot:
+    """A stand-in arm that records StepRequests instead of moving."""
+
+    def __init__(self, observations=()):
+        self.requests = []
+        self._observations = tuple(observations)
+
+    def step(self, req):
+        """Record the StepRequest and reply with the canned observations."""
+        from babyrobot.realrobot.messages import StepReply
+        self.requests.append(req)
+        return StepReply(
+            observations=self._observations if req.observe else ())
+
+
+def test_execute_chunks_ships_one_chunk_without_observing():
+    """Open-loop shipping: a single chunk goes out and no observation is
+    requested, so the caller's state stays the sim's prediction."""
     pytest.importorskip("babyrobot")
-    from predicators.pybullet_helpers.real_robot_bridge import execute_actions
-
-    class _RecordingRobot:
-
-        def __init__(self):
-            self.requests = []
-
-        def step(self, req):
-            """Record the StepRequest instead of driving an arm."""
-            self.requests.append(req)
+    from predicators.pybullet_helpers.real_robot_bridge import execute_chunks
 
     robot = _RecordingRobot()
     actions = [_action(0.0, 0.04), _action(0.1, 0.0)]
-    execute_actions(robot, actions, _LAYOUT)
+    assert not execute_chunks(robot, [actions], _LAYOUT)
 
     assert len(robot.requests) == 1
     req = robot.requests[0]
@@ -273,8 +220,61 @@ def test_execute_actions_ships_one_chunk_without_observing():
         ["gripper", "move", "gripper", "move"]
 
     # An empty buffer ships nothing at all.
-    execute_actions(robot, [], _LAYOUT)
+    assert not execute_chunks(robot, [[]], _LAYOUT)
     assert len(robot.requests) == 1
+
+
+def test_execute_chunks_segments_each_chunk_separately():
+    """Per-option shipping: each chunk is segmented on its own and they go out
+    in order, in one call, so the robot executes them back to back."""
+    pytest.importorskip("babyrobot")
+    from predicators.pybullet_helpers.real_robot_bridge import execute_chunks
+
+    robot = _RecordingRobot()
+    first = [_action(0.0, 0.04), _action(0.1, 0.0)]  # opens, then closes
+    second = [_action(0.2, 0.0)]  # already closed
+    execute_chunks(robot, [first, second], _LAYOUT)
+
+    req = robot.requests[0]
+    assert len(req.chunks) == 2
+    assert [s.type for s in req.chunks[0]] == \
+        ["gripper", "move", "gripper", "move"]
+    # The second chunk re-emits its leading "close" because the split is
+    # stateless per chunk; RealRobot drops the repeat session-wide, which is
+    # what makes per-option shipping safe.
+    assert [s.type for s in req.chunks[1]] == ["gripper", "move"]
+    assert req.chunks[1][0].command == "close"
+
+
+def test_execute_chunks_returns_one_observation_per_chunk():
+    """Observing: the reply's observations come back to the caller in chunk
+    order, which is what lets the wrapper sync the twin per option."""
+    pytest.importorskip("babyrobot")
+    from babyrobot.realrobot.observations.domino import DominoObservation
+
+    from predicators.pybullet_helpers.real_robot_bridge import execute_chunks
+
+    seen = (DominoObservation(stamp=1.0), DominoObservation(stamp=2.0))
+    robot = _RecordingRobot(observations=seen)
+    got = execute_chunks(robot, [[_action(0.0, 0.04)], [_action(0.1, 0.0)]],
+                         _LAYOUT,
+                         observe=True,
+                         settle_s=0.25)
+
+    assert robot.requests[0].observe is True
+    assert robot.requests[0].settle_s == 0.25
+    assert got == list(seen)
+
+
+def test_execute_chunks_drops_empty_chunks():
+    """An empty chunk is not shipped, so it cannot consume one of the
+    observations the caller is about to line up against its chunks."""
+    pytest.importorskip("babyrobot")
+    from predicators.pybullet_helpers.real_robot_bridge import execute_chunks
+
+    robot = _RecordingRobot()
+    execute_chunks(robot, [[], [_action(0.0, 0.04)], []], _LAYOUT)
+    assert len(robot.requests[0].chunks) == 1
 
 
 def test_reset_arm_passes_joints_through():

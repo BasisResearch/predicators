@@ -1,7 +1,7 @@
 """Replay an EXACT solved option plan on the real-bench domino env
 (deterministic, no LLM). Grounds the plan's Pick/Place/Push/Wait options with
 their exact parameters and rolls them through the env in TEST mode. With
-``real_robot_execute=True`` (and the robot-side bridge server up) the WHOLE
+``real_robot_execute=True`` the env is wrapped in ``RealWorldEnv``: the WHOLE
 episode is rolled out in sim first, then its joint trajectory is shipped to the
 Franka in one call -- the gripper split must see every action at once, else
 Place re-grasps the domino it is already holding. The default dry-run stays
@@ -31,6 +31,7 @@ import numpy as np
 from predicators import utils
 from predicators.envs import get_or_create_env
 from predicators.envs.pybullet_domino_real import PyBulletDominoRealEnv
+from predicators.envs.real_world_env import RealWorldEnv, wrap_for_real_robot
 from predicators.ground_truth_models import get_gt_options
 from predicators.settings import CFG
 from scripts.cluster_utils import SingleSeedRunConfig, generate_run_configs
@@ -71,8 +72,9 @@ def main() -> None:
         help="override CFG.domino_real_scene (must match the plan)")
     ap.add_argument("--execute",
                     action="store_true",
-                    help="EXECUTE ON THE REAL FRANKA (needs the bridge server "
-                    "up). Default: dry-run (pure sim, no motion).")
+                    help="EXECUTE ON THE REAL FRANKA (needs the babyrobot "
+                    "submodule installed). Default: dry-run (pure sim, no "
+                    "motion).")
     ap.add_argument("--out", default=None, help="optional MP4 of the rollout")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -87,9 +89,13 @@ def main() -> None:
     flags["real_robot_execute"] = bool(args.execute)
     utils.reset_config(flags)
 
-    env = get_or_create_env(CFG.env)
-    assert isinstance(env, PyBulletDominoRealEnv), \
+    inner = get_or_create_env(CFG.env)
+    assert isinstance(inner, PyBulletDominoRealEnv), \
         f"replay_plan drives the real-bench env; got {CFG.env}"
+    # Real-robot behavior lives in the wrapper now, not in the env, so the
+    # flush below (and the arm homing on reset) needs the wrapped env. A
+    # dry-run leaves this exactly as it was: wrap_for_real_robot is a no-op.
+    env = wrap_for_real_robot(inner)
     opts = {o.name: o for o in get_gt_options(env.get_name())}
     task = env.get_test_tasks()[0].task
     by_name = {o.name: o for o in task.init}
@@ -125,10 +131,11 @@ def main() -> None:
     print(f"# steps={len(traj.actions)}  goal_reached={env.goal_reached()}")
 
     # Sim rollout is done; ship the whole episode's trajectory to the arm in one
-    # call (no-op when dry / shipping per option). Deliberately AFTER the whole
-    # rollout: the gripper split must see every action at once, else Place
-    # re-grasps the domino it is already holding.
-    env.flush_real_execution()
+    # call. Deliberately AFTER the whole rollout: the gripper split must see
+    # every action at once, else Place re-grasps the domino it is already
+    # holding. A dry run never wraps, so there is nothing to flush.
+    if isinstance(env, RealWorldEnv):
+        env.flush_real_execution()
 
     if args.out and monitor is not None:
         os.makedirs(os.path.join(CFG.video_dir,

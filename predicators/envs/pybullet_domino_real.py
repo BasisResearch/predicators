@@ -1,5 +1,17 @@
 """Real-world domino env: the ``pybullet_domino`` env retargeted to the real
-Franka robot."""
+Franka robot.
+
+This is a **pure simulation** environment. It knows the real bench only as
+geometry and as perception it can convert: it sizes itself from a captured
+scene, transplants real base-frame poses into the domino world frame, and turns
+a live observation into a ``State`` or an ``EnvironmentTask``. It holds no
+robot, ships no motion, and has no real/dry mode.
+
+Driving an arm with it is ``RealWorldEnv``'s job
+(``predicators/envs/real_world_env.py``), which wraps this env and calls the
+conversions below. Keeping the two apart is what lets this env be tested
+without hardware and lets the wrapper be tested without PyBullet.
+"""
 from __future__ import annotations
 
 import json
@@ -17,14 +29,11 @@ from predicators.envs.pybullet_domino.components.domino_component import \
 from predicators.envs.pybullet_domino.env import PyBulletDominoComposedEnv, \
     PyBulletDominoEnv
 from predicators.envs.pybullet_domino.real_geometry import Pose6D, \
-    domino_upright_yaw, domino_world_z_offset, pose_base_to_world
+    domino_env_euler, domino_world_z_offset, pose_base_to_world
 from predicators.pybullet_helpers.objects import create_object, \
     create_pybullet_block
-from predicators.pybullet_helpers.real_robot_bridge import execute_actions, \
-    make_real_robot, reset_arm
 from predicators.settings import CFG
-from predicators.structs import Action, EnvironmentTask, GroundAtom, \
-    Observation, State
+from predicators.structs import EnvironmentTask, GroundAtom, State
 
 
 def _base_pose(xyz: Sequence[float], quat_xyzw: Sequence[float]) -> Pose6D:
@@ -60,13 +69,9 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
 
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         self._z_off = domino_world_z_offset(CFG.domino_real_table_z)
-        # Real (test-mode) execution state. Dominoes are placed in
-        # scene order, so slot i <-> capture id self._scene_ids[i].
-        self._real_mode = False
-        self._action_buffer: List[Action] = []
-        # babyrobot's RealRobot, constructed lazily on the first real reset so
-        # the env imports (and runs in sim) without the private submodule.
-        self._real_robot: Optional[Any] = None
+        # Dominoes are placed in scene order, so slot i <-> capture id
+        # self._scene_ids[i]; that mapping is what lets a live observation,
+        # which carries capture ids and nothing else, name component slots.
         with open(CFG.domino_real_scene, encoding="utf-8") as f:
             self._scene_ids = [int(d["id"]) for d in json.load(f)["dominoes"]]
         super().__init__(use_gui=use_gui, **kwargs)
@@ -74,83 +79,6 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
     @classmethod
     def get_name(cls) -> str:
         return "pybullet_domino_real"
-
-    # -- real (test-mode) execution (open-loop) --------------------
-    # Open-loop: the internal sim rolls each option out (its predicators
-    # BiRRT-planned policy is the trajectory generator) and, at the option
-    # boundary, the buffered joint trajectory is executed on the Franka (when
-    # real_robot_execute). The env state stays the sim's prediction -- no
-    # option-boundary re-perception yet. Dry-run == pure sim.
-    #
-    # The arm is driven in-process: babyrobot's RealRobot is an ordinary Python
-    # object this env holds and calls. It is built on the first real reset, so
-    # the private submodule is only needed by a run that actually executes.
-    def reset(self,
-              train_or_test: str,
-              task_idx: int,
-              render: bool = False) -> Observation:
-        self._real_mode = (train_or_test == "test")
-        self._action_buffer = []
-        real = self._real_mode and CFG.real_robot_execute
-        if real and self._real_robot is None:
-            self._real_robot = make_real_robot()
-        obs = super().reset(train_or_test, task_idx, render=render)
-        if real:
-            assert self._real_robot is not None
-            # Home the real arm to the env-home joint config the option
-            # trajectories are planned from, so the first option's streamed
-            # waypoints start where the robot is (else the drift guard trips).
-            pyb = self._pybullet_robot
-            fingers = {pyb.left_finger_joint_idx, pyb.right_finger_joint_idx}
-            home_arm = [
-                float(v) for i, v in enumerate(pyb.get_joints())
-                if i not in fingers
-            ]
-            reset_arm(self._real_robot, home_arm)
-        return obs
-
-    def step(self, action: Action, render_obs: bool = False) -> Observation:
-        obs = super().step(action, render_obs=render_obs)
-        if not (self._real_mode and action.has_option()):
-            return obs
-        self._action_buffer.append(action)
-        if not CFG.real_robot_ship_whole_episode and \
-                action.get_option().terminal(obs):  # option boundary
-            self._flush_real_actions()
-        return obs
-
-    def flush_real_execution(self) -> None:
-        """Ship the whole episode's buffered trajectory to the robot (no-op if
-        the buffer is empty, or when shipping per option).
-
-        Callers driving the real arm must call this once the rollout is
-        done; the buffer spans the WHOLE episode so the gripper split
-        sees every action at once.
-        """
-        self._flush_real_actions()
-
-    def _flush_real_actions(self) -> None:
-        """Split the buffered actions into move/gripper segments and execute.
-
-        The split must see a whole episode (or at least a whole pick-
-        place) in ONE call: it emits a gripper segment on a finger
-        transition, tracked from the START of the call. Splitting per
-        option restarts that tracking, so a Place -- which begins
-        already holding the domino from the Pick -- re-emits a leading
-        ``close``, i.e. a SECOND force-grasp on the already-clamped
-        domino. That leaves the Franka Hand stuck and the later release
-        is dropped.
-
-        RealRobot now drops a gripper command that repeats the session's
-        current state, so the second force-grasp cannot reach the hand
-        even if a chunk does re-emit it. This env still ships whole
-        episodes; per-option chunking is the wrapper's job.
-        """
-        actions, self._action_buffer = self._action_buffer, []
-        if actions and CFG.real_robot_execute:
-            assert self._real_robot is not None
-            execute_actions(self._real_robot, actions,
-                            self.gripper_joint_layout())
 
     # -- geometry + pybullet build + decoration -----------------------------
     @classmethod
@@ -354,6 +282,26 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
                                  role=self._role_for_capture_id(int(d.id))))
         return perceived
 
+    def _env_angles(self, world: Pose6D,
+                    capture_id: int) -> Tuple[float, float]:
+        """``(roll, yaw)`` for a perceived domino, standing or knocked over.
+
+        A domino type carries ``yaw`` and ``roll`` and no ``pitch``, so a
+        perceived orientation is representable exactly when its pitch is
+        zero -- which covers standing dominoes and dominoes lying on
+        either face, i.e. every pose a free domino reaches on a flat
+        table. Anything else (propped diagonally on a neighbour, say)
+        loses its pitch when the state is written into PyBullet, so say
+        so rather than silently flattening it.
+        """
+        roll, pitch, yaw = domino_env_euler(world)
+        if abs(pitch) >= DominoComponent.domino_roll_threshold:
+            logging.warning(
+                "pybullet_domino_real: domino %s is pitched %.1f deg, which "
+                "the (yaw, roll) domino state cannot represent; dropping the "
+                "pitch", capture_id, math.degrees(pitch))
+        return roll, yaw
+
     @staticmethod
     def _canonical_start_yaw(
             yaw: float, world: Pose6D, push_dir_world: Optional[Tuple[float,
@@ -421,8 +369,13 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
 
         for pd in perceived:
             world = worlds[pd.slot]
-            yaw = domino_upright_yaw(world)
-            if pd.role == "start":
+            roll, yaw = self._env_angles(world, pd.capture_id)
+            # Canonicalize the START domino's heading only while it is still
+            # standing. The flip picks which of two 180-degree-symmetric
+            # headings faces the push; a domino already lying down has no push
+            # to orient, and flipping it would misreport which way it fell.
+            if pd.role == "start" and \
+                    abs(roll) < DominoComponent.fallen_threshold:
                 yaw = self._canonical_start_yaw(yaw, world, push_dir_world,
                                                 target_xy)
             entry = comp.place_domino(pd.slot,
@@ -431,11 +384,11 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
                                       yaw,
                                       is_start_block=(pd.role == "start"),
                                       is_target_block=(pd.role == "target"))
-            # Perceived world (x, y, z), (canonicalized) upright heading, roll
-            # flat. Keep place_domino's role color / is_held; override the pose.
+            # Perceived world (x, y, z) and orientation. Keep place_domino's
+            # role color / is_held; override the pose it assumed.
             entry["x"], entry["y"], entry["z"] = world.xyz
             entry["yaw"] = yaw
-            entry["roll"] = 0.0
+            entry["roll"] = roll
             init_dict[comp.dominos[pd.slot]] = entry
 
         return utils.create_state_from_dict(init_dict)
@@ -508,19 +461,23 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
         task's initial state; mid-episode the start domino may already
         have been pushed, and re-canonicalizing would fight reality.
 
-        Like ``domino_upright_yaw`` itself, this assumes the dominoes it
-        is given are standing. Reading a toppled domino's pose back into
-        the twin is not modeled by these primitives.
+        Knocked-over dominoes are read back as knocked over: the
+        perceived orientation becomes the env's ``(yaw, roll)`` pair, and
+        ``roll`` is the very feature ``Toppled`` is defined on. This is
+        the point of looking mid-episode -- the twin's guess about which
+        dominoes a cascade felled is exactly what perception is there to
+        correct.
         """
         comp = self._domino_component
         assert comp is not None, "env has no domino component"
         state = prev_state.copy()
         for pd in self._perceived_from_observation(obs):
             world = pose_base_to_world(pd.pose_base, self._z_off)
+            roll, yaw = self._env_angles(world, pd.capture_id)
             dom = comp.dominos[pd.slot]
             state.set(dom, "x", world.xyz[0])
             state.set(dom, "y", world.xyz[1])
             state.set(dom, "z", world.xyz[2])
-            state.set(dom, "yaw", domino_upright_yaw(world))
-            state.set(dom, "roll", 0.0)
+            state.set(dom, "yaw", yaw)
+            state.set(dom, "roll", roll)
         return state

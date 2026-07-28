@@ -15,10 +15,12 @@ import of it here is inside a function body, so ``import predicators.envs``
 keeps working without it and a missing submodule surfaces as one clear error at
 the moment someone actually asks for real-robot execution.
 
-Scope: open-loop execution. The caller rolls a plan out in sim, buffers the
-joint-target actions, and hands them to ``execute_actions``, which splits them
-into move / gripper segments and ships them as a single chunk with no
-observation requested.
+Scope: turning buffered actions into robot traffic. The caller rolls a plan out
+in sim, buffers the joint-target actions, and hands them to ``execute_chunks``,
+which splits each chunk into move / gripper segments and ships them. A chunk is
+one unit of "execute this, then optionally look". Deciding *when* to ship, and
+what to do with any observation that comes back, belongs to the caller --
+``RealWorldEnv``.
 """
 from __future__ import annotations
 
@@ -128,49 +130,34 @@ def reset_arm(robot: "RealRobot", joints: Sequence[float]) -> Sequence[float]:
     return reply.joints
 
 
-def execute_actions(robot: "RealRobot", actions: Sequence[Action],
-                    layout: GripperJointLayout) -> None:
-    """Split buffered joint-target actions into move / gripper segments and
-    execute them on the robot (blocking).
+def execute_chunks(robot: "RealRobot",
+                   chunks: Sequence[Sequence[Action]],
+                   layout: GripperJointLayout,
+                   observe: bool = False,
+                   settle_s: float = 0.0) -> List[Any]:
+    """Split each chunk of buffered actions into move / gripper segments and
+    execute the chunks in order (blocking).
 
-    Open-loop: the whole buffer ships as ONE chunk and no observation is
-    requested, so the caller's world state stays the sim's prediction.
+    One chunk is one unit of "execute this, then optionally look": with
+    ``observe`` the reply carries one observation per chunk, which is
+    how the real-world wrapper gets a look at the bench per option.
+    Open-loop execution passes a single chunk and ``observe=False``, so
+    the caller's world state stays the sim's prediction.
+
+    Chunks that split into no segments are dropped rather than shipped,
+    so an empty chunk cannot silently consume one of the observations
+    the caller is about to zip against its chunks.
     """
     # pylint: disable=import-outside-toplevel,import-error
     from babyrobot.realrobot.messages import StepRequest
-    segments = _split_actions(actions, layout)
-    if not segments:
-        return
-    robot.step(StepRequest(chunks=(tuple(segments), ), observe=False))
-
-
-class _NoOption:
-    """Sentinel for "this action carries no option"; never equal to one."""
-
-
-_NO_OPTION = _NoOption()
-
-
-def split_actions_by_option(actions: Sequence[Action]) -> List[List[Action]]:
-    """Group a buffered episode into one chunk of actions per option.
-
-    Consecutive actions carrying the same option object form one chunk;
-    an action with no option gets a chunk of its own, since there is no
-    option boundary to attribute it to. This is the chunking the real-
-    world wrapper needs in order to ask for one observation per option
-    boundary; open-loop execution ships a single chunk instead.
-    """
-    chunks: List[List[Action]] = []
-    prev: Any = _NO_OPTION
-    for action in actions:
-        cur: Any = action.get_option() if action.has_option() else _NO_OPTION
-        # `is not`, not `!=`: two Pick options with identical parameters are
-        # still two separate rollouts, and each is its own boundary.
-        if not chunks or cur is _NO_OPTION or cur is not prev:
-            chunks.append([])
-        chunks[-1].append(action)
-        prev = cur
-    return chunks
+    segmented = [_split_actions(actions, layout) for actions in chunks]
+    request_chunks = tuple(
+        tuple(segments) for segments in segmented if segments)
+    if not request_chunks:
+        return []
+    reply = robot.step(
+        StepRequest(chunks=request_chunks, observe=observe, settle_s=settle_s))
+    return list(reply.observations)
 
 
 def _split_actions(actions: Sequence[Action],
