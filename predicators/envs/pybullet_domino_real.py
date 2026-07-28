@@ -3,8 +3,10 @@ Franka robot."""
 from __future__ import annotations
 
 import json
+import logging
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pybullet as p
@@ -19,10 +21,37 @@ from predicators.envs.pybullet_domino.real_geometry import Pose6D, \
 from predicators.pybullet_helpers.objects import create_object, \
     create_pybullet_block
 from predicators.pybullet_helpers.real_robot_bridge import execute_actions, \
-    gripper_joint_layout_from_robot, make_real_robot, reset_arm
+    make_real_robot, reset_arm
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, \
-    Observation
+    Observation, State
+
+
+def _base_pose(xyz: Sequence[float], quat_xyzw: Sequence[float]) -> Pose6D:
+    """Base-frame ``Pose6D`` from loose sequences.
+
+    Unpacking is the length check: a capture record or observation with
+    the wrong number of components fails here rather than silently
+    producing a malformed pose.
+    """
+    x, y, z = (float(v) for v in xyz)
+    qx, qy, qz, qw = (float(v) for v in quat_xyzw)
+    return Pose6D((x, y, z), (qx, qy, qz, qw))
+
+
+@dataclass(frozen=True)
+class _PerceivedDomino:
+    """One domino as perceived, normalized from either source.
+
+    A scene-JSON record and a live ``DominoObservation`` entry carry the
+    same content under different field names, so both are converted to
+    this before anything else happens. ``slot`` is the index into the
+    env's domino component; ``pose_base`` is in the robot base frame.
+    """
+    slot: int
+    capture_id: int
+    pose_base: Pose6D
+    role: str
 
 
 class PyBulletDominoRealEnv(PyBulletDominoEnv):
@@ -120,8 +149,8 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
         actions, self._action_buffer = self._action_buffer, []
         if actions and CFG.real_robot_execute:
             assert self._real_robot is not None
-            layout = gripper_joint_layout_from_robot(self._pybullet_robot)
-            execute_actions(self._real_robot, actions, layout)
+            execute_actions(self._real_robot, actions,
+                            self.gripper_joint_layout())
 
     # -- geometry + pybullet build + decoration -----------------------------
     @classmethod
@@ -205,22 +234,29 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
 
     # -- roles --------------------------------------------------------------
     @staticmethod
-    def _domino_role(d: Dict[str, Any]) -> str:
-        """Role ('start' / 'target' / 'movable') for a scene domino.
+    def _role_for_capture_id(capture_id: int) -> str:
+        """Role keyed by capture id alone.
 
-        Prefers an explicit ``role`` field if the scene carries one; raw
-        capture JSONs (``reconstruct_dominoes_markers.py`` output) do
-        not, so they are keyed by domino ``id`` via
-        ``CFG.domino_real_{start,target}_id`` and everything else is
-        ``movable``.
+        Raw capture JSONs and live observations both carry ids but no
+        roles, so ``CFG.domino_real_{start,target}_id`` names the green
+        start and the purple target; everything else is a movable blue.
         """
-        if "role" in d:
-            return d["role"]
-        if d["id"] == CFG.domino_real_start_id:
+        if capture_id == CFG.domino_real_start_id:
             return "start"
-        if d["id"] == CFG.domino_real_target_id:
+        if capture_id == CFG.domino_real_target_id:
             return "target"
         return "movable"
+
+    @classmethod
+    def _domino_role(cls, d: Dict[str, Any]) -> str:
+        """Role ('start' / 'target' / 'movable') for a scene domino.
+
+        Prefers an explicit ``role`` field if the scene carries one,
+        otherwise falls back to the id keying above.
+        """
+        if "role" in d:
+            return str(d["role"])
+        return cls._role_for_capture_id(int(d["id"]))
 
     # -- component sizing + dims --------------------------------------------
     @classmethod
@@ -259,28 +295,119 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
     def _generate_test_tasks(self) -> List[EnvironmentTask]:
         return [self._build_task_from_scene()]
 
-    def _build_task_from_scene(self) -> EnvironmentTask:
-        """Build the reconstructed-scene task with attached pybullet state.
+    # -- perception -> State / Task -----------------------------------------
+    # ONE conversion, three callers: the captured scene JSON, a live
+    # observation building a fresh task, and a live observation correcting an
+    # existing state. Both sources are first normalized to _PerceivedDomino.
+    #
+    # These are pure conversions: no hardware, no I/O beyond reading the scene
+    # file, and no notion of a robot. The real-world wrapper calls them.
 
-        Places each perceived domino at its transplanted world (x, y)
-        with the upright heading, colored by role (green=start,
-        purple=target, blue=movable) via the component's
-        ``place_domino``. Goal = Toppled(target), matching the base
-        ``pybullet_domino`` env's default atom-set goal reward.
+    def _slot_for_capture_id(self, capture_id: int) -> Optional[int]:
+        """Component slot holding the domino with this capture id.
+
+        Dominoes are placed in scene order, so slot i holds capture id
+        ``self._scene_ids[i]``. An id the scene never had is dropped.
         """
-        scene_path = CFG.domino_real_scene
-        z_off = self._z_off
-        with open(scene_path, encoding="utf-8") as f:
-            scene = json.load(f)
-        dominoes = scene["dominoes"]
+        try:
+            return self._scene_ids.index(int(capture_id))
+        except ValueError:
+            logging.warning(
+                "pybullet_domino_real: ignoring domino id %s, which is not "
+                "in the scene %s", capture_id, self._scene_ids)
+            return None
 
+    def _perceived_from_scene(
+            self, records: List[Dict[str, Any]]) -> List[_PerceivedDomino]:
+        """Normalize scene-JSON records."""
+        perceived = []
+        for d in records:
+            slot = self._slot_for_capture_id(int(d["id"]))
+            if slot is None:
+                continue
+            pose = _base_pose(d["center_base_m"], d["quat_base_xyzw"])
+            perceived.append(
+                _PerceivedDomino(slot=slot,
+                                 capture_id=int(d["id"]),
+                                 pose_base=pose,
+                                 role=self._domino_role(d)))
+        return perceived
+
+    def _perceived_from_observation(self, obs: Any) -> List[_PerceivedDomino]:
+        """Normalize a ``DominoObservation`` captured from the real scene.
+
+        Duck-typed deliberately: this reads ``obs.dominoes`` and each
+        entry's ``id`` / ``xyz`` / ``quat_xyzw``, so the env imports no
+        babyrobot and the conversion stays testable against a plain
+        stub.
+        """
+        perceived = []
+        for d in obs.dominoes:
+            slot = self._slot_for_capture_id(int(d.id))
+            if slot is None:
+                continue
+            pose = _base_pose(d.xyz, d.quat_xyzw)
+            perceived.append(
+                _PerceivedDomino(slot=slot,
+                                 capture_id=int(d.id),
+                                 pose_base=pose,
+                                 role=self._role_for_capture_id(int(d.id))))
+        return perceived
+
+    @staticmethod
+    def _canonical_start_yaw(
+            yaw: float, world: Pose6D, push_dir_world: Optional[Tuple[float,
+                                                                      float]],
+            target_xy: Optional[Tuple[float, float]]) -> float:
+        """Flip the START domino's yaw to face the direction it must topple.
+
+        A domino is 180-degree symmetric, so perception's yaw branch is
+        arbitrary; the single push has to go the intended way. The
+        desired direction is an explicit ``start_push_dir_base`` when
+        the scene gives one, else the default "toward the target".
+        """
+        pdir = push_dir_world
+        if pdir is None and target_xy is not None:
+            pdir = (target_xy[0] - world.xyz[0], target_xy[1] - world.xyz[1])
+        if pdir is None:
+            return yaw
+        fx, fy = math.sin(yaw), math.cos(yaw)
+        if fx * pdir[0] + fy * pdir[1] < 0.0:
+            return math.atan2(-fx, -fy)  # flip 180 to face the push dir
+        return yaw
+
+    def _init_state_from_perceived(
+            self,
+            perceived: List[_PerceivedDomino],
+            push_dir_base: Optional[Sequence[float]] = None) -> State:
+        """Initial ``State`` for a task built from perceived dominoes.
+
+        Places each domino at its transplanted world (x, y) with the
+        upright heading, colored by role (green=start, purple=target,
+        blue=movable) via the component's ``place_domino``.
+        """
         comp = self._domino_component
         assert comp is not None, "env has no domino component"
-        assert len(dominoes) <= len(comp.dominos), \
-            f"scene has {len(dominoes)} dominoes but only " \
+        assert len(perceived) <= len(comp.dominos), \
+            f"perceived {len(perceived)} dominoes but only " \
             f"{len(comp.dominos)} slots"
 
-        init_dict = {}
+        worlds = {
+            pd.slot: pose_base_to_world(pd.pose_base, self._z_off)
+            for pd in perceived
+        }
+        target_xy = next(((worlds[pd.slot].xyz[0], worlds[pd.slot].xyz[1])
+                          for pd in perceived if pd.role == "target"), None)
+
+        # Optional per-scene override of the start domino's push direction,
+        # given in the base frame as [dx, dy]; transplanted to world
+        # (base->world is a +pi/2 z-rotation, so (dx, dy) -> (-dy, dx)).
+        push_dir_world = None
+        if push_dir_base is not None:
+            push_dir_world = (-float(push_dir_base[1]),
+                              float(push_dir_base[0]))
+
+        init_dict: Dict[Any, Dict[str, float]] = {}
         # Robot: env home (bench geometry already applied to the ClassVars).
         init_dict[self._robot] = {
             "x": self.robot_init_x,
@@ -292,63 +419,36 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
             "wrist": self.robot_init_wrist,
         }
 
-        # First pass: transplant each perceived pose into the world frame, and
-        # note the target (purple) position for the start's default push dir.
-        worlds = [
-            pose_base_to_world(
-                Pose6D(
-                    tuple(d["center_base_m"]),  # type: ignore[arg-type]
-                    tuple(float(v) for v in
-                          d["quat_base_xyzw"]),  # type: ignore[arg-type]
-                ),
-                z_off) for d in dominoes
-        ]
-        target_xy = next(((w.xyz[0], w.xyz[1])
-                          for d, w in zip(dominoes, worlds)
-                          if self._domino_role(d) == "target"), None)
-
-        # Optional per-scene override of the start domino's push direction,
-        # given in the base frame as [dx, dy]; transplanted to world
-        # (base->world is a +pi/2 z-rotation, so (dx, dy) -> (-dy, dx)).
-        # Absent -> default below.
-        push_dir_world = None
-        spd = scene.get("start_push_dir_base")
-        if spd is not None:
-            push_dir_world = (-float(spd[1]), float(spd[0]))
-
-        for i, (d, world) in enumerate(zip(dominoes, worlds)):
-            role = self._domino_role(d)
+        for pd in perceived:
+            world = worlds[pd.slot]
             yaw = domino_upright_yaw(world)
-            # Canonicalize the START domino's yaw so its single push topples it
-            # in the intended direction (a domino is 180-deg symmetric, so
-            # perception's yaw branch is arbitrary); flip by pi if its push
-            # facing points away from the desired direction -- an explicit
-            # start_push_dir_base if given, else the DEFAULT "toward the
-            # target".
-            if role == "start":
-                pdir = push_dir_world
-                if pdir is None and target_xy is not None:
-                    pdir = (target_xy[0] - world.xyz[0],
-                            target_xy[1] - world.xyz[1])
-                if pdir is not None:
-                    fx, fy = math.sin(yaw), math.cos(yaw)
-                    if fx * pdir[0] + fy * pdir[1] < 0.0:
-                        yaw = math.atan2(-fx, -fy)  # flip 180 to face push dir
-
-            entry = comp.place_domino(i,
+            if pd.role == "start":
+                yaw = self._canonical_start_yaw(yaw, world, push_dir_world,
+                                                target_xy)
+            entry = comp.place_domino(pd.slot,
                                       world.xyz[0],
                                       world.xyz[1],
                                       yaw,
-                                      is_start_block=(role == "start"),
-                                      is_target_block=(role == "target"))
+                                      is_start_block=(pd.role == "start"),
+                                      is_target_block=(pd.role == "target"))
             # Perceived world (x, y, z), (canonicalized) upright heading, roll
             # flat. Keep place_domino's role color / is_held; override the pose.
             entry["x"], entry["y"], entry["z"] = world.xyz
             entry["yaw"] = yaw
             entry["roll"] = 0.0
-            init_dict[comp.dominos[i]] = entry
+            init_dict[comp.dominos[pd.slot]] = entry
 
-        init_state = utils.create_state_from_dict(init_dict)
+        return utils.create_state_from_dict(init_dict)
+
+    def _task_from_perceived(
+            self,
+            perceived: List[_PerceivedDomino],
+            push_dir_base: Optional[Sequence[float]] = None
+    ) -> EnvironmentTask:
+        """Task (init state + goal) for a set of perceived dominoes."""
+        init_state = self._init_state_from_perceived(perceived, push_dir_base)
+        comp = self._domino_component
+        assert comp is not None, "env has no domino component"
 
         # Goal: topple the purple (target) domino(s). With
         # domino_use_domino_blocks_as_target, Toppled is typed on domino_type
@@ -358,7 +458,7 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
             if comp._TargetDomino_holds(  # pylint: disable=protected-access
                     init_state, [dom]):
                 goal_atoms.add(GroundAtom(comp.Toppled, [dom]))
-        assert len(goal_atoms) >= 1, "no purple target domino found in scene"
+        assert len(goal_atoms) >= 1, "no purple target domino found"
 
         goal_nl = (
             "Move the blue dominoes such that when the green domino is pushed, "
@@ -366,3 +466,61 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
             "purple domino yourself.")
         task = EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl)
         return self._add_pybullet_state_to_tasks([task])[0]
+
+    def _build_task_from_scene(self) -> EnvironmentTask:
+        """Build the captured-scene task with attached pybullet state."""
+        with open(CFG.domino_real_scene, encoding="utf-8") as f:
+            scene = json.load(f)
+        return self._task_from_perceived(
+            self._perceived_from_scene(scene["dominoes"]),
+            scene.get("start_push_dir_base"))
+
+    def task_from_observation(self,
+                              obs: Any,
+                              train_or_test: str = "test") -> EnvironmentTask:
+        """Build a task from a live observation of the real scene.
+
+        Same conversion as the captured scene, plus goal semantics. This
+        env's goal does not depend on ``train_or_test`` -- both generate
+        the same "topple the purple domino" task -- but the argument is
+        part of the hook the real-world wrapper calls, since another
+        environment's might.
+
+        A live observation carries no ``start_push_dir_base``, so the
+        start domino's yaw is canonicalized toward the target.
+        """
+        del train_or_test  # same goal either way for this env
+        return self._task_from_perceived(self._perceived_from_observation(obs))
+
+    def state_from_observation(self, obs: Any, prev_state: State) -> State:
+        """Correct ``prev_state`` with what the cameras just saw.
+
+        Only the dominoes the observation names are rewritten. Every
+        other domino keeps its last known pose, and the robot's entry --
+        including the joint positions in ``simulator_state``, which
+        ``_set_state`` needs to avoid re-deriving the arm by IK -- is
+        carried forward untouched. Observations carry no visibility flag
+        by design, so "absent means unchanged" is the policy, and it
+        lives here where it can be tested.
+
+        The start domino's yaw is NOT canonicalized here. That flip
+        exists to orient the opening push, so it belongs to building a
+        task's initial state; mid-episode the start domino may already
+        have been pushed, and re-canonicalizing would fight reality.
+
+        Like ``domino_upright_yaw`` itself, this assumes the dominoes it
+        is given are standing. Reading a toppled domino's pose back into
+        the twin is not modeled by these primitives.
+        """
+        comp = self._domino_component
+        assert comp is not None, "env has no domino component"
+        state = prev_state.copy()
+        for pd in self._perceived_from_observation(obs):
+            world = pose_base_to_world(pd.pose_base, self._z_off)
+            dom = comp.dominos[pd.slot]
+            state.set(dom, "x", world.xyz[0])
+            state.set(dom, "y", world.xyz[1])
+            state.set(dom, "z", world.xyz[2])
+            state.set(dom, "yaw", domino_upright_yaw(world))
+            state.set(dom, "roll", 0.0)
+        return state
