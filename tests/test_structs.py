@@ -1501,3 +1501,29 @@ def test_macros():
     assert len(remainder) == 0
     ground_macro4 = GroundMacro.from_ground_nsrts(ground_macro2.ground_nsrts)
     assert ground_macro4 == ground_macro2
+
+
+def test_typed_entity_pickle_drops_cached_hash():
+    """Objects pickle without their cached ``_hash``/``_str``.
+
+    ``_hash`` caches ``hash(str(self))``, and string hashes are salted
+    per process (PYTHONHASHSEED): carrying the cache across processes
+    made every ``State.data`` lookup on unpickled objects miss its dict
+    bucket (KeyError on ``fit_data`` pickles loaded offline). Both
+    directions are covered: fresh pickles omit the cache, and legacy
+    payloads that baked one in are scrubbed on load.
+    """
+    import pickle  # pylint: disable=import-outside-toplevel
+    obj = Type("ball", ["x"])("ball0")
+    str(obj), hash(obj)  # warm the cached properties
+    assert "_hash" in obj.__dict__ and "_str" in obj.__dict__
+    loaded = pickle.loads(pickle.dumps(obj))
+    assert "_hash" not in loaded.__dict__
+    assert "_str" not in loaded.__dict__
+    assert loaded == obj
+    assert hash(loaded) == hash(obj)
+    # Legacy payload: a stale cache in the pickled dict is dropped.
+    stale = pickle.loads(pickle.dumps(obj))
+    stale.__setstate__({"_hash": 12345, "_str": "bogus"})
+    assert "_hash" not in stale.__dict__
+    assert "_str" not in stale.__dict__
