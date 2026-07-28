@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 _FLAT_EDGE_Z_TOL = 1e-3
 
 
-def _grid_candidates(spec: ParamSpec, num_points: int) -> np.ndarray:
+def grid_candidates(spec: ParamSpec, num_points: int) -> np.ndarray:
     """Sweep values across ``spec``'s box, evenly spaced in its FIT space.
 
     Linear params get ``linspace``; log params get ``geomspace`` — equal
@@ -250,7 +250,7 @@ def _grid_seed_physical_specs(
         for spec in physical_specs:
             assert spec.lo is not None and spec.hi is not None, \
                 "Grid seeding needs bounded physical params."
-            values = [float(v) for v in _grid_candidates(spec, num_points)]
+            values = [float(v) for v in grid_candidates(spec, num_points)]
             values += [
                 float(spec.init_value), anchor_of[spec.name],
                 current[spec.name]
@@ -401,7 +401,7 @@ def min_explainable_fits(
     if num_points > 0:
         for spec in physical_specs:
             assert spec.lo is not None and spec.hi is not None
-            for val in _grid_candidates(spec, num_points):
+            for val in grid_candidates(spec, num_points):
                 cand = dict(base)
                 cand[spec.name] = float(val)
                 candidates.append(cand)

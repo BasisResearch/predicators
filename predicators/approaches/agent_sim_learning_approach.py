@@ -892,6 +892,14 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # against. Without this the probe is silently unavailable in the
         # sandbox and captures are accepted on the pure rules only.
         model.sim_env = self._base_env
+        # Belief-side verdicts predict the real evaluator, so the
+        # certificate's verification replay must run the agent's FULL
+        # current model (base sim + these rules), not a rules-free base
+        # sim: at miscalibrated base physics a rules-free replay
+        # rejected every legitimate relay and taught the agent a
+        # phantom task rule (run_20260727_210818 seed2).
+        self._base_env.probe_process_model_factory = \
+            self._make_probe_process_model_factory()
         if CFG.wait_option_terminate_on_atom_change:
             model._abstract_function = (  # pylint: disable=protected-access
                 lambda s: utils.abstract(s, self._get_all_predicates()))
@@ -1957,22 +1965,29 @@ re-score.{probe_note}"""
                  for n in physical_names})
             return result, float("nan")
 
-        outcome = run_rollout_sysid(fit_env,
-                                    rollouts,
-                                    physical_specs,
-                                    process_features,
-                                    rules=rules,
-                                    rule_specs=rule_specs,
-                                    latent_init=self._latent_init,
-                                    anchors=anchors,
-                                    rms_cache=self._explainability_cache,
-                                    report_adjuster=lambda result, report:
-                                    (self._check_cross_cycle_consistency(
-                                        result, report, physical_names)),
-                                    held={
-                                        **self._identified_physical_params,
-                                        **self._cycle_applied_physical
-                                    })
+        # The adjuster's third argument is the fit's own SSE-at-theta
+        # probe (survivor set + shared scaling - the objective the fit
+        # minimized), which the cross-cycle consistency check uses to
+        # arbitrate flagged jumps on evidence. Deliberately NOT a
+        # full-set SSE: trimmed (unexplainable) segments would add the
+        # same large error to both candidates and dilute the ratio.
+        outcome = run_rollout_sysid(
+            fit_env,
+            rollouts,
+            physical_specs,
+            process_features,
+            rules=rules,
+            rule_specs=rule_specs,
+            latent_init=self._latent_init,
+            anchors=anchors,
+            rms_cache=self._explainability_cache,
+            report_adjuster=lambda result, report, sse_fn:
+            (self._check_cross_cycle_consistency(
+                result, report, physical_names, pooled_sse=sse_fn)),
+            held={
+                **self._identified_physical_params,
+                **self._cycle_applied_physical
+            })
         if outcome.num_survivors == 0:
             # NO fit ran (the result is pinned at the declared inits).
             # Apply nothing: the planner keeps its standing belief -
@@ -2011,9 +2026,13 @@ re-score.{probe_note}"""
                                        len(rollouts), outcome.traj_rms)
         return outcome.fit_result, outcome.post_sse
 
-    def _check_cross_cycle_consistency(self, result: FitResult,
-                                       report: Dict[str, Dict[str, Any]],
-                                       physical_names: Sequence[str]) -> None:
+    def _check_cross_cycle_consistency(
+        self,
+        result: FitResult,
+        report: Dict[str, Dict[str, Any]],
+        physical_names: Sequence[str],
+        pooled_sse: Optional[Callable[[Dict[str, float]],
+                                      float]] = None) -> None:
         """Flag params whose confident MAP jumped since the previous cycle.
 
         The curvature probe measures local *precision*: a biased
@@ -2032,6 +2051,22 @@ re-score.{probe_note}"""
         restitution 0.71 -> 0.52 -> 0.02 -> 0.32 -> 0.02). History
         records only these final per-cycle fits, not the agent's
         in-session tool fits, whose param sets churn.
+
+        Sigma distance alone cannot tell a real correction from probe
+        churn, and successive cycle fits are NOT independent equals:
+        the new fit minimized the objective over a superset of the old
+        fit's data. So before holding, a flagged jump is arbitrated on
+        evidence via ``pooled_sse`` (the fit's own SSE-at-theta probe
+        over its surviving segments - the objective it minimized):
+        when the held value explains that data decisively worse than
+        the new fit
+        (``CFG.code_sim_learning_rollout_consistency_sse_ratio``), the
+        jump is accepted. Without a decisive gap the hold stands
+        (run_20260724_232411-style subset disagreement stays held +
+        hull-swept). Motivated by run_20260727_210827 seed1: a sharp
+        but biased 2-trajectory cycle-0 fit (0.9313, true 0.5) was held
+        over the 4-trajectory refit (0.4748, pooled SSE 0.14 vs ~4.4)
+        for the rest of the run.
         """
         k = CFG.code_sim_learning_rollout_cross_cycle_sigma
         fitted = result.point_estimate
@@ -2075,6 +2110,13 @@ re-score.{probe_note}"""
                                 "accepting the new value.", name, value,
                                 pending[0])
                             self._sysid_pending_fit.pop(name, None)
+                        elif self._arbitrate_cross_cycle_jump(
+                                name, fitted, prev_val, pooled_sse):
+                            # Pooled evidence decisively prefers the
+                            # new fit over the held value (the helper
+                            # logs the SSE gap); accept it now instead
+                            # of waiting a cycle for confirmation.
+                            self._sysid_pending_fit.pop(name, None)
                         else:
                             flagged = True
                             logger.warning(
@@ -2113,6 +2155,48 @@ re-score.{probe_note}"""
                 continue
             self._sysid_pending_fit.pop(name, None)
             self._sysid_fit_history[name] = (value, post, scale)
+
+    @staticmethod
+    def _arbitrate_cross_cycle_jump(
+            name: str, fitted: Dict[str, float], prev_val: float,
+            pooled_sse: Optional[Callable[[Dict[str, float]], float]]) -> bool:
+        """Settle a flagged cross-cycle jump by pooled-data evidence.
+
+        Evaluates ``pooled_sse`` (the fit's own objective over its
+        surviving segments) under the new joint fit and under the same
+        fit with ``name`` swapped back to the held value. Returns True
+        (accept the jump) only when the held
+        value's explanation is decisively worse - at least
+        ``CFG.code_sim_learning_rollout_consistency_sse_ratio`` times
+        the new fit's SSE. Anything short of decisive (including an SSE
+        evaluation failure) returns False and leaves the hold-and-
+        hull-sweep behavior in charge.
+        """
+        ratio = CFG.code_sim_learning_rollout_consistency_sse_ratio
+        if pooled_sse is None or ratio <= 0:
+            return False
+        try:
+            sse_new = pooled_sse(dict(fitted))
+            held_theta = dict(fitted)
+            held_theta[name] = prev_val
+            sse_held = pooled_sse(held_theta)
+        except Exception:  # pylint: disable=broad-except
+            logger.warning(
+                "Rollout sysID cross-cycle arbitration: pooled SSE "
+                "evaluation failed for %s; holding the trusted value.",
+                name,
+                exc_info=True)
+            return False
+        if not (np.isfinite(sse_new) and np.isfinite(sse_held)):
+            return False
+        decisive = sse_held > ratio * sse_new
+        logger.info(
+            "Rollout sysID cross-cycle arbitration: %s pooled SSE %.4g at "
+            "the new fit %.4g vs %.4g at the held value %.4g - %s.", name,
+            sse_new, fitted[name], sse_held, prev_val,
+            ("decisively better, accepting the jump"
+             if decisive else "not decisive, holding"))
+        return decisive
 
     def _record_sysid_diagnostics(self, report: Dict[str, Dict[str, Any]],
                                   physical_names: Sequence[str],
@@ -2617,7 +2701,7 @@ rules own, the latent structure, and whether disclosed base-sim \
 parameters should be identified - rather than only tuning what exists. \
 In particular, if the trajectory roster shows goal-reaching episodes \
 scored solved=0, suspect a structural modeling error (e.g. mis-calibrated \
-base physics, which no rule change can fix downstream), not just \
+base physics that your rules only paper over near the fit data), not just \
 parameter values. Earlier versions are in `./simulator_versions/` and \
 `./predicates_versions/` (named `cycle_XXX_vers_YYY_*.py`); \
 cross-reference the trajectory roster's provenance tags against those \
@@ -2753,6 +2837,9 @@ files to see exactly which rules and predicates produced each failed plan.
         if self._option_model is not None and \
                 getattr(self._option_model, "sim_env", None) is not None:
             self._option_model.sim_env = self._base_env
+        # The probe's combined substrate rides on the env instance too.
+        self._base_env.probe_process_model_factory = \
+            self._make_probe_process_model_factory()
 
     @contextmanager
     def _fresh_validation_env_scope(
@@ -2801,6 +2888,10 @@ files to see exactly which rules and predicates produced each failed plan.
         prev_sim = getattr(model, "_simulator", None)
         rebind_sim = getattr(prev_sim, "__self__", None) is prev_env
         prev_sim_env = getattr(model, "sim_env", None)
+        # Certificate probes on the fresh env must judge on the same
+        # combined substrate as the shared env's probes.
+        fresh.probe_process_model_factory = getattr(
+            prev_env, "probe_process_model_factory", None)
         self._base_env = fresh
         if rebind_sim:
             model._simulator = fresh.simulate  # pylint: disable=protected-access
@@ -2883,6 +2974,58 @@ files to see exactly which rules and predicates produced each failed plan.
             return merge_updates(base_state, updates)
 
         return combined_simulate
+
+    def _make_probe_process_model_factory(
+            self) -> Optional[Callable[[], Callable[[State, Action], State]]]:
+        """Per-replay process-model steppers for certificate probes.
+
+        Stamped on the belief env as
+        ``BaseEnv.probe_process_model_factory`` so physics-replaying
+        task-evaluator certificates judge plans on the same combined
+        substrate the option model plans on (see
+        :meth:`_build_combined_simulator`): each probe attempt gets a
+        fresh stepper that applies the current rules to every post-step
+        state (threading a fresh latent for recurrent rules, like
+        :meth:`_build_latent_combined_simulator` does per plan step).
+        Reads the live ``self._fitted_params`` dict so in-session
+        ``sim.fit`` updates reach the probe, matching the combined
+        simulator's closure. Returns None (probe stays base-only) until
+        rules exist. Limitation: process features the env cannot
+        round-trip through ``_set_state`` (hidden-derived, e.g. a
+        ``bubbling_level``) are not restored inside the probe replay -
+        no env with a physics-replaying certificate declares any today.
+        """
+        rules = getattr(self, "_process_rules", None)
+        if not rules:
+            return None
+        params = self._fitted_params
+        if has_latent_rules(rules):
+            latent_init = self._latent_init
+
+            def make_latent_stepper() -> Callable[[State, Action], State]:
+                latent = init_latent(latent_init, params)
+
+                def step(state: State, action: Action) -> State:
+                    history: List[Tuple[State,
+                                        Optional[Action]]] = [(state, action)]
+                    updates = apply_rules_with_latent(state, latent, history,
+                                                      rules, params)
+                    return merge_updates(state, updates) if updates else state
+
+                return step
+
+            return make_latent_stepper
+
+        def make_stepper() -> Callable[[State, Action], State]:
+
+            def step(state: State, action: Action) -> State:
+                del action  # 3-arg rules read only the state
+                updates = apply_rules(state, rules, params)
+                return merge_updates(state, updates) if updates else state
+
+            return step
+
+        return make_stepper
 
     def _build_synthesis_system_prompt(self) -> str:
         """Render the synthesis system prompt from the module template.
@@ -2970,11 +3113,28 @@ files to see exactly which rules and predicates produced each failed plan.
             "",
             "Guidance:",
             "",
+            "- **This decision requires open-loop evidence - in either "
+            "direction.** Per-step (teacher-forced) residuals CANNOT "
+            "rule a mis-set physical parameter in or out: they predict "
+            "each step from the RECORDED state, so compounding "
+            "divergence - exactly how a wrong friction or mass "
+            "manifests - is invisible to them. Near-zero per-step "
+            "residuals are fully compatible with rollouts that are "
+            "hundreds of times worse than at the correct value. Before "
+            "deciding, run `sim.residuals(rollout=True)`: it replays "
+            "the recorded trajectories free-running and sweeps each "
+            "parameter above across its box. Declare a parameter whose "
+            "sweep is materially better away from the baseline; a flat "
+            "sweep is honest evidence the data cannot constrain it. "
+            "Omitting PHYSICAL_PARAMS is justified by a flat rollout "
+            "sweep, never by small per-step residuals.",
             "- **Undeclared parameters keep their built-in values in "
-            "every base-sim rollout** - including checks that "
-            "re-simulate the scene in the base sim WITHOUT your rules "
-            "(e.g. an evaluator's verification replay deciding what "
-            "counts as a SOLVE).",
+            "every base-sim rollout** - including an evaluator's "
+            "verification replay deciding what counts as a SOLVE. Your "
+            "rules ride on top of the base sim everywhere, but rules "
+            "fit to observed data can only compensate for a mis-set "
+            "built-in value near that data; identifying the parameter "
+            "fixes the substrate itself.",
             "- **Start with ONE parameter** - the single one with a "
             "physical story for the observed residual (e.g. cascades "
             "stopping short of the sim's prediction implicates sliding "

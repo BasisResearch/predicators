@@ -103,7 +103,10 @@ def test_run_rollout_sysid_fit_cache_and_report_isolation():
     # A cached call with a caller-local adjuster (the cross-cycle
     # INCONSISTENT demotion) changes ITS selection only - the cached
     # report and earlier outcomes are untouched (deep copy).
-    def demote(_result, report):
+    def demote(_result, report, sse_fn):
+        # The fit's own SSE probe rides along even on cache hits (the
+        # cross-cycle arbitration needs it); sanity-check it is live.
+        assert sse_fn is not None and np.isfinite(sse_fn({"gain": 1.0}))
         report["gain"]["verdict"] = Verdict.INCONSISTENT
         report["gain"]["note"] = "test demotion"
 
