@@ -43,8 +43,14 @@ from predicators.code_sim_learning.trajectory_prep import \
 logger = logging.getLogger(__name__)
 
 # A report adjuster mutates the report in place (e.g. the approach's
-# cross-cycle consistency check) before trust selection reads it.
-ReportAdjuster = Callable[[FitResult, Dict[str, Dict[str, Any]]], None]
+# cross-cycle consistency check) before trust selection reads it. Its
+# third argument is the fit's own SSE-at-theta probe (survivor set +
+# shared scaling - the objective the fit minimized), None when no fit
+# ran; the cross-cycle arbitration uses it to settle flagged jumps on
+# evidence.
+SseFn = Callable[[Dict[str, float]], float]
+ReportAdjuster = Callable[
+    [FitResult, Dict[str, Dict[str, Any]], Optional[SseFn]], None]
 
 
 @dataclass
@@ -81,6 +87,11 @@ class _FitComputation:
     hull_candidates: List[Dict[str, float]] = field(default_factory=list)
     pre_sse: float = float("nan")
     post_sse: float = float("nan")
+    # SSE of an arbitrary joint theta on the fit's surviving segments
+    # with the fit's own scaling (the closure identifiability_report
+    # consumed); None when no fit ran. Cache-safe: it closes over the
+    # env FACTORY and the survivor list, both stable per cache key.
+    sse_fn: Optional[SseFn] = None
 
 
 def run_rollout_sysid(
@@ -160,7 +171,7 @@ def run_rollout_sysid(
     applied: Dict[str, float] = {}
     if core.num_survivors > 0:
         if report_adjuster is not None:
-            report_adjuster(core.fit_result, report)
+            report_adjuster(core.fit_result, report, core.sse_fn)
         applied = select_trustworthy_params(fitted,
                                             init_params,
                                             physical_names,
@@ -305,4 +316,5 @@ def _compute_fit(
                            traj_rms=list(rms),
                            hull_candidates=list(hull_candidates),
                            pre_sse=pre_sse,
-                           post_sse=post_sse)
+                           post_sse=post_sse,
+                           sse_fn=rollout_sse_fn)

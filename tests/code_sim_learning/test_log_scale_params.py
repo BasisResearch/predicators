@@ -17,7 +17,7 @@ from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
     fit_space_bounds, from_fit_space, prior_widths, rows_from_fit_space, \
     to_fit_space
-from predicators.code_sim_learning.grid_seed import _grid_candidates
+from predicators.code_sim_learning.grid_seed import grid_candidates
 from predicators.code_sim_learning.identifiability import Verdict, \
     identifiability_report
 from predicators.code_sim_learning.lm import solve_lm
@@ -97,7 +97,7 @@ def test_grid_candidates_log_covers_low_decades():
     that sent run_20260706_171526's fit to the 0.01 endpoint.
     """
     spec = ParamSpec("friction", 0.5, lo=0.01, hi=2.0, scale="log")
-    cands = _grid_candidates(spec, 8)
+    cands = grid_candidates(spec, 8)
     assert min(abs(v - 0.1) for v in cands) < 0.01
     assert np.isclose(cands[0], 0.01) and np.isclose(cands[-1], 2.0)
 
@@ -105,7 +105,7 @@ def test_grid_candidates_log_covers_low_decades():
 def test_grid_candidates_linear_unchanged():
     """A linear param still gets an evenly spaced linspace grid."""
     spec = ParamSpec("offset", 0.0, lo=-0.3, hi=0.3)
-    assert np.allclose(_grid_candidates(spec, 7), np.linspace(-0.3, 0.3, 7))
+    assert np.allclose(grid_candidates(spec, 7), np.linspace(-0.3, 0.3, 7))
 
 
 # ── LM in log space ───────────────────────────────────────────────

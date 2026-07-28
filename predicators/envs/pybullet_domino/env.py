@@ -4,6 +4,7 @@ This module provides the main environment class that composes multiple
 components (dominoes, fans, balls, etc.) into a single environment.
 """
 
+import logging
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
@@ -666,7 +667,13 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         green (in the given order) in the dedicated probe world - this
         env's physics, the episode's own ``push_params`` when recorded,
         every robot link except the fingertips collision-masked - and
-        reports whether the push cascades to the goal atoms. See
+        reports whether the push cascades to the goal atoms. When this
+        env carries a ``probe_process_model_factory`` (a sim-learning
+        approach's belief env), the replay runs on the combined
+        substrate (learned process rules applied per step); a passing
+        combined verdict is then double-checked base-only with the same
+        attempt count, purely as a diagnostic of whether the rules were
+        load-bearing. See
         ``cascade_probe`` for the fidelity contract and the rationale.
         """
         # pylint: disable-next=import-outside-toplevel
@@ -681,13 +688,44 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             self._probe_push_option = next(
                 opt for opt in get_gt_options(self.get_name())
                 if opt.name == "Push")
-        return cascade_probe.run_counterfactual_push_probe(
+        factory = self.probe_process_model_factory
+        ok, detail = cascade_probe.run_counterfactual_push_probe(
             self._get_cascade_probe_env(),
             pre_push_state,
             greens,
             goal,
             push_params,
-            push_option=self._probe_push_option)
+            push_option=self._probe_push_option,
+            process_model_factory=factory)
+        if factory is not None and ok:
+            # Load-bearing-rules diagnostic: a combined-substrate pass
+            # whose base-only replay fails means the learned rules
+            # carried the verdict - fine when they model a process the
+            # base sim lacks, a calibration smell when they compensate
+            # for undeclared physical params. The base-only replay MUST
+            # use the same attempt count as the combined probe: replay
+            # attempts are nondeterministic (residual solver state in
+            # the reused probe world), so an any-of-N pass compared
+            # against a 1-of-1 pass flags knife-edge layouts as
+            # "load-bearing" even when the rules are a physical no-op.
+            # The note rides the harness-internal ``reason`` channel
+            # only, and is evidence, not proof - a sufficiently
+            # knife-edge layout can still fail all base-only attempts
+            # by chance.
+            base_ok, _ = cascade_probe.run_counterfactual_push_probe(
+                self._get_cascade_probe_env(),
+                pre_push_state,
+                greens,
+                goal,
+                push_params,
+                push_option=self._probe_push_option)
+            if not base_ok:
+                note = ("the learned process rules appear load-bearing "
+                        "for this verdict (no base-sim-only replay "
+                        "attempt cascades)")
+                logging.info("[cascade probe] %s", note)
+                detail = f"{detail}; {note}"
+        return ok, detail
 
     # =========================================================================
     # PREDICATE HOLD FUNCTIONS

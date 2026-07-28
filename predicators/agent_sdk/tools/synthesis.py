@@ -122,15 +122,21 @@ def create_synthesis_tools(
     from predicators.code_sim_learning.fitting import compute_sse, \
         compute_sse_recurrent, fit_rule_parameters, \
         fit_rule_parameters_latent
+    from predicators.code_sim_learning.grid_seed import grid_candidates
     from predicators.code_sim_learning.identifiability import \
         format_identifiability
     from predicators.code_sim_learning.orchestrator import run_rollout_sysid
     from predicators.code_sim_learning.rollout_env import \
         physical_param_anchors
+    from predicators.code_sim_learning.rollout_objective import \
+        compute_rollout_sse, per_trajectory_rms
+    from predicators.code_sim_learning.trajectory_prep import \
+        compute_residual_scaling
     from predicators.code_sim_learning.utils import apply_rules, \
         has_latent_rules, iter_feature_residuals, read_latent_init, \
         read_physical_param_specs, read_simulator_components, \
         rollout_predictions, stamp_physical_spec_scales
+    from predicators.settings import CFG
 
     # pylint: enable=import-outside-toplevel
 
@@ -629,6 +635,198 @@ def create_synthesis_tools(
 
         return "\n".join(lines)
 
+    # ── rollout-mode residuals (open-loop fidelity) ─────────────
+
+    def _moving_feature_scope(
+            rollouts: List[Tuple[Any, Any]]) -> Dict[str, List[str]]:
+        """Features whose OBSERVED value moves anywhere in the fit data.
+
+        The open-loop report scores global fidelity, so its scope is
+        "everything that moves" - independent of the artifact's declared
+        PROCESS_FEATURES, which describe rule scope and may legitimately
+        be empty (a physics-only artifact, or one that concluded no rule
+        is needed). A feature is in scope when its observed span across
+        all recorded states exceeds the settle tolerance (the same
+        "still moving" cutoff the settled-tail truncation uses).
+        """
+        tol = CFG.code_sim_learning_rollout_settle_tol
+        span_lo: Dict[Tuple[str, str], float] = {}
+        span_hi: Dict[Tuple[str, str], float] = {}
+        for states, _actions in rollouts:
+            for state in states:
+                for obj in state:
+                    for feat in obj.type.feature_names:
+                        val = float(state.get(obj, feat))
+                        key = (obj.type.name, feat)
+                        if key not in span_lo or val < span_lo[key]:
+                            span_lo[key] = val
+                        if key not in span_hi or val > span_hi[key]:
+                            span_hi[key] = val
+        out: Dict[str, List[str]] = {}
+        for (tn, feat), lo in span_lo.items():
+            if span_hi[(tn, feat)] - lo > tol:
+                out.setdefault(tn, []).append(feat)
+        return {t: sorted(fs) for t, fs in out.items()}
+
+    def _run_rollout_residuals(rules: list, specs: list, latent_init: Any,
+                               version_tag: str, sweep_num_points: int,
+                               sweep_params: Optional[List[str]]) -> str:
+        """Open-loop rollout fidelity report with a registry-param sweep.
+
+        The ``rollout=True`` branch of ``sim.residuals``. Replays each
+        recorded trajectory's actions free-running from its initial
+        state (fresh env per rollout, same objective the system-ID fit
+        minimizes) and reports the divergence at the current baselines,
+        then sweeps each env-registry physical parameter alone across
+        its plausible range. The sweep is the interpretive anchor: an
+        absolute rollout SSE is meaningless under chaotic replay
+        divergence, but "the same data is explained N times better at a
+        different friction" is exactly the evidence the PHYSICAL_PARAMS
+        declaration decision needs - evidence the teacher-forced report
+        structurally cannot surface (run_20260728_111805 declined to
+        declare on near-zero per-step residuals while the open-loop SSE
+        ratio on the same data was ~340x).
+        """
+        if approach is None:
+            return (f"[{version_tag}] Error: rollout residuals require a "
+                    "bound approach (raw trajectories + fit env) - "
+                    "unavailable in this session.")
+        # Whole trajectories first (no scope -> no truncation) to derive
+        # the motion scope, then re-prep with it so the scored rollouts
+        # get the same settled-tail truncation and rest-point
+        # segmentation the system-ID fit uses.
+        whole = approach._rollout_fit_trajectories(None)  # pylint: disable=protected-access
+        if not whole:
+            return (f"[{version_tag}] Error: no complete (states, actions) "
+                    "trajectories are available - the open-loop report "
+                    "needs full trajectories, not isolated transitions.")
+        scope = _moving_feature_scope(whole)
+        if not scope:
+            return (f"[{version_tag}] No feature moves beyond the settle "
+                    "tolerance anywhere in the recorded data; there is no "
+                    "motion to score open-loop.")
+        rollouts = approach._rollout_fit_trajectories(scope)  # pylint: disable=protected-access
+        fit_env = approach._get_rollout_fit_env()  # pylint: disable=protected-access
+        scaling = compute_residual_scaling(rollouts, scope)
+        rule_params = {s.name: s.init_value for s in specs}
+        info: Dict[str, Dict[str, Any]] = getattr(
+            approach._base_env,  # pylint: disable=protected-access
+            "get_physical_param_info",
+            lambda: {})()
+        sweepable = {
+            n: e
+            for n, e in info.items()
+            if e.get("lo") is not None and e.get("hi") is not None
+        }
+        if sweep_params is not None:
+            unknown = sorted(set(sweep_params) - set(sweepable))
+            if unknown:
+                return (f"[{version_tag}] Error: sweep_params {unknown} not "
+                        "in the env's physical-param registry (available: "
+                        f"{sorted(sweepable)}).")
+            sweepable = {n: sweepable[n] for n in sweep_params}
+        num_points = max(2, int(sweep_num_points))
+        # Rules run inside every rollout evaluation, so a buggy rule
+        # (e.g. reading a param this version no longer declares) must
+        # come back as a report, not a raw traceback through the tool.
+        try:
+            baseline_sse = compute_rollout_sse(fit_env, rollouts, rule_params,
+                                               scope, [], rules, latent_init,
+                                               scaling)
+            seg_rms = per_trajectory_rms(fit_env, rollouts, rule_params, scope,
+                                         [], rules, latent_init, scaling)
+        except Exception as e:  # pylint: disable=broad-except
+            return (f"[{version_tag}] Error: open-loop rollout scoring "
+                    f"failed (often a PROCESS_RULES bug - rules run on "
+                    f"every rolled-out step):\n{e}")
+        ratio_bar = CFG.code_sim_learning_rollout_consistency_sse_ratio
+        scope_str = "; ".join(f"{t}: {', '.join(fs)}"
+                              for t, fs in sorted(scope.items()))
+        rms_str = ", ".join(f"{r:.4g}" for r in seg_rms)
+        lines = [
+            f"[{version_tag}] OPEN-LOOP ROLLOUT residual report - each "
+            "recorded trajectory's actions replayed free-running from its "
+            "initial state on the base sim with the current PROCESS_RULES "
+            "riding (params at init_value; physical params at the env "
+            "registry baselines, NOT any already-applied fit). Errors "
+            "COMPOUND across steps here; the per-step (teacher-forced) "
+            "report resets to the recorded state every step and therefore "
+            "CANNOT see integrated divergence - a wrong physical parameter "
+            "can look near-perfect per step and still diverge wildly "
+            "open-loop.",
+            f"Scope (every feature with observed motion, independent of "
+            f"PROCESS_FEATURES): {scope_str}.",
+            "Residuals are normalized (angles wrapped), Huber-capped, with "
+            "endpoint/onset summary terms - the same objective the "
+            "system-ID fit minimizes.",
+            "",
+            f"Rollout SSE at current baselines: {baseline_sse:.6f}",
+            f"Per-segment RMS at current baselines: [{rms_str}]  "
+            f"({len(rollouts)} motion segments after settled-tail "
+            "truncation / rest-point segmentation).",
+            "",
+            "Physical-parameter sweep (each registry param swept ALONE "
+            "across its plausible range, all others held at baseline; SSEs "
+            "are comparable within this report only):",
+        ]
+        for name in sorted(sweepable):
+            entry = sweepable[name]
+            spec = ParamSpec(name,
+                             float(entry["default"]),
+                             lo=float(entry["lo"]),
+                             hi=float(entry["hi"]),
+                             scale=entry.get("scale", "linear"))
+            cands = [float(v) for v in grid_candidates(spec, num_points)]
+            try:
+                sses = [
+                    compute_rollout_sse(fit_env, rollouts, {
+                        **rule_params, name: c
+                    }, scope, [name], rules, latent_init, scaling)
+                    for c in cands
+                ]
+            except Exception as e:  # pylint: disable=broad-except
+                lines.append(f"  {name}: sweep failed:\n    {e}")
+                continue
+            best_i = int(np.argmin(sses))
+            best_sse = sses[best_i]
+            worst_sse = max(sses)
+            base_ratio = (baseline_sse /
+                          best_sse if best_sse > 0 else float("inf"))
+            spread = (worst_sse / best_sse if best_sse > 0 else float("inf"))
+            if worst_sse <= 0:
+                # Every candidate scores exactly 0 (static or perfectly
+                # reproduced data): a flat landscape, not evidence.
+                verdict = ("flat across the range - this data cannot "
+                           "constrain it (declaring it would fit noise)")
+            elif base_ratio >= ratio_bar:
+                verdict = (f"the data is {base_ratio:.1f}x better explained "
+                           f"at {cands[best_i]:.4g} than at the baseline - "
+                           "strong evidence FOR declaring this parameter in "
+                           "PHYSICAL_PARAMS")
+            elif spread < ratio_bar:
+                verdict = ("flat across the range - this data cannot "
+                           "constrain it (declaring it would fit noise)")
+            else:
+                verdict = (f"best at {cands[best_i]:.4g} "
+                           f"({base_ratio:.1f}x vs baseline) - weak "
+                           "evidence; consider data that exercises it")
+            cand_str = ", ".join(f"{c:.4g} -> {s:.4g}"
+                                 for c, s in zip(cands, sses))
+            lines.append(f"  {name} ({spec.scale} scale, baseline "
+                         f"{float(entry['default']):.4g}):")
+            lines.append(f"    {cand_str}")
+            lines.append(f"    {verdict}.")
+        lines.extend([
+            "",
+            "How to read this: replay divergence is chaotic, so the SSE "
+            "never reaches 0 even at perfect parameters - compare ratios, "
+            f"not absolutes (the run's consistency bar is {ratio_bar:g}x). "
+            "A parameter materially better at another value belongs in "
+            "PHYSICAL_PARAMS so the system-ID fit can calibrate it; a flat "
+            "sweep means this data cannot distinguish values.",
+        ])
+        return "\n".join(lines)
+
     # ── run_residuals (the ``sim.residuals`` backend) ───────────
 
     def run_residuals(max_transitions: int = 100,
@@ -636,7 +834,10 @@ def create_synthesis_tools(
                       rel_tol: float = 1e-3,
                       num_worst_examples: int = 3,
                       fit_params: bool = False,
-                      path: Optional[str] = None) -> str:
+                      path: Optional[str] = None,
+                      rollout: bool = False,
+                      sweep_num_points: int = 6,
+                      sweep_params: Optional[List[str]] = None) -> str:
         """Per-feature residual report for the current PROCESS_RULES.
 
         The backend behind ``sim.residuals``. Loads the rules fresh
@@ -650,12 +851,27 @@ def create_synthesis_tools(
         is published). Tolerance: ``|pred - obs| > rel_tol * |obs| +
         abs_tol``. Each call snapshots the simulator file into
         simulator_versions/ and tags output ``[cycle_XXX_vers_YYY]``.
+
+        ``rollout=True`` switches to the OPEN-LOOP report (see
+        ``_run_rollout_residuals``): free-running replay divergence plus
+        a per-parameter sweep of the env's physical-param registry
+        (``sweep_num_points`` candidates each; ``sweep_params`` narrows
+        which - each candidate costs one fresh-env rollout per motion
+        segment, so the default full sweep takes a few minutes). The
+        two modes answer different questions: per-step localizes WHICH
+        feature has an unmodeled process; rollout answers whether the
+        base physics is globally faithful, which per-step residuals
+        cannot see.
         """
         p = path or simulator_file
         rules, specs, declared, latent_init, _physical_specs, version_tag, \
             err = _snapshot_and_load(p)
         if err:
             return str(err)
+        if rollout:
+            return _run_rollout_residuals(rules, specs, latent_init,
+                                          version_tag, sweep_num_points,
+                                          sweep_params)
 
         process_features = (declared if isinstance(declared, dict) else
                             inferred_process_features)

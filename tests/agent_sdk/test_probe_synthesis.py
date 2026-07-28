@@ -292,7 +292,14 @@ def test_probe_residuals_gating_and_delegation() -> None:
         "num_worst_examples": 3,
         "fit_params": True,
         "path": None,
+        "rollout": False,
+        "sweep_num_points": 6,
+        "sweep_params": None,
     }
+    calls.clear()
+    sim.residuals(rollout=True, sweep_params=["lateral_friction"])
+    assert calls["rollout"] is True
+    assert calls["sweep_params"] == ["lateral_friction"]
 
 
 def test_probe_run_reports_subgoal_divergence() -> None:

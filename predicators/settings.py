@@ -1781,6 +1781,16 @@ class GlobalSettings:
     # verdict downgraded) - mutually-incompatible confident fits are
     # the signature of an overconfident probe. 0 disables.
     code_sim_learning_rollout_cross_cycle_sigma = 3.0
+    # Pooled-evidence arbitration of a cross-cycle conflict: when the
+    # new fit is flagged (see above) but explains the fit's surviving
+    # segments with an SSE at least this factor smaller than the
+    # held value does, the jump is accepted instead of held - the two
+    # fits are nested (the new one saw a superset of the data), so a
+    # decisive pooled-objective gap is real evidence, not probe
+    # overconfidence (run_20260727_210827 seed1: pooled SSE 0.14 at the
+    # new 0.4748 vs ~4.4 at the held 0.9313, yet the hold kept 0.9313
+    # for the rest of the run). 0 disables arbitration.
+    code_sim_learning_rollout_consistency_sse_ratio = 3.0
     # Diagnostic: log the Hessian eigendecomposition at the MAP to
     # spot unidentifiable parameter combinations. Adds ~5-15s per fit.
     code_sim_learning_log_hessian_identifiability = False
