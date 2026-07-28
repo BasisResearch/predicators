@@ -24,6 +24,7 @@ from predicators import utils
 from predicators.pybullet_helpers.real_robot_bridge import \
     GripperJointLayout, MissingBabyRobotError, _make_perception, \
     _split_actions, make_real_robot
+from predicators.settings import CFG
 from predicators.structs import Action
 
 # The Franka layout: 7 arm joints then the 2 finger joints. The waypoint width
@@ -98,14 +99,59 @@ def test_gripper_joint_layout_finger_idxs():
     assert _LAYOUT.finger_joint_idxs == (7, 8)
 
 
-def test_perception_defaults_to_none_and_rejects_unknown_kinds():
-    """Open-loop execution never looks at the scene, so the default perception
-    source is nothing at all; an unrecognised name fails loudly."""
+def test_perception_kinds_and_unknown_names():
+    """"none" really means no cameras, and an unrecognised name fails loudly
+    rather than silently leaving the robot blind."""
     utils.reset_config({"real_robot_perception": "none"})
     assert _make_perception() is None
     utils.reset_config({"real_robot_perception": "telepathy"})
     with pytest.raises(ValueError, match="unknown real_robot_perception"):
         _make_perception()
+    utils.reset_config({"real_robot_perception": "none"})
+
+
+def test_closed_loop_is_the_default():
+    """The defaults ship per option, look between options, and use the live
+    cameras -- i.e. running on hardware closes the loop without extra flags.
+
+    Pinned because each of the three is individually a knob someone
+    might flip for a one-off and forget to restore.
+    """
+    utils.reset_config({})
+    assert CFG.real_robot_ship_whole_episode is False
+    assert CFG.real_robot_observe_at_option_boundary is True
+    assert CFG.real_robot_perception == "zed"
+
+
+def test_live_perception_is_built_lazily_with_our_table_height():
+    """The default source is the live ZED session, and it is handed OUR table
+    height.
+
+    babyrobot's own default differs from ``domino_real_table_z``, and
+    perception and the base -> world transplant have to agree about
+    where the table is; a silent mismatch there is a whole bench
+    session. Also checks construction opens no cameras -- ``RealRobot``
+    opens the session, so building one must stay free.
+    """
+    pytest.importorskip("babyrobot")
+    from babyrobot.realrobot.perception import DominoPerception
+
+    utils.reset_config({"domino_real_table_z": -0.041})
+    perception = _make_perception()
+
+    assert isinstance(perception, DominoPerception)
+    assert perception._table_z == pytest.approx(-0.041)  # pylint: disable=protected-access
+    assert perception._readers is None  # pylint: disable=protected-access
+
+
+def test_scene_file_perception_replays_the_capture():
+    """The cameraless stand-in reports the configured scene, which is what lets
+    the closed loop be exercised at a desk."""
+    pytest.importorskip("babyrobot")
+    from babyrobot.realrobot.perception import FileDominoPerception
+
+    utils.reset_config({"real_robot_perception": "scene_file"})
+    assert isinstance(_make_perception(), FileDominoPerception)
     utils.reset_config({"real_robot_perception": "none"})
 
 

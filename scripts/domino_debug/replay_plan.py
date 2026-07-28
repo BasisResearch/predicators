@@ -87,6 +87,12 @@ def main() -> None:
     if args.scene:
         flags["domino_real_scene"] = args.scene
     flags["real_robot_execute"] = bool(args.execute)
+    # This tool replays an EXACT plan, so it stays open-loop even though the
+    # closed loop is the default elsewhere: looking at the bench between
+    # options would re-sync the twin mid-replay and the option policies would
+    # then see states the recorded plan was not chosen against. It also keeps
+    # the tool usable with the cameras down.
+    flags["real_robot_ship_whole_episode"] = True
     utils.reset_config(flags)
 
     inner = get_or_create_env(CFG.env)

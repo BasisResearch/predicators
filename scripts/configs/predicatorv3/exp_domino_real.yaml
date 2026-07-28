@@ -2,9 +2,10 @@
 # pipeline (replaces real_skills/run_online_learning.py's bespoke lifecycle,
 # which bypassed setup_environment and hand-transcribed ~70 flags).
 # Usage: python scripts/local/launch_simp.py -c predicatorv3/exp_domino_real.yaml
-# Learning + exploration run in sim on the reconstructed scene (unchanged
-# behavior); testing moves to the real Franka inside the env (test mode only),
-# gated behind real_robot_execute (default dry-run, no arm motion).
+# With real_robot_execute (default off, i.e. pure sim) the env is wrapped in
+# RealWorldEnv and its rollouts drive the real Franka -- BOTH splits, so
+# exploration episodes execute like evaluation ones, and the bench is
+# re-perceived between options to correct the simulated twin.
 # Env definition lives in envs/all.yaml (domino_real) and the approach in
 # approaches/all.yaml; this file only un-skips the env + approach it runs and
 # sets the agent-only ENVS overrides.

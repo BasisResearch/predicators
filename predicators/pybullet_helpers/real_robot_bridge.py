@@ -105,9 +105,17 @@ def make_real_robot(
 def _make_perception() -> Any:
     """Build the perception source named by ``CFG.real_robot_perception``.
 
-    ``"none"`` (the default) leaves the robot without cameras, which is
-    all open-loop execution needs -- it never looks at the scene.
-    ``"scene_file"`` replays ``CFG.domino_real_scene``.
+    ``"zed"`` (the default) is the live session-scoped ZED perception the
+    closed loop needs: one instance held open for the whole run, which
+    ``RealRobot`` opens on construction and closes on ``close()``.
+    ``"scene_file"`` replays ``CFG.domino_real_scene`` -- a cameraless
+    stand-in that always reports the captured layout, so it exercises the
+    plumbing but never reports a topple. ``"none"`` leaves the robot
+    without cameras at all, which only a blind open-loop run can use.
+
+    The table height is passed through rather than left to babyrobot's
+    own default: perception and the base -> world transplant have to
+    agree on where the table is, and they are configured separately.
     """
     # pylint: disable=import-outside-toplevel,import-error
     kind = CFG.real_robot_perception
@@ -116,6 +124,9 @@ def _make_perception() -> Any:
     if kind == "scene_file":
         from babyrobot.realrobot.perception import FileDominoPerception
         return FileDominoPerception(CFG.domino_real_scene)
+    if kind == "zed":
+        from babyrobot.realrobot.perception import DominoPerception
+        return DominoPerception(table_z=float(CFG.domino_real_table_z))
     raise ValueError(f"unknown real_robot_perception: {kind!r}")
 
 
