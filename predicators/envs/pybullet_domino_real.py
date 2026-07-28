@@ -237,10 +237,9 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
     def _role_for_capture_id(capture_id: int) -> str:
         """Role keyed by capture id alone.
 
-        Raw capture JSONs (``reconstruct_dominoes_markers.py`` output)
-        and live observations both carry ids but no roles, so
-        ``CFG.domino_real_{start,target}_id`` names the green start and
-        the purple target; everything else is a movable blue.
+        Raw capture JSONs and live observations both carry ids but no
+        roles, so ``CFG.domino_real_{start,target}_id`` names the green
+        start and the purple target; everything else is a movable blue.
         """
         if capture_id == CFG.domino_real_start_id:
             return "start"
@@ -299,10 +298,7 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
     # -- perception -> State / Task -----------------------------------------
     # ONE conversion, three callers: the captured scene JSON, a live
     # observation building a fresh task, and a live observation correcting an
-    # existing state. Both sources are first normalized to _PerceivedDomino,
-    # so the scene path and the live path cannot drift apart -- including the
-    # start-domino yaw canonicalization, which is easy to apply in one place
-    # and forget in the other.
+    # existing state. Both sources are first normalized to _PerceivedDomino.
     #
     # These are pure conversions: no hardware, no I/O beyond reading the scene
     # file, and no notion of a robot. The real-world wrapper calls them.
@@ -311,10 +307,7 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
         """Component slot holding the domino with this capture id.
 
         Dominoes are placed in scene order, so slot i holds capture id
-        ``self._scene_ids[i]`` -- which is what that list is for. An id
-        the scene never had has nowhere to go: perception occasionally
-        reports a spurious marker, and dropping it beats aborting a run
-        over one bad detection.
+        ``self._scene_ids[i]``. An id the scene never had is dropped.
         """
         try:
             return self._scene_ids.index(int(capture_id))
@@ -346,8 +339,7 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
         Duck-typed deliberately: this reads ``obs.dominoes`` and each
         entry's ``id`` / ``xyz`` / ``quat_xyzw``, so the env imports no
         babyrobot and the conversion stays testable against a plain
-        stub. Observations carry no role by design, so roles come from
-        the configured capture ids.
+        stub.
         """
         perceived = []
         for d in obs.dominoes:

@@ -722,11 +722,6 @@ class PyBulletEnv(BaseEnv):
         same way the domino component already does after it places
         blocks.
 
-        Written here rather than on a subclass because it is simulator
-        knowledge, not domain knowledge: any future real-world
-        environment correcting a PyBullet twin from perception needs
-        exactly this.
-
         Robot joints need no equivalent: ``_set_state`` routes them
         through ``SingleArmPyBulletRobot.set_joints``, which already
         resets each joint with ``targetVelocity=0``.
@@ -745,13 +740,7 @@ class PyBulletEnv(BaseEnv):
 
     def gripper_joint_layout(self) -> GripperJointLayout:
         """Where the finger joints sit in an action array, and what open /
-        closed finger values look like.
-
-        Splitting a buffered trajectory into move / gripper segments
-        needs exactly these four numbers, and they are a property of the
-        simulated robot rather than of any domain — so this lives here
-        and every PyBullet-backed real environment gets it for free.
-        """
+        closed finger values look like."""
         return gripper_joint_layout_from_robot(self._pybullet_robot)
 
     def _set_state(self, state: State) -> None:
