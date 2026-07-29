@@ -10,21 +10,9 @@ and each step.
 Why the twin has to be corrected, rather than merely handing the agent a
 perceived state: the episode loop is ``obs = env.step(act)``, and
 ``PyBulletEnv`` advances *its own physics client* and reads the observation
-back out of it. An option is hundreds of low-level actions, and we look at the
-bench only between options, so between two looks the twin is the only thing
-producing the agent's world state. Writing perception into the twin is
-therefore not a step layered on top of perceiving -- it is how perception
-reaches the agent at all. Perceive without syncing and the correction is
+back out of it. Writing perception into the twin is how perception
+reaches the agent at all. If we perceive without syncing, the correction is
 overwritten by the twin's own simulation on the very next action.
-
-The library's observation type never escapes this module: it is converted to a
-``State``, written into the twin, and the caller is handed the *twin's*
-observation. ``CogMan`` and the perceiver never see a ``DominoObservation``.
-
-Three pieces rather than one class doing three jobs: ``OptionBoundaryBuffer``
-(pure -- actions in, a finished option's actions out), ``TwinCorrector``
-(perception -> the simulated world), and ``RealRobotExecutor``, which owns the
-robot and composes them.
 """
 from __future__ import annotations
 
@@ -195,9 +183,7 @@ class RealRobotExecutor:
         drift guard trips on the opening move.
 
         Both splits execute. Real mode is a property of an executor
-        being attached, not of the split, so an exploration episode
-        drives the arm exactly like an evaluation one -- which is what
-        makes real-world active learning work without a separate flag.
+        being attached, not of the split.
         """
         del train_or_test, task_idx  # every episode homes the same way
         lost = self._buffer.discard()
@@ -230,11 +216,6 @@ class RealRobotExecutor:
         ``reset_arm`` takes the 7 arm joints; the twin's joint vector
         also carries the two finger joints, and the layout is what says
         which entries those are.
-
-        The joints come from the twin rather than from the robot because
-        ``StepReply`` carries observations only -- and they are the right
-        source anyway: the arm is about to be commanded to exactly the
-        configuration the twin just reset to.
         """
         assert isinstance(obs, utils.PyBulletState), \
             f"the twin must observe joint positions, got {type(obs).__name__}"
@@ -270,16 +251,7 @@ def attach_real_robot(env: BaseEnv,
     """Attach a real-robot executor to ``env`` when the config asks for it.
 
     Returns ``None`` (having done nothing) when ``real_robot_execute``
-    is off, so call sites read as one unconditional line, and the
-    executor otherwise, so the caller can hold it.
-
-    **Call this only on the env that is actually executed.** The planner
-    builds its own envs -- ``create_option_model`` calls
-    ``create_new_env(..., do_cache=False)`` for its private simulator,
-    and the shared skill simulator builds one per env class. Those keep
-    no executor, so they stay pure simulation. Note also that
-    ``PyBulletEnv.simulate`` deliberately bypasses the executor, so even
-    an attached env cannot drive the arm from inside a search.
+    is off and the executor otherwise.
     """
     if not CFG.real_robot_execute:
         return None

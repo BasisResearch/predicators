@@ -2,18 +2,10 @@
 in-process ``RealRobot``, and the helpers that turn buffered actions into the
 segments it executes.
 
-There is no client and no transport. ``RealRobot`` (from the private
-``babyrobot`` package) is a plain Python object that predicators constructs and
-calls in the same interpreter, so a failure inside it is an ordinary Python
-exception with its own traceback.
-
 **babyrobot is optional and must never be imported at module level.**  It ships
 as the private git submodule ``submodules/BabyRobotPredicator`` and is
 deliberately absent from ``install_requires``, so predicators' CI -- and any
-checkout without access to that repo -- has no ``babyrobot`` on the path. Every
-import of it here is inside a function body, so ``import predicators.envs``
-keeps working without it and a missing submodule surfaces as one clear error at
-the moment someone actually asks for real-robot execution.
+checkout without access to that repo -- has no ``babyrobot`` on the path.
 
 Scope: turning buffered actions into robot traffic. The caller rolls a plan out
 in sim, buffers the joint-target actions, and hands them to ``execute_chunks``,

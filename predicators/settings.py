@@ -549,43 +549,27 @@ class GlobalSettings:
     # --- real robot (any env driving a real arm; see
     # pybullet_helpers.real_robot_executor and .real_robot_bridge) -----------
     # When True, a RealRobotExecutor is attached to the executed env and its
-    # rollouts drive the arm -- BOTH splits, so exploration episodes execute
-    # like evaluation ones. Default False = safe dry-run (pure sim, no motion).
-    # Only the env at main.setup_environment gets one; the planner's own envs
-    # keep none, and PyBulletEnv.simulate bypasses the executor outright, so
-    # nothing reachable from a search can move the arm.
+    # rollouts drive the arm. Default False = safe dry-run (pure sim, no
+    # motion).
     real_robot_execute = False
     # Construct the RealRobot without an arm: every method still runs (and the
     # gripper state is still tracked) but nothing moves. Only consulted when
-    # real_robot_execute. This says nothing about the cameras -- a dry run at
-    # a desk also wants real_robot_perception below off the live source.
+    # real_robot_execute.
     real_robot_dry = False
     # Perception source handed to the RealRobot: "zed" (live cameras, held
     # open for the whole session), "scene_file" (replay domino_real_scene --
-    # cameraless, but it always reports the captured layout, so it exercises
-    # the plumbing and never reports a topple), or "none" (no cameras at all,
-    # which only a blind open-loop run can use).
+    # cameraless, but it always reports the captured layout), or "none" (no
+    # cameras at all, blind open-loop run).
     real_robot_perception = "zed"
     # Look at the bench at each option boundary and correct the twin from what
     # was seen. This is the point of running on real hardware -- the learner
-    # sees perceived transitions rather than the simulator's guesses -- so it
-    # defaults on; False gives a blind open-loop run that executes motion and
-    # never looks (motion still ships, per option, as it always does).
+    # sees perceived transitions rather than the simulator's guesses.
     real_robot_observe_at_option_boundary = True
-    # Dwell before a capture, so the dominoes come to rest after the motion
-    # that preceded it. Costs wall-clock on every look and does nothing
-    # without cameras.
+    # Dwell before a capture, so the dominoes come to rest after the motion.
     real_robot_settle_s = 0.5
     # How far (metres) the bench may be from where the twin predicted before
-    # the disagreement is worth logging. Placement jitter and perception noise
-    # live well below this; a domino the twin thinks is standing and the
-    # cameras find on its face is well above it.
+    # the disagreement is worth logging.
     real_robot_divergence_atol = 0.02
-    # (There is no whole-episode shipping mode. It existed because the gripper
-    # split had to span an episode -- shipping per option restarted its finger
-    # tracking, so a Place re-emitted a leading "close" and force-grasped the
-    # domino it was already holding. RealRobot now drops a gripper command
-    # that repeats the session's state, which removed the reason for it.)
     # --- real-world domino bench (pybullet_domino_real env) ------------------
     # The reconstructed-scene JSON (robot_base frame) the pybullet_domino_real
     # env builds its single train/test task from; the env sizes its domino

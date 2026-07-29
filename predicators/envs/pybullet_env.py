@@ -76,8 +76,7 @@ class ActionExecutor(Protocol):
     implemented elsewhere -- ``pybullet_helpers.real_robot_executor`` --
     so this module never imports anything that knows about a robot.
 
-    An env with no executor attached is pure simulation, which is what
-    every env the planner builds stays.
+    An env with no executor attached is pure simulation.
     """
 
     def after_reset(self, train_or_test: str, task_idx: int,
@@ -644,11 +643,6 @@ class PyBulletEnv(BaseEnv):
             # reset happens and no feature is lost to reconstruction.
             self._last_unreconstructible_features = []
         # _step_once, NOT step: planning must never reach an attached executor.
-        # Bilevel search calls simulate() hundreds of times per option, and if
-        # that path could drive hardware the planner would move the arm while
-        # merely considering a candidate. Going through the shared helper makes
-        # that a property of the call graph rather than of who remembers not to
-        # attach an executor to the planner's env.
         return self._step_once(action)
 
     def step(self, action: Action, render_obs: bool = False) -> Observation:

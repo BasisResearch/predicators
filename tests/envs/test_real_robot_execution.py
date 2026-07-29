@@ -30,8 +30,7 @@ from predicators import utils
 from predicators.envs.pybullet_domino.real_geometry import _REAL_TO_ENV_BODY
 from predicators.envs.pybullet_domino_real import PyBulletDominoRealEnv
 from predicators.envs.pybullet_env import PyBulletEnv
-from predicators.pybullet_helpers.real_robot_executor import \
-    attach_real_robot
+from predicators.pybullet_helpers.real_robot_executor import attach_real_robot
 from predicators.structs import Action, ParameterizedOption, State
 
 _TABLE_Z = -0.041

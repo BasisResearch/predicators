@@ -1,11 +1,6 @@
 """Real-world domino env: the ``pybullet_domino`` env retargeted to the real
-Franka robot.
-
-This is a **pure simulation** environment. It knows the real bench only as
-geometry and as perception it can convert: it sizes itself from a captured
-scene, transplants real base-frame poses into the domino world frame, and turns
-a live observation into a ``State`` or an ``EnvironmentTask``. It holds no
-robot, ships no motion, and has no real/dry mode.
+Franka robot. This is a **pure simulation** environment. It holds no robot,
+ships no motion, and has no real/dry mode.
 
 Driving an arm with it is the real-robot executor's job
 (``predicators/pybullet_helpers/real_robot_executor.py``), which attaches to
