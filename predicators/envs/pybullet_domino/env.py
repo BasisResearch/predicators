@@ -125,7 +125,18 @@ class DominoEvaluator(TaskEvaluator):
         return {"k_used": float(count_movable_blocks_used(states))}
 
     def objective_description(self) -> str:
-        return ("Success (+1 reward) = the target domino topples via a "
+        c = CFG.domino_block_cost
+        return ("The episode reward is EXACTLY:\n"
+                f"  reward = (1.0 if certified success else 0.0) - {c} x "
+                "(number of movable (blue) dominoes consumed)\n"
+                "A blue is consumed when it ends the episode toppled, or "
+                "was shoved off its stand while not held - whether or not "
+                "you placed it, and regardless of success. Examples: a "
+                f"certified success consuming 2 blues scores {1 - 2 * c:g}; "
+                "a failed or rejected episode that consumed 1 blue scores "
+                f"{-c:g}; no success and nothing consumed scores 0. There "
+                "are no other reward terms.\n"
+                "Certified success = the target domino topples via a "
                 "legitimate cascade seeded by pushing the green start block. "
                 "Only the blue dominoes may be rearranged: the green start "
                 "block, the targets, and any gray blocks must stay "
@@ -138,10 +149,9 @@ class DominoEvaluator(TaskEvaluator):
                 "able to touch anything (the arm's body is intangible): the "
                 "layout you built must cascade to the goal under the legal "
                 "fingertip push alone - topples that needed the arm's body "
-                "earn nothing. Each movable "
-                "(blue) domino the cascade consumes - toppled, or shoved off "
-                f"its stand - costs {CFG.domino_block_cost} reward, so use "
-                "as few blues as possible.")
+                "earn nothing. Extra consumed blues cost reward but never "
+                "invalidate a success, so a robust over-built cascade "
+                "always outscores a failed minimal one.")
 
 
 class PyBulletDominoComposedEnv(PyBulletEnv):
