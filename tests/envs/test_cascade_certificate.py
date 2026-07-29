@@ -882,9 +882,12 @@ def test_domino_evaluator_reward_decomposition():
     # EnvironmentTask.offline_task_metrics instead.
     assert evaluator.offline_metrics(states, honest) == {"k_used": 1.0}
     assert not hasattr(evaluator, "k_star")
-    # The stated objective is public and K*-free.
+    # The stated objective is public and K*-free, and states the exact
+    # reward arithmetic (agents have induced false reward rules from
+    # opaque scores when only the qualitative form was given).
     description = evaluator.objective_description()
     assert str(CFG.domino_block_cost) in description
+    assert "reward = (1.0 if certified success else 0.0)" in description
     assert "K*" not in description
 
 
