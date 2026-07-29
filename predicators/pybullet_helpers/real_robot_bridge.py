@@ -20,7 +20,7 @@ in sim, buffers the joint-target actions, and hands them to ``execute_chunks``,
 which splits each chunk into move / gripper segments and ships them. A chunk is
 one unit of "execute this, then optionally look". Deciding *when* to ship, and
 what to do with any observation that comes back, belongs to the caller --
-``RealWorldEnv``.
+``RealRobotExecutor``.
 """
 from __future__ import annotations
 
@@ -151,9 +151,9 @@ def execute_chunks(robot: "RealRobot",
 
     One chunk is one unit of "execute this, then optionally look": with
     ``observe`` the reply carries one observation per chunk, which is
-    how the real-world wrapper gets a look at the bench per option.
-    Open-loop execution passes a single chunk and ``observe=False``, so
-    the caller's world state stays the sim's prediction.
+    how the executor gets a look at the bench per option. With
+    ``observe=False`` nothing comes back and the caller's world state
+    stays the sim's prediction.
 
     Chunks that split into no segments are dropped rather than shipped,
     so an empty chunk cannot silently consume one of the observations

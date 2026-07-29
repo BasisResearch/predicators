@@ -1,10 +1,11 @@
-"""RealWorldEnv driving the real domino twin, end to end.
+"""The real-robot executor driving the real domino twin, end to end.
 
-The wrapper's own tests use a stub inner env to cover its logic in isolation.
+The executor's own tests use a stub env to cover its logic in isolation.
 This file does the opposite: a **real** ``PyBulletDominoRealEnv`` with a real
-physics client, so the whole closed loop is exercised -- ship a chunk, look at
-the bench, convert what was seen, write it into the twin, read it back out
-through the agent-facing observation.
+physics client, driven through ``env.step`` exactly as the episode loop does,
+so the whole closed loop is exercised -- ship a chunk, look at the bench,
+convert what was seen, write it into the twin, read it back out through the
+agent-facing observation.
 
 No hardware either way. Most of these stub the two bridge helpers -- the seam
 where predicators ends and the robot begins -- so they run without the private
@@ -28,7 +29,9 @@ from scipy.spatial.transform import Rotation
 from predicators import utils
 from predicators.envs.pybullet_domino.real_geometry import _REAL_TO_ENV_BODY
 from predicators.envs.pybullet_domino_real import PyBulletDominoRealEnv
-from predicators.envs.real_world_env import RealWorldEnv, wrap_for_real_robot
+from predicators.envs.pybullet_env import PyBulletEnv
+from predicators.pybullet_helpers.real_robot_executor import \
+    attach_real_robot
 from predicators.structs import Action, ParameterizedOption, State
 
 _TABLE_Z = -0.041
@@ -89,7 +92,6 @@ def _config(scene_path, **overrides):
         "domino_use_skill_factories": False,
         "domino_real_decorate": False,
         "real_robot_execute": True,
-        "real_robot_ship_whole_episode": False,
         "real_robot_observe_at_option_boundary": True,
         "real_robot_settle_s": 0.0,
         "real_robot_divergence_atol": 0.02,
@@ -154,10 +156,12 @@ def shipped_fixture(monkeypatch):
             return tuple(joints)
 
     bridge = _Bridge()
-    monkeypatch.setattr("predicators.envs.real_world_env.execute_chunks",
-                        bridge.execute_chunks)
-    monkeypatch.setattr("predicators.envs.real_world_env.reset_arm",
-                        bridge.reset_arm)
+    monkeypatch.setattr(
+        "predicators.pybullet_helpers.real_robot_executor.execute_chunks",
+        bridge.execute_chunks)
+    monkeypatch.setattr(
+        "predicators.pybullet_helpers.real_robot_executor.reset_arm",
+        bridge.reset_arm)
     return bridge
 
 
@@ -175,14 +179,50 @@ def _terminal_action(env):
     return action
 
 
-def test_wrap_returns_a_wrapper_for_a_real_twin(inner, scene_path):
-    """The positive path the conformance tests deliberately leave out: a
-    genuine PyBullet twin passes the isinstance check and gets wrapped."""
+def _attach(env, robot):
+    """Attach an executor built against the stubs."""
+    executor = attach_real_robot(env, robot)
+    assert executor is not None
+    return executor
+
+
+def test_attaching_leaves_the_env_the_env(inner, scene_path):
+    """The env keeps its identity, which the old wrapper did not.
+
+    A wrapper was a BaseEnv but NOT a PyBulletEnv, and the episode loop
+    branches on exactly that (``cogman.py:225`` and ``:272``) to decide
+    whether to pass ``render_obs`` -- so wrapping silently disabled
+    rendering. Attaching cannot: there is still only one object.
+    """
     _config(scene_path)
-    wrapped = wrap_for_real_robot(inner, _StubRobot())
-    assert isinstance(wrapped, RealWorldEnv)
-    # ...and it still answers as the domino env for every downstream lookup.
-    assert wrapped.get_name() == "pybullet_domino_real"
+    _attach(inner, _StubRobot())
+
+    assert isinstance(inner, PyBulletEnv)
+    assert isinstance(inner, PyBulletDominoRealEnv)
+    assert inner.get_name() == "pybullet_domino_real"
+
+
+def test_simulate_never_reaches_the_executor(inner, scene_path, shipped):
+    """Bilevel search calls ``simulate`` hundreds of times per option. If that
+    path could drive hardware, the planner would move the arm while merely
+    considering a candidate.
+
+    This is the guarantee the executor design buys structurally --
+    ``simulate`` goes through ``_step_once``, which has no hook --
+    rather than by anyone remembering not to attach an executor to the
+    planner's env.
+    """
+    _config(scene_path)
+    _attach(inner, _StubRobot())
+    state = inner.reset("test", 0)
+    shipped.chunks.clear()
+    shipped.homed.clear()
+
+    for _ in range(3):
+        inner.simulate(state, _terminal_action(inner))
+
+    assert shipped.chunks == [], "simulate() shipped to the robot"
+    assert shipped.homed == []
 
 
 def test_reset_homes_the_arm_to_the_real_twins_joints(inner, scene_path,
@@ -190,7 +230,8 @@ def test_reset_homes_the_arm_to_the_real_twins_joints(inner, scene_path,
     """The homing joints come from the twin's own reset state, so the arm
     starts where the first option's waypoints do."""
     _config(scene_path)
-    env = RealWorldEnv(inner, _StubRobot())
+    _attach(inner, _StubRobot())
+    env = inner
 
     env.reset("test", 0)
 
@@ -208,7 +249,8 @@ def test_perceived_topple_reaches_the_agent_through_the_twin(
     because the agent only ever sees the twin.
     """
     _config(scene_path)
-    env = RealWorldEnv(inner, _StubRobot())
+    _attach(inner, _StubRobot())
+    env = inner
     comp = inner._domino_component  # pylint: disable=protected-access
     target = comp.dominos[1]  # slot 1 <-> capture id 5
 
@@ -245,7 +287,8 @@ def test_the_correction_survives_the_next_step(inner, scene_path, shipped):
     action.
     """
     _config(scene_path)
-    env = RealWorldEnv(inner, _StubRobot())
+    _attach(inner, _StubRobot())
+    env = inner
     comp = inner._domino_component  # pylint: disable=protected-access
     target = comp.dominos[1]
 
@@ -303,7 +346,8 @@ def test_closed_loop_against_a_real_dry_robot(inner, scene_path, tmp_path):
                       dry=True)
     try:
         assert robot.dry and robot.has_perception
-        env = RealWorldEnv(inner, robot)
+        _attach(inner, robot)
+        env = inner
         comp = inner._domino_component  # pylint: disable=protected-access
         target = comp.dominos[1]
 

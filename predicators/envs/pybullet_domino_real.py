@@ -7,10 +7,10 @@ scene, transplants real base-frame poses into the domino world frame, and turns
 a live observation into a ``State`` or an ``EnvironmentTask``. It holds no
 robot, ships no motion, and has no real/dry mode.
 
-Driving an arm with it is ``RealWorldEnv``'s job
-(``predicators/envs/real_world_env.py``), which wraps this env and calls the
-conversions below. Keeping the two apart is what lets this env be tested
-without hardware and lets the wrapper be tested without PyBullet.
+Driving an arm with it is the real-robot executor's job
+(``predicators/pybullet_helpers/real_robot_executor.py``), which attaches to
+this env and calls the conversions below. Keeping the two apart is what lets
+this env be tested without hardware and the executor without PyBullet.
 """
 from __future__ import annotations
 

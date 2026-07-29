@@ -546,13 +546,14 @@ class GlobalSettings:
     domino_restricted_push = False
     # Use skill_factories-based option implementations
     domino_use_skill_factories = True
-    # --- real robot (any env driving a real arm; see envs.real_world_env and
-    # pybullet_helpers.real_robot_bridge) ------------------------------------
-    # When True, the executed env is wrapped in RealWorldEnv and its rollouts
-    # drive the arm -- BOTH splits, so exploration episodes execute like
-    # evaluation ones. Default False = safe dry-run (pure sim, no motion).
-    # Only the env at main.setup_environment is wrapped; the planner's own
-    # envs never are (see real_world_env.wrap_for_real_robot).
+    # --- real robot (any env driving a real arm; see
+    # pybullet_helpers.real_robot_executor and .real_robot_bridge) -----------
+    # When True, a RealRobotExecutor is attached to the executed env and its
+    # rollouts drive the arm -- BOTH splits, so exploration episodes execute
+    # like evaluation ones. Default False = safe dry-run (pure sim, no motion).
+    # Only the env at main.setup_environment gets one; the planner's own envs
+    # keep none, and PyBulletEnv.simulate bypasses the executor outright, so
+    # nothing reachable from a search can move the arm.
     real_robot_execute = False
     # Construct the RealRobot without an arm: every method still runs (and the
     # gripper state is still tracked) but nothing moves. Only consulted when
@@ -569,7 +570,7 @@ class GlobalSettings:
     # was seen. This is the point of running on real hardware -- the learner
     # sees perceived transitions rather than the simulator's guesses -- so it
     # defaults on; False gives a blind open-loop run that executes motion and
-    # never looks. Only consulted when shipping per option (see below).
+    # never looks (motion still ships, per option, as it always does).
     real_robot_observe_at_option_boundary = True
     # Dwell before a capture, so the dominoes come to rest after the motion
     # that preceded it. Costs wall-clock on every look and does nothing
@@ -580,17 +581,11 @@ class GlobalSettings:
     # live well below this; a domino the twin thinks is standing and the
     # cameras find on its face is well above it.
     real_robot_divergence_atol = 0.02
-    # Roll the WHOLE episode out in sim, then ship every segment to the robot
-    # in one call (the caller flushes via env.flush_real_execution). This is
-    # the degenerate open-loop case: one chunk, no mid-episode look, so
-    # real_robot_observe_at_option_boundary has no effect.
-    #
-    # Default False = ship at each option boundary, which is what the closed
-    # loop needs and is now safe: RealWorldEnv owns the chunking, and RealRobot
-    # drops a gripper command that repeats the session's state, so a Place
-    # chunk that re-emits its leading "close" cannot force-grasp the domino it
-    # is already holding. Set True for a blind open-loop run.
-    real_robot_ship_whole_episode = False
+    # (There is no whole-episode shipping mode. It existed because the gripper
+    # split had to span an episode -- shipping per option restarted its finger
+    # tracking, so a Place re-emitted a leading "close" and force-grasped the
+    # domino it was already holding. RealRobot now drops a gripper command
+    # that repeats the session's state, which removed the reason for it.)
     # --- real-world domino bench (pybullet_domino_real env) ------------------
     # The reconstructed-scene JSON (robot_base frame) the pybullet_domino_real
     # env builds its single train/test task from; the env sizes its domino

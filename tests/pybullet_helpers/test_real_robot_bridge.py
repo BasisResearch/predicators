@@ -111,14 +111,13 @@ def test_perception_kinds_and_unknown_names():
 
 
 def test_closed_loop_is_the_default():
-    """The defaults ship per option, look between options, and use the live
-    cameras -- i.e. running on hardware closes the loop without extra flags.
+    """The defaults look between options and use the live cameras -- i.e.
+    running on hardware closes the loop without extra flags.
 
-    Pinned because each of the three is individually a knob someone
-    might flip for a one-off and forget to restore.
+    Pinned because each is individually a knob someone might flip for a
+    one-off and forget to restore.
     """
     utils.reset_config({})
-    assert CFG.real_robot_ship_whole_episode is False
     assert CFG.real_robot_observe_at_option_boundary is True
     assert CFG.real_robot_perception == "zed"
 
