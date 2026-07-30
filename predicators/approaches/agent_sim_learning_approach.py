@@ -27,6 +27,7 @@ from contextlib import contextmanager
 from typing import Any, Callable, Collection, Dict, FrozenSet, Iterator, \
     List, Optional, Sequence, Set, Tuple
 
+import dill as pkl
 import numpy as np
 import pybullet
 from gym.spaces import Box
@@ -368,6 +369,17 @@ re-validate - do not declare done until BOTH pass.
 """
 
 
+def _fit_space_dist(a: float, b: float, scale: str) -> float:
+    """Distance between two param values in their fit space.
+
+    Log-scale params compare multiplicatively (the space their prior and
+    posterior widths live in); linear params compare additively.
+    """
+    if scale == "log":
+        return abs(float(np.log(max(a, 1e-300)) - np.log(max(b, 1e-300))))
+    return abs(a - b)
+
+
 @dataclasses.dataclass(frozen=True)
 class _SynthesisPaths:
     """Host- and agent-visible paths for one synthesis session.
@@ -539,7 +551,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # sim.fit calls with the same declaration signature
         # reuse the sweep instead of re-rolling it, which both saves
         # rollouts and pins the verdict for identical inputs.
-        self._explainability_cache: Dict[Tuple, List[float]] = {}
+        self._explainability_cache: Dict[Tuple, Tuple[List[float],
+                                                      List[Dict[str,
+                                                                float]]]] = {}
         # Whole-fit memoization for the orchestrator (same lifecycle as
         # the explainability cache): repeated canonical sim.fit calls on
         # an unchanged artifact version + data reuse the entire fit core
@@ -553,6 +567,23 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # signature of an overconfident probe; flagged, and the verdict
         # downgraded, rather than silently trusted.
         self._sysid_fit_history: Dict[str, Tuple[float, float, str]] = {}
+        # A rejected (INCONSISTENT) fit awaiting confirmation:
+        # name -> (map_value, posterior_std_fit_space). If the NEXT
+        # cycle's independent fit lands within the consistency band of
+        # the pending value, the jump is accepted as real (two
+        # independent fits agree); until then the trusted history value
+        # holds. Without this, a genuinely-updated fit would read
+        # INCONSISTENT against stale history forever.
+        self._sysid_pending_fit: Dict[str, Tuple[float, float]] = {}
+        # The applied physical params as of the last CYCLE-LEVEL fit -
+        # the reference the INCONSISTENT hold policy reverts to.
+        # Deliberately not _identified_physical_params: the agent's
+        # in-session sim.fit calls mutate that dict, so "hold the
+        # currently-applied value" was a no-op that held the very fit
+        # it refused to trust (run_20260724_232411 seed2 cycle 2:
+        # "holding the currently-applied 0.6267" - 0.6267 WAS the
+        # distrusted new fit, applied minutes earlier in-session).
+        self._cycle_applied_physical: Dict[str, float] = {}
         # Agent-facing digest of the latest rollout fit (unexplainable
         # segments, unidentified/insensitive params, cross-cycle
         # conflicts); surfaced to the explorer as experiment objectives.
@@ -1801,6 +1832,40 @@ re-score.{probe_note}"""
                     "keeping the whole trajectories.")
         return rollouts
 
+    def _persist_fit_trajectories(self) -> None:
+        """Dump the raw fit trajectories for offline post-mortems.
+
+        The rollout sysID fit data otherwise exists only in memory:
+        when run_20260724_232411 shipped friction fits 2-7 sigma from
+        the truth, the failing fits could not be replayed offline - the
+        episodes had to be approximately re-executed from logged plans,
+        which cannot reproduce mid-episode replans or the warm-env
+        recording context (exactly the suspected corruption channel).
+        One pickle per cycle-level fit under ``<log_dir>/fit_data/``;
+        never raises - persistence must not take down a run.
+        """
+        if not CFG.code_sim_learning_persist_fit_data:
+            return
+        try:
+            out_dir = os.path.join(self._get_log_dir(), "fit_data")
+            os.makedirs(out_dir, exist_ok=True)
+            idx = len([f for f in os.listdir(out_dir) if f.endswith(".pkl")])
+            path = os.path.join(out_dir, f"fit_trajectories_{idx:03d}.pkl")
+            payload = {
+                "trajectories":
+                list(self._fit_trajectories),
+                "physical_param_specs":
+                list(self._physical_param_specs),
+                "identified_physical_params":
+                dict(self._identified_physical_params),
+            }
+            with open(path, "wb") as f:
+                pkl.dump(payload, f)
+            logger.info("Persisted %d fit trajectories to %s",
+                        len(self._fit_trajectories), path)
+        except Exception as e:  # pylint: disable=broad-except
+            logger.warning("Could not persist fit trajectories: %s", e)
+
     def _apply_identified_physical_params(
             self, identified: Dict[str, float]) -> None:
         """Publish identified physical params into the planning base env.
@@ -1862,6 +1927,7 @@ re-score.{probe_note}"""
         physical_names = [s.name for s in physical_specs]
         # Factory, not an instance: every rollout runs in a fresh env.
         fit_env = self._get_rollout_fit_env()
+        self._persist_fit_trajectories()
         rollouts = self._rollout_fit_trajectories(process_features)
         init_params = {
             s.name: s.init_value
@@ -1896,8 +1962,10 @@ re-score.{probe_note}"""
                                     report_adjuster=lambda result, report:
                                     (self._check_cross_cycle_consistency(
                                         result, report, physical_names)),
-                                    held=dict(
-                                        self._identified_physical_params))
+                                    held={
+                                        **self._identified_physical_params,
+                                        **self._cycle_applied_physical
+                                    })
         if outcome.num_survivors == 0:
             # NO fit ran (the result is pinned at the declared inits).
             # Apply nothing: the planner keeps its standing belief -
@@ -1914,6 +1982,10 @@ re-score.{probe_note}"""
                     format_identifiability(outcome.report))
         log_param_changes(init_params, outcome.fitted)
         self._apply_identified_physical_params(outcome.applied)
+        # Snapshot the cycle-level decision: this (not whatever the
+        # agent's in-session sim.fit last applied) is what a future
+        # INCONSISTENT verdict holds on to.
+        self._cycle_applied_physical = dict(outcome.applied)
         # Physics-margin points for the capture gate: the fit's posterior
         # widths (floored, see identifiability_report) turned into a grid
         # of perturbations spanning +-1 sigma of the applied values.
@@ -1972,33 +2044,67 @@ re-score.{probe_note}"""
             scale = scales[i]
             value = fitted[name]
             prev = self._sysid_fit_history.get(name)
+            flagged = False
             if (k > 0 and prev is not None and np.isfinite(post)
                     and np.isfinite(prev[1])):
                 prev_val, prev_std, prev_scale = prev
                 if prev_scale == scale:
-                    if scale == "log":
-                        dist = abs(
-                            np.log(max(value, 1e-300)) -
-                            np.log(max(prev_val, 1e-300)))
-                    else:
-                        dist = abs(value - prev_val)
+                    dist = _fit_space_dist(value, prev_val, scale)
                     combined = float(np.sqrt(post**2 + prev_std**2))
                     if combined > 0 and dist / combined > k:
                         n_sigma = dist / combined
-                        logger.warning(
-                            "Rollout sysID cross-cycle consistency: %s "
-                            "moved %.4f -> %.4f (%.1f combined sigmas > "
-                            "%g) since the previous cycle; the posterior "
-                            "is overconfident.", name, prev_val, value,
-                            n_sigma, k)
-                        entry = report.get(name)
-                        if (entry is not None
-                                and entry["verdict"] is Verdict.IDENTIFIED):
-                            entry["verdict"] = Verdict.INCONSISTENT
-                            entry["note"] = (
-                                f"{prev_val:.4f} -> {value:.4f} is "
-                                f"{n_sigma:.1f} combined sigmas; holding "
-                                "the currently-applied value")
+                        pending = self._sysid_pending_fit.get(name)
+                        if pending is not None and _fit_space_dist(
+                                value, pending[0], scale) / max(
+                                    float(np.sqrt(post**2 + pending[1]**2)),
+                                    1e-12) <= k:
+                            # Two INDEPENDENT cycles agree on the new
+                            # value: the jump was real, not probe
+                            # overconfidence - accept it.
+                            logger.info(
+                                "Rollout sysID cross-cycle consistency: "
+                                "%s jump to ~%.4f confirmed by an "
+                                "independent refit (pending %.4f); "
+                                "accepting the new value.", name, value,
+                                pending[0])
+                            self._sysid_pending_fit.pop(name, None)
+                        else:
+                            flagged = True
+                            logger.warning(
+                                "Rollout sysID cross-cycle consistency: %s "
+                                "moved %.4f -> %.4f (%.1f combined sigmas > "
+                                "%g) since the previous cycle; the posterior "
+                                "is overconfident.", name, prev_val, value,
+                                n_sigma, k)
+                            entry = report.get(name)
+                            if (entry is not None and
+                                    entry["verdict"] is Verdict.IDENTIFIED):
+                                entry["verdict"] = Verdict.INCONSISTENT
+                                entry["note"] = (
+                                    f"{prev_val:.4f} -> {value:.4f} is "
+                                    f"{n_sigma:.1f} combined sigmas; holding "
+                                    "the last trusted value, margin sweep "
+                                    "spans both")
+                                # Both incompatible fits become hull
+                                # candidates so the margin sweep covers
+                                # the whole disagreement - the interval
+                                # [0.3236, 0.6267] contained the true
+                                # 0.5 in run_20260724_232411 seed2.
+                                cands = set(entry.get("candidate_values", ()))
+                                cands.update((float(prev_val), float(value)))
+                                if pending is not None:
+                                    cands.add(float(pending[0]))
+                                entry["candidate_values"] = sorted(cands)
+                            self._sysid_pending_fit[name] = (value, post)
+            if flagged:
+                # Keep the trusted value as the comparison reference;
+                # the rejected fit waits in _sysid_pending_fit for an
+                # independent confirmation. Recording the rejected fit
+                # here would make it the NEXT cycle's reference, i.e.
+                # accept the hop one cycle late without any new
+                # evidence.
+                continue
+            self._sysid_pending_fit.pop(name, None)
             self._sysid_fit_history[name] = (value, post, scale)
 
     def _record_sysid_diagnostics(self, report: Dict[str, Dict[str, Any]],
@@ -2032,6 +2138,16 @@ re-score.{probe_note}"""
             note = entry.get("note", "")
             label = verdict.value + (f" ({note})" if note else "")
             if verdict is Verdict.IDENTIFIED:
+                cands = entry.get("candidate_values", ())
+                if len(cands) > 1:
+                    lines.append(
+                        f"- physical param '{name}': identified, but the "
+                        "recorded segments preferred mutually-incompatible "
+                        f"explanations spanning [{min(cands):.4g}, "
+                        f"{max(cands):.4g}] (the physics-margin sweep "
+                        "covers that whole hull). A clean, repeatable "
+                        "interaction that excites this parameter and "
+                        "little else would collapse the hull.")
                 continue
             interval = entry.get("flat_interval")
             if (verdict in (Verdict.WEAKLY_IDENTIFIED, Verdict.NOT_IDENTIFIED)

@@ -35,7 +35,7 @@ from predicators.envs import create_new_env
 from predicators.envs.pybullet_domino.task_generators import \
     min_block_utils as mbu
 from predicators.envs.pybullet_domino.task_generators.min_block_generation import \
-    _with_believed_physics
+    _believed_physics
 from predicators.settings import CFG
 
 utils.reset_config({
@@ -48,7 +48,8 @@ utils.reset_config({
     'pybullet_ik_validate': False,
     'pybullet_camera_height': 900,
     'pybullet_camera_width': 900,
-    # envs/all.yaml domino_heavy (mass-only mismatch: no planning friction)
+    # envs/all.yaml domino_heavy (mass-only mismatch: no planning friction,
+    # true friction stays at the settings default, 0.5 - matching launches)
     'max_initial_demos': 0,
     'excluded_objects_in_state_str': "loc,rot,angle,direction",
     'horizon': 500,
@@ -62,7 +63,6 @@ utils.reset_config({
     'pybullet_birrt_extend_num_interp': 20,
     'pybullet_birrt_path_subsample_ratio': 2,
     'domino_heavy_block_tasks': True,
-    'domino_true_friction': 0.1,
     'domino_min_block_num_blues': 4,
 })
 env = create_new_env('pybullet_domino', do_cache=False, use_gui=False)
@@ -123,7 +123,8 @@ def role_of(state, d):
 
 def state_poses(state):
     return [(state.get(d, "x"), state.get(d, "y"), state.get(d, "yaw"),
-             role_of(state, d)) for d in state.get_objects(comp.domino_type)]
+             role_of(state, d)) for d in (state.get_objects(comp.domino_type) +
+                                          state.get_objects(comp.block_type))]
 
 
 def od_poses(od, start, target, gray):
@@ -140,7 +141,8 @@ def od_poses(od, start, target, gray):
 
 def task_geometry(state):
     # pylint: disable=protected-access
-    dominoes = state.get_objects(comp.domino_type)
+    dominoes = (state.get_objects(comp.domino_type) +
+                state.get_objects(comp.block_type))
     start = next(d for d in dominoes if comp._StartBlock_holds(state, [d]))
     target = next(d for d in dominoes if comp._TargetDomino_holds(state, [d]))
     gray = next(d for d in dominoes if comp._HeavyBlock_holds(state, [d]))
@@ -161,11 +163,16 @@ def swerve_solution(s_pose, t_pose, h_pose, k_max):
 
 
 def detour_solution(s_pose, t_pose, gray_od, k_max):
-    """Winning skip-around detour at the TRUE physics (corner family with the
-    gray in every candidate scene)."""
+    """Winning NOISE-ROBUST skip-around detour at the TRUE physics - the
+    same bar certification holds tasks to (a nominal-only scan would show
+    knife-edge cheaper detours the arm cannot actually build, visually
+    faking a cost tie with the believed lure)."""
     # pylint: disable=protected-access
     extra_pts = [(d["x"], d["y"]) for d in gray_od.values()]
+    h_pose = next((d["x"], d["y"], d["yaw"]) for d in gray_od.values())
+    cand_idx = 0
     for k in range(k_max + 1):
+        merged = []
         for od, s_, t_ in mbu._candidate_turn_layouts(comp, k, s_pose, t_pose):
             blue_pts = [(d["x"], d["y"]) for o, d in od.items()
                         if o not in (s_, t_)]
@@ -174,8 +181,16 @@ def detour_solution(s_pose, t_pose, gray_od, k_max):
                     for bx, by in blue_pts for ex, ey in extra_pts):
                 continue
             od.update(gray_od)
-            if mbu._layout_topples(env, od, s_, t_, push_opt):
-                return od, s_, t_, k
+            merged.append(od)
+        merged.extend(
+            mbu._candidate_detour_layouts(comp, k, s_pose, t_pose, h_pose))
+        for od in merged:
+            cand_idx += 1
+            if not mbu._layout_topples(env, od, doms[0], doms[1], push_opt):
+                continue
+            if not mbu._layout_noise_robust(env, comp, od, push_opt, cand_idx):
+                continue
+            return od, doms[0], doms[1], k
     return None
 
 
@@ -235,7 +250,8 @@ def believed_straight(start, target, gray, s_pose, t_pose, h_pose, k_max):
                         return od, k
         return None
 
-    return _with_believed_physics(env, _probe)
+    with _believed_physics(env, believed_heavy_mass=True):
+        return _probe()
 
 
 def believed_gray_corner(start, target, gray, s_pose, t_pose, h_pose, k_max):
@@ -244,6 +260,7 @@ def believed_gray_corner(start, target, gray, s_pose, t_pose, h_pose, k_max):
 
     # pylint: disable=protected-access
     def _probe():
+        cand_idx = 0
         for k in range(2, k_max + 2):
             for od, s_, t_ in mbu._candidate_turn_layouts(
                     comp, k, s_pose, t_pose):
@@ -255,11 +272,17 @@ def believed_gray_corner(start, target, gray, s_pose, t_pose, h_pose, k_max):
                     continue
                 lure = {o: dict(p) for o, p in od.items() if o is not corner}
                 lure[gray] = comp.place_domino(0, *h_pose, is_heavy_block=True)
-                if mbu._layout_topples(env, lure, s_, t_, push_opt):
+                cand_idx += 1
+                # Same noise bar as generation: show the robust lure the
+                # believed baseline would actually validate and build.
+                if mbu._layout_topples(env, lure, s_, t_, push_opt) \
+                        and mbu._layout_noise_robust(env, comp, lure,
+                                                     push_opt, cand_idx):
                     return lure, k - 1
         return None
 
-    return _with_believed_physics(env, _probe)
+    with _believed_physics(env, believed_heavy_mass=True):
+        return _probe()
 
 
 tasks = env.get_test_tasks()

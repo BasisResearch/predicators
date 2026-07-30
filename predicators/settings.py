@@ -691,7 +691,7 @@ class GlobalSettings:
     #     go; the true solution skips around it with an own corner.
     # The gray's true mass (DominoComponent.heavy_block_true_mass) makes it
     # untopple-able and unmovable, but planning sims believe it has normal
-    # domino mass (env init sets the ``heavy_block_mass`` override), so the
+    # domino mass (env init sets the ``block_mass`` override), so the
     # believed-cheapest plan runs THROUGH the gray (a free link/corner) and
     # dies against it at execution. Run WITHOUT domino_planning_friction -
     # this task type isolates the MASS dimension. (2026-07-25: generation
@@ -1595,6 +1595,15 @@ class GlobalSettings:
     # Code sim-learning parameter fitting settings.
     # Set to 0 to skip MCMC and use initial parameter values directly.
     code_sim_learning_num_mcmc_steps = 0
+    # Persist the raw rollout-fit trajectories (states + actions per
+    # recorded episode) to <log_dir>/fit_data/ at every cycle-level
+    # fit. The fit data otherwise lives only in memory, which made the
+    # wrong fits of run_20260724_232411 (lateral_friction 1.0358 /
+    # 0.3236 vs true 0.5) impossible to replay offline: approximate
+    # re-execution from logged plans cannot reproduce mid-episode
+    # replans or the warm-env recording context, the very channel
+    # suspected of corrupting the fits. Cost: one small pickle per fit.
+    code_sim_learning_persist_fit_data = True
     # Truncate each rollout-fit trajectory once the scored features have
     # settled (physical_sysid.truncate_settled_tail): keep everything up
     # to the last observed motion plus a margin, drop the static tail.
@@ -1716,6 +1725,30 @@ class GlobalSettings:
     # drowned. With normalization the SSE and every RMS threshold below
     # are dimensionless fractions of typical motion.
     code_sim_learning_rollout_scale_residuals = True
+    # Huber cap on each (scaled) rollout residual: residuals beyond
+    # this many scale units contribute linearly instead of
+    # quadratically to the SSE/LM objective (0 disables). Rationale:
+    # per-step residuals through contact are chaotic in theta - a
+    # replay can diverge QUALITATIVELY at one grid candidate and not
+    # its neighbors (measured 2026-07-25 on a recorded single-domino
+    # topple at true friction 0.5: SSE 248.7 at theta 0.4746 vs 0.0025
+    # at 0.4743, the spike being a diverged replay that slid 0.22 m vs
+    # the recorded 0.09 m) - and one such spike can steer the grid fit
+    # to a wrong basin. Capping bounds a diverged replay's vote while
+    # still penalizing it. Value in dimensionless scale units (typical
+    # motion ~1 under scale_residuals).
+    code_sim_learning_rollout_huber_delta = 1.0
+    # Extra weight on the per-trajectory SUMMARY residuals appended to
+    # the per-step objective (0 disables): the settled endpoint
+    # features and the per-object motion-onset step. These are the
+    # smooth-in-theta observables (an ABC-style summary-statistic
+    # objective): slide distances and rest poses respond monotonically
+    # to friction while mid-flight paths are chaos. Offline A/B on
+    # run_20260724_232411's re-executed explore episodes: the summary
+    # objective separates the true friction from the neighboring grid
+    # point by ~21x where per-step SSE manages ~1.25x. Each summary
+    # residual enters the SSE with this factor squared.
+    code_sim_learning_rollout_summary_weight = 5.0
     # Floor for the per-feature motion span used in residual
     # normalization, so a feature that never moves in the fit data does
     # not blow up its (noise) residuals. Units: the feature's own

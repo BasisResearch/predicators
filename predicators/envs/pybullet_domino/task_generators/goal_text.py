@@ -32,7 +32,7 @@ HEAVY_GOAL_NL = (
     "Arrange the blue dominoes so that when the green domino is pushed, "
     "the purple domino is toppled -- using AS FEW blue dominoes as "
     "possible (possibly none). Only the blue dominoes may be rearranged: "
-    "the green and purple dominoes and the gray heavy blocks must stay "
+    "the green and purple dominoes and the gray blocks must stay "
     "untouched at their staged poses, upright and never held, until the "
     "green is pushed, and nothing may topple before that push. Only the "
     "green domino may ever be pushed." + CASCADE_VERIFICATION_NL)

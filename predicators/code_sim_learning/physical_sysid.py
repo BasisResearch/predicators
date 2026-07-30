@@ -73,7 +73,7 @@ from predicators.code_sim_learning.config import SysIdConfig
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
     prior_widths, to_fit_space
 from predicators.code_sim_learning.grid_seed import \
-    _grid_seed_physical_specs, min_explainable_rms
+    _grid_seed_physical_specs, min_explainable_fits, min_explainable_rms
 from predicators.code_sim_learning.identifiability import NOISE_FLOOR_EVALS, \
     format_identifiability, identifiability_report, \
     select_trustworthy_params
@@ -103,6 +103,7 @@ __all__ = [
     "fit_params_rollout_trimmed",
     "format_identifiability",
     "identifiability_report",
+    "min_explainable_fits",
     "min_explainable_rms",
     "per_trajectory_rms",
     "physical_param_anchors",
@@ -622,9 +623,11 @@ def fit_params_rollout_trimmed(
     noise_sigma: float = 0.05,
     scaling: Optional[ResidualScaling] = None,
     anchors: Optional[Dict[str, float]] = None,
-    rms_cache: Optional[Dict[Tuple, List[float]]] = None,
+    rms_cache: Optional[Dict[Tuple, Tuple[List[float],
+                                          List[Dict[str, float]]]]] = None,
     config: Optional[SysIdConfig] = None,
-) -> Tuple[FitResult, List[RolloutTrajectory], List[float]]:
+) -> Tuple[FitResult, List[RolloutTrajectory], List[float], List[Dict[str,
+                                                                      float]]]:
     """Drop trajectories no parameters can explain, fit on the rest.
 
     Goodness-of-fit trimming: a chaotic recording (e.g. a center-height
@@ -649,12 +652,26 @@ def fit_params_rollout_trimmed(
     key that captures everything the verdict depends on, which both
     saves rollouts and pins the verdict for identical inputs.
 
-    Returns ``(fit_result, surviving_trajectories, per_trajectory_rms)``
-    — callers must compute their post-fit SSE / identifiability probe on
-    the SURVIVORS, or a rejected trajectory's noise re-poisons the
-    verdicts. If nothing survives, the survivor list is empty and the
-    returned fit is pinned at the declared inits (see
-    :func:`_init_point_fit_result`), so applying it is a no-op.
+    Returns ``(fit_result, surviving_trajectories, per_trajectory_rms,
+    hull_candidates)`` — callers must compute their post-fit SSE /
+    identifiability probe on the SURVIVORS, or a rejected trajectory's
+    noise re-poisons the verdicts. If nothing survives, the survivor
+    list is empty and the returned fit is pinned at the declared inits
+    (see :func:`_init_point_fit_result`), so applying it is a no-op.
+
+    ``hull_candidates`` records the disagreement the consistency loop
+    resolved: whenever a survivor is dropped, the pre-drop joint fit
+    and the dropped segment's own-best (grid-argmin) physical values
+    are appended. The drop still anchors the POINT estimate on the
+    cleanest data (dropping is right when a chaotic recording is
+    accidentally explainable at wrong params - measured on
+    run_20260706_111805), but the disagreement must survive as
+    UNCERTAINTY: run_20260724_232411 seed1 dropped the solved cascade
+    segment and shipped lateral_friction 1.0358 at the 0.1 sigma floor
+    when the segment fits spanned [~0.27, ~1.04] around the true 0.5.
+    Consumers fold these candidates into the physics-margin sweep (see
+    :func:`identifiability.physics_sigma_points`), so what the drop
+    removes from the mean reappears in the variance.
     """
     config = config or SysIdConfig.from_cfg()
     factor = config.trim_rms_factor
@@ -676,40 +693,42 @@ def fit_params_rollout_trimmed(
                                     scaling=scaling,
                                     anchors=anchors,
                                     config=config)
-        return result, list(trajectories), []
+        return result, list(trajectories), [], []
     cache_key: Optional[Tuple] = None
-    rms: Optional[List[float]] = None
+    cached: Optional[Tuple[List[float], List[Dict[str, float]]]] = None
     if rms_cache is not None:
         cache_key = _explainability_cache_key(physical_specs, rule_specs,
                                               trajectories, anchors, scaling,
                                               config.grid_seed_points)
-        rms = rms_cache.get(cache_key)
-        if rms is not None:
+        cached = rms_cache.get(cache_key)
+        if cached is not None:
             logger.info(
                 "Rollout sysID trimming: reusing cached explainability "
                 "verdicts for this declaration/data signature.")
     sweep_t0 = time.monotonic()
     sweep_n0 = num_rollouts_run()
-    if rms is None:
-        rms = min_explainable_rms(base_env,
-                                  trajectories,
-                                  physical_specs,
-                                  process_features,
-                                  rules=rules,
-                                  rule_specs=rule_specs,
-                                  latent_init=latent_init,
-                                  scaling=scaling,
-                                  anchors=anchors,
-                                  config=config)
+    if cached is None:
+        cached = min_explainable_fits(base_env,
+                                      trajectories,
+                                      physical_specs,
+                                      process_features,
+                                      rules=rules,
+                                      rule_specs=rule_specs,
+                                      latent_init=latent_init,
+                                      scaling=scaling,
+                                      anchors=anchors,
+                                      config=config)
         if rms_cache is not None and cache_key is not None:
-            rms_cache[cache_key] = rms
+            rms_cache[cache_key] = cached
         logger.info(
             "Rollout sysID explainability sweep cost: %d rollouts in "
             "%.1fs.",
             num_rollouts_run() - sweep_n0,
             time.monotonic() - sweep_t0)
+    rms, argmins = cached
     threshold = factor * noise_sigma
     survivors = [t for t, r in zip(trajectories, rms) if r <= threshold]
+    surv_argmins = [a for a, r in zip(argmins, rms) if r <= threshold]
     if len(survivors) < len(trajectories):
         logger.info(
             "Rollout sysID trimming: per-trajectory best RMS %s vs "
@@ -722,7 +741,7 @@ def fit_params_rollout_trimmed(
             "Rollout sysID trimming: NO trajectory is explainable at any "
             "candidate params; skipping the fit and pinning the result at "
             "the declared inits.")
-        return _init_point_fit_result(all_specs, noise_sigma), [], rms
+        return _init_point_fit_result(all_specs, noise_sigma), [], rms, []
 
     # Consistency loop. Explainability alone is not enough: a chaotic
     # recording can be ACCIDENTALLY explainable at wrong params (measured:
@@ -737,6 +756,7 @@ def fit_params_rollout_trimmed(
     consistency = config.consistency_factor
     physical_names = [s.name for s in physical_specs]
     best = [r for r in rms if r <= threshold]
+    hull_candidates: List[Dict[str, float]] = []
     while True:
         result = fit_params_rollout(base_env,
                                     survivors,
@@ -762,12 +782,25 @@ def fit_params_rollout_trimmed(
         if not violated:
             break
         drop_idx = max(range(len(survivors)), key=lambda i: best[i])
+        # The disagreement is real information about parameter
+        # uncertainty even though the drop is right for the point
+        # estimate: keep the pre-drop joint fit and the dropped
+        # segment's own-best values as hull candidates for the margin
+        # sweep.
+        hull_candidates.append(
+            {n: float(result.point_estimate[n])
+             for n in physical_names})
+        hull_candidates.append(dict(surv_argmins[drop_idx]))
         logger.info(
             "Rollout sysID consistency: survivors disagree (RMS at joint "
             "fit %s vs own best %s); dropping the least trustworthy "
-            "(index %d, best RMS %.4g) and refitting.",
+            "(index %d, best RMS %.4g, own-best params %s) and refitting; "
+            "its preferred explanation stays in the uncertainty hull.",
             [f"{r:.4g}" for r in fit_rms], [f"{r:.4g}" for r in best],
-            drop_idx, best[drop_idx])
+            drop_idx, best[drop_idx],
+            {k: f"{v:.4g}"
+             for k, v in surv_argmins[drop_idx].items()})
         survivors.pop(drop_idx)
         best.pop(drop_idx)
-    return result, survivors, rms
+        surv_argmins.pop(drop_idx)
+    return result, survivors, rms, hull_candidates

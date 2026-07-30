@@ -25,8 +25,11 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+import numpy as np
+
 from predicators.code_sim_learning.config import SysIdConfig
-from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
+from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
+    scalar_to_fit_space
 from predicators.code_sim_learning.identifiability import \
     identifiability_report, select_trustworthy_params
 from predicators.code_sim_learning.physical_sysid import \
@@ -63,6 +66,7 @@ class SysIdOutcome:
     traj_rms: List[float]
     pre_sse: float
     post_sse: float
+    hull_candidates: List[Dict[str, float]] = field(default_factory=list)
     from_cache: bool = False
 
 
@@ -74,6 +78,7 @@ class _FitComputation:
     report: Dict[str, Dict[str, Any]]
     num_survivors: int
     traj_rms: List[float] = field(default_factory=list)
+    hull_candidates: List[Dict[str, float]] = field(default_factory=list)
     pre_sse: float = float("nan")
     post_sse: float = float("nan")
 
@@ -88,7 +93,8 @@ def run_rollout_sysid(
     rule_specs: Sequence[ParamSpec] = (),
     latent_init: Any = None,
     anchors: Optional[Dict[str, float]] = None,
-    rms_cache: Optional[Dict[Tuple, List[float]]] = None,
+    rms_cache: Optional[Dict[Tuple, Tuple[List[float],
+                                          List[Dict[str, float]]]]] = None,
     fit_cache: Optional[Dict[Tuple, _FitComputation]] = None,
     fit_cache_key: Optional[Any] = None,
     report_adjuster: Optional[ReportAdjuster] = None,
@@ -161,6 +167,7 @@ def run_rollout_sysid(
                                             report,
                                             anchors,
                                             held=held)
+        _log_data_health(report, physical_specs)
     logger.info("Rollout sysID orchestration total: %d rollouts in %.1fs%s.",
                 num_rollouts_run() - n0,
                 time.monotonic() - t0,
@@ -174,7 +181,42 @@ def run_rollout_sysid(
                         traj_rms=list(core.traj_rms),
                         pre_sse=core.pre_sse,
                         post_sse=core.post_sse,
+                        hull_candidates=list(core.hull_candidates),
                         from_cache=from_cache)
+
+
+def _log_data_health(report: Dict[str, Dict[str, Any]],
+                     physical_specs: Sequence[ParamSpec]) -> None:
+    """Warn when candidate fits disagree far beyond the posterior width.
+
+    The disagreement hull (per-segment fits recorded by the consistency
+    loop, plus any cross-cycle candidates an adjuster appended) is the
+    honest uncertainty of this fit. When its half-span dwarfs the
+    reported posterior_std, the recordings prefer mutually-incompatible
+    explanations - typically context-corrupted data (replans,
+    reset-reconstruction deltas, warm-env micro-state) rather than a
+    genuinely sharp posterior - and the point estimate should not be
+    trusted to posterior_std precision. The margin sweep already covers
+    the hull (see :func:`identifiability.physics_sigma_points`); this
+    log line makes the condition visible to run audits.
+    """
+    spec_by_name = {s.name: s for s in physical_specs}
+    for name, entry in report.items():
+        spec = spec_by_name.get(name)
+        cands = entry.get("candidate_values")
+        if spec is None or not cands:
+            continue
+        width = float(entry.get("posterior_std", float("nan")))
+        zs = [scalar_to_fit_space(spec, float(v)) for v in cands]
+        half_span = (max(zs) - min(zs)) / 2.0
+        if np.isfinite(width) and width > 0 and half_span > 2.0 * width:
+            logger.warning(
+                "Rollout sysID data-health: %s candidate fits span "
+                "[%.4g, %.4g] (half-span %.3g in fit space vs "
+                "posterior_std %.3g) - the recordings prefer "
+                "mutually-incompatible explanations; the physics-margin "
+                "sweep covers the whole hull.", name, min(cands), max(cands),
+                half_span, width)
 
 
 def _compute_fit(
@@ -186,7 +228,8 @@ def _compute_fit(
     rule_specs: Sequence[ParamSpec],
     latent_init: Any,
     anchors: Dict[str, float],
-    rms_cache: Optional[Dict[Tuple, List[float]]],
+    rms_cache: Optional[Dict[Tuple, Tuple[List[float], List[Dict[str,
+                                                                 float]]]]],
     config: SysIdConfig,
 ) -> _FitComputation:
     """The cacheable fit core: trim + fit + report on the survivors."""
@@ -204,7 +247,7 @@ def _compute_fit(
                                   process_features, physical_names, rules,
                                   latent_init, scaling)
     logger.info("Rollout sysID - pre-SSE: %.6f", pre_sse)
-    result, survivors, rms = fit_params_rollout_trimmed(
+    result, survivors, rms, hull_candidates = fit_params_rollout_trimmed(
         fit_env,
         rollouts,
         physical_specs,
@@ -247,9 +290,19 @@ def _compute_fit(
         list(physical_specs) + list(rule_specs),
         num_explainable=len(survivors),
         min_posterior_width=(config.min_posterior_width))
+    # The consistency loop's disagreement hull rides on the report so
+    # every consumer of the fit (margin sweep, diagnostics, agents
+    # reading sim.fit output) sees the same uncertainty evidence.
+    for name in physical_names:
+        vals = sorted({float(c[name])
+                       for c in hull_candidates if name in c}
+                      | {float(fitted[name])})
+        if len(vals) > 1 and name in report:
+            report[name]["candidate_values"] = vals
     return _FitComputation(fit_result=result,
                            report=report,
                            num_survivors=len(survivors),
                            traj_rms=list(rms),
+                           hull_candidates=list(hull_candidates),
                            pre_sse=pre_sse,
                            post_sse=post_sse)
