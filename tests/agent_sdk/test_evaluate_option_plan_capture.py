@@ -410,6 +410,133 @@ def test_fresh_env_scope_disabled_by_config():
     assert not entered
 
 
+class _PhysicsAwareModel(_Model):
+    """Fake model whose success depends on a physics 'parameter'.
+
+    Move only applies its parameter while ``friction >= 0.5``, emulating
+    a plan whose success band excludes part of the fit posterior. The
+    physics-margin scope perturbs ``friction`` the way the real scope
+    perturbs the fresh env's physical params.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.friction = 0.53
+
+    def get_next_state_and_num_actions(self, state, option):
+        if self.friction >= 0.5:
+            return super().get_next_state_and_num_actions(state, option)
+        self.num_calls += 1
+        nxt = state.copy()
+        self.last_trajectory = LowLevelTrajectory(
+            [state, nxt], [Action(np.zeros(1, dtype=np.float32))])
+        return nxt, 1
+
+
+def _physics_scope_ctx(model, points):
+    """A ctx whose fresh-env scope applies physics overrides to ``model``."""
+    ctx = _make_ctx(model)
+    scope_overrides = []
+
+    @contextlib.contextmanager
+    def _scope(physical_overrides=None):
+        scope_overrides.append(physical_overrides)
+        prev = model.friction
+        if physical_overrides:
+            model.friction = physical_overrides["lateral_friction"]
+        try:
+            yield
+        finally:
+            model.friction = prev
+
+    ctx.validation_env_scope = _scope
+    ctx.physics_margin_provider = lambda: list(points)
+    return ctx, scope_overrides
+
+
+def test_param_sensitive_plan_is_not_captured():
+    """A plan that fails at a -1-sigma physics point is refused.
+
+    Regression for run_20260723_091108: a capture validated 8/8 at the
+    fitted lateral_friction 0.5319 failed deterministically at true 0.5
+    - execution repeats at the fitted values cannot see zero margin to
+    the fit's parameter error.
+    """
+    utils.reset_config({
+        "agent_plan_validation_rollouts": 3,
+        "agent_plan_validation_fresh_env": True,
+        "agent_plan_validation_physics_margin": True,
+    })
+    model = _PhysicsAwareModel()
+    ctx, scope_overrides = _physics_scope_ctx(model, [{
+        "lateral_friction": 0.48
+    }, {
+        "lateral_friction": 0.59
+    }])
+    text = _call_tool(ctx)
+    assert "PARAM-SENSITIVE (plan NOT captured)" in text
+    assert "lateral_friction=0.48" in text
+    assert ctx.solved_plan is None
+    # 2 execution repeats (no overrides) + 2 physics points.
+    assert scope_overrides == [
+        None, None, {
+            "lateral_friction": 0.48
+        }, {
+            "lateral_friction": 0.59
+        }
+    ]
+
+
+def test_physics_margin_pass_is_captured_with_note():
+    """Margin points inside the success band capture with the margin note."""
+    utils.reset_config({
+        "agent_plan_validation_rollouts": 3,
+        "agent_plan_validation_fresh_env": True,
+        "agent_plan_validation_physics_margin": True,
+    })
+    model = _PhysicsAwareModel()
+    ctx, _ = _physics_scope_ctx(model, [{
+        "lateral_friction": 0.51
+    }, {
+        "lateral_friction": 0.59
+    }])
+    text = _call_tool(ctx)
+    assert "Captured as the current answer" in text
+    assert "Physics-margin check passed" in text
+
+
+def test_physics_margin_disabled_by_config():
+    """The default-off flag skips the margin rollouts entirely."""
+    utils.reset_config({
+        "agent_plan_validation_rollouts": 3,
+        "agent_plan_validation_fresh_env": True,
+        "agent_plan_validation_physics_margin": False,
+    })
+    model = _PhysicsAwareModel()
+    ctx, scope_overrides = _physics_scope_ctx(model, [{
+        "lateral_friction": 0.48
+    }])
+    text = _call_tool(ctx)
+    assert "Captured as the current answer" in text
+    assert "PARAM-SENSITIVE" not in text
+    assert scope_overrides == [None, None]
+
+
+def test_physics_margin_vacuous_without_points():
+    """An empty provider (no fit / degenerate posterior) adds no note."""
+    utils.reset_config({
+        "agent_plan_validation_rollouts": 3,
+        "agent_plan_validation_fresh_env": True,
+        "agent_plan_validation_physics_margin": True,
+    })
+    model = _PhysicsAwareModel()
+    ctx, scope_overrides = _physics_scope_ctx(model, [])
+    text = _call_tool(ctx)
+    assert "Captured as the current answer" in text
+    assert "Physics-margin check passed" not in text
+    assert scope_overrides == [None, None]
+
+
 def test_best_effort_flaky_plan_is_captured():
     """A best-effort submission captures a flaky plan instead of refusing.
 
@@ -470,3 +597,38 @@ def test_no_budget_footer_outside_attempt():
     model = _Model()
     text, _ctx = _run_tool(model, rollouts=1)
     assert "[budget]" not in text
+
+
+def test_validation_repeats_use_decorrelated_planner_seeds():
+    """Each validation repeat rolls out under its own ``CFG.seed``.
+
+    A fresh env per repeat is not enough for independent samples: the
+    skills' motion planning reads the constant ``CFG.seed`` at call
+    time, so identical-seed repeats are bit-identical replays and the
+    flaky gate detects nothing (run_20260722_204632: a 13/13-validated
+    capture was a coin flip on the real episode). The capture rollout
+    itself must keep the base seed; the repeats offset it; the base seed
+    must be restored afterward.
+    """
+
+    class _SeedRecordingModel(_Model):
+        """Records ``CFG.seed`` at each rollout step."""
+
+        def __init__(self):
+            super().__init__()
+            self.seeds = []
+
+        def get_next_state_and_num_actions(self, state, option):
+            from predicators.settings import \
+                CFG  # pylint: disable=import-outside-toplevel
+            self.seeds.append(CFG.seed)
+            return super().get_next_state_and_num_actions(state, option)
+
+    model = _SeedRecordingModel()
+    _, ctx = _run_tool(model, rollouts=3)
+    from predicators.settings import \
+        CFG  # pylint: disable=import-outside-toplevel
+    base = CFG.seed
+    assert ctx.solved_plan is not None
+    # One capture rollout at the base seed, two decorrelated repeats.
+    assert model.seeds == [base, base + 1, base + 2]

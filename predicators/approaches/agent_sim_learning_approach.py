@@ -51,7 +51,7 @@ from predicators.code_sim_learning.fitting import FIT_NOISE_SIGMA, \
     compute_sse, compute_sse_recurrent, fit_rule_parameters, \
     fit_rule_parameters_latent, log_param_changes, log_sse_breakdown
 from predicators.code_sim_learning.identifiability import Verdict, \
-    format_identifiability
+    format_identifiability, physics_sigma_points
 from predicators.code_sim_learning.orchestrator import run_rollout_sysid
 from predicators.code_sim_learning.physical_sysid import fit_params_rollout
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
@@ -450,6 +450,11 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # sample the distribution the real episode will.
         self._tool_context.validation_env_scope = \
             self._fresh_validation_env_scope
+        # Physics-margin points for the capture gate (+-1 posterior sigma
+        # of the latest applied fit): a callable so the tool always sees
+        # the current fit, not the one deployed when the session opened.
+        self._tool_context.physics_margin_provider = \
+            lambda: list(self._identified_physical_sigma_points)
         # Env predicates surfaced to the agent (see
         # KEPT_INITIAL_PREDICATE_NAMES). Computed once here; everything
         # agent-facing flows through _get_all_predicates().
@@ -523,6 +528,12 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # _get_rollout_fit_env), never touching the planning base env.
         self._physical_param_specs: List[ParamSpec] = []
         self._identified_physical_params: Dict[str, float] = {}
+        # +-1-posterior-sigma perturbations of the applied params (the
+        # capture gate's physics-margin points). Set only by the joint
+        # rollout fit, which has the identifiability report; cleared by
+        # every _apply_identified_physical_params call so points can
+        # never outlive the fit they were derived from.
+        self._identified_physical_sigma_points: List[Dict[str, float]] = []
         # Explainability (trimming) verdicts are memoized per learn phase
         # (cleared when _fit_trajectories is refreshed): repeated
         # sim.fit calls with the same declaration signature
@@ -781,10 +792,11 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 base_pred_triples = self._compute_base_pred_triples(
                     obs_triples, fit_env)
             finally:
-                # This env is rebuilt every learning cycle; disconnect
-                # its PyBullet client or each cycle leaks a full physics
-                # world (~145MB for the domino env).
-                pybullet.disconnect(fit_env._physics_client_id)  # type: ignore[attr-defined]  # pylint: disable=protected-access
+                # This env is rebuilt every learning cycle; dispose it
+                # (main client AND any secondary probe world) or each
+                # cycle leaks a full physics world (~145MB for the
+                # domino env).
+                dispose_env(fit_env)
             inferred_hint = self._infer_process_features_from_residuals(
                 obs_triples, base_pred_triples)
             logger.info("Process features (data-driven hint): %s",
@@ -1817,6 +1829,10 @@ re-score.{probe_note}"""
                     {k: f"{v:.4f}"
                      for k, v in reverts.items()})
         self._identified_physical_params = dict(identified)
+        # Margin points derive from a specific fit's posterior; any
+        # (re)application resets them, and the joint-rollout caller
+        # rebuilds them from its fresh report right after this call.
+        self._identified_physical_sigma_points = []
         self._base_env.apply_physical_param_overrides(identified)
         logger.info("Applied identified physical params to base env: %s",
                     {k: f"{v:.4f}"
@@ -1898,6 +1914,16 @@ re-score.{probe_note}"""
                     format_identifiability(outcome.report))
         log_param_changes(init_params, outcome.fitted)
         self._apply_identified_physical_params(outcome.applied)
+        # Physics-margin points for the capture gate: the fit's posterior
+        # widths (floored, see identifiability_report) turned into
+        # +-1-sigma perturbations of the applied values.
+        self._identified_physical_sigma_points = physics_sigma_points(
+            outcome.applied, outcome.report, physical_specs)
+        if self._identified_physical_sigma_points:
+            logger.info("Physics-margin points for capture validation: %s",
+                        [{k: f"{v:.4f}"
+                          for k, v in pt.items()}
+                         for pt in self._identified_physical_sigma_points])
         self._record_sysid_diagnostics(outcome.report,
                                        physical_names, outcome.num_survivors,
                                        len(rollouts), outcome.traj_rms)
@@ -2568,8 +2594,10 @@ files to see exactly which rules and predicates produced each failed plan.
     def _recreate_base_env(self) -> None:
         """Reconnect after a PyBullet physics-server crash."""
         try:
-            client_id = self._base_env._physics_client_id  # type: ignore[attr-defined]  # pylint: disable=protected-access
-            pybullet.disconnect(client_id)
+            # dispose_env releases the secondary probe world too; the
+            # domino override disposes it BEFORE the (possibly dead)
+            # main client so a raise here cannot strand it.
+            dispose_env(self._base_env)
         except Exception:  # pylint: disable=broad-except  # client may already be dead
             pass
         logging.warning(
@@ -2593,8 +2621,16 @@ files to see exactly which rules and predicates produced each failed plan.
             self._option_model.sim_env = self._base_env
 
     @contextmanager
-    def _fresh_validation_env_scope(self) -> Iterator[None]:
+    def _fresh_validation_env_scope(
+        self,
+        physical_overrides: Optional[Dict[str,
+                                          float]] = None) -> Iterator[None]:
         """Run the option model on a freshly constructed base env.
+
+        ``physical_overrides`` (the capture gate's physics-margin
+        rollouts) is applied to the fresh env ON TOP of the identified
+        params, so the rollout runs at a perturbed physics; the shared
+        session env is never touched.
 
         Installed as ``ToolContext.validation_env_scope`` so
         ``evaluate_option_plan``'s capture-validation rollouts each sample
@@ -2622,6 +2658,8 @@ files to see exactly which rules and predicates produced each failed plan.
         if self._identified_physical_params:
             fresh.apply_physical_param_overrides(
                 self._identified_physical_params)
+        if physical_overrides:
+            fresh.apply_physical_param_overrides(dict(physical_overrides))
         prev_env = self._base_env
         # Typed Any: sim_env and _simulator are dynamic attributes not on
         # _OptionModelBase.

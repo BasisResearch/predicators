@@ -480,6 +480,56 @@ def test_fresh_validation_env_scope_disposes_crash_replacement(monkeypatch):
     assert disposed == [crash_replacement]
 
 
+def test_fresh_validation_env_scope_applies_physics_overrides(monkeypatch):
+    """``physical_overrides`` (the capture gate's physics-margin points) land
+    on the FRESH env on top of the identified params; the shared env is never
+    touched."""
+
+    class _MergingScopeEnv(_FakeScopeEnv):
+        """Sticky per-param merge, matching the real override semantics."""
+
+        def __init__(self):
+            super().__init__()
+            self.overrides = {}
+
+        def apply_physical_param_overrides(self, params):
+            self.overrides.update(params)
+
+    prev_env, fresh_env = _MergingScopeEnv(), _MergingScopeEnv()
+    disposed = []
+    approach = _make_scope_approach(monkeypatch, prev_env, fresh_env, disposed)
+    model = SimpleNamespace(_simulator=lambda s, a: s, sim_env=prev_env)
+    approach._option_model = model
+
+    with approach._fresh_validation_env_scope(
+            physical_overrides={"lateral_friction": 0.48}):
+        # Identified params first, then the perturbation on top.
+        assert fresh_env.overrides == {"lateral_friction": 0.48}
+        assert prev_env.overrides == {}
+    assert disposed == [fresh_env]
+
+
+def test_apply_identified_params_clears_sigma_points():
+    """Any (re)application of identified params invalidates the standing.
+
+    physics-margin points - they derive from a specific fit's posterior.
+    """
+
+    class _RegistryEnv(_FakeScopeEnv):
+
+        def get_physical_param_info(self):
+            """Empty registry: nothing to revert."""
+            return {}
+
+    approach = asla.AgentSimLearningApproach.__new__(
+        asla.AgentSimLearningApproach)
+    approach._base_env = _RegistryEnv()
+    approach._identified_physical_params = {}
+    approach._identified_physical_sigma_points = [{"lateral_friction": 0.48}]
+    approach._apply_identified_physical_params({"lateral_friction": 0.53})
+    assert not approach._identified_physical_sigma_points
+
+
 if __name__ == "__main__":
     import sys
     _model = sys.argv[1] if len(sys.argv) > 1 else "oracle"

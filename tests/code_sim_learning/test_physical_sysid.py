@@ -175,6 +175,178 @@ def test_probe_survives_noise_floor_on_top_of_signal():
     assert report["friction"]["verdict"] is Verdict.IDENTIFIED
 
 
+def test_resolved_interval_extends_collapsed_flat_set():
+    """A single-point flat set resolves to the midpoints toward the nearest
+    REJECTED evaluations, not to zero width.
+
+    Regression for run_20260723_091108: flat-edge bisection lowered the
+    best SSE until the flat set collapsed to the refined point, and the
+    zero-width flat interval read as posterior_std=0 ("identified" with
+    infinite confidence in a value +6.4% off truth).
+    """
+    spec = ParamSpec("friction", 0.5, lo=0.01, hi=2.0, scale="log")
+    # Evaluated pool: rejected neighbors at 0.4 and 0.8, flat set {0.53}.
+    pool = [(0.4, 10.0), (0.53, 1.0), (0.8, 10.0)]
+    lo, hi = grid_seed._resolved_interval(spec, pool, [0.53])
+    # Fit-space (log) midpoints toward the rejected neighbors.
+    assert np.isclose(np.log(lo), 0.5 * (np.log(0.4) + np.log(0.53)))
+    assert np.isclose(np.log(hi), 0.5 * (np.log(0.8) + np.log(0.53)))
+    assert lo < 0.53 < hi
+
+
+def test_resolved_interval_edge_without_rejected_neighbor():
+    """A flat set reaching the last evaluated value keeps that edge."""
+    spec = ParamSpec("friction", 0.5, lo=0.01, hi=2.0)
+    # No rejected value above the flat set.
+    pool = [(0.2, 10.0), (0.5, 1.0), (0.8, 1.0)]
+    lo, hi = grid_seed._resolved_interval(spec, pool, [0.5, 0.8])
+    assert np.isclose(lo, 0.5 * (0.2 + 0.5))
+    assert np.isclose(hi, 0.8)
+
+
+def _swept_result(sensitivity):
+    return FitResult(names=["friction"],
+                     samples=np.array([[0.53]], dtype=float),
+                     log_probs=np.zeros(1),
+                     jacobian=None,
+                     noise_sigma=0.05,
+                     prior_sigma=np.asarray([0.75], dtype=float),
+                     scales=["log"],
+                     sensitivity=sensitivity)
+
+
+def test_report_uses_resolved_interval_and_floor():
+    """Swept width = max(resolved-interval half-width, configured floor)."""
+    specs = [ParamSpec("friction", 0.53, lo=0.01, hi=2.0, scale="log")]
+    sens = {
+        "friction": {
+            "sse_span": 100.0,
+            "noise_floor": 0.0,
+            # Degenerate flat interval (bisection collapse); resolved
+            # interval spans x1.5 in external units.
+            "flat_interval": (0.53, 0.53),
+            "resolved_interval": (0.53, 0.53 * 1.5),
+        }
+    }
+    report = identifiability_report(_swept_result(sens),
+                                    param_specs=specs,
+                                    min_posterior_width=0.0)
+    expected = 0.5 * np.log(1.5)
+    assert np.isclose(report["friction"]["posterior_std"], expected)
+    # A floor above the landscape width takes over.
+    report = identifiability_report(_swept_result(sens),
+                                    param_specs=specs,
+                                    min_posterior_width=0.4)
+    assert np.isclose(report["friction"]["posterior_std"], 0.4)
+    assert report["friction"]["resolved_interval"] == (0.53, 0.53 * 1.5)
+
+
+def test_report_floor_prevents_degenerate_zero_width():
+    """A fully collapsed landscape width never reads as certainty."""
+    specs = [ParamSpec("friction", 0.53, lo=0.01, hi=2.0, scale="log")]
+    sens = {
+        "friction": {
+            "sse_span": 100.0,
+            "noise_floor": 0.0,
+            "flat_interval": (0.53, 0.53),
+            "resolved_interval": (0.53, 0.53),
+        }
+    }
+    report = identifiability_report(_swept_result(sens),
+                                    param_specs=specs,
+                                    min_posterior_width=0.1)
+    assert np.isclose(report["friction"]["posterior_std"], 0.1)
+    # Still identified (0.1 / 0.75 < 0.3) - the floor reports honest
+    # width, it does not veto deployment.
+    assert report["friction"]["verdict"] is Verdict.IDENTIFIED
+
+
+def test_physics_sigma_points_log_scale_and_clipping():
+    """+-1-sigma points are multiplicative for log params and box-clipped."""
+    from predicators.code_sim_learning.identifiability import \
+        physics_sigma_points
+    specs = [
+        ParamSpec("friction", 0.53, lo=0.01, hi=2.0, scale="log"),
+        ParamSpec("restitution", 0.02, lo=0.0, hi=0.9),
+    ]
+    applied = {"friction": 0.53, "restitution": 0.02}
+    report = {
+        "friction": {
+            "posterior_std": 0.1,
+            "verdict": Verdict.IDENTIFIED
+        },
+        "restitution": {
+            "posterior_std": 0.05,
+            "verdict": Verdict.WEAKLY_IDENTIFIED
+        },
+    }
+    pts = physics_sigma_points(applied, report, specs)
+    assert len(pts) == 2
+    lo_pt, hi_pt = pts[0], pts[1]
+    assert np.isclose(lo_pt["friction"], 0.53 * np.exp(-0.1))
+    assert np.isclose(hi_pt["friction"], 0.53 * np.exp(0.1))
+    # Linear param moves additively; the low point clips at the box.
+    assert np.isclose(lo_pt["restitution"], 0.0)
+    assert np.isclose(hi_pt["restitution"], 0.07)
+
+
+def test_physics_sigma_points_empty_without_width():
+    """Zero/NaN posterior width or a missing report entry perturbs nothing."""
+    from predicators.code_sim_learning.identifiability import \
+        physics_sigma_points
+    specs = [ParamSpec("friction", 0.53, lo=0.01, hi=2.0, scale="log")]
+    assert not physics_sigma_points({"friction": 0.53},
+                                    {"friction": {
+                                        "posterior_std": 0.0
+                                    }}, specs)
+    assert not physics_sigma_points(
+        {"friction": 0.53}, {"friction": {
+            "posterior_std": float("nan")
+        }}, specs)
+    assert not physics_sigma_points({"friction": 0.53}, {}, specs)
+
+
+def test_physics_sigma_points_skip_untrusted_verdicts():
+    """Params kept at their anchor (untrusted verdicts) are not perturbed.
+
+    A NOT-identified param's reported width is prior-scale (the data
+    never constrained it); swinging the belief physics that far would
+    reject every plan for uncertainty the fit was never asked to
+    resolve. Only the identified param moves.
+    """
+    from predicators.code_sim_learning.identifiability import \
+        physics_sigma_points
+    specs = [
+        ParamSpec("friction", 0.53, lo=0.01, hi=2.0, scale="log"),
+        ParamSpec("restitution", 0.02, lo=0.0, hi=0.9),
+    ]
+    applied = {"friction": 0.53, "restitution": 0.02}
+    report = {
+        "friction": {
+            "posterior_std": 0.1,
+            "verdict": Verdict.IDENTIFIED
+        },
+        "restitution": {
+            "posterior_std": 0.75,
+            "verdict": Verdict.NOT_IDENTIFIED
+        },
+    }
+    pts = physics_sigma_points(applied, report, specs)
+    assert len(pts) == 2
+    lo_pt, hi_pt = pts[0], pts[1]
+    assert lo_pt["restitution"] == 0.02
+    assert hi_pt["restitution"] == 0.02
+    assert lo_pt["friction"] < 0.53 < hi_pt["friction"]
+    # All-untrusted -> nothing to perturb -> vacuous.
+    report_none = {
+        "friction": {
+            "posterior_std": 0.75,
+            "verdict": Verdict.NOT_IDENTIFIED
+        }
+    }
+    assert not physics_sigma_points({"friction": 0.53}, report_none, specs[:1])
+
+
 def test_select_trustworthy_params_keeps_init_for_unidentified():
     """Un-contracted params keep the declared init; identified ones apply.
 
