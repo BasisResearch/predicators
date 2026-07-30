@@ -123,16 +123,10 @@ def create_synthesis_tools(
         compute_sse_recurrent, fit_rule_parameters, \
         fit_rule_parameters_latent
     from predicators.code_sim_learning.identifiability import \
-        format_identifiability, identifiability_report, \
-        select_trustworthy_params
-    from predicators.code_sim_learning.physical_sysid import \
-        fit_params_rollout_trimmed
+        format_identifiability
+    from predicators.code_sim_learning.orchestrator import run_rollout_sysid
     from predicators.code_sim_learning.rollout_env import \
         physical_param_anchors
-    from predicators.code_sim_learning.rollout_objective import \
-        compute_rollout_sse
-    from predicators.code_sim_learning.trajectory_prep import \
-        compute_residual_scaling
     from predicators.code_sim_learning.utils import apply_rules, \
         has_latent_rules, iter_feature_residuals, read_latent_init, \
         read_physical_param_specs, read_simulator_components, \
@@ -272,13 +266,7 @@ def create_synthesis_tools(
             approach._base_env,  # pylint: disable=protected-access
             physical_specs)
         try:
-            # One scaling object per fit: every SSE/RMS below must share
-            # it or their values are incomparable.
-            scaling = compute_residual_scaling(rollouts, process_features)
-            pre_sse = compute_rollout_sse(fit_env, rollouts, init_params,
-                                          process_features, physical_names,
-                                          rules, latent_init, scaling)
-            fit_result, survivors, traj_rms = fit_params_rollout_trimmed(
+            outcome = run_rollout_sysid(
                 fit_env,
                 rollouts,
                 physical_specs,
@@ -286,71 +274,59 @@ def create_synthesis_tools(
                 rules=rules,
                 rule_specs=rule_specs,
                 latent_init=latent_init,
-                scaling=scaling,
                 anchors=anchors,
-                # The phase-shared cache keys trajectory identity by
+                # The phase-shared caches key trajectory identity by
                 # segment lengths only - exact when every fit sees the
                 # full recording set, but two different traj_idxs
                 # subsets with equal-length segments would collide and
-                # cross-assign explainability verdicts. Exploratory
-                # subset fits therefore never share it.
+                # cross-assign verdicts. Exploratory subset fits
+                # therefore never share them.
                 rms_cache=(None if exploratory else getattr(
-                    approach, "_explainability_cache", None)))
-            if not survivors:
-                # Honest empty-data output: no fit ran, nothing was
-                # applied - do NOT print fitted values or identifiability
-                # verdicts computed on zero surviving data (chaos makes
-                # the probe report "identified" for everything).
-                rms_str = ", ".join(f"{r:.4g}" for r in traj_rms)
-                return "\n".join([
-                    f"[{version_tag}] NO FIT RAN: all {len(rollouts)} "
-                    "recorded motion segments were unexplainable at ANY "
-                    "candidate physical parameters (per-segment "
-                    f"best-achievable RMS [{rms_str}] all above the "
-                    "trimming threshold).",
-                    "",
-                    "Parameters were left at their baselines; nothing was "
-                    "applied to the planning base env.",
-                    "",
-                    "This usually means the recorded interactions are not "
-                    "repeatable under replay (prolonged scraping/jamming "
-                    "robot-object contact is chaotic). Collect experiments "
-                    "whose outcome is dominated by object dynamics: actuate "
-                    "one or two objects cleanly, then let the scene evolve "
-                    "and settle on its own.",
-                ])
-            probe_rollouts = survivors
-            fitted = fit_result.point_estimate
-            post_sse = compute_rollout_sse(fit_env, probe_rollouts, fitted,
-                                           process_features, physical_names,
-                                           rules, latent_init, scaling)
+                    approach, "_explainability_cache", None)),
+                fit_cache=(None if exploratory else getattr(
+                    approach, "_sysid_fit_cache", None)),
+                fit_cache_key=version_tag)
         except Exception as e:  # pylint: disable=broad-except
             return (
                 f"[{version_tag}] Error: rollout system-ID fit failed:\n{e}")
-
-        def rollout_sse_fn(params: Dict[str, float]) -> float:
-            return compute_rollout_sse(fit_env, probe_rollouts, params,
-                                       process_features, physical_names, rules,
-                                       latent_init, scaling)
-
-        ident_report = identifiability_report(fit_result,
-                                              rollout_sse_fn,
-                                              list(physical_specs) +
-                                              list(rule_specs),
-                                              num_explainable=len(survivors))
-        applied = select_trustworthy_params(fitted, init_params,
-                                            physical_names, ident_report,
-                                            anchors)
+        if outcome.num_survivors == 0:
+            # Honest empty-data output: no fit ran, nothing was
+            # applied - do NOT print fitted values or identifiability
+            # verdicts computed on zero surviving data (chaos makes
+            # the probe report "identified" for everything).
+            rms_str = ", ".join(f"{r:.4g}" for r in outcome.traj_rms)
+            return "\n".join([
+                f"[{version_tag}] NO FIT RAN: all {len(rollouts)} "
+                "recorded motion segments were unexplainable at ANY "
+                "candidate physical parameters (per-segment "
+                f"best-achievable RMS [{rms_str}] all above the "
+                "trimming threshold).",
+                "",
+                "Parameters were left at their baselines; nothing was "
+                "applied to the planning base env.",
+                "",
+                "This usually means the recorded interactions are not "
+                "repeatable under replay (prolonged scraping/jamming "
+                "robot-object contact is chaotic). Collect experiments "
+                "whose outcome is dominated by object dynamics: actuate "
+                "one or two objects cleanly, then let the scene evolve "
+                "and settle on its own.",
+            ])
+        fitted = outcome.fitted
+        applied = outcome.applied
+        ident_report = outcome.report
+        pre_sse, post_sse = outcome.pre_sse, outcome.post_sse
         if not exploratory:
             approach._apply_identified_physical_params(applied)  # pylint: disable=protected-access
             if hasattr(approach, "_record_sysid_diagnostics"):
                 approach._record_sysid_diagnostics(  # pylint: disable=protected-access
-                    ident_report, physical_names, len(survivors),
-                    len(rollouts), traj_rms)
+                    ident_report, physical_names, outcome.num_survivors,
+                    len(rollouts), outcome.traj_rms)
         kept_at_init = sorted(n for n in physical_names
                               if applied[n] != fitted[n])
         if pre_sse > 0:
-            pct_str = f"({(pre_sse - post_sse) / pre_sse * 100:+.1f}% vs init)"
+            pct_str = (f"({(pre_sse - post_sse) / pre_sse * 100:.1f}% "
+                       "SSE reduction vs init)")
         else:
             pct_str = "(init SSE was 0)"
         mode_note = (
@@ -369,11 +345,11 @@ def create_synthesis_tools(
             "",
             "Fitted parameters:",
         ]
-        if len(survivors) < len(rollouts):
-            rms_str = ", ".join(f"{r:.4g}" for r in traj_rms)
+        if outcome.num_survivors < len(rollouts):
+            rms_str = ", ".join(f"{r:.4g}" for r in outcome.traj_rms)
+            dropped = len(rollouts) - outcome.num_survivors
             lines.insert(
-                1,
-                f"Goodness-of-fit trimming: {len(rollouts) - len(survivors)}"
+                1, f"Goodness-of-fit trimming: {dropped}"
                 f" of {len(rollouts)} motion segments were unexplainable at "
                 "ANY candidate params (per-segment best-achievable RMS: "
                 f"[{rms_str}]) and were dropped before fitting; the fit "

@@ -14,7 +14,7 @@ import predicators.approaches  # noqa: F401  # pylint: disable=unused-import
 from predicators.code_sim_learning import grid_seed, physical_sysid, \
     rollout_env, trajectory_prep
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
-from predicators.code_sim_learning.identifiability import \
+from predicators.code_sim_learning.identifiability import Verdict, \
     format_identifiability, identifiability_report, \
     select_trustworthy_params
 from predicators.code_sim_learning.physical_sysid import \
@@ -128,8 +128,8 @@ def test_probe_identifies_curved_param_with_deterministic_sse():
         return 1e4 * (params["curved"] - 0.5)**2
 
     report = identifiability_report(result, sse_fn, specs)
-    assert report["curved"]["verdict"] == "identified"
-    assert "NOT identified" in report["flat"]["verdict"]
+    assert report["curved"]["verdict"] is Verdict.IDENTIFIED
+    assert report["flat"]["verdict"] is Verdict.NOT_IDENTIFIED
 
 
 def test_probe_discounts_curvature_below_noise_floor():
@@ -156,7 +156,7 @@ def test_probe_discounts_curvature_below_noise_floor():
         return v
 
     report = identifiability_report(result, sse_fn, specs)
-    assert "NOT identified" in report["friction"]["verdict"]
+    assert report["friction"]["verdict"] is Verdict.NOT_IDENTIFIED
 
 
 def test_probe_survives_noise_floor_on_top_of_signal():
@@ -172,7 +172,7 @@ def test_probe_survives_noise_floor_on_top_of_signal():
         return signal + float(rng.uniform(0.0, 100.0))
 
     report = identifiability_report(result, sse_fn, specs)
-    assert report["friction"]["verdict"] == "identified"
+    assert report["friction"]["verdict"] is Verdict.IDENTIFIED
 
 
 def test_select_trustworthy_params_keeps_init_for_unidentified():
@@ -186,10 +186,10 @@ def test_select_trustworthy_params_keeps_init_for_unidentified():
     inits = {"friction": 0.5, "restitution": 0.02}
     report = {
         "friction": {
-            "verdict": "NOT identified (posterior ~= prior; MAP arbitrary)"
+            "verdict": Verdict.NOT_IDENTIFIED
         },
         "restitution": {
-            "verdict": "identified"
+            "verdict": Verdict.IDENTIFIED
         },
     }
     applied = select_trustworthy_params(fitted, inits,
@@ -201,7 +201,7 @@ def test_select_trustworthy_params_weakly_identified_applies():
     """Weak contraction still counts as data-constrained -> apply."""
     fitted = {"friction": 0.12}
     inits = {"friction": 0.5}
-    report = {"friction": {"verdict": "weakly identified"}}
+    report = {"friction": {"verdict": Verdict.WEAKLY_IDENTIFIED}}
     applied = select_trustworthy_params(fitted, inits, ["friction"], report)
     assert applied == {"friction": 0.12}
 
@@ -347,8 +347,8 @@ def test_mcmc_samples_bypass_probe():
                        noise_sigma=0.05,
                        prior_sigma=np.array([0.375, 0.375]))
     report = identifiability_report(result)
-    assert report["friction"]["verdict"] == "identified"
-    assert "NOT identified" in report["restitution"]["verdict"]
+    assert report["friction"]["verdict"] is Verdict.IDENTIFIED
+    assert report["restitution"]["verdict"] is Verdict.NOT_IDENTIFIED
 
 
 # ── Stale-override hygiene ────────────────────────────────────────
@@ -663,10 +663,10 @@ def test_identified_downgraded_on_single_segment():
     specs = [ParamSpec("friction", 0.1, lo=0.01, hi=2.0)]
     result = _single_sample_result(["friction"], [0.1], [0.75])
     report = identifiability_report(result, sse_fn, specs, num_explainable=1)
-    assert report["friction"]["verdict"].startswith("weakly identified")
+    assert report["friction"]["verdict"] is Verdict.WEAKLY_IDENTIFIED
     # With two segments the same posterior keeps the full verdict.
     report2 = identifiability_report(result, sse_fn, specs, num_explainable=2)
-    assert report2["friction"]["verdict"] == "identified"
+    assert report2["friction"]["verdict"] is Verdict.IDENTIFIED
 
 
 def test_insensitive_param_overrides_probe_and_is_not_applied():
@@ -685,7 +685,7 @@ def test_insensitive_param_overrides_probe_and_is_not_applied():
         }
     }
     report = identifiability_report(result, sse_fn, specs, num_explainable=3)
-    assert report["mass"]["verdict"].startswith("insensitive")
+    assert report["mass"]["verdict"] is Verdict.INSENSITIVE
     applied = select_trustworthy_params({"mass": 0.03}, {"mass": 0.05},
                                         ["mass"],
                                         report,
@@ -695,7 +695,7 @@ def test_insensitive_param_overrides_probe_and_is_not_applied():
 
 def test_untrusted_param_falls_back_to_anchor_not_declared_init():
     """Unsupported agent hypotheses must not reach the planner."""
-    report = {"restitution": {"verdict": "unknown"}}
+    report = {"restitution": {"verdict": Verdict.UNKNOWN}}
     applied = select_trustworthy_params({"restitution": 0.13},
                                         {"restitution": 0.15}, ["restitution"],
                                         report,
@@ -713,8 +713,9 @@ def test_annotated_weak_verdicts_still_apply():
     report = {
         "friction": {
             "verdict":
-            "weakly identified (sharp posterior, but only 1 "
-            "explainable segment(s) back it)"
+            Verdict.WEAKLY_IDENTIFIED,
+            "note": ("sharp posterior, but only 1 explainable "
+                     "segment(s) back it)")
         }
     }
     applied = select_trustworthy_params({"friction": 0.09}, {"friction": 0.2},
@@ -722,6 +723,35 @@ def test_annotated_weak_verdicts_still_apply():
                                         report,
                                         anchors={"friction": 0.5})
     assert applied == {"friction": 0.09}
+
+
+def test_inconsistent_param_holds_currently_applied_value():
+    """INCONSISTENT holds the deployed value, not the new fit or anchor.
+
+    Two mutually-incompatible confident fits cannot be arbitrated on
+    this evidence; hopping between them churned the belief env for whole
+    runs (run_20260721_205821 seed1).
+    """
+    report = {
+        "restitution": {
+            "verdict": Verdict.INCONSISTENT,
+            "note": "0.5138 -> 0.3219 is 97.6 combined sigmas",
+        }
+    }
+    applied = select_trustworthy_params({"restitution": 0.3219},
+                                        {"restitution": 0.02}, ["restitution"],
+                                        report,
+                                        anchors={"restitution": 0.02},
+                                        held={"restitution": 0.5138})
+    assert applied == {"restitution": 0.5138}
+    # Without a held value the anchor is the fallback, like the other
+    # untrusted verdicts.
+    applied2 = select_trustworthy_params({"restitution": 0.3219},
+                                         {"restitution": 0.02},
+                                         ["restitution"],
+                                         report,
+                                         anchors={"restitution": 0.02})
+    assert applied2 == {"restitution": 0.02}
 
 
 def test_trimming_uses_rms_cache(monkeypatch):
@@ -773,7 +803,8 @@ def test_map_at_box_bound_is_not_trusted():
     specs = [ParamSpec("mass", 0.1, lo=0.005, hi=1.0)]
     result = _single_sample_result(["mass"], [1.0], [0.75])
     report = identifiability_report(result, sse_fn, specs, num_explainable=5)
-    assert report["mass"]["verdict"].startswith("at box hi bound")
+    assert report["mass"]["verdict"] is Verdict.AT_BOUND
+    assert "hi" in report["mass"]["note"]
     applied = select_trustworthy_params({"mass": 1.0}, {"mass": 0.05},
                                         ["mass"],
                                         report,
@@ -785,7 +816,7 @@ def test_map_at_box_bound_is_not_trusted():
                                      lambda p: 1e6 * (p["mass"] - 0.5)**2,
                                      specs,
                                      num_explainable=5)
-    assert report2["mass"]["verdict"] == "identified"
+    assert report2["mass"]["verdict"] is Verdict.IDENTIFIED
 
 
 # ── Grid sweep: flat set, multi-pass, flat-edge refinement ─────────
@@ -917,8 +948,17 @@ def test_grid_sweep_sharp_basin_not_dragged_to_anchor(monkeypatch):
     assert 0.12 <= lo and hi <= 0.165
 
 
-def test_flat_interval_annotates_identified_report():
-    """A wide data-equivalent interval is surfaced next to "identified"."""
+def test_flat_interval_drives_verdict_over_local_curvature():
+    """The landscape's data-equivalent interval IS the posterior width.
+
+    Regression for run_20260722_123949: the local curvature probe
+    stamped every parameter "identified" while its own report noted the
+    fitted value was merely "the edge of this interval ... not a unique
+    optimum". A plateau-wide interval must read NOT identified no
+    matter how sharp the local curvature at the chosen edge is - and
+    the probe must not even be consulted (or spend rollouts) for a
+    swept parameter.
+    """
     specs = [ParamSpec("friction", 0.6, lo=0.01, hi=2.0, scale="log")]
     result = _single_sample_result(["friction"], [0.6], [0.75])
     result.sensitivity = {
@@ -929,8 +969,10 @@ def test_flat_interval_annotates_identified_report():
             "flat_interval": (0.5, 2.0),
         }
     }
+    probe_calls = {"n": 0}
 
     def sharp_sse(params):
+        probe_calls["n"] += 1
         return 1e3 * (np.log(params["friction"]) - np.log(0.6))**2
 
     report = identifiability_report(result,
@@ -938,17 +980,191 @@ def test_flat_interval_annotates_identified_report():
                                     specs,
                                     num_explainable=3)
     entry = report["friction"]
-    assert entry["verdict"] == "identified"
+    # log half-width ln(2.0/0.5)/2 ~= 0.693 vs prior 0.75 -> ~0.92.
+    assert entry["verdict"] is Verdict.NOT_IDENTIFIED
     assert entry["flat_interval"] == (0.5, 2.0)
-    assert entry["flat_wide"]
+    assert probe_calls["n"] == 0
     text = format_identifiability(report)
     assert "data-equivalent over [0.5, 2]" in text
     assert "not a unique optimum" in text
-    # A degenerate interval is neither rendered nor flagged wide.
+    # A degenerate interval means the sweep resolved the value: width 0,
+    # contraction 0, identified - and nothing rendered.
     result.sensitivity["friction"]["flat_interval"] = (0.6, 0.6)
     report2 = identifiability_report(result,
                                      sharp_sse,
                                      specs,
                                      num_explainable=3)
-    assert not report2["friction"]["flat_wide"]
+    assert report2["friction"]["verdict"] is Verdict.IDENTIFIED
+    assert probe_calls["n"] == 0
     assert "data-equivalent" not in format_identifiability(report2)
+
+
+# ── Anchor-ablation backward elimination ──────────────────────────
+
+
+class _CompensatingEnv:
+    """DIRECT-client rollout env whose per-step motion mixes two params.
+
+    ``x`` advances by ``0.01*gain_a + 0.5*(gain_b - 0.02)`` per step, so
+    the observed motion constrains only the combination: a co-adapted
+    (gain_a=1.0, gain_b=0.04) reproduces data generated at the true
+    (gain_a=2.0, gain_b=0.02) exactly - the compensation ridge the
+    ablation must resolve toward the standing belief.
+    """
+
+    def __init__(self):
+        self._physics_client_id = p.connect(p.DIRECT)
+        self._params = {"gain_a": 1.0, "gain_b": 0.02}
+        self._x = 0.0
+
+    def get_physical_param_info(self):
+        """Registry with a wide log param and a tight linear param."""
+        return {
+            "gain_a": {
+                "default": 1.0,
+                "lo": 0.1,
+                "hi": 10.0,
+                "scale": "log",
+                "description": "",
+            },
+            "gain_b": {
+                "default": 0.02,
+                "lo": 0.0,
+                "hi": 0.9,
+                "description": "",
+            },
+        }
+
+    def apply_physical_param_overrides(self, params):
+        """Sticky per-param merge, like the real env API."""
+        self._params.update(params)
+
+    def _set_state(self, state):
+        self._x = float(state.get(Object("d0", _DOMINO_TYPE), "x"))
+
+    def step(self, action):
+        """Advance ``x`` by the params' combined per-step motion."""
+        del action
+        self._x += (0.01 * self._params["gain_a"] + 0.5 *
+                    (self._params["gain_b"] - 0.02))
+        domino = Object("d0", _DOMINO_TYPE)
+        robot = Object("r0", _ROBOT_TYPE)
+        return State({
+            domino: np.array([self._x], dtype=float),
+            robot: np.array([0.0], dtype=float),
+        })
+
+
+def _ablation_fixtures():
+    import dataclasses
+
+    from predicators.code_sim_learning.config import SysIdConfig
+    from predicators.code_sim_learning.fit_space import prior_widths
+    spec_a = ParamSpec("gain_a", 1.0, lo=0.1, hi=10.0, scale="log")
+    spec_b = ParamSpec("gain_b", 0.02, lo=0.0, hi=0.9)
+    anchors = {"gain_a": 1.0, "gain_b": 0.02}
+    prior_sigma = prior_widths([spec_a, spec_b], 0.75)
+    config = dataclasses.replace(SysIdConfig.from_cfg(),
+                                 anchor_ablation=True,
+                                 grid_flat_frac=0.05)
+    # Observed data generated at the TRUE params (gain_a=2, gain_b=0.02):
+    # dx = 0.02 per step.
+    traj = _trajectory([0.02 * t for t in range(11)])
+    return spec_a, spec_b, anchors, prior_sigma, config, traj
+
+
+def test_anchor_ablation_reverts_compensatory_param():
+    """A co-adapted MAP on the compensation ridge is resolved to the anchor-
+    consistent basin: the tight-prior param reverts to its anchor and the wide-
+    prior param refits to its true value."""
+    spec_a, spec_b, anchors, prior_sigma, config, traj = _ablation_fixtures()
+    env = _CompensatingEnv()
+    # Co-adapted MAP: gain_a stuck at its anchor, gain_b compensating.
+    result = FitResult(names=["gain_a", "gain_b"],
+                       samples=np.array([[1.0, 0.04]]),
+                       log_probs=np.zeros(1),
+                       noise_sigma=0.05,
+                       prior_sigma=prior_sigma,
+                       scales=["log", "linear"])
+    out = physical_sysid._anchor_backward_elimination(
+        env, [traj], [spec_a, spec_b], [], _PROCESS_FEATURES, [], None, None,
+        anchors, 0.05, 0.75, result, 0.01, config)
+    assert out.anchor_ablation is not None
+    assert set(out.anchor_ablation) == {"gain_b"}
+    point = out.point_estimate
+    assert point["gain_b"] == 0.02
+    assert abs(point["gain_a"] - 2.0) < 0.15
+    entry = out.anchor_ablation["gain_b"]
+    assert entry["anchor"] == 0.02
+    assert entry["sse_pinned"] <= entry["sse_map"] + entry["tol"]
+    # The verdict pipeline renders it "anchored" and applies the anchor.
+    report = identifiability_report(out)
+    assert report["gain_b"]["verdict"] is Verdict.ANCHORED
+    applied = select_trustworthy_params(point, {
+        "gain_a": 1.0,
+        "gain_b": 0.04
+    }, ["gain_a", "gain_b"], report, anchors)
+    assert applied["gain_b"] == 0.02
+    text = format_identifiability(report)
+    assert "anchor ablation" in text
+
+
+def test_anchor_ablation_cheap_pretest_skips_lm_refit(monkeypatch):
+    """A tiny drift that is data-equivalent when pinned alone must revert via
+    the one-eval cheap pre-test, without any LM refit.
+
+    The common case on real runs (run_20260722_123949 seed2: spinning
+    0.4993 -> 0.5, restitution 0.02021 -> 0.02): the LM refits were the
+    dominant ablation cost and are unnecessary when pinning the param
+    with everything else unchanged already explains the data.
+    """
+    spec_a, spec_b, _anchors, prior_sigma, config, traj = _ablation_fixtures()
+    env = _CompensatingEnv()
+    # Standing belief already carries gain_a's true value, so gain_b is
+    # the only movable param (a genuinely-moved co-declared param would
+    # legitimately get - and fail - its own pinned refit attempt).
+    anchors = {"gain_a": 2.0, "gain_b": 0.02}
+    refits = {"n": 0}
+    real_fit = physical_sysid.fit_map_lm_rollout
+
+    def counting_fit(*args, **kwargs):
+        refits["n"] += 1
+        return real_fit(*args, **kwargs)
+
+    monkeypatch.setattr(physical_sysid, "fit_map_lm_rollout", counting_fit)
+    # gain_b drifted slightly (0.021 vs anchor 0.02 - a per-step x
+    # error of 5e-4, well inside the flat tolerance).
+    result = FitResult(names=["gain_a", "gain_b"],
+                       samples=np.array([[2.0, 0.021]]),
+                       log_probs=np.zeros(1),
+                       noise_sigma=0.05,
+                       prior_sigma=prior_sigma,
+                       scales=["log", "linear"])
+    out = physical_sysid._anchor_backward_elimination(
+        env, [traj], [spec_a, spec_b], [], _PROCESS_FEATURES, [], None, None,
+        anchors, 0.05, 0.75, result, 0.01, config)
+    assert out.anchor_ablation is not None
+    assert set(out.anchor_ablation) == {"gain_b"}
+    assert out.point_estimate["gain_b"] == 0.02
+    assert abs(out.point_estimate["gain_a"] - 2.0) < 1e-9
+    assert refits["n"] == 0
+
+
+def test_anchor_ablation_keeps_genuinely_moved_param():
+    """A MAP whose single move the data requires (and whose alternative is
+    farther from the belief) is returned unchanged."""
+    spec_a, spec_b, anchors, _prior_sigma, config, traj = _ablation_fixtures()
+    env = _CompensatingEnv()
+    from predicators.code_sim_learning.fit_space import prior_widths
+    result = FitResult(names=["gain_a", "gain_b"],
+                       samples=np.array([[2.0, 0.02]]),
+                       log_probs=np.zeros(1),
+                       noise_sigma=0.05,
+                       prior_sigma=prior_widths([spec_a, spec_b], 0.75),
+                       scales=["log", "linear"])
+    out = physical_sysid._anchor_backward_elimination(
+        env, [traj], [spec_a, spec_b], [], _PROCESS_FEATURES, [], None, None,
+        anchors, 0.05, 0.75, result, 0.01, config)
+    assert out is result
+    assert out.anchor_ablation is None
+    assert out.point_estimate == {"gain_a": 2.0, "gain_b": 0.02}

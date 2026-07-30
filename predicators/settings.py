@@ -71,9 +71,9 @@ class GlobalSettings:
     # Run each test episode in a freshly-constructed env instance (the
     # generated test tasks are shared, so the tasks are identical).
     # State-level resets on a long-lived PyBullet env leave
-    # history-dependent residuals — velocities the reconstruction diff
+    # history-dependent residuals - velocities the reconstruction diff
     # skips, auxiliary joints no reset touches, contact-solver state
-    # that survives ``restoreState`` — so by test time the world's
+    # that survives ``restoreState`` - so by test time the world's
     # behavior depends on everything the run executed before it
     # (measured on run_20260721_205821 seed0: the captured plan's
     # cascade stalled mid-chain in the run's long-lived env but
@@ -553,8 +553,9 @@ class GlobalSettings:
     # contains (or avoids) a turn90 to meet the same quota, turn tasks
     # first. Turn tasks are the hard family (tighter topple reach ~0.11 vs
     # ~0.15 straight, corner-relay staging). 0.0 = all straight, 1.0 = all
-    # turns.
-    domino_turn_ratio = 0.5
+    # turns. Split per task set: train tasks default to straight-only.
+    domino_train_turn_ratio = 0.0
+    domino_test_turn_ratio = 0.5
     domino_train_num_pos_x = 3
     domino_train_num_pos_y = 2
     domino_test_num_pos_x = 4  # 5 is too large for robot to reach sometimes
@@ -682,7 +683,7 @@ class GlobalSettings:
     domino_min_block_turn_exit_hi: Optional[float] = None
     # Heavy-block (immovable obstacle) task type — the single switch for the
     # variant. A HEAVY gray domino-shaped block sits with natural alignment
-    # in one of two shapes (mixed per domino_turn_ratio):
+    # in one of two shapes (mixed per domino_{train,test}_turn_ratio):
     #   * straight: start -> gray -> target on ONE line, all co-facing; the
     #     true solution is a half-circle swerve around the gray;
     #   * turn: an L whose believed-cheapest corner layout is found first,
@@ -1557,16 +1558,6 @@ class GlobalSettings:
     # Code sim-learning parameter fitting settings.
     # Set to 0 to skip MCMC and use initial parameter values directly.
     code_sim_learning_num_mcmc_steps = 0
-    # MCMC budget for the free-running-rollout system-identification fit
-    # (PHYSICAL_PARAMS, physical_sysid.fit_params_rollout). Each eval is a
-    # full PyBullet rollout of every fit trajectory — orders of magnitude
-    # costlier than a per-transition rule eval — so this budget is kept
-    # separate from the per-transition one above. Default 0 = LM point
-    # fit only (matching the experiments' code_sim_learning_num_mcmc_steps
-    # convention; identifiability then comes from the Laplace covariance
-    # at the LM MAP); set > 0 to sample a full posterior with emcee,
-    # warm-started from the LM MAP.
-    code_sim_learning_rollout_num_mcmc_steps = 0
     # Truncate each rollout-fit trajectory once the scored features have
     # settled (physical_sysid.truncate_settled_tail): keep everything up
     # to the last observed motion plus a margin, drop the static tail.
@@ -1622,6 +1613,24 @@ class GlobalSettings:
     # 0.827 grid point (+65%) every cycle, LM being unable to descend
     # a chaotic replay landscape from a coarse seed.
     code_sim_learning_rollout_grid_refine_evals = 4
+    # Post-fit anchor-ablation backward elimination (False disables):
+    # for each physical param the LM MAP moved off its env-registry
+    # anchor, refit the REMAINING params with that param pinned at the
+    # anchor; if the refit is data-equivalent (SSE within
+    # max(noise floor, grid_flat_frac * SSE)), the move was compensatory
+    # and the param is reverted to its anchor. This is a global
+    # alternative-hypothesis test the local curvature probe cannot make:
+    # a co-adapted MAP has real curvature in every direction, so the
+    # probe stamps a compensating param "identified" even when an
+    # anchor-consistent basin explains the data equally well (measured on
+    # run_20260721_205821 seed1: the coordinate sweep overshot
+    # lateral_friction to 0.827 (true 0.5) and restitution 0.02 -> 0.75
+    # (true 0.02) / spinning_friction 0.5 -> 0.01 (true 0.5) then
+    # compensated for it, all three declared "identified"; the resulting
+    # belief sim invalidated every test plan). Uses the same
+    # data-equivalence tolerance as the grid flat set, so a genuinely
+    # identified param (whose revert destroys the SSE) is never touched.
+    code_sim_learning_rollout_anchor_ablation = True
     # Goodness-of-fit trimming threshold for rollout sysID, as a
     # multiple of the fit's noise_sigma (0 disables): a segment whose
     # best-achievable RMS over the candidate param grid exceeds

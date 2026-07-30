@@ -24,7 +24,7 @@ Design notes (mirroring MuJoCo's official ``mujoco.sysid`` toolbox):
   (``env.get_physical_param_info()``) as ``PHYSICAL_PARAMS`` — never "all
   params by default". Undeclared parameters keep the env's built-in values.
 * Physical parameters and learned-rule parameters are fit **jointly** in one
-  posterior (one theta vector, one MCMC run) so rules cannot silently absorb
+  posterior (one theta vector, one fit) so rules cannot silently absorb
   physics error and vice versa. With no rules the fit degenerates to pure
   physical identification; rule-only artifacts keep using the (cheaper)
   teacher-forced / recurrent objectives in ``fitting.py``.
@@ -34,8 +34,8 @@ Design notes (mirroring MuJoCo's official ``mujoco.sysid`` toolbox):
 
 The interface deliberately mirrors :func:`training.fit_params` (declare an
 initialization via :class:`ParamSpec`, a Gaussian prior around it, a Gaussian
-likelihood, emcee MCMC) so the agent-facing flow is unchanged: pick an init,
-let the solver refine it.
+likelihood) so the agent-facing flow is unchanged: pick an init, let the
+solver refine it.
 
 The stack is split across subsystem modules; this module keeps the fit
 orchestrators and re-exports the public API so existing importers keep
@@ -56,30 +56,30 @@ working:
   the :func:`min_explainable_rms` explainability sweep).
 * :mod:`.identifiability` - :func:`identifiability_report`,
   :func:`select_trustworthy_params`, :func:`format_identifiability`.
-* This module - :func:`fit_params_rollout` (grid seed + LM MAP + optional
-  emcee posterior) and :func:`fit_params_rollout_trimmed` (explainability
+* This module - :func:`fit_params_rollout` (grid seed + LM MAP + anchor
+  ablation) and :func:`fit_params_rollout_trimmed` (explainability
   trimming + consistency loop).
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from predicators.code_sim_learning.config import SysIdConfig
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
-    fit_space_bounds, prior_widths, to_fit_space
-from predicators.code_sim_learning.fitting import run_emcee_posterior
+    prior_widths, to_fit_space
 from predicators.code_sim_learning.grid_seed import \
     _grid_seed_physical_specs, min_explainable_rms
 from predicators.code_sim_learning.identifiability import NOISE_FLOOR_EVALS, \
     format_identifiability, identifiability_report, \
     select_trustworthy_params
-from predicators.code_sim_learning.lm import lm_point_fit_result, lm_prefit
+from predicators.code_sim_learning.lm import log_hessian_identifiability
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
-    dispose_env, physical_param_anchors, rollout_states
+    dispose_env, num_rollouts_run, physical_param_anchors, rollout_states
 from predicators.code_sim_learning.rollout_objective import \
     compute_rollout_residuals, compute_rollout_sse, fit_map_lm_rollout, \
     per_trajectory_rms
@@ -130,9 +130,6 @@ def fit_params_rollout(
     rules: Sequence[Any] = (),
     rule_specs: Sequence[ParamSpec] = (),
     latent_init: Any = None,
-    num_walkers: int = 8,
-    num_steps: Optional[int] = None,
-    burn_in: int = 40,
     noise_sigma: float = 0.05,
     prior_sigma_scale: float = _ROLLOUT_PRIOR_SIGMA_SCALE,
     scaling: Optional[ResidualScaling] = None,
@@ -141,16 +138,16 @@ def fit_params_rollout(
 ) -> FitResult:
     """Jointly identify physical + rule params against rollout SSE.
 
-    Mirrors :func:`training.fit_params` end to end: Gaussian prior,
-    Gaussian likelihood ``-0.5*SSE/noise^2``, shared bounds/prior-width
-    conventions, the same LM-prefit flow (Hessian diagnostic / warm
-    start / Laplace bundle behind the usual CFG flags), and the same
-    ``num_steps == 0`` short-circuit to the **LM point fit** — which is
-    the experiment default (``CFG.code_sim_learning_rollout_num_mcmc_
-    steps = 0``, matching the configs' ``code_sim_learning_num_mcmc_
-    steps: 0``); MCMC is opt-in. The forward model is a base-sim
-    rollout (:func:`compute_rollout_sse`) rather than the per-step
-    process rules, and theta concatenates ``physical_specs`` with
+    The fit is a grid-seeded, prior-folded Levenberg-Marquardt MAP
+    point fit - always. (A rollout emcee branch existed historically
+    behind ``code_sim_learning_rollout_num_mcmc_steps`` but was never
+    enabled by any experiment; it was removed 2026-07 rather than
+    carried as dead scaffolding. The identifiability verdicts come from
+    the grid landscape and the curvature probe, and the info-seeking
+    explorer's calibrated ensemble comes from the Laplace bundle at the
+    LM MAP.) The forward model is a base-sim rollout
+    (:func:`compute_rollout_sse`) rather than the per-step process
+    rules, and theta concatenates ``physical_specs`` with
     ``rule_specs``.
 
     The Gaussian prior is centered on each param's ``anchors`` entry
@@ -180,13 +177,6 @@ def fit_params_rollout(
     physical_names = [s.name for s in physical_specs]
     names = [s.name for s in all_specs]
     scales = [getattr(s, "scale", "linear") for s in all_specs]
-    init_values = np.array([s.init_value for s in all_specs], dtype=float)
-    if num_steps is None:
-        num_steps = config.rollout_num_mcmc_steps
-    if num_steps < 0:
-        raise ValueError("code_sim_learning_rollout_num_mcmc_steps must be "
-                         "non-negative.")
-    lo, hi = fit_space_bounds(all_specs)
     anchors = anchors or {}
     center_values = np.array(
         [anchors.get(s.name, s.init_value) for s in all_specs], dtype=float)
@@ -204,12 +194,16 @@ def fit_params_rollout(
     center_int = to_fit_space(all_specs, center_values)
     prior_sigma = prior_widths(center_specs, prior_sigma_scale)
 
+    fit_t0 = time.monotonic()
+    n_start = num_rollouts_run()
+
     # Coarse grid sweep to place the LM start in the right basin (see
     # _grid_seed_physical_specs for why LM alone can stall). Also
     # yields the per-param SSE spans and data-equivalent flat intervals
     # the sensitivity screen and the identifiability report consume.
     lm_physical_specs = list(physical_specs)
     sensitivity: Optional[Dict[str, Dict[str, Any]]] = None
+    noise_floor: Optional[float] = None
     if (config.grid_seed_points > 0 and trajectories):
         # Same-theta noise floor at the anchor point (3 repeated evals).
         # Fresh-env rollouts are deterministic so this is normally 0.0;
@@ -260,72 +254,305 @@ def fit_params_rollout(
                 "values will not be applied.", insensitive, sens_factor,
                 noise_floor)
 
-    # One-shot rollout LM fit (see lm_prefit for its three uses). With
-    # the default rollout MCMC budget of 0 this LM MAP *is* the fit.
-    walker_center, lm_theta, lm_jac = lm_prefit(
-        lambda: fit_map_lm_rollout(base_env,
-                                   trajectories,
-                                   lm_physical_specs,
-                                   process_features,
-                                   rules,
-                                   rule_specs,
-                                   latent_init,
-                                   scaling=scaling,
-                                   prior_centers=center_int,
-                                   prior_sigmas=prior_sigma,
-                                   noise_sigma=noise_sigma), lambda p:
-        compute_rollout_sse(base_env, trajectories, p, process_features,
-                            physical_names, rules, latent_init, scaling),
-        names, init_values, noise_sigma, prior_sigma, "rollout")
+    n_grid = num_rollouts_run() - n_start
 
-    if num_steps == 0:
-        result = lm_point_fit_result(walker_center,
-                                     lm_theta,
-                                     lm_jac,
-                                     names,
-                                     noise_sigma,
-                                     prior_sigma,
-                                     "rollout",
-                                     scales=scales)
-        result.sensitivity = sensitivity
-        return result
-
-    logger.info(
-        "Rollout sysID emcee: %d walkers, %d steps, %d burn-in "
-        "(%d physical + %d rule params, %d trajectories).",
-        max(num_walkers, 2 * len(all_specs) + 2), num_steps,
-        min(burn_in, max(num_steps - 1, 0)), len(physical_names),
-        len(list(rule_specs)), len(trajectories))
-    samples, log_probs = run_emcee_posterior(
-        list(all_specs),
-        lambda p:
-        compute_rollout_sse(base_env, trajectories, p, process_features,
-                            physical_names, rules, latent_init, scaling),
-        walker_center,
-        center_int,
-        prior_sigma,
-        lo,
-        hi,
-        noise_sigma,
-        num_walkers,
-        num_steps,
-        burn_in,
-        label="rollout",
-        # Rollout evaluations are ~100x costlier than analytic SSEs, so
-        # report much more often.
-        report_interval=25)
+    # The grid-seeded, prior-folded LM MAP IS the fit. The Jacobian at
+    # the MAP is kept on the result as the Laplace bundle for the
+    # info-seeking explorer's calibrated ensemble.
+    lm_theta, lm_jac = fit_map_lm_rollout(base_env,
+                                          trajectories,
+                                          lm_physical_specs,
+                                          process_features,
+                                          rules,
+                                          rule_specs,
+                                          latent_init,
+                                          scaling=scaling,
+                                          prior_centers=center_int,
+                                          prior_sigmas=prior_sigma,
+                                          noise_sigma=noise_sigma)
+    if (config.log_hessian_identifiability and lm_jac is not None
+            and lm_jac.size > 0):
+        log_hessian_identifiability(lm_jac, names, noise_sigma, prior_sigma)
     result = FitResult(names=names,
-                       samples=samples,
-                       log_probs=log_probs,
+                       samples=np.asarray(lm_theta, dtype=float)[None, :],
+                       log_probs=np.zeros(1),
                        jacobian=lm_jac,
                        noise_sigma=noise_sigma,
                        prior_sigma=prior_sigma,
                        scales=scales,
                        sensitivity=sensitivity)
-    logger.info("Rollout sysID done. MAP: %s",
-                {k: f"{v:.4f}"
-                 for k, v in result.point_estimate.items()})
+    n_lm = num_rollouts_run() - n_start - n_grid
+    if (config.anchor_ablation and config.grid_flat_frac > 0 and trajectories):
+        result = _anchor_backward_elimination(
+            base_env,
+            trajectories,
+            physical_specs,
+            rule_specs,
+            process_features,
+            rules,
+            latent_init,
+            scaling,
+            anchors,
+            noise_sigma,
+            prior_sigma_scale,
+            result,
+            noise_floor,
+            config,
+        )
+    n_total = num_rollouts_run() - n_start
+    if trajectories:
+        logger.info(
+            "Rollout sysID fit cost: %d rollouts (grid+floor %d, LM %d, "
+            "ablation %d) in %.1fs.", n_total, n_grid, n_lm,
+            n_total - n_grid - n_lm,
+            time.monotonic() - fit_t0)
     return result
+
+
+# A MAP within this fit-space distance of its anchor counts as unmoved
+# (the prior-folded LM keeps data-flat directions exactly at the anchor,
+# so this only absorbs float noise).
+_ANCHOR_ABLATION_EPS = 1e-9
+
+
+def _anchor_backward_elimination(
+    base_env: Any,
+    trajectories: List[RolloutTrajectory],
+    physical_specs: Sequence[ParamSpec],
+    rule_specs: Sequence[ParamSpec],
+    process_features: Dict[str, List[str]],
+    rules: Sequence[Any],
+    latent_init: Any,
+    scaling: Optional[ResidualScaling],
+    anchors: Dict[str, float],
+    noise_sigma: float,
+    prior_sigma_scale: float,
+    result: FitResult,
+    noise_floor: Optional[float],
+    config: SysIdConfig,
+) -> FitResult:
+    """Revert compensatory physical-param moves via anchor-pinned refits.
+
+    The curvature probe measures LOCAL precision at the joint MAP: a
+    co-adapted parameter set has real curvature in every direction, so
+    a param that only moved to compensate another's overshoot still
+    reads "identified" (run_20260721_205821 seed1: the coordinate sweep
+    overshot lateral_friction past its true value, then restitution and
+    spinning_friction moved 26x / 23x off their true values to
+    compensate - all three "identified", and the resulting belief sim
+    invalidated every downstream plan). The global test the probe
+    cannot make: is there a DATA-EQUIVALENT solution with this param at
+    its env-registry anchor? Greedy backward elimination answers it -
+    for each moved param, refit the remaining params (warm-started at
+    the current MAP, priors still centered on the anchors) with that
+    param pinned at its anchor; accept a refit only when it is BOTH
+    data-equivalent (SSE within the grid flat set's tolerance,
+    ``max(noise_floor, grid_flat_frac * SSE)``) AND strictly closer to
+    the standing belief (lower total fit-space prior cost) - the grid's
+    anchor-nearest flat-set principle applied jointly, which also stops
+    a symmetric ridge from merely swapping WHICH param carries the
+    move. Among acceptable refits the one nearest the belief wins;
+    repeat on the reduced set. A genuinely identified param is never
+    touched: pinning it destroys the SSE by construction. Pinned params
+    re-enter the returned result AT their anchors, listed in
+    ``FitResult.anchor_ablation`` so the identifiability report renders
+    them "anchored" instead of "identified".
+
+    The returned result drops the Jacobian when anything was pinned
+    (the reduced refit's columns no longer match the full param list);
+    Laplace-ensemble consumers already handle ``jacobian=None``.
+    """
+    all_specs = list(physical_specs) + list(rule_specs)
+    orig_by_name = {s.name: s for s in all_specs}
+    point = dict(result.point_estimate)
+    insensitive = {
+        n
+        for n, d in (result.sensitivity or {}).items()
+        if not d.get("sensitive", True)
+    }
+
+    def sse_at(params: Dict[str, float], declared: List[str]) -> float:
+        return compute_rollout_sse(base_env, trajectories, params,
+                                   process_features, declared, rules,
+                                   latent_init, scaling)
+
+    assert list(result.names) == [s.name for s in all_specs]
+    assert result.prior_sigma is not None
+    prior_sig = result.prior_sigma
+    belief_values = np.array(
+        [anchors.get(s.name, s.init_value) for s in all_specs], dtype=float)
+    belief_z = to_fit_space(all_specs, belief_values)
+
+    def prior_cost(pt: Dict[str, float]) -> float:
+        """Total fit-space prior cost of a full param point (all specs)."""
+        z = to_fit_space(all_specs, [pt[s.name] for s in all_specs])
+        return float(np.sum(((z - belief_z) / prior_sig)**2))
+
+    def refit_pinned(surviving: List[ParamSpec],
+                     pins: Dict[str, float]) -> Dict[str, float]:
+        """LM refit of the surviving physical + all rule params.
+
+        Warm-started at the current point, with ``pins`` (the ablated
+        params) held EXPLICITLY at their anchor values throughout the
+        fit - so the SSE that justifies a revert is measured at exactly
+        the value recorded and applied, whatever the env registry's
+        defaults.
+        """
+        if not surviving and not rule_specs:
+            # Nothing left to refit: the candidate is the pins alone.
+            # (Calling LM with zero specs raises on the empty theta -
+            # observed as 'zero-size array to reduction operation' on
+            # run_20260722_123949 seed2 when 4 of 5 params ablated.)
+            return {}
+        warm_physical = [
+            ParamSpec(s.name,
+                      float(point[s.name]),
+                      lo=s.lo,
+                      hi=s.hi,
+                      scale=getattr(s, "scale", "linear")) for s in surviving
+        ]
+        warm_rules = [
+            ParamSpec(s.name,
+                      float(point[s.name]),
+                      lo=s.lo,
+                      hi=s.hi,
+                      scale=getattr(s, "scale", "linear")) for s in rule_specs
+        ]
+        specs = warm_physical + warm_rules
+        # Prior centers stay at the anchors (declared inits for rule
+        # params), NOT the warm starts, mirroring the main fit.
+        center_values = np.array([
+            anchors.get(s.name, orig_by_name[s.name].init_value) for s in specs
+        ],
+                                 dtype=float)
+        center_specs = [
+            ParamSpec(s.name,
+                      float(c),
+                      lo=s.lo,
+                      hi=s.hi,
+                      scale=getattr(s, "scale", "linear"))
+            for s, c in zip(specs, center_values)
+        ]
+        theta, _ = fit_map_lm_rollout(
+            base_env,
+            trajectories,
+            warm_physical,
+            process_features,
+            rules,
+            warm_rules,
+            latent_init,
+            scaling=scaling,
+            prior_centers=to_fit_space(specs, center_values),
+            prior_sigmas=prior_widths(center_specs, prior_sigma_scale),
+            noise_sigma=noise_sigma,
+            fixed_physical=pins)
+        return {s.name: float(v) for s, v in zip(specs, theta)}
+
+    surviving = list(physical_specs)
+    declared = [s.name for s in surviving]
+    sse_curr = sse_at(point, declared)
+    if noise_floor is None:
+        floor_evals = [
+            sse_at(point, declared) for _ in range(NOISE_FLOOR_EVALS - 1)
+        ] + [sse_curr]
+        noise_floor = float(np.max(floor_evals) - np.min(floor_evals))
+
+    pinned: Dict[str, Dict[str, float]] = {}
+    pinned_values: Dict[str, float] = {}
+    while True:
+        movable = []
+        for s in surviving:
+            if s.name in insensitive or s.name not in anchors:
+                # Insensitive values are withheld anyway; a param
+                # without a declared anchor has no baseline to pin to.
+                continue
+            dist = abs(
+                to_fit_space([s], [point[s.name]])[0] -
+                to_fit_space([s], [anchors[s.name]])[0])
+            if dist > _ANCHOR_ABLATION_EPS:
+                movable.append(s)
+        if not movable:
+            break
+        tol = max(noise_floor, config.grid_flat_frac * sse_curr)
+        cost_curr = prior_cost(point)
+        best: Optional[Tuple[float, ParamSpec, Dict[str, float]]] = None
+        best_cost = float("inf")
+        for s in movable:
+            reduced = [t for t in surviving if t is not s]
+            pins = dict(pinned_values)
+            pins[s.name] = float(anchors[s.name])
+            declared = [t.name for t in reduced] + list(pins)
+            # Cheap pre-test first: pin the param with everything else
+            # UNCHANGED (one SSE eval). When the move was a small
+            # compensatory drift - the common case, e.g. spinning
+            # 0.4993 -> 0.5 on run_20260722_123949 seed2 - this alone
+            # is data-equivalent and the LM refit (~a dozen full-
+            # trajectory evals) is skipped. The refit still runs when
+            # the cheap test fails, because data-equivalence may only
+            # emerge after the OTHER params re-adjust.
+            cheap_fit = {t.name: float(point[t.name]) for t in reduced}
+            cheap_fit.update(
+                {r.name: float(point[r.name])
+                 for r in rule_specs})
+            cand_sse = sse_at({**cheap_fit, **pins}, declared)
+            if cand_sse <= sse_curr + tol:
+                cand_fit = cheap_fit
+            else:
+                cand_fit = refit_pinned(reduced, pins)
+                cand_sse = sse_at({**cand_fit, **pins}, declared)
+            if cand_sse > sse_curr + tol:
+                continue
+            cand_point = dict(point)
+            cand_point.update(cand_fit)
+            cand_point[s.name] = float(anchors[s.name])
+            cand_cost = prior_cost(cand_point)
+            # Data-equivalent alone is not enough: on a symmetric ridge
+            # it would merely swap WHICH param carries the move. Require
+            # the refit to be strictly closer to the standing belief.
+            if cand_cost + 1e-9 >= cost_curr:
+                continue
+            if cand_cost < best_cost:
+                best = (cand_sse, s, cand_point)
+                best_cost = cand_cost
+        if best is None:
+            break
+        cand_sse, spec, cand_point = best
+        anchor = anchors[spec.name]
+        logger.info(
+            "Rollout sysID anchor ablation: %s %.4g -> baseline %.4g is "
+            "data-equivalent (SSE %.4g vs %.4g at the joint MAP, tol "
+            "%.4g) and nearer the standing belief - the move was "
+            "compensatory, reverting it.", spec.name, point[spec.name], anchor,
+            cand_sse, sse_curr, tol)
+        pinned[spec.name] = {
+            "anchor": float(anchor),
+            "fitted": float(point[spec.name]),
+            "sse_map": float(sse_curr),
+            "sse_pinned": float(cand_sse),
+            "tol": float(tol),
+        }
+        pinned_values[spec.name] = float(anchor)
+        surviving = [t for t in surviving if t is not spec]
+        point = cand_point
+        # The baseline stays at the running minimum ON PURPOSE: each
+        # accepted revert may cost up to tol, and re-baselining to the
+        # reduced point would let successive reverts drift the SSE
+        # arbitrarily far in tol-sized steps. Anchoring to the minimum
+        # bounds the CUMULATIVE degradation to ~tol of the original MAP
+        # (conservative: a borderline second revert may be kept fitted).
+        sse_curr = min(sse_curr, cand_sse)
+    if not pinned:
+        return result
+    values = np.array([point[n] for n in result.names], dtype=float)
+    return FitResult(names=list(result.names),
+                     samples=values[None, :],
+                     log_probs=np.zeros(1),
+                     jacobian=None,
+                     noise_sigma=result.noise_sigma,
+                     prior_sigma=result.prior_sigma,
+                     scales=result.scales,
+                     sensitivity=result.sensitivity,
+                     anchor_ablation=pinned)
 
 
 def _init_point_fit_result(all_specs: Sequence[ParamSpec],
@@ -391,7 +618,6 @@ def fit_params_rollout_trimmed(
     rules: Sequence[Any] = (),
     rule_specs: Sequence[ParamSpec] = (),
     latent_init: Any = None,
-    num_steps: Optional[int] = None,
     noise_sigma: float = 0.05,
     scaling: Optional[ResidualScaling] = None,
     anchors: Optional[Dict[str, float]] = None,
@@ -445,7 +671,6 @@ def fit_params_rollout_trimmed(
                                     rules=rules,
                                     rule_specs=rule_specs,
                                     latent_init=latent_init,
-                                    num_steps=num_steps,
                                     noise_sigma=noise_sigma,
                                     scaling=scaling,
                                     anchors=anchors,
@@ -462,6 +687,8 @@ def fit_params_rollout_trimmed(
             logger.info(
                 "Rollout sysID trimming: reusing cached explainability "
                 "verdicts for this declaration/data signature.")
+    sweep_t0 = time.monotonic()
+    sweep_n0 = num_rollouts_run()
     if rms is None:
         rms = min_explainable_rms(base_env,
                                   trajectories,
@@ -475,6 +702,11 @@ def fit_params_rollout_trimmed(
                                   config=config)
         if rms_cache is not None and cache_key is not None:
             rms_cache[cache_key] = rms
+        logger.info(
+            "Rollout sysID explainability sweep cost: %d rollouts in "
+            "%.1fs.",
+            num_rollouts_run() - sweep_n0,
+            time.monotonic() - sweep_t0)
     threshold = factor * noise_sigma
     survivors = [t for t, r in zip(trajectories, rms) if r <= threshold]
     if len(survivors) < len(trajectories):
@@ -512,7 +744,6 @@ def fit_params_rollout_trimmed(
                                     rules=rules,
                                     rule_specs=rule_specs,
                                     latent_init=latent_init,
-                                    num_steps=num_steps,
                                     noise_sigma=noise_sigma,
                                     scaling=scaling,
                                     anchors=anchors,
