@@ -1074,9 +1074,9 @@ def _ablation_fixtures():
 
 
 def test_anchor_ablation_reverts_compensatory_param():
-    """A co-adapted MAP on the compensation ridge is resolved to the
-    anchor-consistent basin: the tight-prior param reverts to its anchor
-    and the wide-prior param refits to its true value."""
+    """A co-adapted MAP on the compensation ridge is resolved to the anchor-
+    consistent basin: the tight-prior param reverts to its anchor and the wide-
+    prior param refits to its true value."""
     spec_a, spec_b, anchors, prior_sigma, config, traj = _ablation_fixtures()
     env = _CompensatingEnv()
     # Co-adapted MAP: gain_a stuck at its anchor, gain_b compensating.
@@ -1110,8 +1110,8 @@ def test_anchor_ablation_reverts_compensatory_param():
 
 
 def test_anchor_ablation_cheap_pretest_skips_lm_refit(monkeypatch):
-    """A tiny drift that is data-equivalent when pinned alone must revert
-    via the one-eval cheap pre-test, without any LM refit.
+    """A tiny drift that is data-equivalent when pinned alone must revert via
+    the one-eval cheap pre-test, without any LM refit.
 
     The common case on real runs (run_20260722_123949 seed2: spinning
     0.4993 -> 0.5, restitution 0.02021 -> 0.02): the LM refits were the
