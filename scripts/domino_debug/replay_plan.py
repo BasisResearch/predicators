@@ -1,9 +1,9 @@
-"""Replay an EXACT solved option plan on the real-bench domino env
+"""Replay an EXACT solved option plan on the real-scene domino env
 (deterministic, no LLM). Grounds the plan's Pick/Place/Push/Wait options with
 their exact parameters and rolls them through the env in TEST mode. With
 ``real_robot_execute=True`` a RealRobotExecutor is attached to the env and each
 option's joint trajectory is shipped to the Franka as that option ends. The
-bench is NOT re-perceived between options here: this tool replays a fixed plan,
+scene is NOT re-perceived between options here: this tool replays a fixed plan,
 and correcting the twin mid-replay would let the option policies see states the
 recorded plan was never chosen against. The default dry-run stays pure sim
 (optionally rendered to MP4).
@@ -65,7 +65,7 @@ def _parse_plan(text: str) -> List[Tuple[str, List[str], List[float]]]:
 
 
 def main() -> None:
-    """Ground the plan's options and roll them through the real-bench env."""
+    """Ground the plan's options and roll them through the real-scene env."""
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -92,7 +92,7 @@ def main() -> None:
     if args.scene:
         flags["domino_real_scene"] = args.scene
     flags["real_robot_execute"] = bool(args.execute)
-    # This tool replays an EXACT plan, so it does not look at the bench even
+    # This tool replays an EXACT plan, so it does not look at the scene even
     # though the closed loop is the default elsewhere: re-syncing the twin
     # mid-replay would let the option policies see states the recorded plan was
     # never chosen against. It also keeps the tool usable with the cameras down.
@@ -106,7 +106,7 @@ def main() -> None:
 
     env = get_or_create_env(CFG.env)
     assert isinstance(env, PyBulletDominoRealEnv), \
-        f"replay_plan drives the real-bench env; got {CFG.env}"
+        f"replay_plan drives the real-scene env; got {CFG.env}"
     # Attaches the arm under --execute and is a no-op otherwise, so the env
     # stays the same object either way.
     attach_real_robot(env)

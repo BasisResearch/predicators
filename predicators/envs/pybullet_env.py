@@ -775,7 +775,7 @@ class PyBulletEnv(BaseEnv):
 
         ``BaseEnv`` caches these, which is right for a simulated env
         whose tasks are generated once. For a real one it is wrong:
-        every episode faces a physically different bench, and the task
+        every episode faces a physically different scene, and the task
         has to be rebuilt from what is actually there. The executor is
         asked first; see ``ActionExecutor.tasks_for``.
         """

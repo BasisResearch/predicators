@@ -136,14 +136,9 @@ def reset_arm(robot: "RealRobot", joints: Sequence[float]) -> Sequence[float]:
 def reset_env(robot: "RealRobot",
               joints: Optional[Sequence[float]] = None) -> Any:
     """Home the arm, wait for a human to rearrange the scene, then look.
+    Blocking, and deliberately unbounded.
 
-    Blocking, and deliberately unbounded: the wait is a human at the
-    bench, so there is no timeout to pick. Nothing reaps this -- it is an
-    ordinary method call in one interpreter, not a request.
-
-    Returns the observation captured *after* the human confirmed, which
-    is the whole point: the task is built from the bench as it now is,
-    not as it was captured.
+    Returns the observation captured *after* the human confirmed.
     """
     # pylint: disable=import-outside-toplevel,import-error
     from babyrobot.realrobot.messages import ResetEnvRequest
@@ -162,7 +157,7 @@ def execute_chunks(robot: "RealRobot",
 
     One chunk is one unit of "execute this, then optionally look": with
     ``observe`` the reply carries one observation per chunk, which is
-    how the executor gets a look at the bench per option. With
+    how the executor gets a look at the scene per option. With
     ``observe=False`` nothing comes back and the caller's world state
     stays the sim's prediction.
 

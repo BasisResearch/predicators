@@ -144,7 +144,7 @@ def test_offline_end_to_end_active_learning(scene_path: str) -> None:
     prompts = {"n": 0}
 
     def _auto_confirm() -> None:
-        """Stand in for the human at the bench."""
+        """Stand in for the human at the scene."""
         prompts["n"] += 1
 
     seen = DominoObservation(

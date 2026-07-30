@@ -1,14 +1,20 @@
 """Real-world active learning: the human-gated task rebuild.
 
 The property under test is an *ordering* one, and it is the whole reason this
-lands at task-request time rather than in ``env.reset``. The online loop is
+lands at task-request time rather than in ``env.reset``. The loop is
 
     env_task = env.get_train_tasks()[i]   # (1)
-    cogman.reset(env_task)                # (2) the approach SOLVES here
+    cogman.reset(env_task)                # (2)
     run_episode_and_get_observations(...) # (3) calls env.reset(...)
 
-so a human reset performed at (3) would plan against a bench that no longer
-exists. It therefore happens inside (1).
+and the task must be rebuilt at (1) because both callers have already
+consumed it by (3). On the evaluation path (2) *solves* -- ``_solve_task``
+resets with no override policy, so ``_reset_policy`` calls
+``approach.solve`` -- and a reset at (3) would plan against a scene that no
+longer exists. On the exploration path an override policy is set first, so
+(2) does not solve; but the task is what ``env.reset`` initializes the twin
+from, so a stale one starts the episode from the captured scene rather
+than the one just arranged.
 
 No hardware and no babyrobot: the robot is a fake whose ``reset_env`` records
 the prompt and replies with whatever the test wants the cameras to have seen.
@@ -190,7 +196,7 @@ def test_the_task_is_rebuilt_before_the_approach_would_solve(
     """``get_train_tasks`` blocks for the human and returns the REBUILT task.
 
     That is the ordering fix: the caller solves against what it gets
-    back here, so what it gets back must already reflect the new bench.
+    back here, so what it gets back must already reflect the new scene.
     """
     robot = _FakeRobot([_observation(target_base_x=0.30)])
     attached(robot)
@@ -245,7 +251,7 @@ def test_a_new_look_replaces_the_cached_task(env: PyBulletDominoRealEnv,
 
 def test_test_split_is_rebuilt_too(env: PyBulletDominoRealEnv,
                                    attached: Any) -> None:
-    """Evaluation episodes face a freshly arranged bench as well."""
+    """Evaluation episodes face a freshly arranged scene as well."""
     robot = _FakeRobot([_observation(0.28)])
     attached(robot)
 

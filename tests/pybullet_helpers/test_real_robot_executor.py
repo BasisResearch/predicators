@@ -271,7 +271,7 @@ def test_construction_names_a_missing_hook():
 
 
 def test_construction_rejects_observing_without_perception():
-    """Asking to look at the bench with no cameras fails at construction,
+    """Asking to look at the scene with no cameras fails at construction,
     rather than raising inside the first option boundary."""
     with pytest.raises(ValueError) as exc:
         _executor(_StubEnv(), _StubRobot(has_perception=False))
@@ -435,7 +435,7 @@ def test_no_sync_when_not_observing(recorder):
 
 
 def test_large_divergence_is_surfaced(recorder, caplog):
-    """A bench that disagrees with the twin is reported rather than swallowed.
+    """A scene that disagrees with the twin is reported rather than swallowed.
 
     ``_set_state``'s own reconstruction check cannot catch this: it
     measures whether PyBullet could realize the state it was asked to
