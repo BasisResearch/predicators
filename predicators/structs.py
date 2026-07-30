@@ -122,6 +122,27 @@ class _TypedEntity:
     def _hash(self) -> int:
         return hash(str(self))
 
+    def __getstate__(self) -> Dict:
+        """Drop cached properties from the pickled state.
+
+        ``_hash`` caches ``hash(str(self))``, and Python string hashes
+        are salted per process (PYTHONHASHSEED): an entity pickled in
+        one process and loaded in another would carry a stale hash, land
+        in the wrong dict bucket, and raise KeyError on every
+        ``State.data`` lookup even though ``__eq__`` holds (hit by the
+        offline consumers of the persisted ``fit_data`` pickles).
+        """
+        state = self.__dict__.copy()
+        state.pop("_str", None)
+        state.pop("_hash", None)
+        return state
+
+    def __setstate__(self, state: Dict) -> None:
+        """Also scrub on load, so pre-fix pickles are repaired."""
+        state.pop("_str", None)
+        state.pop("_hash", None)
+        self.__dict__.update(state)
+
     def __str__(self) -> str:
         return self._str
 

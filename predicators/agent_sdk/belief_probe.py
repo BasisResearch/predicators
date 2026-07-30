@@ -288,9 +288,11 @@ class ProbeTrialsResult(_StrLikeResult):
                           for t in scored):
             lines.append(
                 "  goal atoms held but the evaluator scored a non-solve: "
-                "this plan reaches the goal by a route the task's rules "
-                "reject, so tuning its parameters cannot make it pass - "
-                "re-read the goal's rules and plan a different route.")
+                "this route's success did not certify under the task's "
+                "rules. Either the rules reject the route (re-read the "
+                "goal's rules and plan a different route) or the success "
+                "is too marginal to reproduce reliably - same-route "
+                "parameter tuning rarely flips this verdict.")
         lines.extend(f"NOTE: {n_}" for n_ in self.notes)
         return "\n".join(lines)
 
@@ -621,7 +623,10 @@ class BeliefProbe:
                   rel_tol: float = 1e-3,
                   num_worst_examples: int = 3,
                   fit_params: bool = False,
-                  path: Optional[str] = None) -> str:
+                  path: Optional[str] = None,
+                  rollout: bool = False,
+                  sweep_num_points: int = 6,
+                  sweep_params: Optional[List[str]] = None) -> str:
         """Per-feature residual report for the current simulator rules.
 
         Synthesis sessions only. Loads PROCESS_RULES fresh from
@@ -634,6 +639,16 @@ class BeliefProbe:
         published). Tolerance: ``|pred - obs| > rel_tol * |obs| +
         abs_tol``. Snapshots the simulator file and tags the report
         ``[cycle_XXX_vers_YYY]``.
+
+        ``rollout=True`` switches to the OPEN-LOOP report: free-running
+        replay of each recorded trajectory (errors compound, which the
+        teacher-forced default structurally cannot see) plus a sweep of
+        each env-registry physical parameter across its plausible range
+        (``sweep_num_points`` candidates each; ``sweep_params`` narrows
+        which). Slow - one fresh-env rollout per candidate per motion
+        segment - but the only residual view that can implicate or
+        exonerate a physical parameter; consult it before deciding the
+        ``PHYSICAL_PARAMS`` declaration either way.
         """
         ctx = self._ctx
         _check_time_budget(ctx)
@@ -648,7 +663,10 @@ class BeliefProbe:
                         rel_tol=rel_tol,
                         num_worst_examples=num_worst_examples,
                         fit_params=fit_params,
-                        path=path)
+                        path=path,
+                        rollout=rollout,
+                        sweep_num_points=sweep_num_points,
+                        sweep_params=sweep_params)
 
     def state(
         self,

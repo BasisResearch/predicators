@@ -4,6 +4,7 @@ This module provides the main environment class that composes multiple
 components (dominoes, fans, balls, etc.) into a single environment.
 """
 
+import logging
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
@@ -124,7 +125,18 @@ class DominoEvaluator(TaskEvaluator):
         return {"k_used": float(count_movable_blocks_used(states))}
 
     def objective_description(self) -> str:
-        return ("Success (+1 reward) = the target domino topples via a "
+        c = CFG.domino_block_cost
+        return ("The episode reward is EXACTLY:\n"
+                f"  reward = (1.0 if certified success else 0.0) - {c} x "
+                "(number of movable (blue) dominoes consumed)\n"
+                "A blue is consumed when it ends the episode toppled, or "
+                "was shoved off its stand while not held - whether or not "
+                "you placed it, and regardless of success. Examples: a "
+                f"certified success consuming 2 blues scores {1 - 2 * c:g}; "
+                "a failed or rejected episode that consumed 1 blue scores "
+                f"{-c:g}; no success and nothing consumed scores 0. There "
+                "are no other reward terms.\n"
+                "Certified success = the target domino topples via a "
                 "legitimate cascade seeded by pushing the green start block. "
                 "Only the blue dominoes may be rearranged: the green start "
                 "block, the targets, and any gray blocks must stay "
@@ -137,10 +149,9 @@ class DominoEvaluator(TaskEvaluator):
                 "able to touch anything (the arm's body is intangible): the "
                 "layout you built must cascade to the goal under the legal "
                 "fingertip push alone - topples that needed the arm's body "
-                "earn nothing. Each movable "
-                "(blue) domino the cascade consumes - toppled, or shoved off "
-                f"its stand - costs {CFG.domino_block_cost} reward, so use "
-                "as few blues as possible.")
+                "earn nothing. Extra consumed blues cost reward but never "
+                "invalidate a success, so a robust over-built cascade "
+                "always outscores a failed minimal one.")
 
 
 class PyBulletDominoComposedEnv(PyBulletEnv):
@@ -666,7 +677,13 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         green (in the given order) in the dedicated probe world - this
         env's physics, the episode's own ``push_params`` when recorded,
         every robot link except the fingertips collision-masked - and
-        reports whether the push cascades to the goal atoms. See
+        reports whether the push cascades to the goal atoms. When this
+        env carries a ``probe_process_model_factory`` (a sim-learning
+        approach's belief env), the replay runs on the combined
+        substrate (learned process rules applied per step); a passing
+        combined verdict is then double-checked base-only with the same
+        attempt count, purely as a diagnostic of whether the rules were
+        load-bearing. See
         ``cascade_probe`` for the fidelity contract and the rationale.
         """
         # pylint: disable-next=import-outside-toplevel
@@ -681,13 +698,44 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             self._probe_push_option = next(
                 opt for opt in get_gt_options(self.get_name())
                 if opt.name == "Push")
-        return cascade_probe.run_counterfactual_push_probe(
+        factory = self.probe_process_model_factory
+        ok, detail = cascade_probe.run_counterfactual_push_probe(
             self._get_cascade_probe_env(),
             pre_push_state,
             greens,
             goal,
             push_params,
-            push_option=self._probe_push_option)
+            push_option=self._probe_push_option,
+            process_model_factory=factory)
+        if factory is not None and ok:
+            # Load-bearing-rules diagnostic: a combined-substrate pass
+            # whose base-only replay fails means the learned rules
+            # carried the verdict - fine when they model a process the
+            # base sim lacks, a calibration smell when they compensate
+            # for undeclared physical params. The base-only replay MUST
+            # use the same attempt count as the combined probe: replay
+            # attempts are nondeterministic (residual solver state in
+            # the reused probe world), so an any-of-N pass compared
+            # against a 1-of-1 pass flags knife-edge layouts as
+            # "load-bearing" even when the rules are a physical no-op.
+            # The note rides the harness-internal ``reason`` channel
+            # only, and is evidence, not proof - a sufficiently
+            # knife-edge layout can still fail all base-only attempts
+            # by chance.
+            base_ok, _ = cascade_probe.run_counterfactual_push_probe(
+                self._get_cascade_probe_env(),
+                pre_push_state,
+                greens,
+                goal,
+                push_params,
+                push_option=self._probe_push_option)
+            if not base_ok:
+                note = ("the learned process rules appear load-bearing "
+                        "for this verdict (no base-sim-only replay "
+                        "attempt cascades)")
+                logging.info("[cascade probe] %s", note)
+                detail = f"{detail}; {note}"
+        return ok, detail
 
     # =========================================================================
     # PREDICATE HOLD FUNCTIONS

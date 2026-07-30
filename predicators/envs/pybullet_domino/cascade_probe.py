@@ -47,10 +47,23 @@ contract of belief-side verdicts. States transfer between the worlds by
 the same mechanism the option model relies on: same-class envs build
 the same body pool in the same order, so the pybullet ids stamped on
 the state's objects coincide.
+
+Belief-side substrate: when the certifying env carries a
+``probe_process_model_factory`` (stamped by a sim-learning approach on
+its belief env, never on the real env), each replay attempt applies the
+agent's fitted process rules after every physics step and writes the
+merged state back - the same combined-substrate contract the option
+model's ``combined_simulate`` uses at plan time. The belief verdict is
+a PREDICTION of the real evaluator's verdict, so it should run the
+agent's full current world model; a deliberately rules-free belief
+replay at miscalibrated base physics rejected every legitimate relay in
+run_20260727_210818 seed2 and taught the agent a phantom task rule.
+The real evaluator never sets a factory, so real episodes are still
+judged on pure env physics.
 """
 
 import logging
-from typing import Any, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 import pybullet as p
@@ -58,6 +71,15 @@ import pybullet as p
 from predicators import utils
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, State
+
+# One belief-side verification rollout's process model: called after
+# every probe physics step with the post-step state and the executed
+# action, returns the state with the learned process rules applied (or
+# the input state unchanged). A factory (fresh callable per replay
+# attempt) rather than a bare callable so recurrent rules can thread
+# their latent per rollout. See ``BaseEnv.probe_process_model_factory``.
+ProbeProcessStep = Callable[[State, Action], State]
+ProbeProcessModelFactory = Callable[[], ProbeProcessStep]
 
 # Fallback Push parameters (approach_distance, contact_z_offset) for
 # episodes whose step labels carry no continuous parameters (legacy
@@ -98,13 +120,35 @@ def _zero_all_velocities(physics_client_id: int) -> None:
                             physicsClientId=physics_client_id)
 
 
-def _standing_goal_shortfall(env: Any, goal: Set[GroundAtom]) -> List[str]:
-    """Names of goal atoms that do not hold in the env's current state."""
-    # pylint: disable=protected-access
-    final = env._get_state()
+def _goal_shortfall(final: State, goal: Set[GroundAtom]) -> List[str]:
+    """Names of goal atoms that do not hold in ``final``."""
     return [
         str(atom) for atom in sorted(goal, key=str) if not atom.holds(final)
     ]
+
+
+def _apply_process_step(probe_env: Any, process_step: ProbeProcessStep,
+                        state: State, action: Action) -> State:
+    """Apply the learned process model to a post-step state, write back.
+
+    Mirrors the combined simulator's plan-time contract: the rule-merged
+    state is written into the probe world (so physics continues from it,
+    exactly as ``PyBulletEnv.simulate``'s allclose guard does at plan
+    time) and becomes the state the replay threads forward. Fail-soft: a
+    crashing process model leaves the base-sim state in charge for this
+    step, same as ``LearnedSimulator.predict_step``.
+    """
+    # pylint: disable=protected-access
+    try:
+        merged = process_step(state, action)
+    except Exception as e:  # pylint: disable=broad-except
+        logging.debug(
+            "[cascade probe] process model step failed (%s); "
+            "using the base-sim state.", e)
+        return state
+    if merged is not state and not merged.allclose(state):
+        probe_env._set_state(merged)
+    return merged
 
 
 def _ensure_fingertips_only_collision(probe_env: Any) -> None:
@@ -133,18 +177,25 @@ def _ensure_fingertips_only_collision(probe_env: Any) -> None:
     probe_env._probe_fingertips_only = True
 
 
-def _replay_push_skill(probe_env: Any, push_option: ParameterizedOption,
-                       robot: Object, green: Object,
-                       params: Tuple[float, ...]) -> Optional[Action]:
+def _replay_push_skill(
+        probe_env: Any,
+        push_option: ParameterizedOption,
+        robot: Object,
+        green: Object,
+        params: Tuple[float, ...],
+        process_step: Optional[ProbeProcessStep] = None) -> Optional[Action]:
     """Run the real Push skill on ``green`` up to the end of its stroke.
 
     Executes the skill's own policy step by step in the probe world and
     stops as soon as it advances past Waypoint_2 (the push stroke) - the
-    retreat's returned action is never executed. Returns the last
-    executed action (the stroke's final commanded pose, for the settle
-    dwell), or the last action anyway if the skill stalled/failed short
-    of the stroke's end (the settle then scores whatever the partial
-    push achieved - an honest non-cascade).
+    retreat's returned action is never executed. With ``process_step``
+    the learned process model is applied (and written back) after every
+    physics step, so the skill's controller and the cascade both evolve
+    on the combined substrate. Returns the last executed action (the
+    stroke's final commanded pose, for the settle dwell), or the last
+    action anyway if the skill stalled/failed short of the stroke's end
+    (the settle then scores whatever the partial push achieved - an
+    honest non-cascade).
     """
     # pylint: disable=protected-access
     objects = [robot, green][:len(push_option.types)]
@@ -166,6 +217,9 @@ def _replay_push_skill(probe_env: Any, push_option: ParameterizedOption,
             probe_env.step(action)
             last_action = action
             state = probe_env._get_state()
+            if process_step is not None:
+                state = _apply_process_step(probe_env, process_step, state,
+                                            action)
     except (utils.OptionExecutionFailure, p.error) as e:
         logging.debug("[cascade probe] push replay aborted: %s", e)
     return last_action
@@ -177,7 +231,9 @@ def run_counterfactual_push_probe(
         greens: Sequence[Object],
         goal: Set[GroundAtom],
         push_params: Optional[Tuple[float, ...]] = None,
-        push_option: Optional[ParameterizedOption] = None) -> Tuple[bool, str]:
+        push_option: Optional[ParameterizedOption] = None,
+        process_model_factory: Optional[ProbeProcessModelFactory] = None,
+        num_attempts: Optional[int] = None) -> Tuple[bool, str]:
     """Does the plan's own push, delivered by the fingertips alone, cascade to
     the goal?
 
@@ -185,10 +241,16 @@ def run_counterfactual_push_probe(
     falling back to the generators' canonical push when None) from
     ``pre_push_state`` in ``probe_env`` (a dedicated same-class env with
     every non-fingertip robot link collision-masked; see module
-    docstring), retrying the identical replay a few times. Returns
-    ``(ok, detail)``: ``ok`` on the first attempt whose settled state
-    satisfies every goal atom - or, after all attempts fail, the goal
-    atoms the closest run left unsatisfied.
+    docstring), retrying the identical replay a few times. With
+    ``process_model_factory`` (belief-side verdicts on an env whose
+    approach learned process rules) each attempt replays on the
+    COMBINED substrate: a fresh per-attempt process step is applied and
+    written back after every physics step, replay and settle alike, so
+    the verdict predicts what the agent's full current model says - the
+    real evaluator, which never sets a factory, still probes pure env
+    physics. Returns ``(ok, detail)``: ``ok`` on the first attempt
+    whose settled state satisfies every goal atom - or, after all
+    attempts fail, the goal atoms the closest run left unsatisfied.
     """
     # pylint: disable=protected-access
     assert greens, "probe needs at least one pushed green block"
@@ -199,14 +261,21 @@ def run_counterfactual_push_probe(
     _ensure_fingertips_only_collision(probe_env)
     cid = probe_env._physics_client_id
     robot = next(o for o in pre_push_state if o.type.name == "robot")
+    substrate = ("with the fitted process rules riding on the base sim"
+                 if process_model_factory is not None else
+                 "on the base sim alone")
+    attempts = num_attempts if num_attempts is not None else _NUM_ATTEMPTS
     best_shortfall: Optional[List[str]] = None
-    for attempt in range(_NUM_ATTEMPTS):
+    for attempt in range(attempts):
+        # Fresh per attempt: recurrent rules thread a latent per rollout.
+        process_step = (process_model_factory()
+                        if process_model_factory is not None else None)
         probe_env._set_state(pre_push_state)
         _zero_all_velocities(cid)
         hold_action: Optional[Action] = None
         for green in greens:
             action = _replay_push_skill(probe_env, push_option, robot, green,
-                                        params)
+                                        params, process_step)
             if action is not None:
                 hold_action = action
         # Dwell: the skill holds its final commanded pose until the
@@ -216,13 +285,16 @@ def run_counterfactual_push_probe(
                 np.array(probe_env._pybullet_robot.initial_joint_positions))
         for _ in range(_SETTLE_STEPS):
             probe_env.step(hold_action)
-        shortfall = _standing_goal_shortfall(probe_env, goal)
+            if process_step is not None:
+                _apply_process_step(probe_env, process_step,
+                                    probe_env._get_state(), hold_action)
+        shortfall = _goal_shortfall(probe_env._get_state(), goal)
         if not shortfall:
             source = "the plan's" if push_params else "the canonical"
             detail = (f"{source} push (approach {params[0]:.2f} m, contact "
                       f"height +{params[1]:.2f} m), replayed with the real "
-                      f"skill and fingertips-only collision, cascades to the "
-                      f"goal (attempt {attempt + 1})")
+                      f"skill and fingertips-only collision {substrate}, "
+                      f"cascades to the goal (attempt {attempt + 1})")
             return True, detail
         if best_shortfall is None or len(shortfall) < len(best_shortfall):
             best_shortfall = shortfall
@@ -230,8 +302,9 @@ def run_counterfactual_push_probe(
     source = "the plan's own" if push_params else "the canonical"
     detail = (f"{source} push (approach {params[0]:.2f} m, contact height "
               f"+{params[1]:.2f} m) on {', '.join(g.name for g in greens)}, "
-              f"replayed with the real skill and fingertips-only collision, "
-              f"reaches the goal at none of {_NUM_ATTEMPTS} attempts; "
-              f"closest run left {', '.join(best_shortfall)} unsatisfied")
+              f"replayed with the real skill and fingertips-only collision "
+              f"{substrate}, reaches the goal at none of {attempts} "
+              f"attempts; closest run left {', '.join(best_shortfall)} "
+              f"unsatisfied")
     logging.debug("[cascade probe] %s", detail)
     return False, detail

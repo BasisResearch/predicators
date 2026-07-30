@@ -34,7 +34,11 @@ def _build_journal_tools(ctx: ToolContext, _text_result: Callable,
          "attempt should try differently. Facts and measurements ONLY - do "
          "NOT record conclusions like 'X is impossible' or 'the task "
          "requires Y' (a wrong verdict anchors every later attempt; the "
-         "evidence lets them re-judge). Keep it skimmable: a few bullets, "
+         "evidence lets them re-judge). State every negative result as the "
+         "exact family swept - parameters, orientations, regions, and any "
+         "formula the sweep assumed - plus what remains untested: 'X never "
+         "works' generalized from a partial sweep has buried the correct "
+         "mechanism for entire runs. Keep it skimmable: a few bullets, "
          f"under {journal_mod.MAX_ENTRY_CHARS} chars."),
         {
             "type": "object",

@@ -23,6 +23,20 @@ from predicators.structs import Action, DefaultEnvironmentTask, \
 class BaseEnv(abc.ABC):
     """Base environment."""
 
+    # Belief-side verification substrate: a sim-learning approach stamps
+    # this on its belief env so that physics-replaying task-evaluator
+    # certificates (e.g. the domino counterfactual push probe) judge
+    # plans under the agent's FULL current world model - base sim plus
+    # fitted process rules - instead of a deliberately rules-free base
+    # sim. Called once per replay attempt; the returned step callable is
+    # applied after every probe physics step as
+    # ``merged = step(post_step_state, action)`` and written back. The
+    # real env never sets this, so real episodes are judged on pure env
+    # physics.
+    probe_process_model_factory: Optional[Callable[[],
+                                                   Callable[[State, Action],
+                                                            State]]] = None
+
     def __init__(self, use_gui: bool = False) -> None:
         self._current_observation: Observation = None  # set in reset
         self._current_task = DefaultEnvironmentTask  # set in reset

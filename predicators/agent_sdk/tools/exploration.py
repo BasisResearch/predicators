@@ -51,7 +51,22 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
                      "the current simulator.py rules (mismatch counts, "
                      "mean/max abs error, vs-no-rule-baseline improvement, "
                      "worst-N example transitions) - the fast inner loop "
-                     "for finding WHICH rule to fix; ")
+                     "for finding WHICH rule to fix. It is teacher-forced "
+                     "(each step predicted from the RECORDED state), so it "
+                     "CANNOT rule out a mis-set physical parameter: "
+                     "compounding errors reset every step. "
+                     "`sim.residuals(rollout=True, sweep_num_points=6, "
+                     "sweep_params=None)` is the OPEN-LOOP counterpart: "
+                     "replays each recorded trajectory's actions "
+                     "free-running and reports the divergence, plus a "
+                     "sweep of every env-registry physical parameter "
+                     "across its plausible range ('this data is explained "
+                     "Nx better at a different friction'). Slow (one "
+                     "fresh-env rollout per candidate per segment, "
+                     "minutes for the full sweep) but it is the ONLY "
+                     "residual view that can see physical-parameter "
+                     "error - consult it BEFORE deciding whether to "
+                     "declare PHYSICAL_PARAMS, in either direction; ")
     else:
         sim_desc = "`sim` (a BeliefProbe over the belief simulator)"
         reset_desc = (
