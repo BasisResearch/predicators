@@ -13,6 +13,7 @@ import numpy as np
 from gym.spaces import Box
 
 from predicators import utils
+from predicators.agent_sdk.session_base import AgentSessionFatalError
 from predicators.agent_sdk.session_manager import SessionManagerProtocol, \
     run_query_sync
 from predicators.agent_sdk.tools import ToolContext
@@ -55,6 +56,10 @@ class AgentPlanExplorer(BaseExplorer):
                     return policy, lambda _: False
             logging.info("Agent explorer: no valid plan, falling back to "
                          "random options.")
+        except AgentSessionFatalError:
+            # A random fallback would hide the broken session backend;
+            # re-raise so the run terminates.
+            raise
         except Exception as e:  # pylint: disable=broad-except
             logging.warning(f"Agent explorer failed: {e}. "
                             "Falling back to random options.")

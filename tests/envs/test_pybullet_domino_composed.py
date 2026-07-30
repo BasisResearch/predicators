@@ -198,7 +198,7 @@ def test_counterfactual_cascade_probe() -> None:
         "seed": 0,
         "num_train_tasks": 0,
         "num_test_tasks": 1,
-        "domino_turn_ratio": 1.0,
+        "domino_test_turn_ratio": 1.0,
         "domino_initialize_at_finished_state": True,
         "domino_use_domino_blocks_as_target": True,
         "domino_use_continuous_place": True,
@@ -228,6 +228,52 @@ def test_counterfactual_cascade_probe() -> None:
     ok, detail = env.run_counterfactual_cascade_probe(broken, greens, goal)
     assert not ok
     assert "reaches the goal at none of" in detail
+
+    # Combined substrate: with a probe_process_model_factory stamped (a
+    # belief env whose approach learned process rules), the same broken
+    # scene certifies when the rules model the propagation the base sim
+    # lacks - and the detail carries the load-bearing diagnostic. The
+    # real env never stamps a factory, so clearing it restores the
+    # base-only rejection.
+    targets = sorted(
+        {a.objects[0]
+         for a in goal if a.predicate.name == "Toppled"}, key=str)
+    assert targets
+
+    def make_stepper():
+        """Force-topple every target once a green has toppled."""
+
+        def step(state, action):
+            del action
+            if all(abs(state.get(g, "roll")) < 1.2 for g in greens):
+                return state
+            new_state = state.copy()
+            for t in targets:
+                new_state.set(t, "roll", 1.57)
+            return new_state
+
+        return step
+
+    env.probe_process_model_factory = make_stepper
+    ok, detail = env.run_counterfactual_cascade_probe(broken, greens, goal)
+    assert ok, detail
+    assert "process rules riding on the base sim" in detail
+    assert "load-bearing" in detail
+
+    # Physically no-op rules must NOT be flagged load-bearing: the
+    # base-only diagnostic replay runs the same attempt count as the
+    # combined probe, so identical physics yields identical verdicts
+    # (run_20260728_111805 logged 14 spurious notes off a 3-vs-1
+    # attempt asymmetry on a knife-edge layout).
+    env.probe_process_model_factory = lambda: (lambda state, action: state)
+    ok, detail = env.run_counterfactual_cascade_probe(init.copy(), greens,
+                                                      goal)
+    assert ok, detail
+    assert "load-bearing" not in detail
+
+    env.probe_process_model_factory = None
+    ok, _ = env.run_counterfactual_cascade_probe(broken, greens, goal)
+    assert not ok
 
 
 class TestGridComponent:

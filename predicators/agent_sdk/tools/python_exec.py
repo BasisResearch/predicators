@@ -26,7 +26,7 @@ def _make_python_exec_tool(
 
     Shared core behind the synthesis-phase ``run_python`` (namespace =
     trajectory data) and the solve-phase ``explore_python`` (namespace =
-    the ``ProbeSim`` exploration facade): sandbox-escape screening, in-
+    the ``BeliefProbe`` exploration facade): sandbox-escape screening, in-
     process ``exec`` with stdout capture, and oversize-output spill to
     ``<sandbox_dir>/tool_outputs/<name>/``. The namespace persists
     across calls, so agents can define helpers once and reuse them.
@@ -81,7 +81,7 @@ def _make_python_exec_tool(
     )
     async def python_exec(args: Dict[str, Any]) -> Dict[str, Any]:
         # pylint: disable-next=import-outside-toplevel
-        from predicators.agent_sdk.probe_api import ProbeBudgetExceeded
+        from predicators.agent_sdk.belief_probe import ProbeBudgetExceeded
         code = args["code"]
         # The code execs in-process with full filesystem access, and the
         # sandbox's PreToolUse file-path hook does not cover MCP tools, so

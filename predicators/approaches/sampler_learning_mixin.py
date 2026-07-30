@@ -25,11 +25,10 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, cast
 
-import numpy as np
-
 from predicators.agent_sdk.tools import _SnapshotTarget, \
     create_sampler_synthesis_tools, create_synthesis_tools, \
     finalize_versioned_snapshot
+from predicators.agent_sdk.tools.inspection import render_options_digest
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.ground_truth_models import get_gt_samplers
 from predicators.settings import CFG
@@ -78,6 +77,11 @@ class SamplerLearningMixin:
             raise NotImplementedError
 
         def _get_synthesis_tool_names(self) -> Optional[List[str]]:
+            raise NotImplementedError
+
+        def _build_synthesis_exec_ns(
+                self,
+                trajectories: List[LowLevelTrajectory]) -> Dict[str, Any]:
             raise NotImplementedError
 
         def _query_agent_sync(self, message: str,
@@ -216,17 +220,17 @@ or uniform draw,
 - `rng` is a `numpy` `Generator` (use it for small jitter so retries differ),
 - `objects` is the list of typed objects bound to this option call.
 Return a `float32` array whose length matches the option's params box \
-(see `inspect_options` for the dimension and ranges); refinement clips it \
-to that box, so stay within the ranges.
+(see the Options digest in your prompt for the dimension and ranges); \
+refinement clips it to that box, so stay within the ranges.
 {ground_note}
 
 Aim the parameters at the subgoal geometrically (then add a little `rng` \
-jitter); do NOT just return uniform draws. Read the option signatures with \
-`inspect_options` and the predicate classifiers (for the subgoal geometry) \
-with the predicate listing above.
+jitter); do NOT just return uniform draws. Read the option signatures \
+from the Options digest in your prompt and the predicate classifiers \
+(for the subgoal geometry) with the predicate listing above.
 
 Workflow: write `{path}`, call `evaluate_sampler` (snapshots + installs \
-them and sanity-checks shape/box), then call `evaluate_plan_refinement` \
+them and sanity-checks shape/box), then call `sim.refine` \
 with a sketch using those options — the samples-to-refine count should \
 drop sharply versus uniform. Iterate with `Edit` and re-run. Every \
 successful Write/Edit of `{path}` is snapshotted to `samplers_versions/` \
@@ -302,8 +306,8 @@ as `cycle_XXX_vers_YYY_samplers.py`."""
         Used when oracle_sim_program short-circuits the sim-synthesis
         session, so samplers still get learned. Reuses that session's
         sandbox/snapshot/tool machinery. Called from _learn_simulator
-        after the option model is built, so evaluate_plan_refinement has
-        a working simulator.
+        after the option model is built, so the session's probe has a
+        working simulator.
         """
         if CFG.agent_sdk_use_local_sandbox:
             sandbox_dir: Optional[str] = os.path.abspath(
@@ -323,23 +327,14 @@ as `cycle_XXX_vers_YYY_samplers.py`."""
         simulator_file = os.path.join(base, "simulator.py")
         versions_dir = os.path.join(base, "simulator_versions")
 
-        exec_ns: Dict[str, Any] = {
-            "trajectories":
-            trajectories,
-            "train_tasks":
-            self._train_tasks,
-            "is_goal_state":
-            lambda state, task_idx: self._train_tasks[task_idx].goal_holds(
-                state),
-            "np":
-            np,
-            "ParamSpec":
-            ParamSpec,
-        }
-        # evaluate_plan_refinement (from the standard synthesis tools) gives
-        # the agent the samples-to-refine feedback signal; the sampler tool
-        # installs + sanity-checks the samplers.
-        tools = create_synthesis_tools(
+        # Same namespace the main synthesis session gets (trajectories,
+        # train_tasks, is_goal_state, describe_trajectory, np, ParamSpec,
+        # evaluate_trajectory when the env defines evaluators).
+        exec_ns: Dict[str, Any] = self._build_synthesis_exec_ns(trajectories)
+        # The probe's `sim.refine` gives the agent the samples-to-refine
+        # feedback signal; the sampler tool installs + sanity-checks the
+        # samplers.
+        toolkit = create_synthesis_tools(
             exec_ns,
             base_pred_triples,
             inferred_hint,
@@ -353,15 +348,28 @@ as `cycle_XXX_vers_YYY_samplers.py`."""
             sandbox_dir_for_agent=sandbox_dir_for_agent,
             cycle_index_provider=self._learning_cycle_index,
         )
+        tools = list(toolkit.tools)
         tools.extend(self._make_sampler_tools(paths))
         # Use the same declared surface as the mixin will assert against
         # (_get_synthesis_tool_names already includes the sampler tool since
-        # _do_synthesize_samplers is True here). The rule-fitting tools are
+        # _do_synthesize_samplers is True here). The rule-fitting surface is
         # exposed but irrelevant — the message steers the agent to samplers.
         declared = set(self._get_synthesis_tool_names() or ())
         self._tool_context.extra_mcp_tools = [
             t for t in tools if getattr(t, "name", "") in declared
         ]
+        # The probe here runs the DEPLOYED belief model (no candidate
+        # provider: ctx.option_model already wraps the oracle sim
+        # program), which is exactly what samplers must speed up. The
+        # fit runner still targets simulator.py for consistency.
+        self._tool_context.probe_fit_provider = toolkit.fit_runner
+        self._tool_context.probe_residuals_provider = \
+            toolkit.residuals_runner
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.belief_probe import build_probe_namespace
+        probe_ns = build_probe_namespace(self._tool_context)
+        exec_ns["sim"] = probe_ns["sim"]
+        exec_ns["BeliefProbe"] = probe_ns["BeliefProbe"]
         self._learning_mode = True
         self._tool_context.extra_session_hooks = (
             self._build_synthesis_session_hooks(
@@ -372,6 +380,9 @@ as `cycle_XXX_vers_YYY_samplers.py`."""
 
         predicate_listing = self._format_predicate_signatures(
             self._get_all_predicates())
+        options_digest = render_options_digest(
+            self._tool_context.options,
+            gt_options_ref_path=self._tool_context.gt_options_ref_path)
         message = f"""\
 Synthesize per-skill samplers for this environment's options. The \
 simulator dynamics are already fixed (oracle/learned); your only job is \
@@ -381,9 +392,14 @@ on its sketch-step subgoal instead of drawing them uniformly.
 ## Available Predicates (subgoal geometry)
 {predicate_listing}
 
-Read the option signatures with `inspect_options` and explore the \
-trajectory data with `run_python` (variables: `trajectories`, \
-`train_tasks`, `is_goal_state`, `np`, `ParamSpec`)."""
+## Options
+{options_digest}
+
+Explore the trajectory data with `run_python` (variables: \
+`trajectories`, `train_tasks`, `is_goal_state`, \
+`describe_trajectory(traj_idx)`, `np`, `ParamSpec`, plus the `sim` \
+probe over the deployed simulator - `sim.refine` is your \
+samples-to-refine feedback signal)."""
         message = message + "\n\n" + self._sampler_synthesis_message(paths)
 
         try:
@@ -391,6 +407,8 @@ trajectory data with `run_python` (variables: `trajectories`, \
         finally:
             self._tool_context.extra_session_hooks = {}
             self._tool_context.extra_mcp_tools = []
+            self._tool_context.probe_fit_provider = None
+            self._tool_context.probe_residuals_provider = None
             self._learning_mode = False
             self._close_agent_session()
 

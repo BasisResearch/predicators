@@ -722,13 +722,14 @@ def heavy_dogleg_k_star(env: Any,
     """Minimum blues whose dogleg chain THROUGH the heavy (gray) block topples
     the target at the env's CURRENT physics, or None.
 
-    The gray block stands on the start's fall line and acts as a free
-    bend link: k1 blues run evenly from the start to the gray, the chain
-    bends at the gray, and k2 = k - k1 blues run from just past the gray
+    The gray block stands on (or slightly off) the start's fall line and
+    acts as a free bend link: k1 blues run evenly from the start to the
+    gray, the chain bends at the gray, and k2 = k - k1 blues run from
+    just past the gray
     (first exit gap swept over ``_DOGLEG_EXIT_GAPS``, the rest evenly to
     the target). ALL splits are tried, so the result is the best cost a
     planner could commit to within this natural family. Probed at
-    whatever friction / ``heavy_block_mass`` the env currently has, so
+    whatever friction / ``block_mass`` the env currently has, so
     callers flip between the believed physics (normal mass - the chain
     runs through) and the true physics (untopple-able - the chain dies
     at the gray).
@@ -761,8 +762,17 @@ def heavy_dogleg_k_star(env: Any,
     yaw1 = geometry.heading_yaw(d1_vec[0], d1_vec[1])
     h_dir = np.array([np.sin(hyaw), np.cos(hyaw)])
     bend = geometry.wrap_angle(hyaw - syaw)
+    # Signed perpendicular offset of the gray from the start->target
+    # line: a 2-3 cm off-line gray changes len1/len2 only at second
+    # order (sub-bucket) yet bends the dogleg by ~10 degrees, so the
+    # lengths alone would alias physically different lures.
+    st_vec = t_pt - s_pt
+    st_len = float(np.linalg.norm(st_vec))
+    h_perp = 0.0 if st_len <= 0 else float(
+        (st_vec[0] * (h_pt[1] - s_pt[1]) - st_vec[1] *
+         (h_pt[0] - s_pt[0])) / st_len)
     memo_key = (round(len1 / _SPAN_BUCKET), round(len2 / _SPAN_BUCKET),
-                round(bend, 2), budget, only_k,
+                round(h_perp / _SPAN_BUCKET), round(bend, 2), budget, only_k,
                 tuple(sorted(comp._physical_param_override.items())))
     if memo_key in _dogleg_probe_memo:
         return _dogleg_probe_memo[memo_key]
@@ -824,6 +834,208 @@ def heavy_dogleg_k_star(env: Any,
     return result
 
 
+# Sideways displacements of the detour's own corner from the gray block,
+# swept by ``_candidate_detour_layouts``. Calibrated by the 2026-07-25
+# placement-noise probe on the two shipping turn geometries: at 0.08-0.10
+# the doglegs topple 9-10/10 under 5 mm / 0.02 rad blue-pose noise; 0.06
+# is marginal (5-8/10) but occasionally the only fit on short legs.
+_DETOUR_CORNER_OFFSETS = (0.06, 0.08, 0.10)
+
+
+def _candidate_detour_layouts(comp: Any, k: int, start_pose: Any,
+                              target_pose: Any, heavy_pose: Any) -> Any:
+    """Yield k-blue displaced-corner doglegs AROUND the gray block.
+
+    One blue is an own corner standing at the gray's position displaced
+    sideways off the start->target line (both sides, offsets from
+    ``_DETOUR_CORNER_OFFSETS``); the remaining ``k - 1`` blues split over
+    the two legs (all splits), falling along their leg, with the corner
+    blue leaning between the leg headings. This is the robust detour
+    family for heavy TURN tasks: the pre-existing corner family is
+    obstacle-cramped around the gray (most candidates pruned, survivors
+    knife-edge), while these doglegs pass placement-noise replays (see
+    ``heavy_detour_k_star_robust``).
+    """
+    if k < 1:
+        return
+    sx, sy, syaw = (float(v) for v in start_pose)
+    tx, ty, tyaw = (float(v) for v in target_pose)
+    hx, hy, hyaw = (float(v) for v in heavy_pose)
+    s_pt = np.array([sx, sy])
+    t_pt = np.array([tx, ty])
+    h_pt = np.array([hx, hy])
+    st_vec = t_pt - s_pt
+    st_len = float(np.linalg.norm(st_vec))
+    if st_len <= 0:
+        return
+    n_vec = np.array([-st_vec[1], st_vec[0]]) / st_len
+    start, target = comp.dominos[0], comp.dominos[1]
+    heavy = comp.dominos[-1]
+    for d_off in _DETOUR_CORNER_OFFSETS:
+        for side in (1.0, -1.0):
+            c_pt = h_pt + side * d_off * n_vec
+            len1 = float(np.linalg.norm(c_pt - s_pt))
+            len2 = float(np.linalg.norm(t_pt - c_pt))
+            if min(len1, len2) <= 1e-6:
+                continue
+            d1_vec = (c_pt - s_pt) / len1
+            d2_vec = (t_pt - c_pt) / len2
+            mid = d1_vec + d2_vec
+            mid_len = float(np.linalg.norm(mid))
+            if mid_len < 1e-6:
+                continue
+            yaw1 = geometry.yaw_along(d1_vec[0], d1_vec[1])
+            yaw2 = geometry.yaw_along(d2_vec[0], d2_vec[1])
+            cyaw = geometry.yaw_along(mid[0] / mid_len, mid[1] / mid_len)
+            for k1 in range(k):
+                k2 = k - 1 - k1
+                gap1 = len1 / (k1 + 1)
+                gap2 = len2 / (k2 + 1)
+                if not (_gap_ok(gap1) and _gap_ok(gap2)):
+                    continue
+                od = {
+                    start:
+                    comp.place_domino(0, sx, sy, syaw, is_start_block=True),
+                    target:
+                    comp.place_domino(1, tx, ty, tyaw, is_target_block=True),
+                    heavy:
+                    comp.place_domino(0, hx, hy, hyaw, is_heavy_block=True),
+                }
+                pts = []
+                slot = 2
+                for i in range(k1):
+                    pt = s_pt + gap1 * (i + 1) * d1_vec
+                    od[comp.dominos[slot]] = comp.place_domino(
+                        slot, float(pt[0]), float(pt[1]), yaw1)
+                    pts.append((float(pt[0]), float(pt[1])))
+                    slot += 1
+                od[comp.dominos[slot]] = comp.place_domino(
+                    slot, float(c_pt[0]), float(c_pt[1]), cyaw)
+                pts.append((float(c_pt[0]), float(c_pt[1])))
+                slot += 1
+                for i in range(k2):
+                    pt = c_pt + gap2 * (i + 1) * d2_vec
+                    od[comp.dominos[slot]] = comp.place_domino(
+                        slot, float(pt[0]), float(pt[1]), yaw2)
+                    pts.append((float(pt[0]), float(pt[1])))
+                    slot += 1
+                if any(
+                        np.hypot(px - hx, py - hy) < 0.05  # body clearance
+                        for px, py in pts):
+                    continue
+                if not _on_table(comp, pts):
+                    continue
+                yield od
+
+
+def _layout_noise_robust(env: Any,
+                         comp: Any,
+                         od: Any,
+                         push_opt: Any,
+                         seed: int,
+                         trials: int = 6,
+                         min_ok: int = 5,
+                         sig_xy: float = 0.005,
+                         sig_yaw: float = 0.02) -> bool:
+    """Whether a toppling layout survives blue-pose placement noise.
+
+    Replays the layout ``trials`` times with each blue's (x, y, yaw)
+    jittered by Gaussian noise at the real Place skill's residual
+    scatter scale, requiring >= ``min_ok`` topples. The noise rng is
+    seeded deterministically (from ``seed``) so generation stays
+    reproducible. Early-exits both ways once the verdict is decided.
+    """
+    start, target = comp.dominos[0], comp.dominos[1]
+    heavy = comp.dominos[-1]
+    rng = np.random.default_rng(1_000_003 + seed)
+    ok = 0
+    for t in range(trials):
+        if ok >= min_ok:
+            break
+        if ok + (trials - t) < min_ok:
+            break
+        noisy = {o: dict(d) for o, d in od.items()}
+        for o, d in noisy.items():
+            if o in (start, target, heavy):
+                continue
+            d["x"] += float(rng.normal(0, sig_xy))
+            d["y"] += float(rng.normal(0, sig_xy))
+            d["yaw"] += float(rng.normal(0, sig_yaw))
+        if _layout_topples(env, noisy, start, target, push_opt):
+            ok += 1
+    return ok >= min_ok
+
+
+def heavy_detour_k_star_robust(env: Any,
+                               start_pose: Any,
+                               target_pose: Any,
+                               heavy_pose: Any,
+                               budget: int,
+                               min_hits: int = 2) -> Optional[int]:
+    """Minimum blues whose detour AROUND the gray block topples the target at
+    the env's CURRENT physics AND survives placement noise, or None.
+
+    The robust replacement for certifying heavy TURN tasks via
+    ``compute_turn_k_star(..., extra=gray)``: nominal-only certification
+    accepts knife-edge layouts (2026-07-25 probe on a shipping task: the
+    family collapses to one winner that topples only 5/20 under 5 mm /
+    0.02 rad blue-pose noise), which both flip under contact-solver
+    history perturbations - the same task generating or not depending on
+    unrelated code changes - and are unbuildable by the real Place skill
+    (~1-2 cm pose-dependent settle scatter). A hit here must topple
+    nominally AND pass ``_layout_noise_robust``; ``min_hits`` such
+    layouts are required (accumulated across k <= budget) before the
+    first (cheapest) toppling k is returned.
+
+    Candidates are the agent-style corner family (gray merged in as a
+    pruning obstacle, as before) plus the displaced-corner dogleg family
+    ``_candidate_detour_layouts`` - the family the noise gate actually
+    passes; without it certification would go from knife-edge to
+    near-impossible instead of robust.
+    """
+    comp = env._domino_component
+    if comp is None:
+        return None
+    budget = min(budget, len(comp.dominos) - 3)
+    if budget < 1:
+        return None
+    push_opt = _get_push_option(env)
+    hx, hy, _ = (float(v) for v in heavy_pose)
+    clearance = comp.domino_width
+    heavy = comp.dominos[-1]
+    start, target = comp.dominos[0], comp.dominos[1]
+    first_k: Optional[int] = None
+    hits = 0
+    cand_idx = 0
+    for k in range(1, budget + 1):
+        merged = []
+        for od, s_, t_ in _candidate_turn_layouts(comp, k, start_pose,
+                                                  target_pose):
+            blue_pts = [(d["x"], d["y"]) for o, d in od.items()
+                        if o not in (s_, t_)]
+            if any(
+                    np.hypot(bx - hx, by - hy) < clearance
+                    for bx, by in blue_pts):
+                continue
+            od[heavy] = comp.place_domino(0, *heavy_pose, is_heavy_block=True)
+            merged.append(od)
+        merged.extend(
+            _candidate_detour_layouts(comp, k, start_pose, target_pose,
+                                      heavy_pose))
+        for od in merged:
+            cand_idx += 1
+            if not _layout_topples(env, od, start, target, push_opt):
+                continue
+            if not _layout_noise_robust(env, comp, od, push_opt, cand_idx):
+                continue
+            hits += 1
+            if first_k is None:
+                first_k = k
+            if hits >= min_hits:
+                return first_k
+    return None
+
+
 # Peak swerve headings (off the start->target line) scanned by the
 # half-circle family. Calibrated by the 2026-07-03 sweep: per-knock
 # heading changes stay within the ~33-degree propagation tolerance at
@@ -839,10 +1051,10 @@ _swerve_probe_memo: Dict[Tuple[Any, ...], Optional[int]] = {}
 
 def _candidate_swerve_layouts(comp: Any, k: int, start_pose: Any,
                               target_pose: Any, heavy_pose: Any) -> Any:
-    """Yield k-blue "half-circle" swerves around a collinear gray block.
+    """Yield k-blue "half-circle" swerves around a near-line gray block.
 
-    The heavy block sits ON the segment from start to target (all three
-    aligned with the line). Each candidate follows the heading profile
+    The heavy block sits on (or slightly off) the segment from start to
+    target, facing along it. Each candidate follows the heading profile
     m_i = phi * sin(2*pi*(i+0.5)/(k+1)): aligned with the line at both
     ends (head-on first knock, head-on target hit), bulging sideways
     mid-path to clear the gray block, with net lateral displacement
@@ -898,7 +1110,7 @@ def swerve_k_star(env: Any,
                   heavy_pose: Any,
                   budget: int,
                   min_hits: int = 1) -> Optional[int]:
-    """Minimum blues whose half-circle swerve AROUND the collinear gray block
+    """Minimum blues whose half-circle swerve AROUND the near-line gray block
     topples the target at the env's CURRENT physics, or None.
 
     The constructive counterpart of ``heavy_dogleg_k_star``'s straight
@@ -918,11 +1130,18 @@ def swerve_k_star(env: Any,
     sx, sy, syaw = (float(v) for v in start_pose)
     tx, ty, _ = (float(v) for v in target_pose)
     hx, hy, _ = (float(v) for v in heavy_pose)
+    # Signed perpendicular offset of the gray from the start->target
+    # line (see ``heavy_dogleg_k_star``): distances alone alias
+    # off-line grays, which need different swerve depths per side.
+    st_len = float(np.hypot(tx - sx, ty - sy))
+    h_perp = 0.0 if st_len <= 0 else float(
+        ((tx - sx) * (hy - sy) - (ty - sy) * (hx - sx)) / st_len)
     memo_key = (round(sx / _SPAN_BUCKET), round(sy / _SPAN_BUCKET),
                 round(syaw,
                       2), round(np.hypot(tx - sx, ty - sy) / _SPAN_BUCKET),
-                round(np.hypot(hx - sx, hy - sy) / _SPAN_BUCKET), budget,
-                min_hits, tuple(sorted(comp._physical_param_override.items())))
+                round(np.hypot(hx - sx, hy - sy) / _SPAN_BUCKET),
+                round(h_perp / _SPAN_BUCKET), budget, min_hits,
+                tuple(sorted(comp._physical_param_override.items())))
     if memo_key in _swerve_probe_memo:
         return _swerve_probe_memo[memo_key]
     push_opt = _get_push_option(env)

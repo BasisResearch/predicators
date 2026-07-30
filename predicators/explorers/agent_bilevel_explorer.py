@@ -20,6 +20,7 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.rendering import save_task_state_image
+from predicators.agent_sdk.session_base import AgentSessionFatalError
 from predicators.agent_sdk.session_manager import SessionManagerProtocol, \
     run_query_sync
 from predicators.agent_sdk.tools import ToolContext, agent_render_resolution, \
@@ -66,7 +67,7 @@ class AgentBilevelExplorer(BaseExplorer):
         self._tool_context.last_mental_model_solved = None
 
         # Point the agent's interactive tools (refine_plan_sketch,
-        # evaluate_option_plan, visualize_state) at the EXPLORE task. They
+        # evaluate_option_plan, the sim probe) at the EXPLORE task. They
         # default to ctx.current_task when the agent omits task_idx, and
         # test-time _solve leaves current_task on the last TEST task.
         # Without this the agent tunes/validates its exploration plan against
@@ -263,6 +264,10 @@ class AgentBilevelExplorer(BaseExplorer):
 
             logging.info("agent_bilevel explorer: refinement produced zero "
                          "steps, falling back to random.")
+        except AgentSessionFatalError:
+            # A random fallback would hide the broken session backend;
+            # re-raise so the run terminates.
+            raise
         except Exception as e:  # pylint: disable=broad-except
             logging.warning(f"agent_bilevel explorer failed: {e}. "
                             "Falling back to random options.")

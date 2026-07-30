@@ -53,7 +53,8 @@ class SynthesisBackend(Protocol):
     _initial_predicates: Set[Predicate]
     _initial_options: Set[ParameterizedOption]
     # Per-fit cache of best-achievable per-segment RMS (system ID).
-    _explainability_cache: Dict[Tuple, List[float]]
+    _explainability_cache: Dict[Tuple, Tuple[List[float], List[Dict[str,
+                                                                    float]]]]
 
     # ── State written by the tools ───────────────────────────────
     # Per-skill samplers keyed by option name.
@@ -82,6 +83,7 @@ class SynthesisBackend(Protocol):
     def _rollout_fit_trajectories(
         self,
         process_features: Optional[Dict[str, List[str]]] = None,
+        traj_idxs: Optional[Sequence[int]] = None,
     ) -> List[RolloutTrajectory]:
         ...
 

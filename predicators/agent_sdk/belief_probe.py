@@ -1,6 +1,6 @@
 """Exploration probe API exposed to agents via ``explore_python``.
 
-``ProbeSim`` is a thin facade over the machinery the curated tools
+``BeliefProbe`` is a thin facade over the machinery the curated tools
 already use - ``parse_sketch_from_text`` (plan grammar),
 ``execute_plan_forward`` (forward executor over the option model), the
 tools' state-modification and rendering helpers - so probe rollouts
@@ -19,8 +19,11 @@ capture path uses (see ``_require_solved_evaluator``).
 
 In synthesis sessions the same facade probes the CANDIDATE simulator
 (the ``simulator.py`` under edit, freshly fitted - see
-``ProbeSim._option_model``), and the submission surface is
-``evaluate_plan_refinement``.
+``BeliefProbe._option_model``), ``fit`` exposes the fitting stack
+(``ctx.probe_fit_provider``), and validation is hand-composed:
+``fit()`` then ``refine`` then a continuous ``run`` of the refined
+plan (the forward pass; ``run`` reports the first step whose subgoal
+annotation failed to hold).
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, \
 from predicators import utils
 from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig, \
     ValidationConfig
+from predicators.agent_sdk.tools.context import decorrelated_rollout_seed
 from predicators.agent_sdk.tools.scene import apply_state_modifications, \
     draw_pybullet_annotation, render_pybullet_image, render_scene_image
 from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
@@ -191,13 +195,15 @@ class _StrLikeResult:
 
 @dataclasses.dataclass(repr=False)
 class ProbeResult(_StrLikeResult):
-    """Outcome of one ``ProbeSim.run`` call.
+    """Outcome of one ``BeliefProbe.run`` call.
 
     Attributes mirror the ``evaluate_option_plan`` report: ``steps`` is
     a list of per-step dicts (``option``, ``num_actions``, ``failure``,
-    ``added``, ``deleted``, ``image`` - the saved post-step scene
-    image path, if rendering is available; with ``contacts=True`` also
-    ``contacts`` - the step's contact-pair span lines), plus
+    ``added``, ``deleted``, ``subgoals_missing`` - the step's ``->
+    {atoms}`` annotations that did NOT hold in the post-state (the
+    forward-pass divergence signal), ``image`` - the saved post-step
+    scene image path, if rendering is available; with ``contacts=True``
+    also ``contacts`` - the step's contact-pair span lines), plus
     ``goal_reached`` and ``final_atoms``. ``notes`` carries caveats
     (ignored region annotations, horizon overruns). ``print(result)``
     renders the same step-by-step summary the tool prints.
@@ -217,6 +223,9 @@ class ProbeResult(_StrLikeResult):
             if s["added"] or s["deleted"]:
                 line += (f"\n  Added: {{{', '.join(s['added'])}}}"
                          f"\n  Deleted: {{{', '.join(s['deleted'])}}}")
+            if s.get("subgoals_missing"):
+                line += ("\n  SUBGOAL NOT REACHED: "
+                         f"{{{', '.join(s['subgoals_missing'])}}}")
             if "contacts" in s:
                 line += (
                     "\n  Contacts: " +
@@ -234,7 +243,7 @@ class ProbeResult(_StrLikeResult):
 
 @dataclasses.dataclass(repr=False)
 class ProbeTrialsResult(_StrLikeResult):
-    """Outcome of one ``ProbeSim.run(..., trials=N)`` call.
+    """Outcome of one ``BeliefProbe.run(..., trials=N)`` call.
 
     ``trials`` holds one dict per trial (``goal_reached``,
     ``num_actions``, ``failure`` - ``None`` or ``"step {i} ({option}):
@@ -250,7 +259,8 @@ class ProbeTrialsResult(_StrLikeResult):
 
     def __repr__(self) -> str:
         n = len(self.trials)
-        env_note = ("fresh physics env per trial"
+        env_note = ("fresh physics env + varied motion-planner seed per "
+                    "trial - the rate estimates real execution reliability"
                     if self.fresh_env_per_trial else
                     "shared session env - trials are correlated, treat the "
                     "rate as optimistic")
@@ -278,16 +288,66 @@ class ProbeTrialsResult(_StrLikeResult):
                           for t in scored):
             lines.append(
                 "  goal atoms held but the evaluator scored a non-solve: "
-                "this plan reaches the goal by a route the task's rules "
-                "reject, so tuning its parameters cannot make it pass - "
-                "re-read the goal's rules and plan a different route.")
+                "this route's success did not certify under the task's "
+                "rules. Either the rules reject the route (re-read the "
+                "goal's rules and plan a different route) or the success "
+                "is too marginal to reproduce reliably - same-route "
+                "parameter tuning rarely flips this verdict.")
+        lines.extend(f"NOTE: {n_}" for n_ in self.notes)
+        return "\n".join(lines)
+
+
+@dataclasses.dataclass(repr=False)
+class ProbeSweepResult(_StrLikeResult):
+    """Outcome of one ``BeliefProbe.run(..., physics_sweep=True)`` call.
+
+    ``points`` holds one dict per sweep point in ascending-sigma order
+    (``params`` - the physical-parameter override dict, ``None`` for
+    the fitted-values reference point run first; ``goal_reached``,
+    ``num_actions``, ``failure``). ``successes`` counts goal-reaching
+    points. Each point runs once on a fresh env at the BASE
+    motion-planner seed, so its outcome is a deterministic measurement
+    of the plan at those physical parameters - a failing point is a
+    hole in the design's success band, not noise. The current state is
+    NOT advanced.
+    """
+    points: List[Dict[str, Any]]
+    successes: int
+    notes: List[str] = dataclasses.field(default_factory=list)
+
+    def __repr__(self) -> str:
+        n = len(self.points)
+        lines = [
+            f"Physics sweep: {self.successes}/{n} points reached the goal "
+            "(fresh env + base planner seed per point - each point is a "
+            "deterministic measurement, not a sample)"
+        ]
+        for p in self.points:
+            desc = ("fitted params" if p["params"] is None else ", ".join(
+                f"{k}={v:.4g}" for k, v in sorted(p["params"].items())))
+            if p["failure"]:
+                line = f"  {desc}: FAILED - {p['failure']}"
+            elif p["goal_reached"]:
+                line = f"  {desc}: goal reached ({p['num_actions']} actions)"
+            else:
+                line = (f"  {desc}: goal NOT reached "
+                        f"({p['num_actions']} actions)")
+            lines.append(line)
+        if self.successes < n:
+            lines.append(
+                "  the plan fails INSIDE the identified-parameter "
+                "uncertainty range. The real environment may sit at any "
+                "of these points (success can be non-monotonic: passing "
+                "neighbors do NOT cover the points between them), and the "
+                "capture gate re-runs this same sweep - add design margin "
+                "until every point passes before submitting.")
         lines.extend(f"NOTE: {n_}" for n_ in self.notes)
         return "\n".join(lines)
 
 
 @dataclasses.dataclass(repr=False)
 class ProbeRefineResult(_StrLikeResult):
-    """Outcome of one ``ProbeSim.refine`` call.
+    """Outcome of one ``BeliefProbe.refine`` call.
 
     ``verdict`` states exactly what a SUCCESS certifies - ``executed``
     (every step established its subgoal annotation; the task goal was
@@ -331,11 +391,13 @@ class ProbeRefineResult(_StrLikeResult):
         return "\n".join(lines)
 
 
-class ProbeSim:
+class BeliefProbe:
     """Stateful exploration handle over the belief simulator.
 
     Typical loop::
 
+        print(sim.task())      # goal + objects + init details (no state
+                               # change; pass task_idx in synthesis)
         sim.reset()                                   # true task init
         sim.reset(mods={"domino_1": {"x": 0.46}})     # modified copy
         sid = sim.snapshot()
@@ -372,8 +434,8 @@ class ProbeSim:
         self._snapshots: Dict[int, Tuple[State, bool]] = {}
         self._next_snapshot_id = 1
         self._refine_calls = 0
-        self._instance_id = ProbeSim._next_instance_id
-        ProbeSim._next_instance_id += 1
+        self._instance_id = BeliefProbe._next_instance_id
+        BeliefProbe._next_instance_id += 1
         # True while the current state IS the task's unmodified initial
         # state (no mods, no rollout since reset). Gates require_solved:
         # the task evaluator's staging rules reference the true init, so
@@ -400,7 +462,7 @@ class ProbeSim:
 
     def reset(self,
               task_idx: Optional[int] = None,
-              mods: Optional[Modifications] = None) -> "ProbeSim":
+              mods: Optional[Modifications] = None) -> "BeliefProbe":
         """Set the current state to a task's initial state, optionally with
         object-feature overrides applied to a copy.
 
@@ -464,7 +526,7 @@ class ProbeSim:
         self._snapshots[sid] = (self._require_state().copy(), self._pristine)
         return sid
 
-    def restore(self, snapshot_id: int) -> "ProbeSim":
+    def restore(self, snapshot_id: int) -> "BeliefProbe":
         """Set the current state back to a snapshot."""
         self._require_state()  # follow a task change before restoring
         if snapshot_id not in self._snapshots:
@@ -475,17 +537,136 @@ class ProbeSim:
         self._pristine = pristine
         return self
 
-    def drop(self, snapshot_id: int) -> "ProbeSim":
+    def drop(self, snapshot_id: int) -> "BeliefProbe":
         """Free a banked snapshot (they otherwise live for the session)."""
         self._snapshots.pop(snapshot_id, None)
         return self
 
-    def clear_snapshots(self) -> "ProbeSim":
+    def clear_snapshots(self) -> "BeliefProbe":
         """Free every banked snapshot."""
         self._snapshots.clear()
         return self
 
     # ── Introspection ────────────────────────────────────────────
+
+    def task(self, task_idx: Optional[int] = None) -> str:
+        """Describe a task: goal (NL preferred), initial atoms, objects, and
+        initial-state details.
+
+        ``task_idx`` indexes the train tasks; ``None`` (solve sessions
+        only) describes the current solve-time task. Purely
+        informational - does not change the probe's current state. Use
+        ``reset(task_idx)`` + ``render()`` for the scene image.
+        """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.tools.inspection import render_task_digest
+        ctx = self._ctx
+        if task_idx is None and ctx.probe_option_model_provider is not None:
+            raise ValueError(
+                "During synthesis there is no current solve task; pass "
+                "task_idx explicitly, e.g. sim.task(0).")
+        if task_idx is not None:
+            if not 0 <= task_idx < len(ctx.train_tasks):
+                raise ValueError(f"Invalid task_idx {task_idx}. Available: "
+                                 f"0-{len(ctx.train_tasks) - 1}")
+            task = ctx.train_tasks[task_idx]
+            label: Union[int, str] = task_idx
+        elif ctx.current_task is not None:
+            task = ctx.current_task
+            label = "(current solve task)"
+        else:
+            raise ValueError("No task_idx given and no current task set.")
+        # The is_goal_state/train_tasks query hint only makes sense in
+        # synthesis sessions, whose exec namespace binds those names.
+        return render_task_digest(
+            task,
+            label,
+            ctx.predicates,
+            include_goal_query_hint=(ctx.probe_option_model_provider
+                                     is not None))
+
+    def fit(self,
+            traj_idxs: Optional[List[int]] = None,
+            fixed: Optional[Dict[str, float]] = None,
+            path: Optional[str] = None) -> str:
+        """Fit the candidate simulator's parameters and return the report.
+
+        Synthesis sessions only (at solve time the deployed belief
+        model is fixed). With no arguments this is the CANONICAL fit -
+        the same fit the probe deploys for ``run``/``refine``, on the
+        full data - and, when ``simulator.py`` declares
+        ``PHYSICAL_PARAMS``, the identified physical values are applied
+        to the planning base env. Passing ``traj_idxs`` (fit only those
+        trajectories' data) or ``fixed`` (pin parameters at given
+        values) makes the fit EXPLORATORY: a diagnostic report only -
+        nothing is published or applied, and the probe keeps running
+        the canonical fit. On the system-ID path ``traj_idxs`` is a
+        cross-trajectory consistency check (subset fits that disagree
+        mean heterogeneous data); ``fixed`` is rejected there - pin by
+        narrowing the param's bounds in PHYSICAL_PARAMS. Reports SSE at
+        init vs post-fit, fitted values with deltas, and (system-ID
+        path) per-parameter identifiability. MCMC - the expensive probe
+        call; use deliberately.
+        """
+        ctx = self._ctx
+        _check_time_budget(ctx)
+        provider = ctx.probe_fit_provider
+        if provider is None:
+            raise RuntimeError(
+                "sim.fit is unavailable in this session: fitting happens "
+                "during learning; the solve-time belief model is fixed.")
+        return provider(path=path, traj_idxs=traj_idxs, fixed=fixed)
+
+    def residuals(self,
+                  max_transitions: int = 100,
+                  abs_tol: float = 1e-4,
+                  rel_tol: float = 1e-3,
+                  num_worst_examples: int = 3,
+                  fit_params: bool = False,
+                  path: Optional[str] = None,
+                  rollout: bool = False,
+                  sweep_num_points: int = 6,
+                  sweep_params: Optional[List[str]] = None) -> str:
+        """Per-feature residual report for the current simulator rules.
+
+        Synthesis sessions only. Loads PROCESS_RULES fresh from
+        ``simulator.py`` and reports, per feature in PROCESS_FEATURES,
+        mismatch counts, mean/max abs error, improvement over the
+        no-rule baseline (negative = the rules hurt), and the worst-N
+        example transitions - the fast inner loop for finding where the
+        rules disagree with the data. Uses init_value params unless
+        ``fit_params=True`` (MCMC-fits first; diagnostic only, nothing
+        published). Tolerance: ``|pred - obs| > rel_tol * |obs| +
+        abs_tol``. Snapshots the simulator file and tags the report
+        ``[cycle_XXX_vers_YYY]``.
+
+        ``rollout=True`` switches to the OPEN-LOOP report: free-running
+        replay of each recorded trajectory (errors compound, which the
+        teacher-forced default structurally cannot see) plus a sweep of
+        each env-registry physical parameter across its plausible range
+        (``sweep_num_points`` candidates each; ``sweep_params`` narrows
+        which). Slow - one fresh-env rollout per candidate per motion
+        segment - but the only residual view that can implicate or
+        exonerate a physical parameter; consult it before deciding the
+        ``PHYSICAL_PARAMS`` declaration either way.
+        """
+        ctx = self._ctx
+        _check_time_budget(ctx)
+        provider = ctx.probe_residuals_provider
+        if provider is None:
+            raise RuntimeError(
+                "sim.residuals is unavailable in this session: residual "
+                "reports are a learning diagnostic; there is no candidate "
+                "simulator to score at solve time.")
+        return provider(max_transitions=max_transitions,
+                        abs_tol=abs_tol,
+                        rel_tol=rel_tol,
+                        num_worst_examples=num_worst_examples,
+                        fit_params=fit_params,
+                        path=path,
+                        rollout=rollout,
+                        sweep_num_points=sweep_num_points,
+                        sweep_params=sweep_params)
 
     def state(
         self,
@@ -528,8 +709,8 @@ class ProbeSim:
                                             Any]]] = None) -> Optional[str]:
         """Render the current state; returns the saved image path.
 
-        ``annotations`` overlays temporary geometry for this render only
-        (the annotate_scene format): dicts with ``type`` of ``marker``
+        ``annotations`` overlays temporary geometry for this render
+        only: dicts with ``type`` of ``marker``
         (``position`` [x, y, z]), ``line`` (``from``/``to``), or
         ``rectangle`` (``min_corner``/``max_corner``), plus optional
         ``color`` [r, g, b], ``size``, and ``label`` text. Use it to
@@ -563,10 +744,6 @@ class ProbeSim:
                         pass
         else:
             img = render_pybullet_image(ctx, f"probe_{label}", state=cur)
-        # Same handoff visualize_state provides: a later annotate_scene
-        # call (when offered) draws on the state the agent just staged
-        # and rendered, not on the pristine task init.
-        ctx.visualized_state = cur
         saved = img.get("saved_path") if img else None
         # The saved filename is prefixed (iter/task/test counters), so a
         # guessed path never matches - print the real one even when the
@@ -654,18 +831,27 @@ class ProbeSim:
             raise ValueError(f"{flag}: this task defines no task evaluator.")
         return evaluator
 
-    def run(self,
-            plan_text: str,
-            render: bool = True,
-            trials: int = 1,
-            solved: bool = False,
-            contacts: bool = False) -> Union[ProbeResult, ProbeTrialsResult]:
+    def run(
+        self,
+        plan_text: str,
+        render: bool = True,
+        trials: int = 1,
+        solved: bool = False,
+        contacts: bool = False,
+        physics_sweep: bool = False
+    ) -> Union[ProbeResult, ProbeTrialsResult, ProbeSweepResult]:
         """Execute an option plan from the current state.
 
         ``plan_text`` uses the same grammar as ``evaluate_option_plan``:
         one option per line, ``Option(obj:type, ...)[params]`` with
         exact continuous params (``[]`` for none); ``-> {atoms}``
-        subgoals are accepted but optional. Advances the current state
+        subgoal annotations are optional but CHECKED - each step's
+        report lists any annotated atoms that did not hold in its
+        post-state, which makes a single continuous ``run`` of a
+        refined plan the forward-validation pass (``refine`` resets
+        state between options and resamples, so a refine-pass that
+        diverges here means a rule is more permissive than the env).
+        Advances the current state
         to the rollout's final state (``restore`` a snapshot to rewind).
         Like ``evaluate_option_plan``, each step's post-state is
         rendered to a saved image whose path lands in the step report;
@@ -698,6 +884,26 @@ class ProbeSim:
         WHAT actually caused motion - e.g. whether a topple was driven
         by the object you pushed or by the robot's body brushing the
         scene.
+
+        ``physics_sweep=True`` (its own mode - incompatible with
+        ``trials``/``solved``/``contacts``) re-runs the plan once at
+        each point of a grid spanning the +-1-sigma uncertainty range
+        of the identified physical parameters (the SAME points the
+        capture gate checks), each on a fresh env at the base
+        motion-planner seed, plus once at the fitted values, and
+        returns a ``ProbeSweepResult`` with per-point outcomes. The
+        fitted values carry real uncertainty and the true environment
+        may sit anywhere in the range - and success can be
+        NON-MONOTONIC in a physical parameter (a cascade that topples
+        just above and just below some friction can fail exactly at
+        it), so ``trials=`` at the fitted values CANNOT see this. A
+        design near a feasibility boundary (e.g. the minimal block
+        count) is exactly where such holes live: sweep it and add
+        margin until EVERY point passes before submitting, instead of
+        discovering PARAM-SENSITIVE rejections one capture at a time.
+        Rollouts are deterministic per point, so each point costs one
+        rollout and its outcome is a measurement, not a sample. The
+        current state is NOT advanced and nothing is rendered.
         """
         # pylint: disable-next=import-outside-toplevel
         import numpy as np
@@ -708,6 +914,12 @@ class ProbeSim:
         from predicators.settings import CFG
         if trials < 1:
             raise ValueError(f"trials must be >= 1, got {trials}")
+        if physics_sweep and (trials > 1 or solved or contacts):
+            raise ValueError(
+                "physics_sweep=True is its own mode: it varies the PHYSICS "
+                "per rollout (one deterministic rollout per parameter "
+                "point), while trials/solved/contacts measure the plan at "
+                "the fitted values. Run them as separate calls.")
         if solved and trials < 2:
             raise ValueError(
                 "solved=True needs trials >= 2: a single shared-env rollout "
@@ -747,6 +959,88 @@ class ProbeSim:
         if solved:
             evaluator = self._require_solved_evaluator("solved=True")
 
+        if physics_sweep:
+            fresh_scope = (ctx.validation_env_scope
+                           if ValidationConfig.from_cfg().fresh_env
+                           and ctx.validation_env_scope is not None
+                           and ctx.probe_option_model_provider is None else
+                           None)
+            if fresh_scope is None:
+                raise ValueError(
+                    "physics_sweep=True needs the session's fresh-env "
+                    "scope (unavailable here): perturbing the shared "
+                    "session env would leak the perturbation into every "
+                    "later call.")
+            provider = ctx.physics_margin_provider
+            sweep_points = list(provider() or []) if provider else []
+            if not sweep_points:
+                raise ValueError(
+                    "physics_sweep=True, but no identified physical "
+                    "parameters with nonzero posterior width are deployed "
+                    "this cycle, so there is no uncertainty range to "
+                    "sweep. Use trials= to measure execution reliability "
+                    "at the current physics instead.")
+            point_dicts: List[Dict[str, Any]] = []
+            all_points: List[Optional[Dict[str, float]]] = \
+                [None] + sweep_points
+            try:
+                for point in all_points:
+                    _check_time_budget(ctx)
+                    _count_rollout(ctx)
+                    # Base planner seed at every point (no
+                    # decorrelated_rollout_seed), matching the capture
+                    # gate's margin rollouts: with the seed held fixed, an
+                    # outcome flip between points is attributable to the
+                    # physics perturbation alone.
+                    with (fresh_scope() if point is None else fresh_scope(
+                            physical_overrides=point)):
+                        model = self._option_model()
+                        r = bilevel_sketch.execute_plan_forward(
+                            probe_task,
+                            grounded,
+                            model,
+                            predicates=all_predicates,
+                            sketch=sketch_steps,
+                            stop_on_failure=True)
+                    point_failure: Optional[str] = None
+                    if r.first_failure_idx is not None:
+                        fs = r.steps[r.first_failure_idx]
+                        point_failure = (
+                            f"step {r.first_failure_idx} "
+                            f"({_fmt_option(fs.option)}): "
+                            f"{fs.failure_reason or 'not initiable'}")
+                    point_dicts.append({
+                        "params":
+                        point,
+                        "goal_reached":
+                        r.goal_reached,
+                        "num_actions":
+                        sum(s.num_actions for s in r.steps),
+                        "failure":
+                        point_failure,
+                    })
+            except ProbeBudgetExceeded as e:
+                # Same salvage rule as trials mode: completed points are
+                # sim time living in the return value, not stdout.
+                if not point_dicts:
+                    raise
+                notices.append(
+                    f"time budget expired after {len(point_dicts)}/"
+                    f"{len(all_points)} sweep points - the remaining "
+                    f"points were skipped ({e})")
+            sweep_over = [
+                p for p in point_dicts
+                if p["goal_reached"] and p["num_actions"] > CFG.horizon
+            ]
+            if sweep_over:
+                notices.append(
+                    f"{len(sweep_over)} goal-reaching sweep point(s) "
+                    f"exceeded the real episode horizon ({CFG.horizon} "
+                    "low-level steps) - the real executor would run out "
+                    "of steps.")
+            sweep_successes = sum(1 for p in point_dicts if p["goal_reached"])
+            return ProbeSweepResult(point_dicts, sweep_successes, notices)
+
         if trials > 1:
             # Fresh physics per trial when the session provides the scope
             # (solve sessions do; a synthesis probe's candidate model has
@@ -762,14 +1056,20 @@ class ProbeSim:
             import contextlib
             trial_dicts: List[Dict[str, Any]] = []
             try:
-                for _ in range(trials):
+                for trial_idx in range(trials):
                     _check_time_budget(ctx)
                     _count_rollout(ctx)
                     trial_solved: Optional[bool] = None
                     trial_reward: Optional[float] = None
                     coarse = False
+                    # decorrelated_rollout_seed: a fresh env alone gives
+                    # bit-identical repeats (motion planning reads the
+                    # constant CFG.seed), so without it N trials are one
+                    # effective sample. Entered inside the fresh scope so
+                    # env construction keeps the base seed.
                     with (fresh_scope() if fresh_scope is not None else
-                          contextlib.nullcontext()):
+                          contextlib.nullcontext()), \
+                            decorrelated_rollout_seed(trial_idx):
                         model = self._option_model()
                         collector = (_EvalStateCollector(
                             model, probe_task.init)
@@ -877,12 +1177,20 @@ class ProbeSim:
                 ctx,
                 f"probe_step_{i}_{outcome.option.name}") if render else None
             step_dicts.append({
-                "option": sig,
-                "num_actions": outcome.num_actions,
-                "failure": failure,
-                "added": added,
-                "deleted": deleted,
-                "image": img.get("saved_path") if img else None,
+                "option":
+                sig,
+                "num_actions":
+                outcome.num_actions,
+                "failure":
+                failure,
+                "added":
+                added,
+                "deleted":
+                deleted,
+                "subgoals_missing":
+                [str(a) for a in sorted(outcome.subgoal_missing or set())],
+                "image":
+                img.get("saved_path") if img else None,
             })
 
         _count_rollout(ctx)
@@ -1120,12 +1428,43 @@ class ProbeSim:
 
 
 def build_probe_namespace(ctx: "ToolContext") -> Dict[str, Any]:
-    """The persistent ``explore_python`` namespace (solve and synthesis).
+    """The persistent ``explore_python`` namespace (solve sessions).
 
-    Deliberately small: the probe facade, numpy, and nothing else - the
-    single-verdict-surface principle. The agent gets a ready ``sim``
-    plus the class for extra independent instances.
+    The probe facade, numpy, and the collected REAL trajectories as
+    read-only evidence (``trajectories`` plus a ``describe_trajectory``
+    digest helper) - so the agent can check the belief model against
+    what actually happened. Deliberately NOT here: anything
+    evaluator-shaped (``evaluate_trajectory`` scores arbitrary state
+    sequences, which in a solve session is a free oracle for searching
+    over sequences the evaluator likes without paying for physics;
+    evaluator access stays behind the gated ``run(solved=True)`` /
+    ``refine(require_solved=True)`` paths) and authoring bindings
+    (``Predicate``, ``ParamSpec`` - synthesis-role, see
+    ``_build_synthesis_exec_ns``).
     """
     # pylint: disable-next=import-outside-toplevel
     import numpy as np
-    return {"sim": ProbeSim(ctx), "ProbeSim": lambda: ProbeSim(ctx), "np": np}
+
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.agent_sdk.tools.inspection import render_trajectory_digest
+    all_trajs = list(ctx.offline_trajectories) + list(ctx.online_trajectories)
+
+    def describe_trajectory(traj_idx: int,
+                            include_states: bool = True,
+                            include_atoms: bool = False,
+                            max_timesteps: int = 10) -> str:
+        return render_trajectory_digest(all_trajs,
+                                        ctx.train_tasks,
+                                        ctx.predicates,
+                                        traj_idx,
+                                        include_states=include_states,
+                                        include_atoms=include_atoms,
+                                        max_timesteps=max_timesteps)
+
+    return {
+        "sim": BeliefProbe(ctx),
+        "BeliefProbe": lambda: BeliefProbe(ctx),
+        "np": np,
+        "trajectories": all_trajs,
+        "describe_trajectory": describe_trajectory,
+    }

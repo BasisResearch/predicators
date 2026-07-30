@@ -87,7 +87,7 @@ def create_sampler_synthesis_tools(
             return {}, version_tag, (f"[{version_tag}] Error executing "
                                      f"{path}:\n{err}"), []
 
-        # Mutate approach state so evaluate_plan_refinement / test-time
+        # Mutate approach state so sim.refine / test-time
         # refinement draw from the agent's draft samplers.
         approach._synthesized_samplers = valid  # pylint: disable=protected-access
         return valid, version_tag, None, warnings
@@ -152,7 +152,7 @@ def create_sampler_synthesis_tools(
         "per-call override. "
         "Reports a per-option sanity check (return shape + within-box) "
         "over a representative train-task state. After loading, the "
-        "samplers used by evaluate_plan_refinement are updated — so call "
+        "samplers used by sim.refine are updated — so call "
         "this any time you edit samplers.py before re-running "
         "refinement. Snapshots samplers.py into samplers_versions/; "
         "output tagged [cycle_XXX_vers_YYY].",
@@ -195,7 +195,7 @@ def create_sampler_synthesis_tools(
         for name in sorted(samplers):
             lines.append(_sanity_check(name, samplers[name]))
         lines.append("")
-        lines.append("Now call evaluate_plan_refinement with a sketch that "
+        lines.append("Now call sim.refine with a sketch that "
                      "uses these options to measure the samples-to-refine "
                      "improvement.")
         return _text("\n".join(lines))

@@ -1,4 +1,5 @@
 """Synthesis-session tools for sim learning (create_synthesis_tools)."""
+import dataclasses
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -11,6 +12,22 @@ from predicators.agent_sdk.tools.sandbox_guard import _scrub_host_paths
 from predicators.agent_sdk.tools.snapshots import _ArtifactSnapshotter
 
 
+@dataclasses.dataclass(frozen=True)
+class SynthesisToolkit:
+    """What ``create_synthesis_tools`` builds for one synthesis session.
+
+    ``tools`` are the MCP tools to attach; ``fit_runner`` and
+    ``residuals_runner`` are the ``sim.fit`` / ``sim.residuals``
+    backends (installed as ``ToolContext.probe_fit_provider`` /
+    ``probe_residuals_provider``). All three share this session's
+    snapshotter, so every report carries consistent
+    ``[cycle_XXX_vers_YYY]`` tags.
+    """
+    tools: list
+    fit_runner: Callable[..., str]
+    residuals_runner: Callable[..., str]
+
+
 def create_synthesis_tools(
     exec_ns: Dict[str, Any],
     base_pred_triples: list,
@@ -21,15 +38,19 @@ def create_synthesis_tools(
     sandbox_dir: Optional[str] = None,
     sandbox_dir_for_agent: Optional[str] = None,
     cycle_index_provider: Optional[Callable[[], int]] = None,
-) -> list:
-    """Create MCP tools for the sim-learning synthesis agent.
+) -> SynthesisToolkit:
+    """Create the sim-learning synthesis agent's tool surface.
 
-    Returns ``[run_python, evaluate_step_fit, report_residuals,
-    evaluate_plan_refinement]``.
+    Returns a :class:`SynthesisToolkit` with ``tools = [run_python]``
+    plus the ``fit_runner`` / ``residuals_runner`` behind ``sim.fit``
+    and ``sim.residuals``. Plan validation is hand-composed by the
+    agent in ``run_python`` (``sim.fit()`` then ``sim.refine`` then a
+    continuous ``sim.run`` pass), so there is no separate refinement
+    tool.
 
     The agent's source-of-truth for the simulator is the file at
     ``simulator_file`` (which it edits with ``Write`` / ``Edit``). The
-    three synthesis tools each ``exec`` that file fresh into an
+    fit and residuals backends each ``exec`` that file fresh into an
     isolated namespace per call and read ``PROCESS_RULES``,
     ``PARAM_SPECS``, ``PROCESS_FEATURES`` from it — no namespace state
     leaks across iterations. Before loading, every call also snapshots
@@ -38,24 +59,23 @@ def create_synthesis_tools(
     ``cycle_index_provider()``, ``YYY`` resetting per
     ``create_synthesis_tools`` call) so the full history of evaluated
     versions is preserved across cycles; identical-content calls reuse
-    the prior snapshot. Each tool's output is prefixed with the version
-    tag (``[cycle_XXX_vers_YYY]``).
+    the prior snapshot. Each report is prefixed with the version tag
+    (``[cycle_XXX_vers_YYY]``).
 
     * ``run_python`` — executes arbitrary Python in a persistent
-      namespace pre-loaded with trajectory data. Use this for ad-hoc
-      exploration of ``trajectories`` etc.; it does **not** define
+      namespace pre-loaded with trajectory data (and, in synthesis
+      sessions, the candidate probe ``sim``). It does **not** define
       rules — write ``simulator.py`` for that.
-    * ``evaluate_step_fit`` — SSE of the current ``PROCESS_RULES`` at
-      init_value params, plus post-fit SSE, percent improvement, and
-      fitted parameter values from a parameter fit.
-    * ``report_residuals`` — per-feature breakdown of where the
-      current rules disagree with observations: mismatch counts,
-      mean/max abs error, comparison to the no-rule baseline, and
-      worst-N example transitions per feature.
-    * ``evaluate_plan_refinement`` — builds the combined simulator
-      from current rules+params and runs backtracking refinement on a
-      training task, reporting where (if anywhere) the planner gets
-      stuck. Requires ``approach`` to be passed.
+    * ``fit_runner`` (not a tool; bound as ``sim.fit``) — SSE of the
+      current ``PROCESS_RULES`` at init_value params, plus post-fit
+      SSE and fitted values; the joint rollout system-ID path when
+      ``PHYSICAL_PARAMS`` is declared; exploratory ``traj_idxs`` /
+      ``fixed`` variants that publish nothing.
+    * ``residuals_runner`` (not a tool; bound as ``sim.residuals``) —
+      per-feature breakdown of where the current rules disagree with
+      observations: mismatch counts, mean/max abs error, comparison
+      to the no-rule baseline, and worst-N example transitions per
+      feature.
 
     Args:
         exec_ns: Persistent namespace for ``run_python``. Should
@@ -71,10 +91,10 @@ def create_synthesis_tools(
             fresh on every call.
         versions_dir: Directory to write per-call snapshots into
             (created on first use).
-        approach: ``AgentSimLearningApproach`` instance, used by
-            ``evaluate_plan_refinement`` to access training tasks,
-            build the combined simulator/option model, and run
-            refinement. If ``None``, that tool returns an error.
+        approach: ``AgentSimLearningApproach`` instance, used by the
+            rollout system-ID fit path (raw trajectories, fit env,
+            applying identified params). If ``None``, that path
+            returns an error.
         sandbox_dir: Host path to the agent's sandbox root.  When set,
             ``run_python`` spills oversize output to
             ``<sandbox_dir>/tool_outputs/run_python/`` instead of
@@ -98,27 +118,25 @@ def create_synthesis_tools(
     from claude_agent_sdk import tool as _sdk_tool
     tool = _make_coercing_tool(_sdk_tool)
 
-    from predicators.approaches.synthesis_validation import \
-        run_refinement_for_synthesis
     from predicators.code_sim_learning.fit_space import ParamSpec
     from predicators.code_sim_learning.fitting import compute_sse, \
         compute_sse_recurrent, fit_rule_parameters, \
         fit_rule_parameters_latent
+    from predicators.code_sim_learning.grid_seed import grid_candidates
     from predicators.code_sim_learning.identifiability import \
-        format_identifiability, identifiability_report, \
-        select_trustworthy_params
-    from predicators.code_sim_learning.physical_sysid import \
-        fit_params_rollout_trimmed
+        format_identifiability
+    from predicators.code_sim_learning.orchestrator import run_rollout_sysid
     from predicators.code_sim_learning.rollout_env import \
         physical_param_anchors
     from predicators.code_sim_learning.rollout_objective import \
-        compute_rollout_sse
+        compute_rollout_sse, per_trajectory_rms
     from predicators.code_sim_learning.trajectory_prep import \
         compute_residual_scaling
     from predicators.code_sim_learning.utils import apply_rules, \
         has_latent_rules, iter_feature_residuals, read_latent_init, \
         read_physical_param_specs, read_simulator_components, \
         rollout_predictions, stamp_physical_spec_scales
+    from predicators.settings import CFG
 
     # pylint: enable=import-outside-toplevel
 
@@ -198,38 +216,51 @@ def create_synthesis_tools(
                 return grouped
         return [triples]
 
-    def _evaluate_rollout_fit(rules: list, rule_specs: list,
-                              physical_specs: list, latent_init: Any,
+    def _evaluate_rollout_fit(rules: list,
+                              rule_specs: list,
+                              physical_specs: list,
+                              latent_init: Any,
                               process_features: Dict[str, List[str]],
                               scope_note: str,
-                              version_tag: str) -> Dict[str, Any]:
+                              version_tag: str,
+                              traj_idxs: Optional[List[int]] = None) -> str:
         """Joint physical+rule system-ID fit on free-running rollouts.
 
-        Reached from ``evaluate_step_fit`` when the artifact declares
-        ``PHYSICAL_PARAMS``. Needs the bound approach for the raw
-        (states, actions) trajectories and the dedicated headless fit
-        env. On success the identified physical values are applied in
-        place to the approach's planning base env, so a subsequent
-        ``evaluate_plan_refinement`` call plans against the calibrated
-        sim.
+        Reached from ``run_fit`` (``sim.fit``) when the artifact
+        declares ``PHYSICAL_PARAMS``. Needs the bound approach for the
+        raw (states, actions) trajectories and the dedicated headless
+        fit env. With ``traj_idxs=None`` (canonical) the identified
+        physical values are applied in place to the approach's planning
+        base env on success, so subsequent probe rollouts run against
+        the calibrated sim. With ``traj_idxs`` the fit is EXPLORATORY:
+        it runs on only those trajectories' data and applies nothing - a
+        consistency diagnostic (per-trajectory fits that disagree mean
+        heterogeneous data, not a parameter).
         """
         if approach is None:
-            return _text(
-                f"[{version_tag}] Error: PHYSICAL_PARAMS requires a bound "
-                "approach (raw trajectories + base env) — unavailable in "
-                "this session.")
+            return (f"[{version_tag}] Error: PHYSICAL_PARAMS requires a bound "
+                    "approach (raw trajectories + base env) — unavailable in "
+                    "this session.")
+        exploratory = traj_idxs is not None
+        if exploratory and not traj_idxs:
+            return (f"[{version_tag}] Error: traj_idxs is empty - pass the "
+                    "trajectory indices to fit on, or omit it for the "
+                    "canonical all-data fit.")
         # Stamp the fit scale (log vs linear) from the env registry —
         # the agent's declaration carries name/init/bounds only.
         physical_specs = stamp_physical_spec_scales(physical_specs,
                                                     approach._base_env)  # pylint: disable=protected-access
-        rollouts = approach._rollout_fit_trajectories(  # pylint: disable=protected-access
-            process_features)
+        try:
+            rollouts = approach._rollout_fit_trajectories(  # pylint: disable=protected-access
+                process_features,
+                traj_idxs=traj_idxs)
+        except ValueError as e:
+            return f"[{version_tag}] Error: {e}"
         if not rollouts:
-            return _text(
-                f"[{version_tag}] Error: no complete (states, actions) "
-                "trajectories are available, so the rollout system-ID fit "
-                "cannot run. PHYSICAL_PARAMS needs full trajectories, not "
-                "isolated transitions.")
+            return (f"[{version_tag}] Error: no complete (states, actions) "
+                    "trajectories are available, so the rollout system-ID fit "
+                    "cannot run. PHYSICAL_PARAMS needs full trajectories, not "
+                    "isolated transitions.")
         # Factory, not an instance: every rollout runs in a fresh env.
         fit_env = approach._get_rollout_fit_env()  # pylint: disable=protected-access
         physical_names = [s.name for s in physical_specs]
@@ -241,13 +272,7 @@ def create_synthesis_tools(
             approach._base_env,  # pylint: disable=protected-access
             physical_specs)
         try:
-            # One scaling object per fit: every SSE/RMS below must share
-            # it or their values are incomparable.
-            scaling = compute_residual_scaling(rollouts, process_features)
-            pre_sse = compute_rollout_sse(fit_env, rollouts, init_params,
-                                          process_features, physical_names,
-                                          rules, latent_init, scaling)
-            fit_result, survivors, traj_rms = fit_params_rollout_trimmed(
+            outcome = run_rollout_sysid(
                 fit_env,
                 rollouts,
                 physical_specs,
@@ -255,69 +280,68 @@ def create_synthesis_tools(
                 rules=rules,
                 rule_specs=rule_specs,
                 latent_init=latent_init,
-                scaling=scaling,
                 anchors=anchors,
-                rms_cache=getattr(approach, "_explainability_cache", None))
-            if not survivors:
-                # Honest empty-data output: no fit ran, nothing was
-                # applied - do NOT print fitted values or identifiability
-                # verdicts computed on zero surviving data (chaos makes
-                # the probe report "identified" for everything).
-                rms_str = ", ".join(f"{r:.4g}" for r in traj_rms)
-                return _text("\n".join([
-                    f"[{version_tag}] NO FIT RAN: all {len(rollouts)} "
-                    "recorded motion segments were unexplainable at ANY "
-                    "candidate physical parameters (per-segment "
-                    f"best-achievable RMS [{rms_str}] all above the "
-                    "trimming threshold).",
-                    "",
-                    "Parameters were left at their baselines; nothing was "
-                    "applied to the planning base env.",
-                    "",
-                    "This usually means the recorded interactions are not "
-                    "repeatable under replay (prolonged scraping/jamming "
-                    "robot-object contact is chaotic). Collect experiments "
-                    "whose outcome is dominated by object dynamics: actuate "
-                    "one or two objects cleanly, then let the scene evolve "
-                    "and settle on its own.",
-                ]))
-            probe_rollouts = survivors
-            fitted = fit_result.point_estimate
-            post_sse = compute_rollout_sse(fit_env, probe_rollouts, fitted,
-                                           process_features, physical_names,
-                                           rules, latent_init, scaling)
+                # The phase-shared caches key trajectory identity by
+                # segment lengths only - exact when every fit sees the
+                # full recording set, but two different traj_idxs
+                # subsets with equal-length segments would collide and
+                # cross-assign verdicts. Exploratory subset fits
+                # therefore never share them.
+                rms_cache=(None if exploratory else getattr(
+                    approach, "_explainability_cache", None)),
+                fit_cache=(None if exploratory else getattr(
+                    approach, "_sysid_fit_cache", None)),
+                fit_cache_key=version_tag)
         except Exception as e:  # pylint: disable=broad-except
-            return _text(
+            return (
                 f"[{version_tag}] Error: rollout system-ID fit failed:\n{e}")
-
-        def rollout_sse_fn(params: Dict[str, float]) -> float:
-            return compute_rollout_sse(fit_env, probe_rollouts, params,
-                                       process_features, physical_names, rules,
-                                       latent_init, scaling)
-
-        ident_report = identifiability_report(fit_result,
-                                              rollout_sse_fn,
-                                              list(physical_specs) +
-                                              list(rule_specs),
-                                              num_explainable=len(survivors))
-        applied = select_trustworthy_params(fitted, init_params,
-                                            physical_names, ident_report,
-                                            anchors)
-        approach._apply_identified_physical_params(applied)  # pylint: disable=protected-access
-        if hasattr(approach, "_record_sysid_diagnostics"):
-            approach._record_sysid_diagnostics(  # pylint: disable=protected-access
-                ident_report, physical_names, len(survivors), len(rollouts),
-                traj_rms)
+        if outcome.num_survivors == 0:
+            # Honest empty-data output: no fit ran, nothing was
+            # applied - do NOT print fitted values or identifiability
+            # verdicts computed on zero surviving data (chaos makes
+            # the probe report "identified" for everything).
+            rms_str = ", ".join(f"{r:.4g}" for r in outcome.traj_rms)
+            return "\n".join([
+                f"[{version_tag}] NO FIT RAN: all {len(rollouts)} "
+                "recorded motion segments were unexplainable at ANY "
+                "candidate physical parameters (per-segment "
+                f"best-achievable RMS [{rms_str}] all above the "
+                "trimming threshold).",
+                "",
+                "Parameters were left at their baselines; nothing was "
+                "applied to the planning base env.",
+                "",
+                "This usually means the recorded interactions are not "
+                "repeatable under replay (prolonged scraping/jamming "
+                "robot-object contact is chaotic). Collect experiments "
+                "whose outcome is dominated by object dynamics: actuate "
+                "one or two objects cleanly, then let the scene evolve "
+                "and settle on its own.",
+            ])
+        fitted = outcome.fitted
+        applied = outcome.applied
+        ident_report = outcome.report
+        pre_sse, post_sse = outcome.pre_sse, outcome.post_sse
+        if not exploratory:
+            approach._apply_identified_physical_params(applied)  # pylint: disable=protected-access
+            if hasattr(approach, "_record_sysid_diagnostics"):
+                approach._record_sysid_diagnostics(  # pylint: disable=protected-access
+                    ident_report, physical_names, outcome.num_survivors,
+                    len(rollouts), outcome.traj_rms)
         kept_at_init = sorted(n for n in physical_names
                               if applied[n] != fitted[n])
         if pre_sse > 0:
-            pct_str = f"({(pre_sse - post_sse) / pre_sse * 100:+.1f}% vs init)"
+            pct_str = (f"({(pre_sse - post_sse) / pre_sse * 100:.1f}% "
+                       "SSE reduction vs init)")
         else:
             pct_str = "(init SSE was 0)"
+        mode_note = (
+            f"EXPLORATORY, trajectories {sorted(traj_idxs or [])} only"
+            if exploratory else "canonical")
         lines = [
             f"[{version_tag}] JOINT ROLLOUT SYSTEM-ID FIT (PHYSICAL_PARAMS "
-            f"declared) on {len(rollouts)} motion segments (scope: "
-            f"{scope_note}; {len(physical_names)} physical + "
+            f"declared; {mode_note}) on {len(rollouts)} motion segments "
+            f"(scope: {scope_note}; {len(physical_names)} physical + "
             f"{len(list(rule_specs))} rule params). Residuals are "
             "per-feature normalized (angles wrapped), so SSE/RMS are "
             "dimensionless fractions of typical motion.",
@@ -327,11 +351,11 @@ def create_synthesis_tools(
             "",
             "Fitted parameters:",
         ]
-        if len(survivors) < len(rollouts):
-            rms_str = ", ".join(f"{r:.4g}" for r in traj_rms)
+        if outcome.num_survivors < len(rollouts):
+            rms_str = ", ".join(f"{r:.4g}" for r in outcome.traj_rms)
+            dropped = len(rollouts) - outcome.num_survivors
             lines.insert(
-                1,
-                f"Goodness-of-fit trimming: {len(rollouts) - len(survivors)}"
+                1, f"Goodness-of-fit trimming: {dropped}"
                 f" of {len(rollouts)} motion segments were unexplainable at "
                 "ANY candidate params (per-segment best-achievable RMS: "
                 f"[{rms_str}]) and were dropped before fitting; the fit "
@@ -357,24 +381,54 @@ def create_synthesis_tools(
             format_identifiability(ident_report),
             "",
         ])
-        if kept_at_init:
+        if exploratory:
+            lines.append(
+                "EXPLORATORY subset fit: nothing was applied or recorded - "
+                "the deployed physical params are unchanged. Compare the "
+                "identified values across subsets (and against the "
+                "canonical no-arg fit): parameters that disagree between "
+                "individually-explainable trajectories indicate "
+                "heterogeneous data (e.g. an arm-touched episode), not a "
+                "parameter value.")
+        elif kept_at_init:
             lines.append(
                 "Applied to the planning base env: fitted values for the "
                 "identified params only; "
                 f"{', '.join(kept_at_init)} did not contract (or failed "
                 "the sensitivity screen), so their baseline values were "
                 "kept (the fitted values above for them are arbitrary). "
-                "evaluate_plan_refinement now plans against the partially "
-                "calibrated sim.")
+                "Probe rollouts (sim.run / sim.refine) now run against the "
+                "partially calibrated sim.")
         else:
             lines.append(
                 "The identified physical params were applied to the "
-                "planning base env; evaluate_plan_refinement now plans "
-                "against the calibrated sim.")
-        return _text("\n".join(lines))
+                "planning base env; probe rollouts (sim.run / sim.refine) "
+                "now run against the calibrated sim.")
+        return "\n".join(lines)
 
     # ── run_python ──────────────────────────────────────────
 
+    # The approach merges the BeliefProbe facade (`sim` over the CANDIDATE
+    # simulator.py) into this same namespace - one exec namespace per
+    # synthesis session, so helpers defined next to the data are
+    # visible to probe sweeps. Since the fit/refine/forward-validate
+    # surfaces all live on `sim` now, the probe is unconditional in
+    # synthesis (there is no other validation surface). Shared blurb,
+    # so the wording cannot drift from the solve-phase explore_python
+    # surface.
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.agent_sdk.tools.exploration import belief_probe_blurb
+    probe_blurb = (
+        " This namespace ALSO binds the candidate-simulator probe: " +
+        belief_probe_blurb(synthesis_probe=True) +
+        " Probe rollouts are CANDIDATE-simulator predictions - do not "
+        "mix them up with the recorded real `trajectories`. Nothing the "
+        "probe runs is captured; the validation protocol before declaring "
+        "the simulator done is: `sim.fit()` (canonical fit report), "
+        "`sim.refine(plan, require_goal=True)` (params exist that reach "
+        "each subgoal), then a continuous `sim.run` of the refined plan "
+        "(the forward pass; a refine-pass/run-fail means a rule is more "
+        "permissive than the data).")
     run_python = _make_python_exec_tool(
         tool,
         name="run_python",
@@ -385,7 +439,10 @@ def create_synthesis_tools(
             "(List[Task]; each has `init`, `goal`, `goal_holds(state)`), "
             "is_goal_state (callable: state, task_idx -> bool - do the goal "
             "atoms hold in this one STATE; reaching the goal atoms does not "
-            "by itself mean solved), np, ParamSpec, and (when the "
+            "by itself mean solved), describe_trajectory(traj_idx, "
+            "include_states=True, include_atoms=False, max_timesteps=10) "
+            "- a per-timestep digest of one trajectory, np, ParamSpec, "
+            "and (when the "
             "env defines task evaluators) evaluate_trajectory(states, "
             "actions=None, task_idx=0) -> {reward, solved} - the env's "
             "ground-truth episode scoring over a full TRAJECTORY. "
@@ -395,104 +452,168 @@ def create_synthesis_tools(
             "`tool_outputs/run_python/call_NNNN.txt` in the sandbox and only "
             "a head/tail preview plus that path is returned - use Read/Grep "
             "to inspect the full file. This does NOT define rules - write "
-            "`simulator.py` for that; the synthesis tools "
-            "(evaluate_step_fit, report_residuals, evaluate_plan_refinement) "
+            "`simulator.py` for that; `sim.fit` and `sim.residuals` "
             "load PROCESS_RULES, PARAM_SPECS, PROCESS_FEATURES from that "
-            "file."),
+            "file fresh on every call." + probe_blurb),
         exec_ns=exec_ns,
         sandbox_dir=sandbox_dir,
         sandbox_dir_for_agent=sandbox_dir_for_agent,
         text_result=_text,
     )
 
-    # ── evaluate_step_fit ────────────────────────────────────────
+    # ── run_fit (the ``sim.fit`` backend) ───────────────────────
 
-    @tool(
-        "evaluate_step_fit",
-        "Score the current PROCESS_RULES (loaded fresh from "
-        "`simulator.py`) by SSE on the step transitions. Reports SSE "
-        "at init_value params from PARAM_SPECS, then fits parameters "
-        "and reports the post-fit SSE plus percent improvement and the "
-        "fitted parameter values with their delta from init. If the "
-        "file declares PHYSICAL_PARAMS (base-sim system "
-        "identification), the fit instead matches free-running "
-        "base-sim rollouts of full trajectories, fits physical + rule "
-        "params jointly, reports per-parameter identifiability, and "
-        "applies the identified physical values to the planning base "
-        "env. Each call snapshots the simulator file into "
-        "simulator_versions/; output is tagged [cycle_XXX_vers_YYY].",
-        {
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type":
-                    "string",
-                    "description":
-                    "Override simulator file path "
-                    "(defaults to the canonical simulator.py).",
-                },
-            },
-        },
-    )
-    async def evaluate_step_fit(args: Dict[str, Any]) -> Dict[str, Any]:
-        path = args.get("path") or simulator_file
+    def run_fit(path: Optional[str] = None,
+                traj_idxs: Optional[List[int]] = None,
+                fixed: Optional[Dict[str, float]] = None) -> str:
+        """Fit PARAM_SPECS (loaded fresh from ``simulator.py``) and report.
+
+        The backend behind ``sim.fit``. With no arguments this is the
+        CANONICAL fit - the same data/fit the probe deploys - and, when
+        the file declares PHYSICAL_PARAMS, the identified physical
+        values are applied to the planning base env. Any argument makes
+        the fit EXPLORATORY: a diagnostic report only, publishing and
+        applying nothing.
+
+        ``traj_idxs`` restricts the fit to those trajectories' data
+        (step transitions on the rule paths; whole recorded rollouts on
+        the system-ID path - a consistency diagnostic across
+        trajectories). ``fixed`` pins parameters at given values while
+        the rest are fit (rule paths only - the system-ID path rejects
+        it; narrow the param's bounds in PHYSICAL_PARAMS instead). Each
+        call snapshots the simulator file into simulator_versions/ and
+        tags output ``[cycle_XXX_vers_YYY]``.
+        """
+        p = path or simulator_file
         rules, specs, declared, latent_init, physical_specs, version_tag, \
-            err = _snapshot_and_load(path)
+            err = _snapshot_and_load(p)
         if err:
-            return _text(err)
+            return str(err)
 
         process_features = (declared if isinstance(declared, dict) else
                             inferred_process_features)
         scope_note = ("declared" if isinstance(declared, dict) else
                       "inferred (PROCESS_FEATURES not declared)")
+        canonical = traj_idxs is None and not fixed
 
         # PHYSICAL_PARAMS declared -> joint system-identification fit on
         # free-running rollouts (the per-transition/teacher-forced paths
         # below cannot see physical params: State carries no velocities).
+        # traj_idxs is allowed (exploratory subset fit; applies nothing);
+        # fixed is not - pinning a physical param has a versioned channel
+        # already (its lo/hi bounds in the PHYSICAL_PARAMS declaration).
         if physical_specs:
-            return _evaluate_rollout_fit(rules, specs, physical_specs,
-                                         latent_init, process_features,
-                                         scope_note, version_tag)
+            if fixed:
+                return (f"[{version_tag}] Error: fixed is not supported "
+                        "with PHYSICAL_PARAMS. Pin a physical param by "
+                        "narrowing its lo/hi bounds in PHYSICAL_PARAMS "
+                        "instead (versioned in simulator.py, respected by "
+                        "the whole fit stack).")
+            return _evaluate_rollout_fit(rules,
+                                         specs,
+                                         physical_specs,
+                                         latent_init,
+                                         process_features,
+                                         scope_note,
+                                         version_tag,
+                                         traj_idxs=traj_idxs)
+
+        if fixed:
+            known = {s.name for s in specs}
+            unknown = sorted(set(fixed) - known)
+            if unknown:
+                return (f"[{version_tag}] Error: fixed names {unknown} are "
+                        f"not in PARAM_SPECS (available: {sorted(known)}).")
+
+        triples = base_pred_triples
+        groups = _groups_for(base_pred_triples)
+        if traj_idxs is not None:
+            bad = sorted(i for i in traj_idxs if not 0 <= i < len(groups))
+            if bad:
+                return (f"[{version_tag}] Error: traj_idxs {bad} out of "
+                        f"range (0-{len(groups) - 1}).")
+            groups = [groups[i] for i in traj_idxs]
+            triples = [t for g in groups for t in g]
+            if not triples:
+                return (f"[{version_tag}] Error: the selected trajectories "
+                        "contain no step transitions.")
 
         # Dispatch on the rule signature exactly as the fitting engine
         # does: recurrent (5-arg, latent-declaring) rules are scored with
         # the latent block threaded per trajectory, never through the
         # legacy per-transition path (which would call them with 3 args).
         latent_mode = has_latent_rules(rules)
-        init_params = {s.name: s.init_value for s in specs}
+        # Pinning: wrap the rules so pinned values override whatever the
+        # fit engine proposes, and fit only the free specs. Wrapper arg
+        # names must be preserved - the engine dispatches recurrent
+        # rules by inspecting for a 2nd parameter named ``latent``.
+        fit_rules = rules
+        fit_specs = list(specs)
+        if fixed:
+            fixed_vals = dict(fixed)
+            if latent_mode:
+                fit_rules = [
+                    lambda state, latent, history, updates, params, _r=r: _r(
+                        state, latent, history, updates, {
+                            **params,
+                            **fixed_vals
+                        }) for r in rules
+                ]
+            else:
+                fit_rules = [
+                    lambda state, updates, params, _r=r: _r(
+                        state, updates, {
+                            **params,
+                            **fixed_vals
+                        }) for r in rules
+                ]
+            fit_specs = [s for s in specs if s.name not in fixed_vals]
+        init_params = {s.name: s.init_value for s in fit_specs}
         try:
             if latent_mode:
-                groups = _groups_for(base_pred_triples)
-                pre_sse = compute_sse_recurrent(rules, groups, init_params,
+                pre_sse = compute_sse_recurrent(fit_rules, groups, init_params,
                                                 latent_init, process_features)
             else:
-                sim_fn = lambda s, _a, p: apply_rules(  # noqa: E731
-                    s, rules, p)
-                pre_sse = compute_sse(sim_fn, base_pred_triples, init_params,
+                sim_fn = lambda s, _a, prm: apply_rules(  # noqa: E731
+                    s, fit_rules, prm)
+                pre_sse = compute_sse(sim_fn, triples, init_params,
                                       process_features)
         except Exception as e:  # pylint: disable=broad-except
-            return _text(
-                f"[{version_tag}] Error: SSE computation failed:\n{e}")
+            return f"[{version_tag}] Error: SSE computation failed:\n{e}"
 
         sig_note = ("recurrent (latent threaded per trajectory)"
                     if latent_mode else "per-transition")
+        mode_note = ("canonical - the same fit the probe deploys" if canonical
+                     else "EXPLORATORY - diagnostic only, nothing published")
         lines = [
-            f"[{version_tag}] Fit evaluation on {len(base_pred_triples)} "
-            f"step transitions (scope: {scope_note}; rules: {sig_note}).",
-            "",
-            f"At init_value params:  SSE = {pre_sse:.6f}",
+            f"[{version_tag}] Fit evaluation on {len(triples)} "
+            f"step transitions (scope: {scope_note}; rules: {sig_note}; "
+            f"{mode_note}).",
         ]
+        if traj_idxs is not None:
+            lines.append(f"Restricted to trajectories {sorted(traj_idxs)}.")
+        if fixed:
+            pinned = ", ".join(f"{n}={v:.4g}"
+                               for n, v in sorted(fixed.items()))
+            lines.append(f"Pinned parameters: {pinned}.")
+        lines += ["", f"At init_value params:  SSE = {pre_sse:.6f}"]
 
+        if not fit_specs:
+            lines.append(
+                "All parameters are pinned - no fit ran; the SSE above is "
+                "the score at the pinned values.")
+            return "\n".join(lines)
         try:
             if latent_mode:
                 fit_result, post_sse = fit_rule_parameters_latent(
-                    rules, specs, groups, latent_init, process_features)
+                    fit_rules, fit_specs, groups, latent_init,
+                    process_features)
             else:
                 fit_result, post_sse = fit_rule_parameters(
-                    rules, specs, base_pred_triples, process_features)
+                    fit_rules, fit_specs, triples, process_features)
             fitted_params = fit_result.point_estimate
         except Exception as e:  # pylint: disable=broad-except
-            return _text(f"[{version_tag}] Error: fit_params failed:\n{e}")
+            return f"[{version_tag}] Error: fit_params failed:\n{e}"
         if pre_sse > 0:
             pct = (pre_sse - post_sse) / pre_sse * 100
             pct_str = f"({pct:+.1f}% vs init)"
@@ -512,85 +633,258 @@ def create_synthesis_tools(
                          f"{fit_val:.4f}  (delta={delta:+.4f}, "
                          f"{ppct:+.1f}%)")
 
-        return _text("\n".join(lines))
+        return "\n".join(lines)
 
-    # ── report_residuals ────────────────────────────────────
+    # ── rollout-mode residuals (open-loop fidelity) ─────────────
 
-    @tool(
-        "report_residuals",
-        "Per-feature breakdown of where the current PROCESS_RULES "
-        "(loaded fresh from `simulator.py`) disagree with "
-        "observations on step transitions. For each feature in "
-        "PROCESS_FEATURES (or the inferred fallback) reports mismatch "
-        "count, mean abs error, max abs error, and the relative "
-        "improvement over the no-rule baseline (negative means rules "
-        "are worse than not running them at all). Also lists the "
-        "worst-N example transitions per feature so you can see what "
-        "edge cases break. Uses init_value from PARAM_SPECS by "
-        "default; pass fit_params=true to MCMC-fit first. Tolerance: "
-        "|pred - obs| > rel_tol * |obs| + abs_tol. Each call "
-        "snapshots the simulator file into simulator_versions/; "
-        "output is tagged [cycle_XXX_vers_YYY].",
-        {
-            "type": "object",
-            "properties": {
-                "max_transitions": {
-                    "type": "integer",
-                    "description": "Max transitions to inspect "
-                    "(default 100).",
-                },
-                "abs_tol": {
-                    "type": "number",
-                    "description": "Absolute tolerance (default 1e-4).",
-                },
-                "rel_tol": {
-                    "type": "number",
-                    "description": "Relative tolerance (default 1e-3).",
-                },
-                "num_worst_examples": {
-                    "type":
-                    "integer",
-                    "description":
-                    "Worst-N mismatched transitions to "
-                    "list per feature (default 3, 0 to suppress).",
-                },
-                "fit_params": {
-                    "type":
-                    "boolean",
-                    "description":
-                    "If true, run MCMC fit before "
-                    "computing residuals; otherwise use init_value "
-                    "(default false).",
-                },
-                "path": {
-                    "type":
-                    "string",
-                    "description":
-                    "Override simulator file path "
-                    "(defaults to the canonical simulator.py).",
-                },
-            },
-        },
-    )
-    async def report_residuals(args: Dict[str, Any]) -> Dict[str, Any]:
-        path = args.get("path") or simulator_file
+    def _moving_feature_scope(
+            rollouts: List[Tuple[Any, Any]]) -> Dict[str, List[str]]:
+        """Features whose OBSERVED value moves anywhere in the fit data.
+
+        The open-loop report scores global fidelity, so its scope is
+        "everything that moves" - independent of the artifact's declared
+        PROCESS_FEATURES, which describe rule scope and may legitimately
+        be empty (a physics-only artifact, or one that concluded no rule
+        is needed). A feature is in scope when its observed span across
+        all recorded states exceeds the settle tolerance (the same
+        "still moving" cutoff the settled-tail truncation uses).
+        """
+        tol = CFG.code_sim_learning_rollout_settle_tol
+        span_lo: Dict[Tuple[str, str], float] = {}
+        span_hi: Dict[Tuple[str, str], float] = {}
+        for states, _actions in rollouts:
+            for state in states:
+                for obj in state:
+                    for feat in obj.type.feature_names:
+                        val = float(state.get(obj, feat))
+                        key = (obj.type.name, feat)
+                        if key not in span_lo or val < span_lo[key]:
+                            span_lo[key] = val
+                        if key not in span_hi or val > span_hi[key]:
+                            span_hi[key] = val
+        out: Dict[str, List[str]] = {}
+        for (tn, feat), lo in span_lo.items():
+            if span_hi[(tn, feat)] - lo > tol:
+                out.setdefault(tn, []).append(feat)
+        return {t: sorted(fs) for t, fs in out.items()}
+
+    def _run_rollout_residuals(rules: list, specs: list, latent_init: Any,
+                               version_tag: str, sweep_num_points: int,
+                               sweep_params: Optional[List[str]]) -> str:
+        """Open-loop rollout fidelity report with a registry-param sweep.
+
+        The ``rollout=True`` branch of ``sim.residuals``. Replays each
+        recorded trajectory's actions free-running from its initial
+        state (fresh env per rollout, same objective the system-ID fit
+        minimizes) and reports the divergence at the current baselines,
+        then sweeps each env-registry physical parameter alone across
+        its plausible range. The sweep is the interpretive anchor: an
+        absolute rollout SSE is meaningless under chaotic replay
+        divergence, but "the same data is explained N times better at a
+        different friction" is exactly the evidence the PHYSICAL_PARAMS
+        declaration decision needs - evidence the teacher-forced report
+        structurally cannot surface (run_20260728_111805 declined to
+        declare on near-zero per-step residuals while the open-loop SSE
+        ratio on the same data was ~340x).
+        """
+        if approach is None:
+            return (f"[{version_tag}] Error: rollout residuals require a "
+                    "bound approach (raw trajectories + fit env) - "
+                    "unavailable in this session.")
+        # Whole trajectories first (no scope -> no truncation) to derive
+        # the motion scope, then re-prep with it so the scored rollouts
+        # get the same settled-tail truncation and rest-point
+        # segmentation the system-ID fit uses.
+        whole = approach._rollout_fit_trajectories(None)  # pylint: disable=protected-access
+        if not whole:
+            return (f"[{version_tag}] Error: no complete (states, actions) "
+                    "trajectories are available - the open-loop report "
+                    "needs full trajectories, not isolated transitions.")
+        scope = _moving_feature_scope(whole)
+        if not scope:
+            return (f"[{version_tag}] No feature moves beyond the settle "
+                    "tolerance anywhere in the recorded data; there is no "
+                    "motion to score open-loop.")
+        rollouts = approach._rollout_fit_trajectories(scope)  # pylint: disable=protected-access
+        fit_env = approach._get_rollout_fit_env()  # pylint: disable=protected-access
+        scaling = compute_residual_scaling(rollouts, scope)
+        rule_params = {s.name: s.init_value for s in specs}
+        info: Dict[str, Dict[str, Any]] = getattr(
+            approach._base_env,  # pylint: disable=protected-access
+            "get_physical_param_info",
+            lambda: {})()
+        sweepable = {
+            n: e
+            for n, e in info.items()
+            if e.get("lo") is not None and e.get("hi") is not None
+        }
+        if sweep_params is not None:
+            unknown = sorted(set(sweep_params) - set(sweepable))
+            if unknown:
+                return (f"[{version_tag}] Error: sweep_params {unknown} not "
+                        "in the env's physical-param registry (available: "
+                        f"{sorted(sweepable)}).")
+            sweepable = {n: sweepable[n] for n in sweep_params}
+        num_points = max(2, int(sweep_num_points))
+        # Rules run inside every rollout evaluation, so a buggy rule
+        # (e.g. reading a param this version no longer declares) must
+        # come back as a report, not a raw traceback through the tool.
+        try:
+            baseline_sse = compute_rollout_sse(fit_env, rollouts, rule_params,
+                                               scope, [], rules, latent_init,
+                                               scaling)
+            seg_rms = per_trajectory_rms(fit_env, rollouts, rule_params, scope,
+                                         [], rules, latent_init, scaling)
+        except Exception as e:  # pylint: disable=broad-except
+            return (f"[{version_tag}] Error: open-loop rollout scoring "
+                    f"failed (often a PROCESS_RULES bug - rules run on "
+                    f"every rolled-out step):\n{e}")
+        ratio_bar = CFG.code_sim_learning_rollout_consistency_sse_ratio
+        scope_str = "; ".join(f"{t}: {', '.join(fs)}"
+                              for t, fs in sorted(scope.items()))
+        rms_str = ", ".join(f"{r:.4g}" for r in seg_rms)
+        lines = [
+            f"[{version_tag}] OPEN-LOOP ROLLOUT residual report - each "
+            "recorded trajectory's actions replayed free-running from its "
+            "initial state on the base sim with the current PROCESS_RULES "
+            "riding (params at init_value; physical params at the env "
+            "registry baselines, NOT any already-applied fit). Errors "
+            "COMPOUND across steps here; the per-step (teacher-forced) "
+            "report resets to the recorded state every step and therefore "
+            "CANNOT see integrated divergence - a wrong physical parameter "
+            "can look near-perfect per step and still diverge wildly "
+            "open-loop.",
+            f"Scope (every feature with observed motion, independent of "
+            f"PROCESS_FEATURES): {scope_str}.",
+            "Residuals are normalized (angles wrapped), Huber-capped, with "
+            "endpoint/onset summary terms - the same objective the "
+            "system-ID fit minimizes.",
+            "",
+            f"Rollout SSE at current baselines: {baseline_sse:.6f}",
+            f"Per-segment RMS at current baselines: [{rms_str}]  "
+            f"({len(rollouts)} motion segments after settled-tail "
+            "truncation / rest-point segmentation).",
+            "",
+            "Physical-parameter sweep (each registry param swept ALONE "
+            "across its plausible range, all others held at baseline; SSEs "
+            "are comparable within this report only):",
+        ]
+        for name in sorted(sweepable):
+            entry = sweepable[name]
+            spec = ParamSpec(name,
+                             float(entry["default"]),
+                             lo=float(entry["lo"]),
+                             hi=float(entry["hi"]),
+                             scale=entry.get("scale", "linear"))
+            cands = [float(v) for v in grid_candidates(spec, num_points)]
+            try:
+                sses = [
+                    compute_rollout_sse(fit_env, rollouts, {
+                        **rule_params, name: c
+                    }, scope, [name], rules, latent_init, scaling)
+                    for c in cands
+                ]
+            except Exception as e:  # pylint: disable=broad-except
+                lines.append(f"  {name}: sweep failed:\n    {e}")
+                continue
+            best_i = int(np.argmin(sses))
+            best_sse = sses[best_i]
+            worst_sse = max(sses)
+            base_ratio = (baseline_sse /
+                          best_sse if best_sse > 0 else float("inf"))
+            spread = (worst_sse / best_sse if best_sse > 0 else float("inf"))
+            if worst_sse <= 0:
+                # Every candidate scores exactly 0 (static or perfectly
+                # reproduced data): a flat landscape, not evidence.
+                verdict = ("flat across the range - this data cannot "
+                           "constrain it (declaring it would fit noise)")
+            elif base_ratio >= ratio_bar:
+                verdict = (f"the data is {base_ratio:.1f}x better explained "
+                           f"at {cands[best_i]:.4g} than at the baseline - "
+                           "strong evidence FOR declaring this parameter in "
+                           "PHYSICAL_PARAMS")
+            elif spread < ratio_bar:
+                verdict = ("flat across the range - this data cannot "
+                           "constrain it (declaring it would fit noise)")
+            else:
+                verdict = (f"best at {cands[best_i]:.4g} "
+                           f"({base_ratio:.1f}x vs baseline) - weak "
+                           "evidence; consider data that exercises it")
+            cand_str = ", ".join(f"{c:.4g} -> {s:.4g}"
+                                 for c, s in zip(cands, sses))
+            lines.append(f"  {name} ({spec.scale} scale, baseline "
+                         f"{float(entry['default']):.4g}):")
+            lines.append(f"    {cand_str}")
+            lines.append(f"    {verdict}.")
+        lines.extend([
+            "",
+            "How to read this: replay divergence is chaotic, so the SSE "
+            "never reaches 0 even at perfect parameters - compare ratios, "
+            f"not absolutes (the run's consistency bar is {ratio_bar:g}x). "
+            "A parameter materially better at another value belongs in "
+            "PHYSICAL_PARAMS so the system-ID fit can calibrate it; a flat "
+            "sweep means this data cannot distinguish values.",
+        ])
+        return "\n".join(lines)
+
+    # ── run_residuals (the ``sim.residuals`` backend) ───────────
+
+    def run_residuals(max_transitions: int = 100,
+                      abs_tol: float = 1e-4,
+                      rel_tol: float = 1e-3,
+                      num_worst_examples: int = 3,
+                      fit_params: bool = False,
+                      path: Optional[str] = None,
+                      rollout: bool = False,
+                      sweep_num_points: int = 6,
+                      sweep_params: Optional[List[str]] = None) -> str:
+        """Per-feature residual report for the current PROCESS_RULES.
+
+        The backend behind ``sim.residuals``. Loads the rules fresh
+        from ``simulator.py`` and reports, for each feature in
+        PROCESS_FEATURES (or the inferred fallback), the mismatch
+        count, mean/max abs error, and the relative improvement over
+        the no-rule baseline (negative means the rules are worse than
+        not running them at all), plus the worst-N example transitions
+        per feature. Uses init_value params by default;
+        ``fit_params=True`` MCMC-fits first (diagnostic only - nothing
+        is published). Tolerance: ``|pred - obs| > rel_tol * |obs| +
+        abs_tol``. Each call snapshots the simulator file into
+        simulator_versions/ and tags output ``[cycle_XXX_vers_YYY]``.
+
+        ``rollout=True`` switches to the OPEN-LOOP report (see
+        ``_run_rollout_residuals``): free-running replay divergence plus
+        a per-parameter sweep of the env's physical-param registry
+        (``sweep_num_points`` candidates each; ``sweep_params`` narrows
+        which - each candidate costs one fresh-env rollout per motion
+        segment, so the default full sweep takes a few minutes). The
+        two modes answer different questions: per-step localizes WHICH
+        feature has an unmodeled process; rollout answers whether the
+        base physics is globally faithful, which per-step residuals
+        cannot see.
+        """
+        p = path or simulator_file
         rules, specs, declared, latent_init, _physical_specs, version_tag, \
-            err = _snapshot_and_load(path)
+            err = _snapshot_and_load(p)
         if err:
-            return _text(err)
+            return str(err)
+        if rollout:
+            return _run_rollout_residuals(rules, specs, latent_init,
+                                          version_tag, sweep_num_points,
+                                          sweep_params)
 
         process_features = (declared if isinstance(declared, dict) else
                             inferred_process_features)
         scope_label = ("declared"
                        if isinstance(declared, dict) else "inferred")
 
-        max_n = int(args.get("max_transitions", 100))
-        abs_tol = float(args.get("abs_tol", 1e-4))
-        rel_tol = float(args.get("rel_tol", 1e-3))
-        n_examples = int(args.get("num_worst_examples", 3))
-        do_fit = bool(args.get("fit_params", False))
+        max_n = int(max_transitions)
+        abs_tol = float(abs_tol)
+        rel_tol = float(rel_tol)
+        n_examples = int(num_worst_examples)
+        do_fit = bool(fit_params)
 
-        # Same engine-matching dispatch as evaluate_step_fit: recurrent
+        # Same engine-matching dispatch as run_fit: recurrent
         # rules are fit and rolled out with the latent threaded per
         # trajectory, never called per-transition with 3 args.
         latent_mode = has_latent_rules(rules)
@@ -606,8 +900,7 @@ def create_synthesis_tools(
                 t_params = fit_result.point_estimate
                 param_label = "fitted"
             except Exception as e:  # pylint: disable=broad-except
-                return _text(
-                    f"[{version_tag}] Error: param fitting failed:\n{e}")
+                return f"[{version_tag}] Error: param fitting failed:\n{e}"
         else:
             t_params = {s.name: s.init_value for s in specs}
             param_label = "init_value"
@@ -620,7 +913,7 @@ def create_synthesis_tools(
             all_preds = rollout_predictions(rules, t_params, groups,
                                             latent_init)
         except Exception as e:  # pylint: disable=broad-except
-            return _text(f"[{version_tag}] Error: rule rollout failed:\n{e}")
+            return f"[{version_tag}] Error: rule rollout failed:\n{e}"
         triples_rules: List = all_preds[:max_n]
         triples_base: List = [(bs, sn)
                               for bs, _a, sn in base_pred_triples[:max_n]]
@@ -656,8 +949,8 @@ def create_synthesis_tools(
             base_sum_err[key] += abs(pred - obs)
 
         if not rule_n_total:
-            return _text(f"[{version_tag}] PROCESS_FEATURES is empty; "
-                         "nothing to report.")
+            return (f"[{version_tag}] PROCESS_FEATURES is empty; "
+                    "nothing to report.")
 
         n_steps = len(triples_rules)
         perfect_steps = n_steps - len(mismatched_steps)
@@ -705,136 +998,8 @@ def create_synthesis_tools(
                                  f"pred={pred:.6f} obs={obs:.6f} "
                                  f"err={err:.6f}")
 
-        return _text("\n".join(lines))
+        return "\n".join(lines)
 
-    # ── evaluate_plan_refinement ────────────────────────────
-
-    @tool(
-        "evaluate_plan_refinement",
-        "MCMC-fit PARAM_SPECS (loaded fresh from `simulator.py`), "
-        "build the combined simulator from current PROCESS_RULES + "
-        "the fitted params, then run **both** backtracking refinement "
-        "and continuous forward validation on a training task against "
-        "a plan you propose. Always fits first because refinement "
-        "needs to test the simulator at its deployed (fitted) params, "
-        "not at init_value. `plan` is required — pass the "
-        "option-skeleton you believe should solve the task, one "
-        "option call per line, with every option argument supplied "
-        "and typed object references (`obj:type`) matching what the "
-        "inspect tools report. The parser is strict and will not "
-        "auto-fill omitted arguments. Example shape (substitute the "
-        "options/types/predicates your task actually exposes): "
-        "`PickWidget(robot:robot, widget0:widget)\\nPlace(robot:robot) "
-        "-> {WidgetAtFixture(widget0:widget, fixture0:fixture)}\\n...`. "
-        "Subgoal annotations (`-> {Atom(obj:type, ...)}`) are "
-        "optional in general but effectively required after "
-        "open-ended skills like `Place`: without a subgoal the "
-        "search has no preference for *where* to put the object, so "
-        "a downstream `Wait` may get stuck and look like a rule bug. "
-        "For `Wait`, the annotation also specifies when the wait "
-        "should terminate; prefix an atom with `NOT` to require it "
-        "become false. The `timeout` argument auto-scales with "
-        "sketch length when omitted (see the `timeout` field "
-        "below). Reports the verdict for refinement (success, "
-        "TIMEOUT, SAMPLE_EXHAUSTED with stuck step) and — when "
-        "refinement passes — also the verdict for forward validation "
-        "(SUCCESS, or FORWARD_VALIDATION_FAILED with the first "
-        "subgoal/goal divergence). Refinement may pass while forward "
-        "validation fails: refinement resets state between options "
-        "and resamples up to 50× per step, while forward validation "
-        "runs the same plan once continuously. A refinement-pass "
-        "+ forward-validation-fail almost always means a learned "
-        "threshold/rule is more permissive than the env's effective "
-        "behavior, so refinement believes a subgoal holds when the "
-        "env-driven post-state actually doesn't. The agent must "
-        "treat forward-validation failure the same as refinement "
-        "failure — keep iterating, do not declare done. Each call "
-        "snapshots the simulator file into simulator_versions/; "
-        "output is tagged [cycle_XXX_vers_YYY]. Slow — use sparingly.",
-        {
-            "type": "object",
-            "properties": {
-                "plan": {
-                    "type":
-                    "string",
-                    "description":
-                    "Option-skeleton plan text, one "
-                    "option call per line. Use typed object "
-                    "references (`obj:type`) and supply every "
-                    "option argument. Optional `-> {Atom(...)}` "
-                    "subgoal after each step; effectively required "
-                    "after open-ended skills like `Place`.",
-                },
-                "task_idx": {
-                    "type": "integer",
-                    "description": "Index into training tasks "
-                    "(default 0).",
-                },
-                "timeout": {
-                    "type":
-                    "number",
-                    "description":
-                    "Refinement timeout in seconds. Omit "
-                    "for an auto value that scales with the "
-                    "number of steps in the sketch; the actual "
-                    "value used is reported back. Override only "
-                    "if the previous report said TIMEOUT. MCMC "
-                    "fitting runs before refinement and is not "
-                    "subject to this timeout.",
-                },
-                "path": {
-                    "type":
-                    "string",
-                    "description":
-                    "Override simulator file path "
-                    "(defaults to the canonical simulator.py).",
-                },
-            },
-        },
-    )
-    async def evaluate_plan_refinement(args: Dict[str, Any]) -> Dict[str, Any]:
-        if approach is None:
-            return _text("Error: evaluate_plan_refinement is unavailable "
-                         "(no approach instance bound to the tool).")
-
-        path = args.get("path") or simulator_file
-        rules, specs, declared, latent_init, _physical_specs, version_tag, \
-            err = _snapshot_and_load(path)
-        if err:
-            return _text(err)
-
-        process_features = (declared if isinstance(declared, dict) else
-                            inferred_process_features)
-
-        task_idx = int(args.get("task_idx", 0))
-        # Treat missing/None timeout as "auto-scale by sketch length"
-        # (computed inside run_refinement_for_synthesis from
-        # agent_bilevel_refinement_timeout_per_step / _min).
-        timeout_arg = args.get("timeout", None)
-        timeout = float(timeout_arg) if timeout_arg is not None else None
-        plan_text = args.get("plan", "") or ""
-
-        try:
-            report = run_refinement_for_synthesis(
-                approach,
-                rules=rules,
-                specs=specs,
-                process_features=process_features,
-                base_pred_triples=base_pred_triples,
-                task_idx=task_idx,
-                timeout=timeout,
-                plan_text=plan_text,
-                latent_init=latent_init,
-            )
-        except Exception:  # pylint: disable=broad-except
-            tb = _scrub_host_paths(traceback.format_exc())
-            return _text(f"[{version_tag}] Error: validation failed:\n{tb}")
-
-        return _text(f"[{version_tag}] {report}")
-
-    return [
-        report_residuals,
-        run_python,
-        evaluate_step_fit,
-        evaluate_plan_refinement,
-    ]
+    return SynthesisToolkit(tools=[run_python],
+                            fit_runner=run_fit,
+                            residuals_runner=run_residuals)

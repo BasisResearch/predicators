@@ -57,7 +57,7 @@ class RefinementConfig:
 
     Consumed at handler entry by ``refine_plan_sketch`` /
     ``evaluate_option_plan`` (tools.py) and by the probe's ``refine``
-    (probe_api.py).
+    (belief_probe.py).
     """
     ground_samplers: bool
     refinement_timeout_per_step: float
@@ -91,12 +91,13 @@ class ValidationConfig:
     """Capture-validation rollouts and the cross-attempt journal.
 
     Consumed at handler entry by ``evaluate_option_plan`` (tools.py) and
-    the probe's ``run(trials=N)`` (probe_api.py); ``use_journal`` gates
-    the ``record_journal`` tool.
+    the probe's ``run(trials=N)`` (belief_probe.py); ``use_journal``
+    gates the ``record_journal`` tool.
     """
     rollouts: int
     rollouts_after_flaky: int
     fresh_env: bool
+    physics_margin: bool
     use_journal: bool
 
     @classmethod
@@ -108,6 +109,7 @@ class ValidationConfig:
             rollouts_after_flaky=(
                 CFG.agent_plan_validation_rollouts_after_flaky),
             fresh_env=CFG.agent_plan_validation_fresh_env,
+            physics_margin=CFG.agent_plan_validation_physics_margin,
             use_journal=CFG.agent_solve_use_journal,
         )
 
@@ -122,7 +124,6 @@ class ToolSurfaceConfig:
     """
     use_explore_python: bool
     explore_python_keep_replaced_tools: bool
-    use_visualize_state: bool
     use_base_simulator: bool
     explore_python_call_timeout: float
     image_max_px: int
@@ -140,7 +141,6 @@ class ToolSurfaceConfig:
             use_explore_python=CFG.agent_planner_use_explore_python,
             explore_python_keep_replaced_tools=(
                 CFG.agent_planner_explore_python_keep_replaced_tools),
-            use_visualize_state=CFG.agent_planner_use_visualize_state,
             use_base_simulator=CFG.agent_planner_use_base_simulator,
             explore_python_call_timeout=(
                 CFG.agent_sdk_explore_python_call_timeout),

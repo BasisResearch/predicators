@@ -171,14 +171,20 @@ def test_user_unknown_block_omits_thinking_attr():
 
 
 def test_result_message_fields():
-    """subtype, num_turns, and total_cost_usd are extracted."""
+    """subtype, num_turns, cost, and the error fields are extracted."""
     entry = parse_result_message(
-        _result(subtype="error_max_turns", num_turns=50, total_cost_usd=1.25))
+        _result(subtype="error_max_turns",
+                num_turns=50,
+                total_cost_usd=1.25,
+                is_error=True,
+                result="hit the turn cap"))
     assert entry == {
         "type": "result",
         "subtype": "error_max_turns",
         "num_turns": 50,
         "total_cost_usd": 1.25,
+        "is_error": True,
+        "result": "hit the turn cap",
     }
 
 
@@ -190,6 +196,8 @@ def test_result_message_missing_attrs_default_to_none():
         "subtype": None,
         "num_turns": None,
         "total_cost_usd": None,
+        "is_error": False,
+        "result": None,
     }
 
 

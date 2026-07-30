@@ -95,6 +95,14 @@ class FitResult:
     # does not affect the rollouts at all on this data; its fitted value
     # is noise and must not be applied. None = screen not run.
     sensitivity: Optional[Dict[str, Dict[str, Any]]] = None
+    # Post-fit anchor-ablation verdicts (physical_sysid): per reverted
+    # param {"anchor": ..., "sse_map": ..., "sse_pinned": ..., "tol":
+    # ...}. A listed param's MAP move was compensatory - a refit with it
+    # pinned at its env-registry anchor is data-equivalent - so its
+    # ``point_estimate`` entry IS the anchor and the identifiability
+    # verdict reports it as anchored rather than identified. None =
+    # ablation not run or nothing reverted.
+    anchor_ablation: Optional[Dict[str, Dict[str, float]]] = None
 
     @property
     def point_estimate(self) -> Dict[str, float]:

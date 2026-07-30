@@ -10,8 +10,9 @@ import logging
 import os
 import re
 from types import SimpleNamespace
-from typing import List, Optional, Sequence, Set, Tuple
+from typing import List, Optional, Sequence, Set, Tuple, cast
 
+import dill as pkl
 import numpy as np
 import pytest
 
@@ -20,6 +21,8 @@ from predicators.approaches import agent_sim_learning_approach as asla
 from predicators.approaches.agent_model_based_approach import _SketchStep
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
+from predicators.code_sim_learning.fit_space import FitResult
+from predicators.code_sim_learning.identifiability import Verdict
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, merge_updates
 from predicators.envs import create_new_env
@@ -28,8 +31,9 @@ from predicators.ground_truth_models.boil.gt_simulator import PARAM_SPECS, \
     PROCESS_RULES
 from predicators.option_model import _OracleOptionModel
 from predicators.planning import run_backtracking_refinement
-from predicators.structs import GroundAtom, Object, ParameterizedOption, \
-    Predicate
+from predicators.settings import CFG
+from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
+    Object, ParameterizedOption, Predicate
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -381,11 +385,19 @@ def test_build_option_model_binds_sim_env():
     """
     utils.reset_config({"wait_option_terminate_on_atom_change": False})
     approach = AgentSimLearningApproach.__new__(AgentSimLearningApproach)
-    fake_env = object()
+    fake_env = SimpleNamespace()
     approach._base_env = fake_env
     approach._get_all_options = set  # type: ignore[method-assign]
     model = approach._build_option_model(lambda s, a: s)
     assert model.sim_env is fake_env
+    # Pre-learning (no rules): the certificate probe stays base-only.
+    assert fake_env.probe_process_model_factory is None
+    # With rules, the combined-substrate factory is stamped alongside.
+    approach._process_rules = [lambda s, u, p: u]
+    approach._fitted_params = {}
+    model = approach._build_option_model(lambda s, a: s)
+    assert model.sim_env is fake_env
+    assert fake_env.probe_process_model_factory is not None
 
 
 class _FakeScopeEnv:
@@ -404,6 +416,10 @@ class _FakeScopeEnv:
 
 
 def _make_scope_approach(monkeypatch, prev_env, fresh_env, disposed):
+    # The scope reads CFG.env before calling the (patched) env factory;
+    # reset so these tests don't depend on an earlier test having
+    # populated CFG (they fail under `-k fresh_validation` otherwise).
+    utils.reset_config({"env": "pybullet_domino"})
     monkeypatch.setattr(asla, "create_new_env", lambda *a, **k: fresh_env)
     monkeypatch.setattr(asla, "dispose_env", disposed.append)
     approach = asla.AgentSimLearningApproach.__new__(
@@ -480,7 +496,268 @@ def test_fresh_validation_env_scope_disposes_crash_replacement(monkeypatch):
     assert disposed == [crash_replacement]
 
 
+def test_fresh_validation_env_scope_applies_physics_overrides(monkeypatch):
+    """``physical_overrides`` (the capture gate's physics-margin points) land
+    on the FRESH env on top of the identified params; the shared env is never
+    touched."""
+
+    class _MergingScopeEnv(_FakeScopeEnv):
+        """Sticky per-param merge, matching the real override semantics."""
+
+        def __init__(self):
+            super().__init__()
+            self.overrides = {}
+
+        def apply_physical_param_overrides(self, params):
+            self.overrides.update(params)
+
+    prev_env, fresh_env = _MergingScopeEnv(), _MergingScopeEnv()
+    disposed = []
+    approach = _make_scope_approach(monkeypatch, prev_env, fresh_env, disposed)
+    model = SimpleNamespace(_simulator=lambda s, a: s, sim_env=prev_env)
+    approach._option_model = model
+
+    with approach._fresh_validation_env_scope(
+            physical_overrides={"lateral_friction": 0.48}):
+        # Identified params first, then the perturbation on top.
+        assert fresh_env.overrides == {"lateral_friction": 0.48}
+        assert prev_env.overrides == {}
+    assert disposed == [fresh_env]
+
+
+def test_apply_identified_params_clears_sigma_points():
+    """Any (re)application of identified params invalidates the standing.
+
+    physics-margin points - they derive from a specific fit's posterior.
+    """
+
+    class _RegistryEnv(_FakeScopeEnv):
+
+        def get_physical_param_info(self):
+            """Empty registry: nothing to revert."""
+            return {}
+
+    approach = asla.AgentSimLearningApproach.__new__(
+        asla.AgentSimLearningApproach)
+    approach._base_env = _RegistryEnv()
+    approach._identified_physical_params = {}
+    approach._identified_physical_sigma_points = [{"lateral_friction": 0.48}]
+    approach._apply_identified_physical_params({"lateral_friction": 0.53})
+    assert not approach._identified_physical_sigma_points
+
+
 if __name__ == "__main__":
     import sys
     _model = sys.argv[1] if len(sys.argv) > 1 else "oracle"
     test_boil_sketch_refinement(_model)
+
+
+def test_rollout_fit_trajectories_subset() -> None:
+    """traj_idxs subsets the SOURCE trajectories (agent-facing indexing,
+    applied before truncation/segmentation and before the completeness filter)
+    and raises on an out-of-range index."""
+    obj = object.__new__(AgentSimLearningApproach)
+    t0 = SimpleNamespace(states=[0, 1], actions=["a"])
+    t1 = SimpleNamespace(states=[0, 1, 2], actions=["a", "b"])
+    t2 = SimpleNamespace(states=[0], actions=[])  # incomplete: filtered out
+    # SimpleNamespace stubs stand in for LowLevelTrajectory (only the
+    # states/actions attributes are read).
+    obj._fit_trajectories = cast(List[LowLevelTrajectory], [t0, t1, t2])
+
+    assert len(obj._rollout_fit_trajectories()) == 2
+    sub = obj._rollout_fit_trajectories(traj_idxs=[1])
+    assert len(sub) == 1 and len(sub[0][1]) == 2  # t1's two actions
+    # Selecting only the incomplete trajectory leaves no usable rollouts.
+    assert obj._rollout_fit_trajectories(traj_idxs=[2]) == []
+    with pytest.raises(ValueError, match="out of range"):
+        obj._rollout_fit_trajectories(traj_idxs=[3])
+
+
+def _cross_cycle_fit(value: float) -> Tuple[FitResult, dict]:
+    result = FitResult(names=["friction"],
+                       samples=np.array([[value]]),
+                       log_probs=np.zeros(1),
+                       jacobian=None,
+                       noise_sigma=0.05,
+                       prior_sigma=np.array([0.75]),
+                       scales=["log"])
+    report = {
+        "friction": {
+            "posterior_std": 0.1,
+            "prior_std": 0.75,
+            "contraction": 0.13,
+            "verdict": Verdict.IDENTIFIED,
+            "note": "",
+        }
+    }
+    return result, report
+
+
+def test_cross_cycle_inconsistent_holds_then_confirms() -> None:
+    """A many-sigma jump is held once, accepted on independent repeat.
+
+    Regression for run_20260724_232411 seed2: cycle fits 0.3236 ->
+    0.6267 (4.7 combined sigmas). The first jump must flag INCONSISTENT
+    (trusted history unchanged, both fits recorded as hull candidates);
+    a following cycle re-fitting near the new value confirms the jump
+    and the history moves - without confirmation the stale reference
+    would flag every future fit forever.
+    """
+    obj = object.__new__(AgentSimLearningApproach)
+    obj._sysid_fit_history = {}
+    obj._sysid_pending_fit = {}
+
+    result, report = _cross_cycle_fit(0.3236)
+    obj._check_cross_cycle_consistency(result, report, ["friction"])
+    assert report["friction"]["verdict"] is Verdict.IDENTIFIED
+    assert obj._sysid_fit_history["friction"][0] == 0.3236
+
+    result, report = _cross_cycle_fit(0.6267)
+    obj._check_cross_cycle_consistency(result, report, ["friction"])
+    assert report["friction"]["verdict"] is Verdict.INCONSISTENT
+    assert report["friction"]["candidate_values"] == [0.3236, 0.6267]
+    # Trusted history holds; the rejected fit waits as pending.
+    assert obj._sysid_fit_history["friction"][0] == 0.3236
+    assert obj._sysid_pending_fit["friction"][0] == 0.6267
+
+    result, report = _cross_cycle_fit(0.63)
+    obj._check_cross_cycle_consistency(result, report, ["friction"])
+    assert report["friction"]["verdict"] is Verdict.IDENTIFIED
+    assert obj._sysid_fit_history["friction"][0] == 0.63
+    assert "friction" not in obj._sysid_pending_fit
+
+
+def test_make_probe_process_model_factory() -> None:
+    """The certificate-probe factory mirrors the combined simulator.
+
+    No rules -> None (the probe stays base-only). With rules, each
+    factory call yields a stepper applying the CURRENT rules at the LIVE
+    fitted params (in-place ``sim.fit`` updates must reach the probe,
+    same closure convention as ``_build_combined_simulator``); recurrent
+    5-arg rules get a fresh latent per stepper.
+    """
+    from predicators.structs import State, Type \
+        # pylint: disable=import-outside-toplevel
+
+    thing_type = Type("thing", ["x"])
+    thing = Object("thing0", thing_type)
+    state = State({thing: np.array([0.0])})
+    noop = Action(np.zeros(1, dtype=np.float32))
+
+    obj = object.__new__(AgentSimLearningApproach)
+    obj._process_rules = None
+    assert obj._make_probe_process_model_factory() is None
+    obj._process_rules = []
+    assert obj._make_probe_process_model_factory() is None
+
+    def drift_rule(state: State, updates: dict, params: dict) -> dict:
+        updates.setdefault(thing, {})["x"] = \
+            state.get(thing, "x") + params["dx"]
+        return updates
+
+    obj._process_rules = [drift_rule]
+    obj._fitted_params = {"dx": 0.5}
+    factory = obj._make_probe_process_model_factory()
+    assert factory is not None
+    assert factory()(state, noop).get(thing, "x") == 0.5
+    obj._fitted_params["dx"] = 1.25  # in place, like sim.fit
+    assert factory()(state, noop).get(thing, "x") == 1.25
+
+    def latent_rule(state: State, latent: dict, history: list, updates: dict,
+                    params: dict) -> dict:
+        del history, params
+        latent["count"] = latent.get("count", 0) + 1
+        updates.setdefault(thing, {})["x"] = \
+            state.get(thing, "x") + latent["count"]
+        return updates
+
+    obj._process_rules = [latent_rule]
+    obj._latent_init = {"count": 0}
+    factory = obj._make_probe_process_model_factory()
+    assert factory is not None
+    stepper = factory()
+    # Latent threads across steps within one stepper...
+    assert stepper(state, noop).get(thing, "x") == 1.0
+    assert stepper(state, noop).get(thing, "x") == 2.0
+    # ...and resets on a fresh stepper (new replay attempt).
+    assert factory()(state, noop).get(thing, "x") == 1.0
+
+
+def test_cross_cycle_arbitration_by_pooled_evidence() -> None:
+    """A flagged jump is accepted when pooled data decisively backs it.
+
+    Regression for run_20260727_210827 seed1: the sharp-but-biased
+    2-trajectory cycle-0 fit (0.9313, true 0.5) was held over the
+    4-trajectory refit (0.4748) for the rest of the run even though the
+    refit explained the pooled data ~30x better. With a pooled-SSE probe
+    the arbitration must accept the new value immediately; an ambivalent
+    gap (or a failing probe) must keep the hold.
+    """
+    obj = object.__new__(AgentSimLearningApproach)
+    obj._sysid_fit_history = {}
+    obj._sysid_pending_fit = {}
+
+    result, report = _cross_cycle_fit(0.9313)
+    obj._check_cross_cycle_consistency(result, report, ["friction"])
+    assert obj._sysid_fit_history["friction"][0] == 0.9313
+
+    def pooled_sse(theta: dict) -> float:
+        return 0.14 if abs(theta["friction"] - 0.4748) < 1e-9 else 4.4
+
+    result, report = _cross_cycle_fit(0.4748)
+    obj._check_cross_cycle_consistency(result,
+                                       report, ["friction"],
+                                       pooled_sse=pooled_sse)
+    assert report["friction"]["verdict"] is Verdict.IDENTIFIED
+    assert "candidate_values" not in report["friction"]
+    assert obj._sysid_fit_history["friction"][0] == 0.4748
+    assert "friction" not in obj._sysid_pending_fit
+
+    # Ambivalent pooled gap (below the decisive ratio): hold as before.
+    obj._sysid_fit_history = {"friction": (0.9313, 0.1, "log")}
+    obj._sysid_pending_fit = {}
+    result, report = _cross_cycle_fit(0.4748)
+    obj._check_cross_cycle_consistency(result,
+                                       report, ["friction"],
+                                       pooled_sse=lambda theta: 0.14)
+    assert report["friction"]["verdict"] is Verdict.INCONSISTENT
+    assert obj._sysid_fit_history["friction"][0] == 0.9313
+    assert obj._sysid_pending_fit["friction"][0] == 0.4748
+
+    # A failing SSE probe must fall back to the hold, not crash.
+    obj._sysid_fit_history = {"friction": (0.9313, 0.1, "log")}
+    obj._sysid_pending_fit = {}
+
+    def broken_sse(theta: dict) -> float:
+        raise RuntimeError("env died")
+
+    result, report = _cross_cycle_fit(0.4748)
+    obj._check_cross_cycle_consistency(result,
+                                       report, ["friction"],
+                                       pooled_sse=broken_sse)
+    assert report["friction"]["verdict"] is Verdict.INCONSISTENT
+    assert obj._sysid_fit_history["friction"][0] == 0.9313
+
+
+def test_persist_fit_trajectories(tmp_path, monkeypatch) -> None:
+    """Fit data lands in <log_dir>/fit_data/, one numbered pickle per fit."""
+    obj = object.__new__(AgentSimLearningApproach)
+    obj._fit_trajectories = cast(List[LowLevelTrajectory],
+                                 ["fake_traj_a", "fake_traj_b"])
+    obj._physical_param_specs = []
+    obj._identified_physical_params = {"friction": 0.5}
+    obj._get_log_dir = lambda: str(tmp_path)  # type: ignore[method-assign]
+
+    obj._persist_fit_trajectories()
+    obj._persist_fit_trajectories()
+    out_dir = tmp_path / "fit_data"
+    files = sorted(f.name for f in out_dir.glob("*.pkl"))
+    assert files == ["fit_trajectories_000.pkl", "fit_trajectories_001.pkl"]
+    with open(out_dir / files[0], "rb") as f:
+        payload = pkl.load(f)
+    assert payload["trajectories"] == ["fake_traj_a", "fake_traj_b"]
+    assert payload["identified_physical_params"] == {"friction": 0.5}
+
+    monkeypatch.setattr(CFG, "code_sim_learning_persist_fit_data", False)
+    obj._persist_fit_trajectories()
+    assert len(list(out_dir.glob("*.pkl"))) == 2

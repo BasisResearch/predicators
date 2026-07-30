@@ -19,6 +19,17 @@ from predicators.structs import Action, State
 # (states, actions) with len(states) == len(actions) + 1 and states[0] at rest.
 RolloutTrajectory = Tuple[List[State], List[Action]]
 
+# Monotonic count of free-running rollouts executed by this process.
+# Each SSE evaluation runs one rollout per trajectory, so this is the
+# honest unit of sysID compute; the fit orchestrators snapshot it
+# around their stages to log where the budget actually went.
+_NUM_ROLLOUTS = 0
+
+
+def num_rollouts_run() -> int:
+    """Total :func:`rollout_states` invocations so far (cost telemetry)."""
+    return _NUM_ROLLOUTS
+
 
 def _zero_all_velocities(base_env: Any) -> None:
     """Zero every velocity in the env's client: base velocities of all bodies
@@ -97,7 +108,18 @@ def _pin_all_physical_params(base_env: Any,
 
 
 def dispose_env(env: Any) -> None:
-    """Free a fresh rollout env by disconnecting its PyBullet client."""
+    """Free a fresh rollout env, releasing EVERY client it owns.
+
+    Delegates to ``env.dispose()`` so envs with secondary worlds (the
+    domino env's counterfactual-probe client) release them too - a raw
+    ``p.disconnect(_physics_client_id)`` leaked the probe world per
+    fresh validation env (~150MB each, machine-freezing across
+    parallel runs).
+    """
+    dispose = getattr(env, "dispose", None)
+    if callable(dispose):
+        dispose()
+        return
     p.disconnect(env._physics_client_id)  # pylint: disable=protected-access
 
 
@@ -125,6 +147,8 @@ def rollout_states(base_env: Any, init_state: State, actions: List[Action],
     resetting so momentum accrues in-sim. Returns the post-step state
     after each action (length == ``len(actions)``).
     """
+    global _NUM_ROLLOUTS  # pylint: disable=global-statement
+    _NUM_ROLLOUTS += 1
     env = base_env() if callable(base_env) else base_env
     try:
         _pin_all_physical_params(env, physical_params)

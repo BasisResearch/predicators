@@ -4,6 +4,7 @@ This module provides the main environment class that composes multiple
 components (dominoes, fans, balls, etc.) into a single environment.
 """
 
+import logging
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
@@ -124,10 +125,21 @@ class DominoEvaluator(TaskEvaluator):
         return {"k_used": float(count_movable_blocks_used(states))}
 
     def objective_description(self) -> str:
-        return ("Success (+1 reward) = the target domino topples via a "
+        c = CFG.domino_block_cost
+        return ("The episode reward is EXACTLY:\n"
+                f"  reward = (1.0 if certified success else 0.0) - {c} x "
+                "(number of movable (blue) dominoes consumed)\n"
+                "A blue is consumed when it ends the episode toppled, or "
+                "was shoved off its stand while not held - whether or not "
+                "you placed it, and regardless of success. Examples: a "
+                f"certified success consuming 2 blues scores {1 - 2 * c:g}; "
+                "a failed or rejected episode that consumed 1 blue scores "
+                f"{-c:g}; no success and nothing consumed scores 0. There "
+                "are no other reward terms.\n"
+                "Certified success = the target domino topples via a "
                 "legitimate cascade seeded by pushing the green start block. "
                 "Only the blue dominoes may be rearranged: the green start "
-                "block, the targets, and any heavy blocks must stay "
+                "block, the targets, and any gray blocks must stay "
                 "untouched at their staged poses, upright and never held, "
                 "until the green is pushed, and nothing may topple before "
                 "that push. Only the green block may ever be pushed, so the "
@@ -137,10 +149,9 @@ class DominoEvaluator(TaskEvaluator):
                 "able to touch anything (the arm's body is intangible): the "
                 "layout you built must cascade to the goal under the legal "
                 "fingertip push alone - topples that needed the arm's body "
-                "earn nothing. Each movable "
-                "(blue) domino the cascade consumes - toppled, or shoved off "
-                f"its stand - costs {CFG.domino_block_cost} reward, so use "
-                "as few blues as possible.")
+                "earn nothing. Extra consumed blues cost reward but never "
+                "invalidate a success, so a robust over-built cascade "
+                "always outscores a failed minimal one.")
 
 
 class PyBulletDominoComposedEnv(PyBulletEnv):
@@ -278,7 +289,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                 and self._domino_component is not None \
                 and self._skip_domain_specific_dynamics \
                 and not CFG.agent_sim_learn_oracle_sim_params:
-            self.set_domino_physical_params(heavy_block_mass=self.domino_mass)
+            self.set_domino_physical_params(block_mass=self.domino_mass)
         # Snapshot the believed baseline AFTER the role adjustments above:
         # ``get_physical_param_info`` reports these values as the defaults,
         # and the sysID revert path restores dropped params to them (the
@@ -489,7 +500,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         # which is how run_20260706_171526 fit friction 0.0114 for a
         # true 0.1. Params whose lo is 0 (restitution,
         # rolling_friction) stay linear.
-        return {
+        info: Dict[str, Dict[str, Any]] = {
             "lateral_friction": {
                 "default":
                 lateral_friction,
@@ -559,6 +570,43 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                 "lateral friction value at body creation.",
             },
         }
+        # Gray ``block``-typed bodies form their own parameter class:
+        # the ``block_*`` family applies to them only (and beats the
+        # global param for those bodies). Descriptions are deliberately
+        # neutral - whether blocks differ physically from dominoes is
+        # for the fit to establish, not the registry to reveal.
+        if comp.blocks:
+            info["block_mass"] = {
+                "default":
+                baseline.get("block_mass", comp.domino_mass),
+                "lo":
+                0.005,
+                "hi":
+                2000.0,
+                "scale":
+                "log",
+                "description":
+                "Mass in kg of each block (the gray block type); applies "
+                "to block bodies only, independently of the dominoes' "
+                "``mass``.",
+            }
+            info["block_lateral_friction"] = {
+                "default":
+                baseline.get(
+                    "block_lateral_friction",
+                    baseline.get("lateral_friction", comp.domino_friction)),
+                "lo":
+                0.01,
+                "hi":
+                2.0,
+                "scale":
+                "log",
+                "description":
+                "Lateral (sliding) friction of each block (the gray "
+                "block type) against the table and other bodies; applies "
+                "to block bodies only.",
+            }
+        return info
 
     def apply_physical_param_overrides(self, params: Dict[str, float]) -> None:
         """Sticky in-place dynamics override (delegates to the domino
@@ -568,6 +616,23 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         if unknown:
             raise ValueError(f"Unknown physical param(s) {sorted(unknown)}.")
         self.set_domino_physical_params(**params)
+
+    def dispose(self) -> None:
+        """Disconnect every client this instance owns.
+
+        The counterfactual-probe world is a second full PyBullet client
+        created lazily by :meth:`_get_cascade_probe_env`; disconnecting
+        only ``_physics_client_id`` (what generic callers used to do)
+        leaked it - ~150MB per fresh validation env, enough to freeze a
+        16GB machine across parallel runs. Probe world first: the main
+        client may already be dead (crash recovery), and ``super()``
+        raising must not strand the probe.
+        """
+        if self._cascade_probe_env is not None:
+            probe = self._cascade_probe_env
+            self._cascade_probe_env = None
+            probe.dispose()
+        super().dispose()
 
     def _get_cascade_probe_env(self) -> "PyBulletDominoComposedEnv":
         """The dedicated probe world for the counterfactual push probe.
@@ -612,7 +677,13 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         green (in the given order) in the dedicated probe world - this
         env's physics, the episode's own ``push_params`` when recorded,
         every robot link except the fingertips collision-masked - and
-        reports whether the push cascades to the goal atoms. See
+        reports whether the push cascades to the goal atoms. When this
+        env carries a ``probe_process_model_factory`` (a sim-learning
+        approach's belief env), the replay runs on the combined
+        substrate (learned process rules applied per step); a passing
+        combined verdict is then double-checked base-only with the same
+        attempt count, purely as a diagnostic of whether the rules were
+        load-bearing. See
         ``cascade_probe`` for the fidelity contract and the rationale.
         """
         # pylint: disable-next=import-outside-toplevel
@@ -627,13 +698,44 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             self._probe_push_option = next(
                 opt for opt in get_gt_options(self.get_name())
                 if opt.name == "Push")
-        return cascade_probe.run_counterfactual_push_probe(
+        factory = self.probe_process_model_factory
+        ok, detail = cascade_probe.run_counterfactual_push_probe(
             self._get_cascade_probe_env(),
             pre_push_state,
             greens,
             goal,
             push_params,
-            push_option=self._probe_push_option)
+            push_option=self._probe_push_option,
+            process_model_factory=factory)
+        if factory is not None and ok:
+            # Load-bearing-rules diagnostic: a combined-substrate pass
+            # whose base-only replay fails means the learned rules
+            # carried the verdict - fine when they model a process the
+            # base sim lacks, a calibration smell when they compensate
+            # for undeclared physical params. The base-only replay MUST
+            # use the same attempt count as the combined probe: replay
+            # attempts are nondeterministic (residual solver state in
+            # the reused probe world), so an any-of-N pass compared
+            # against a 1-of-1 pass flags knife-edge layouts as
+            # "load-bearing" even when the rules are a physical no-op.
+            # The note rides the harness-internal ``reason`` channel
+            # only, and is evidence, not proof - a sufficiently
+            # knife-edge layout can still fail all base-only attempts
+            # by chance.
+            base_ok, _ = cascade_probe.run_counterfactual_push_probe(
+                self._get_cascade_probe_env(),
+                pre_push_state,
+                greens,
+                goal,
+                push_params,
+                push_option=self._probe_push_option)
+            if not base_ok:
+                note = ("the learned process rules appear load-bearing "
+                        "for this verdict (no base-sim-only replay "
+                        "attempt cascades)")
+                logging.info("[cascade probe] %s", note)
+                detail = f"{detail}; {note}"
+        return ok, detail
 
     # =========================================================================
     # PREDICATE HOLD FUNCTIONS
@@ -703,6 +805,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             possible_num_dominos=CFG.domino_train_num_dominos,
             possible_num_targets=CFG.domino_train_num_targets,
             possible_num_pivots=CFG.domino_train_num_pivots,
+            turn_ratio=CFG.domino_train_turn_ratio,
             rng=self._train_rng,
             cache_tag="train")
 
@@ -713,6 +816,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             possible_num_dominos=CFG.domino_test_num_dominos,
             possible_num_targets=CFG.domino_test_num_targets,
             possible_num_pivots=CFG.domino_test_num_pivots,
+            turn_ratio=CFG.domino_test_turn_ratio,
             rng=self._test_rng,
             cache_tag="test")
 
@@ -734,6 +838,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                     possible_num_dominos: List[int],
                     possible_num_targets: List[int],
                     possible_num_pivots: List[int],
+                    turn_ratio: float,
                     rng: np.random.Generator,
                     log_debug: bool = False,
                     cache_tag: str = "") -> List[EnvironmentTask]:
@@ -768,7 +873,8 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                 possible_num_dominos=possible_num_dominos,
                 possible_num_targets=possible_num_targets,
                 possible_num_pivots=possible_num_pivots,
-                domino_in_upper_half=domino_in_upper_half)
+                domino_in_upper_half=domino_in_upper_half,
+                turn_ratio=turn_ratio)
 
         # Non-min-block mode: single generation pass, unchanged behaviour.
         if not (CFG.domino_min_block_tasks or CFG.domino_heavy_block_tasks):
@@ -784,7 +890,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         from predicators.envs.pybullet_domino.task_generators.min_block_generation import \
             make_min_block_tasks
         return make_min_block_tasks(self, generator, _generate_batch,
-                                    num_tasks, rng, cache_tag)
+                                    num_tasks, rng, cache_tag, turn_ratio)
 
 
 # =============================================================================

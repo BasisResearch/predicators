@@ -27,8 +27,8 @@ import os
 from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
 
 from predicators.agent_sdk.tools import PREDICATE_SYNTHESIS_TOOL_NAMES, \
-    SCENE_TOOL_NAMES, _SnapshotTarget, create_predicate_synthesis_tools, \
-    explore_python_replaces_tools, finalize_versioned_snapshot
+    _SnapshotTarget, create_predicate_synthesis_tools, \
+    finalize_versioned_snapshot
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
 from predicators.settings import CFG
@@ -72,45 +72,18 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
 
     # ── Agent session hooks ─────────────────────────────────────
 
-    def _get_solve_tool_names(self) -> Optional[List[str]]:
-        """Extend the planner's tool subset with the SCENE tools.
-
-        ``annotate_scene`` and ``visualize_state`` let the agent confirm
-        geometry it would otherwise infer numerically. The parent
-        (``AgentModelFreeApproach``) gates these on
-        ``agent_planner_use_*`` CFG flags, but those target a different
-        use case; for predicate invention we always want the capability
-        available - as the standalone tools, or through explore_python
-        when it replaces them (``explore_python_replaces_tools``, the
-        single roster-policy predicate).
-        """
-        names = super()._get_solve_tool_names()
-        if names is None:
-            return None
-        if not explore_python_replaces_tools():
-            for extra in SCENE_TOOL_NAMES:
-                if extra not in names:
-                    names.append(extra)
-        return names
-
     def _get_synthesis_tool_names(self) -> Optional[List[str]]:
-        """Add SCENE tools and the predicate-synthesis callable to the
-        synthesis surface.
+        """Add the predicate-synthesis callable to the synthesis surface.
 
-        Adds ``visualize_state`` / ``annotate_scene`` (the prompt tells
-        the agent to call them when verifying geometric thresholds) -
-        unless explore_python replaces them (its ``sim.reset(mods)`` /
-        ``sim.render(annotations)`` subsume both) - and
-        ``evaluate_predicate_quality`` (built by
-        :meth:`_extra_synthesis_tools`).
+        Adds ``evaluate_predicate_quality`` (built by
+        :meth:`_extra_synthesis_tools`). Scene work (staging states,
+        rendering with overlays to verify geometric thresholds) lives on
+        the ``sim`` probe inside ``run_python``.
         """
         names = super()._get_synthesis_tool_names()
         if names is None:
             return None
-        extras = list(PREDICATE_SYNTHESIS_TOOL_NAMES)
-        if not explore_python_replaces_tools():
-            extras = list(SCENE_TOOL_NAMES) + extras
-        for extra in extras:
+        for extra in PREDICATE_SYNTHESIS_TOOL_NAMES:
             if extra not in names:
                 names.append(extra)
         return names
@@ -204,8 +177,8 @@ is too loose; tighten it or share the gating parameter with the rule \
 via `params[...]` so MCMC can fit them jointly.
 
 Workflow: edit `predicates.py`, call `evaluate_predicate_quality` \
-(fast, also reloads predicates into the live set), then call \
-`evaluate_plan_refinement` with sketches that reference your invented \
+(fast, also reloads predicates into the live set), then run \
+`sim.refine` / `sim.run` with sketches that reference your invented \
 names. Any predicate you reference in a sketch must exist in \
 `predicates.py` first."""
 
@@ -229,18 +202,13 @@ names. Any predicate you reference in a sketch must exist in \
         return f"Goals across train tasks (natural language):\n{bullets}\n\n"
 
     def _extra_synthesis_system_prompt(self) -> str:
-        # Scene-workbench references must name tools this session
-        # actually has: when explore_python replaces the standalone
-        # scene tools, point at its probe equivalents instead.
-        if explore_python_replaces_tools():
-            workbench = ("`explore_python` as scene workbench - "
-                         "`sim.reset(task_idx=..., mods={...})` to stage "
-                         "states, `sim.render(label, annotations=[...])` "
-                         "to render with overlays")
-            render_ref = "`sim.render`"
-        else:
-            workbench = "`visualize_state` / `annotate_scene`"
-            render_ref = "`annotate_scene`"
+        # The scene workbench is the sim probe inside run_python (the
+        # probe is unconditional in synthesis sessions).
+        workbench = ("the `sim` probe in `run_python` as scene workbench "
+                     "- `sim.reset(task_idx=..., mods={...})` to stage "
+                     "states, `sim.render(label, annotations=[...])` "
+                     "to render with overlays")
+        render_ref = "`sim.render`"
         return _PREDICATE_PROMPT_SECTION.replace("__SCENE_WORKBENCH__",
                                                  workbench).replace(
                                                      "__SCENE_RENDER_REF__",
@@ -383,7 +351,7 @@ LEARNED_PREDICATES: List[Predicate]
 The exec namespace pre-injects `Predicate`, `np`, and a `<typename>_type` \
 binding for each env type (e.g. `widget_type`, `fixture_type`). The names \
 below are illustrative — use whatever types, features, and parameter names \
-the inspect tools actually report for your task.
+your prompt digests and the trajectory data actually report for your task.
 
 ```python
 # Placement: object xy within a learned distance of the fixture's
@@ -442,8 +410,8 @@ option like Place — refinement needs these or it picks an arbitrary location.
 - Device-state predicates (on/off) for any toggle option.
 - Process-completion predicates over the features your rules drive, so \
 Wait steps know when to terminate. Keep classifier thresholds consistent \
-with rule saturation values; an inconsistency causes evaluate_step_fit to \
-look fine while evaluate_plan_refinement gets stuck on the Wait subgoal.
+with rule saturation values; an inconsistency causes sim.fit to \
+look fine while sim.refine gets stuck on the Wait subgoal.
 - Coverage rule of thumb: every option you expect to use in a sketch \
 should have predicates that can express its post-condition, so every \
 sketch step can carry a subgoal annotation. Annotations are checked \
@@ -487,7 +455,7 @@ with the gating rule) and re-bucket. Visualize before fitting.
 
 Validate with `evaluate_predicate_quality` (cheap; reports first-flip step, \
 monotonicity, coverage across all available trajectories). On goal-reaching \
-trajectories (`reached_goal=True` in `inspect_trajectories`) a milestone \
+trajectories (`reached_goal=True` in `describe_trajectory`) a milestone \
 predicate should flip False→True exactly once and stay true; on failed \
 interaction trajectories (`reached_goal=False`) the same predicate may \
 fire but the rest of the trajectory won't show goal completion — useful \
@@ -496,7 +464,7 @@ physics doesn't follow). A placement predicate should be true exactly \
 when an object is at its intended location and false otherwise.
 
 `evaluate_predicate_quality` is also the loader: it updates the predicate \
-set used by `evaluate_plan_refinement`. Call it after every edit to \
+set used by `sim.refine`. Call it after every edit to \
 `predicates.py` before re-running plan refinement.
 
 Predicates persist across online cycles — the file is preserved between \

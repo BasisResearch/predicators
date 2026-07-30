@@ -9,7 +9,7 @@ without updating the constants, these tests fail.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any, Iterable, List, Optional, Set
+from typing import Any, Iterable, List, Optional, Set, cast
 
 from predicators.agent_sdk.tools import ALL_TOOL_NAMES, BUILTIN_TOOLS, \
     MCP_SERVER_NAME, PREDICATE_SYNTHESIS_TOOL_NAMES, SYNTHESIS_TOOL_NAMES, \
@@ -58,8 +58,9 @@ def test_create_mcp_tools_matches_all_tool_names() -> None:
 
 
 def test_create_synthesis_tools_matches_constant(tmp_path) -> None:
-    """``create_synthesis_tools`` builds exactly the synthesis name tuple."""
-    tools = create_synthesis_tools(
+    """``create_synthesis_tools`` builds exactly the synthesis name tuple, plus
+    the ``sim.fit`` backend as a non-tool callable."""
+    toolkit = create_synthesis_tools(
         exec_ns={},
         base_pred_triples=[],
         inferred_process_features={},
@@ -67,7 +68,55 @@ def test_create_synthesis_tools_matches_constant(tmp_path) -> None:
         versions_dir=str(tmp_path / "simulator_versions"),
         approach=None,
     )
-    assert _names(tools) == set(SYNTHESIS_TOOL_NAMES)
+    assert _names(toolkit.tools) == set(SYNTHESIS_TOOL_NAMES)
+    assert callable(toolkit.fit_runner)
+    assert callable(toolkit.residuals_runner)
+    # No simulator file yet: the runners report it instead of raising.
+    report = toolkit.fit_runner()
+    assert "simulator.py" in report and "Write" in report
+    report = toolkit.residuals_runner()
+    assert "simulator.py" in report and "Write" in report
+
+
+def test_sysid_fit_gate_traj_idxs_vs_fixed(tmp_path) -> None:
+    """On the PHYSICAL_PARAMS path, ``fixed`` is rejected (pinning goes through
+    the param's bounds in the declaration) while ``traj_idxs`` passes.
+
+    the gate as an exploratory subset fit - with no approach bound it then
+    stops at the no-approach error rather than the gate.
+    """
+    sim_file = tmp_path / "simulator.py"
+    sim_file.write_text("PHYSICAL_PARAMS = [\n"
+                        "    ParamSpec('lateral_friction', 0.2, lo=0.01, "
+                        "hi=1.0)\n"
+                        "]\n")
+    toolkit = create_synthesis_tools(
+        exec_ns={},
+        base_pred_triples=[],
+        inferred_process_features={},
+        simulator_file=str(sim_file),
+        versions_dir=str(tmp_path / "simulator_versions"),
+        approach=None,
+    )
+    out = toolkit.fit_runner(fixed={"lateral_friction": 0.3})
+    assert "fixed is not supported" in out
+    assert "narrowing" in out
+    out = toolkit.fit_runner(traj_idxs=[0])
+    assert "fixed is not supported" not in out
+    assert "requires a bound approach" in out
+    # With an approach bound, an empty subset is refused before any fit
+    # machinery runs (the guard precedes all approach attribute access,
+    # so a bare stub suffices).
+    toolkit = create_synthesis_tools(
+        exec_ns={},
+        base_pred_triples=[],
+        inferred_process_features={},
+        simulator_file=str(sim_file),
+        versions_dir=str(tmp_path / "simulator_versions"),
+        approach=cast(Any, SimpleNamespace()),
+    )
+    out = toolkit.fit_runner(traj_idxs=[])
+    assert "traj_idxs is empty" in out
 
 
 def test_create_predicate_synthesis_tools_matches_constant(tmp_path) -> None:
@@ -95,12 +144,12 @@ def test_list_session_tool_names_filters_and_combines() -> None:
     """Filtered MCP names drop unknowns; ``extra_mcp_tools`` pass through."""
     fake = SimpleNamespace(name="run_python")
     grouped = list_session_tool_names(
-        mcp_filter=["inspect_options", "not_a_tool", "annotate_scene"],
+        mcp_filter=["inspect_options", "not_a_tool", "inspect_trajectories"],
         extra_mcp_tools=[fake],
         include_builtin=False,
     )
     assert grouped == {
-        "mcp": ["inspect_options", "annotate_scene"],
+        "mcp": ["inspect_options", "inspect_trajectories"],
         "extra": ["run_python"],
     }
 
@@ -122,14 +171,14 @@ def test_solve_and_synthesis_tool_names_are_independent() -> None:
             return ["inspect_options", "evaluate_option_plan"]
 
         def _get_synthesis_tool_names(self) -> Optional[List[str]]:
-            return ["inspect_trajectories", "visualize_state"]
+            return ["inspect_trajectories", "run_python"]
 
     obj = _Approach()
     assert obj._get_solve_tool_names() == [
         "inspect_options", "evaluate_option_plan"
     ]
     assert obj._get_synthesis_tool_names() == [
-        "inspect_trajectories", "visualize_state"
+        "inspect_trajectories", "run_python"
     ]
 
 
@@ -291,7 +340,7 @@ def test_agent_render_resolution() -> None:
         assert CFG.pybullet_camera_width == 900
 
 
-def test_explore_python_replaces_visualize_and_refine() -> None:
+def test_explore_python_replaces_refine() -> None:
     """When explore_python is on, the tools it subsumes are dropped unless
     agent_planner_explore_python_keep_replaced_tools asks for both."""
     from predicators import utils
@@ -301,22 +350,18 @@ def test_explore_python_replaces_visualize_and_refine() -> None:
         "env": "cover",
         "approach": "agent_bilevel",
         "agent_planner_use_simulator": True,
-        "agent_planner_use_visualize_state": True,
-        "agent_planner_use_annotate_scene": True,
     }
     obj = object.__new__(AgentModelBasedApproach)
 
     utils.reset_config(base)
     names = _required_names(obj._get_solve_tool_names())
-    assert "visualize_state" in names and "refine_plan_sketch" in names
+    assert "refine_plan_sketch" in names
     assert "explore_python" not in names
 
     utils.reset_config({**base, "agent_planner_use_explore_python": True})
     names = _required_names(obj._get_solve_tool_names())
     assert "explore_python" in names
-    assert "visualize_state" not in names
-    assert "refine_plan_sketch" not in names
-    assert "annotate_scene" not in names  # subsumed: sim.render(annotations)
+    assert "refine_plan_sketch" not in names  # subsumed: sim.refine
 
     utils.reset_config({
         **base, "agent_planner_use_explore_python": True,
@@ -324,18 +369,18 @@ def test_explore_python_replaces_visualize_and_refine() -> None:
     })
     names = _required_names(obj._get_solve_tool_names())
     assert "explore_python" in names
-    assert "visualize_state" in names and "refine_plan_sketch" in names
-    assert "annotate_scene" in names
+    assert "refine_plan_sketch" in names
 
 
 def test_synthesis_tool_names_explore_python() -> None:
-    """The synthesis surface mirrors the solve surface's explore_python
-    policy: the probe joins on the same opt-in flag, and the scene tools
-    it subsumes are dropped unless keep_replaced_tools asks for both.
+    """Synthesis sessions never surface explore_python: the probe rides inside
+    run_python's namespace (one exec namespace per session) and the inspect
+    digests are prompt-injected.
 
-    ``evaluate_plan_refinement`` is NOT subsumed (it alone MCMC-fits
-    PARAM_SPECS and emits the versioned snapshot verdict), so it must
-    survive replacement.
+    Fitting, residual reports, plan validation, and scene work are probe
+    methods (``sim.fit`` / ``sim.residuals`` / ``sim.refine`` /
+    ``sim.run`` / ``sim.reset`` + ``sim.render``), not tools, so the
+    roster carries only ``run_python`` (+ per-arm evaluators).
     """
     from predicators import utils
     from predicators.approaches.agent_sim_learning_approach import \
@@ -348,35 +393,22 @@ def test_synthesis_tool_names_explore_python() -> None:
     invention = object.__new__(AgentSimPredicateInventionApproach)
     invention._do_synthesize_samplers = False
 
-    utils.reset_config({"agent_planner_use_explore_python": False})
-    names = _required_names(sim_learn._get_synthesis_tool_names())
-    assert "explore_python" not in names
-    names = _required_names(invention._get_synthesis_tool_names())
-    assert "explore_python" not in names
-    assert "visualize_state" in names and "annotate_scene" in names
+    for use_probe_tool in (False, True):
+        utils.reset_config(
+            {"agent_planner_use_explore_python": use_probe_tool})
+        names = _required_names(sim_learn._get_synthesis_tool_names())
+        assert "explore_python" not in names  # probe rides inside run_python
+        # Digests replaced the inspect tools on every synthesis surface.
+        assert not any(n.startswith("inspect_") for n in names)
+        assert "run_python" in names
+        names = _required_names(invention._get_synthesis_tool_names())
+        assert "explore_python" not in names
+        assert "evaluate_plan_refinement" not in names  # sim.refine + sim.run
+        assert "evaluate_step_fit" not in names  # sim.fit
+        assert "evaluate_predicate_quality" in names
 
-    utils.reset_config({"agent_planner_use_explore_python": True})
-    names = _required_names(sim_learn._get_synthesis_tool_names())
-    assert "explore_python" in names
-    names = _required_names(invention._get_synthesis_tool_names())
-    assert "explore_python" in names
-    assert "visualize_state" not in names
-    assert "annotate_scene" not in names
-    assert "evaluate_plan_refinement" in names  # not subsumed
-    assert "evaluate_predicate_quality" in names
-
-    utils.reset_config({
-        "agent_planner_use_explore_python":
-        True,
-        "agent_planner_explore_python_keep_replaced_tools":
-        True,
-    })
-    names = _required_names(invention._get_synthesis_tool_names())
-    assert "explore_python" in names
-    assert "visualize_state" in names and "annotate_scene" in names
-
-    # The invention subclass's solve override must respect replacement
-    # too (it force-adds the scene tools otherwise).
+    # On the solve side the probe subsumes the remaining inspect tools
+    # (trajectories in its namespace, sim.task for the task digest).
     utils.reset_config({
         "env": "cover",
         "approach": "agent_sim_predicate_invention",
@@ -385,5 +417,19 @@ def test_synthesis_tool_names_explore_python() -> None:
     })
     names = _required_names(invention._get_solve_tool_names())
     assert "explore_python" in names
-    assert "visualize_state" not in names
-    assert "annotate_scene" not in names
+    assert not any(n.startswith("inspect_") for n in names)
+
+    # Without the probe, the solve roster keeps the trajectory/task
+    # inspect tools (there is no namespace to subsume them into) but
+    # never inspect_options/inspect_types (digests are in the prompt).
+    utils.reset_config({
+        "env": "cover",
+        "approach": "agent_sim_predicate_invention",
+        "agent_planner_use_simulator": True,
+        "agent_planner_use_explore_python": False,
+    })
+    names = _required_names(invention._get_solve_tool_names())
+    assert "inspect_trajectories" in names
+    assert "inspect_train_tasks" in names
+    assert "inspect_options" not in names
+    assert "inspect_types" not in names

@@ -26,6 +26,7 @@ def build_solve_prompt(
     require_tool_validation: bool = False,
     ground_samplers: bool = False,
     journal: str = "",
+    physics_margin: bool = False,
 ) -> str:
     """Build the bilevel solve/explore prompt asking for a plan sketch.
 
@@ -64,6 +65,14 @@ def build_solve_prompt(
     attempts' outcomes and lessons, injected so fresh-context sessions
     inherit what worked (and what was already swept) without inheriting
     failed attempts' conclusions.
+
+    ``physics_margin`` is the caller-threaded value of
+    ``CFG.agent_plan_validation_physics_margin``: when True (and
+    ``require_tool_validation``), the submit guidance tells the agent
+    the capture gate also sweeps the identified physical parameters'
+    uncertainty range, and to pre-check designs with
+    ``sim.run(..., physics_sweep=True)`` instead of discovering
+    PARAM-SENSITIVE rejections one submission at a time.
     """
     init_state = task.init
     objects = list(init_state)
@@ -156,6 +165,21 @@ def build_solve_prompt(
             "any recorded conclusion skeptically: re-verify cheap claims "
             "rather than inheriting them, especially from failed "
             "attempts.\n"
+            "Journal protocol for this attempt:\n"
+            "- FIRST list the journal's untried leads, then execute or "
+            "explicitly retire (with a measurement) each promising lead "
+            "BEFORE re-opening a family an earlier attempt already marked "
+            "exhausted or opening a brand-new one. Attempts have been "
+            "wasted re-litigating condemned designs while a recorded, "
+            "concrete, untried lead sat unexecuted.\n"
+            "- A negative claim is only as broad as the family actually "
+            "swept: before trusting 'X never works', check what was "
+            "tested - a claim derived from one orientation, formula, or "
+            "region says nothing about the rest.\n"
+            "- If two entries conflict (one rules a mechanism out, another "
+            "recommends it), BOTH demote to open questions: design the "
+            "cheap experiment that decides between them instead of "
+            "silently trusting either.\n"
             "Add your own lessons for future attempts with the "
             "record_journal tool (facts and measurements only).\n\n"
             f"{journal}\n")
@@ -163,6 +187,25 @@ def build_solve_prompt(
     goal_nl_section = ""
     if task.goal_nl:
         goal_nl_section = f"\n## Goal Description\n{task.goal_nl}\n"
+
+    # The env's public reward form (success condition + costs), when the
+    # task ships an evaluator that states one. Without it, agents burn
+    # turns reverse-engineering scores and induce false rules from them
+    # (run_20260729_001752 hypothesized a "-0.10 binary route-rejected
+    # flag" and a "-0.30 excess-blue penalty" from raw numbers the
+    # formula decodes instantly). Public by design: reward FORM only,
+    # never oracle quantities.
+    scoring_section = ""
+    evaluator = getattr(task, "evaluator", None)
+    if evaluator is not None:
+        objective = evaluator.objective_description()
+        if objective:
+            scoring_section = (
+                "\n## Scoring (env ground-truth reward)\n"
+                f"{objective}\n"
+                "Decode every reward you observe with this scoring rule "
+                "before hypothesizing any other mechanism - there are no "
+                "hidden reward terms.\n")
 
     goal_atoms_section = ""
     if goal_strs:
@@ -177,8 +220,8 @@ def build_solve_prompt(
             line += f" — {pred.natural_language_assertion(names)}"
         pred_strs.append(line)
 
-    # Tool-availability-aware references: when explore_python replaces the
-    # standalone visualize/refine tools (see
+    # Tool-availability-aware references: when explore_python replaces
+    # the standalone refine tool (see
     # agent_planner_explore_python_keep_replaced_tools), guidance must
     # point at the probe equivalents instead of tools the session lacks.
     # ``tool_names=None`` keeps the legacy all-tools wording.
@@ -191,20 +234,15 @@ def build_solve_prompt(
                     and _has_tool("explore_python"))
     refine_ref = ("`sim.refine` (in `explore_python`)"
                   if probe_refine else "`refine_plan_sketch`")
-    if not _has_tool("visualize_state") and _has_tool("explore_python"):
+    if _has_tool("explore_python"):
         visualize_advice = (
             "- Use `explore_python` (`sim.reset(mods={...})`, then "
             "`sim.render(...)`) to move objects to candidate positions and "
             "orientations for free (no physics) and find the right region "
             "visually before testing.\n")
-    elif _has_tool("visualize_state"):
-        visualize_advice = (
-            "- Use `visualize_state` to move objects to candidate positions "
-            "and orientations for free (no physics) and find the right "
-            "region visually before testing.\n")
     else:
-        # Neither visualization surface is offered: no bullet, rather
-        # than advice naming a tool the session lacks.
+        # No visualization surface offered: no bullet, rather than
+        # advice naming a capability the session lacks.
         visualize_advice = ""
 
     # Advice for a step the search reports stuck (SAMPLE_EXHAUSTED). When the
@@ -222,7 +260,13 @@ def build_solve_prompt(
         "affect both the outcome and whether the action succeeds.\n"
         "- Search coarse-to-fine: spread attempts across the full range; if "
         "several nearby values fail the same way, jump to a different region "
-        "instead of continuing to tweak.")
+        "instead of continuing to tweak.\n"
+        "- Before steering a search with a DERIVED formula or geometric "
+        "prediction (e.g. which way an object moves, falls, or deflects), "
+        "validate the formula on one clean controlled experiment first. A "
+        "wrong formula makes correct designs look refuted, and that false "
+        "negative then silently excludes the right design family from the "
+        "rest of the search.")
     revise_sketch_advice = (
         "revise the sketch — try different objects, a different ordering, an "
         "added intermediate step, or a corrected subgoal annotation — then "
@@ -295,6 +339,21 @@ def build_solve_prompt(
     if require_tool_validation:
         stuck_advice = (deep_tune_advice
                         if propose_params else revise_sketch_advice)
+        margin_guidance = ""
+        if physics_margin:
+            margin_guidance = (
+                "Capture also requires the plan to succeed at a grid of "
+                "perturbations spanning +-1 sigma of the identified "
+                "physical parameters (the physics fit's own uncertainty); "
+                "a plan that fails any point is reported PARAM-SENSITIVE "
+                "instead of captured. Success can be NON-MONOTONIC in a "
+                "physical parameter - a design can pass just above and "
+                "just below a value and fail exactly at it - so tune "
+                "designs that pass the WHOLE range: pre-check with "
+                "`sim.run(plan_text, physics_sweep=True)` in explore_python "
+                "(same points as the gate, one deterministic rollout each) "
+                "instead of discovering rejections one submission at a "
+                "time. ")
         submit_guidance = (
             "SUBMIT via `evaluate_option_plan`: pass your full plan as text "
             "(one option per line, `Option(obj:type)[params] -> {subgoals}`, "
@@ -303,7 +362,22 @@ def build_solve_prompt(
             "your answer, so do NOT finish until evaluate_option_plan "
             "CONFIRMS the capture. A goal-reaching plan is re-run several "
             "times before capture (simulation varies across runs); if it is "
-            "reported FLAKY, add margin to the fragile step and resubmit. "
+            "reported FLAKY, add margin to the fragile step and resubmit. " +
+            margin_guidance +
+            "CAPTURE FIRST, OPTIMIZE SECOND: when the reward charges for "
+            "resources used (read the scoring section), a captured "
+            "modest-reward solve outscores an uncaptured optimal attempt "
+            "by the entire success bonus - so bank a ROBUST goal-reaching "
+            "design early, even an over-built one (extra margin, extra "
+            "resources), and only then spend remaining budget improving "
+            "it. This is safe: a newly VALIDATED capture replaces the "
+            "banked one, while a rejected submission (flaky, "
+            "param-sensitive, evaluator-rejected, or short of the goal) "
+            "never displaces it - but do not resubmit designs that are "
+            "not strictly better, since a validated worse plan would "
+            "replace the banked answer. Robust-but-wasteful designs live "
+            "AWAY from the feasibility boundary that minimal designs sit "
+            "on, so they are usually far easier to find and validate. "
             "It runs your EXACT parameters with no sampling. To find "
             f"working parameters you MAY use {refine_ref} (it searches "
             "but is slower); read the parameters it reports and submit them "
@@ -341,7 +415,7 @@ def build_solve_prompt(
 
     prompt = f"""You are solving a task. \
 Generate a plan sketch to achieve the goal.
-{goal_nl_section}{goal_atoms_section}{experiment_section}
+{goal_nl_section}{scoring_section}{goal_atoms_section}{experiment_section}
 ## Initial State Atoms
 {chr(10).join(atom_strs)}
 

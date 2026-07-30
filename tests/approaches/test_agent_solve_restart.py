@@ -15,6 +15,7 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk import journal as journal_mod
+from predicators.agent_sdk.session_base import AgentSessionFatalError
 from predicators.approaches import ApproachFailure, ApproachTimeout
 from predicators.approaches.agent_model_based_approach import \
     AgentModelBasedApproach, _CaptureInfo
@@ -287,6 +288,25 @@ def test_unexpected_error_salvages_banked_capture():
     assert ctx.attempt_index == 0
 
 
+def test_fatal_session_error_reraises_even_with_banked_capture():
+    """AgentSessionFatalError is never salvaged by a banked capture: the
+    session backend is unusable, so the run must terminate (bookkeeping still
+    cleaned by the finally)."""
+    approach, task = _make_approach({"agent_solve_max_attempts": 3})
+    ctx = approach._tool_context
+    script = _AttemptScript(approach, [
+        ("best_effort", 0.40),
+        ("error", AgentSessionFatalError("3 consecutive agent queries died")),
+    ])
+    approach._solve_attempt = script
+    with pytest.raises(AgentSessionFatalError):
+        approach._solve(task, timeout=10)
+    assert script.calls == 2  # attempt 3 never runs
+    assert ctx.attempt_start is None
+    assert ctx.attempt_deadline is None
+    assert ctx.attempt_index == 0
+
+
 def test_unexpected_error_without_bank_reraises_after_cleanup():
     """ApproachTimeout (an ApproachFailure SIBLING) propagates, but only.
 
@@ -325,6 +345,70 @@ def test_journal_task_context_written_once_even_on_resolve(tmp_path):
     content = journal_mod.read_journal(str(tmp_path))
     assert content.count("### task 0 goal + initial state (auto)") == 1
     assert content.index("- goal:") < content.index("- outcome:")
+
+
+def test_test_phase_journal_archived_and_rolled_back(tmp_path):
+    """Learning entries persist across evaluations; each evaluation's own
+    entries are archived outside the sandbox, then rolled back so the next
+    evaluation starts from learning knowledge only (no test-task leaks)."""
+    sandbox = tmp_path / "sandbox"
+    log_dir = tmp_path / "run_logs"
+    approach, task = _make_approach(
+        {
+            "agent_solve_max_attempts": 1,
+            "agent_solve_use_journal": True,
+            "log_file": str(log_dir),
+        },
+        sandbox_dir=str(sandbox))
+    ctx = approach._tool_context
+    # A learning-phase entry, recorded before any evaluation.
+    journal_mod.append_entry(str(sandbox), "Agent notes (pre-test phase)",
+                             "- learning fact")
+    # First evaluation: one test-task solve writes auto entries.
+    approach.begin_test_phase()
+    ctx.test_task_idx = 0
+    script = _AttemptScript(approach, [("validated", 0.95),
+                                       ("validated", 0.96)])
+    approach._solve_attempt = script
+    approach._solve(task, timeout=10)
+    content = journal_mod.read_journal(str(sandbox))
+    assert "- learning fact" in content  # learning knowledge visible in eval
+    assert "### task 0 goal + initial state (auto)" in content
+    approach.end_test_phase()
+    # Rolled back: the learning entry survives, eval entries are gone.
+    content = journal_mod.read_journal(str(sandbox))
+    assert "- learning fact" in content
+    assert "task 0" not in content
+    # The full eval journal was archived outside the sandbox first, one
+    # copy per online-learning cycle.
+    archived = (log_dir / "journal_eval_cycle0.md").read_text()
+    assert "- learning fact" in archived
+    assert "### task 0 goal + initial state (auto)" in archived
+    # Second evaluation on the same task, after a learning phase advanced
+    # the cycle: the context-entry dedup key was rolled back too, so the
+    # goal + init entry is re-written (else the journal's attempt records
+    # would be uninterpretable).
+    approach._online_learning_cycle = 1
+    approach.begin_test_phase()
+    ctx.test_task_idx = 0
+    approach._solve(task, timeout=10)
+    content = journal_mod.read_journal(str(sandbox))
+    assert content.count("### task 0 goal + initial state (auto)") == 1
+    approach.end_test_phase()
+    assert sorted(p.name for p in log_dir.glob("journal_eval*.md")) == [
+        "journal_eval_cycle0.md", "journal_eval_cycle1.md"
+    ]
+    assert journal_mod.read_raw(str(sandbox)) is not None
+    assert "task 0" not in journal_mod.read_journal(str(sandbox))
+
+
+def test_test_phase_journal_rollback_noop_without_journal(tmp_path):
+    """With the journal disabled the phase hooks touch nothing."""
+    approach, _task = _make_approach({"agent_solve_use_journal": False},
+                                     sandbox_dir=str(tmp_path))
+    approach.begin_test_phase()
+    approach.end_test_phase()
+    assert journal_mod.read_raw(str(tmp_path)) is None
 
 
 def test_journal_records_best_refused_submission(tmp_path):

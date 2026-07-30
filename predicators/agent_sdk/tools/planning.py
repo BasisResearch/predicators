@@ -382,8 +382,8 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
         if not sketch:
             return _error_result(
                 "Parsed empty plan sketch. Check that every line names a "
-                "known option with typed `obj:type` arguments matching what "
-                "the inspect tools report.")
+                "known option with typed `obj:type` arguments matching the "
+                "Options digest in your prompt.")
 
         timeout, timeout_source = bilevel_sketch.resolve_refine_timeout(
             args.get("timeout"),

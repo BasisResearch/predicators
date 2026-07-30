@@ -21,7 +21,7 @@ class _ParamsView:
         if key not in self._params:
             raise KeyError(
                 f"params[{key!r}] accessed before any parameter fit; "
-                "call evaluate_step_fit or evaluate_plan_refinement to "
+                "call sim.fit() to "
                 "populate self._fitted_params first.")
         return self._params[key]
 

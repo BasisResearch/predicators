@@ -16,7 +16,7 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk import journal as journal_mod
-from predicators.agent_sdk.probe_api import ProbeBudgetExceeded, ProbeSim
+from predicators.agent_sdk.belief_probe import BeliefProbe, ProbeBudgetExceeded
 from predicators.agent_sdk.tools import ToolContext, create_mcp_tools
 from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
     Object, ParameterizedOption, Predicate, State, Task, Type
@@ -141,6 +141,26 @@ def test_journal_read_no_sandbox():
     assert journal_mod.read_journal(None) == ""
 
 
+def test_journal_read_raw_and_restore(tmp_path):
+    """read_raw snapshots faithfully and restore rolls entries back."""
+    sandbox = str(tmp_path)
+    assert journal_mod.read_raw(None) is None
+    assert journal_mod.read_raw(sandbox) is None
+    journal_mod.append_entry(sandbox, "Agent notes (pre-test phase)",
+                             "- learning fact")
+    snapshot = journal_mod.read_raw(sandbox)
+    assert snapshot is not None and "- learning fact" in snapshot
+    journal_mod.append_entry(sandbox, "Agent notes (test task 0)",
+                             "- test-phase fact")
+    journal_mod.restore(sandbox, snapshot)
+    assert journal_mod.read_raw(sandbox) == snapshot
+    # A None snapshot means no journal file existed: restore deletes.
+    journal_mod.restore(sandbox, None)
+    assert journal_mod.read_raw(sandbox) is None
+    # Deleting an already-absent journal is a no-op, not an error.
+    journal_mod.restore(sandbox, None)
+
+
 # ---------------------------------------------------------------------------
 # record_journal tool
 # ---------------------------------------------------------------------------
@@ -186,7 +206,7 @@ def test_probe_raises_after_attempt_deadline():
     utils.reset_config({})
     ctx = _make_ctx()
     ctx.attempt_deadline = time.monotonic() - 1.0
-    sim = ProbeSim(ctx)
+    sim = BeliefProbe(ctx)
     try:
         sim.reset()
         assert False, "expected ProbeBudgetExceeded"
@@ -200,7 +220,7 @@ def test_probe_deadline_skipped_during_best_effort_nudge():
     ctx = _make_ctx()
     ctx.attempt_deadline = time.monotonic() - 1.0
     ctx.capture_best_effort_plan = True
-    sim = ProbeSim(ctx)
+    sim = BeliefProbe(ctx)
     sim.reset()  # must not raise
 
 
@@ -220,7 +240,7 @@ def test_probe_trials_returns_partial_on_mid_loop_budget_expiry():
         return result
 
     model.get_next_state_and_num_actions = _expire_after_rollout
-    sim = ProbeSim(ctx)
+    sim = BeliefProbe(ctx)
     sim.reset()
     res = sim.run("Move(block0:block)[0.95]", render=False, trials=5)
     assert len(res.trials) == 1
@@ -232,7 +252,7 @@ def test_probe_trials_reraises_when_nothing_completed():
     """With zero completed trials there is nothing to salvage."""
     utils.reset_config({})
     ctx = _make_ctx()
-    sim = ProbeSim(ctx)
+    sim = BeliefProbe(ctx)
     sim.reset()
     ctx.attempt_deadline = time.monotonic() - 1.0
     try:
@@ -246,7 +266,7 @@ def test_probe_counts_rollouts():
     """run() meters full-plan rollouts (single and trials)."""
     utils.reset_config({})
     ctx = _make_ctx()
-    sim = ProbeSim(ctx)
+    sim = BeliefProbe(ctx)
     sim.reset()
     sim.run("Move(block0:block)[0.95]", render=False)
     assert ctx.attempt_rollout_count == 1

@@ -27,6 +27,7 @@ from contextlib import contextmanager
 from typing import Any, Callable, Collection, Dict, FrozenSet, Iterator, \
     List, Optional, Sequence, Set, Tuple
 
+import dill as pkl
 import numpy as np
 import pybullet
 from gym.spaces import Box
@@ -36,6 +37,8 @@ from predicators.agent_sdk.tools import SAMPLER_SYNTHESIS_TOOL_NAMES, \
     SYNTHESIS_TOOL_NAMES, _SnapshotTarget, create_synthesis_tools, \
     evaluate_states_with, finalize_versioned_snapshot, \
     make_write_snapshot_hook
+from predicators.agent_sdk.tools.inspection import render_options_digest, \
+    render_trajectory_digest, render_types_digest
 from predicators.approaches.agent_model_based_approach import \
     AgentModelBasedApproach
 from predicators.approaches.sampler_learning_mixin import SamplerLearningMixin
@@ -48,16 +51,14 @@ from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
 from predicators.code_sim_learning.fitting import FIT_NOISE_SIGMA, \
     compute_sse, compute_sse_recurrent, fit_rule_parameters, \
     fit_rule_parameters_latent, log_param_changes, log_sse_breakdown
-from predicators.code_sim_learning.identifiability import \
-    format_identifiability, identifiability_report, \
-    select_trustworthy_params
-from predicators.code_sim_learning.physical_sysid import fit_params_rollout, \
-    fit_params_rollout_trimmed
+from predicators.code_sim_learning.identifiability import Verdict, \
+    format_identifiability, physics_sigma_points
+from predicators.code_sim_learning.orchestrator import run_rollout_sysid
+from predicators.code_sim_learning.physical_sysid import fit_params_rollout
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
     dispose_env, physical_param_anchors
-from predicators.code_sim_learning.rollout_objective import compute_rollout_sse
 from predicators.code_sim_learning.trajectory_prep import \
-    compute_residual_scaling, split_at_rest_points, truncate_settled_tail
+    split_at_rest_points, truncate_settled_tail
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, apply_rules_with_latent, has_latent_rules, init_latent, \
     iter_feature_residuals, merge_updates, read_latent_init, \
@@ -252,53 +253,49 @@ first message.
 `Write` / `Edit` `simulator.py` is your normal coding loop. Every \
 successful write is snapshotted to \
 `simulator_versions/cycle_XXX_vers_YYY_simulator.py` (deduped by \
-content; ``XXX`` is the current cycle, ``YYY`` resets per cycle). The \
-synthesis tools below load the file fresh on every call and prefix \
-their output with `[cycle_XXX_vers_YYY]` so you and reviewers can diff \
-iterations.
+content; ``XXX`` is the current cycle, ``YYY`` resets per cycle). \
+`sim.fit` / `sim.residuals` (and the probe's candidate-model refit) \
+load the file fresh on every call and prefix their reports with \
+`[cycle_XXX_vers_YYY]` so you and reviewers can diff iterations.
 
-- `run_python(code)` - ad-hoc data exploration. `trajectories`, `np`, \
-`ParamSpec` in scope; when the learn message states a task objective, \
-`evaluate_trajectory(states, actions=None, task_idx=0)` scores a state \
-sequence with the env's ground-truth evaluator (returns reward / \
-solved; on your own simulator's rollouts the verdict is only as good \
-as the simulator). **Does not** define rules.
-- `evaluate_step_fit` - per-step prediction accuracy: SSE on the step \
-transitions at `init_value` params, plus post-fit SSE and fitted \
-parameters from a parameter fit. Cheap; the inner-loop signal.
-- `report_residuals` - per-feature breakdown: mismatch counts, mean / \
-max abs error, vs-baseline improvement (negative ⇒ rules are adding \
-error), worst-N example transitions. Diagnostic for *which* rule to fix.
-- `evaluate_plan_refinement(plan, task_idx)` - per-task planning \
-success: MCMC-fits, builds the combined simulator, runs backtracking \
-refinement against a plan **you propose** (see "Plan format" below), \
-**and then forward-validates that refined plan continuously** (state \
-carries forward across all options, single shot per step). Reports \
-both verdicts. A SUCCESS line followed by `Forward validation: FAIL` \
-counts as a failure - see "Refinement vs. forward validation" below. \
-Slow; the gate before declaring done.
+- `run_python(code)` - ad-hoc data exploration AND validation. \
+`trajectories`, `np`, `ParamSpec` in scope; when the learn message \
+states a task objective, `evaluate_trajectory(states, actions=None, \
+task_idx=0)` scores a state sequence with the env's ground-truth \
+evaluator (returns reward / solved; on your own simulator's rollouts \
+the verdict is only as good as the simulator). The `sim` probe over \
+your CANDIDATE simulator also lives here: `sim.fit()` (parameter \
+fitting + report; cheap inner-loop signal), `sim.residuals()` \
+(per-feature breakdown: mismatch counts, mean / max abs error, \
+vs-baseline improvement (negative ⇒ rules are adding error), worst-N \
+example transitions - diagnostic for *which* rule to fix), \
+`sim.refine` (backtracking parameter search on a plan sketch), \
+`sim.run` (forward rollout with subgoal checking). **Does not** \
+define rules.
 
-`evaluate_step_fit` and `evaluate_plan_refinement` test complementary \
+`sim.fit` and the refine-then-run protocol test complementary \
 things - pointwise accuracy vs. goal reachability. A rule can have \
 ε-small SSE and still get a saturation threshold or alignment cap *just* \
-wrong enough that refinement can't satisfy a subgoal. Use step-fit + \
-residuals as the fast inner loop and plan-refinement as the slow \
-goal-relevant gate.
+wrong enough that refinement can't satisfy a subgoal. Use `sim.fit` + \
+`sim.residuals` as the fast inner loop, and refine-then-run as the \
+slow goal-relevant gate before declaring done.
 
 ### Refinement vs. forward validation (read before tuning a threshold)
 
-`evaluate_plan_refinement` runs two checks under the same option model. \
-Refinement samples continuous params with up to 50 attempts per \
+Validation is two checks under the same option model. `sim.refine` \
+samples continuous params with up to 50 attempts per \
 parametric step and snapshots state at each backtrack - failures are \
-isolated per step. Forward validation runs the refined plan once, \
-continuously, with state carrying forward across all options - \
-matching how test time will execute it. Any divergence between the \
+isolated per step. The forward pass - one continuous `sim.run` of the \
+refined plan, state carrying forward across all options, subgoal \
+annotations checked per step - matches how test time will execute it. \
+Any divergence between the \
 two indicates the learned model is *more permissive* than the env's \
 effective behavior: refinement's looser gates accept a Place/Wait \
 that the env-driven rollout won't actually achieve.
 
-When you see `Forward validation: FAIL`, the failure mode is almost \
-always one of these:
+When `sim.refine` passes but the continuous `sim.run` reports a \
+`SUBGOAL NOT REACHED` (or the goal check fails), the failure mode is \
+almost always one of these:
 
 1. **A learned gate threshold is wider than the env's effective \
 threshold.** Example: the env's process rule only fires when the \
@@ -323,13 +320,13 @@ the env's empirical boundary, never loosen them. Widening hides \
 discrepancies during refinement and reveals them at test time as \
 0-solve regressions.
 __SYNTHESIS_PROMPT_EXTRA__
-## Plan format for `evaluate_plan_refinement`
+## Plan format for `sim.refine` / `sim.run`
 
 One option call per line, **with every option argument supplied and using \
-typed object references** (`obj:type`), matching exactly what the inspect \
-tools report. Use the inspect tools (or `run_python` over a trajectory) to \
-read off the right names and arities - the parser is strict and silently \
-omitting an argument will not be auto-filled. Example:
+typed object references** (`obj:type`), matching exactly the Options \
+digest in your prompt. Use that digest (or `run_python` over a trajectory) \
+to read off the right names and arities - the parser is strict and \
+silently omitting an argument will not be auto-filled. Example:
 
 ```
 PickWidget(robot:robot, widget0:widget)
@@ -340,7 +337,7 @@ Wait(robot:robot) -> {WidgetReady(widget0:widget)}
 ```
 
 (The names above are illustrative - use whatever options, types, and \
-predicates the inspect tools actually report for your task.) Insert a \
+predicates your prompt digests actually list for your task.) Insert a \
 `Wait` after any action that triggers a delayed process (gradual \
 accumulation, propagation, sensor catch-up) so your rules have steps to \
 fire on.
@@ -359,14 +356,28 @@ prefix an atom with `NOT` if it should become false.
 1. Explore data with `run_python` - what features change per step, \
 which ones aren't explained by the base sim.
 2. `Write` `simulator.py`; `Edit` to iterate.
-3. Score with `evaluate_step_fit`, then `report_residuals` to find \
+3. Score with `sim.fit()`, then `sim.residuals()` to find \
 diverging features. Negative `vs base` ⇒ a rule is actively hurting - \
 usually a wrong gate or sign.
-4. When SSE is plausible, propose an option-skeleton plan and call \
-`evaluate_plan_refinement(plan="...", task_idx=i)`. A stuck step means \
-the rules gating its subgoal atoms are too tight or too loose; fix and \
-re-validate.
+4. When SSE is plausible, propose an option-skeleton plan and validate: \
+`sim.reset(task_idx=i)`, `sim.refine(plan, require_goal=True)`, then a \
+continuous `sim.run` of the refined plan from a fresh \
+`sim.reset(task_idx=i)`. A stuck refine step means the rules gating \
+its subgoal atoms are too tight or too loose; a refine-pass whose \
+`sim.run` diverges means a rule is too permissive. Fix and \
+re-validate - do not declare done until BOTH pass.
 """
+
+
+def _fit_space_dist(a: float, b: float, scale: str) -> float:
+    """Distance between two param values in their fit space.
+
+    Log-scale params compare multiplicatively (the space their prior and
+    posterior widths live in); linear params compare additively.
+    """
+    if scale == "log":
+        return abs(float(np.log(max(a, 1e-300)) - np.log(max(b, 1e-300))))
+    return abs(a - b)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -451,6 +462,11 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # sample the distribution the real episode will.
         self._tool_context.validation_env_scope = \
             self._fresh_validation_env_scope
+        # Physics-margin points for the capture gate (+-1 posterior sigma
+        # of the latest applied fit): a callable so the tool always sees
+        # the current fit, not the one deployed when the session opened.
+        self._tool_context.physics_margin_provider = \
+            lambda: list(self._identified_physical_sigma_points)
         # Env predicates surfaced to the agent (see
         # KEPT_INITIAL_PREDICATE_NAMES). Computed once here; everything
         # agent-facing flows through _get_all_predicates().
@@ -524,18 +540,50 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # _get_rollout_fit_env), never touching the planning base env.
         self._physical_param_specs: List[ParamSpec] = []
         self._identified_physical_params: Dict[str, float] = {}
+        # +-1-posterior-sigma perturbations of the applied params (the
+        # capture gate's physics-margin points). Set only by the joint
+        # rollout fit, which has the identifiability report; cleared by
+        # every _apply_identified_physical_params call so points can
+        # never outlive the fit they were derived from.
+        self._identified_physical_sigma_points: List[Dict[str, float]] = []
         # Explainability (trimming) verdicts are memoized per learn phase
         # (cleared when _fit_trajectories is refreshed): repeated
-        # evaluate_step_fit calls with the same declaration signature
+        # sim.fit calls with the same declaration signature
         # reuse the sweep instead of re-rolling it, which both saves
         # rollouts and pins the verdict for identical inputs.
-        self._explainability_cache: Dict[Tuple, List[float]] = {}
+        self._explainability_cache: Dict[Tuple, Tuple[List[float],
+                                                      List[Dict[str,
+                                                                float]]]] = {}
+        # Whole-fit memoization for the orchestrator (same lifecycle as
+        # the explainability cache): repeated canonical sim.fit calls on
+        # an unchanged artifact version + data reuse the entire fit core
+        # instead of re-rolling it. Keyed by (artifact version tag,
+        # declaration/data signature); values are
+        # orchestrator._FitComputation bundles.
+        self._sysid_fit_cache: Dict[Tuple, Any] = {}
         # Final per-cycle fit history for the cross-cycle consistency
         # check: name -> (map_value, posterior_std_fit_space, scale).
         # Mutually-incompatible confident fits across cycles are the
         # signature of an overconfident probe; flagged, and the verdict
         # downgraded, rather than silently trusted.
         self._sysid_fit_history: Dict[str, Tuple[float, float, str]] = {}
+        # A rejected (INCONSISTENT) fit awaiting confirmation:
+        # name -> (map_value, posterior_std_fit_space). If the NEXT
+        # cycle's independent fit lands within the consistency band of
+        # the pending value, the jump is accepted as real (two
+        # independent fits agree); until then the trusted history value
+        # holds. Without this, a genuinely-updated fit would read
+        # INCONSISTENT against stale history forever.
+        self._sysid_pending_fit: Dict[str, Tuple[float, float]] = {}
+        # The applied physical params as of the last CYCLE-LEVEL fit -
+        # the reference the INCONSISTENT hold policy reverts to.
+        # Deliberately not _identified_physical_params: the agent's
+        # in-session sim.fit calls mutate that dict, so "hold the
+        # currently-applied value" was a no-op that held the very fit
+        # it refused to trust (run_20260724_232411 seed2 cycle 2:
+        # "holding the currently-applied 0.6267" - 0.6267 WAS the
+        # distrusted new fit, applied minutes earlier in-session).
+        self._cycle_applied_physical: Dict[str, float] = {}
         # Agent-facing digest of the latest rollout fit (unexplainable
         # segments, unidentified/insensitive params, cross-cycle
         # conflicts); surfaced to the explorer as experiment objectives.
@@ -593,28 +641,32 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     def _get_synthesis_tool_names(self) -> Optional[List[str]]:
         """Complete tool surface for the synthesis agent.
 
-        Combines the static MCP tools the agent may call (the inspect
-        family, used to read off option/predicate/type signatures when
-        writing rules) with the names of the dynamic synthesis callables
-        (``run_python``, ``evaluate_step_fit``, ``report_residuals``,
-        ``evaluate_plan_refinement``) attached to
-        ``ctx.extra_mcp_tools`` inside :meth:`_synthesize_with_agent`.
-        The mixin asserts the attached instances and this list agree.
+        The names of the dynamic synthesis callables (just
+        ``run_python``) attached to ``ctx.extra_mcp_tools`` inside
+        :meth:`_synthesize_with_agent`. The mixin asserts the attached
+        instances and this list agree. Fitting, residual reports, and
+        plan validation are NOT tools: they live on the ``sim`` probe
+        (``sim.fit`` / ``sim.residuals`` / ``sim.refine`` /
+        ``sim.run``) inside ``run_python``.
+
+        No inspect tools: the type/option digests are injected into the
+        learn message (see :meth:`_build_synthesis_learn_message`) and
+        trajectory access lives in ``run_python`` (``trajectories`` +
+        ``describe_trajectory``). No ``explore_python`` either: in
+        synthesis sessions the probe rides inside ``run_python``'s
+        namespace as ``sim`` (one exec namespace per session - a helper
+        defined next to the data is visible to probe sweeps). In the
+        agent-synthesis session the probe runs against the CANDIDATE
+        simulator.py via ctx.probe_option_model_provider (installed in
+        _synthesize_with_agent); in the oracle-sim-program sampler
+        session no provider is installed and the probe falls back to
+        ctx.option_model, which there IS the deployed belief model.
         """
-        names = ["inspect_types", "inspect_options", "inspect_trajectories"] +\
-            list(SYNTHESIS_TOOL_NAMES)
+        names: List[str] = list(SYNTHESIS_TOOL_NAMES)
         # When the agent is learning samplers in this session (not using
         # ground-truth ones), expose the evaluate_sampler tool.
         if self._do_synthesize_samplers:
             names += list(SAMPLER_SYNTHESIS_TOOL_NAMES)
-        # Same opt-in flag as the solve phase. In the agent-synthesis
-        # session the probe runs against the CANDIDATE simulator.py via
-        # ctx.probe_option_model_provider (installed in
-        # _synthesize_with_agent); in the oracle-sim-program sampler
-        # session no provider is installed and the probe falls back to
-        # ctx.option_model, which there IS the deployed belief model.
-        if CFG.agent_planner_use_explore_python:
-            names.append("explore_python")
         return names
 
     # ── Subclass hooks ──────────────────────────────────────────
@@ -738,8 +790,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # (latent threads within a trajectory, not across). Harmless for
         # fully-observable (legacy) simulators, which never regroup.
         self._fit_trajectories = list(trajectories)
-        # New data invalidates the memoized explainability verdicts.
+        # New data invalidates the memoized explainability verdicts and
+        # the memoized whole fits.
         self._explainability_cache.clear()
+        self._sysid_fit_cache.clear()
         # Decide how samplers are obtained this cycle: ground-truth (if
         # requested and available for the env) else agent synthesis. GT
         # samplers are static, so install them up front, independent of
@@ -769,10 +823,11 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 base_pred_triples = self._compute_base_pred_triples(
                     obs_triples, fit_env)
             finally:
-                # This env is rebuilt every learning cycle; disconnect
-                # its PyBullet client or each cycle leaks a full physics
-                # world (~145MB for the domino env).
-                pybullet.disconnect(fit_env._physics_client_id)  # type: ignore[attr-defined]  # pylint: disable=protected-access
+                # This env is rebuilt every learning cycle; dispose it
+                # (main client AND any secondary probe world) or each
+                # cycle leaks a full physics world (~145MB for the
+                # domino env).
+                dispose_env(fit_env)
             inferred_hint = self._infer_process_features_from_residuals(
                 obs_triples, base_pred_triples)
             logger.info("Process features (data-driven hint): %s",
@@ -807,7 +862,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # When the simulator came from the oracle short-circuit no agent
         # session ran above, so per-skill samplers (if enabled) get their
         # own session here, after the option model is built so the
-        # session's evaluate_plan_refinement has a working simulator. When
+        # session's probe (sim.refine) has a working simulator. When
         # the agent *did* synthesize the simulator, samplers already rode
         # along in that session and this is skipped.
         if self._do_synthesize_samplers and \
@@ -837,6 +892,14 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # against. Without this the probe is silently unavailable in the
         # sandbox and captures are accepted on the pure rules only.
         model.sim_env = self._base_env
+        # Belief-side verdicts predict the real evaluator, so the
+        # certificate's verification replay must run the agent's FULL
+        # current model (base sim + these rules), not a rules-free base
+        # sim: at miscalibrated base physics a rules-free replay
+        # rejected every legitimate relay and taught the agent a
+        # phantom task rule (run_20260727_210818 seed2).
+        self._base_env.probe_process_model_factory = \
+            self._make_probe_process_model_factory()
         if CFG.wait_option_terminate_on_atom_change:
             model._abstract_function = (  # pylint: disable=protected-access
                 lambda s: utils.abstract(s, self._get_all_predicates()))
@@ -856,10 +919,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         on first use, and again after every content change of
         ``simulator_file``, it loads the candidate simulator, MCMC-fits
         its params, and builds the combined option model through the
-        same :func:`build_candidate_option_model` path
-        ``evaluate_plan_refinement`` uses. ``sim.run`` / ``sim.refine``
-        therefore exercise exactly the model the validation tool would
-        score, at deployed (fitted) params. Content-hash caching keeps
+        :func:`build_candidate_option_model` path, publishing the fit
+        exactly as ``sim.fit`` reports it. ``sim.run`` / ``sim.refine``
+        therefore always exercise the candidate at deployed (fitted)
+        params. Content-hash caching keeps
         sweep loops cheap: an unchanged file never refits.
 
         Raises ``RuntimeError`` (surfaced in the tool output) when no
@@ -913,7 +976,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     def _exploration_fit_num_steps() -> Optional[int]:
         """MCMC budget for the active-experiment posterior fit.
 
-        The synthesis tools (``evaluate_step_fit``, ``report_residuals``)
+        The synthesis fit surfaces (``sim.fit``, ``sim.residuals``)
         share the fit statics and run repeatedly inside the agent loop,
         so they always use the global
         ``CFG.code_sim_learning_num_mcmc_steps`` (typically 0 - LM +
@@ -1172,6 +1235,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             self._tool_context.extra_session_hooks = {}
             self._tool_context.extra_mcp_tools = []
             self._tool_context.probe_option_model_provider = None
+            self._tool_context.probe_fit_provider = None
+            self._tool_context.probe_residuals_provider = None
             self._learning_mode = False
             self._close_agent_session()
         return self._load_synthesis_artifacts(trajectories, inferred_hint,
@@ -1230,6 +1295,24 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             "ParamSpec":
             ParamSpec,
         }
+        # Curated per-trajectory digest (same renderer the old
+        # inspect_trajectories tool used), for a first look before
+        # ad-hoc exploration over the raw ``trajectories`` objects.
+        all_predicates = self._get_all_predicates()
+
+        def describe_trajectory(traj_idx: int,
+                                include_states: bool = True,
+                                include_atoms: bool = False,
+                                max_timesteps: int = 10) -> str:
+            return render_trajectory_digest(trajectories,
+                                            self._train_tasks,
+                                            all_predicates,
+                                            traj_idx,
+                                            include_states=include_states,
+                                            include_atoms=include_atoms,
+                                            max_timesteps=max_timesteps)
+
+        exec_ns["describe_trajectory"] = describe_trajectory
         # Env ground-truth scoring, next to is_goal_state (see
         # Task.evaluator). Verdict-only surface: dict of reward/solved
         # on a concrete state sequence - real trajectories or the
@@ -1261,7 +1344,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # is the single source of truth for what the agent sees:
         # anything a builder constructs but the names list omits is
         # dropped here.
-        tools = create_synthesis_tools(
+        toolkit = create_synthesis_tools(
             exec_ns,
             base_pred_triples,
             inferred_hint,
@@ -1272,6 +1355,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             sandbox_dir_for_agent=paths.sandbox_dir_for_agent,
             cycle_index_provider=self._learning_cycle_index,
         )
+        tools = list(toolkit.tools)
         tools.extend(
             self._extra_synthesis_tools(exec_ns, base_pred_triples,
                                         inferred_hint, extra_paths))
@@ -1281,16 +1365,30 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         self._tool_context.extra_mcp_tools = [
             t for t in tools if getattr(t, "name", "") in declared
         ]
-        # Point the explore_python probe at the CANDIDATE simulator for
-        # this session (never the stale pre-synthesis option model; on
-        # cycle 1 that wraps the real env). Must be installed before
-        # the session opens: the tool builder reads it to pick the
-        # probe's description.
-        if CFG.agent_planner_use_explore_python:
-            self._tool_context.probe_option_model_provider = \
-                self._make_candidate_probe_model_provider(
-                    paths.simulator_file, trajectories, base_pred_triples,
-                    inferred_hint)
+        # Point the probe at the CANDIDATE simulator for this session
+        # (never the stale pre-synthesis option model; on cycle 1 that
+        # wraps the real env), then merge the probe facade into
+        # run_python's namespace: synthesis sessions offer ONE exec
+        # namespace, so helpers defined next to the data are visible to
+        # probe sweeps (no explore_python tool here - the roster method
+        # documents the policy). Unconditional: with fit / refine /
+        # forward-validation all living on ``sim``, the probe IS the
+        # validation surface, so a synthesis session without it would
+        # have no way to test what it writes. Only ``sim``/``BeliefProbe``
+        # are taken from the probe namespace: ``trajectories`` already
+        # binds the fit list and solve-only extras do not apply.
+        self._tool_context.probe_option_model_provider = \
+            self._make_candidate_probe_model_provider(
+                paths.simulator_file, trajectories, base_pred_triples,
+                inferred_hint)
+        self._tool_context.probe_fit_provider = toolkit.fit_runner
+        self._tool_context.probe_residuals_provider = \
+            toolkit.residuals_runner
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.belief_probe import build_probe_namespace
+        probe_ns = build_probe_namespace(self._tool_context)
+        exec_ns["sim"] = probe_ns["sim"]
+        exec_ns["BeliefProbe"] = probe_ns["BeliefProbe"]
         self._learning_mode = True
         # PostToolUse hook: snapshot simulator.py / predicates.py on
         # every successful Write/Edit/MultiEdit, so the version history
@@ -1325,25 +1423,37 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         n_interaction = n_trajs - n_demos
         predicate_listing = self._format_predicate_signatures(
             self._get_all_predicates())
+        # Static per-session digests, injected instead of offering the
+        # inspect_types / inspect_options tools (same renderers, zero
+        # turns; see the roster note in _get_synthesis_tool_names).
+        types_digest = render_types_digest(self._tool_context.types)
+        options_digest = render_options_digest(
+            self._tool_context.options,
+            gt_options_ref_path=self._tool_context.gt_options_ref_path)
         trajectory_listing = self._format_trajectory_listing(trajectories)
         prior_state_block = self._format_prior_state_block(paths.base)
         objective_block = self._format_objective_block()
         simulator_file_for_agent = paths.simulator_file_for_agent
-        # run_python explores the recorded DATA; explore_python
-        # forward-rolls the CANDIDATE simulator. One sentence so the
-        # two exec tools are not conflated; details live in the tool
+        # The probe rides inside run_python's namespace (one exec
+        # namespace per session): `trajectories` is the recorded DATA,
+        # `sim` forward-rolls the CANDIDATE simulator. One sentence so
+        # the two are not conflated; details live in the tool
         # description.
         probe_note = ""
         if CFG.agent_planner_use_explore_python:
             probe_note = (
                 "\n\nTo forward-roll your CURRENT candidate simulator "
                 "(does the process fire when and where you intended?), "
-                "use `explore_python`: its `sim` probes the "
-                "`simulator.py` you are editing, re-fit automatically "
-                "whenever the file changes; pass task_idx explicitly to "
-                "`sim.reset`. Exploratory only - "
-                "`evaluate_plan_refinement` remains the authoritative "
-                "validation surface.")
+                "use the `sim` probe available inside `run_python`: it "
+                "probes the `simulator.py` you are editing, re-fit "
+                "automatically whenever the file changes; pass task_idx "
+                "explicitly to `sim.reset` (and `sim.task(task_idx)` for "
+                "a task digest). Its rollouts are CANDIDATE-simulator "
+                "predictions - do not mix them up with the recorded real "
+                "`trajectories`. Exploratory only - "
+                "validate via `sim.fit()` + `sim.refine` + a "
+                "continuous `sim.run` forward pass before declaring "
+                "the simulator done.")
         # Tool surface of the (just-opened) synthesis session, rendered
         # the same way the solve/explore prompts list theirs.
         # ``tool_names`` already merges the sandbox built-ins with the
@@ -1386,24 +1496,40 @@ observed next state suggests these features carry process dynamics \
 ## Available Predicates (for subgoal annotations)
 {predicate_listing}
 
-Subgoal annotations in your plans for `evaluate_plan_refinement` \
+Subgoal annotations in your plans for `sim.refine` / `sim.run` \
 must reference these predicate names with matching arity and types. \
 Any threshold or condition you bake into a rule must be consistent \
 with what the predicate's classifier actually checks, or refinement \
 will reject parameter samples that look correct on paper.
 
+## Object Types
+{types_digest}
+
+## Options
+Plans (for `sim.refine` / `sim.run`) and rules must match these \
+typed signatures and parameter boxes exactly:
+{options_digest}
+
 {tools_block}Read the data-structures file first, then explore the trajectory \
 data with `run_python` (variables: `trajectories`, `train_tasks`, \
-`is_goal_state`, `np`, `ParamSpec`, plus `evaluate_trajectory` when a \
+`is_goal_state`, `describe_trajectory(traj_idx)` for a per-timestep \
+digest, `np`, `ParamSpec`, plus `evaluate_trajectory` when a \
 task objective is stated above). Write your simulator to \
 `{simulator_file_for_agent}` - define PROCESS_RULES, PARAM_SPECS, \
-and PROCESS_FEATURES there. Every successful Write/Edit of \
+and PROCESS_FEATURES there. Begin the file with a short DECISION \
+RECORD comment stating your key modeling choices and the evidence \
+behind them: which dynamics the base sim carries vs. your process \
+rules, which features the rules own, any latent structure, and any \
+other structural commitments (e.g. whether base-sim parameters are \
+declared for identification, when the environment discloses them). \
+Later cycles read this record before deciding what to keep. Every \
+successful Write/Edit of \
 `{simulator_file_for_agent}` is snapshotted to `simulator_versions/` as \
-`cycle_XXX_vers_YYY_simulator.py` (deduped by content); the synthesis \
-tools (evaluate_step_fit, report_residuals, evaluate_plan_refinement) \
+`cycle_XXX_vers_YYY_simulator.py` (deduped by content); `sim.fit` and \
+`sim.residuals` \
 load that file fresh on every call and report the version tag \
-[cycle_XXX_vers_YYY] in their output. Iterate with `Edit` and re-run \
-the tools.{probe_note}"""
+[cycle_XXX_vers_YYY] in their output. Iterate with `Edit` and \
+re-score.{probe_note}"""
 
         extra_message = self._extra_synthesis_message(extra_paths)
         if extra_message:
@@ -1656,6 +1782,7 @@ the tools.{probe_note}"""
     def _rollout_fit_trajectories(
         self,
         process_features: Optional[Dict[str, List[str]]] = None,
+        traj_idxs: Optional[Sequence[int]] = None,
     ) -> List[RolloutTrajectory]:
         """Raw observed (states, actions) sequences for rollout matching.
 
@@ -1667,9 +1794,22 @@ the tools.{probe_note}"""
         :func:`trajectory_prep.truncate_settled_tail`) so the fit scores
         the active cascade, not hundreds of settled steps of accumulated
         rollout divergence.
+
+        ``traj_idxs`` restricts the source to those trajectories (same
+        indexing as the synthesis session's ``trajectories`` list) -
+        subsetting happens *before* truncation/segmentation so the
+        indices the agent reasons about are the ones that apply. Raises
+        ``ValueError`` on an out-of-range index.
         """
+        source = self._fit_trajectories
+        if traj_idxs is not None:
+            bad = sorted(i for i in traj_idxs if not 0 <= i < len(source))
+            if bad:
+                raise ValueError(
+                    f"traj_idxs {bad} out of range (0-{len(source) - 1})")
+            source = [source[i] for i in traj_idxs]
         rollouts: List[RolloutTrajectory] = []
-        for traj in self._fit_trajectories:
+        for traj in source:
             if traj.actions and len(traj.states) == len(traj.actions) + 1:
                 rollouts.append((list(traj.states), list(traj.actions)))
         if (process_features is not None
@@ -1707,6 +1847,40 @@ the tools.{probe_note}"""
                     "keeping the whole trajectories.")
         return rollouts
 
+    def _persist_fit_trajectories(self) -> None:
+        """Dump the raw fit trajectories for offline post-mortems.
+
+        The rollout sysID fit data otherwise exists only in memory:
+        when run_20260724_232411 shipped friction fits 2-7 sigma from
+        the truth, the failing fits could not be replayed offline - the
+        episodes had to be approximately re-executed from logged plans,
+        which cannot reproduce mid-episode replans or the warm-env
+        recording context (exactly the suspected corruption channel).
+        One pickle per cycle-level fit under ``<log_dir>/fit_data/``;
+        never raises - persistence must not take down a run.
+        """
+        if not CFG.code_sim_learning_persist_fit_data:
+            return
+        try:
+            out_dir = os.path.join(self._get_log_dir(), "fit_data")
+            os.makedirs(out_dir, exist_ok=True)
+            idx = len([f for f in os.listdir(out_dir) if f.endswith(".pkl")])
+            path = os.path.join(out_dir, f"fit_trajectories_{idx:03d}.pkl")
+            payload = {
+                "trajectories":
+                list(self._fit_trajectories),
+                "physical_param_specs":
+                list(self._physical_param_specs),
+                "identified_physical_params":
+                dict(self._identified_physical_params),
+            }
+            with open(path, "wb") as f:
+                pkl.dump(payload, f)
+            logger.info("Persisted %d fit trajectories to %s",
+                        len(self._fit_trajectories), path)
+        except Exception as e:  # pylint: disable=broad-except
+            logger.warning("Could not persist fit trajectories: %s", e)
+
     def _apply_identified_physical_params(
             self, identified: Dict[str, float]) -> None:
         """Publish identified physical params into the planning base env.
@@ -1735,6 +1909,10 @@ the tools.{probe_note}"""
                     {k: f"{v:.4f}"
                      for k, v in reverts.items()})
         self._identified_physical_params = dict(identified)
+        # Margin points derive from a specific fit's posterior; any
+        # (re)application resets them, and the joint-rollout caller
+        # rebuilds them from its fresh report right after this call.
+        self._identified_physical_sigma_points = []
         self._base_env.apply_physical_param_overrides(identified)
         logger.info("Applied identified physical params to base env: %s",
                     {k: f"{v:.4f}"
@@ -1745,7 +1923,6 @@ the tools.{probe_note}"""
         rules: List,
         rule_specs: List[ParamSpec],
         process_features: Dict[str, List[str]],
-        num_steps: Optional[int] = None,
     ) -> Tuple[FitResult, float]:
         """Joint physical+rule fit against free-running base-sim rollouts.
 
@@ -1753,9 +1930,9 @@ the tools.{probe_note}"""
         the RAW observed trajectories rather than ``base_pred_triples``:
         physical parameters only manifest when momentum free-runs, which
         the teacher-forced triples destroy (``State`` has no
-        velocities). One theta = physical + rule params, one MCMC, so
-        rules cannot silently absorb physics error; with no rules this
-        degenerates to pure identification. The identified physical
+        velocities). One theta = physical + rule params, one joint fit,
+        so rules cannot silently absorb physics error; with no rules
+        this degenerates to pure identification. The identified physical
         values are applied in place to the planning base env, and the
         per-parameter identifiability report (posterior contraction) is
         logged so null parameters are visible rather than silently
@@ -1765,6 +1942,7 @@ the tools.{probe_note}"""
         physical_names = [s.name for s in physical_specs]
         # Factory, not an instance: every rollout runs in a fresh env.
         fit_env = self._get_rollout_fit_env()
+        self._persist_fit_trajectories()
         rollouts = self._rollout_fit_trajectories(process_features)
         init_params = {
             s.name: s.init_value
@@ -1781,21 +1959,19 @@ the tools.{probe_note}"""
                                         rules=rules,
                                         rule_specs=rule_specs,
                                         latent_init=self._latent_init,
-                                        num_steps=0,
                                         anchors=anchors)
             self._apply_identified_physical_params(
                 {n: init_params[n]
                  for n in physical_names})
             return result, float("nan")
 
-        # One scaling object per fit: every SSE/RMS below must share it
-        # or their values are incomparable.
-        scaling = compute_residual_scaling(rollouts, process_features)
-        pre_sse = compute_rollout_sse(fit_env, rollouts, init_params,
-                                      process_features, physical_names, rules,
-                                      self._latent_init, scaling)
-        logger.info("Rollout sysID - pre-SSE: %.6f", pre_sse)
-        result, survivors, rms = fit_params_rollout_trimmed(
+        # The adjuster's third argument is the fit's own SSE-at-theta
+        # probe (survivor set + shared scaling - the objective the fit
+        # minimized), which the cross-cycle consistency check uses to
+        # arbitrate flagged jumps on evidence. Deliberately NOT a
+        # full-set SSE: trimmed (unexplainable) segments would add the
+        # same large error to both candidates and dilute the ratio.
+        outcome = run_rollout_sysid(
             fit_env,
             rollouts,
             physical_specs,
@@ -1803,15 +1979,17 @@ the tools.{probe_note}"""
             rules=rules,
             rule_specs=rule_specs,
             latent_init=self._latent_init,
-            num_steps=num_steps,
-            scaling=scaling,
             anchors=anchors,
-            rms_cache=self._explainability_cache)
-        # Post-SSE and the identifiability probe are computed on the
-        # SURVIVING trajectories: a trimmed (unexplainable) recording
-        # would otherwise re-poison the verdicts with its noise.
-        if not survivors:
-            # NO fit ran (result is pinned at the declared inits).
+            rms_cache=self._explainability_cache,
+            report_adjuster=lambda result, report, sse_fn:
+            (self._check_cross_cycle_consistency(
+                result, report, physical_names, pooled_sse=sse_fn)),
+            held={
+                **self._identified_physical_params,
+                **self._cycle_applied_physical
+            })
+        if outcome.num_survivors == 0:
+            # NO fit ran (the result is pinned at the declared inits).
             # Apply nothing: the planner keeps its standing belief -
             # the previous cycle's applied values - rather than being
             # reverted to baselines (or moved to this call's declared
@@ -1820,39 +1998,41 @@ the tools.{probe_note}"""
                 "Rollout sysID: no explainable segments this cycle; "
                 "leaving the planner's physical params untouched.")
             self._record_sysid_diagnostics({}, physical_names, 0,
-                                           len(rollouts), rms)
-            return result, float("nan")
-        probe_rollouts = survivors
-        fitted = result.point_estimate
-        post_sse = compute_rollout_sse(fit_env, probe_rollouts, fitted,
-                                       process_features, physical_names, rules,
-                                       self._latent_init, scaling)
-        logger.info("Rollout sysID - post-SSE: %.6f", post_sse)
-
-        def rollout_sse_fn(params: Dict[str, float]) -> float:
-            return compute_rollout_sse(fit_env, probe_rollouts, params,
-                                       process_features, physical_names, rules,
-                                       self._latent_init, scaling)
-
-        report = identifiability_report(result,
-                                        rollout_sse_fn,
-                                        list(physical_specs) +
-                                        list(rule_specs),
-                                        num_explainable=len(survivors))
-        self._check_cross_cycle_consistency(result, report, physical_names)
+                                           len(rollouts), outcome.traj_rms)
+            return outcome.fit_result, float("nan")
         logger.info("Identifiability (posterior/prior contraction):\n%s",
-                    format_identifiability(report))
-        log_param_changes(init_params, fitted)
-        self._apply_identified_physical_params(
-            select_trustworthy_params(fitted, init_params, physical_names,
-                                      report, anchors))
-        self._record_sysid_diagnostics(report, physical_names, len(survivors),
-                                       len(rollouts), rms)
-        return result, post_sse
+                    format_identifiability(outcome.report))
+        log_param_changes(init_params, outcome.fitted)
+        self._apply_identified_physical_params(outcome.applied)
+        # Snapshot the cycle-level decision: this (not whatever the
+        # agent's in-session sim.fit last applied) is what a future
+        # INCONSISTENT verdict holds on to.
+        self._cycle_applied_physical = dict(outcome.applied)
+        # Physics-margin points for the capture gate: the fit's posterior
+        # widths (floored, see identifiability_report) turned into a grid
+        # of perturbations spanning +-1 sigma of the applied values.
+        self._identified_physical_sigma_points = physics_sigma_points(
+            outcome.applied,
+            outcome.report,
+            physical_specs,
+            num_points=CFG.agent_plan_validation_physics_margin_points)
+        if self._identified_physical_sigma_points:
+            logger.info("Physics-margin points for capture validation: %s",
+                        [{k: f"{v:.4f}"
+                          for k, v in pt.items()}
+                         for pt in self._identified_physical_sigma_points])
+        self._record_sysid_diagnostics(outcome.report,
+                                       physical_names, outcome.num_survivors,
+                                       len(rollouts), outcome.traj_rms)
+        return outcome.fit_result, outcome.post_sse
 
-    def _check_cross_cycle_consistency(self, result: FitResult,
-                                       report: Dict[str, Dict[str, Any]],
-                                       physical_names: Sequence[str]) -> None:
+    def _check_cross_cycle_consistency(
+        self,
+        result: FitResult,
+        report: Dict[str, Dict[str, Any]],
+        physical_names: Sequence[str],
+        pooled_sse: Optional[Callable[[Dict[str, float]],
+                                      float]] = None) -> None:
         """Flag params whose confident MAP jumped since the previous cycle.
 
         The curvature probe measures local *precision*: a biased
@@ -1863,12 +2043,30 @@ the tools.{probe_note}"""
         final fits in FIT space (log for log-scale params) catches
         exactly this: a jump above
         ``CFG.code_sim_learning_rollout_cross_cycle_sigma`` combined
-        sigmas downgrades "identified" to weakly identified with an
-        explicit note (the value is still applied - the new fit has
-        strictly more data - but the planner-facing confidence is
-        honest, and the explorer diagnostics pick it up). History
+        sigmas sets ``Verdict.INCONSISTENT``, and the trust selection
+        then HOLDS the currently-applied value instead of hopping to
+        the new fit - neither of two mutually-incompatible confident
+        fits can be preferred on this evidence, and hopping churned the
+        belief env for whole runs (run_20260721_205821 seed1:
+        restitution 0.71 -> 0.52 -> 0.02 -> 0.32 -> 0.02). History
         records only these final per-cycle fits, not the agent's
         in-session tool fits, whose param sets churn.
+
+        Sigma distance alone cannot tell a real correction from probe
+        churn, and successive cycle fits are NOT independent equals:
+        the new fit minimized the objective over a superset of the old
+        fit's data. So before holding, a flagged jump is arbitrated on
+        evidence via ``pooled_sse`` (the fit's own SSE-at-theta probe
+        over its surviving segments - the objective it minimized):
+        when the held value explains that data decisively worse than
+        the new fit
+        (``CFG.code_sim_learning_rollout_consistency_sse_ratio``), the
+        jump is accepted. Without a decisive gap the hold stands
+        (run_20260724_232411-style subset disagreement stays held +
+        hull-swept). Motivated by run_20260727_210827 seed1: a sharp
+        but biased 2-trajectory cycle-0 fit (0.9313, true 0.5) was held
+        over the 4-trajectory refit (0.4748, pooled SSE 0.14 vs ~4.4)
+        for the rest of the run.
         """
         k = CFG.code_sim_learning_rollout_cross_cycle_sigma
         fitted = result.point_estimate
@@ -1876,38 +2074,129 @@ the tools.{probe_note}"""
         for i, name in enumerate(result.names):
             if name not in physical_names:
                 continue
+            if report.get(name, {}).get("verdict") is Verdict.ANCHORED:
+                # An ablation-reverted param's point estimate IS the
+                # baseline, not a fit. Recording it would make the next
+                # cycle's genuine fit read as a many-sigma jump (and
+                # spuriously downgrade it); keep the previous history
+                # entry, which holds the last real fit.
+                continue
             post = float(
                 report.get(name, {}).get("posterior_std", float("nan")))
             scale = scales[i]
             value = fitted[name]
             prev = self._sysid_fit_history.get(name)
+            flagged = False
             if (k > 0 and prev is not None and np.isfinite(post)
                     and np.isfinite(prev[1])):
                 prev_val, prev_std, prev_scale = prev
                 if prev_scale == scale:
-                    if scale == "log":
-                        dist = abs(
-                            np.log(max(value, 1e-300)) -
-                            np.log(max(prev_val, 1e-300)))
-                    else:
-                        dist = abs(value - prev_val)
+                    dist = _fit_space_dist(value, prev_val, scale)
                     combined = float(np.sqrt(post**2 + prev_std**2))
                     if combined > 0 and dist / combined > k:
                         n_sigma = dist / combined
-                        logger.warning(
-                            "Rollout sysID cross-cycle consistency: %s "
-                            "moved %.4f -> %.4f (%.1f combined sigmas > "
-                            "%g) since the previous cycle; the posterior "
-                            "is overconfident.", name, prev_val, value,
-                            n_sigma, k)
-                        entry = report.get(name)
-                        if entry is not None and entry["verdict"].startswith(
-                                "identified"):
-                            entry["verdict"] = (
-                                "weakly identified (INCONSISTENT across "
-                                f"cycles: {prev_val:.4f} -> {value:.4f} is "
-                                f"{n_sigma:.1f} combined sigmas)")
+                        pending = self._sysid_pending_fit.get(name)
+                        if pending is not None and _fit_space_dist(
+                                value, pending[0], scale) / max(
+                                    float(np.sqrt(post**2 + pending[1]**2)),
+                                    1e-12) <= k:
+                            # Two INDEPENDENT cycles agree on the new
+                            # value: the jump was real, not probe
+                            # overconfidence - accept it.
+                            logger.info(
+                                "Rollout sysID cross-cycle consistency: "
+                                "%s jump to ~%.4f confirmed by an "
+                                "independent refit (pending %.4f); "
+                                "accepting the new value.", name, value,
+                                pending[0])
+                            self._sysid_pending_fit.pop(name, None)
+                        elif self._arbitrate_cross_cycle_jump(
+                                name, fitted, prev_val, pooled_sse):
+                            # Pooled evidence decisively prefers the
+                            # new fit over the held value (the helper
+                            # logs the SSE gap); accept it now instead
+                            # of waiting a cycle for confirmation.
+                            self._sysid_pending_fit.pop(name, None)
+                        else:
+                            flagged = True
+                            logger.warning(
+                                "Rollout sysID cross-cycle consistency: %s "
+                                "moved %.4f -> %.4f (%.1f combined sigmas > "
+                                "%g) since the previous cycle; the posterior "
+                                "is overconfident.", name, prev_val, value,
+                                n_sigma, k)
+                            entry = report.get(name)
+                            if (entry is not None and
+                                    entry["verdict"] is Verdict.IDENTIFIED):
+                                entry["verdict"] = Verdict.INCONSISTENT
+                                entry["note"] = (
+                                    f"{prev_val:.4f} -> {value:.4f} is "
+                                    f"{n_sigma:.1f} combined sigmas; holding "
+                                    "the last trusted value, margin sweep "
+                                    "spans both")
+                                # Both incompatible fits become hull
+                                # candidates so the margin sweep covers
+                                # the whole disagreement - the interval
+                                # [0.3236, 0.6267] contained the true
+                                # 0.5 in run_20260724_232411 seed2.
+                                cands = set(entry.get("candidate_values", ()))
+                                cands.update((float(prev_val), float(value)))
+                                if pending is not None:
+                                    cands.add(float(pending[0]))
+                                entry["candidate_values"] = sorted(cands)
+                            self._sysid_pending_fit[name] = (value, post)
+            if flagged:
+                # Keep the trusted value as the comparison reference;
+                # the rejected fit waits in _sysid_pending_fit for an
+                # independent confirmation. Recording the rejected fit
+                # here would make it the NEXT cycle's reference, i.e.
+                # accept the hop one cycle late without any new
+                # evidence.
+                continue
+            self._sysid_pending_fit.pop(name, None)
             self._sysid_fit_history[name] = (value, post, scale)
+
+    @staticmethod
+    def _arbitrate_cross_cycle_jump(
+            name: str, fitted: Dict[str, float], prev_val: float,
+            pooled_sse: Optional[Callable[[Dict[str, float]], float]]) -> bool:
+        """Settle a flagged cross-cycle jump by pooled-data evidence.
+
+        Evaluates ``pooled_sse`` (the fit's own objective over its
+        surviving segments) under the new joint fit and under the same
+        fit with ``name`` swapped back to the held value. Returns True
+        (accept the jump) only when the held
+        value's explanation is decisively worse - at least
+        ``CFG.code_sim_learning_rollout_consistency_sse_ratio`` times
+        the new fit's SSE. Anything short of decisive (including an SSE
+        evaluation failure) returns False and leaves the hold-and-
+        hull-sweep behavior in charge.
+        """
+        ratio = CFG.code_sim_learning_rollout_consistency_sse_ratio
+        if pooled_sse is None or ratio <= 0:
+            return False
+        try:
+            sse_new = pooled_sse(dict(fitted))
+            held_theta = dict(fitted)
+            held_theta[name] = prev_val
+            sse_held = pooled_sse(held_theta)
+        except Exception:  # pylint: disable=broad-except
+            logger.warning(
+                "Rollout sysID cross-cycle arbitration: pooled SSE "
+                "evaluation failed for %s; holding the trusted value.",
+                name,
+                exc_info=True)
+            return False
+        if not (np.isfinite(sse_new) and np.isfinite(sse_held)):
+            return False
+        decisive = sse_held > ratio * sse_new
+        logger.info(
+            "Rollout sysID cross-cycle arbitration: %s pooled SSE %.4g at "
+            "the new fit %.4g vs %.4g at the held value %.4g - %s.", name,
+            sse_new, fitted[name], sse_held, prev_val,
+            ("decisively better, accepting the jump"
+             if decisive else "not decisive, holding"))
+        return decisive
 
     def _record_sysid_diagnostics(self, report: Dict[str, Dict[str, Any]],
                                   physical_names: Sequence[str],
@@ -1936,20 +2225,53 @@ the tools.{probe_note}"""
                 "evolve and settle on its own.")
         for name in physical_names:
             entry = report.get(name, {})
-            verdict = entry.get("verdict", "unknown")
-            if verdict.startswith("identified"):
-                if entry.get("flat_wide"):
-                    interval = entry["flat_interval"]
+            verdict = entry.get("verdict", Verdict.UNKNOWN)
+            note = entry.get("note", "")
+            label = verdict.value + (f" ({note})" if note else "")
+            if verdict is Verdict.IDENTIFIED:
+                cands = entry.get("candidate_values", ())
+                if len(cands) > 1:
                     lines.append(
-                        f"- physical param '{name}': the data cannot "
-                        f"distinguish values in [{interval[0]:.4g}, "
-                        f"{interval[1]:.4g}] (the applied value is the "
-                        "interval edge nearest the baseline belief). An "
-                        "experiment whose observable outcome DIFFERS across "
-                        "this interval would pin it down.")
+                        f"- physical param '{name}': identified, but the "
+                        "recorded segments preferred mutually-incompatible "
+                        f"explanations spanning [{min(cands):.4g}, "
+                        f"{max(cands):.4g}] (the physics-margin sweep "
+                        "covers that whole hull). A clean, repeatable "
+                        "interaction that excites this parameter and "
+                        "little else would collapse the hull.")
+                continue
+            interval = entry.get("flat_interval")
+            if (verdict in (Verdict.WEAKLY_IDENTIFIED, Verdict.NOT_IDENTIFIED)
+                    and interval is not None and interval[0] != interval[1]):
+                lines.append(
+                    f"- physical param '{name}': the data cannot "
+                    f"distinguish values in [{interval[0]:.4g}, "
+                    f"{interval[1]:.4g}]. An experiment whose observable "
+                    "outcome DIFFERS across this interval would pin it "
+                    "down.")
+                continue
+            if verdict is Verdict.ANCHORED:
+                # Anchor ablation handled this param correctly (the move
+                # was compensatory; the baseline is applied) - it is NOT
+                # a failed identification, so don't advise dropping it.
+                lines.append(
+                    f"- physical param '{name}': the fitted move was "
+                    "compensatory (a refit with it at its baseline explains "
+                    "the data equally well), so the baseline was kept. An "
+                    "experiment that excites this parameter SPECIFICALLY "
+                    "(not jointly with the others) would distinguish the "
+                    "two explanations.")
+                continue
+            if verdict is Verdict.INCONSISTENT:
+                lines.append(
+                    f"- physical param '{name}': successive cycles produced "
+                    f"confident but mutually-incompatible fits ({note}). "
+                    "The objective is biased somewhere: collect a clean, "
+                    "repeatable interaction that excites this parameter and "
+                    "little else, so one of the two values can be refuted.")
                 continue
             lines.append(
-                f"- physical param '{name}': {verdict}. An experiment whose "
+                f"- physical param '{name}': {label}. An experiment whose "
                 "observable outcome CHANGES when this parameter changes "
                 "would identify it; if none exists, drop it from "
                 "PHYSICAL_PARAMS.")
@@ -2002,7 +2324,7 @@ the tools.{probe_note}"""
         ``self._fit_trajectories``; falls back to a single trajectory if
         no grouping info exists. Delegates the actual fit/log to
         :func:`fitting.fit_rule_parameters_latent` so the agent's
-        ``evaluate_step_fit`` tool scores latent rules through the exact
+        ``sim.fit`` surface scores latent rules through the exact
         same path.
         """
         groups = self._group_triples_by_trajectory(base_pred_triples)
@@ -2372,7 +2694,15 @@ Prior cycle state: {joined} already exist in the sandbox from a previous \
 learning cycle. Read them first - they are the previous cycle's committed \
 result and a reasonable starting point for incremental refinement (though \
 a fresh rewrite is fine if the prior approach looks fundamentally wrong). \
-Earlier versions are in `./simulator_versions/` and \
+Structural decisions are NOT binding across cycles: re-read the decision \
+record at the top of `simulator.py` and re-decide the architecture itself \
+- what the base sim carries vs. what the rules model, which features the \
+rules own, the latent structure, and whether disclosed base-sim \
+parameters should be identified - rather than only tuning what exists. \
+In particular, if the trajectory roster shows goal-reaching episodes \
+scored solved=0, suspect a structural modeling error (e.g. mis-calibrated \
+base physics that your rules only paper over near the fit data), not just \
+parameter values. Earlier versions are in `./simulator_versions/` and \
 `./predicates_versions/` (named `cycle_XXX_vers_YYY_*.py`); \
 cross-reference the trajectory roster's provenance tags against those \
 files to see exactly which rules and predicates produced each failed plan.
@@ -2482,8 +2812,10 @@ files to see exactly which rules and predicates produced each failed plan.
     def _recreate_base_env(self) -> None:
         """Reconnect after a PyBullet physics-server crash."""
         try:
-            client_id = self._base_env._physics_client_id  # type: ignore[attr-defined]  # pylint: disable=protected-access
-            pybullet.disconnect(client_id)
+            # dispose_env releases the secondary probe world too; the
+            # domino override disposes it BEFORE the (possibly dead)
+            # main client so a raise here cannot strand it.
+            dispose_env(self._base_env)
         except Exception:  # pylint: disable=broad-except  # client may already be dead
             pass
         logging.warning(
@@ -2505,10 +2837,21 @@ files to see exactly which rules and predicates produced each failed plan.
         if self._option_model is not None and \
                 getattr(self._option_model, "sim_env", None) is not None:
             self._option_model.sim_env = self._base_env
+        # The probe's combined substrate rides on the env instance too.
+        self._base_env.probe_process_model_factory = \
+            self._make_probe_process_model_factory()
 
     @contextmanager
-    def _fresh_validation_env_scope(self) -> Iterator[None]:
+    def _fresh_validation_env_scope(
+        self,
+        physical_overrides: Optional[Dict[str,
+                                          float]] = None) -> Iterator[None]:
         """Run the option model on a freshly constructed base env.
+
+        ``physical_overrides`` (the capture gate's physics-margin
+        rollouts) is applied to the fresh env ON TOP of the identified
+        params, so the rollout runs at a perturbed physics; the shared
+        session env is never touched.
 
         Installed as ``ToolContext.validation_env_scope`` so
         ``evaluate_option_plan``'s capture-validation rollouts each sample
@@ -2536,6 +2879,8 @@ files to see exactly which rules and predicates produced each failed plan.
         if self._identified_physical_params:
             fresh.apply_physical_param_overrides(
                 self._identified_physical_params)
+        if physical_overrides:
+            fresh.apply_physical_param_overrides(dict(physical_overrides))
         prev_env = self._base_env
         # Typed Any: sim_env and _simulator are dynamic attributes not on
         # _OptionModelBase.
@@ -2543,6 +2888,10 @@ files to see exactly which rules and predicates produced each failed plan.
         prev_sim = getattr(model, "_simulator", None)
         rebind_sim = getattr(prev_sim, "__self__", None) is prev_env
         prev_sim_env = getattr(model, "sim_env", None)
+        # Certificate probes on the fresh env must judge on the same
+        # combined substrate as the shared env's probes.
+        fresh.probe_process_model_factory = getattr(
+            prev_env, "probe_process_model_factory", None)
         self._base_env = fresh
         if rebind_sim:
             model._simulator = fresh.simulate  # pylint: disable=protected-access
@@ -2626,6 +2975,58 @@ files to see exactly which rules and predicates produced each failed plan.
 
         return combined_simulate
 
+    def _make_probe_process_model_factory(
+            self) -> Optional[Callable[[], Callable[[State, Action], State]]]:
+        """Per-replay process-model steppers for certificate probes.
+
+        Stamped on the belief env as
+        ``BaseEnv.probe_process_model_factory`` so physics-replaying
+        task-evaluator certificates judge plans on the same combined
+        substrate the option model plans on (see
+        :meth:`_build_combined_simulator`): each probe attempt gets a
+        fresh stepper that applies the current rules to every post-step
+        state (threading a fresh latent for recurrent rules, like
+        :meth:`_build_latent_combined_simulator` does per plan step).
+        Reads the live ``self._fitted_params`` dict so in-session
+        ``sim.fit`` updates reach the probe, matching the combined
+        simulator's closure. Returns None (probe stays base-only) until
+        rules exist. Limitation: process features the env cannot
+        round-trip through ``_set_state`` (hidden-derived, e.g. a
+        ``bubbling_level``) are not restored inside the probe replay -
+        no env with a physics-replaying certificate declares any today.
+        """
+        rules = getattr(self, "_process_rules", None)
+        if not rules:
+            return None
+        params = self._fitted_params
+        if has_latent_rules(rules):
+            latent_init = self._latent_init
+
+            def make_latent_stepper() -> Callable[[State, Action], State]:
+                latent = init_latent(latent_init, params)
+
+                def step(state: State, action: Action) -> State:
+                    history: List[Tuple[State,
+                                        Optional[Action]]] = [(state, action)]
+                    updates = apply_rules_with_latent(state, latent, history,
+                                                      rules, params)
+                    return merge_updates(state, updates) if updates else state
+
+                return step
+
+            return make_latent_stepper
+
+        def make_stepper() -> Callable[[State, Action], State]:
+
+            def step(state: State, action: Action) -> State:
+                del action  # 3-arg rules read only the state
+                updates = apply_rules(state, rules, params)
+                return merge_updates(state, updates) if updates else state
+
+            return step
+
+        return make_stepper
+
     def _build_synthesis_system_prompt(self) -> str:
         """Render the synthesis system prompt from the module template.
 
@@ -2653,25 +3054,17 @@ files to see exactly which rules and predicates produced each failed plan.
 
     @staticmethod
     def _scene_viz_hint() -> str:
-        """The find-the-anchor-offset sentence, tool-availability-aware.
+        """The find-the-anchor-offset sentence.
 
-        When explore_python replaces the standalone scene tools (the
-        single policy predicate ``explore_python_replaces_tools``), the
-        guidance must name the probe equivalents instead of tools the
-        session lacks; otherwise the legacy wording stands.
+        The probe is unconditional in synthesis sessions, so the hint
+        always names its staging + overlay surface.
         """
-        # pylint: disable-next=import-outside-toplevel
-        from predicators.agent_sdk.tools import explore_python_replaces_tools
-        if explore_python_replaces_tools():
-            return ("use `explore_python`: `sim.reset(task_idx=..., "
-                    "mods={...})` to stage a representative state from each "
-                    "bucket and `sim.render(label, annotations=[...])` to "
-                    "overlay, on one render, the recorded origin and the "
-                    "positions where the effect did vs. did not fire")
-        return ("call `visualize_state` on a representative state from each "
-                "bucket and use `annotate_scene` to overlay, on one render, "
-                "the recorded origin and the positions where the effect did "
-                "vs. did not fire")
+        return ("use the `sim` probe in `run_python`: "
+                "`sim.reset(task_idx=..., "
+                "mods={...})` to stage a representative state from each "
+                "bucket and `sim.render(label, annotations=[...])` to "
+                "overlay, on one render, the recorded origin and the "
+                "positions where the effect did vs. did not fire")
 
     def _physical_params_prompt_section(self) -> str:
         """Markdown for the optional PHYSICAL_PARAMS (system-ID) block.
@@ -2692,8 +3085,8 @@ files to see exactly which rules and predicates produced each failed plan.
             return ""
         lines = [
             "",
-            "## Optional: base-sim system identification "
-            "(`PHYSICAL_PARAMS`)",
+            "## Base-sim system identification "
+            "(`PHYSICAL_PARAMS`) - decide, don't default",
             "",
             "The base sim's rigid-body physics is itself parameterized, "
             "and its built-in values may be MIS-CALIBRATED (the real "
@@ -2720,13 +3113,45 @@ files to see exactly which rules and predicates produced each failed plan.
             "",
             "Guidance:",
             "",
-            "- **Declare a sparse subset**, not everything: include only "
-            "parameters you hypothesize are both execution-relevant and "
-            "identifiable from the data (a collision parameter cannot be "
-            "identified from trajectories that contain no collisions). "
-            "`evaluate_step_fit` returns a per-parameter identifiability "
-            "report (posterior contraction); drop any parameter reported "
-            "as NOT identified - its fitted value is arbitrary noise.",
+            "- **This decision requires open-loop evidence - in either "
+            "direction.** Per-step (teacher-forced) residuals CANNOT "
+            "rule a mis-set physical parameter in or out: they predict "
+            "each step from the RECORDED state, so compounding "
+            "divergence - exactly how a wrong friction or mass "
+            "manifests - is invisible to them. Near-zero per-step "
+            "residuals are fully compatible with rollouts that are "
+            "hundreds of times worse than at the correct value. Before "
+            "deciding, run `sim.residuals(rollout=True)`: it replays "
+            "the recorded trajectories free-running and sweeps each "
+            "parameter above across its box. Declare a parameter whose "
+            "sweep is materially better away from the baseline; a flat "
+            "sweep is honest evidence the data cannot constrain it. "
+            "Omitting PHYSICAL_PARAMS is justified by a flat rollout "
+            "sweep, never by small per-step residuals.",
+            "- **Undeclared parameters keep their built-in values in "
+            "every base-sim rollout** - including an evaluator's "
+            "verification replay deciding what counts as a SOLVE. Your "
+            "rules ride on top of the base sim everywhere, but rules "
+            "fit to observed data can only compensate for a mis-set "
+            "built-in value near that data; identifying the parameter "
+            "fixes the substrate itself.",
+            "- **Start with ONE parameter** - the single one with a "
+            "physical story for the observed residual (e.g. cascades "
+            "stopping short of the sim's prediction implicates sliding "
+            "friction) - and add another only if the calibrated fit "
+            "still leaves structure unexplained. Co-declared parameters "
+            "can compensate each other's errors along a data-equivalent "
+            "ridge, so every extra parameter costs fit budget and adds a "
+            "way to be confidently wrong; a parameter cannot be "
+            "identified from data that does not exercise it (a collision "
+            "parameter needs collisions).",
+            "- `sim.fit()` returns a per-parameter identifiability "
+            "report (posterior contraction). Drop any parameter reported "
+            "NOT identified or insensitive - its fitted value is "
+            "arbitrary noise. A parameter reported 'anchored' moved only "
+            "to compensate the others and was reverted to its baseline; "
+            "keep it only if you can collect an interaction that excites "
+            "it specifically.",
             "- With `PHYSICAL_PARAMS` declared, the fit switches to "
             "matching **free-running rollouts** of full trajectories "
             "(momentum accrues in-sim, which the per-step teacher-forced "
@@ -2740,7 +3165,7 @@ files to see exactly which rules and predicates produced each failed plan.
             "features the rollout is scored on (e.g. the pose features "
             "of the objects whose motion you are calibrating).",
             "- After the fit, the identified values are applied to the "
-            "planning base env, so `evaluate_plan_refinement` and "
+            "planning base env, so probe rollouts and "
             "test-time planning use the calibrated physics.",
         ])
         return "\n".join(lines) + "\n"

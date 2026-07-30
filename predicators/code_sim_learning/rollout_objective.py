@@ -13,6 +13,7 @@ from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from predicators.code_sim_learning.config import SysIdConfig
 from predicators.code_sim_learning.fit_space import ParamSpec, to_fit_space
 from predicators.code_sim_learning.lm import solve_lm
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
@@ -41,6 +42,7 @@ def compute_rollout_sse(
     rules: Sequence[Any] = (),
     latent_init: Any = None,
     scaling: Optional[ResidualScaling] = None,
+    config: Optional[SysIdConfig] = None,
 ) -> float:
     """Total per-step SSE between free-running rollouts and observations.
 
@@ -64,7 +66,7 @@ def compute_rollout_sse(
     """
     return sum(r * r for r in _iter_rollout_residual_terms(
         base_env, trajectories, params, process_features, physical_names,
-        rules, latent_init, scaling))
+        rules, latent_init, scaling, config))
 
 
 def compute_rollout_residuals(
@@ -76,6 +78,7 @@ def compute_rollout_residuals(
     rules: Sequence[Any] = (),
     latent_init: Any = None,
     scaling: Optional[ResidualScaling] = None,
+    config: Optional[SysIdConfig] = None,
 ) -> np.ndarray:
     """Rollout residuals (predicted - observed, scaled) as a flat vector.
 
@@ -87,8 +90,30 @@ def compute_rollout_residuals(
     return np.asarray(list(
         _iter_rollout_residual_terms(base_env, trajectories, params,
                                      process_features, physical_names, rules,
-                                     latent_init, scaling)),
+                                     latent_init, scaling, config)),
                       dtype=float)
+
+
+def _huberize(residual: float, delta: float) -> float:
+    """Soft-cap a residual so its SQUARE follows the Huber loss.
+
+    Returns ``r'`` with ``r'**2 == huber_delta(r)``: identity inside
+    ``delta``, ``sign(r) * sqrt(2*delta*|r| - delta**2)`` outside, so
+    every squared-residual consumer (SSE, LM least-squares, RMS) uses
+    the robust objective through one transform. ``delta <= 0``
+    disables. Motivation: a qualitatively-diverged replay's per-step
+    residuals are chaos in theta - quadratic growth lets one such
+    replay outvote every clean observation and steer the grid fit to a
+    wrong basin (measured: SSE 248.7 at theta 0.4746 vs 0.0025 at
+    0.4743 on the same recording); linear growth keeps it penalized
+    without dominance.
+    """
+    if delta <= 0:
+        return residual
+    a = abs(residual)
+    if a <= delta:
+        return residual
+    return float(np.sign(residual) * np.sqrt(2.0 * delta * a - delta * delta))
 
 
 def _iter_rollout_residual_terms(
@@ -100,6 +125,7 @@ def _iter_rollout_residual_terms(
     rules: Sequence[Any],
     latent_init: Any,
     scaling: Optional[ResidualScaling] = None,
+    config: Optional[SysIdConfig] = None,
 ) -> Iterator[float]:
     """Yield per-feature residuals for the joint forward model.
 
@@ -109,12 +135,25 @@ def _iter_rollout_residual_terms(
     rolled-out state, and score every in-scope feature against its
     observation. Deterministic iteration order. Without ``scaling`` the
     residual is the raw ``pred - obs`` difference (legacy objective).
+
+    Each per-step residual is Huber-capped (``huber_delta``), and two
+    kinds of per-trajectory SUMMARY residuals are appended with weight
+    ``summary_weight`` (see the flags in ``settings.py``): the settled
+    ENDPOINT residuals (the trajectory's final scored features - the
+    rest poses a plan actually depends on, re-emphasized because they
+    are 1 of N steps in the per-step sum) and per-object motion ONSET
+    residuals (first step any scored feature moves beyond
+    ``settle_tol``, normalized by the horizon - event timing is smooth
+    in the physical params where mid-flight paths are chaos).
     """
     # pylint: disable=import-outside-toplevel
     from predicators.code_sim_learning.utils import apply_rules, \
         apply_rules_with_latent, has_latent_rules, init_latent
 
     # pylint: enable=import-outside-toplevel
+    config = config or SysIdConfig.from_cfg()
+    delta = config.huber_delta
+    summary_w = np.sqrt(max(config.summary_weight, 0.0))
     physical = {n: params[n] for n in physical_names if n in params}
     rules_list = list(rules)
     latent_mode = bool(rules_list) and has_latent_rules(rules_list)
@@ -124,6 +163,7 @@ def _iter_rollout_residual_terms(
         latent: Dict[str, Any] = (init_latent(latent_init, params)
                                   if latent_mode else {})
         history: List[Tuple[State, Optional[Action]]] = []
+        endpoint_residuals: List[float] = []
         for i, sim_state in enumerate(sim_states):
             obs_state = states[i + 1]
             updates: Dict[Any, Dict[str, Any]] = {}
@@ -136,6 +176,7 @@ def _iter_rollout_residual_terms(
                 else:
                     updates = apply_rules(sim_state, rules_list, params)
             obs_by_name = {o.name: o for o in obs_state}
+            is_last = i == len(sim_states) - 1
             for obj in sim_state:
                 feats = process_features.get(obj.type.name, [])
                 if not feats:
@@ -150,10 +191,62 @@ def _iter_rollout_residual_terms(
                         pred.item() if hasattr(pred, "item") else pred)
                     obs_val = float(obs_state.get(obs_obj, feat))
                     if scaling is not None:
-                        yield scaling.residual(obj.type.name, feat, pred_val,
+                        res = scaling.residual(obj.type.name, feat, pred_val,
                                                obs_val)
                     else:
-                        yield pred_val - obs_val
+                        res = pred_val - obs_val
+                    if is_last and summary_w > 0:
+                        endpoint_residuals.append(res)
+                    yield _huberize(res, delta)
+        if summary_w > 0 and sim_states:
+            for res in endpoint_residuals:
+                yield summary_w * _huberize(res, delta)
+            yield from _onset_residuals([states[0]] + sim_states, states,
+                                        process_features, config.settle_tol,
+                                        summary_w)
+
+
+def _onset_residuals(sim_states: List[State], obs_states: List[State],
+                     process_features: Dict[str, List[str]], motion_tol: float,
+                     weight: float) -> Iterator[float]:
+    """Per-object (sim onset - observed onset) / horizon, weighted.
+
+    The onset is the first state index at which ANY of the object's
+    scored features deviates from its initial value by more than
+    ``motion_tol`` (the same "still moving" tolerance the settled-tail
+    truncation uses); objects that never move in either trajectory
+    contribute nothing. Both trajectories share the initial state (the
+    rollout is reset to it), so the baselines match by construction.
+    """
+    horizon = max(len(obs_states) - 1, 1)
+
+    def _onset(states: List[State], obj_name: str, feats: List[str],
+               baseline: State) -> Optional[int]:
+        base_obj = {o.name: o for o in baseline}[obj_name]
+        for t, state in enumerate(states):
+            objs = {o.name: o for o in state}
+            obj = objs.get(obj_name)
+            if obj is None:
+                continue
+            for feat in feats:
+                if abs(
+                        float(state.get(obj, feat)) -
+                        float(baseline.get(base_obj, feat))) > motion_tol:
+                    return t
+        return None
+
+    baseline = obs_states[0]
+    for obj in baseline:
+        feats = process_features.get(obj.type.name, [])
+        if not feats:
+            continue
+        obs_onset = _onset(obs_states, obj.name, feats, baseline)
+        sim_onset = _onset(sim_states, obj.name, feats, baseline)
+        if obs_onset is None and sim_onset is None:
+            continue
+        obs_t = obs_onset if obs_onset is not None else horizon
+        sim_t = sim_onset if sim_onset is not None else horizon
+        yield weight * (sim_t - obs_t) / horizon
 
 
 def fit_map_lm_rollout(
@@ -169,8 +262,14 @@ def fit_map_lm_rollout(
     prior_centers: Optional[np.ndarray] = None,
     prior_sigmas: Optional[np.ndarray] = None,
     noise_sigma: float = 0.05,
+    fixed_physical: Optional[Dict[str, float]] = None,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """MAP estimate of the joint physical+rule theta via Levenberg-Marquardt.
+
+    ``fixed_physical`` holds extra physical params at EXPLICIT constant
+    values throughout the fit (pushed into the env alongside the fitted
+    ones, not left to the env registry's defaults) - used by the anchor
+    ablation to pin reverted params at exactly the anchor it records.
 
     Rollout counterpart of :func:`training.fit_map_lm`, built on
     :func:`compute_rollout_residuals` and the shared bound-aware
@@ -192,11 +291,13 @@ def fit_map_lm_rollout(
     """
     all_specs = list(physical_specs) + list(rule_specs)
     names = [s.name for s in all_specs]
-    physical_names = [s.name for s in physical_specs]
+    fixed = dict(fixed_physical or {})
+    physical_names = list(fixed) + [s.name for s in physical_specs]
     use_prior = prior_centers is not None and prior_sigmas is not None
 
     def residuals_fn(theta: np.ndarray) -> np.ndarray:
         params = {n: float(theta[i]) for i, n in enumerate(names)}
+        params.update(fixed)
         res = compute_rollout_residuals(base_env, trajectories, params,
                                         process_features, physical_names,
                                         rules, latent_init, scaling)
@@ -225,6 +326,7 @@ def per_trajectory_rms(
     rules: Sequence[Any] = (),
     latent_init: Any = None,
     scaling: Optional[ResidualScaling] = None,
+    config: Optional[SysIdConfig] = None,
 ) -> List[float]:
     """RMS rollout residual of each trajectory separately at ``params``.
 
@@ -238,6 +340,6 @@ def per_trajectory_rms(
     for traj in trajectories:
         res = compute_rollout_residuals(base_env, [traj], params,
                                         process_features, physical_names,
-                                        rules, latent_init, scaling)
+                                        rules, latent_init, scaling, config)
         out.append(float(np.sqrt(np.mean(res**2))) if res.size else 0.0)
     return out

@@ -1,10 +1,12 @@
 """Shared mutable state between the approach and the MCP tools."""
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, Iterator, List, Optional, Set
 
 from predicators.agent_sdk.proposal_exec import ProposalBundle
 from predicators.option_model import _OptionModelBase
+from predicators.settings import CFG
 from predicators.structs import CausalProcess, LowLevelTrajectory, \
     ParameterizedOption, ParameterizedSampler, Predicate, State, Task, Type
 
@@ -38,7 +40,7 @@ class ToolContext:
     option_model: Optional[_OptionModelBase] = None
     # Synthesis-session override for the explore_python probe: a lazy
     # builder over the CANDIDATE simulator.py (fresh MCMC fit, cached
-    # until the file changes). When set, ProbeSim executes against it
+    # until the file changes). When set, BeliefProbe executes against it
     # instead of ``option_model`` - which during synthesis is the stale
     # pre-synthesis model (real physics on cycle 1: a live-env leak).
     # Installed by the sim-learning approach around its synthesis
@@ -47,6 +49,17 @@ class ToolContext:
     # deployed belief model).
     probe_option_model_provider: Optional[Callable[[],
                                                    _OptionModelBase]] = None
+    # The ``sim.fit`` backend for synthesis sessions: fits the candidate
+    # simulator's PARAM_SPECS against the recorded data and returns the
+    # report text (see ``SynthesisToolkit.fit_runner``). None in solve
+    # sessions - the deployed belief model is fixed there, so the probe
+    # rejects ``fit`` calls.
+    probe_fit_provider: Optional[Callable[..., str]] = None
+    # Synthesis-session ``sim.residuals`` backend: computes the
+    # per-feature residual report for the current simulator.py rules
+    # (see ``SynthesisToolkit.residuals_runner``). None in solve
+    # sessions - residuals are a learning diagnostic.
+    probe_residuals_provider: Optional[Callable[..., str]] = None
     # Active-experiment info-gain scorer, synced from the learning
     # approach when info-seeking exploration is on:
     # ``(state, atoms) -> disagreement``. The agent_bilevel explorer
@@ -80,7 +93,6 @@ class ToolContext:
     # the saved session-log filename so test queries are attributable to a task.
     test_task_idx: Optional[int] = None
     test_call_id: int = 0  # incremented per evaluate_option_plan call
-    visualized_state: Optional[State] = None  # last state from visualize_state
     # Managed by AgentSessionMixin: populated from
     # `_build_synthesis_mcp_tools` at session-open, reset to [] for
     # solve sessions. Approaches should not write to this directly —
@@ -140,16 +152,30 @@ class ToolContext:
     # honest reward) instead of paying for another full-budget attempt. A
     # best-effort capture never displaces a validated-solve capture.
     capture_best_effort_plan: bool = False
-    # Fresh-physics scope for capture-validation rollouts: a zero-arg
-    # callable returning a context manager. While entered,
-    # ``ctx.option_model`` simulates on a freshly constructed env instance
-    # instead of the shared session env, whose reset cannot reconstruct
-    # state exactly (solver warm-start state, velocity residuals), making
-    # repeated rollouts correlated with each other and systematically
-    # offset from the fresh real env. Installed by AgentSimLearningApproach
-    # (see ``_fresh_validation_env_scope``); None ⇒ validation rollouts
-    # share the session env. Gated by agent_plan_validation_fresh_env.
-    validation_env_scope: Optional[Callable[[], Any]] = None
+    # Fresh-physics scope for capture-validation rollouts: a callable
+    # returning a context manager. While entered, ``ctx.option_model``
+    # simulates on a freshly constructed env instance instead of the shared
+    # session env, whose reset cannot reconstruct state exactly (solver
+    # warm-start state, velocity residuals), making repeated rollouts
+    # correlated with each other and systematically offset from the fresh
+    # real env. Accepts an optional ``physical_overrides`` keyword (a
+    # param-name -> value dict applied to the fresh env on top of the
+    # identified params) for the physics-margin rollouts. Installed by
+    # AgentSimLearningApproach (see ``_fresh_validation_env_scope``);
+    # None ⇒ validation rollouts share the session env. Gated by
+    # agent_plan_validation_fresh_env.
+    validation_env_scope: Optional[Callable[..., Any]] = None
+    # Physics-margin points for the capture gate: a zero-arg callable
+    # returning the current grid of perturbations spanning +-1 posterior
+    # sigma of the identified physical params (full override dicts,
+    # ascending; empty when no fit with nonzero posterior width is
+    # deployed). A callable rather than a stored list so the points
+    # always track the LATEST applied fit. Installed by
+    # AgentSimLearningApproach; consumed by evaluate_option_plan under
+    # agent_plan_validation_physics_margin and by the sim.run physics
+    # sweep.
+    physics_margin_provider: Optional[Callable[[], List[Dict[str,
+                                                             float]]]] = None
     # Capture-task keys (see ``_capture_task_key``) that have produced a
     # FLAKY rejection in evaluate_option_plan. A flaky submission is direct
     # evidence the agent is tuning in a marginal region where a lucky
@@ -245,3 +271,36 @@ def _capture_task_key(ctx: ToolContext) -> Any:
     if ctx.test_task_idx is not None:
         return ("test", ctx.test_task_idx)
     return ("iter", ctx.iteration_id)
+
+
+@contextmanager
+def decorrelated_rollout_seed(rollout_idx: int) -> Iterator[None]:
+    """Give one repeat rollout its own motion-planner seed.
+
+    A fresh env per rollout is NOT sufficient for independent samples:
+    every stochastic step of a rollout (BiRRT sampling, IK restarts)
+    reads the constant ``CFG.seed`` at call time, so N fresh-env repeats
+    of the same plan are bit-identical replays and "N/N reliable" is one
+    effective sample. run_20260722_204632 (domino_high_friction_turn
+    seed 2) captured a plan validated 13/13 that was a coin flip on the
+    real episode; every trials-mode result in that run's sessions was
+    0/N or N/N, never mixed. Offsetting the seed per rollout varies the
+    planned motion paths within the tolerance the planner already
+    accepts - the same execution variability that separates the
+    validation context from the real episode - so repeats become a real
+    sample of execution noise.
+
+    ``rollout_idx`` 0 keeps the base seed: the canonical first rollout
+    stays reproducible and single-run (``trials=1``) behavior is
+    unchanged. Enter this scope AFTER any fresh env is created so env
+    construction (and its task-cache key) still sees the base seed.
+    """
+    if rollout_idx == 0:
+        yield
+        return
+    base_seed = CFG.seed
+    CFG.seed = base_seed + rollout_idx
+    try:
+        yield
+    finally:
+        CFG.seed = base_seed

@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 _FLAT_EDGE_Z_TOL = 1e-3
 
 
-def _grid_candidates(spec: ParamSpec, num_points: int) -> np.ndarray:
+def grid_candidates(spec: ParamSpec, num_points: int) -> np.ndarray:
     """Sweep values across ``spec``'s box, evenly spaced in its FIT space.
 
     Linear params get ``linspace``; log params get ``geomspace`` — equal
@@ -134,6 +134,37 @@ def _refine_flat_edge(spec: ParamSpec, pool: List[Tuple[float, float]],
     return _closest_to_anchor(spec, flat, anchor)
 
 
+def _resolved_interval(spec: ParamSpec, pool: Sequence[Tuple[float, float]],
+                       flat_values: Sequence[float]) -> Tuple[float, float]:
+    """The interval the sweep actually RESOLVED the flat set to.
+
+    The flat interval spans only the evaluated flat members, but the
+    sweep established nothing about the landscape between a flat edge
+    and the nearest evaluated value it REJECTED - the true
+    data-equivalent region can extend anywhere in that gap. Each edge of
+    the resolved interval is therefore the fit-space midpoint between
+    the flat edge and its nearest rejected neighbor (the edge itself
+    when no rejected value exists on that side, e.g. a flat set running
+    to the box bound). This is what keeps a bisection-collapsed
+    single-point flat set (best SSE dropped, relative tolerance shrank,
+    every other candidate fell out) from reading as zero posterior
+    width: the collapse says nothing about values the sweep never
+    evaluated.
+    """
+    z_flat = [scalar_to_fit_space(spec, v) for v in flat_values]
+    z_lo, z_hi = min(z_flat), max(z_flat)
+    z_rejected = [
+        scalar_to_fit_space(spec, v) for v, _sse in pool
+        if v not in set(flat_values)
+    ]
+    below = [z for z in z_rejected if z < z_lo]
+    above = [z for z in z_rejected if z > z_hi]
+    z_res_lo = 0.5 * (max(below) + z_lo) if below else z_lo
+    z_res_hi = 0.5 * (min(above) + z_hi) if above else z_hi
+    return (float(scalar_from_fit_space(spec, z_res_lo)),
+            float(scalar_from_fit_space(spec, z_res_hi)))
+
+
 def _grid_seed_physical_specs(
     base_env: Any,
     trajectories: List[RolloutTrajectory],
@@ -219,7 +250,7 @@ def _grid_seed_physical_specs(
         for spec in physical_specs:
             assert spec.lo is not None and spec.hi is not None, \
                 "Grid seeding needs bounded physical params."
-            values = [float(v) for v in _grid_candidates(spec, num_points)]
+            values = [float(v) for v in grid_candidates(spec, num_points)]
             values += [
                 float(spec.init_value), anchor_of[spec.name],
                 current[spec.name]
@@ -274,6 +305,7 @@ def _grid_seed_physical_specs(
             "span": float(max(sses) - min(sses)),
             "flat_interval":
             (float(min(flat_values)), float(max(flat_values))),
+            "resolved_interval": _resolved_interval(spec, pool, flat_values),
         }
         seeded.append(
             ParamSpec(spec.name,
@@ -319,6 +351,45 @@ def min_explainable_rms(
     and unexplainable as the agent re-declared inits across calls
     (observed on run_20260711_141026, cycle 2).
     """
+    best, _ = min_explainable_fits(base_env,
+                                   trajectories,
+                                   physical_specs,
+                                   process_features,
+                                   rules=rules,
+                                   rule_specs=rule_specs,
+                                   latent_init=latent_init,
+                                   extra_candidates=extra_candidates,
+                                   scaling=scaling,
+                                   anchors=anchors,
+                                   config=config)
+    return best
+
+
+def min_explainable_fits(
+    base_env: Any,
+    trajectories: List[RolloutTrajectory],
+    physical_specs: Sequence[ParamSpec],
+    process_features: Dict[str, List[str]],
+    rules: Sequence[Any] = (),
+    rule_specs: Sequence[ParamSpec] = (),
+    latent_init: Any = None,
+    extra_candidates: Sequence[Dict[str, float]] = (),
+    scaling: Optional[ResidualScaling] = None,
+    anchors: Optional[Dict[str, float]] = None,
+    config: Optional[SysIdConfig] = None,
+) -> Tuple[List[float], List[Dict[str, float]]]:
+    """:func:`min_explainable_rms` plus each trajectory's argmin params.
+
+    The second return is, per trajectory, the PHYSICAL portion of the
+    candidate that achieved its best RMS. This is each recording's own
+    preferred explanation, and disagreement between them is the honest
+    uncertainty signal the consistency loop acts on: when a segment
+    gets dropped, its argmin becomes a hull candidate that widens the
+    physics-margin sweep instead of vanishing with the data (see
+    ``fit_params_rollout_trimmed``). The sweep is unchanged, so the
+    argmins are grid-resolution (coarse) - adequate for a hull bound,
+    not a point estimate.
+    """
     config = config or SysIdConfig.from_cfg()
     anchors = anchors or {}
     base = {
@@ -330,16 +401,23 @@ def min_explainable_rms(
     if num_points > 0:
         for spec in physical_specs:
             assert spec.lo is not None and spec.hi is not None
-            for val in _grid_candidates(spec, num_points):
+            for val in grid_candidates(spec, num_points):
                 cand = dict(base)
                 cand[spec.name] = float(val)
                 candidates.append(cand)
     candidates.extend(dict(c) for c in extra_candidates)
     physical_names = [s.name for s in physical_specs]
     best = [float("inf")] * len(trajectories)
+    best_params: List[Dict[str, float]] = [{
+        n: float(base[n])
+        for n in physical_names
+    } for _ in trajectories]
     for params in candidates:
         rms = per_trajectory_rms(base_env, trajectories, params,
                                  process_features, physical_names, rules,
                                  latent_init, scaling)
-        best = [min(b, r) for b, r in zip(best, rms)]
-    return best
+        for i, r in enumerate(rms):
+            if r < best[i]:
+                best[i] = r
+                best_params[i] = {n: float(params[n]) for n in physical_names}
+    return best, best_params
