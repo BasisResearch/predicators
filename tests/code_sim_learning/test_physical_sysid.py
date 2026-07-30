@@ -280,7 +280,9 @@ def test_physics_sigma_points_log_scale_and_clipping():
             "verdict": Verdict.WEAKLY_IDENTIFIED
         },
     }
-    lo_pt, hi_pt = physics_sigma_points(applied, report, specs)
+    pts = physics_sigma_points(applied, report, specs)
+    assert len(pts) == 2
+    lo_pt, hi_pt = pts[0], pts[1]
     assert np.isclose(lo_pt["friction"], 0.53 * np.exp(-0.1))
     assert np.isclose(hi_pt["friction"], 0.53 * np.exp(0.1))
     # Linear param moves additively; the low point clips at the box.
@@ -293,15 +295,15 @@ def test_physics_sigma_points_empty_without_width():
     from predicators.code_sim_learning.identifiability import \
         physics_sigma_points
     specs = [ParamSpec("friction", 0.53, lo=0.01, hi=2.0, scale="log")]
-    assert physics_sigma_points({"friction": 0.53},
-                                {"friction": {
-                                    "posterior_std": 0.0
-                                }}, specs) == []
-    assert physics_sigma_points({"friction": 0.53},
-                                {"friction": {
-                                    "posterior_std": float("nan")
-                                }}, specs) == []
-    assert physics_sigma_points({"friction": 0.53}, {}, specs) == []
+    assert not physics_sigma_points({"friction": 0.53},
+                                    {"friction": {
+                                        "posterior_std": 0.0
+                                    }}, specs)
+    assert not physics_sigma_points(
+        {"friction": 0.53}, {"friction": {
+            "posterior_std": float("nan")
+        }}, specs)
+    assert not physics_sigma_points({"friction": 0.53}, {}, specs)
 
 
 def test_physics_sigma_points_skip_untrusted_verdicts():
@@ -329,7 +331,9 @@ def test_physics_sigma_points_skip_untrusted_verdicts():
             "verdict": Verdict.NOT_IDENTIFIED
         },
     }
-    lo_pt, hi_pt = physics_sigma_points(applied, report, specs)
+    pts = physics_sigma_points(applied, report, specs)
+    assert len(pts) == 2
+    lo_pt, hi_pt = pts[0], pts[1]
     assert lo_pt["restitution"] == 0.02
     assert hi_pt["restitution"] == 0.02
     assert lo_pt["friction"] < 0.53 < hi_pt["friction"]
@@ -340,8 +344,7 @@ def test_physics_sigma_points_skip_untrusted_verdicts():
             "verdict": Verdict.NOT_IDENTIFIED
         }
     }
-    assert physics_sigma_points({"friction": 0.53}, report_none,
-                                specs[:1]) == []
+    assert not physics_sigma_points({"friction": 0.53}, report_none, specs[:1])
 
 
 def test_select_trustworthy_params_keeps_init_for_unidentified():

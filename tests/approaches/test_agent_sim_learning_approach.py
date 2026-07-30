@@ -527,7 +527,7 @@ def test_apply_identified_params_clears_sigma_points():
     approach._identified_physical_params = {}
     approach._identified_physical_sigma_points = [{"lateral_friction": 0.48}]
     approach._apply_identified_physical_params({"lateral_friction": 0.53})
-    assert approach._identified_physical_sigma_points == []
+    assert not approach._identified_physical_sigma_points
 
 
 if __name__ == "__main__":
