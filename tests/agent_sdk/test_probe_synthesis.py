@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from predicators import utils
-from predicators.agent_sdk.probe_api import ProbeSim
+from predicators.agent_sdk.probe_api import ProbeSim, build_probe_namespace
 from predicators.agent_sdk.tools import ToolContext, create_mcp_tools
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
@@ -149,10 +149,11 @@ def test_candidate_probe_model_provider_glue(tmp_path, monkeypatch) -> None:
     assert approach._fitted_params == {"k": 1.5}
 
 
-def test_explore_python_description_follows_phase() -> None:
-    """The tool description flips with the installed provider: candidate
-    simulator + evaluate_plan_refinement wording in synthesis sessions, belief
-    simulator + evaluate_option_plan wording in solve sessions."""
+def test_probe_descriptions_follow_phase() -> None:
+    """The probe surface follows the session: explore_python (solve-only)
+    carries the belief-simulator + evaluate_option_plan wording, while in
+    synthesis the probe rides inside run_python, whose description carries the
+    candidate-simulator + evaluate_plan_refinement wording."""
     utils.reset_config({"agent_planner_use_explore_python": True})
 
     def _desc(ctx: ToolContext) -> str:
@@ -165,11 +166,149 @@ def test_explore_python_description_follows_phase() -> None:
     solve_desc = _desc(ToolContext())
     assert "belief simulator" in solve_desc
     assert "evaluate_option_plan" in solve_desc
+    # The solve namespace also carries the recorded real trajectories.
+    assert "trajectories" in solve_desc
+    assert "describe_trajectory" in solve_desc
 
-    ctx = ToolContext()
-    ctx.probe_option_model_provider = _fake_model
-    synth_desc = _desc(ctx)
+    def _run_python_desc() -> str:
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.tools import create_synthesis_tools
+        toolkit = create_synthesis_tools(exec_ns={},
+                                         base_pred_triples=[],
+                                         inferred_process_features={},
+                                         simulator_file="/dev/null",
+                                         versions_dir="/dev/null")
+        (run_python, ) = (t for t in toolkit.tools
+                          if getattr(t, "name", "") == "run_python")
+        description = getattr(run_python, "description", "")
+        assert description
+        return description
+
+    synth_desc = _run_python_desc()
     assert "CANDIDATE simulator" in synth_desc
     assert "task_idx is required" in synth_desc
-    assert "validate the simulator itself via evaluate_plan_refinement" \
-        in synth_desc
+    assert "sim.fit" in synth_desc
+    assert "sim.residuals" in synth_desc
+    # The fit/refine/forward-run protocol replaced the old validation
+    # tool, and the probe is unconditional in synthesis sessions.
+    assert "evaluate_plan_refinement" not in synth_desc
+    utils.reset_config({"agent_planner_use_explore_python": False})
+    assert "CANDIDATE simulator" in _run_python_desc()
+
+
+def test_probe_namespace_contract() -> None:
+    """The solve exec namespace carries the probe, numpy, and the recorded.
+
+    real trajectories (read-only evidence) - and deliberately nothing
+    evaluator-shaped or authoring-shaped (those are synthesis-role; see
+    build_probe_namespace).
+    """
+    utils.reset_config({})
+    ctx = ToolContext()
+    ns = build_probe_namespace(ctx)
+    assert {"sim", "ProbeSim", "np", "trajectories", "describe_trajectory"
+            } <= set(ns)
+    assert "evaluate_trajectory" not in ns
+    assert "Predicate" not in ns
+    assert "ParamSpec" not in ns
+
+    # No data collected yet: the digest helper says so instead of
+    # crashing cryptically.
+    with pytest.raises(ValueError, match="No trajectories"):
+        ns["describe_trajectory"](0)
+
+
+def test_probe_task_digest() -> None:
+    """sim.task() describes the current task in solve sessions, requires an
+    explicit train-task index during synthesis (stale-current-task guard, same
+    as reset), and only advertises the is_goal_state query in synthesis, whose
+    exec namespace binds it."""
+    utils.reset_config({})
+    task = _tiny_task()
+    ctx = ToolContext()
+    ctx.train_tasks = [task]
+    ctx.current_task = task
+    sim = ProbeSim(ctx)
+
+    solve_digest = sim.task()
+    assert "current solve task" in solve_digest
+    assert "thing0:thing" in solve_digest
+    assert "is_goal_state" not in solve_digest
+    assert sim.task(0).startswith("Task 0:")
+    with pytest.raises(ValueError, match="Invalid task_idx"):
+        sim.task(3)
+
+    ctx.probe_option_model_provider = _fake_model
+    with pytest.raises(ValueError, match="task_idx explicitly"):
+        sim.task()
+    synth_digest = sim.task(0)
+    assert "is_goal_state(state, 0)" in synth_digest
+
+
+def test_probe_fit_gating_and_delegation() -> None:
+    """sim.fit delegates to ctx.probe_fit_provider in synthesis sessions and
+    raises in solve sessions (the deployed belief model is fixed there)."""
+    utils.reset_config({})
+    ctx = ToolContext()
+    sim = ProbeSim(ctx)
+    with pytest.raises(RuntimeError, match="unavailable in this session"):
+        sim.fit()
+
+    calls: dict = {}
+
+    def _provider(path=None, traj_idxs=None, fixed=None) -> str:
+        calls.update(path=path, traj_idxs=traj_idxs, fixed=fixed)
+        return "[cycle_000_vers_000] fit report"
+
+    ctx.probe_fit_provider = _provider
+    out = sim.fit(traj_idxs=[0], fixed={"k": 1.0})
+    assert out == "[cycle_000_vers_000] fit report"
+    assert calls == {"path": None, "traj_idxs": [0], "fixed": {"k": 1.0}}
+
+
+def test_probe_residuals_gating_and_delegation() -> None:
+    """sim.residuals delegates to ctx.probe_residuals_provider in synthesis
+    sessions and raises in solve sessions (no candidate simulator to score)."""
+    utils.reset_config({})
+    ctx = ToolContext()
+    sim = ProbeSim(ctx)
+    with pytest.raises(RuntimeError, match="unavailable in this session"):
+        sim.residuals()
+
+    calls: dict = {}
+
+    def _provider(**kwargs) -> str:
+        calls.update(kwargs)
+        return "[cycle_000_vers_000] residual report"
+
+    ctx.probe_residuals_provider = _provider
+    out = sim.residuals(max_transitions=5, fit_params=True)
+    assert out == "[cycle_000_vers_000] residual report"
+    assert calls == {
+        "max_transitions": 5,
+        "abs_tol": 1e-4,
+        "rel_tol": 1e-3,
+        "num_worst_examples": 3,
+        "fit_params": True,
+        "path": None,
+    }
+
+
+def test_probe_run_reports_subgoal_divergence() -> None:
+    """ProbeResult renders per-step SUBGOAL NOT REACHED lines, so a single
+    continuous sim.run of a refined plan is the forward-validation pass."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.agent_sdk.probe_api import ProbeResult
+    step = {
+        "option": "Place(robot)[0.1]",
+        "num_actions": 7,
+        "failure": None,
+        "added": [],
+        "deleted": [],
+        "subgoals_missing": ["WidgetAtFixture(widget0, fixture0)"],
+        "image": None,
+    }
+    task = _tiny_task()
+    rendered = repr(ProbeResult([step], False, [], task.init, []))
+    assert "SUBGOAL NOT REACHED: {WidgetAtFixture(widget0, fixture0)}" \
+        in rendered

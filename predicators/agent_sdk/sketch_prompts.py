@@ -177,8 +177,8 @@ def build_solve_prompt(
             line += f" — {pred.natural_language_assertion(names)}"
         pred_strs.append(line)
 
-    # Tool-availability-aware references: when explore_python replaces the
-    # standalone visualize/refine tools (see
+    # Tool-availability-aware references: when explore_python replaces
+    # the standalone refine tool (see
     # agent_planner_explore_python_keep_replaced_tools), guidance must
     # point at the probe equivalents instead of tools the session lacks.
     # ``tool_names=None`` keeps the legacy all-tools wording.
@@ -191,20 +191,15 @@ def build_solve_prompt(
                     and _has_tool("explore_python"))
     refine_ref = ("`sim.refine` (in `explore_python`)"
                   if probe_refine else "`refine_plan_sketch`")
-    if not _has_tool("visualize_state") and _has_tool("explore_python"):
+    if _has_tool("explore_python"):
         visualize_advice = (
             "- Use `explore_python` (`sim.reset(mods={...})`, then "
             "`sim.render(...)`) to move objects to candidate positions and "
             "orientations for free (no physics) and find the right region "
             "visually before testing.\n")
-    elif _has_tool("visualize_state"):
-        visualize_advice = (
-            "- Use `visualize_state` to move objects to candidate positions "
-            "and orientations for free (no physics) and find the right "
-            "region visually before testing.\n")
     else:
-        # Neither visualization surface is offered: no bullet, rather
-        # than advice naming a tool the session lacks.
+        # No visualization surface offered: no bullet, rather than
+        # advice naming a capability the session lacks.
         visualize_advice = ""
 
     # Advice for a step the search reports stuck (SAMPLE_EXHAUSTED). When the

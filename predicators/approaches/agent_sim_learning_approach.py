@@ -36,6 +36,8 @@ from predicators.agent_sdk.tools import SAMPLER_SYNTHESIS_TOOL_NAMES, \
     SYNTHESIS_TOOL_NAMES, _SnapshotTarget, create_synthesis_tools, \
     evaluate_states_with, finalize_versioned_snapshot, \
     make_write_snapshot_hook
+from predicators.agent_sdk.tools.inspection import render_options_digest, \
+    render_trajectory_digest, render_types_digest
 from predicators.approaches.agent_model_based_approach import \
     AgentModelBasedApproach
 from predicators.approaches.sampler_learning_mixin import SamplerLearningMixin
@@ -252,53 +254,49 @@ first message.
 `Write` / `Edit` `simulator.py` is your normal coding loop. Every \
 successful write is snapshotted to \
 `simulator_versions/cycle_XXX_vers_YYY_simulator.py` (deduped by \
-content; ``XXX`` is the current cycle, ``YYY`` resets per cycle). The \
-synthesis tools below load the file fresh on every call and prefix \
-their output with `[cycle_XXX_vers_YYY]` so you and reviewers can diff \
-iterations.
+content; ``XXX`` is the current cycle, ``YYY`` resets per cycle). \
+`sim.fit` / `sim.residuals` (and the probe's candidate-model refit) \
+load the file fresh on every call and prefix their reports with \
+`[cycle_XXX_vers_YYY]` so you and reviewers can diff iterations.
 
-- `run_python(code)` - ad-hoc data exploration. `trajectories`, `np`, \
-`ParamSpec` in scope; when the learn message states a task objective, \
-`evaluate_trajectory(states, actions=None, task_idx=0)` scores a state \
-sequence with the env's ground-truth evaluator (returns reward / \
-solved; on your own simulator's rollouts the verdict is only as good \
-as the simulator). **Does not** define rules.
-- `evaluate_step_fit` - per-step prediction accuracy: SSE on the step \
-transitions at `init_value` params, plus post-fit SSE and fitted \
-parameters from a parameter fit. Cheap; the inner-loop signal.
-- `report_residuals` - per-feature breakdown: mismatch counts, mean / \
-max abs error, vs-baseline improvement (negative ⇒ rules are adding \
-error), worst-N example transitions. Diagnostic for *which* rule to fix.
-- `evaluate_plan_refinement(plan, task_idx)` - per-task planning \
-success: MCMC-fits, builds the combined simulator, runs backtracking \
-refinement against a plan **you propose** (see "Plan format" below), \
-**and then forward-validates that refined plan continuously** (state \
-carries forward across all options, single shot per step). Reports \
-both verdicts. A SUCCESS line followed by `Forward validation: FAIL` \
-counts as a failure - see "Refinement vs. forward validation" below. \
-Slow; the gate before declaring done.
+- `run_python(code)` - ad-hoc data exploration AND validation. \
+`trajectories`, `np`, `ParamSpec` in scope; when the learn message \
+states a task objective, `evaluate_trajectory(states, actions=None, \
+task_idx=0)` scores a state sequence with the env's ground-truth \
+evaluator (returns reward / solved; on your own simulator's rollouts \
+the verdict is only as good as the simulator). The `sim` probe over \
+your CANDIDATE simulator also lives here: `sim.fit()` (parameter \
+fitting + report; cheap inner-loop signal), `sim.residuals()` \
+(per-feature breakdown: mismatch counts, mean / max abs error, \
+vs-baseline improvement (negative ⇒ rules are adding error), worst-N \
+example transitions - diagnostic for *which* rule to fix), \
+`sim.refine` (backtracking parameter search on a plan sketch), \
+`sim.run` (forward rollout with subgoal checking). **Does not** \
+define rules.
 
-`evaluate_step_fit` and `evaluate_plan_refinement` test complementary \
+`sim.fit` and the refine-then-run protocol test complementary \
 things - pointwise accuracy vs. goal reachability. A rule can have \
 ε-small SSE and still get a saturation threshold or alignment cap *just* \
-wrong enough that refinement can't satisfy a subgoal. Use step-fit + \
-residuals as the fast inner loop and plan-refinement as the slow \
-goal-relevant gate.
+wrong enough that refinement can't satisfy a subgoal. Use `sim.fit` + \
+`sim.residuals` as the fast inner loop, and refine-then-run as the \
+slow goal-relevant gate before declaring done.
 
 ### Refinement vs. forward validation (read before tuning a threshold)
 
-`evaluate_plan_refinement` runs two checks under the same option model. \
-Refinement samples continuous params with up to 50 attempts per \
+Validation is two checks under the same option model. `sim.refine` \
+samples continuous params with up to 50 attempts per \
 parametric step and snapshots state at each backtrack - failures are \
-isolated per step. Forward validation runs the refined plan once, \
-continuously, with state carrying forward across all options - \
-matching how test time will execute it. Any divergence between the \
+isolated per step. The forward pass - one continuous `sim.run` of the \
+refined plan, state carrying forward across all options, subgoal \
+annotations checked per step - matches how test time will execute it. \
+Any divergence between the \
 two indicates the learned model is *more permissive* than the env's \
 effective behavior: refinement's looser gates accept a Place/Wait \
 that the env-driven rollout won't actually achieve.
 
-When you see `Forward validation: FAIL`, the failure mode is almost \
-always one of these:
+When `sim.refine` passes but the continuous `sim.run` reports a \
+`SUBGOAL NOT REACHED` (or the goal check fails), the failure mode is \
+almost always one of these:
 
 1. **A learned gate threshold is wider than the env's effective \
 threshold.** Example: the env's process rule only fires when the \
@@ -323,13 +321,13 @@ the env's empirical boundary, never loosen them. Widening hides \
 discrepancies during refinement and reveals them at test time as \
 0-solve regressions.
 __SYNTHESIS_PROMPT_EXTRA__
-## Plan format for `evaluate_plan_refinement`
+## Plan format for `sim.refine` / `sim.run`
 
 One option call per line, **with every option argument supplied and using \
-typed object references** (`obj:type`), matching exactly what the inspect \
-tools report. Use the inspect tools (or `run_python` over a trajectory) to \
-read off the right names and arities - the parser is strict and silently \
-omitting an argument will not be auto-filled. Example:
+typed object references** (`obj:type`), matching exactly the Options \
+digest in your prompt. Use that digest (or `run_python` over a trajectory) \
+to read off the right names and arities - the parser is strict and \
+silently omitting an argument will not be auto-filled. Example:
 
 ```
 PickWidget(robot:robot, widget0:widget)
@@ -340,7 +338,7 @@ Wait(robot:robot) -> {WidgetReady(widget0:widget)}
 ```
 
 (The names above are illustrative - use whatever options, types, and \
-predicates the inspect tools actually report for your task.) Insert a \
+predicates your prompt digests actually list for your task.) Insert a \
 `Wait` after any action that triggers a delayed process (gradual \
 accumulation, propagation, sensor catch-up) so your rules have steps to \
 fire on.
@@ -359,13 +357,16 @@ prefix an atom with `NOT` if it should become false.
 1. Explore data with `run_python` - what features change per step, \
 which ones aren't explained by the base sim.
 2. `Write` `simulator.py`; `Edit` to iterate.
-3. Score with `evaluate_step_fit`, then `report_residuals` to find \
+3. Score with `sim.fit()`, then `sim.residuals()` to find \
 diverging features. Negative `vs base` ⇒ a rule is actively hurting - \
 usually a wrong gate or sign.
-4. When SSE is plausible, propose an option-skeleton plan and call \
-`evaluate_plan_refinement(plan="...", task_idx=i)`. A stuck step means \
-the rules gating its subgoal atoms are too tight or too loose; fix and \
-re-validate.
+4. When SSE is plausible, propose an option-skeleton plan and validate: \
+`sim.reset(task_idx=i)`, `sim.refine(plan, require_goal=True)`, then a \
+continuous `sim.run` of the refined plan from a fresh \
+`sim.reset(task_idx=i)`. A stuck refine step means the rules gating \
+its subgoal atoms are too tight or too loose; a refine-pass whose \
+`sim.run` diverges means a rule is too permissive. Fix and \
+re-validate - do not declare done until BOTH pass.
 """
 
 
@@ -526,7 +527,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         self._identified_physical_params: Dict[str, float] = {}
         # Explainability (trimming) verdicts are memoized per learn phase
         # (cleared when _fit_trajectories is refreshed): repeated
-        # evaluate_step_fit calls with the same declaration signature
+        # sim.fit calls with the same declaration signature
         # reuse the sweep instead of re-rolling it, which both saves
         # rollouts and pins the verdict for identical inputs.
         self._explainability_cache: Dict[Tuple, List[float]] = {}
@@ -593,28 +594,32 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     def _get_synthesis_tool_names(self) -> Optional[List[str]]:
         """Complete tool surface for the synthesis agent.
 
-        Combines the static MCP tools the agent may call (the inspect
-        family, used to read off option/predicate/type signatures when
-        writing rules) with the names of the dynamic synthesis callables
-        (``run_python``, ``evaluate_step_fit``, ``report_residuals``,
-        ``evaluate_plan_refinement``) attached to
-        ``ctx.extra_mcp_tools`` inside :meth:`_synthesize_with_agent`.
-        The mixin asserts the attached instances and this list agree.
+        The names of the dynamic synthesis callables (just
+        ``run_python``) attached to ``ctx.extra_mcp_tools`` inside
+        :meth:`_synthesize_with_agent`. The mixin asserts the attached
+        instances and this list agree. Fitting, residual reports, and
+        plan validation are NOT tools: they live on the ``sim`` probe
+        (``sim.fit`` / ``sim.residuals`` / ``sim.refine`` /
+        ``sim.run``) inside ``run_python``.
+
+        No inspect tools: the type/option digests are injected into the
+        learn message (see :meth:`_build_synthesis_learn_message`) and
+        trajectory access lives in ``run_python`` (``trajectories`` +
+        ``describe_trajectory``). No ``explore_python`` either: in
+        synthesis sessions the probe rides inside ``run_python``'s
+        namespace as ``sim`` (one exec namespace per session - a helper
+        defined next to the data is visible to probe sweeps). In the
+        agent-synthesis session the probe runs against the CANDIDATE
+        simulator.py via ctx.probe_option_model_provider (installed in
+        _synthesize_with_agent); in the oracle-sim-program sampler
+        session no provider is installed and the probe falls back to
+        ctx.option_model, which there IS the deployed belief model.
         """
-        names = ["inspect_types", "inspect_options", "inspect_trajectories"] +\
-            list(SYNTHESIS_TOOL_NAMES)
+        names: List[str] = list(SYNTHESIS_TOOL_NAMES)
         # When the agent is learning samplers in this session (not using
         # ground-truth ones), expose the evaluate_sampler tool.
         if self._do_synthesize_samplers:
             names += list(SAMPLER_SYNTHESIS_TOOL_NAMES)
-        # Same opt-in flag as the solve phase. In the agent-synthesis
-        # session the probe runs against the CANDIDATE simulator.py via
-        # ctx.probe_option_model_provider (installed in
-        # _synthesize_with_agent); in the oracle-sim-program sampler
-        # session no provider is installed and the probe falls back to
-        # ctx.option_model, which there IS the deployed belief model.
-        if CFG.agent_planner_use_explore_python:
-            names.append("explore_python")
         return names
 
     # ── Subclass hooks ──────────────────────────────────────────
@@ -807,7 +812,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # When the simulator came from the oracle short-circuit no agent
         # session ran above, so per-skill samplers (if enabled) get their
         # own session here, after the option model is built so the
-        # session's evaluate_plan_refinement has a working simulator. When
+        # session's probe (sim.refine) has a working simulator. When
         # the agent *did* synthesize the simulator, samplers already rode
         # along in that session and this is skipped.
         if self._do_synthesize_samplers and \
@@ -856,10 +861,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         on first use, and again after every content change of
         ``simulator_file``, it loads the candidate simulator, MCMC-fits
         its params, and builds the combined option model through the
-        same :func:`build_candidate_option_model` path
-        ``evaluate_plan_refinement`` uses. ``sim.run`` / ``sim.refine``
-        therefore exercise exactly the model the validation tool would
-        score, at deployed (fitted) params. Content-hash caching keeps
+        :func:`build_candidate_option_model` path, publishing the fit
+        exactly as ``sim.fit`` reports it. ``sim.run`` / ``sim.refine``
+        therefore always exercise the candidate at deployed (fitted)
+        params. Content-hash caching keeps
         sweep loops cheap: an unchanged file never refits.
 
         Raises ``RuntimeError`` (surfaced in the tool output) when no
@@ -913,7 +918,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     def _exploration_fit_num_steps() -> Optional[int]:
         """MCMC budget for the active-experiment posterior fit.
 
-        The synthesis tools (``evaluate_step_fit``, ``report_residuals``)
+        The synthesis fit surfaces (``sim.fit``, ``sim.residuals``)
         share the fit statics and run repeatedly inside the agent loop,
         so they always use the global
         ``CFG.code_sim_learning_num_mcmc_steps`` (typically 0 - LM +
@@ -1172,6 +1177,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             self._tool_context.extra_session_hooks = {}
             self._tool_context.extra_mcp_tools = []
             self._tool_context.probe_option_model_provider = None
+            self._tool_context.probe_fit_provider = None
+            self._tool_context.probe_residuals_provider = None
             self._learning_mode = False
             self._close_agent_session()
         return self._load_synthesis_artifacts(trajectories, inferred_hint,
@@ -1230,6 +1237,24 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             "ParamSpec":
             ParamSpec,
         }
+        # Curated per-trajectory digest (same renderer the old
+        # inspect_trajectories tool used), for a first look before
+        # ad-hoc exploration over the raw ``trajectories`` objects.
+        all_predicates = self._get_all_predicates()
+
+        def describe_trajectory(traj_idx: int,
+                                include_states: bool = True,
+                                include_atoms: bool = False,
+                                max_timesteps: int = 10) -> str:
+            return render_trajectory_digest(trajectories,
+                                            self._train_tasks,
+                                            all_predicates,
+                                            traj_idx,
+                                            include_states=include_states,
+                                            include_atoms=include_atoms,
+                                            max_timesteps=max_timesteps)
+
+        exec_ns["describe_trajectory"] = describe_trajectory
         # Env ground-truth scoring, next to is_goal_state (see
         # Task.evaluator). Verdict-only surface: dict of reward/solved
         # on a concrete state sequence - real trajectories or the
@@ -1261,7 +1286,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # is the single source of truth for what the agent sees:
         # anything a builder constructs but the names list omits is
         # dropped here.
-        tools = create_synthesis_tools(
+        toolkit = create_synthesis_tools(
             exec_ns,
             base_pred_triples,
             inferred_hint,
@@ -1272,6 +1297,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             sandbox_dir_for_agent=paths.sandbox_dir_for_agent,
             cycle_index_provider=self._learning_cycle_index,
         )
+        tools = list(toolkit.tools)
         tools.extend(
             self._extra_synthesis_tools(exec_ns, base_pred_triples,
                                         inferred_hint, extra_paths))
@@ -1281,16 +1307,30 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         self._tool_context.extra_mcp_tools = [
             t for t in tools if getattr(t, "name", "") in declared
         ]
-        # Point the explore_python probe at the CANDIDATE simulator for
-        # this session (never the stale pre-synthesis option model; on
-        # cycle 1 that wraps the real env). Must be installed before
-        # the session opens: the tool builder reads it to pick the
-        # probe's description.
-        if CFG.agent_planner_use_explore_python:
-            self._tool_context.probe_option_model_provider = \
-                self._make_candidate_probe_model_provider(
-                    paths.simulator_file, trajectories, base_pred_triples,
-                    inferred_hint)
+        # Point the probe at the CANDIDATE simulator for this session
+        # (never the stale pre-synthesis option model; on cycle 1 that
+        # wraps the real env), then merge the probe facade into
+        # run_python's namespace: synthesis sessions offer ONE exec
+        # namespace, so helpers defined next to the data are visible to
+        # probe sweeps (no explore_python tool here - the roster method
+        # documents the policy). Unconditional: with fit / refine /
+        # forward-validation all living on ``sim``, the probe IS the
+        # validation surface, so a synthesis session without it would
+        # have no way to test what it writes. Only ``sim``/``ProbeSim``
+        # are taken from the probe namespace: ``trajectories`` already
+        # binds the fit list and solve-only extras do not apply.
+        self._tool_context.probe_option_model_provider = \
+            self._make_candidate_probe_model_provider(
+                paths.simulator_file, trajectories, base_pred_triples,
+                inferred_hint)
+        self._tool_context.probe_fit_provider = toolkit.fit_runner
+        self._tool_context.probe_residuals_provider = \
+            toolkit.residuals_runner
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.probe_api import build_probe_namespace
+        probe_ns = build_probe_namespace(self._tool_context)
+        exec_ns["sim"] = probe_ns["sim"]
+        exec_ns["ProbeSim"] = probe_ns["ProbeSim"]
         self._learning_mode = True
         # PostToolUse hook: snapshot simulator.py / predicates.py on
         # every successful Write/Edit/MultiEdit, so the version history
@@ -1325,25 +1365,37 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         n_interaction = n_trajs - n_demos
         predicate_listing = self._format_predicate_signatures(
             self._get_all_predicates())
+        # Static per-session digests, injected instead of offering the
+        # inspect_types / inspect_options tools (same renderers, zero
+        # turns; see the roster note in _get_synthesis_tool_names).
+        types_digest = render_types_digest(self._tool_context.types)
+        options_digest = render_options_digest(
+            self._tool_context.options,
+            gt_options_ref_path=self._tool_context.gt_options_ref_path)
         trajectory_listing = self._format_trajectory_listing(trajectories)
         prior_state_block = self._format_prior_state_block(paths.base)
         objective_block = self._format_objective_block()
         simulator_file_for_agent = paths.simulator_file_for_agent
-        # run_python explores the recorded DATA; explore_python
-        # forward-rolls the CANDIDATE simulator. One sentence so the
-        # two exec tools are not conflated; details live in the tool
+        # The probe rides inside run_python's namespace (one exec
+        # namespace per session): `trajectories` is the recorded DATA,
+        # `sim` forward-rolls the CANDIDATE simulator. One sentence so
+        # the two are not conflated; details live in the tool
         # description.
         probe_note = ""
         if CFG.agent_planner_use_explore_python:
             probe_note = (
                 "\n\nTo forward-roll your CURRENT candidate simulator "
                 "(does the process fire when and where you intended?), "
-                "use `explore_python`: its `sim` probes the "
-                "`simulator.py` you are editing, re-fit automatically "
-                "whenever the file changes; pass task_idx explicitly to "
-                "`sim.reset`. Exploratory only - "
-                "`evaluate_plan_refinement` remains the authoritative "
-                "validation surface.")
+                "use the `sim` probe available inside `run_python`: it "
+                "probes the `simulator.py` you are editing, re-fit "
+                "automatically whenever the file changes; pass task_idx "
+                "explicitly to `sim.reset` (and `sim.task(task_idx)` for "
+                "a task digest). Its rollouts are CANDIDATE-simulator "
+                "predictions - do not mix them up with the recorded real "
+                "`trajectories`. Exploratory only - "
+                "validate via `sim.fit()` + `sim.refine` + a "
+                "continuous `sim.run` forward pass before declaring "
+                "the simulator done.")
         # Tool surface of the (just-opened) synthesis session, rendered
         # the same way the solve/explore prompts list theirs.
         # ``tool_names`` already merges the sandbox built-ins with the
@@ -1386,24 +1438,33 @@ observed next state suggests these features carry process dynamics \
 ## Available Predicates (for subgoal annotations)
 {predicate_listing}
 
-Subgoal annotations in your plans for `evaluate_plan_refinement` \
+Subgoal annotations in your plans for `sim.refine` / `sim.run` \
 must reference these predicate names with matching arity and types. \
 Any threshold or condition you bake into a rule must be consistent \
 with what the predicate's classifier actually checks, or refinement \
 will reject parameter samples that look correct on paper.
 
+## Object Types
+{types_digest}
+
+## Options
+Plans (for `sim.refine` / `sim.run`) and rules must match these \
+typed signatures and parameter boxes exactly:
+{options_digest}
+
 {tools_block}Read the data-structures file first, then explore the trajectory \
 data with `run_python` (variables: `trajectories`, `train_tasks`, \
-`is_goal_state`, `np`, `ParamSpec`, plus `evaluate_trajectory` when a \
+`is_goal_state`, `describe_trajectory(traj_idx)` for a per-timestep \
+digest, `np`, `ParamSpec`, plus `evaluate_trajectory` when a \
 task objective is stated above). Write your simulator to \
 `{simulator_file_for_agent}` - define PROCESS_RULES, PARAM_SPECS, \
 and PROCESS_FEATURES there. Every successful Write/Edit of \
 `{simulator_file_for_agent}` is snapshotted to `simulator_versions/` as \
-`cycle_XXX_vers_YYY_simulator.py` (deduped by content); the synthesis \
-tools (evaluate_step_fit, report_residuals, evaluate_plan_refinement) \
+`cycle_XXX_vers_YYY_simulator.py` (deduped by content); `sim.fit` and \
+`sim.residuals` \
 load that file fresh on every call and report the version tag \
-[cycle_XXX_vers_YYY] in their output. Iterate with `Edit` and re-run \
-the tools.{probe_note}"""
+[cycle_XXX_vers_YYY] in their output. Iterate with `Edit` and \
+re-score.{probe_note}"""
 
         extra_message = self._extra_synthesis_message(extra_paths)
         if extra_message:
@@ -1656,6 +1717,7 @@ the tools.{probe_note}"""
     def _rollout_fit_trajectories(
         self,
         process_features: Optional[Dict[str, List[str]]] = None,
+        traj_idxs: Optional[Sequence[int]] = None,
     ) -> List[RolloutTrajectory]:
         """Raw observed (states, actions) sequences for rollout matching.
 
@@ -1667,9 +1729,22 @@ the tools.{probe_note}"""
         :func:`trajectory_prep.truncate_settled_tail`) so the fit scores
         the active cascade, not hundreds of settled steps of accumulated
         rollout divergence.
+
+        ``traj_idxs`` restricts the source to those trajectories (same
+        indexing as the synthesis session's ``trajectories`` list) -
+        subsetting happens *before* truncation/segmentation so the
+        indices the agent reasons about are the ones that apply. Raises
+        ``ValueError`` on an out-of-range index.
         """
+        source = self._fit_trajectories
+        if traj_idxs is not None:
+            bad = sorted(i for i in traj_idxs if not 0 <= i < len(source))
+            if bad:
+                raise ValueError(
+                    f"traj_idxs {bad} out of range (0-{len(source) - 1})")
+            source = [source[i] for i in traj_idxs]
         rollouts: List[RolloutTrajectory] = []
-        for traj in self._fit_trajectories:
+        for traj in source:
             if traj.actions and len(traj.states) == len(traj.actions) + 1:
                 rollouts.append((list(traj.states), list(traj.actions)))
         if (process_features is not None
@@ -2002,7 +2077,7 @@ the tools.{probe_note}"""
         ``self._fit_trajectories``; falls back to a single trajectory if
         no grouping info exists. Delegates the actual fit/log to
         :func:`fitting.fit_rule_parameters_latent` so the agent's
-        ``evaluate_step_fit`` tool scores latent rules through the exact
+        ``sim.fit`` surface scores latent rules through the exact
         same path.
         """
         groups = self._group_triples_by_trajectory(base_pred_triples)
@@ -2653,25 +2728,17 @@ files to see exactly which rules and predicates produced each failed plan.
 
     @staticmethod
     def _scene_viz_hint() -> str:
-        """The find-the-anchor-offset sentence, tool-availability-aware.
+        """The find-the-anchor-offset sentence.
 
-        When explore_python replaces the standalone scene tools (the
-        single policy predicate ``explore_python_replaces_tools``), the
-        guidance must name the probe equivalents instead of tools the
-        session lacks; otherwise the legacy wording stands.
+        The probe is unconditional in synthesis sessions, so the hint
+        always names its staging + overlay surface.
         """
-        # pylint: disable-next=import-outside-toplevel
-        from predicators.agent_sdk.tools import explore_python_replaces_tools
-        if explore_python_replaces_tools():
-            return ("use `explore_python`: `sim.reset(task_idx=..., "
-                    "mods={...})` to stage a representative state from each "
-                    "bucket and `sim.render(label, annotations=[...])` to "
-                    "overlay, on one render, the recorded origin and the "
-                    "positions where the effect did vs. did not fire")
-        return ("call `visualize_state` on a representative state from each "
-                "bucket and use `annotate_scene` to overlay, on one render, "
-                "the recorded origin and the positions where the effect did "
-                "vs. did not fire")
+        return ("use the `sim` probe in `run_python`: "
+                "`sim.reset(task_idx=..., "
+                "mods={...})` to stage a representative state from each "
+                "bucket and `sim.render(label, annotations=[...])` to "
+                "overlay, on one render, the recorded origin and the "
+                "positions where the effect did vs. did not fire")
 
     def _physical_params_prompt_section(self) -> str:
         """Markdown for the optional PHYSICAL_PARAMS (system-ID) block.
@@ -2724,7 +2791,7 @@ files to see exactly which rules and predicates produced each failed plan.
             "parameters you hypothesize are both execution-relevant and "
             "identifiable from the data (a collision parameter cannot be "
             "identified from trajectories that contain no collisions). "
-            "`evaluate_step_fit` returns a per-parameter identifiability "
+            "`sim.fit()` returns a per-parameter identifiability "
             "report (posterior contraction); drop any parameter reported "
             "as NOT identified - its fitted value is arbitrary noise.",
             "- With `PHYSICAL_PARAMS` declared, the fit switches to "
@@ -2740,7 +2807,7 @@ files to see exactly which rules and predicates produced each failed plan.
             "features the rollout is scored on (e.g. the pose features "
             "of the objects whose motion you are calibrating).",
             "- After the fit, the identified values are applied to the "
-            "planning base env, so `evaluate_plan_refinement` and "
+            "planning base env, so probe rollouts and "
             "test-time planning use the calibrated physics.",
         ])
         return "\n".join(lines) + "\n"

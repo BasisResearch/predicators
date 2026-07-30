@@ -134,6 +134,10 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         # Tasks whose goal + init-state journal entry is already written
         # (one context entry per task, at the top of its section).
         self._journal_task_context_recorded: Set[Any] = set()
+        # Snapshot of that set at begin_test_phase: test-task keys are
+        # rolled back with the journal itself, so a later evaluation
+        # (whose entries were removed) re-writes its context entries.
+        self._pre_test_journal_context_keys: Optional[Set[Any]] = None
 
     @classmethod
     def get_name(cls) -> str:
@@ -159,6 +163,21 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         if self._exec_status is None:
             return []
         return [self._exec_status]
+
+    def begin_test_phase(self) -> None:
+        super().begin_test_phase()
+        self._pre_test_journal_context_keys = set(
+            self._journal_task_context_recorded)
+
+    def end_test_phase(self) -> None:
+        super().end_test_phase()
+        # The journal rollback removed this evaluation's entries, so its
+        # task-context dedup keys must go too - the same test tasks are
+        # re-solved next evaluation and need fresh goal + init entries.
+        if self._pre_test_journal_context_keys is not None:
+            self._journal_task_context_recorded = \
+                self._pre_test_journal_context_keys
+            self._pre_test_journal_context_keys = None
 
     # ------------------------------------------------------------------ #
     # Agent session hooks
@@ -187,14 +206,12 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
 
     def _get_agent_system_prompt(self) -> str:
         propose = CFG.agent_bilevel_use_llm_initial_params
-        # When explore_python replaces the standalone refine/visualize
-        # tools, every guidance mention must point at the probe
-        # equivalents instead of tools the session lacks.
+        # When explore_python replaces the standalone refine tool, every
+        # guidance mention must point at the probe equivalent instead of
+        # a tool the session lacks.
         probe_replaces = explore_python_replaces_tools()
         refine_ref = ("sim.refine (in explore_python)"
                       if probe_replaces else "refine_plan_sketch")
-        visualize_ref = ("explore_python"
-                         if probe_replaces else "visualize_state")
         # What a sketch step consists of (shared between modes).
         if propose:
             sketch_desc = (
@@ -221,7 +238,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
                f"values you MAY use {refine_ref} while reasoning (it "
                "searches for parameters but is slower); read the parameters "
                "it reports and submit them via evaluate_option_plan. Use "
-               f"whatever tools help (inspection, {visualize_ref}).")
+               "whatever tools help.")
         if propose:
             job += (" Where many values work, any reasonable parameter is "
                     "fine; where good values are hard to hit (tight "
@@ -448,11 +465,6 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         info = self._last_capture_info
         self._last_capture_info = None
         return info
-
-    def _journal_active(self) -> bool:
-        """Whether solve-journal entries can be written at all."""
-        return bool(CFG.agent_solve_use_journal
-                    and self._tool_context.sandbox_dir)
 
     def _append_journal_auto_entry(self, header: str,
                                    body_lines: List[str]) -> bool:

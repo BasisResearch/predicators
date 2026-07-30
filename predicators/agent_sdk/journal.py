@@ -15,6 +15,15 @@ measurements rather than verdicts: a recorded "X is impossible" from a
 failed attempt would re-import exactly the anchoring the fresh context
 is meant to shed, while "tried yaws 0-15 deg at x in [0.50, 0.54], all
 stopped >=5 cm short" steers the next attempt without foreclosing it.
+
+Phase lifecycle: learning-phase entries persist for the whole run and
+accumulate across online-learning cycles, so every evaluation starts
+from all learning knowledge so far. Test-phase entries live only for
+their own evaluation: at ``end_test_phase`` the approach archives the
+full journal to the run's log dir (outside the sandbox, so the agent
+cannot read it) and rolls the file back to its pre-test content via
+:func:`read_raw` / :func:`restore` - entries recorded while solving one
+evaluation's test tasks must not leak into the next evaluation.
 """
 
 from __future__ import annotations
@@ -67,6 +76,38 @@ def append_entry(sandbox_dir: str,
     with open(journal_path(sandbox_dir), "a", encoding="utf-8") as f:
         f.write(f"### {header.strip()}\n{body}\n\n")
     return note
+
+
+def read_raw(sandbox_dir: Optional[str]) -> Optional[str]:
+    """Exact journal file content, or None if no journal file exists.
+
+    Unlike :func:`read_journal` there is no prompt trimming and the
+    absent-file case is distinguishable from an empty file, so the
+    result is a faithful snapshot for :func:`restore`.
+    """
+    if not sandbox_dir:
+        return None
+    path = journal_path(sandbox_dir)
+    if not os.path.isfile(path):
+        return None
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def restore(sandbox_dir: str, snapshot: Optional[str]) -> None:
+    """Reset the journal file to a :func:`read_raw` snapshot.
+
+    A ``None`` snapshot means no journal file existed, so the file is
+    removed if present.
+    """
+    path = journal_path(sandbox_dir)
+    if snapshot is None:
+        if os.path.isfile(path):
+            os.remove(path)
+        return
+    os.makedirs(sandbox_dir, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(snapshot)
 
 
 def read_journal(sandbox_dir: Optional[str],

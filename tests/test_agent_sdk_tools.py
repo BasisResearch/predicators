@@ -349,9 +349,8 @@ def test_option_plan_description_submission_split(ctx: Any) -> None:
 
 
 def test_explore_python_render_annotations(ctx: Any) -> None:
-    """sim.render(annotations=...) overlays annotate_scene-format geometry for
-    one render (bodies removed after), sets the annotate handoff, and surfaces
-    bad annotations as loud errors."""
+    """sim.render(annotations=...) overlays temporary geometry for one render
+    (bodies removed after) and surfaces bad annotations as loud errors."""
     tools = _make_tools(ctx, ["explore_python"])
     with tempfile.TemporaryDirectory() as img_dir:
         prior_dir = ctx.image_save_dir
@@ -369,8 +368,6 @@ print("saved", path is not None)
             text = result["content"][0]["text"]
             assert "saved True" in text
             assert len(os.listdir(img_dir)) == 1
-            # The staged state is handed to annotate_scene-style consumers.
-            assert ctx.visualized_state is not None
             # A malformed annotation errors loudly (after cleanup).
             bad = 'sim.render("bad", annotations=[{"type": "line"}])'
             result = _run(tools["explore_python"]({"code": bad}))
@@ -879,128 +876,6 @@ proposed_options = [
         print(f"  SKIP: propose_options (code failed: {text[:100]})")
 
 
-def test_visualize_state(ctx: Any) -> None:
-    """visualize_state modifies object position and saves an image."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        ctx.image_save_dir = tmpdir
-        tools = _make_tools(ctx, ["visualize_state"])
-
-        # Pick an object from the current task
-        obj_names = sorted(o.name for o in ctx.current_task.init)
-        target_obj = obj_names[0]
-
-        result = _run(tools["visualize_state"]({
-            "modifications": [
-                {
-                    "object": target_obj,
-                    "features": {
-                        "x": 0.8,
-                        "y": 1.0
-                    }
-                },
-            ],
-            "step_label":
-            "move_test",
-        }))
-
-        text = result["content"][0]["text"]
-        assert "Modified state" in text
-        assert target_obj in text
-        assert not result.get("is_error", False)
-
-        saved = [f for f in os.listdir(tmpdir) if f.endswith(".png")]
-        assert len(saved) == 1, f"Expected 1 image, got {len(saved)}: {saved}"
-        print(f"  PASS: visualize_state ({saved[0]})")
-
-        ctx.image_save_dir = None
-        ctx.visualized_state = None
-
-
-def test_visualize_shared_state(ctx: Any) -> None:
-    """visualize_state then annotate_scene uses modified state."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        ctx.image_save_dir = tmpdir
-        tools = _make_tools(ctx, ["visualize_state", "annotate_scene"])
-
-        obj_names = sorted(o.name for o in ctx.current_task.init)
-        target_obj = obj_names[0]
-
-        # First: visualize modified state
-        _run(tools["visualize_state"]({
-            "modifications": [
-                {
-                    "object": target_obj,
-                    "features": {
-                        "x": 0.8,
-                        "y": 1.0
-                    }
-                },
-            ],
-        }))
-
-        assert ctx.visualized_state is not None
-
-        # Second: annotate_scene should use the modified state
-        result = _run(tools["annotate_scene"]({
-            "annotations": [
-                {
-                    "type": "marker",
-                    "position": [0.8, 1.0, 0.5],
-                    "color": [1, 0, 0],
-                    "label": "ref"
-                },
-            ],
-            "step_label":
-            "shared_state_test",
-        }))
-
-        text = result["content"][0]["text"]
-        assert "1 annotation" in text
-        assert not result.get("is_error", False)
-
-        saved = [f for f in os.listdir(tmpdir) if f.endswith(".png")]
-        assert len(saved) == 2, f"Expected 2 images, got {len(saved)}: {saved}"
-        print("  PASS: visualize_state → annotate_scene shared state")
-
-        ctx.image_save_dir = None
-        ctx.visualized_state = None
-
-
-def test_visualize_invalid_object(ctx: Any) -> None:
-    """visualize_state returns error for unknown object name."""
-    tools = _make_tools(ctx, ["visualize_state"])
-
-    result = _run(tools["visualize_state"]({
-        "modifications": [
-            {
-                "object": "nonexistent_obj_xyz",
-                "features": {
-                    "x": 1.0
-                }
-            },
-        ],
-    }))
-
-    assert result.get("is_error", False)
-    text = result["content"][0]["text"]
-    assert "Unknown object" in text
-    print("  PASS: visualize_state invalid object → error")
-
-
-def test_visualize_no_modifications(ctx: Any) -> None:
-    """visualize_state returns error when no modifications given."""
-    tools = _make_tools(ctx, ["visualize_state"])
-
-    result = _run(tools["visualize_state"]({
-        "modifications": [],
-    }))
-
-    assert result.get("is_error", False)
-    text = result["content"][0]["text"]
-    assert "No modifications" in text
-    print("  PASS: visualize_state no modifications → error")
-
-
 def test_sync_tool_context_sets_env() -> None:
     """_sync_tool_context extracts env from option model."""
     pred_utils.reset_config(_CFG_OVERRIDES)
@@ -1067,15 +942,8 @@ def main() -> None:
         print("\n4. propose_options tests:")
         test_propose_options_saves_to_sandbox(ctx)
 
-        # visualize_state tests
-        print("\n5. visualize_state tests:")
-        test_visualize_state(ctx)
-        test_visualize_shared_state(ctx)
-        test_visualize_invalid_object(ctx)
-        test_visualize_no_modifications(ctx)
-
         # _sync_tool_context test (creates fresh env)
-        print("\n6. Context sync tests:")
+        print("\n5. Context sync tests:")
         test_sync_tool_context_sets_env()
 
         print("\n=== All tests passed! ===")

@@ -7,30 +7,17 @@ from predicators.agent_sdk.tools.python_exec import _make_python_exec_tool
 from predicators.agent_sdk.tools.results import _region_syntax_blurb
 
 
-def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
-                             tool: Callable) -> Dict[str, Any]:
-    """Solve-phase ``explore_python`` over the ProbeSim exploration facade.
+def probe_api_blurb(synthesis_probe: bool) -> str:
+    """The ProbeSim surface description, shared by every prompt/tool surface
+    that offers the probe.
 
-    The namespace is deliberately tiny (probe facade + numpy): the probe
-    reuses the exact machinery behind ``evaluate_option_plan`` (same
-    plan grammar, same option-model executor, same renderer) but carries
-    no scoring surface - nothing run here can be captured as the answer,
-    so it is safe to hand the agent as a freely composable physics
-    probe. Built only when the session's config opts in: the
-    ``tool_names=None`` legacy surface would otherwise grant every
-    default-configured session an in-process exec tool.
+    Solve sessions offer it through the standalone ``explore_python``
+    tool; synthesis sessions bind the same facade as ``sim`` inside
+    ``run_python``'s namespace. One renderer so the two descriptions
+    cannot drift. ``synthesis_probe`` selects the candidate-simulator
+    wording (task_idx-required resets, ``sim.fit``, and the
+    fit/refine/forward-run validation protocol).
     """
-    surface_cfg = ToolSurfaceConfig.from_cfg()
-    if not surface_cfg.use_explore_python:
-        return {}
-    # pylint: disable-next=import-outside-toplevel
-    from predicators.agent_sdk.probe_api import build_probe_namespace
-
-    # Synthesis sessions install a candidate-simulator provider before
-    # opening the session (see ToolContext.probe_option_model_provider);
-    # its presence at build time is exactly what flips the probe's
-    # semantics, so the description follows it.
-    synthesis_probe = ctx.probe_option_model_provider is not None
     if synthesis_probe:
         sim_desc = (
             "`sim` (a ProbeSim over the CANDIDATE simulator: your current "
@@ -43,40 +30,52 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
             "to a train task's init (task_idx is required in this "
             "session), optionally with "
             "feature overrides (`mods={'obj': {'x': 1.05}}`); ")
-        submit_desc = (
-            "EXPLORATORY "
-            "ONLY: nothing run here is captured and no task-evaluator "
-            "verdict is computed - validate the simulator itself via "
-            "evaluate_plan_refinement.")
+        task_desc = ("`sim.task(task_idx)` describes a train task (goal, "
+                     "objects, initial atoms and state) without touching "
+                     "the current state; "
+                     "`sim.fit(traj_idxs=None, fixed=None)` MCMC-fits "
+                     "PARAM_SPECS (loaded fresh from simulator.py) against "
+                     "the recorded data and returns the report (SSE "
+                     "init->fit, fitted values, identifiability when "
+                     "PHYSICAL_PARAMS is declared). No arguments = the "
+                     "CANONICAL fit the probe deploys (system-ID values "
+                     "applied to the planning env); traj_idxs (subset of "
+                     "trajectories; on the system-ID path a "
+                     "cross-trajectory consistency check) or fixed "
+                     "({name: value} pins; rule params only) = "
+                     "EXPLORATORY diagnostic, nothing published. Expensive "
+                     "- call after meaningful rule edits, not in loops; "
+                     "`sim.residuals(max_transitions=100, abs_tol=1e-4, "
+                     "rel_tol=1e-3, num_worst_examples=3, "
+                     "fit_params=False)` per-feature residual report for "
+                     "the current simulator.py rules (mismatch counts, "
+                     "mean/max abs error, vs-no-rule-baseline improvement, "
+                     "worst-N example transitions) - the fast inner loop "
+                     "for finding WHICH rule to fix; ")
     else:
         sim_desc = "`sim` (a ProbeSim over the belief simulator)"
         reset_desc = (
             "`sim.reset(task_idx=None, mods=None)` sets the current state "
             "to a task's init (current task by default), optionally with "
             "feature overrides (`mods={'obj': {'x': 1.05}}`); ")
-        submit_desc = (
-            "EXPLORATORY "
-            "ONLY: nothing run here is captured as your answer - preview "
-            "the evaluator's verdict with sim.run(solved=True), then "
-            "validate and submit the final plan via evaluate_option_plan "
-            "from the true initial state.")
-    explore_python = _make_python_exec_tool(
-        tool,
-        name="explore_python",
-        description=(
-            "Execute Python code for cheap physics/geometry exploration in "
-            "a persistent namespace (variables survive across calls - "
-            "define helpers and sweep loops once, reuse them). Available: "
-            f"{sim_desc}, `ProbeSim()` "
-            "(extra independent instances), `np`. ProbeSim API: "
-            f"{reset_desc}"
+        task_desc = ("`sim.task(task_idx=None)` describes a task - goal, "
+                     "objects, initial atoms and state (current task by "
+                     "default) - without touching the current state; ")
+    return (f"{sim_desc}, `ProbeSim()` "
+            "(extra independent instances). ProbeSim API: "
+            f"{reset_desc}{task_desc}"
             "`sim.run(plan_text, render=True, trials=1, solved=False, "
             "contacts=False)` executes an option "
             "plan FROM THE CURRENT "
             "STATE (same grammar as evaluate_option_plan; print the result "
             "for per-step outcomes incl. saved per-step scene-image paths - "
             "view them with the Read tool; pass render=False inside tight "
-            "sweep loops) and advances the state; trials=N repeats the plan "
+            "sweep loops) and advances the state; `-> {subgoals}` "
+            "annotations are CHECKED - each step's report lists annotated "
+            "atoms that did not hold in its post-state, so one continuous "
+            "run of a refined plan is the forward-validation pass (a "
+            "refine-pass that diverges here means a rule is more "
+            "permissive than the env); trials=N repeats the plan "
             "N times (fresh physics per trial when available) and returns "
             "the per-trial outcomes + success count WITHOUT advancing the "
             "state - use it for reliability estimates instead of "
@@ -115,7 +114,54 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
             "the deepest near-miss. require_solved=True (only from an "
             "unmodified reset() state) additionally requires the task "
             "evaluator to score the final rollout solved=True, rejecting "
-            "goal-reaching-but-unscored candidates during the search. "
+            "goal-reaching-but-unscored candidates during the search.")
+
+
+def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
+                             tool: Callable) -> Dict[str, Any]:
+    """Solve-phase ``explore_python`` over the ProbeSim exploration facade.
+
+    The namespace is the probe facade, numpy, and the collected real
+    trajectories as read-only evidence (see ``build_probe_namespace`` -
+    nothing evaluator-shaped beyond the probe's gated paths): the probe
+    reuses the exact machinery behind ``evaluate_option_plan`` (same
+    plan grammar, same option-model executor, same renderer) but
+    carries no scoring surface - nothing run here can be captured as
+    the answer, so it is safe to hand the agent as a freely composable
+    physics probe. Built only when the session's config opts in: the
+    ``tool_names=None`` legacy surface would otherwise grant every
+    default-configured session an in-process exec tool. Synthesis
+    sessions do not surface this tool at all - there the same facade is
+    merged into ``run_python``'s namespace (one exec namespace per
+    session; see ``_get_synthesis_tool_names``).
+    """
+    surface_cfg = ToolSurfaceConfig.from_cfg()
+    if not surface_cfg.use_explore_python:
+        return {}
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.agent_sdk.probe_api import build_probe_namespace
+
+    submit_desc = (
+        "EXPLORATORY "
+        "ONLY: nothing run here is captured as your answer - preview "
+        "the evaluator's verdict with sim.run(solved=True), then "
+        "validate and submit the final plan via evaluate_option_plan "
+        "from the true initial state.")
+    explore_python = _make_python_exec_tool(
+        tool,
+        name="explore_python",
+        description=(
+            "Execute Python code for cheap physics/geometry exploration in "
+            "a persistent namespace (variables survive across calls - "
+            "define helpers and sweep loops once, reuse them). Available: " +
+            probe_api_blurb(synthesis_probe=False) +
+            " Also bound: `np`; `trajectories` (the recorded REAL "
+            "offline+online trajectories, read-only evidence - use them to "
+            "check the belief model against what actually happened; each "
+            "has `is_demo`, `train_task_idx`, `states`, `actions`) and "
+            "`describe_trajectory(traj_idx, include_states=True, "
+            "include_atoms=False, max_timesteps=10)` for a per-timestep "
+            "digest of one of them. "
             "print() output is "
             "returned; oversize output is spilled to "
             "`tool_outputs/explore_python/` (Read/Grep it back). " +
@@ -126,8 +172,8 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
              "returned): budget sweeps accordingly - "
              "prefer coarse-to-fine over exhaustive grids, and print "
              "intermediate bests so partial results survive a stop. "
-             if surface_cfg.explore_python_call_timeout > 0
-             and not synthesis_probe else "") + f"{submit_desc}"),
+             if surface_cfg.explore_python_call_timeout > 0 else "") +
+            f"{submit_desc}"),
         exec_ns=build_probe_namespace(ctx),
         sandbox_dir=ctx.sandbox_dir,
         text_result=_text_result,

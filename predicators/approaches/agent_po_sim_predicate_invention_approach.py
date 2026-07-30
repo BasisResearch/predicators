@@ -216,7 +216,8 @@ per-object slot lazily from such a shared init.)
 
 The type, feature, latent, and parameter names in the examples below
 (`widget`, `fixture`, `progress`, `level`, ...) are illustrative — use
-whatever the inspect tools actually report for your task.
+whatever your prompt digests and the trajectory data actually report
+for your task.
 
 ### Two synthesis patterns (agent picks per latent)
 

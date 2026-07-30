@@ -9,21 +9,12 @@ includes:
   - envs/all.yaml
   - approaches/all.yaml
 ENVS:
-  # InFront-provided A/B arm: same tasks as `domino`, but InFront stays
-  # in the agent's vocabulary (dropped from the exclusion string) so
-  # placement steps get a checkable chain-connectivity subgoal. NOTE:
-  # launch_simp runs the ENVS x APPROACHES cross-product - park arms
-  # here before launching if the full matrix is not wanted.
-  domino_infront:
-    SKIP: True
+  # NOTE: launch_simp runs the ENVS x APPROACHES cross-product - park
+  # arms here before launching if the full matrix is not wanted.
   domino:
     SKIP: True
   domino_turns:
-    SKIP: True
-  domino_turns_new_goal:
     SKIP: False
-  domino_900:
-    SKIP: True
   # Forward (over-reach) arm: true friction 0.1, planner believes 0.5.
   domino_low_friction:
     SKIP: True
@@ -32,28 +23,9 @@ ENVS:
     SKIP: True
 APPROACHES:
   agent_oracle_hybrid_sim:
-    SKIP: True
-  agent_oracle_hybrid_sim_long:
-    SKIP: True
-    FLAGS:
-      agent_sim_learn_kept_predicates_names: ["Holding", "HandEmpty"]
-  agent_oracle_hybrid_sim_long_python:
     SKIP: False
     FLAGS:
       agent_sim_learn_kept_predicates_names: ["Holding", "HandEmpty"]
-      # Restart loop: up to 3 time-boxed (45 min) solve attempts, each on
-      # a fresh conversation; cross-attempt knowledge travels through the
-      # solve journal (auto outcomes + agent lessons, injected into every
-      # solve prompt). Rationale: run_20260717_23xx family split - the
-      # same tasks solved in 9-32 min or burned 2-11 h anchored on wrong
-      # conclusions, so several short independent attempts beat one long
-      # one.
-      agent_solve_max_attempts: 3
-      agent_solve_attempt_wall_clock: 2700
-      agent_solve_fresh_context: True
-      agent_solve_use_journal: True
-  agent_oracle_hybrid_sim_hires:
-    SKIP: True
   agent_oracle_hybrid_sim_ground_sampler:
     SKIP: True
   agent_po_predicate_invention_al:
