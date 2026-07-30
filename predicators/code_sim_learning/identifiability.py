@@ -262,35 +262,47 @@ def _interval_half_width(interval: Sequence[float], scale: str) -> float:
     return 0.5 * max(width, 0.0)
 
 
-def physics_sigma_points(
-        applied: Dict[str, float], report: Dict[str, Dict[str, Any]],
-        param_specs: Sequence[ParamSpec]) -> List[Dict[str, float]]:
-    """The +-1-posterior-sigma perturbations of the applied physical params.
+def physics_sigma_points(applied: Dict[str, float],
+                         report: Dict[str, Dict[str, Any]],
+                         param_specs: Sequence[ParamSpec],
+                         num_points: int = 2) -> List[Dict[str, float]]:
+    """A grid of perturbations spanning +-1 posterior sigma of the fit.
 
     Consumed by the capture gate's physics-margin check
-    (``agent_plan_validation_physics_margin``): validation rollouts AT
-    the fitted values sample execution variability only, so a plan can
-    pass them all while having zero margin to the fit's parameter error
+    (``agent_plan_validation_physics_margin``) and by the ``sim.run``
+    physics sweep: validation rollouts AT the fitted values sample
+    execution variability only, so a plan can pass them all while
+    having zero margin to the fit's parameter error
     (run_20260723_091108: a capture validated 8/8 at fitted
     lateral_friction 0.5319 failed deterministically at true 0.5). Each
     param whose FITTED value was deployed (``Verdict.applies_fitted``)
-    and whose reported ``posterior_std`` is finite and nonzero is moved
-    one sigma in FIT space (multiplicative for log-scale params), all
-    params together, and clipped to its box. Params kept at their
-    anchor (NOT identified / insensitive / at-bound / anchored) are NOT
-    perturbed: their reported width is prior-scale (the data never
-    constrained them), and swinging the belief physics that far would
-    reject every plan for uncertainty the fit was never asked to
-    resolve. Returns the two full override dicts (down, then up) - or
-    an empty list when nothing is perturbable, in which case the margin
-    check is honestly vacuous (see the min-width floor in
-    :func:`identifiability_report`, which exists precisely so a
-    degenerate landscape width cannot silence it).
+    and whose reported ``posterior_std`` is finite and nonzero is swept
+    in FIT space (multiplicative for log-scale params) over
+    ``num_points`` evenly spaced offsets in [-1, +1] sigma, all
+    perturbed params moving together along that diagonal, each value
+    clipped to its box. ``num_points=2`` gives the two endpoints only -
+    provably insufficient near a feasibility boundary, where success is
+    a SPECKLED function of the params: run_20260724_140531's captured
+    design passed both endpoints (0.4295/0.5246) and failed
+    deterministically at the true value 0.5 inside them, because the
+    k*-minimal task placed a ~0.015-wide failure hole exactly there. A
+    dense grid (see agent_plan_validation_physics_margin_points) makes
+    interior holes at grid resolution visible; rollouts are
+    deterministic per point, so each point is a measurement, not a
+    sample. Params kept at their anchor (NOT identified / insensitive /
+    at-bound / anchored) are NOT perturbed: their reported width is
+    prior-scale (the data never constrained them), and swinging the
+    belief physics that far would reject every plan for uncertainty the
+    fit was never asked to resolve. Returns the override dicts in
+    ascending sigma order, the exact fitted point and clipping
+    duplicates dropped - or an empty list when nothing is perturbable,
+    in which case the margin check is honestly vacuous (see the
+    min-width floor in :func:`identifiability_report`, which exists
+    precisely so a degenerate landscape width cannot silence it).
     """
+    assert num_points >= 2, "need at least the two +-1-sigma endpoints"
     spec_by_name = {s.name: s for s in param_specs}
-    lo_point = {k: float(v) for k, v in applied.items()}
-    hi_point = {k: float(v) for k, v in applied.items()}
-    perturbed = False
+    perturbable: Dict[str, Any] = {}
     for name, value in applied.items():
         spec = spec_by_name.get(name)
         entry = report.get(name)
@@ -304,19 +316,23 @@ def physics_sigma_points(
             continue
         z_val = scalar_to_fit_space(spec, float(value))
         box_lo, box_hi = param_bounds([spec])
-        lo_val = float(
-            np.clip(scalar_from_fit_space(spec, z_val - width), box_lo[0],
-                    box_hi[0]))
-        hi_val = float(
-            np.clip(scalar_from_fit_space(spec, z_val + width), box_lo[0],
-                    box_hi[0]))
-        lo_point[name] = lo_val
-        hi_point[name] = hi_val
-        if lo_val != float(value) or hi_val != float(value):
-            perturbed = True
-    if not perturbed:
+        perturbable[name] = (spec, z_val, width, box_lo[0], box_hi[0])
+    if not perturbable:
         return []
-    return [lo_point, hi_point]
+    points: List[Dict[str, float]] = []
+    for t in np.linspace(-1.0, 1.0, num_points):
+        point = {k: float(v) for k, v in applied.items()}
+        moved = False
+        for name, (p_spec, z_val, width, lo, hi) in perturbable.items():
+            val = float(
+                np.clip(scalar_from_fit_space(p_spec, z_val + t * width), lo,
+                        hi))
+            point[name] = val
+            if val != float(applied[name]):
+                moved = True
+        if moved and point not in points:
+            points.append(point)
+    return points
 
 
 def _params_at_bound(

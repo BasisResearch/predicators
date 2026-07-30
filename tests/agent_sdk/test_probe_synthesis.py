@@ -14,7 +14,8 @@ import numpy as np
 import pytest
 
 from predicators import utils
-from predicators.agent_sdk.probe_api import ProbeSim, build_probe_namespace
+from predicators.agent_sdk.belief_probe import BeliefProbe, \
+    build_probe_namespace
 from predicators.agent_sdk.tools import ToolContext, create_mcp_tools
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
@@ -42,7 +43,7 @@ def test_probe_model_resolution_prefers_provider() -> None:
     candidate = _fake_model()
     ctx = ToolContext()
     ctx.option_model = stale
-    sim = ProbeSim(ctx)
+    sim = BeliefProbe(ctx)
     assert sim._option_model() is stale
 
     ctx.probe_option_model_provider = lambda: candidate
@@ -67,13 +68,13 @@ def test_probe_reset_requires_task_idx_during_synthesis() -> None:
     ctx.current_task = task
 
     # Solve phase: current-task fallback works.
-    sim = ProbeSim(ctx)
+    sim = BeliefProbe(ctx)
     sim.reset()
     assert sim._state is not None
 
     # Synthesis phase: explicit task_idx required...
     ctx.probe_option_model_provider = _fake_model
-    sim = ProbeSim(ctx)
+    sim = BeliefProbe(ctx)
     with pytest.raises(ValueError, match="task_idx explicitly"):
         sim.reset()
     # ...and accepted.
@@ -206,7 +207,7 @@ def test_probe_namespace_contract() -> None:
     utils.reset_config({})
     ctx = ToolContext()
     ns = build_probe_namespace(ctx)
-    assert {"sim", "ProbeSim", "np", "trajectories", "describe_trajectory"
+    assert {"sim", "BeliefProbe", "np", "trajectories", "describe_trajectory"
             } <= set(ns)
     assert "evaluate_trajectory" not in ns
     assert "Predicate" not in ns
@@ -228,7 +229,7 @@ def test_probe_task_digest() -> None:
     ctx = ToolContext()
     ctx.train_tasks = [task]
     ctx.current_task = task
-    sim = ProbeSim(ctx)
+    sim = BeliefProbe(ctx)
 
     solve_digest = sim.task()
     assert "current solve task" in solve_digest
@@ -250,7 +251,7 @@ def test_probe_fit_gating_and_delegation() -> None:
     raises in solve sessions (the deployed belief model is fixed there)."""
     utils.reset_config({})
     ctx = ToolContext()
-    sim = ProbeSim(ctx)
+    sim = BeliefProbe(ctx)
     with pytest.raises(RuntimeError, match="unavailable in this session"):
         sim.fit()
 
@@ -271,7 +272,7 @@ def test_probe_residuals_gating_and_delegation() -> None:
     sessions and raises in solve sessions (no candidate simulator to score)."""
     utils.reset_config({})
     ctx = ToolContext()
-    sim = ProbeSim(ctx)
+    sim = BeliefProbe(ctx)
     with pytest.raises(RuntimeError, match="unavailable in this session"):
         sim.residuals()
 
@@ -298,7 +299,7 @@ def test_probe_run_reports_subgoal_divergence() -> None:
     """ProbeResult renders per-step SUBGOAL NOT REACHED lines, so a single
     continuous sim.run of a refined plan is the forward-validation pass."""
     # pylint: disable-next=import-outside-toplevel
-    from predicators.agent_sdk.probe_api import ProbeResult
+    from predicators.agent_sdk.belief_probe import ProbeResult
     step = {
         "option": "Place(robot)[0.1]",
         "num_actions": 7,

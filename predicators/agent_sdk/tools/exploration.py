@@ -7,8 +7,8 @@ from predicators.agent_sdk.tools.python_exec import _make_python_exec_tool
 from predicators.agent_sdk.tools.results import _region_syntax_blurb
 
 
-def probe_api_blurb(synthesis_probe: bool) -> str:
-    """The ProbeSim surface description, shared by every prompt/tool surface
+def belief_probe_blurb(synthesis_probe: bool) -> str:
+    """The BeliefProbe surface description, shared by every prompt/tool surface
     that offers the probe.
 
     Solve sessions offer it through the standalone ``explore_python``
@@ -20,7 +20,7 @@ def probe_api_blurb(synthesis_probe: bool) -> str:
     """
     if synthesis_probe:
         sim_desc = (
-            "`sim` (a ProbeSim over the CANDIDATE simulator: your current "
+            "`sim` (a BeliefProbe over the CANDIDATE simulator: your current "
             "simulator.py with freshly MCMC-fitted params, rebuilt "
             "automatically when the file changes - so probes always "
             "exercise what you just wrote; errors until a loadable "
@@ -53,7 +53,7 @@ def probe_api_blurb(synthesis_probe: bool) -> str:
                      "worst-N example transitions) - the fast inner loop "
                      "for finding WHICH rule to fix; ")
     else:
-        sim_desc = "`sim` (a ProbeSim over the belief simulator)"
+        sim_desc = "`sim` (a BeliefProbe over the belief simulator)"
         reset_desc = (
             "`sim.reset(task_idx=None, mods=None)` sets the current state "
             "to a task's init (current task by default), optionally with "
@@ -61,8 +61,8 @@ def probe_api_blurb(synthesis_probe: bool) -> str:
         task_desc = ("`sim.task(task_idx=None)` describes a task - goal, "
                      "objects, initial atoms and state (current task by "
                      "default) - without touching the current state; ")
-    return (f"{sim_desc}, `ProbeSim()` "
-            "(extra independent instances). ProbeSim API: "
+    return (f"{sim_desc}, `BeliefProbe()` "
+            "(extra independent instances). BeliefProbe API: "
             f"{reset_desc}{task_desc}"
             "`sim.run(plan_text, render=True, trials=1, solved=False, "
             "contacts=False)` executes an option "
@@ -119,7 +119,7 @@ def probe_api_blurb(synthesis_probe: bool) -> str:
 
 def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
                              tool: Callable) -> Dict[str, Any]:
-    """Solve-phase ``explore_python`` over the ProbeSim exploration facade.
+    """Solve-phase ``explore_python`` over the BeliefProbe exploration facade.
 
     The namespace is the probe facade, numpy, and the collected real
     trajectories as read-only evidence (see ``build_probe_namespace`` -
@@ -139,7 +139,7 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
     if not surface_cfg.use_explore_python:
         return {}
     # pylint: disable-next=import-outside-toplevel
-    from predicators.agent_sdk.probe_api import build_probe_namespace
+    from predicators.agent_sdk.belief_probe import build_probe_namespace
 
     submit_desc = (
         "EXPLORATORY "
@@ -154,7 +154,7 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
             "Execute Python code for cheap physics/geometry exploration in "
             "a persistent namespace (variables survive across calls - "
             "define helpers and sweep loops once, reuse them). Available: " +
-            probe_api_blurb(synthesis_probe=False) +
+            belief_probe_blurb(synthesis_probe=False) +
             " Also bound: `np`; `trajectories` (the recorded REAL "
             "offline+online trajectories, read-only evidence - use them to "
             "check the belief model against what actually happened; each "

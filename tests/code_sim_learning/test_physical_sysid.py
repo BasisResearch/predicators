@@ -290,6 +290,43 @@ def test_physics_sigma_points_log_scale_and_clipping():
     assert np.isclose(hi_pt["restitution"], 0.07)
 
 
+def test_physics_sigma_points_dense_grid():
+    """num_points spreads a grid across the +-1-sigma range.
+
+    Endpoints alone cannot see an interior failure hole
+    (run_20260724_140531: a captured design passed both +-1-sigma
+    endpoints and failed deterministically at the true value between
+    them). The fitted point itself is dropped (validation rollouts
+    already run there), as are duplicates from box clipping.
+    """
+    from predicators.code_sim_learning.identifiability import \
+        physics_sigma_points
+    specs = [ParamSpec("friction", 0.53, lo=0.01, hi=2.0, scale="log")]
+    applied = {"friction": 0.4746}
+    report = {
+        "friction": {
+            "posterior_std": 0.1,
+            "verdict": Verdict.IDENTIFIED
+        }
+    }
+    pts = physics_sigma_points(applied, report, specs, num_points=5)
+    vals = [p["friction"] for p in pts]
+    # t in {-1, -0.5, +0.5, +1}; t=0 (the fitted value) is dropped.
+    assert np.allclose(vals,
+                       [0.4746 * np.exp(t * 0.1) for t in (-1, -0.5, 0.5, 1)])
+    # Clipping collapse: a tight box folds interior points onto the
+    # bound; duplicates are dropped rather than re-measured.
+    tight = [ParamSpec("friction", 0.53, lo=0.46, hi=0.49, scale="log")]
+    pts_tight = physics_sigma_points(applied, report, tight, num_points=5)
+    tight_vals = [p["friction"] for p in pts_tight]
+    assert len(tight_vals) == len(set(tight_vals))
+    assert all(0.46 <= v <= 0.49 for v in tight_vals)
+    # num_points=2 keeps the historical endpoint behavior.
+    endpoints = physics_sigma_points(applied, report, specs, num_points=2)
+    assert np.isclose(endpoints[0]["friction"], 0.4746 * np.exp(-0.1))
+    assert np.isclose(endpoints[1]["friction"], 0.4746 * np.exp(0.1))
+
+
 def test_physics_sigma_points_empty_without_width():
     """Zero/NaN posterior width or a missing report entry perturbs nothing."""
     from predicators.code_sim_learning.identifiability import \

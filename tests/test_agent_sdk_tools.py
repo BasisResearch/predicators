@@ -399,7 +399,7 @@ def test_explore_python_exec_and_persistence(ctx: Any) -> None:
 
 
 def test_explore_python_probe_sim(ctx: Any) -> None:
-    """ProbeSim: reset with mods, full-precision state, run from the
+    """BeliefProbe: reset with mods, full-precision state, run from the
     modified state, snapshot/restore - and nothing is ever captured."""
     tools = _make_tools(ctx, ["explore_python"])
     domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
@@ -445,12 +445,13 @@ print("natoms", len(sim.atoms()))
         print("  NOTE: rendering not available, image save not checked")
     # The probe carries no scoring surface: nothing it ran was captured.
     assert ctx.solved_plan is None
-    print("  PASS: explore_python (ProbeSim reset/run/snapshot, no capture)")
+    print(
+        "  PASS: explore_python (BeliefProbe reset/run/snapshot, no capture)")
 
 
 def test_explore_python_probe_refine(ctx: Any) -> None:
-    """ProbeSim.refine searches params from the current state, reports per-step
-    samples and a refined plan line, and captures nothing."""
+    """BeliefProbe.refine searches params from the current state, reports per-
+    step samples and a refined plan line, and captures nothing."""
     tools = _make_tools(ctx, ["explore_python"])
     domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
     robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
@@ -474,7 +475,7 @@ print("line", res.plan_lines[0])
     assert "samples" in text
     assert "line Pick(" in text and "Holding(" in text
     assert ctx.solved_plan is None
-    print("  PASS: explore_python (ProbeSim.refine, no capture)")
+    print("  PASS: explore_python (BeliefProbe.refine, no capture)")
 
 
 def test_explore_python_probe_refine_verdict_line(ctx: Any) -> None:
