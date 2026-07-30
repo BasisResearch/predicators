@@ -55,6 +55,7 @@ from predicators.execution_monitoring import create_execution_monitor
 from predicators.ground_truth_models import get_gt_options, \
     parse_config_included_options
 from predicators.perception import create_perceiver
+from predicators.pybullet_helpers.real_robot_executor import attach_real_robot
 from predicators.settings import CFG, get_allowed_query_type_names
 from predicators.structs import Action, Dataset, EnvironmentTask, \
     InteractionRequest, InteractionResult, Metrics, Observation, Response, \
@@ -121,8 +122,13 @@ def setup_environment() -> Tuple[BaseEnv, List[Task], List[Task]]:
         - The training tasks for the approach
         - The original training tasks
     """
-    # Create environment
+    # Create environment. Under real_robot_execute an executor is attached so
+    # its rollouts drive the arm; deliberately HERE and not inside
+    # create_new_env, because the planner builds its own envs through that
+    # factory (the option model's private simulator, the shared skill
+    # simulator) and those must stay pure simulation.
     env = create_new_env(CFG.env, do_cache=True, use_gui=CFG.use_gui)
+    attach_real_robot(env)
     env.action_space.seed(CFG.seed)
     assert env.goal_predicates.issubset(env.predicates)
 

@@ -55,6 +55,51 @@ def domino_upright_yaw(pose: Pose6D) -> float:
     return float(np.arctan2(w_axis[1], w_axis[0]))
 
 
+# The env's domino body is a box with half extents
+# ``(domino_width/2, domino_depth/2, domino_height/2)`` and the real dims are
+# handed to it as width=W, depth=thickness, height=L, so the two body frames
+# are the same box under a permutation of axes:
+#
+#     env x (width W)      = real y
+#     env y (thickness H)  = real z
+#     env z (length L)     = real x
+#
+# Column j is env axis j written in real-body coordinates, so
+# ``R_env = R_real @ _REAL_TO_ENV_BODY``. It is a proper rotation (det +1),
+# i.e. a relabeling of the same physical box, not a reflection.
+_REAL_TO_ENV_BODY = np.array([
+    [0.0, 0.0, 1.0],
+    [1.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0],
+])
+
+
+def domino_env_euler(pose: Pose6D) -> Tuple[float, float, float]:
+    """Env ``(roll, pitch, yaw)`` for a domino at ``pose``, standing or not.
+
+    PyBullet's euler convention, so the result is exactly what
+    ``_set_state`` writes back via ``getQuaternionFromEuler([roll, pitch,
+    yaw])``. Unlike :func:`domino_upright_yaw` this makes no assumption
+    that the domino is standing: a knocked-over domino comes back with
+    the ``roll`` that put it there, which is the feature
+    ``Toppled``/``Upright`` are read off.
+
+    ``roll`` is a rotation about the domino's width axis, which is the
+    way a domino physically falls -- so a clean topple onto either face
+    is ``roll = +-pi/2`` with ``pitch = 0``, and the env's two angular
+    features describe it exactly.
+
+    ``pitch`` is returned only so callers can notice when it is *not*
+    negligible. The domino type carries ``yaw`` and ``roll`` and no
+    ``pitch``, so any pitch is dropped when the state is written into
+    PyBullet; that happens for orientations no free domino reaches on a
+    flat table (propped diagonally against a neighbour, say).
+    """
+    r_env = pose.to_matrix()[:3, :3] @ _REAL_TO_ENV_BODY
+    roll, pitch, yaw = Rotation.from_matrix(r_env).as_euler("xyz")
+    return float(roll), float(pitch), float(yaw)
+
+
 # --- real base frame <-> predicators pybullet_domino WORLD frame -------------
 # The domino options live in a Fetch-style world: robot base at (0.75, 0.72, z),
 # yaw +pi/2, table top z=0.4. A bench Franka has the table BELOW its base (real

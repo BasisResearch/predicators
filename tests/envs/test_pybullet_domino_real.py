@@ -24,10 +24,11 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pybullet as p
 import pytest
+from scipy.spatial.transform import Rotation
 
 from predicators import utils
-from predicators.envs.pybullet_domino.real_geometry import Pose6D, \
-    domino_upright_yaw, pose_base_to_world
+from predicators.envs.pybullet_domino.real_geometry import _REAL_TO_ENV_BODY, \
+    Pose6D, domino_env_euler, domino_upright_yaw, pose_base_to_world
 from predicators.envs.pybullet_domino_real import PyBulletDominoRealEnv
 from predicators.pybullet_helpers.real_robot_bridge import \
     gripper_joint_layout_from_robot
@@ -37,10 +38,29 @@ _TABLE_Z = -0.041
 _Z_OFF = 0.4 - _TABLE_Z  # 0.441
 _START_ID = 6
 _TARGET_ID = 5
-# Identity orientation in the base frame. After the +pi/2 world yaw the body-y
-# (width) axis points along world -x, so domino_upright_yaw reads pi.
-_IDENTITY_QUAT = [0.0, 0.0, 0.0, 1.0]
-_YAW_FROM_IDENTITY = np.pi
+# The default fixture heading. A standing domino whose width (body-y) axis
+# points along world -x after the transplant's +pi/2 yaw, i.e. env yaw = pi.
+_STANDING_YAW = np.pi
+
+
+def _base_quat(roll: float = 0.0,
+               yaw: float = _STANDING_YAW,
+               pitch: float = 0.0) -> List[float]:
+    """The base-frame quaternion of a domino at env ``(roll, pitch, yaw)``.
+
+    Built by inverting the env<->real body-axis permutation and the
+    transplant's +pi/2 world yaw, so it does not reuse
+    ``domino_env_euler``'s own arithmetic: this is the orientation a real
+    capture of such a domino would carry.
+
+    Note a domino at rest is **not** the identity quaternion. The real
+    body frame is x=L, y=W, z=H, so a STANDING domino has its body-x
+    vertical; identity would mean the long axis lying along the table.
+    """
+    r_env = Rotation.from_euler("xyz", [roll, pitch, yaw]).as_matrix()
+    r_real = r_env @ _REAL_TO_ENV_BODY.T
+    r_base = Rotation.from_euler("z", -np.pi / 2).as_matrix() @ r_real
+    return list(Rotation.from_matrix(r_base).as_quat())
 
 
 def _record(capture_id: int,
@@ -52,7 +72,7 @@ def _record(capture_id: int,
     rec: Dict[str, Any] = {
         "id": capture_id,
         "center_base_m": [base_xy[0], base_xy[1], 0.03],
-        "quat_base_xyzw": list(quat if quat is not None else _IDENTITY_QUAT),
+        "quat_base_xyzw": list(quat if quat is not None else _base_quat()),
         "dims_m": [0.15, 0.07, 0.029],
     }
     if role is not None:
@@ -85,7 +105,7 @@ class _StubDominoPose:
         self.id = capture_id
         self.xyz = tuple(xyz)
         self.quat_xyzw = tuple(
-            quat_xyzw if quat_xyzw is not None else _IDENTITY_QUAT)
+            quat_xyzw if quat_xyzw is not None else _base_quat())
 
 
 class _StubDominoObservation:
@@ -204,11 +224,11 @@ def test_role_counts_from_scene(env):
 
 def test_base_to_world_matches_hand_computed_values():
     """The transplant is yaw(+pi/2) then translate; pin it to known numbers."""
-    world = pose_base_to_world(Pose6D((0.2, 0.1, 0.03), tuple(_IDENTITY_QUAT)),
+    world = pose_base_to_world(Pose6D((0.2, 0.1, 0.03), tuple(_base_quat())),
                                _Z_OFF)
     assert world.xyz == pytest.approx((0.75 - 0.1, 0.72 + 0.2, 0.03 + _Z_OFF))
     # Identity in base -> body-y along world -x -> yaw = pi.
-    assert domino_upright_yaw(world) == pytest.approx(_YAW_FROM_IDENTITY)
+    assert domino_upright_yaw(world) == pytest.approx(_STANDING_YAW)
 
 
 # -- task construction: the two sources must agree ---------------------------
@@ -290,7 +310,7 @@ def test_start_yaw_left_alone_when_already_facing_the_target(tmp_path):
         _record(_START_ID, (0.0, 0.0)),
         _record(_TARGET_ID, (-0.2, 0.0)),  # world -y of the start
     ]
-    assert _start_yaw(tmp_path, records) == pytest.approx(_YAW_FROM_IDENTITY)
+    assert _start_yaw(tmp_path, records) == pytest.approx(_STANDING_YAW)
 
 
 def test_explicit_start_push_dir_overrides_the_target_default(tmp_path):
@@ -305,8 +325,7 @@ def test_explicit_start_push_dir_overrides_the_target_default(tmp_path):
         _record(_TARGET_ID, (0.2, 0.0)),
     ]
     assert _start_yaw(tmp_path, records,
-                      push_dir=[-1.0,
-                                0.0]) == pytest.approx(_YAW_FROM_IDENTITY)
+                      push_dir=[-1.0, 0.0]) == pytest.approx(_STANDING_YAW)
 
 
 # -- state_from_observation --------------------------------------------------
@@ -387,8 +406,7 @@ def test_state_from_observation_does_not_canonicalize_start_yaw(env):
     obs = _StubDominoObservation(
         [_StubDominoPose(_START_ID, (0.0, 0.0, 0.03))])
     state = env.state_from_observation(obs, task.init)
-    assert state.get(comp.dominos[0],
-                     "yaw") == pytest.approx(_YAW_FROM_IDENTITY)
+    assert state.get(comp.dominos[0], "yaw") == pytest.approx(_STANDING_YAW)
 
 
 # -- PyBulletEnv primitives --------------------------------------------------
@@ -461,3 +479,140 @@ def test_sync_to_state_zeroes_velocities_on_its_own(env, monkeypatch):
         linear, angular = p.getBaseVelocity(body, physicsClientId=pcid)
         assert np.allclose(linear, 0.0), f"body {body} kept linear velocity"
         assert np.allclose(angular, 0.0), f"body {body} kept angular velocity"
+
+
+# -- knocked-over dominoes ---------------------------------------------------
+# The closed loop's whole point is that the twin's guess about which dominoes a
+# cascade felled gets corrected by looking. That only works if a toppled pose
+# survives the conversion, so these pin the standing/toppled round trip.
+
+
+@pytest.mark.parametrize("roll", [0.0, np.pi / 2, -np.pi / 2, 0.35])
+def test_domino_env_euler_round_trips(roll):
+    """A pose built from env angles reads back as those angles, upright or
+    knocked over -- so nothing is lost between the cameras and the twin."""
+    yaw = 0.6
+    pose = pose_base_to_world(
+        Pose6D((0.1, 0.2, 0.03), tuple(_base_quat(roll, yaw))), _Z_OFF)
+    got_roll, got_pitch, got_yaw = domino_env_euler(pose)
+    assert got_roll == pytest.approx(roll, abs=1e-9)
+    assert got_pitch == pytest.approx(0.0, abs=1e-9)
+    assert got_yaw == pytest.approx(yaw, abs=1e-9)
+
+
+def test_domino_env_euler_agrees_with_the_standing_helper():
+    """On a STANDING domino the general decomposition must reproduce the simple
+    upright reading, which is derived independently."""
+    for yaw in (0.0, 0.9, -2.1, np.pi):
+        pose = pose_base_to_world(
+            Pose6D((0.0, 0.0, 0.03), tuple(_base_quat(0.0, yaw))), _Z_OFF)
+        assert domino_env_euler(pose)[0] == pytest.approx(0.0, abs=1e-9)
+        assert domino_env_euler(pose)[2] == pytest.approx(
+            domino_upright_yaw(pose), abs=1e-9)
+
+
+def test_observed_topple_reaches_the_state_as_toppled(env):
+    """A domino the cameras find on its face comes back with the roll that put
+    it there -- and ``Toppled``, which is defined on roll, then holds.
+
+    Before this, every perceived domino was written in standing, so the
+    twin could never learn that a cascade had happened.
+    """
+    task = env._build_task_from_scene()  # pylint: disable=protected-access
+    comp = env._domino_component  # pylint: disable=protected-access
+    target = comp.dominos[3]  # capture id 5, the purple target
+
+    # pylint: disable=protected-access
+    assert not comp._Toppled_holds(task.init, [target]), \
+        "the target starts standing; test proves nothing otherwise"
+
+    obs = _StubDominoObservation([
+        _StubDominoPose(_TARGET_ID, (0.2, 0.0, 0.0145),
+                        _base_quat(np.pi / 2, yaw=0.0))
+    ])
+    state = env.state_from_observation(obs, task.init)
+
+    assert abs(state.get(target, "roll")) == pytest.approx(np.pi / 2)
+    assert comp._Toppled_holds(state, [target])  # pylint: disable=protected-access
+
+
+def test_a_standing_observation_stays_upright(env):
+    """The counterpart: an upright domino is not spuriously reported as fallen,
+    so the roll being written is a reading and not a constant."""
+    task = env._build_task_from_scene()  # pylint: disable=protected-access
+    comp = env._domino_component  # pylint: disable=protected-access
+    target = comp.dominos[3]
+
+    obs = _StubDominoObservation([
+        _StubDominoPose(_TARGET_ID, (0.2, 0.0, 0.03), _base_quat(0.0, yaw=0.0))
+    ])
+    state = env.state_from_observation(obs, task.init)
+
+    assert state.get(target, "roll") == pytest.approx(0.0, abs=1e-9)
+    assert comp._Upright_holds(state, [target])  # pylint: disable=protected-access
+    assert not comp._Toppled_holds(state, [target])  # pylint: disable=protected-access
+
+
+def test_toppled_pose_survives_the_write_into_pybullet(env):
+    """The roll must round-trip through the simulator too.
+
+    ``sync_to_state`` writes ``getQuaternionFromEuler([roll, 0, yaw])``
+    and the next ``_get_state`` reads the angles back; if those two
+    disagreed, the correction would be undone the moment the agent
+    looked at the twin.
+    """
+    task = env._build_task_from_scene()  # pylint: disable=protected-access
+    comp = env._domino_component  # pylint: disable=protected-access
+    target = comp.dominos[3]
+
+    obs = _StubDominoObservation([
+        _StubDominoPose(_TARGET_ID, (0.2, 0.0, 0.0145),
+                        _base_quat(np.pi / 2, yaw=0.0))
+    ])
+    env.sync_to_state(env.state_from_observation(obs, task.init))
+
+    read_back = env.get_observation()
+    assert abs(read_back.get(target, "roll")) == pytest.approx(np.pi / 2,
+                                                               abs=1e-4)
+    assert comp._Toppled_holds(read_back, [target])  # pylint: disable=protected-access
+
+
+def test_a_toppled_start_domino_is_not_yaw_canonicalized(tmp_path):
+    """The start flip picks which of two symmetric headings faces the push.
+
+    A domino already lying down has no push to orient, and flipping it
+    would misreport which way it fell -- so the canonicalization is
+    gated on the domino still standing.
+    """
+    scene = _write_scene(tmp_path, [
+        _record(_START_ID, (0.0, 0.0), quat=_base_quat(np.pi / 2, yaw=0.0)),
+        _record(_TARGET_ID, (0.2, 0.0)),
+    ],
+                         name="toppled_start.json")
+    env = _make_env(scene)
+    comp = env._domino_component  # pylint: disable=protected-access
+    task = env._build_task_from_scene()  # pylint: disable=protected-access
+    start = comp.dominos[0]
+
+    assert abs(task.init.get(start, "roll")) == pytest.approx(np.pi / 2)
+    # The yaw is the perceived one, not flipped 180 to face the target.
+    assert task.init.get(start, "yaw") == pytest.approx(0.0, abs=1e-9)
+
+
+def test_unrepresentable_pitch_is_reported(env, caplog):
+    """A domino propped diagonally has a pitch the (yaw, roll) state cannot
+    hold.
+
+    Dropping it silently would put the twin somewhere the cameras never
+    saw, so it is logged.
+    """
+    task = env._build_task_from_scene()  # pylint: disable=protected-access
+    obs = _StubDominoObservation([
+        _StubDominoPose(12, (0.3, 0.25, 0.03),
+                        _base_quat(0.0, yaw=0.0, pitch=0.5))
+    ])
+
+    with caplog.at_level("WARNING"):
+        env.state_from_observation(obs, task.init)
+
+    assert "pitched" in caplog.text

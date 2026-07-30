@@ -35,8 +35,8 @@ Required overrides in subclasses:
 
 import abc
 import logging
-from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple, \
-    Type, cast
+from typing import Any, ClassVar, Dict, List, Optional, Protocol, Sequence, \
+    Set, Tuple, Type, cast
 
 import matplotlib
 import numpy as np
@@ -66,6 +66,30 @@ from predicators.utils import PyBulletState
 # that have none. Keyed per attribute so that a subclass inheriting a
 # parent's already-synced value can still recover what the parent declared.
 _DECLARED_ROBOT_INIT_POS: Dict[Tuple[Type["PyBulletEnv"], str], float] = {}
+
+
+class ActionExecutor(Protocol):
+    """Drives real hardware from a simulated env's rollout.
+
+    The port an env exposes for "something outside is executing what I
+    just simulated". Declared here, next to the two calls, and
+    implemented elsewhere -- ``pybullet_helpers.real_robot_executor`` --
+    so this module never imports anything that knows about a robot.
+
+    An env with no executor attached is pure simulation.
+    """
+
+    def after_reset(self, train_or_test: str, task_idx: int,
+                    obs: Observation) -> None:
+        """The env has been reset to a task's initial state."""
+
+    def after_step(self, action: Action, obs: Observation) -> Observation:
+        """The env has simulated ``action``.
+
+        Returns the observation the caller should see, which may differ
+        from ``obs``: an executor that looked at the real world and
+        corrected the simulated twin returns the corrected reading.
+        """
 
 
 class PyBulletEnv(BaseEnv):
@@ -243,6 +267,10 @@ class PyBulletEnv(BaseEnv):
         # When True, _domain_specific_step() is skipped in step().
         # Used by sim-learning to create base-sim-only envs.
         self._skip_domain_specific_dynamics: bool = skip_process_dynamics
+
+        # Drives real hardware from this env's rollouts; None means pure sim,
+        # which is what every env built by the planner stays.
+        self._executor: Optional[ActionExecutor] = None
 
         # Set up all the static PyBullet content.
         self._physics_client_id, self._pybullet_robot, pybullet_bodies = \
@@ -587,6 +615,8 @@ class PyBulletEnv(BaseEnv):
         state = super().reset(train_or_test, task_idx)
         self._set_state(state)
         observation = self.get_observation(render=render)
+        if self._executor is not None:
+            self._executor.after_reset(train_or_test, task_idx, observation)
         return observation
 
     def simulate(self, state: State, action: Action) -> State:
@@ -612,15 +642,27 @@ class PyBulletEnv(BaseEnv):
             # Sequential rollout: PyBullet already holds this state, so no
             # reset happens and no feature is lost to reconstruction.
             self._last_unreconstructible_features = []
-        return self.step(action)
+        # _step_once, NOT step: planning must never reach an attached executor.
+        return self._step_once(action)
 
     def step(self, action: Action, render_obs: bool = False) -> Observation:
         """Execute one environment step with the given action.
 
-        Flow: base sim → domain-specific dynamics → observation.
+        Flow: base sim → domain-specific dynamics → observation, then
+        the attached executor (if any) gets to drive real hardware from
+        that rollout and hand back a corrected observation.
         Subclasses override ``_domain_specific_step`` (not this method)
         to add post-base-sim dynamics (water filling, heating, etc.).
         """
+        observation = self._step_once(action, render_obs)
+        if self._executor is not None:
+            observation = self._executor.after_step(action, observation)
+        return observation
+
+    def _step_once(self,
+                   action: Action,
+                   render_obs: bool = False) -> Observation:
+        """Advance the simulation one action, with no executor involved."""
         self._step_base(action)
         if not self._skip_domain_specific_dynamics:
             self._domain_specific_step()
@@ -705,6 +747,19 @@ class PyBulletEnv(BaseEnv):
         filling, heating, balance beam physics, etc.). Skipped when
         ``skip_process_dynamics=True`` is passed to the constructor.
         """
+
+    # ── Real execution ──────────────────────────────────────────
+
+    def attach_executor(self, executor: ActionExecutor) -> None:
+        """Let ``executor`` drive real hardware from this env's rollouts.
+
+        The only way one is installed, and the default is none -- so an
+        env is pure simulation unless somebody explicitly says
+        otherwise. That matters because the planner builds envs of its
+        own (``create_option_model``'s private simulator, the shared
+        skill simulator) and those must never touch a robot.
+        """
+        self._executor = executor
 
     # ── State Write (State → PyBullet) ──────────────────────────
 

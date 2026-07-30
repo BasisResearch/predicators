@@ -1,11 +1,12 @@
 """Replay an EXACT solved option plan on the real-bench domino env
 (deterministic, no LLM). Grounds the plan's Pick/Place/Push/Wait options with
 their exact parameters and rolls them through the env in TEST mode. With
-``real_robot_execute=True`` (and the robot-side bridge server up) the WHOLE
-episode is rolled out in sim first, then its joint trajectory is shipped to the
-Franka in one call -- the gripper split must see every action at once, else
-Place re-grasps the domino it is already holding. The default dry-run stays
-pure sim (optionally rendered to MP4).
+``real_robot_execute=True`` a RealRobotExecutor is attached to the env and each
+option's joint trajectory is shipped to the Franka as that option ends. The
+bench is NOT re-perceived between options here: this tool replays a fixed plan,
+and correcting the twin mid-replay would let the option policies see states the
+recorded plan was never chosen against. The default dry-run stays pure sim
+(optionally rendered to MP4).
 
 Plan-file format (one option per line; ``-> {...}`` subgoals optional/ignored):
     Pick(robot:robot, domino_1:domino)[0.06] -> {Holding(robot, domino_1)}
@@ -32,6 +33,7 @@ from predicators import utils
 from predicators.envs import get_or_create_env
 from predicators.envs.pybullet_domino_real import PyBulletDominoRealEnv
 from predicators.ground_truth_models import get_gt_options
+from predicators.pybullet_helpers.real_robot_executor import attach_real_robot
 from predicators.settings import CFG
 from scripts.cluster_utils import SingleSeedRunConfig, generate_run_configs
 
@@ -71,8 +73,9 @@ def main() -> None:
         help="override CFG.domino_real_scene (must match the plan)")
     ap.add_argument("--execute",
                     action="store_true",
-                    help="EXECUTE ON THE REAL FRANKA (needs the bridge server "
-                    "up). Default: dry-run (pure sim, no motion).")
+                    help="EXECUTE ON THE REAL FRANKA (needs the babyrobot "
+                    "submodule installed). Default: dry-run (pure sim, no "
+                    "motion).")
     ap.add_argument("--out", default=None, help="optional MP4 of the rollout")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -85,11 +88,19 @@ def main() -> None:
     if args.scene:
         flags["domino_real_scene"] = args.scene
     flags["real_robot_execute"] = bool(args.execute)
+    # This tool replays an EXACT plan, so it does not look at the bench even
+    # though the closed loop is the default elsewhere: re-syncing the twin
+    # mid-replay would let the option policies see states the recorded plan was
+    # never chosen against. It also keeps the tool usable with the cameras down.
+    flags["real_robot_observe_at_option_boundary"] = False
     utils.reset_config(flags)
 
     env = get_or_create_env(CFG.env)
     assert isinstance(env, PyBulletDominoRealEnv), \
         f"replay_plan drives the real-bench env; got {CFG.env}"
+    # Attaches the arm under --execute and is a no-op otherwise, so the env
+    # stays the same object either way.
+    attach_real_robot(env)
     opts = {o.name: o for o in get_gt_options(env.get_name())}
     task = env.get_test_tasks()[0].task
     by_name = {o.name: o for o in task.init}
@@ -123,12 +134,6 @@ def main() -> None:
         exceptions_to_break_on={utils.OptionExecutionFailure},
         monitor=monitor)
     print(f"# steps={len(traj.actions)}  goal_reached={env.goal_reached()}")
-
-    # Sim rollout is done; ship the whole episode's trajectory to the arm in one
-    # call (no-op when dry / shipping per option). Deliberately AFTER the whole
-    # rollout: the gripper split must see every action at once, else Place
-    # re-grasps the domino it is already holding.
-    env.flush_real_execution()
 
     if args.out and monitor is not None:
         os.makedirs(os.path.join(CFG.video_dir,
