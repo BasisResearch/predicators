@@ -2,7 +2,7 @@
 
 predicators rolls each option out in simulation exactly as it always has. This
 module ships the resulting joint trajectory to the real arm, looks at the
-bench, and writes what it saw back into the simulated **twin**. The env stays
+scene, and writes what it saw back into the simulated **twin**. The env stays
 pure simulation and never learns that a robot exists: it exposes one optional
 collaborator (``PyBulletEnv.attach_executor``) and calls it after each reset
 and each step.
@@ -25,7 +25,7 @@ from predicators import utils
 from predicators.envs.base_env import BaseEnv
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.real_robot_bridge import execute_chunks, \
-    make_real_robot, reset_arm
+    make_real_robot, reset_arm, reset_env
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, Observation, State
 
@@ -98,14 +98,14 @@ class TwinCorrector:
         self._env = env
         self._divergence_atol = divergence_atol
         # Largest per-object position disagreement between the twin and the
-        # bench at the last look, in metres; None before the first look.
+        # real scene at the last look, in metres; None before the first look.
         self.last_divergence: Optional[float] = None
 
     def absorb(self, observation: Any) -> Observation:
         """Write what the cameras saw into the twin; return its new reading.
 
         Divergence is measured against the twin's *pre-sync* state --
-        the sim's prediction of where the bench would be -- because that
+        the sim's prediction of where the scene would be -- because that
         is the comparison that says reality went somewhere the model did
         not. ``_set_state``'s own reconstruction check cannot answer
         this: it round-trips the state it was asked to write and
@@ -121,7 +121,7 @@ class TwinCorrector:
         if self.last_divergence is not None and \
                 self.last_divergence > self._divergence_atol:
             logging.warning(
-                "real robot: the bench is %.3f m from where the twin "
+                "real robot: the scene is %.3f m from where the twin "
                 "predicted (tolerance %.3f m); the twin is being corrected, "
                 "but the current plan was made against the prediction",
                 self.last_divergence, self._divergence_atol)
@@ -145,7 +145,8 @@ class RealRobotExecutor:
                  robot: Any,
                  observe_at_boundaries: bool = True,
                  settle_s: float = 0.0,
-                 divergence_atol: float = 0.02) -> None:
+                 divergence_atol: float = 0.02,
+                 human_reset: bool = True) -> None:
         missing = sorted(name for name in _REQUIRED_HOOKS
                          if not callable(getattr(env, name, None)))
         if missing:
@@ -157,35 +158,98 @@ class RealRobotExecutor:
         if observe_at_boundaries and not getattr(robot, "has_perception",
                                                  False):
             raise ValueError(
-                "asked to look at the bench between options, but the robot "
+                "asked to look at the scene between options, but the robot "
                 "has no perception configured; set real_robot_perception, or "
                 "turn the option-boundary look off for a blind open-loop run")
+        if human_reset and not getattr(robot, "has_perception", False):
+            raise ValueError(
+                "human resets rebuild each episode's task from the scene, so "
+                "the robot needs perception; set real_robot_perception, or "
+                "turn real_robot_human_reset off to keep the captured scene")
         self._env = env
         self._robot = robot
         self._observe = observe_at_boundaries
         self._settle_s = settle_s
+        self._human_reset = human_reset
         self._buffer = OptionBoundaryBuffer()
         self._corrector = TwinCorrector(env, divergence_atol)
+        # The scene has to be arranged before the first episode, so a reset is
+        # owed from the start. Set again by every reset, i.e. once per episode.
+        self._reset_pending = True
+        # The twin's home arm configuration, captured now: an executor is
+        # attached right after the env is built, so the simulated arm is still
+        # at home. A scene reset has to send the real arm somewhere before the
+        # human reaches in, and this is that somewhere .
+        self._home_arm = self._home_arm_joints(env.get_observation())
+        # How many times the scene has been (re)perceived for a task. Read by
+        # tests and worth logging on a hardware session.
+        self.resets_done = 0
 
     @property
     def last_divergence(self) -> Optional[float]:
-        """How far the bench was from the twin at the last look."""
+        """How far the scene was from the twin at the last look."""
         return self._corrector.last_divergence
 
     # -- the ActionExecutor port -------------------------------------------
+    def tasks_for(self, train_or_test: str) -> Optional[List[EnvironmentTask]]:
+        """Rebuild this split's task from the scene, resetting it first.
+
+        **Why this happens here and not in ``reset``.** The task has to
+        be rebuilt before anything consumes it, and the two callers
+        consume it differently:
+
+        * *Evaluation* solves at reset. ``_solve_task``
+          (``main.py:774``) calls ``cogman.reset(env_task)`` with no
+          override policy, so ``_reset_policy`` runs
+          ``approach.solve(task)`` -- before ``env.reset`` is ever
+          called. A human reset performed in ``env.reset`` would
+          therefore plan against a scene that no longer exists.
+        * *Exploration* does not solve at reset: the online loop sets
+          an override policy first (``main.py:551``), so
+          ``_reset_policy`` takes that branch. The task still matters,
+          because it is what ``env.reset`` initializes the simulated
+          twin from -- a stale one starts every episode from the
+          captured scene rather than the one just arranged.
+
+        For a real environment "give me the train task" honestly means
+        "look at the scene", so that is what it does.
+
+        Returns None -- leaving the env's captured-scene task alone --
+        when no reset is owed, or when human resets are off. The latter
+        is what keeps a fixed-plan replay reproducible.
+        """
+        if not self._human_reset or not self._reset_pending:
+            return None
+        # Homes the arm out of the way, blocks until the human confirms, then
+        # perceives.
+        observation = reset_env(self._robot, self._home_arm)
+        self._reset_pending = False
+        self.resets_done += 1
+        logging.info(
+            "real robot: scene reset #%d; rebuilding the %s task "
+            "from what the cameras see", self.resets_done, train_or_test)
+        domain = cast(_DomainHooks, self._env)
+        # One task, because a physical scene is one scene. The env keeps the
+        # list length stable, so task indices already handed out stay valid.
+        return [domain.task_from_observation(observation, train_or_test)]
+
     def after_reset(self, train_or_test: str, task_idx: int,
                     obs: Observation) -> None:
         """Home the real arm to wherever the twin just reset to.
 
         The twin is reset first because its home joint configuration is
-        what the option trajectories are planned from: the arm has to
-        start where the first option's streamed waypoints begin, or the
-        drift guard trips on the opening move.
+        what the option trajectories are planned from.
 
-        Both splits execute. Real mode is a property of an executor
-        being attached, not of the split.
+        Both train and test splits execute. Real mode is a property of
+        an executor being attached, not of the split.
+
+        This is also where the next reset is owed from: an episode has
+        just begun, so the *following* task request has to face a
+        freshly arranged scene. Marking it here rather than at the end
+        of an episode is what makes it exactly one prompt per episode.
         """
         del train_or_test, task_idx  # every episode homes the same way
+        self._reset_pending = True
         lost = self._buffer.discard()
         if lost:
             # The previous episode ended mid-option (step limit, or an
@@ -267,6 +331,7 @@ def attach_real_robot(env: BaseEnv,
         robot,
         observe_at_boundaries=CFG.real_robot_observe_at_option_boundary,
         settle_s=CFG.real_robot_settle_s,
-        divergence_atol=CFG.real_robot_divergence_atol)
+        divergence_atol=CFG.real_robot_divergence_atol,
+        human_reset=CFG.real_robot_human_reset)
     env.attach_executor(executor)
     return executor

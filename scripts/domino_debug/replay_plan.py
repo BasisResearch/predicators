@@ -1,9 +1,9 @@
-"""Replay an EXACT solved option plan on the real-bench domino env
+"""Replay an EXACT solved option plan on the real-scene domino env
 (deterministic, no LLM). Grounds the plan's Pick/Place/Push/Wait options with
 their exact parameters and rolls them through the env in TEST mode. With
 ``real_robot_execute=True`` a RealRobotExecutor is attached to the env and each
 option's joint trajectory is shipped to the Franka as that option ends. The
-bench is NOT re-perceived between options here: this tool replays a fixed plan,
+scene is NOT re-perceived between options here: this tool replays a fixed plan,
 and correcting the twin mid-replay would let the option policies see states the
 recorded plan was never chosen against. The default dry-run stays pure sim
 (optionally rendered to MP4).
@@ -30,9 +30,13 @@ from typing import List, Tuple
 import numpy as np
 
 from predicators import utils
+from predicators.approaches import create_approach
+from predicators.cogman import CogMan, run_episode_and_get_observations
 from predicators.envs import get_or_create_env
 from predicators.envs.pybullet_domino_real import PyBulletDominoRealEnv
+from predicators.execution_monitoring import create_execution_monitor
 from predicators.ground_truth_models import get_gt_options
+from predicators.perception import create_perceiver
 from predicators.pybullet_helpers.real_robot_executor import attach_real_robot
 from predicators.settings import CFG
 from scripts.cluster_utils import SingleSeedRunConfig, generate_run_configs
@@ -61,7 +65,7 @@ def _parse_plan(text: str) -> List[Tuple[str, List[str], List[float]]]:
 
 
 def main() -> None:
-    """Ground the plan's options and roll them through the real-bench env."""
+    """Ground the plan's options and roll them through the real-scene env."""
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -88,21 +92,27 @@ def main() -> None:
     if args.scene:
         flags["domino_real_scene"] = args.scene
     flags["real_robot_execute"] = bool(args.execute)
-    # This tool replays an EXACT plan, so it does not look at the bench even
+    # This tool replays an EXACT plan, so it does not look at the scene even
     # though the closed loop is the default elsewhere: re-syncing the twin
     # mid-replay would let the option policies see states the recorded plan was
     # never chosen against. It also keeps the tool usable with the cameras down.
     flags["real_robot_observe_at_option_boundary"] = False
+    # ...and no human reset either: that rebuilds the episode's task from a
+    # live look, which would rename and re-place the very objects the recorded
+    # plan refers to. The task must stay the captured scene the plan was
+    # written against.
+    flags["real_robot_human_reset"] = False
     utils.reset_config(flags)
 
     env = get_or_create_env(CFG.env)
     assert isinstance(env, PyBulletDominoRealEnv), \
-        f"replay_plan drives the real-bench env; got {CFG.env}"
+        f"replay_plan drives the real-scene env; got {CFG.env}"
     # Attaches the arm under --execute and is a no-op otherwise, so the env
     # stays the same object either way.
     attach_real_robot(env)
     opts = {o.name: o for o in get_gt_options(env.get_name())}
-    task = env.get_test_tasks()[0].task
+    env_task = env.get_test_tasks()[0]
+    task = env_task.task
     by_name = {o.name: o for o in task.init}
 
     with open(args.plan, encoding="utf-8") as f:
@@ -124,16 +134,32 @@ def main() -> None:
     policy = utils.option_plan_to_policy(
         plan, abstract_function=lambda s: utils.abstract(s, env.predicates))
     monitor = utils.VideoMonitor(env.render) if args.out else None
-    traj, _ = utils.run_policy(
-        policy,
+
+    # Roll out through CogMan's episode loop -- the same one main.py uses --
+    # driven by an override policy, exactly as the online-learning path does
+    # (main.py sets the override, then resets). With an override in place
+    # CogMan never asks the approach to solve, so the plan being replayed is
+    # the plan that executes. That is also why the approach and monitor below
+    # are the cheap ones: neither is consulted for control, and "oracle" plus
+    # "trivial" avoid dragging an LLM into a debug replay.
+    cogman = CogMan(
+        create_approach("oracle", env.predicates,
+                        get_gt_options(env.get_name()), env.types,
+                        env.action_space, [task]),
+        create_perceiver(CFG.perceiver), create_execution_monitor("trivial"))
+    cogman.set_override_policy(policy)
+    cogman.set_termination_function(lambda s: False)
+    cogman.reset(env_task)
+    (_, actions), _, _ = run_episode_and_get_observations(
+        cogman,
         env,
         "test",
         0,
-        termination_function=lambda s: False,
         max_num_steps=CFG.horizon,
+        terminate_on_goal_reached=False,
         exceptions_to_break_on={utils.OptionExecutionFailure},
         monitor=monitor)
-    print(f"# steps={len(traj.actions)}  goal_reached={env.goal_reached()}")
+    print(f"# steps={len(actions)}  goal_reached={env.goal_reached()}")
 
     if args.out and monitor is not None:
         os.makedirs(os.path.join(CFG.video_dir,

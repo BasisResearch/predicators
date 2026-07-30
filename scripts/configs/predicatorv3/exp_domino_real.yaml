@@ -1,11 +1,12 @@
-# Thin launcher: real-world domino testing through the STOCK Predicators
-# pipeline (replaces real_skills/run_online_learning.py's bespoke lifecycle,
-# which bypassed setup_environment and hand-transcribed ~70 flags).
+# Thin launcher: real-world domino testing through the Predicators
+# pipeline.
 # Usage: python scripts/local/launch_simp.py -c predicatorv3/exp_domino_real.yaml
 # With real_robot_execute (default off, i.e. pure sim)
 # a RealRobotExecutor is attached and its rollouts drive the real Franka --
-# BOTH splits, so exploration episodes execute like evaluation ones, and the
-# bench is re-perceived between options to correct the simulated twin.
+# BOTH train and testsplits, so exploration episodes execute like evaluation ones, and the
+# scene is re-perceived between skills to correct the simulated twin.
+# Between episodes a human rearranges the dominoes and the episode's task is
+# rebuilt from what the cameras see (real_robot_human_reset).
 # Env definition lives in envs/all.yaml (domino_real) and the approach in
 # approaches/all.yaml; this file only un-skips the env + approach it runs and
 # sets the agent-only ENVS overrides.
@@ -14,6 +15,9 @@ includes:
   - common.yaml
   - envs/all.yaml
   - approaches/all.yaml
+FLAGS:
+  num_online_learning_cycles: 2
+NUM_SEEDS: 1
 # Agent-only env overrides: deep-merged on top of envs/all.yaml. These
 # excluded_predicates are dropped for "ours" runs (matches exp_domino.yaml;
 # oracle.yaml would keep them in).

@@ -3,7 +3,7 @@
 The executor's own tests use a stub env to cover its logic in isolation.
 This file does the opposite: a **real** ``PyBulletDominoRealEnv`` with a real
 physics client, driven through ``env.step`` exactly as the episode loop does,
-so the whole closed loop is exercised -- ship a chunk, look at the bench,
+so the whole closed loop is exercised -- ship a chunk, look at the scene,
 convert what was seen, write it into the twin, read it back out through the
 agent-facing observation.
 
@@ -94,6 +94,9 @@ def _config(scene_path, **overrides):
         "real_robot_observe_at_option_boundary": True,
         "real_robot_settle_s": 0.0,
         "real_robot_divergence_atol": 0.02,
+        # These cover per-option execution and the twin sync. The human-gated
+        # task rebuild is its own concern, in test_domino_real_online.py.
+        "real_robot_human_reset": False,
     }
     flags.update(overrides)
     utils.reset_config(flags)
@@ -319,13 +322,13 @@ def test_closed_loop_against_a_real_dry_robot(inner, scene_path, tmp_path):
     reached through the real ``execute_chunks``. This is the only test
     that exercises the actual ``StepRequest`` / ``Segment`` construction
     and the gripper dedup, so a contract change on either side of the
-    submodule boundary surfaces here rather than on the bench.
+    submodule boundary surfaces here rather than on the real scene.
     """
     pytest.importorskip("babyrobot")
     from babyrobot.realrobot.perception import FileDominoPerception
     from babyrobot.realrobot.real_robot import RealRobot
 
-    # The bench the cameras will "see": the target lying on its face.
+    # The scene the cameras will "see": the target lying on its face.
     seen = {
         "frame":
         "robot_base",

@@ -583,16 +583,21 @@ class GlobalSettings:
     # cameraless, but it always reports the captured layout), or "none" (no
     # cameras at all, blind open-loop run).
     real_robot_perception = "zed"
-    # Look at the bench at each option boundary and correct the twin from what
+    # Look at the scene at each option boundary and correct the twin from what
     # was seen. This is the point of running on real hardware -- the learner
     # sees perceived transitions rather than the simulator's guesses.
     real_robot_observe_at_option_boundary = True
     # Dwell before a capture, so the dominoes come to rest after the motion.
     real_robot_settle_s = 0.5
-    # How far (metres) the bench may be from where the twin predicted before
+    # How far (metres) the scene may be from where the twin predicted before
     # the disagreement is worth logging.
     real_robot_divergence_atol = 0.02
-    # --- real-world domino bench (pybullet_domino_real env) ------------------
+    # Between episodes, home the arm and wait for a human to rearrange the
+    # scene, then rebuild that episode's task from what the cameras then see.
+    # False keeps the captured scene, which is what a fixed-plan
+    # replay wants (rebuilding would change the objects the plan named).
+    real_robot_human_reset = True
+    # --- real-world domino scene (pybullet_domino_real env) ------------------
     # The reconstructed-scene JSON (robot_base frame) the pybullet_domino_real
     # env builds its single train/test task from; the env sizes its domino
     # component from this scene's role counts.
@@ -604,7 +609,7 @@ class GlobalSettings:
     # an explicit 'role' field per domino.
     domino_real_start_id = 6
     domino_real_target_id = 5
-    # Real-bench geometry.
+    # Real-scene geometry.
     domino_real_table_z = -0.041  # real table height in the robot base frame
     domino_real_robot_init_tilt = np.pi
     domino_real_robot_init_wrist = 0.0

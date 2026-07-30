@@ -133,6 +133,20 @@ def reset_arm(robot: "RealRobot", joints: Sequence[float]) -> Sequence[float]:
     return reply.joints
 
 
+def reset_env(robot: "RealRobot",
+              joints: Optional[Sequence[float]] = None) -> Any:
+    """Home the arm, wait for a human to rearrange the scene, then look.
+    Blocking, and deliberately unbounded.
+
+    Returns the observation captured *after* the human confirmed.
+    """
+    # pylint: disable=import-outside-toplevel,import-error
+    from babyrobot.realrobot.messages import ResetEnvRequest
+    request = ResetEnvRequest(
+        joints=tuple(joints) if joints is not None else None)
+    return robot.reset_env(request)
+
+
 def execute_chunks(robot: "RealRobot",
                    chunks: Sequence[Sequence[Action]],
                    layout: GripperJointLayout,
@@ -143,7 +157,7 @@ def execute_chunks(robot: "RealRobot",
 
     One chunk is one unit of "execute this, then optionally look": with
     ``observe`` the reply carries one observation per chunk, which is
-    how the executor gets a look at the bench per option. With
+    how the executor gets a look at the scene per option. With
     ``observe=False`` nothing comes back and the caller's world state
     stays the sim's prediction.
 
