@@ -10,12 +10,17 @@ explained Nx better at a different value" before the declaration
 decision.
 """
 
+from pathlib import Path
+from typing import cast
+
 import numpy as np
 import pybullet as p
 
 from predicators import utils
-from predicators.agent_sdk.tools.synthesis import create_synthesis_tools
-from predicators.structs import Action, LowLevelTrajectory, State, Type
+from predicators.agent_sdk.synthesis_backend import SynthesisBackend
+from predicators.agent_sdk.tools.synthesis import SynthesisToolkit, \
+    create_synthesis_tools
+from predicators.structs import Action, LowLevelTrajectory, Object, State, Type
 
 _BALL_TYPE = Type("ball", ["x"])
 _TRUE_FRICTION = 1.0
@@ -98,16 +103,16 @@ class _FakeApproach:
 
 def _observed_trajectory(num_steps: int = 6) -> LowLevelTrajectory:
     """A ball drifting at the TRUE friction, 1.0 per step."""
-    ball = _BALL_TYPE("ball0")
+    ball = Object("ball0", _BALL_TYPE)
     states = [
         State({ball: np.array([_TRUE_FRICTION * t])})
         for t in range(num_steps + 1)
     ]
-    actions = [Action(np.zeros(1)) for _ in range(num_steps)]
+    actions = [Action(np.zeros(1, dtype=np.float32)) for _ in range(num_steps)]
     return LowLevelTrajectory(states, actions)
 
 
-def _make_toolkit(tmp_path):
+def _make_toolkit(tmp_path: Path) -> SynthesisToolkit:
     sim_file = tmp_path / "simulator.py"
     sim_file.write_text(_NOOP_SIMULATOR, encoding="utf-8")
     return create_synthesis_tools(exec_ns={},
@@ -115,8 +120,9 @@ def _make_toolkit(tmp_path):
                                   inferred_process_features={},
                                   simulator_file=str(sim_file),
                                   versions_dir=str(tmp_path / "versions"),
-                                  approach=_FakeApproach(
-                                      [_observed_trajectory()]))
+                                  approach=cast(
+                                      SynthesisBackend,
+                                      _FakeApproach([_observed_trajectory()])))
 
 
 def test_rollout_residuals_flags_effective_param(tmp_path) -> None:
@@ -161,13 +167,14 @@ def test_rollout_residuals_contains_rule_crashes(tmp_path) -> None:
     sim_file.write_text(_NOOP_SIMULATOR.replace('params["dummy_k"]',
                                                 'params["missing"]'),
                         encoding="utf-8")
-    toolkit = create_synthesis_tools(exec_ns={},
-                                     base_pred_triples=[],
-                                     inferred_process_features={},
-                                     simulator_file=str(sim_file),
-                                     versions_dir=str(tmp_path / "versions"),
-                                     approach=_FakeApproach(
-                                         [_observed_trajectory()]))
+    toolkit = create_synthesis_tools(
+        exec_ns={},
+        base_pred_triples=[],
+        inferred_process_features={},
+        simulator_file=str(sim_file),
+        versions_dir=str(tmp_path / "versions"),
+        approach=cast(SynthesisBackend,
+                      _FakeApproach([_observed_trajectory()])))
     out = toolkit.residuals_runner(rollout=True)
     assert "Error: open-loop rollout scoring failed" in out
     assert "PROCESS_RULES bug" in out
@@ -187,6 +194,7 @@ def test_rollout_residuals_requires_full_trajectories(tmp_path) -> None:
                                      inferred_process_features={},
                                      simulator_file=str(sim_file),
                                      versions_dir=str(tmp_path / "versions"),
-                                     approach=_FakeApproach([]))
+                                     approach=cast(SynthesisBackend,
+                                                   _FakeApproach([])))
     out = toolkit.residuals_runner(rollout=True)
     assert "needs full trajectories" in out

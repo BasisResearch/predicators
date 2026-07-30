@@ -32,8 +32,8 @@ from predicators.ground_truth_models.boil.gt_simulator import PARAM_SPECS, \
 from predicators.option_model import _OracleOptionModel
 from predicators.planning import run_backtracking_refinement
 from predicators.settings import CFG
-from predicators.structs import GroundAtom, LowLevelTrajectory, Object, \
-    ParameterizedOption, Predicate
+from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
+    Object, ParameterizedOption, Predicate
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -642,6 +642,7 @@ def test_make_probe_process_model_factory() -> None:
     thing_type = Type("thing", ["x"])
     thing = Object("thing0", thing_type)
     state = State({thing: np.array([0.0])})
+    noop = Action(np.zeros(1, dtype=np.float32))
 
     obj = object.__new__(AgentSimLearningApproach)
     obj._process_rules = None
@@ -658,9 +659,9 @@ def test_make_probe_process_model_factory() -> None:
     obj._fitted_params = {"dx": 0.5}
     factory = obj._make_probe_process_model_factory()
     assert factory is not None
-    assert factory()(state, None).get(thing, "x") == 0.5
+    assert factory()(state, noop).get(thing, "x") == 0.5
     obj._fitted_params["dx"] = 1.25  # in place, like sim.fit
-    assert factory()(state, None).get(thing, "x") == 1.25
+    assert factory()(state, noop).get(thing, "x") == 1.25
 
     def latent_rule(state: State, latent: dict, history: list, updates: dict,
                     params: dict) -> dict:
@@ -676,10 +677,10 @@ def test_make_probe_process_model_factory() -> None:
     assert factory is not None
     stepper = factory()
     # Latent threads across steps within one stepper...
-    assert stepper(state, None).get(thing, "x") == 1.0
-    assert stepper(state, None).get(thing, "x") == 2.0
+    assert stepper(state, noop).get(thing, "x") == 1.0
+    assert stepper(state, noop).get(thing, "x") == 2.0
     # ...and resets on a fresh stepper (new replay attempt).
-    assert factory()(state, None).get(thing, "x") == 1.0
+    assert factory()(state, noop).get(thing, "x") == 1.0
 
 
 def test_cross_cycle_arbitration_by_pooled_evidence() -> None:

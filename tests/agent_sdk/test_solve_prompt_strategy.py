@@ -11,7 +11,7 @@ import numpy as np
 
 from predicators import utils
 from predicators.agent_sdk.sketch_prompts import build_solve_prompt
-from predicators.structs import State, Task, TaskEvaluator, Type
+from predicators.structs import Object, State, Task, TaskEvaluator, Type
 
 _DOM = Type("thing", ["x"])
 
@@ -24,7 +24,7 @@ class _StubEvaluator(TaskEvaluator):
 
 
 def _make_task(evaluator=None) -> Task:
-    obj = _DOM("thing0")
+    obj = Object("thing0", _DOM)
     return Task(State({obj: np.array([0.0])}),
                 set(),
                 goal_nl="Do the thing.",
