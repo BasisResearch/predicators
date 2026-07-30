@@ -279,11 +279,29 @@ def test_construction_rejects_observing_without_perception():
 
 
 def test_blind_run_needs_no_perception():
-    """Turning the look off is a supported (open-loop) mode, so a robot without
-    cameras is fine there."""
+    """A blind open-loop run is supported, so a robot with no cameras is fine.
+
+    -- provided nothing else asks to look, human resets included.
+    """
     assert _executor(_StubEnv(),
                      _StubRobot(has_perception=False),
-                     observe_at_boundaries=False) is not None
+                     observe_at_boundaries=False,
+                     human_reset=False) is not None
+
+
+def test_human_reset_without_cameras_is_refused():
+    """A human reset rebuilds the task from a look, so it cannot be honoured
+    without perception.
+
+    Better to say so at construction than to raise on the first task
+    request, after the human has already been asked to stand by.
+    """
+    with pytest.raises(ValueError) as exc:
+        _executor(_StubEnv(),
+                  _StubRobot(has_perception=False),
+                  observe_at_boundaries=False,
+                  human_reset=True)
+    assert "human reset" in str(exc.value)
 
 
 # -- reset -------------------------------------------------------------------
@@ -407,7 +425,8 @@ def test_no_sync_when_not_observing(recorder):
     env = _StubEnv()
     executor = _executor(env,
                          _StubRobot(has_perception=False),
-                         observe_at_boundaries=False)
+                         observe_at_boundaries=False,
+                         human_reset=False)
 
     executor.after_step(_act(_option(), terminal=True), env.get_observation())
 

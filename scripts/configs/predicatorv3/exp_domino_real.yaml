@@ -6,14 +6,24 @@
 # a RealRobotExecutor is attached and its rollouts drive the real Franka --
 # BOTH splits, so exploration episodes execute like evaluation ones, and the
 # bench is re-perceived between options to correct the simulated twin.
+# Between episodes a human rearranges the dominoes and the episode's task is
+# rebuilt from what the cameras then see (real_robot_human_reset).
 # Env definition lives in envs/all.yaml (domino_real) and the approach in
 # approaches/all.yaml; this file only un-skips the env + approach it runs and
 # sets the agent-only ENVS overrides.
+#
+# Budget: every episode costs a physical bench reset by a human, so the cycle
+# count and seed count are cut from common.yaml's 10 x 3. At 2 cycles x 1 seed
+# a session is on the order of a couple of hours rather than a couple of days.
+# The sim / dry regression accepts the same smaller budget.
 ---
 includes:
   - common.yaml
   - envs/all.yaml
   - approaches/all.yaml
+FLAGS:
+  num_online_learning_cycles: 2
+NUM_SEEDS: 1
 # Agent-only env overrides: deep-merged on top of envs/all.yaml. These
 # excluded_predicates are dropped for "ours" runs (matches exp_domino.yaml;
 # oracle.yaml would keep them in).

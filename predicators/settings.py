@@ -592,6 +592,14 @@ class GlobalSettings:
     # How far (metres) the bench may be from where the twin predicted before
     # the disagreement is worth logging.
     real_robot_divergence_atol = 0.02
+    # Between episodes, home the arm and wait for a human to rearrange the
+    # scene, then rebuild that episode's task from what the cameras then see.
+    # This is what makes active learning on the bench work: every episode
+    # faces a physically different scene instead of replaying one capture.
+    # The wait is a blocking call with no timeout -- it is a person, not a
+    # request. False keeps the captured scene, which is what a fixed-plan
+    # replay wants (rebuilding would change the objects the plan named).
+    real_robot_human_reset = True
     # --- real-world domino bench (pybullet_domino_real env) ------------------
     # The reconstructed-scene JSON (robot_base frame) the pybullet_domino_real
     # env builds its single train/test task from; the env sizes its domino

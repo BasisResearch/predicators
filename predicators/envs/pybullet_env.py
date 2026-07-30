@@ -72,12 +72,21 @@ class ActionExecutor(Protocol):
     """Drives real hardware from a simulated env's rollout.
 
     The port an env exposes for "something outside is executing what I
-    just simulated". Declared here, next to the two calls, and
+    just simulated". Declared here, next to the three calls, and
     implemented elsewhere -- ``pybullet_helpers.real_robot_executor`` --
     so this module never imports anything that knows about a robot.
 
     An env with no executor attached is pure simulation.
     """
+
+    def tasks_for(self, train_or_test: str) -> Optional[List[EnvironmentTask]]:
+        """Tasks to use for this split, or None to keep the env's own.
+
+        Asked *every* time the tasks are requested, because for a real
+        environment "give me the train task" genuinely means "look at
+        the world". An executor that has nothing new to say returns None
+        and the env's own generated (and cached) tasks stand.
+        """
 
     def after_reset(self, train_or_test: str, task_idx: int,
                     obs: Observation) -> None:
@@ -760,6 +769,44 @@ class PyBulletEnv(BaseEnv):
         skill simulator) and those must never touch a robot.
         """
         self._executor = executor
+
+    def get_train_tasks(self) -> List[EnvironmentTask]:
+        """The train tasks, letting an executor supply them instead.
+
+        ``BaseEnv`` caches these, which is right for a simulated env
+        whose tasks are generated once. For a real one it is wrong:
+        every episode faces a physically different bench, and the task
+        has to be rebuilt from what is actually there. The executor is
+        asked first; see ``ActionExecutor.tasks_for``.
+        """
+        self._maybe_replace_tasks("train")
+        return super().get_train_tasks()
+
+    def get_test_tasks(self) -> List[EnvironmentTask]:
+        """The test tasks, letting an executor supply them instead."""
+        self._maybe_replace_tasks("test")
+        return super().get_test_tasks()
+
+    def _maybe_replace_tasks(self, train_or_test: str) -> None:
+        """Overwrite the cached tasks for a split if the executor has new
+        ones."""
+        if self._executor is None:
+            return
+        fresh = self._executor.tasks_for(train_or_test)
+        if fresh is None:
+            return
+        cached = (self._train_tasks
+                  if train_or_test == "train" else self._test_tasks)
+        if cached and len(fresh) < len(cached):
+            # Keep the list length: task *indices* have already been handed out
+            # against the old length, so shrinking it would turn a live index
+            # into an IndexError. A real environment perceives one world, so
+            # every index legitimately names the same freshly-perceived scene.
+            fresh = [fresh[0]] * len(cached)
+        if train_or_test == "train":
+            self._train_tasks = fresh
+        else:
+            self._test_tasks = fresh
 
     # ── State Write (State → PyBullet) ──────────────────────────
 

@@ -133,6 +133,25 @@ def reset_arm(robot: "RealRobot", joints: Sequence[float]) -> Sequence[float]:
     return reply.joints
 
 
+def reset_env(robot: "RealRobot",
+              joints: Optional[Sequence[float]] = None) -> Any:
+    """Home the arm, wait for a human to rearrange the scene, then look.
+
+    Blocking, and deliberately unbounded: the wait is a human at the
+    bench, so there is no timeout to pick. Nothing reaps this -- it is an
+    ordinary method call in one interpreter, not a request.
+
+    Returns the observation captured *after* the human confirmed, which
+    is the whole point: the task is built from the bench as it now is,
+    not as it was captured.
+    """
+    # pylint: disable=import-outside-toplevel,import-error
+    from babyrobot.realrobot.messages import ResetEnvRequest
+    request = ResetEnvRequest(
+        joints=tuple(joints) if joints is not None else None)
+    return robot.reset_env(request)
+
+
 def execute_chunks(robot: "RealRobot",
                    chunks: Sequence[Sequence[Action]],
                    layout: GripperJointLayout,

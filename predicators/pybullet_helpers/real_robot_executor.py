@@ -25,7 +25,7 @@ from predicators import utils
 from predicators.envs.base_env import BaseEnv
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.real_robot_bridge import execute_chunks, \
-    make_real_robot, reset_arm
+    make_real_robot, reset_arm, reset_env
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, Observation, State
 
@@ -145,7 +145,8 @@ class RealRobotExecutor:
                  robot: Any,
                  observe_at_boundaries: bool = True,
                  settle_s: float = 0.0,
-                 divergence_atol: float = 0.02) -> None:
+                 divergence_atol: float = 0.02,
+                 human_reset: bool = True) -> None:
         missing = sorted(name for name in _REQUIRED_HOOKS
                          if not callable(getattr(env, name, None)))
         if missing:
@@ -160,12 +161,32 @@ class RealRobotExecutor:
                 "asked to look at the bench between options, but the robot "
                 "has no perception configured; set real_robot_perception, or "
                 "turn the option-boundary look off for a blind open-loop run")
+        if human_reset and not getattr(robot, "has_perception", False):
+            raise ValueError(
+                "human resets rebuild each episode's task from the bench, so "
+                "the robot needs perception; set real_robot_perception, or "
+                "turn real_robot_human_reset off to keep the captured scene")
         self._env = env
         self._robot = robot
         self._observe = observe_at_boundaries
         self._settle_s = settle_s
+        self._human_reset = human_reset
         self._buffer = OptionBoundaryBuffer()
         self._corrector = TwinCorrector(env, divergence_atol)
+        # The bench has to be arranged before the first episode, so a reset is
+        # owed from the start. Set again by every reset, i.e. once per episode.
+        self._reset_pending = True
+        # The twin's home arm configuration, captured now: an executor is
+        # attached right after the env is built, so the simulated arm is still
+        # at home. A bench reset has to send the real arm somewhere before the
+        # human reaches in, and this is that somewhere -- passed explicitly
+        # because a RealRobot built without ``home_joints`` cannot resolve it
+        # itself (it raises on hardware and replies with an empty pose in dry
+        # mode).
+        self._home_arm = self._home_arm_joints(env.get_observation())
+        # How many times the bench has been (re)perceived for a task. Read by
+        # tests and worth logging on a hardware session.
+        self.resets_done = 0
 
     @property
     def last_divergence(self) -> Optional[float]:
@@ -173,6 +194,39 @@ class RealRobotExecutor:
         return self._corrector.last_divergence
 
     # -- the ActionExecutor port -------------------------------------------
+    def tasks_for(self, train_or_test: str) -> Optional[List[EnvironmentTask]]:
+        """Rebuild this split's task from the bench, resetting it first.
+
+        **Why this happens here and not in ``reset``.** The online loop
+        is ``env.get_train_tasks()[i]`` -> ``cogman.reset(task)`` ->
+        ``run_episode(...)``, and the approach *solves* inside
+        ``cogman.reset`` -- before ``env.reset`` is ever called. Putting
+        the human reset in ``env.reset`` would therefore plan against a
+        bench that no longer exists. For a real environment "give me the
+        train task" honestly means "look at the bench", so that is what
+        it does.
+
+        Returns None -- leaving the env's captured-scene task alone --
+        when no reset is owed, or when human resets are off. The latter
+        is what keeps a fixed-plan replay reproducible: rebuilding the
+        task from a live look would change the objects and poses the
+        recorded plan was written against.
+        """
+        if not self._human_reset or not self._reset_pending:
+            return None
+        # Homes the arm out of the way, blocks until the human confirms, then
+        # perceives.
+        observation = reset_env(self._robot, self._home_arm)
+        self._reset_pending = False
+        self.resets_done += 1
+        logging.info(
+            "real robot: bench reset #%d; rebuilding the %s task "
+            "from what the cameras see", self.resets_done, train_or_test)
+        domain = cast(_DomainHooks, self._env)
+        # One task, because a physical bench is one scene. The env keeps the
+        # list length stable, so task indices already handed out stay valid.
+        return [domain.task_from_observation(observation, train_or_test)]
+
     def after_reset(self, train_or_test: str, task_idx: int,
                     obs: Observation) -> None:
         """Home the real arm to wherever the twin just reset to.
@@ -184,8 +238,16 @@ class RealRobotExecutor:
 
         Both splits execute. Real mode is a property of an executor
         being attached, not of the split.
+
+        This is also where the next reset is owed from: an episode has
+        just begun, so the *following* task request has to face a
+        freshly arranged bench. Marking it here rather than at the end
+        of an episode is what makes it exactly one prompt per episode --
+        there is no end-of-episode hook to hang it on, and the loop
+        always resets before it steps.
         """
         del train_or_test, task_idx  # every episode homes the same way
+        self._reset_pending = True
         lost = self._buffer.discard()
         if lost:
             # The previous episode ended mid-option (step limit, or an
@@ -267,6 +329,7 @@ def attach_real_robot(env: BaseEnv,
         robot,
         observe_at_boundaries=CFG.real_robot_observe_at_option_boundary,
         settle_s=CFG.real_robot_settle_s,
-        divergence_atol=CFG.real_robot_divergence_atol)
+        divergence_atol=CFG.real_robot_divergence_atol,
+        human_reset=CFG.real_robot_human_reset)
     env.attach_executor(executor)
     return executor

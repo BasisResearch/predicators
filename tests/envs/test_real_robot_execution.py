@@ -94,6 +94,9 @@ def _config(scene_path, **overrides):
         "real_robot_observe_at_option_boundary": True,
         "real_robot_settle_s": 0.0,
         "real_robot_divergence_atol": 0.02,
+        # These cover per-option execution and the twin sync. The human-gated
+        # task rebuild is its own concern, in test_domino_real_online.py.
+        "real_robot_human_reset": False,
     }
     flags.update(overrides)
     utils.reset_config(flags)
