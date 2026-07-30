@@ -1515,7 +1515,8 @@ def test_typed_entity_pickle_drops_cached_hash():
     """
     import pickle  # pylint: disable=import-outside-toplevel
     obj = Type("ball", ["x"])("ball0")
-    str(obj), hash(obj)  # warm the cached properties
+    str(obj)  # warm the cached properties
+    hash(obj)
     assert "_hash" in obj.__dict__ and "_str" in obj.__dict__
     loaded = pickle.loads(pickle.dumps(obj))
     assert "_hash" not in loaded.__dict__
