@@ -41,7 +41,7 @@ APPROACHES:
       agent_sdk_max_agent_turns_per_iteration: 200
       agent_sdk_image_max_px: 900
       agent_planner_use_explore_python: True
-      agent_solve_max_attempts: 5
+      agent_solve_max_attempts: 3
       agent_solve_attempt_wall_clock: 2700
       agent_solve_fresh_context: True
       agent_solve_use_journal: True
@@ -72,7 +72,7 @@ APPROACHES:
       agent_sdk_max_agent_turns_per_iteration: 200
       agent_sdk_image_max_px: 900
       agent_planner_use_explore_python: True
-      agent_solve_max_attempts: 5
+      agent_solve_max_attempts: 3
       agent_solve_attempt_wall_clock: 2700
       agent_solve_fresh_context: True
       agent_solve_use_journal: True
@@ -152,7 +152,7 @@ APPROACHES:
       agent_sdk_max_agent_turns_per_iteration: 200
       agent_sdk_image_max_px: 900
       agent_planner_use_explore_python: True
-      agent_solve_max_attempts: 5
+      agent_solve_max_attempts: 3
       agent_solve_attempt_wall_clock: 2700
       agent_solve_fresh_context: True
       agent_solve_use_journal: True

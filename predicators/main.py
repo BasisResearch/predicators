@@ -58,7 +58,7 @@ from predicators.perception import create_perceiver
 from predicators.settings import CFG, get_allowed_query_type_names
 from predicators.structs import Action, Dataset, EnvironmentTask, \
     InteractionRequest, InteractionResult, Metrics, Observation, Response, \
-    Task, Video
+    Task
 from predicators.teacher import Teacher, TeacherInteractionMonitorWithVideo
 
 assert os.environ.get("PYTHONHASHSEED") == "0", \
@@ -525,9 +525,7 @@ def _generate_interaction_results(
     results = []
     query_cost = 0.0
     task_solved_status = []
-    if CFG.make_interaction_videos:
-        video: Video = []
-    for request in requests:
+    for episode_idx, request in enumerate(requests):
         if request.train_task_idx < CFG.max_initial_demos and \
             not CFG.allow_interaction_in_demo_tasks:
             raise RuntimeError("Interaction requests cannot be on demo tasks "
@@ -638,11 +636,13 @@ def _generate_interaction_results(
         results.append(result)
         if CFG.make_interaction_videos:
             assert monitor is not None
-            video.extend(monitor.get_video())
-    if CFG.make_interaction_videos:
-        save_prefix = utils.get_config_path_str()
-        outfile = f"{save_prefix}__cycle{cycle_num}.mp4"
-        utils.save_video(outfile, video)
+            # One video per interaction episode, saved as soon as the
+            # episode ends so a mid-cycle crash keeps earlier footage.
+            # scripts/log_viewer.py parses the __ep<i>__cycle<C>.mp4 tail
+            # to pair each explore transcript with its episode's video.
+            save_prefix = utils.get_config_path_str()
+            outfile = f"{save_prefix}__ep{episode_idx}__cycle{cycle_num}.mp4"
+            utils.save_video(outfile, monitor.get_video())
     return results, query_cost, task_solved_status
 
 

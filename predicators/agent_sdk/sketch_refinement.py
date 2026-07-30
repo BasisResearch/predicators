@@ -851,9 +851,15 @@ def refine_sketch(
             and search.deepest_fail_idx >= 0):
         snapshot = search.deepest_fail_prefix
         refined = [p for p in snapshot if p is not None]
+        fail_note = ""
+        if search.deepest_failure is not None:
+            fail_note = (f" Deepest failure: "
+                         f"{search.deepest_failure.option.simple_str()} -> "
+                         f"{search.deepest_failure.fail_reason}.")
         logging.info(f"[{run_id}] Truncating at deepest validation failure "
                      f"(step {search.deepest_fail_idx}): "
-                     f"{len(refined)}/{n} steps in experiment plan.")
+                     f"{len(refined)}/{n} steps in experiment plan."
+                     f"{fail_note}")
         return _outcome(cast(List[_Option], refined), False)
 
     refined = [p for p in plan if p is not None]
