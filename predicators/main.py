@@ -410,10 +410,14 @@ def _run_online_learning_loop(
         # cycle already tested, so re-testing only re-samples test-time
         # stochasticity at full test-set cost. When
         # skip_test_until_last_ite_or_early_stopping is True the early-stopping
-        # cycle is the model's only test, so we must still run it.
+        # cycle is the model's only test, so we must still run it. Likewise,
+        # when no test has run yet at all (e.g. skip_initial_test and early
+        # stopping on cycle 0), there is no prior result the re-test would
+        # duplicate, so run it to get at least one evaluation.
         force_early_stop_test = not (
             CFG.online_learning_early_stopping_skip_redundant_test
-            and not CFG.skip_test_until_last_ite_or_early_stopping)
+            and not CFG.skip_test_until_last_ite_or_early_stopping
+            and last_test_summary is not None)
         if train_driven_early_stop:
             logging.info(train_early_stop_msg)
             early_stopping = True
@@ -473,12 +477,16 @@ def _early_stop_below_bar_msg(episode_reward: float,
     Returns a log-ready description when the episode reward falls short
     of ``env_task.early_stop_min_reward`` (minus the configured slack),
     meaning the solve must NOT count toward early stopping; returns None
-    when the task sets no bar or the reward clears it. The comparison
-    carries a small tolerance so a reward computed exactly at the bar is
-    never rejected on float rounding.
+    when the task sets no bar, the bar is ignored via
+    ``CFG.online_learning_early_stopping_ignore_reward_bar``, or the
+    reward clears it. The comparison carries a small tolerance so a
+    reward computed exactly at the bar is never rejected on float
+    rounding.
     """
     reward_bar = env_task.early_stop_min_reward
     if reward_bar is None:
+        return None
+    if CFG.online_learning_early_stopping_ignore_reward_bar:
         return None
     slack = CFG.online_learning_early_stopping_reward_slack
     if episode_reward >= reward_bar - slack - 1e-9:
@@ -746,9 +754,10 @@ def _run_testing(env: BaseEnv,
     def _execute_policy(
         task_idx: int,
         env_task: EnvironmentTask,
+        episode_env: BaseEnv,
         monitor: Optional[utils.LoggingMonitor] = None
     ) -> Tuple[bool, bool, float, int, Tuple[List[Observation], List[Action]]]:
-        """Execute the cogman policy in the environment to see if the goal is
+        """Execute the cogman policy in ``episode_env`` to see if the goal is
         solved.
 
         Returns:
@@ -763,7 +772,7 @@ def _run_testing(env: BaseEnv,
         try:
             traj, solved, execution_metrics = run_episode_and_get_observations(
                 cogman,
-                env,
+                episode_env,
                 "test",
                 task_idx,
                 max_num_steps=CFG.horizon,
@@ -802,11 +811,12 @@ def _run_testing(env: BaseEnv,
         # pylint: disable=protected-access
         if hasattr(cogman._approach, "_get_current_predicates"):
             abstract_state = utils.abstract(
-                env.get_observation(),
+                episode_env.get_observation(),
                 cogman._approach._get_current_predicates())
             # pylint: enable=protected-access
             logging.debug(f"Final abstract state:\n{abstract_state}")
-        logging.debug(f"Final state:\n{env.get_observation().pretty_str()}")
+        logging.debug(
+            f"Final state:\n{episode_env.get_observation().pretty_str()}")
 
         # if traj is defined
         if 'traj' not in locals():
@@ -862,83 +872,115 @@ def _run_testing(env: BaseEnv,
         # ---------------------
         # 2) Execution phase
         # ---------------------
-        # Decide if we need to record video. Image saving needs the raw
-        # frames after the episode, so it gets the buffering monitor;
-        # video-only runs stream frames to disk as they are rendered,
-        # keeping peak memory at one frame instead of a whole episode.
-        need_images = CFG.make_test_images or CFG.make_failure_images
-        need_video = CFG.make_test_videos or CFG.make_failure_videos
-        monitor: Optional[utils.LoggingMonitor] = None
-        if need_images:
-            monitor = utils.VideoMonitor(env.render)
-        elif need_video:
-            monitor = utils.StreamingVideoMonitor(env.render)
+        # Run the episode in a fresh env instance when the env supports
+        # it (see BaseEnv.make_fresh_test_instance): a long-lived
+        # PyBullet world carries history that state-level resets do not
+        # clear, so the episode's physics would depend on everything the
+        # run executed before it.
+        episode_env: BaseEnv = env
+        fresh_env: Optional[BaseEnv] = None
+        if CFG.test_fresh_env_per_episode:
+            fresh_env = env.make_fresh_test_instance()
+            if fresh_env is not None:
+                episode_env = fresh_env
 
-        logging.info("Executing policy...")
-        solved, caught_exception, exec_time, num_opts, traj = _execute_policy(
-            test_task_idx, env_task, monitor)
+        try:
+            # Decide if we need to record video. Image saving needs the
+            # raw frames after the episode, so it gets the buffering
+            # monitor; video-only runs stream frames to disk as they are
+            # rendered, keeping peak memory at one frame instead of a
+            # whole episode.
+            need_images = CFG.make_test_images or CFG.make_failure_images
+            need_video = CFG.make_test_videos or CFG.make_failure_videos
+            monitor: Optional[utils.LoggingMonitor] = None
+            if need_images:
+                monitor = utils.VideoMonitor(episode_env.render)
+            elif need_video:
+                monitor = utils.StreamingVideoMonitor(episode_env.render)
 
-        # Record execution metrics
-        metrics[f"PER_TASK_task{test_task_idx}_exec_time"] = exec_time
-        metrics[f"PER_TASK_task{test_task_idx}_options_executed"] = num_opts
+            logging.info("Executing policy...")
+            solved, caught_exception, exec_time, num_opts, traj = \
+                _execute_policy(test_task_idx, env_task, episode_env, monitor)
 
-        # Task-evaluator verdict + offline metrics (e.g. domino k_used),
-        # plus per-task oracle quantities (e.g. domino k_star) stored on
-        # the EnvironmentTask. Offline-only: reported in results, never
-        # agent-visible.
-        if traj[0]:
-            episode_eval = env.evaluate_episode(traj[0], traj[1])
+            # Record execution metrics
+            metrics[f"PER_TASK_task{test_task_idx}_exec_time"] = exec_time
             metrics[
-                f"PER_TASK_task{test_task_idx}_reward"] = episode_eval.reward
-            total_test_reward += episode_eval.reward
-            for metric_name, value in episode_eval.offline_metrics.items():
-                metrics[f"PER_TASK_task{test_task_idx}_{metric_name}"] = value
-            for metric_name, value in env_task.offline_task_metrics.items():
-                metrics[f"PER_TASK_task{test_task_idx}_{metric_name}"] = value
+                f"PER_TASK_task{test_task_idx}_options_executed"] = num_opts
 
-        # Add cost for low-level actions if configured
-        if CFG.refinement_data_include_execution_cost:
-            total_low_level_action_cost += (
-                len(traj[1]) * CFG.refinement_data_low_level_execution_cost)
+            # Task-evaluator verdict + offline metrics (e.g. domino
+            # k_used), plus per-task oracle quantities (e.g. domino
+            # k_star) stored on the EnvironmentTask. Offline-only:
+            # reported in results, never agent-visible.
+            if traj[0]:
+                episode_eval = episode_env.evaluate_episode(traj[0], traj[1])
+                metrics[f"PER_TASK_task{test_task_idx}_reward"] = \
+                    episode_eval.reward
+                total_test_reward += episode_eval.reward
+                for metric_name, value in episode_eval.offline_metrics.items():
+                    metrics[
+                        f"PER_TASK_task{test_task_idx}_{metric_name}"] = value
+                for metric_name, value in env_task.offline_task_metrics.items(
+                ):
+                    metrics[
+                        f"PER_TASK_task{test_task_idx}_{metric_name}"] = value
 
-        # ---------------------
-        # 3) Post-execution handling
-        # ---------------------
-        if solved and not caught_exception:
-            # The plan reached the goal
-            log_msg = "SOLVED"
-            num_solved += 1
-            total_suc_time += (solve_time + exec_time)
-            # If solved, we may want to save a video if make_test_videos is True
-            if CFG.make_test_videos:
-                _save_video(monitor, is_failure=False, task_idx=test_task_idx)
-            if CFG.make_test_images:
-                _save_images(monitor, is_failure=False, task_idx=test_task_idx)
-            # Count how many steps we took
-            # (We rely on the last trajectory from
-            # run_episode_and_get_observations)
-            # If you need the real trajectory, you'd store
-            # it as in `_execute_policy`.
-            # Suppose we do that here (execution_metrics / logging):
-            metrics[f"PER_TASK_task{test_task_idx}_num_steps"] = len(traj[1])
-        else:
-            # The plan did not reach the goal, or an exception occurred
-            if not caught_exception:
-                log_msg = "Policy failed to reach goal"
+            # Add cost for low-level actions if configured
+            if CFG.refinement_data_include_execution_cost:
+                total_low_level_action_cost += (
+                    len(traj[1]) *
+                    CFG.refinement_data_low_level_execution_cost)
+
+            # ---------------------
+            # 3) Post-execution handling
+            # ---------------------
+            if solved and not caught_exception:
+                # The plan reached the goal
+                log_msg = "SOLVED"
+                num_solved += 1
+                total_suc_time += (solve_time + exec_time)
+                # If solved, we may want to save a video if
+                # make_test_videos is True
+                if CFG.make_test_videos:
+                    _save_video(monitor,
+                                is_failure=False,
+                                task_idx=test_task_idx)
+                if CFG.make_test_images:
+                    _save_images(monitor,
+                                 is_failure=False,
+                                 task_idx=test_task_idx)
+                # Count how many steps we took
+                # (We rely on the last trajectory from
+                # run_episode_and_get_observations)
+                # If you need the real trajectory, you'd store
+                # it as in `_execute_policy`.
+                # Suppose we do that here (execution_metrics / logging):
+                metrics[f"PER_TASK_task{test_task_idx}_num_steps"] = len(
+                    traj[1])
             else:
-                log_msg = "Policy/Env encountered an exception"
-            if CFG.crash_on_failure:
-                raise RuntimeError(log_msg)
-            if CFG.make_failure_videos:
-                _save_video(monitor, is_failure=True, task_idx=test_task_idx)
-            if CFG.make_failure_images:
-                _save_images(monitor, is_failure=True, task_idx=test_task_idx)
+                # The plan did not reach the goal, or an exception occurred
+                if not caught_exception:
+                    log_msg = "Policy failed to reach goal"
+                else:
+                    log_msg = "Policy/Env encountered an exception"
+                if CFG.crash_on_failure:
+                    raise RuntimeError(log_msg)
+                if CFG.make_failure_videos:
+                    _save_video(monitor,
+                                is_failure=True,
+                                task_idx=test_task_idx)
+                if CFG.make_failure_images:
+                    _save_images(monitor,
+                                 is_failure=True,
+                                 task_idx=test_task_idx)
 
-        # Drop the streamed clip when no branch above finalized it (e.g.
-        # a solved episode with only make_failure_videos on); no-op
-        # otherwise.
-        if isinstance(monitor, utils.StreamingVideoMonitor):
-            monitor.discard()
+            # Drop the streamed clip when no branch above finalized it
+            # (e.g. a solved episode with only make_failure_videos on);
+            # no-op otherwise.
+            if isinstance(monitor, utils.StreamingVideoMonitor):
+                monitor.discard()
+        finally:
+            if fresh_env is not None:
+                fresh_env.dispose()
 
         logging.info(f"Task {test_task_idx+1} / {len(test_tasks)}: {log_msg}")
 

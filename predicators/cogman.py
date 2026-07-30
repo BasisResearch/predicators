@@ -280,6 +280,14 @@ def run_episode_and_get_observations(
                               f"{utils.abstract(obs, env.predicates)}")
                 logging.debug(
                     f"[CogMan] Full traceback:\n{traceback.format_exc()}")
+                # pylint: disable-next=import-outside-toplevel
+                from predicators.agent_sdk.session_base import \
+                    AgentSessionFatalError
+                if isinstance(e, AgentSessionFatalError):
+                    # The agent session backend is unusable; neither
+                    # break_on handling nor keep_failed_demos may absorb
+                    # this into a failed episode - the run terminates.
+                    raise
                 if exceptions_to_break_on is not None and \
                    any(issubclass(type(e), c) for c in exceptions_to_break_on):
                     if monitor_observed:

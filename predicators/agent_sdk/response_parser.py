@@ -82,6 +82,10 @@ def parse_result_message(msg: Any) -> Dict[str, Any]:
         "subtype": getattr(msg, "subtype", None),
         "num_turns": getattr(msg, "num_turns", None),
         "total_cost_usd": getattr(msg, "total_cost_usd", None),
+        # Error results carry the error text in "result"; both feed the
+        # fatal-session check (session_base.query_fatal_error).
+        "is_error": getattr(msg, "is_error", False),
+        "result": getattr(msg, "result", None),
     }
 
 

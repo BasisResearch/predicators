@@ -164,6 +164,28 @@ class BaseEnv(abc.ABC):
         """Whether the GUI for this environment is activated."""
         return self._using_gui
 
+    def make_fresh_test_instance(self) -> Optional["BaseEnv"]:
+        """A fresh instance of this env for one test episode, or ``None`` when
+        this env has no per-instance world state worth isolating (the caller
+        then reuses the long-lived instance).
+
+        Used by ``main._run_testing`` under
+        ``CFG.test_fresh_env_per_episode`` so a test episode's physics
+        cannot depend on what the long-lived env executed before it. The
+        already-generated task lists are shared with the fresh instance,
+        so its tasks are identical (and not re-generated). Callers must
+        ``dispose()`` the returned instance when done.
+        """
+        return None
+
+    def dispose(self) -> None:
+        """Release per-instance resources (e.g. a PyBullet client).
+
+        Called on instances returned by
+        :meth:`make_fresh_test_instance` once their episode is done.
+        No-op by default.
+        """
+
     def render_state(self,
                      state: State,
                      task: EnvironmentTask,

@@ -42,6 +42,12 @@ class GlobalSettings:
     # the bar (or cycles run out) instead of stopping on an inefficient
     # solve. Tasks that leave the bar None keep the plain solved criterion.
     online_learning_early_stopping_reward_slack = 0.0
+    # When True, ignore ``EnvironmentTask.early_stop_min_reward`` entirely:
+    # any solved (env-accepted) training episode counts toward early
+    # stopping, regardless of its reward. Episode legitimacy is still
+    # enforced by the env's solved verdict itself; only the optimality
+    # requirement is dropped. Subsumes any reward_slack setting.
+    online_learning_early_stopping_ignore_reward_bar = False
     # When True, the early-stopping cycle does NOT re-run testing, provided
     # every cycle is already being tested (skip_test_until_last_ite_or_early
     # _stopping is False). On the early-stopping cycle learning is skipped, so
@@ -62,6 +68,21 @@ class GlobalSettings:
     pretty_print_when_loading = False
     # Used for random seeding in test environment.
     test_env_seed_offset = 10000
+    # Run each test episode in a freshly-constructed env instance (the
+    # generated test tasks are shared, so the tasks are identical).
+    # State-level resets on a long-lived PyBullet env leave
+    # history-dependent residuals — velocities the reconstruction diff
+    # skips, auxiliary joints no reset touches, contact-solver state
+    # that survives ``restoreState`` — so by test time the world's
+    # behavior depends on everything the run executed before it
+    # (measured on run_20260721_205821 seed0: the captured plan's
+    # cascade stalled mid-chain in the run's long-lived env but
+    # completes deterministically, 10/10 across placement jitters, in a
+    # fresh env). Same rationale as the fresh-env-per-rollout sysID fix
+    # in code_sim_learning.rollout_env. Envs that cannot be duplicated
+    # (GUI mode: one client only) fall back to the shared instance; see
+    # ``BaseEnv.make_fresh_test_instance``.
+    test_fresh_env_per_episode = True
     # Optionally define test tasks in JSON format
     test_task_json_dir = None
     # The method to use for segmentation. By default, segment using options.
@@ -1275,6 +1296,17 @@ class GlobalSettings:
     # agent SDK online abstraction learning parameters
     agent_sdk_model_name = "claude-sonnet-5"
     agent_sdk_max_agent_turns_per_iteration = 50
+    # Consecutive agent queries that die without the agent doing ANY work
+    # (an auth/billing banner as the only assistant text, an error result,
+    # or a stream error before the first tool call) before the run
+    # terminates with AgentSessionFatalError. Such failures make every
+    # future query hopeless, but each one returns in ~1 s at $0.00 and is
+    # otherwise indistinguishable from a no-capture attempt, so without
+    # this check the solve restart / replan / online-cycle budgets grind
+    # through hundreds of instant failures (run_20260721_161159: 300
+    # "organization has disabled Claude subscription access" queries
+    # across 10 cycles, agent never ran). 0 disables the check.
+    agent_sdk_max_consecutive_fatal_queries = 3
     # Reasoning effort for the agent SDK's Claude agent. One of "low",
     # "medium", "high", "max" to set it, or "" / "default" to leave it unset
     # (the model's own default). With adaptive thinking this is the control

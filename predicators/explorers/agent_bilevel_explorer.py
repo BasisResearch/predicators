@@ -20,6 +20,7 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.rendering import save_task_state_image
+from predicators.agent_sdk.session_base import AgentSessionFatalError
 from predicators.agent_sdk.session_manager import SessionManagerProtocol, \
     run_query_sync
 from predicators.agent_sdk.tools import ToolContext, agent_render_resolution, \
@@ -263,6 +264,10 @@ class AgentBilevelExplorer(BaseExplorer):
 
             logging.info("agent_bilevel explorer: refinement produced zero "
                          "steps, falling back to random.")
+        except AgentSessionFatalError:
+            # A random fallback would hide the broken session backend;
+            # re-raise so the run terminates.
+            raise
         except Exception as e:  # pylint: disable=broad-except
             logging.warning(f"agent_bilevel explorer failed: {e}. "
                             "Falling back to random options.")

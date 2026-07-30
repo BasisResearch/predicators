@@ -149,6 +149,41 @@ ENVS:
       # instead of 0.05 (0.1 * 4 staged blues < 1, so a certified
       # success still outscores any failure).
       domino_block_cost: 0.1
+      online_learning_early_stopping_ignore_reward_bar: True
+  domino_high_friction_turn:
+    NAME: "pybullet_domino"
+    # Parked by default; exp_domino.yaml un-skips it for the friction
+    # sysID experiment.
+    SKIP: True
+    FLAGS:
+      max_initial_demos: 0
+      excluded_objects_in_state_str: "loc,rot,angle,direction"
+      # excluded_predicates is set per-approach: exp_domino.yaml excludes
+      # these (test ours); oracle.yaml leaves them in (test oracle).
+      horizon: 500
+      domino_initialize_at_finished_state: False
+      domino_use_domino_blocks_as_target: True
+      domino_use_continuous_place: True
+      process_planning_heuristic_weight: 2.0
+      domino_has_glued_dominos: False
+      keep_failed_demos: True
+      predicate_invent_invent_derived_predicates: True
+      pybullet_birrt_extend_num_interp: 20 # increase this to avoid collisions when placing dominoes
+      pybullet_birrt_path_subsample_ratio: 2
+      # --- min-block / system-ID experiment ---
+      domino_min_block_tasks: True
+      domino_true_friction: 0.5
+      domino_planning_friction: 0.1
+      domino_min_block_span_lo: 0.29
+      domino_min_block_span_hi: 0.31
+      domino_min_block_turn_entry_lo: 0.21
+      domino_min_block_turn_entry_hi: 0.24
+      domino_min_block_turn_exit_lo: 0.17
+      domino_min_block_turn_exit_hi: 0.20
+      domino_min_block_num_blues: 4
+      domino_block_cost: 0.1
+      domino_turn_ratio: 1.0
+      online_learning_early_stopping_ignore_reward_bar: True
   # Real-world domino: Learning + exploration stay in sim on
   # the reconstructed real scene; testing moves to the real Franka inside the
   # env (test mode only). un-skipped by exp_domino_real.yaml. Flags are

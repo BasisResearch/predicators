@@ -60,12 +60,33 @@ RESULT_RE = re.compile(
 GOAL_RE = re.compile(r"Goal achieved: (True|False)")
 NUM_SOLVED_RE = re.compile(r"'num_solved': ([\d.]+)")
 NUM_TOTAL_RE = re.compile(r"'num_total': ([\d.]+)")
+AVG_TEST_REWARD_RE = re.compile(r"'avg_test_reward': (-?[\d.]+)")
+# One task's entry in main.py's "Per-task rewards: task0=0.95, ..." line,
+# logged right after the "Tasks solved" line that closes a test round.
+PER_TASK_REWARD_RE = re.compile(r"task(\d+)=(-?[\d.]+)")
 # Env-side verdict lines from predicators/main.py _run_testing, e.g.
 # "INFO: Task 2 / 5: Policy failed to reach goal" or
 # "INFO: [main.py] Task 1 / 5: approach failed with error: ..."
 TASK_VERDICT_RE = re.compile(
     r"^INFO: (?:\[main\.py\] )?Task (\d+) / (\d+): (.+)$")
 TASKS_SOLVED_RE = re.compile(r"Tasks solved: (\d+) / (\d+)")
+# Env evaluator verdict for one explore (train) interaction episode, from
+# main.py _generate_interaction_results, plus its optional follow-up lines
+# naming a rejection reason or the below-early-stop-bar caveat.
+INTERACTION_RE = re.compile(
+    r"^INFO: Interaction episode on train task \d+: reward=(-?[\d.]+), "
+    r"terminated=(True|False), accepted=(True|False)")
+INTERACTION_REJECT_RE = re.compile(
+    r"^INFO: Interaction episode on train task \d+ REJECTED by the "
+    r"env: (.+)$")
+INTERACTION_BAR_RE = re.compile(
+    r"^INFO: Interaction episode on train task \d+ solved but (.+): "
+    r"does NOT count as solved for early stopping\.$")
+# The transcript save line each agent session leaves in info.log; it pairs
+# explore sessions with the interaction episodes that execute their
+# requests (see _parse_info_log).
+SAVED_EP_RE = re.compile(r"Saved local sandbox query/response to .*[/\\]"
+                         r"(\d{3})_([a-z]+)(?:_task\d+)?_\d{8}_\d{6}\.md")
 # main.py logs this only after the pipeline returns, so it is the one
 # trustworthy "this run completed" marker; a crash or a kill leaves none.
 DONE_RE = re.compile(r"^Main script terminated in")
@@ -504,17 +525,39 @@ def list_episodes(run_abs: str) -> List[Dict[str, Any]]:
 
 
 def _parse_info_log(path: str) -> Dict[str, Any]:
-    """Extract authoritative test outcomes from main.py's info.log.
+    """Extract authoritative test and explore outcomes from main.py's info.log.
 
-    Returns {"totals": [(num_solved, num_total), ...] one per cycle,
-    "rounds": [{task_idx0: {"solved": bool, "msg": str}, ...}, ...]} where
-    each round is one test phase, closed by a "Tasks solved: X / Y" line.
+    Returns {"totals": [(num_solved, num_total, avg_test_reward), ...] one
+    per cycle (avg_test_reward is None in logs that predate the metric),
+    "rounds": [{task_idx0: {"solved": bool, "msg": str,
+    "reward": float?}, ...}, ...],
+    "explore": {episode_num: {"reward": float, "terminated": bool,
+    "accepted": bool, "msg": str}, ...},
+    "test_round": {episode_num: round_idx, ...}} where each round is one
+    test phase, closed by a "Tasks solved: X / Y" line.
+
+    Both explore and test verdicts are paired by stream order. Explore:
+    within a cycle every explore session logs its transcript save line
+    before any interaction episode executes, and interaction episodes run
+    in session order, so the oldest unmatched explore session owns the
+    next verdict; a learn save line closes the cycle and drops sessions
+    that never produced an interaction episode. Test: every test session
+    of a round logs its save line before the "Tasks solved" line that
+    closes the round, so all test episodes saved since the previous round
+    belong to the round that line closes. (Counting learn episodes
+    instead is wrong: only some configs run an initial pre-learning test
+    round, so the offset between learn count and round index varies.)
     """
     text, _ = read_text(path, max_bytes=8 * 1024 * 1024)
     text = ANSI_RE.sub("", text)
-    totals: List[Tuple[int, int]] = []
+    totals: List[Tuple[int, int, Optional[float]]] = []
     rounds: List[Dict[int, Dict[str, Any]]] = []
     current: Dict[int, Dict[str, Any]] = {}
+    explore: Dict[int, Dict[str, Any]] = {}
+    test_round: Dict[int, int] = {}
+    pending: List[int] = []
+    pending_test: List[int] = []
+    last_explore: Optional[int] = None
     done = False
     for line in text.splitlines():
         if DONE_RE.match(line):
@@ -522,9 +565,11 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
             continue
         if "Test results:" in line:
             ms, mt = NUM_SOLVED_RE.search(line), NUM_TOTAL_RE.search(line)
+            mr = AVG_TEST_REWARD_RE.search(line)
             if ms and mt:
                 totals.append(
-                    (int(float(ms.group(1))), int(float(mt.group(1)))))
+                    (int(float(ms.group(1))), int(float(mt.group(1))),
+                     float(mr.group(1)) if mr else None))
             continue
         m = TASK_VERDICT_RE.match(line)
         if m:
@@ -539,36 +584,137 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
         if TASKS_SOLVED_RE.search(line):
             rounds.append(current)
             current = {}
+            for num in pending_test:
+                test_round[num] = len(rounds) - 1
+            pending_test.clear()
+            continue
+        # Logged after the "Tasks solved" line, so this decorates the
+        # round that line just closed.
+        if "Per-task rewards:" in line and rounds:
+            for tm in PER_TASK_REWARD_RE.finditer(line):
+                verdict = rounds[-1].get(int(tm.group(1)))
+                if verdict is not None:
+                    verdict["reward"] = float(tm.group(2))
+            continue
+        m = SAVED_EP_RE.search(line)
+        if m:
+            if m.group(2) == "explore":
+                pending.append(int(m.group(1)))
+            elif m.group(2) == "learn":
+                pending.clear()
+            elif m.group(2) == "test":
+                pending_test.append(int(m.group(1)))
+            continue
+        m = INTERACTION_RE.match(line)
+        if m:
+            last_explore = pending.pop(0) if pending else None
+            if last_explore is not None:
+                explore[last_explore] = {
+                    "reward": float(m.group(1)),
+                    "terminated": m.group(2) == "True",
+                    "accepted": m.group(3) == "True",
+                    "msg": "",
+                }
+            continue
+        m = INTERACTION_REJECT_RE.match(line)
+        if m and last_explore is not None:
+            explore[last_explore]["msg"] = "REJECTED: " + m.group(1).strip()
+            continue
+        m = INTERACTION_BAR_RE.match(line)
+        if m and last_explore is not None:
+            explore[last_explore]["msg"] = "solved but " + m.group(1).strip()
     if current:  # run still in progress or crashed mid-round
         rounds.append(current)
-    return {"totals": totals, "rounds": rounds, "done": done}
+    return {
+        "totals": totals,
+        "rounds": rounds,
+        "explore": explore,
+        "test_round": test_round,
+        "done": done,
+    }
+
+
+def _explore_results(episodes: EpList) -> List[Tuple[int, int, float]]:
+    """Per-round explore outcomes as (accepted, total, mean env reward).
+
+    Rounds none of whose interaction episodes have executed yet (no env
+    verdict on any explore episode) are omitted rather than shown as
+    0/N.
+    """
+    by_round: Dict[int, EpList] = {}
+    for ep in episodes:
+        if ep["kind"] == "explore":
+            by_round.setdefault(ep.get("round", 0), []).append(ep)
+    out: List[Tuple[int, int, float]] = []
+    for rnd in sorted(by_round):
+        eps = by_round[rnd]
+        rewards = [ep["env_reward"] for ep in eps if "env_reward" in ep]
+        if not rewards:
+            continue
+        solved = sum(1 for ep in eps if ep.get("env_accepted"))
+        out.append((solved, len(eps), sum(rewards) / len(rewards)))
+    return out
+
+
+def explore_results_str(summary: Dict[str, Any]) -> str:
+    """The run's explore rounds as e.g. "1/2 (r 0.75) → 2/2 (r 0.90)"."""
+    return " → ".join(f"{s}/{t} (r {mr:.2f})"
+                      for s, t, mr in summary.get("explore_results", []))
+
+
+def test_results_str(summary: Dict[str, Any]) -> str:
+    """The run's test phases as e.g. "0/1 (r 0.00) → 1/1 (r 0.90)".
+
+    The reward tag is omitted for logs that predate avg_test_reward.
+    """
+    parts = []
+    for solved, total, reward in summary.get("test_results", []):
+        s = f"{solved}/{total}"
+        if reward is not None:
+            s += f" (r {reward:.2f})"
+        parts.append(s)
+    return " → ".join(parts)
 
 
 def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
-    """Episodes, env-side test outcomes, rounds, and total cost for a run."""
+    """Episodes, env-side test/explore outcomes, rounds, and total cost."""
     run_abs = safe_join(run_rel)
     if not run_abs or not os.path.isdir(run_abs):
         return None
     episodes = list_episodes(run_abs)
     parsed = _cached(os.path.join(run_abs, "info.log"), _parse_info_log) or {}
     rounds = parsed.get("rounds", [])
-    # A test round r happens after r learn episodes, so each test episode
-    # maps to the round given by the number of learn episodes before it.
+    explore_verdicts = parsed.get("explore", {})
+    test_round = parsed.get("test_round", {})
+    # ep["round"] (learn episodes seen so far) drives only the grid-row
+    # layout; env verdicts pair by the stream-order test_round map, since
+    # the learn count offset from the round index varies per config.
     learn_seen = 0
     for ep in episodes:
         ep["round"] = learn_seen
         if ep["kind"] == "learn":
             learn_seen += 1
+        if ep["kind"] == "explore":
+            verdict = explore_verdicts.get(ep["num"])
+            if verdict is not None:
+                ep["env_reward"] = verdict["reward"]
+                ep["env_terminated"] = verdict["terminated"]
+                ep["env_accepted"] = verdict["accepted"]
+                ep["env_msg"] = verdict["msg"]
+        round_i = test_round.get(ep["num"])
         if (ep["kind"] == "test" and ep["task"] is not None
-                and ep["round"] < len(rounds)):
-            verdict = rounds[ep["round"]].get(ep["task"])
+                and round_i is not None and round_i < len(rounds)):
+            verdict = rounds[round_i].get(ep["task"])
             if verdict is not None:
                 ep["env_solved"] = verdict["solved"]
                 ep["env_msg"] = verdict["msg"]
+                if verdict.get("reward") is not None:
+                    ep["env_reward"] = verdict["reward"]
     total_cost = max((e.get("total_cost", 0.0) for e in episodes), default=0.0)
     return {
         "episodes": episodes,
         "test_results": parsed.get("totals", []),
+        "explore_results": _explore_results(episodes),
         "rounds": rounds,
         "total_cost": total_cost,
         "done": parsed.get("done", False),
@@ -1510,14 +1656,34 @@ def test_mark(ep: Dict[str, Any]) -> Tuple[str, str, str]:
     outcome.
     """
     if "env_solved" in ep:
+        mark = "✓" if ep["env_solved"] else "✗"
+        if "env_reward" in ep:
+            mark += f" {ep['env_reward']:.2f}"
         if ep["env_solved"]:
-            return "✓", "ok", "env eval: SOLVED"
-        return "✗", "bad", "env eval: " + ep.get("env_msg", "failed")
+            return mark, "ok", "env eval: SOLVED"
+        return mark, "bad", "env eval: " + ep.get("env_msg", "failed")
     if ep.get("goal") is True:
         return "(✓)", "", "agent-reported only; no env verdict in info.log"
     if ep.get("goal") is False:
         return "(✗)", "", "agent-reported only; no env verdict in info.log"
     return "", "", ""
+
+
+def explore_mark(ep: Dict[str, Any]) -> Tuple[str, str, str]:
+    """(mark, css class, tooltip) for an explore episode's env verdict.
+
+    The mark carries the episode's env reward alongside the ✓/✗ because
+    reward is the explore-side score of interest (the early-stopping bar
+    reads it, not just the boolean).
+    """
+    mark = ("✓" if ep["env_accepted"] else "✗") + f" {ep['env_reward']:.2f}"
+    cls = "ok" if ep["env_accepted"] else "bad"
+    title = (f"env eval: reward={ep['env_reward']:.2f}, "
+             f"terminated={ep['env_terminated']}, "
+             f"accepted={ep['env_accepted']}")
+    if ep.get("env_msg"):
+        title += "; " + ep["env_msg"]
+    return mark, cls, title
 
 
 def _split_episodes(
@@ -1643,8 +1809,13 @@ def _test_chip(ep: Dict[str, Any]) -> str:
 
 
 def _misc_chip(ep: Dict[str, Any]) -> str:
-    """Chip for one non-test episode, e.g. "002 explore"."""
-    return chip(f"{int(ep['num']):03} {ep['kind']}", "kind-" + ep["kind"])
+    """Chip for one non-test episode, e.g. "002 explore ✓ 0.70"."""
+    label = f"{int(ep['num']):03} {ep['kind']}"
+    title = ""
+    if "env_accepted" in ep:
+        mark, _, title = explore_mark(ep)
+        label += " " + mark
+    return chip(label, "kind-" + ep["kind"], title)
 
 
 # ----------------------------------------------------------------- pages
@@ -1654,8 +1825,7 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
             live: LiveProcs, is_newest: bool) -> str:
     """Table row summarizing one run for the index page."""
     eps = summary.get("episodes", [])
-    tr = summary.get("test_results", [])
-    tr_str = " → ".join(f"{t[0]}/{t[1]}" for t in tr) or "-"
+    tr_str = test_results_str(summary) or "-"
     cost = summary.get("total_cost", 0.0)
     fmt = "%Y-%m-%d %H:%M"
     start_ts = _run_start_ts(r["name"], r["mtime"])
@@ -1691,7 +1861,8 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
             f"title='Copy run path'>⧉</button>{del_btn}</td>"
             f"<td>{esc(r['seed'])}</td>"
             f"<td>{status_chip(r, summary, live, is_newest)}{kill_btn}</td>"
-            f"<td>{episode_grid(eps, layout)}</td><td>{esc(tr_str)}</td>"
+            f"<td>{episode_grid(eps, layout)}</td>"
+            f"<td>{esc(tr_str)}</td>"
             f"<td>{cost_str}</td>"
             f"<td class='muted'>{sstr}</td>"
             f"<td class='muted'>{mstr}</td>"
@@ -1833,6 +2004,8 @@ def run_page(run_rel: str) -> Optional[str]:
             mark, cls, title = "", "", ""
             if ep["kind"] == "test":
                 mark, cls, title = test_mark(ep)
+            elif "env_accepted" in ep:
+                mark, cls, title = explore_mark(ep)
             cost = (f"  ${ep['solve_cost']:.2f}" if "solve_cost" in ep else "")
             task_str = (f" task{ep['task']}" if ep["task"] is not None else "")
             mark_str = " " + mark if mark else ""
@@ -1857,12 +2030,19 @@ def run_page(run_rel: str) -> Optional[str]:
     side.append(file_tree_html(run_abs, run_rel))
     side.append("</div>")
     default = q(eps[0]["file"]) if eps else ""
-    tr = summary["test_results"]
-    tr_str = " → ".join(f"{t[0]}/{t[1]}" for t in tr)
+    tr_str = test_results_str(summary)
     results_span = ("test results: " + esc(tr_str)) if tr_str else ""
+    ex_str = explore_results_str(summary)
+    explore_span = ""
+    if ex_str:
+        explore_span = ("<span title='per-cycle explore (train) episodes: "
+                        "accepted/total (mean env reward)'>explore: "
+                        f"{esc(ex_str)}</span>")
     cost_span = (f"total cost: ${summary['total_cost']:.2f}"
                  if summary["total_cost"] else "")
-    banner = f"<span>{results_span}</span><span>{cost_span}</span>"
+    banner = ("<span title='per-cycle test phases: solved/total "
+              f"(avg env reward)'>{results_span}</span>{explore_span}"
+              f"<span>{cost_span}</span>")
     side_html = "".join(side)
     body = (f"<div class='layout'>{side_html}"
             "<div style='flex:1;display:flex;flex-direction:column;"
@@ -1944,14 +2124,32 @@ def episode_banner(ep: Dict[str, Any], n_rounds: int = 0) -> str:
     parts = []
     if ep["kind"] == "test":
         if "env_solved" in ep:
+            rtag = (f", reward {ep['env_reward']:.2f}"
+                    if "env_reward" in ep else "")
             if ep["env_solved"]:
-                parts.append("<span class='ok'>SOLVED ✓ (env eval)</span>")
+                parts.append(f"<span class='ok'>SOLVED ✓ (env eval{rtag})"
+                             "</span>")
             else:
                 parts.append("<span class='bad'>FAILED ✗ (env eval: "
-                             f"{esc(ep.get('env_msg', ''))})</span>")
+                             f"{esc(ep.get('env_msg', ''))}{rtag})</span>")
         else:
             parts.append("<span class='muted'>no env verdict in info.log"
                          "</span>")
+    elif ep["kind"] == "explore" and "env_accepted" in ep:
+        reward = ep["env_reward"]
+        if ep["env_accepted"]:
+            parts.append("<span class='ok'>ACCEPTED ✓ (env eval: reward "
+                         f"{reward:.2f})</span>")
+        else:
+            # Terminated-but-not-accepted means the env evaluator rejected
+            # the episode for a rule violation; otherwise the goal was
+            # simply never reached.
+            verdict = ("REJECTED"
+                       if ep.get("env_terminated") else "NOT SOLVED")
+            parts.append(f"<span class='bad'>{verdict} ✗ (env eval: reward "
+                         f"{reward:.2f})</span>")
+        if ep.get("env_msg"):
+            parts.append(f"<span class='muted'>{esc(ep['env_msg'])}</span>")
     if ep.get("goal") is True:
         parts.append("<span class='muted'>agent-reported: goal achieved"
                      "</span>")
@@ -2167,16 +2365,21 @@ def compare_page(run_rels: List[str]) -> str:
         f"<th><a href='/run?d={q(rel)}'>{esc(rel.split('/')[-1])}</a><br>"
         f"<span class='muted'>{esc('/'.join(rel.split('/')[:-1]))}</span></th>"
         for rel, _ in summaries)
+
+    def _verdict_mark(v: Dict[str, Any]) -> str:
+        mark = "✓" if v["solved"] else "✗"
+        if v.get("reward") is not None:
+            mark += f" {v['reward']:.2f}"
+        cls = "ok" if v["solved"] else "bad"
+        return f"<span class='{cls}' title='{esc(v['msg'])}'>{mark}</span>"
+
     rows = []
     for task in all_tasks:
         cells = []
         for _, s in summaries:
             verdicts = [r[task] for r in s.get("rounds", []) if task in r]
             if verdicts:
-                marks = " → ".join(
-                    f"<span class='{'ok' if v['solved'] else 'bad'}' "
-                    f"title='{esc(v['msg'])}'>"
-                    f"{'✓' if v['solved'] else '✗'}</span>" for v in verdicts)
+                marks = " → ".join(_verdict_mark(v) for v in verdicts)
             else:
                 attempts = [
                     ep for ep in s["episodes"]
@@ -2202,10 +2405,10 @@ def compare_page(run_rels: List[str]) -> str:
         return f"<tr><th>{label}</th>{cols}</tr>"
 
     rows.append(
-        stat_row(
-            "test results",
-            lambda s: esc(" → ".join(f"{t[0]}/{t[1]}"
-                                     for t in s["test_results"]) or "-")))
+        stat_row("test results", lambda s: esc(test_results_str(s) or "-")))
+    rows.append(
+        stat_row("explore results",
+                 lambda s: esc(explore_results_str(s) or "-")))
     rows.append(stat_row("episodes", lambda s: str(len(s["episodes"]))))
     rows.append(
         stat_row(

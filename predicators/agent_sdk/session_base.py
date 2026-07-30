@@ -34,6 +34,7 @@ from predicators.agent_sdk.sandbox_prompts import build_claude_md
 from predicators.agent_sdk.sandbox_setup import find_repo_root, \
     setup_sandbox_directory
 from predicators.agent_sdk.thinking import resolve_thinking_config
+from predicators.settings import CFG
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,76 @@ _TEXT_PREVIEW_CHARS = 200
 
 # Reasoning-effort levels accepted by the Claude Agent SDK.
 _VALID_EFFORTS = frozenset({"low", "medium", "high", "max"})
+
+# Error banners the SDK CLI surfaces as ordinary assistant text (one
+# turn, $0.00 - not an exception) when the backend is unusable; matched
+# case-insensitively against responses that made no tool call.
+_FATAL_RESPONSE_PATTERNS = (
+    "disabled claude subscription access",
+    "use an anthropic api key",
+    "invalid api key",
+    "credit balance is too low",
+    "oauth token has expired",
+    "please run /login",
+    "authentication_error",
+)
+
+
+class AgentSessionFatalError(Exception):
+    """The agent session backend is failing in a way no retry can fix.
+
+    Raised after ``CFG.agent_sdk_max_consecutive_fatal_queries``
+    consecutive queries died without the agent doing any work (see
+    :func:`query_fatal_error`).  Deliberately NOT an ``ApproachFailure``
+    subclass: per-task and per-attempt handlers catch and absorb those,
+    while this error must propagate and terminate the whole run instead
+    of burning the attempt/replan/cycle budgets on instant failures
+    (run_20260721_161159 spent 10 cycles on ~300 one-second auth-error
+    queries without the agent ever running).  Every broad ``except``
+    between a session query and ``main`` must re-raise it.
+    """
+
+
+def query_fatal_error(response: List[Dict[str, Any]]) -> Optional[str]:
+    """Why this query's response looks fatally broken, or ``None``.
+
+    A response only qualifies when the agent made NO tool call: real
+    sessions that end badly mid-work (turn cap, deadline interrupt,
+    transport drop) all have tool calls behind them, while auth /
+    billing / config failures die on the first assistant turn.  Within
+    that gate three signals count: a known fatal banner in the assistant
+    or result text, an error result (excluding ``error_max_turns``, the
+    ordinary turn-cap budget end), or a stream error entry.
+    """
+    texts: List[str] = []
+    stream_error: Optional[str] = None
+    result_error: Optional[str] = None
+    for entry in response:
+        etype = entry.get("type")
+        if etype == "assistant":
+            for block in entry.get("content", []):
+                if block.get("type") == "tool_use":
+                    return None
+                if block.get("type") == "text":
+                    texts.append(str(block.get("text", "")))
+        elif etype == "error":
+            stream_error = str(entry.get("error") or "unknown stream error")
+        elif etype == "result":
+            if entry.get("is_error") and \
+                    entry.get("subtype") != "error_max_turns":
+                result_error = str(
+                    entry.get("result") or entry.get("subtype")
+                    or "unknown error result")
+    for text in texts + ([result_error] if result_error else []):
+        low = text.lower()
+        for pattern in _FATAL_RESPONSE_PATTERNS:
+            if pattern in low:
+                return text.strip()
+    if result_error is not None:
+        return f"error result: {result_error}"
+    if stream_error is not None:
+        return f"stream error: {stream_error}"
+    return None
 
 
 def validate_reasoning_effort(reasoning_effort: str) -> Optional[str]:
@@ -258,6 +329,13 @@ class BaseAgentSessionManager:
     # iteration complete...", "Error closing agent session...").
     _log_label = "Agent"
 
+    # Consecutive fatal-looking queries across ALL managers in the
+    # process (a class attribute on purpose): fresh-context restarts
+    # close and recreate the manager on every attempt, so an instance
+    # counter would reset exactly when the loop it must stop is
+    # spinning.  Reset to 0 by any healthy query.
+    _consecutive_fatal_queries = 0
+
     def __init__(self,
                  system_prompt: str,
                  log_dir: str,
@@ -435,7 +513,40 @@ class BaseAgentSessionManager:
             "query": message,
             "response": collected,
         })
+        self._track_fatal_response(collected)
         return collected
+
+    def _track_fatal_response(self, response: List[Dict[str, Any]]) -> None:
+        """Terminate the run after consecutive fatally-broken queries.
+
+        Each fatal query (see :func:`query_fatal_error`) returns in ~1 s
+        at $0.00 and is otherwise indistinguishable from a no-capture
+        attempt, so without this check the solve restart / replan /
+        online-cycle budgets grind through hundreds of instant failures.
+        The counter is process-wide (class attribute) and any healthy
+        query resets it; at ``agent_sdk_max_consecutive_fatal_queries``
+        the raised :class:`AgentSessionFatalError` propagates past the
+        per-task handlers and ends the run.
+        """
+        limit = CFG.agent_sdk_max_consecutive_fatal_queries
+        if limit <= 0:
+            return
+        reason = query_fatal_error(response)
+        if reason is None:
+            BaseAgentSessionManager._consecutive_fatal_queries = 0
+            return
+        count = BaseAgentSessionManager._consecutive_fatal_queries + 1
+        BaseAgentSessionManager._consecutive_fatal_queries = count
+        logger.warning(
+            "%s query died without the agent doing any work "
+            "(%d/%d consecutive): %s", self._log_label, count, limit, reason)
+        if count >= limit:
+            raise AgentSessionFatalError(
+                f"{count} consecutive agent queries died without the agent "
+                f"doing any work; latest: {reason}. The session backend is "
+                "unusable (auth/billing/config failure), so the run is "
+                "terminated instead of burning the remaining attempt/replan/"
+                "cycle budgets on instant failures.")
 
     # -- Session info persistence --
 
