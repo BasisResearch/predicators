@@ -525,8 +525,7 @@ def list_episodes(run_abs: str) -> List[Dict[str, Any]]:
 
 
 def _parse_info_log(path: str) -> Dict[str, Any]:
-    """Extract authoritative test and explore outcomes from main.py's
-    info.log.
+    """Extract authoritative test and explore outcomes from main.py's info.log.
 
     Returns {"totals": [(num_solved, num_total, avg_test_reward), ...] one
     per cycle (avg_test_reward is None in logs that predate the metric),
@@ -639,7 +638,8 @@ def _explore_results(episodes: EpList) -> List[Tuple[int, int, float]]:
     """Per-round explore outcomes as (accepted, total, mean env reward).
 
     Rounds none of whose interaction episodes have executed yet (no env
-    verdict on any explore episode) are omitted rather than shown as 0/N.
+    verdict on any explore episode) are omitted rather than shown as
+    0/N.
     """
     by_round: Dict[int, EpList] = {}
     for ep in episodes:

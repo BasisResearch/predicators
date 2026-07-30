@@ -171,10 +171,10 @@ class BaseEnv(abc.ABC):
 
         Used by ``main._run_testing`` under
         ``CFG.test_fresh_env_per_episode`` so a test episode's physics
-        cannot depend on what the long-lived env executed before it.
-        The already-generated task lists are shared with the fresh
-        instance, so its tasks are identical (and not re-generated).
-        Callers must ``dispose()`` the returned instance when done.
+        cannot depend on what the long-lived env executed before it. The
+        already-generated task lists are shared with the fresh instance,
+        so its tasks are identical (and not re-generated). Callers must
+        ``dispose()`` the returned instance when done.
         """
         return None
 
