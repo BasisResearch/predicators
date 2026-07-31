@@ -182,3 +182,13 @@ def test_panda_home_keeps_canonical_arm_under_rolled_orientation(
     assert np.allclose(panda.get_state()[:3],
                        rolled_home_pose.position,
                        atol=1e-3)
+
+
+def test_panda_pushes_with_its_front_face(panda):
+    """The Franka Hand pushes front-on, unlike the side-pushing default.
+
+    Turning it to the base class's side push (0.0) points the hand's
+    body into the approach direction, so it reaches the object before
+    the intended contact face does.
+    """
+    assert panda.push_ee_yaw_offset == pytest.approx(np.pi / 2)

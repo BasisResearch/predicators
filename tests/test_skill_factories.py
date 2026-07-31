@@ -20,7 +20,7 @@ from predicators.ground_truth_models.skill_factories.pick import \
 from predicators.ground_truth_models.skill_factories.place import \
     create_place_skill
 from predicators.ground_truth_models.skill_factories.push import \
-    create_push_skill
+    create_push_skill, resolve_ee_yaw_offset
 from predicators.ground_truth_models.skill_factories.wait import \
     create_wait_option
 from predicators.pybullet_helpers.geometry import Pose
@@ -1152,6 +1152,26 @@ class TestCreatePushSkill:
         action = grounded.policy(state)
         assert isinstance(action, Action)
         assert robot.action_space.contains(action.arr)
+
+    def test_ee_yaw_offset_comes_from_the_robot(self, robot_scene):
+        """With no config override, the hand decides the push orientation."""
+        _, robot = robot_scene
+        utils.reset_config({"seed": 123, "skill_push_ee_yaw_offset": None})
+        config = self._make_push_config(robot)
+        # The fetch pushes with its side, so its offset is the 0.0 default.
+        assert resolve_ee_yaw_offset(config) == robot.push_ee_yaw_offset == 0.0
+
+    def test_ee_yaw_offset_config_override_wins(self, robot_scene):
+        """Setting the flag forces one offset regardless of the robot."""
+        _, robot = robot_scene
+        utils.reset_config({
+            "seed": 123,
+            "skill_push_ee_yaw_offset": np.pi / 2
+        })
+        config = self._make_push_config(robot)
+        assert resolve_ee_yaw_offset(config) == pytest.approx(np.pi / 2)
+        assert robot.push_ee_yaw_offset == 0.0
+        utils.reset_config({"seed": 123})
 
 
 def test_fmt_option_params():

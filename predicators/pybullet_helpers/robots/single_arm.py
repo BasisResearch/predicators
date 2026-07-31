@@ -237,6 +237,23 @@ class SingleArmPyBulletRobot(abc.ABC):
         """The value at which the finger joints should be closed."""
         raise NotImplementedError("Override me!")
 
+    @property
+    def push_ee_yaw_offset(self) -> float:
+        """End-effector yaw during Push, relative to the pushed object's yaw.
+
+        A property of the hand's geometry: it says which face of
+        this gripper should lead into the object. 0.0 is a side push
+        (leading with the gripper's narrow side); pi/2 is a front push
+        (knuckles spanning the object's face).
+
+        Defaults to the side push, which is what the Fetch hand was
+        verified with on domino chains and fan/boil switches
+        (2026-07-14). A gripper whose geometry differs overrides this.
+        ``CFG.skill_push_ee_yaw_offset`` overrides it for everyone when
+        set, for experiments.
+        """
+        return 0.0
+
     @classmethod
     def home_arm_joint_positions(cls) -> Optional[List[float]]:
         """The robot's canonical home configuration (arm joints only, no
