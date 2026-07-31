@@ -59,8 +59,8 @@ AQUA = "#1baf7a"
 YELLOW = "#eda100"
 
 
-def _plot(ax, series, title):
-    for vals, color, label, label_y in series:
+def _plot(ax, series, title, legend_loc):
+    for vals, color, label, _ in series:
         vals = [max(v, FLOOR) for v in vals]
         ax.plot(THETAS,
                 vals,
@@ -68,17 +68,12 @@ def _plot(ax, series, title):
                 linewidth=2,
                 marker="o",
                 markersize=4,
-                zorder=3)
-        ax.annotate(label, (THETAS[-1], label_y),
-                    xytext=(6, 0),
-                    textcoords="offset points",
-                    color="#444444",
-                    fontsize=9,
-                    va="center")
+                zorder=3,
+                label=label)
     ax.axvline(0.5, color="#888888", linestyle="--", linewidth=1.2, zorder=1)
-    ax.annotate("true 0.5", (0.5, 1.0),
+    ax.annotate("true 0.5", (0.5, 0.02),
                 xycoords=("data", "axes fraction"),
-                xytext=(4, -12),
+                xytext=(5, 2),
                 textcoords="offset points",
                 color="#666666",
                 fontsize=9)
@@ -88,6 +83,11 @@ def _plot(ax, series, title):
     ax.set_xlabel("lateral_friction (log)", fontsize=9)
     ax.grid(True, which="major", color="#eeeeee", linewidth=0.8, zorder=0)
     ax.tick_params(labelsize=8)
+    ax.legend(loc=legend_loc,
+              fontsize=9,
+              frameon=True,
+              framealpha=0.9,
+              edgecolor="#dddddd")
     for spine in ("top", "right"):
         ax.spines[spine].set_visible(False)
 
@@ -97,11 +97,12 @@ def main():
     _plot(ax1, [
         (SLIDE_PUSH, BLUE, "slide-rich push (z 0.05)", 30.0),
         (GREEN_PUSH, ORANGE, "green push", 0.1),
-    ], "Identifying recordings: SSE minimum at the true friction")
+    ], "Identifying recordings: SSE minimum at the true friction", "upper left")
     _plot(ax2, [
         (PURE_TOPPLE, AQUA, "pure topple (z 0.08)", 0.03),
         (CARRY_ONLY, YELLOW, "pick-place-carry", 0.003),
-    ], "Non-identifying: flat, plus deterministic chaos spikes")
+    ], "Non-identifying: flat, plus deterministic chaos spikes",
+          "center right")
     ax1.set_ylabel("replay SSE (fit objective, log)", fontsize=9)
     fig.suptitle(
         "Replay-SSE vs lateral_friction, four recordings at true 0.5 "
