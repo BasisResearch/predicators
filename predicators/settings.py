@@ -231,6 +231,15 @@ class GlobalSettings:
     pybullet_camera_width = 335  # for high quality, use 1674
     pybullet_camera_height = 180  # for high quality, use 900
     pybullet_sim_steps_per_action = 20
+    # Wall-clock seconds to pause after each GUI step. Stepping is otherwise
+    # unpaced -- nothing ties simulated time to real time -- so a --use_gui run
+    # plays back many times faster than reality and is hard to watch. One
+    # action covers pybullet_sim_steps_per_action / 240 s of simulated time
+    # (0.083 s at the default 20), so that value here is roughly real time and
+    # larger values are slow motion. 0 disables pacing (the default, unchanged
+    # behavior); ignored without a GUI, so headless runs and option models are
+    # never slowed.
+    pybullet_gui_step_sleep = 0.0
     pybullet_max_ik_iters = 100
     pybullet_ik_tol = 1e-3
     pybullet_robot = "fetch"
@@ -757,6 +766,56 @@ class GlobalSettings:
     # to block the direct path. When False, all grid sizes use uniform
     # random placement of ball, target, and walls.
     fan_3x3_strategic_task_gen = False
+
+    # --- real-bench fan env (pybullet_fan_real) ------------------------------
+    # One fan, one button, one ball, a row of zones: the robot presses the
+    # button to run the fan for a chosen duration, and the ball must coast to
+    # rest in the goal zone. The BENCH geometry (table height in the base
+    # frame, robot tilt/wrist, the extended-table tile + pedestal) is SHARED
+    # with pybullet_domino_real and deliberately read from the domino_real_*
+    # settings above -- it is the same physical bench, so a recalibration must
+    # move both envs at once.
+    #
+    # Lane layout, in the transplanted world frame (robot base at
+    # (0.75, 0.72), facing +y; table top z=0.4). The lane runs along +x
+    # across the robot's front: fan at the low-x end, then the ball, then the
+    # numbered zones.
+    fan_real_lane_y = 1.35  # lane centerline
+    fan_real_lane_half_width = 0.07  # half the lane's y extent (rails)
+    fan_real_fan_x = 0.33  # fan body x (outside the reach box)
+    fan_real_ball_start_x = 0.44  # ball's resting x before any burst
+    fan_real_num_zones = 6
+    fan_real_first_zone_x = 0.55  # center of zone 1
+    fan_real_zone_len = 0.10  # zone extent along the lane
+    fan_real_button_x = 0.42  # button, at the near table edge
+    fan_real_button_y = 1.15
+    # The button is momentary: the fan runs while the gripper is within this
+    # distance (m) of the press point, and stops the moment it lifts off.
+    fan_real_button_press_threshold = 0.03
+    fan_real_rails = True  # lane rails + far end stop
+    # Ball (ping-pong-scale). These plus fan_real_wind_force are the
+    # duration->distance map, i.e. exactly what a later sysID pass fits.
+    fan_real_ball_radius = 0.02
+    fan_real_ball_mass = 0.0027
+    fan_real_ball_lateral_friction = 0.5
+    fan_real_ball_rolling_friction = 0.0002
+    fan_real_ball_linear_damping = 2.5
+    fan_real_ball_angular_damping = 2.5
+    # Wind: force (N) along +x on a ball inside the lane and downwind of the
+    # fan. fan_real_wind_falloff_dist (m) gives a 1/(1+(d/d0)^2) decay with
+    # distance from the fan; None makes the jet uniform along the lane.
+    fan_real_wind_force = 0.008
+    fan_real_wind_falloff_dist = None
+    # Upper bound on the burst-duration option parameter, in seconds.
+    fan_real_max_burst_seconds = 4.0
+    # The oracle sampler's affine inverse of the duration -> travel-distance
+    # map: burst_seconds = intercept + slope * (zone_x - ball_x), jittered by
+    # _std. Ground truth only because the map was MEASURED offline against
+    # the sim (scripts/fan_real_debug/sweep_burst.py); recovering these two
+    # numbers from rollouts is what an agent on this bench is meant to do.
+    fan_real_oracle_burst_intercept = -0.0846
+    fan_real_oracle_burst_slope = 4.0365
+    fan_real_oracle_burst_std = 0.0
 
     # domino_fan env (combined domino + fan environment)
     domino_domino_on_stairs = False

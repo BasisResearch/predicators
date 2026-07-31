@@ -13,6 +13,8 @@ Available factories
 - ``create_pour_skill``   -- Pour from a held container.
 - ``create_move_to_skill``-- Move EE to a target pose.
 - ``create_wait_option``  -- Hold current pose (no-op).
+- ``create_timed_hold_option`` -- Hold current pose for a parameterized
+  duration in seconds.
 
 Shared signature pattern
 ------------------------
@@ -91,7 +93,7 @@ from predicators.ground_truth_models.skill_factories.pour import \
 from predicators.ground_truth_models.skill_factories.push import \
     create_push_skill
 from predicators.ground_truth_models.skill_factories.wait import \
-    create_wait_option
+    create_timed_hold_option, create_wait_option
 
 __all__ = [
     "Phase",
@@ -106,6 +108,7 @@ __all__ = [
     "create_place_skill",
     "create_pour_skill",
     "create_push_skill",
+    "create_timed_hold_option",
     "create_wait_option",
     "shared_skill_robot",
     "shared_skill_simulator",
