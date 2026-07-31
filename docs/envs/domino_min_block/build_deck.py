@@ -512,6 +512,6 @@ out = HTML.replace("{{IMG_PHASE1}}", b64("phase1_gap.png")) \
           .replace("{{IMG_TURNLAYOUTS}}", b64("turn_layouts.png")) \
           .replace("{{IMG_TASKEXAMPLES}}", b64("task_examples.png")) \
           .replace("{{IMG_HEAVYEXAMPLES}}", b64("heavy_task_examples.png"))
-dest = HERE.parent.parent / "domino_min_block_task_gen_slides.html"
+dest = HERE.parent.parent / "slides" / "domino_min_block_task_gen_slides.html"
 dest.write_text(out)
 print("wrote", dest, f"({len(out)//1024} KB)")
