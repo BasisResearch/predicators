@@ -39,6 +39,9 @@
   - Styling: a comment of the form  .element: class="small"  on the line
     after a paragraph or image applies that CSS class (defined in the
     style block near the top: small / good / bad / hl)
+  - Figures in assets/agent_run_20260729/ are this run's own renders,
+    copied from logs/.../al_margin/seed2/run_20260729_232733/sandbox/
+    test_images/ and cropped to the table region (0,170)-(720,890)
 ======================================================================= -->
 
 <section data-markdown data-separator="^\r?\n---\r?\n$" data-separator-notes="^Note:">
@@ -46,8 +49,8 @@
 # How the Main Agent Plans and Learns
 
 `agent_po_sim_predicate_invention` (al_margin arm)<br>
-env `domino_high_friction_turn`, seed 0/1, `run_20260723_110212`<br>
-Focus: the agent's tool surface and the BeliefProbe (`sim`) API
+env `domino_high_friction_turn`, seed 2, `run_20260729_232733`<br>
+Focus: the agent's tool API and the BeliefProbe (`sim`) API
 <!-- .element: class="small" -->
 
 Note: This deck explains the main agent end to end using a single real run that went from 0/2 failed explorations to a solved test task in one learning cycle. Everything shown (plans, fit reports, learned code) is taken verbatim from the run's logs.
@@ -64,7 +67,7 @@ Note: This deck explains the main agent end to end using a single real run that 
 - **BeliefSim** = frozen PyBullet base sim (robot, rigid bodies) **composed with** the agent's learned dynamics: the agent's current belief about how the world works
 - Loop repeats up to 10 cycles; **early-stops** when every train attempt in a cycle solves
 
-Note: Three session types, all the same sandbox agent but with different prompts and different tool surfaces. The env's rigid-body physics and skills are given; what is NOT given is any symbolic vocabulary beyond Holding, any process dynamics, and the true physics parameters.
+Note: Three session types, all the same sandbox agent but with different prompts and different tool APIs. The env's rigid-body physics and skills are given; what is NOT given is any symbolic vocabulary beyond Holding, any process dynamics, and the true physics parameters.
 
 ---
 
@@ -86,7 +89,7 @@ Note: Key framing: this is world-model learning, not just planning. The env deli
 
 ## The task in this run
 
-![initial scene](assets/agent_run_20260723/task000_initial_state.png) <!-- .element: style="max-height: 320px; float: left; margin-right: 0.8em;" -->
+![initial scene](assets/agent_run_20260729/task000_initial_state.png) <!-- .element: style="max-height: 320px; float: left; margin-right: 0.8em;" -->
 
 - **Goal:** arrange blue dominoes so that pushing the **green** domino topples the **purple** one, using as few blues as possible
 - Green and purple must stay untouched and upright until the push; only green may ever be pushed
@@ -100,24 +103,24 @@ Note: The counterfactual fingertip replay is our anti-reward-hacking evaluator: 
 
 ---
 
-## This run at a glance (seed 1, 62 min wall clock)
+## This run at a glance (seed 2, 3 h 16 min wall clock)
 
 | # | Session | What happened | Outcome |
 |---|---|---|---|
-| 001 | Explore (cycle 0) | Probed push reach, swept bridge positions, captured a 1-blue bridge plan | Real env: reward -0.10, not solved |
-| 002 | Explore (cycle 0) | Tested complementary design variations | Real env: reward -0.10, not solved |
-| 003 | **Learn** | Diagnosed residuals, wrote `simulator.py` + `predicates.py`, ran sysID | lateral_friction 0.1 → ~0.5, identified; 3 predicates invented |
-| 004 | **Test** (cycle 0) | Planned on the calibrated BeliefSim: 3-blue bridge chain | Real env: **solved**, reward 0.70 |
-| 005/006 | Explore (cycle 1) | Both train attempts solved with the calibrated model | 2/2 solved → **early stop** (test skipped as redundant) |
+| 001 | Explore (cycle 0) | Swept push physics and bridge placements over 53 `explore_python` calls; captured a 9-step chain | Real env: reward -0.10, not solved |
+| 002 | Explore (cycle 0) | Tried a longer 11-step variation | Real env: reward -0.10, not solved |
+| 003 | **Learn** | Open-loop residual sweep implicated friction; wrote `simulator.py` + `predicates.py` | `lateral_friction` → 0.4617, identified (contraction 0.13); 2 predicates invented |
+| 004 | **Test** (cycle 0) | Planned on the calibrated BeliefSim: 2-blue relay, 7 submissions (1 rejected FLAKY) | Real env: **solved**, reward 0.80 |
+| 005/006 | Explore (cycle 1) | Both train attempts solved with the calibrated model, reward 0.90 each | 2/2 solved → **early stop** (test skipped as redundant) |
 
-- The two cycle-0 failures are the learning signal: plans tuned on friction 0.1 physics under-predict how hard cascades are to propagate
-- One learning session fixed the physics; every subsequent attempt solved
+- The two cycle-0 failures are the learning signal: plans tuned on friction 0.1 physics under-predict how hard cascades are to propagate, so both captured chains stalled short of purple
+- One learning session fixed the physics; every subsequent attempt solved, and on the calibrated model the winning design needed only **2 blues** (reward 0.80) where the cycle-0 attempts had thrown 9- and 11-step chains at it
 
-Note: Note the pattern: exploration on the uncalibrated sim fails on the real env; the failures become training trajectories; one sysID fit repairs the model; then planning transfers. The early-stopping logic skips the redundant re-test because the model did not change in cycle 1.
+Note: Note the pattern: exploration on the uncalibrated sim fails on the real env; the failures become training trajectories; one sysID fit repairs the model; then planning transfers. Both cycle-0 captures passed their 3/3 validation rollouts on the belief sim and still failed for real - that gap IS the mismatch benchmark. The early-stopping logic skips the redundant re-test because the model did not change in cycle 1.
 
 ---
 
-## Two tool surfaces, one sandbox
+## Two tool APIs, one sandbox
 
 |  | Solve / explore sessions (planning) | Synthesis session (learning) |
 |---|---|---|
@@ -129,7 +132,7 @@ Note: Note the pattern: exploration on the uncalibrated sim fails on the real en
 - Both also get the sandbox tools: Bash, Read, Write, Edit, Glob, Grep, python3 scripts, `./reference/` API sources, `./session_logs/` of all past sessions
 <!-- .element: class="small" -->
 
-Note: The tool surface is curated per phase. In solve sessions the evaluator can only be consulted through paths that pay for full physics rollouts, so the agent cannot search over state sequences the evaluator likes without simulating them. In synthesis the probe auto-refits the candidate simulator whenever the file changes.
+Note: The tool API is curated per phase. In solve sessions the evaluator can only be consulted through paths that pay for full physics rollouts, so the agent cannot search over state sequences the evaluator likes without simulating them. In synthesis the probe auto-refits the candidate simulator whenever the file changes.
 
 ---
 
@@ -147,29 +150,28 @@ Note: The explore and test prompts are almost identical; explore sessions additi
 
 ## The plan language: options + params + subgoal annotations
 
-The actual captured plan from the test session (solved, reward 0.70):
+The actual captured plan from the test session (solved, reward 0.80):
 <!-- .element: class="small" -->
 
 ```text
-Pick(robot:robot, domino_2:domino)[0.05]        -> {Holding(robot:robot, domino_2:domino)}
-Place(robot:robot)[0.687, 1.342, 0.55, 0.0]     -> {UprightAtRest(domino_2:domino)}
-Pick(robot:robot, domino_3:domino)[0.05]        -> {Holding(robot:robot, domino_3:domino)}
-Place(robot:robot)[0.737, 1.412, 0.55, 0.0]     -> {UprightAtRest(domino_3:domino)}
-Pick(robot:robot, domino_4:domino)[0.05]        -> {Holding(robot:robot, domino_4:domino)}
-Place(robot:robot)[0.777, 1.482, 0.55, -0.7]    -> {UprightAtRest(domino_4:domino)}
-Push(robot:robot, domino_0:domino)[0.06, 0.05]  -> {Toppled(domino_0:domino), Toppled(domino_1:domino)}
+Pick(robot:robot, domino_4:domino)[0.06]              -> {Holding(robot:robot, domino_4:domino)}
+Place(robot:robot)[0.67, 1.42, 0.55, 1.5708]          -> {NOT Holding(robot:robot, domino_4:domino)}
+Pick(robot:robot, domino_5:domino)[0.06]              -> {Holding(robot:robot, domino_5:domino)}
+Place(robot:robot)[0.75, 1.32, 0.55, 1.2]             -> {NOT Holding(robot:robot, domino_5:domino)}
+Push(robot:robot, domino_0:domino)[0.02764, 0.04477]  -> {Toppled(domino_0:domino)}
+Wait(robot:robot)[]                                   -> {Toppled(domino_1:domino)}
 ```
 
 - One option per line, typed object refs, **exact** continuous params in `[...]`; parser is strict
 - `-> {atoms}` annotations are load-bearing: refinement validates each annotated step, and at execution they are checked against the **real** state to detect divergence and replan; `Wait` uses them as its termination condition
-- All non-`Holding` atoms here (`UprightAtRest`, `Toppled`) are predicates the agent **invented** in the learn session
+- `Toppled` is a predicate the agent **invented** in the learn session; the Place steps' reported deltas also carry its second invention, `CascadeAdjacent`
 
-![bridge built](assets/agent_run_20260723/iter000_task000_test443_step_5_Place.png) <!-- .element: style="max-height: 150px; margin: 0 0.3em;" --> ![cascade after push](assets/agent_run_20260723/iter000_task000_test443_step_6_Push.png) <!-- .element: style="max-height: 150px; margin: 0 0.3em;" -->
+<img src="assets/agent_run_20260729/iter000_task000_test805_step_3_Place.png" alt="relay staged" style="max-height: 215px; margin: 0 0.3em;"> <img src="assets/agent_run_20260729/iter000_task000_test805_step_4_Push.png" alt="cascade after push" style="max-height: 215px; margin: 0 0.3em;">
 
-Bridge built (after step 5) → cascade toppled purple (after Push)
+Relay staged (after step 3) → cascade toppled purple (after the Push)
 <!-- .element: class="small" -->
 
-Note: Note the last Place uses yaw -0.7: the agent learned that a negative yaw offset biases a domino's fall direction laterally, which it needed for the turn onto the purple target. Also note there is no Wait: the agent journaled that Toppled(domino_1) is added during the Push step itself and a bare Wait wastes ~1000 low-level actions.
+Note: The two Places encode the design the agent measured: domino_5 at yaw 1.2 deflects the green domino's fall laterally toward purple (a yaw-0 bystander only travels straight in +y), and domino_4 pre-staged at yaw 1.5708 almost touching purple turns a 0.06 m graze - flaky, 0/8 trials - into a reliable relay hit. Push params are the sweep's winners to five decimals. The final Wait carries Toppled(domino_1) as its termination condition.
 
 ---
 
@@ -182,10 +184,10 @@ Runs the exact plan (no sampling) on the BeliefSim, reports per-step: actions ta
 3. **Multi-rollout validation**: 3 repeats on a **fresh physics env with decorrelated motion-planner seeds** per trial; flaky plans escalate to 6/6
 4. **Physics-margin gate** (this arm): the plan is re-rolled under physics perturbed by the sysID posterior's honest width; a plan that only works at the point estimate is rejected
 
-From the run: "Captured as the current answer: 7 steps, 7 with subgoal annotations... Validated 3/3 rollouts... solved=True, reward=0.70... robust to physics-parameter perturbation." Budget footer: 354 sim rollouts, 21.6/45 min.
+From the run: "Captured as the current answer: 6 steps, 6 with subgoal annotations... Validated 6/6 rollouts... Physics-margin check passed: the plan also reached the goal at all 32 grid points spanning +-1 sigma of the identified physical parameters... solved=True, reward=0.80." Budget footer: 819 sim rollouts, 41.2/45 min.
 <!-- .element: class="small" -->
 
-Note: Fresh env + decorrelated seeds matters: with a shared env and constant seed, N trials are bit-identical replays, i.e. one effective sample. The margin gate is the new al_margin treatment: capture requires robustness across the posterior's uncertainty, which also pressures the agent to collect data that shrinks that posterior.
+Note: Fresh env + decorrelated seeds matters: with a shared env and constant seed, N trials are bit-identical replays, i.e. one effective sample. In this run the gate refused one earlier submission as FLAKY (1/3 rollouts), which escalated the task to the 6/6 bar the final design then cleared. The margin gate is the al_margin treatment: capture requires robustness across the posterior's uncertainty, which also pressures the agent to collect data that shrinks that posterior. It only arms once a fit exists - the cycle-0 explore captures had no identified params to perturb, which is why they passed on 3/3 alone and still failed for real.
 
 ---
 
@@ -199,7 +201,7 @@ Note: Fresh env + decorrelated seeds matters: with a shared env and constant see
   - solve sessions: the **deployed** belief model
   - synthesis: the **candidate** `simulator.py` under edit, auto-refit on every file change
 
-Note: In the codebase the class is BeliefProbe in agent_sdk/belief_probe.py. This is the workhorse: in this run the agent made ~40 explore_python calls per solve session, most of them multi-experiment sweeps. The identical-machinery point is important: a probe result transfers one-to-one to the capture path, so the agent can trust its experiments.
+Note: In the codebase the class is BeliefProbe in agent_sdk/belief_probe.py. This is the workhorse: in this run the agent made 53 explore_python calls in session 001 and 64 in the test session, most of them multi-experiment sweeps. The identical-machinery point is important: a probe result transfers one-to-one to the capture path, so the agent can trust its experiments.
 
 ---
 
@@ -239,8 +241,8 @@ Note: The next three slides walk through these groups with real calls from the r
 ```python
 print(sim.task(0))                 # goal + objects + init digest (no state change)
 sim.reset(task_idx=0)              # a task's true initial state
-sim.reset(mods={"domino_2": {"x": 0.60, "y": 1.324, "yaw": -1.5708}})
-                                   # counterfactual copy: stage any layout
+sim.reset(mods={"domino_2": {"x": x2, "y": 1.239, "z": 0.475,
+                                "yaw": -1.5708}})   # stage any layout
 sid = sim.snapshot()               # bank the abstract state...
 sim.restore(sid)                   # ...and rewind to it later
 
@@ -284,7 +286,7 @@ out = sim.run(plan, contacts=True)
 - `solved=True` needs trials >= 2 and a pristine `reset()`: the evaluator preview before submitting, instead of discovering rejections one capture at a time
 - `contacts=True` answers "did the push cause the topple, or did the arm brush it?"
 
-Note: In this run the agent used run(trials=5, solved=True) to verify 5/5 solves at reward 0.90 during exploration, and 10/10 before submitting the test plan. The trials results explicitly label whether the env was fresh per trial, and warn when a goal-reaching route is scored a non-solve: "tuning its parameters cannot make it pass, plan a different route".
+Note: In this run the agent used run(trials=8) to establish 8/8 reliability before submitting the winning test plan, after a 1-blue variant it had measured as a 0.06 m graze went 0/8. The trials results explicitly label whether the env was fresh per trial, and warn when a goal-reaching route is scored a non-solve: "tuning its parameters cannot make it pass, plan a different route".
 
 ---
 
@@ -295,7 +297,7 @@ sim.reset()
 print(sim.refine("""
 Pick(robot:robot, domino_2:domino)[0.05] -> {Holding(robot:robot, domino_2:domino)}
 Place(robot:robot)[0.60, 1.324, 0.55, -1.57] ~ [0.05, 0.05, 0.0, 0.5]
-    -> {AtBridgePoint(domino_2:domino, domino_0:domino, domino_1:domino)}
+    -> {CascadeAdjacent(domino_2:domino, domino_0:domino)}
 Push(robot:robot, domino_0:domino)[0.06, 0.05] -> {Toppled(domino_0:domino)}
 """, require_solved=True))
 ```
@@ -307,7 +309,7 @@ Push(robot:robot, domino_0:domino)[0.06, 0.05] -> {Toppled(domino_0:domino)}
 - Reports refined params ready to paste into `evaluate_option_plan`, plus the **deepest near-miss** (step, best params, why they failed) on failure
 - Refine-pass + diverging forward `run` = the learned model is **more permissive** than the env; the fix is to tighten thresholds, never loosen
 
-Note: Refinement resets state between options and resamples; the forward run carries state continuously. Divergence between the two is the canonical symptom of an over-loose learned gate, and the system prompt drills the rule of thumb: tighten toward the env's empirical boundary.
+Note: Refinement resets state between options and resamples; the forward run carries state continuously. Divergence between the two is the canonical symptom of an over-loose learned gate, and the system prompt drills the rule of thumb: tighten toward the env's empirical boundary. This run hit it in the learn session: refine reported goal-reached with a Place 0.303 m from the green domino - far outside the 0.16 m gap its own predicate allows - while a fresh continuous run left both dominoes untouched. The agent treated that as a model bug to root-cause before declaring the artifact validated, which is exactly the intended reflex.
 
 ---
 
@@ -327,7 +329,7 @@ Note: Refinement resets state between options and resamples; the forward run car
 4. Invent predicates in `predicates.py`; validate with `evaluate_predicate_quality`
 5. Slow outer gate: `sim.refine` then a continuous `sim.run` must **both** pass
 
-Note: The learn prompt for this run: 2 trajectories, 267 transitions, both failed episodes. The residual hint pointed at domino roll/x/yaw/z. The candidate-probe design means sim.run/refine inside synthesis always exercise the latest edit, freshly fitted. Failure trajectories are treated as counterexamples: places where a predicate said "this should work" but the env disagreed indicate a too-loose threshold.
+Note: The learn prompt for this run: 2 trajectories, 658 step transitions, both failed episodes. The residual hint pointed at domino roll/x/yaw/z. The candidate-probe design means sim.run/refine inside synthesis always exercise the latest edit, freshly fitted. Failure trajectories are treated as counterexamples: places where a predicate said "this should work" but the env disagreed indicate a too-loose threshold.
 
 ---
 
@@ -337,11 +339,21 @@ Actual fit report from session 003:
 <!-- .element: class="small" -->
 
 ```text
-lateral_friction   [physical] 0.1000 -> 0.5315  (delta=+0.4315, +431.5%)
+[cycle_002_vers_008] JOINT ROLLOUT SYSTEM-ID FIT (PHYSICAL_PARAMS declared;
+canonical) on 11 motion segments (1 physical + 2 rule params).
+
+At init params:   rollout SSE = 0.084197
+After joint fit:  rollout SSE = 0.012118  (85.6% SSE reduction vs init)
+
+  cascade_gap_thresh  [rule    ] 0.1600 -> 0.1600  (delta=+0.0000, +0.0%)
+  lateral_friction    [physical] 0.6931 -> 0.4617  (delta=-0.2314, -33.4%)
+  toppled_roll_thresh [rule    ] 1.0000 -> 1.0000  (delta=+0.0000, +0.0%)
 
 Identifiability (posterior_std / prior_std; ~1 means the data did NOT
 constrain the parameter - its fitted value is arbitrary):
-  lateral_friction  posterior_std=0.124  prior_std=0.75  contraction=0.17  -> identified
+  lateral_friction    posterior_std=0.1  prior_std=0.75  contraction=0.13 -> identified
+  cascade_gap_thresh  posterior_std=inf  prior_std=0.12  contraction=inf  -> NOT identified
+  toppled_roll_thresh posterior_std=inf  prior_std=0.75  contraction=inf  -> NOT identified
 
 The identified physical params were applied to the planning base env;
 probe rollouts (sim.run / sim.refine) now run against the calibrated sim.
@@ -349,37 +361,37 @@ probe rollouts (sim.run / sim.refine) now run against the calibrated sim.
 
 - **Objective:** Gaussian MAP on free-running rollouts (SSE + prior, log-space for log-scale params); grid-seeded Levenberg-Marquardt point fit
 - Per-parameter verdicts gate deployment: only **identified** / **weakly identified** values (contraction < 0.7) are applied; **NOT identified / at bound / anchored / insensitive** keep the baseline
-- Both seeds independently recovered ~0.50 (true 0.5)
+- The belief env ran friction 0.1; the agent's declared init (0.6931) came from its own open-loop sweep, and the fit landed on 0.4617 against a true 0.5
+- The two rule params are predicate-only, so no rollout residual depends on them: the fit reports them honestly as NOT identified and leaves them at their measured values
 
-Note: Verdict details, keyed on contraction = posterior_std / prior_std (~1 = data taught nothing): identified < 0.3 and weakly identified < 0.7 are applied; NOT identified >= 0.7 means posterior ~= prior so the MAP is arbitrary; at bound means the MAP pinned to its box edge (data pushing it outside the plausible range, usually absorbing model error); anchored means a refit with the baseline held is data-equivalent, so the fitted move was compensatory; insensitive means rollouts never respond above the noise floor anywhere in the box; INCONSISTENT across cycles fires when two cycles' confident fits disagree by many combined sigmas. Posterior widths are empirical, not the optimizer's covariance: the half-width of the grid sweep's data-equivalent interval (curvature probe as fallback), floored at 0.1 because local widths cannot see replay model bias. emcee MCMC is opt-in and off in our experiments. True env friction is 0.5; seed 1 fit 0.48 to 0.53 across trajectory subsets (contraction 0.13 to 0.17, SSE 827 to ~0.1), seed 0 independently 0.500 to 0.503. The posterior width also feeds the capture-time physics-margin gate: wide posterior means harder capture, which rewards informative exploration.
+Note: Verdict details, keyed on contraction = posterior_std / prior_std (~1 = data taught nothing): identified < 0.3 and weakly identified < 0.7 are applied; NOT identified >= 0.7 means posterior ~= prior so the MAP is arbitrary; at bound means the MAP pinned to its box edge (data pushing it outside the plausible range, usually absorbing model error); anchored means a refit with the baseline held is data-equivalent, so the fitted move was compensatory; insensitive means rollouts never respond above the noise floor anywhere in the box; INCONSISTENT across cycles fires when two cycles' confident fits disagree by many combined sigmas. Posterior widths are empirical, not the optimizer's covariance: the half-width of the grid sweep's data-equivalent interval (curvature probe as fallback), floored at 0.1 because local widths cannot see replay model bias. emcee MCMC is opt-in and off in our experiments. True env friction is 0.5; across the twelve 2026-07-29 runs of this arm the applied friction spanned 0.38 to 0.77, and all twelve still recorded a 1/1 test evaluation. The posterior width also feeds the capture-time physics-margin gate: wide posterior means harder capture, which rewards informative exploration.
 
 ---
 
 ## What the agent actually learned in this run
 
 ```python
-# simulator.py - pure system identification
+# simulator.py - a physics-only artifact
 PROCESS_RULES = []            # no hidden process: dynamics are rigid-body
-PARAM_SPECS = [               # no SSE signal; exist to share thresholds
-    ParamSpec("bridge_frac", 0.485, 0.0, 1.0),      # with predicates via
-    ParamSpec("topple_thresh", 1.0, 0.3, 1.5), ...  # the live `params` view
+PARAM_SPECS = [               # predicate-only; no rollout residual sees them,
+    ParamSpec("cascade_gap_thresh", 0.16, lo=0.0, hi=0.3),   # so they stay at
+    ParamSpec("toppled_roll_thresh", 1.0, lo=0.0, hi=1.5),   # measured values
 ]
 PHYSICAL_PARAMS = [
-    ParamSpec("lateral_friction", 0.1, lo=0.01, hi=2.0),   # fit -> ~0.5
+    ParamSpec("lateral_friction", 0.6931, lo=0.01, hi=2.0),  # fit -> 0.4617
 ]
+PROCESS_FEATURES = {"domino": ["roll", "x", "y", "yaw", "z"]}
 
-# predicates.py - 3 invented predicates
-# Toppled(d):        |roll| >= topple_thresh
-# UprightAtRest(d):  |roll| < upright_thresh, and not held
-# AtBridgePoint(blue, start, target): blue sits at a learned FRACTION of
-#     the start->target line (rotation-aware, along/perp tolerances), upright
+# predicates.py - 2 invented predicates
+# Toppled(d):                   |roll| > toppled_roll_thresh
+# CascadeAdjacent(d1, d2):      center distance < cascade_gap_thresh
 ```
 
-- Correct diagnosis: residuals were on **rigid-body motion itself**, so it declared `PHYSICAL_PARAMS` instead of inventing bogus process rules (a physics-only artifact is valid)
-- Thresholds fitted empirically by bucketing trajectory steps, not guessed
-- `AtBridgePoint` is relational, so it transfers across layouts; these atoms then appear in test-time initial states and drive subgoal monitoring
+- Correct diagnosis, and it is in the file's DECISION RECORD: teacher-forced residuals were already small everywhere, so the agent ran `sim.residuals(rollout=True)`, saw `lateral_friction` improve the open-loop SSE **15.2x** away from the baseline while mass / restitution / spinning friction stayed flat, and declared that one parameter
+- Thresholds measured, not guessed: a gap sweep on the **calibrated** sim put the propagation boundary between 0.162 (topples every trial) and 0.165 (fails), so 0.16 is inside the success region with margin; grazes cap at roll 0.078 while real topples settle above 1.40, so 1.0 separates them by a wide margin
+- It also **rejected** a hypothesis: adding `rolling_friction` jointly cut SSE further but left it unidentified and degraded `lateral_friction` to weakly identified on a ridge [0.69, 0.83] - the compensation ridge the prompt warns about - so it reverted to one parameter
 
-Note: Under partial observability the same file could carry recurrent 5-arg rules with a latent dict (counter-threshold or latent-plus-readout patterns); this task needed none.
+Note: `CascadeAdjacent` is relational, so it transfers across layouts; its atoms appear in test-time initial states and drive subgoal monitoring. Under partial observability the same file could carry recurrent 5-arg rules with a latent dict (counter-threshold or latent-plus-readout patterns); this task needed none.
 
 ---
 
@@ -389,7 +401,7 @@ Note: Under partial observability the same file could carry recurrent 5-arg rule
 - **Session logs**: every past query + tool result is on disk in the sandbox; later sessions Glob/Read them to avoid re-deriving results
 - **Versioned snapshots**: every `simulator.py` / `predicates.py` save is archived; fit reports are tagged `[cycle_XXX_vers_YYY]` for diffing
 - **Execution monitoring**: captured subgoal annotations are checked on the real env at each step; divergence triggers replanning rather than silent failure
-- **Early stopping**: cycle 1 solved 2/2 train attempts with the calibrated model, so the run stopped; final test result: **1/1 solved, reward 0.70** (identical on seed 0)
+- **Early stopping**: cycle 1 solved 2/2 train attempts at reward 0.90 with the calibrated model, so the run stopped; final test result: **1/1 solved, reward 0.80** (all twelve runs of this arm on 2026-07-29 recorded a 1/1 test evaluation, rewards 0.70 to 0.90)
 
 Note: The journal is what makes the 5-attempt solve budget cumulative rather than 5 cold starts: attempt 2 starts from attempt 1's physics facts. Fresh-context solves plus journal is the configuration in this arm.
 
