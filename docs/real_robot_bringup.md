@@ -37,19 +37,48 @@ never moves the arm.
 | `real_robot_settle_s` | `0.5` | Dwell before a capture, so dominoes come to rest. |
 | `real_robot_divergence_atol` | `0.02` | Metres of twin-vs-scene disagreement worth logging. |
 
-Canonical launcher:
+Always run through a launcher config:
 
 ```bash
-python scripts/local/launch_simp.py -c predicatorv3/<config>.yaml
+PYTHONHASHSEED=0 python scripts/local/launch_simp.py \
+    -c predicatorv3/<config>.yaml
 ```
 
-For one-off overrides during bring-up it is usually easier to drive `main.py`
-directly and pass flags, rather than editing YAML for each stage:
+**Do not drive `main.py` directly.** A bare
+`python predicators/main.py --env pybullet_domino_real --approach oracle`
+inherits none of this env's flags from `envs/all.yaml`, and the env does not
+work on the `settings.py` defaults. Most sharply,
+`domino_use_domino_blocks_as_target` defaults `False`, which sizes the domino
+component with the target held as a separate object -- so a 4-domino scene
+allocates 3 slots and task construction dies with
+
+```
+AssertionError: perceived 4 dominoes but only 3 slots
+```
+
+To change a flag for a stage, copy the stage's launcher and edit the copy, or
+add the flag to its `ENVS: domino_real: FLAGS:` block.
+
+### Two traps worth knowing before you start
+
+**The scene path must be set in the launcher, not in `settings.py`.**
+`envs/all.yaml` already sets `domino_real_scene`, and a config value beats the
+`settings.py` default -- so editing `settings.py` has no effect on a launcher
+run. Point the launcher at the scene you captured in Stage 0.
+
+**`import predicators` resolves to the editable install, not your cwd.** The
+package is installed with `pip install -e` against one checkout, so running
+`python scripts/local/launch_simp.py` from a *different* worktree still
+imports that checkout's code -- `sys.path[0]` is the script's directory, not
+where you launched from. Symptom: a fix you just made appears to do nothing.
+Check which code is actually loaded with
 
 ```bash
-PYTHONHASHSEED=0 python predicators/main.py --env pybullet_domino_real \
-    --approach oracle --seed 0 --real_robot_execute True --real_robot_dry True
+python -c "import predicators, os; print(os.path.dirname(predicators.__file__))"
 ```
+
+and either check the branch out in *that* directory, or set `PYTHONPATH` to
+the tree you mean.
 
 ---
 
@@ -84,25 +113,58 @@ stage and reuse `domino_real_0000.json`.
 
 ## Stage 1 — sim only, oracle approach
 
-Nothing real. `real_robot_execute: False`, approach `oracle`. Un-skip
-`domino_real` in `predicatorv3/oracle.yaml`.
+Nothing real: `real_robot_execute` stays `False`, so no executor is attached
+and no arm moves.
+
+```bash
+PYTHONHASHSEED=0 python scripts/local/launch_simp.py \
+    -c predicatorv3/oracle_domino_real.yaml
+```
+
+Point that launcher's `domino_real_scene` at the scene you captured.
 
 **Proves:** the captured scene is *solvable at all* — reach, geometry, the
 base→world transplant, and the `Toppled(target)` goal.
 
 **Pass:** a plan is found and the rollout topples the target in sim.
 
+**Read the init atoms before believing a pass.** If the goal is already
+satisfied in the initial state, the planner returns `Found Plan of length 0`
+and the run reports `SOLVED` having done nothing:
+
+```
+Task init atoms: [... Toppled(domino_0:domino) ...]
+Found Plan of length 0
+Task 1 / 1: SOLVED
+```
+
+No domino should start toppled. Every domino should appear as `Upright`.
+
 **This is the gate for everything after it.** If oracle cannot solve the
 captured scene, stop: no amount of hardware work fixes an unsolvable scene.
 Re-capture with the dominoes closer together, or reconsider the layout.
 
-Two things to try before concluding it is unsolvable:
+Before concluding it is unsolvable, know what the oracle is working with. It
+plans over hand-written *processes* (`ground_truth_models/domino/processes.py`)
+— endogenous ones bound to options (`PushStartBlock`, `PickDomino`,
+`PlaceDomino`, `Wait`) plus two exogenous ones that *are* the cascade: a
+domino in front of a tilting one starts tilting, and a tilting one becomes
+`Toppled`. It also always merges in the ground-truth grid helpers, so it plans
+over a **lattice** of `loc` and `angle` values — which is why the init atoms
+are full of `loc_0.92_1.29` and `ang_90`.
 
-- `domino_restricted_push: True`, which is what the other domino envs use for
-  oracle runs (the target is then inferred from state).
-- Check `envs/all.yaml`, which notes `max_initial_demos: 0` because the grid
-  oracle "can't solve the real scene". That is about the *demo generator*, not
-  the oracle approach — but it is a warning that this scene is hard.
+That lattice is the likeliest reason a real capture fails here: the scene is
+continuous and gets snapped onto it. `envs/all.yaml` hints at the same thing
+with `max_initial_demos: 0 # no grid-oracle demos (can't solve the real
+scene)` — that note is about the demo generator rather than this approach, but
+it is the same underlying friction.
+
+So distinguish the two failure modes:
+
+- **no plan found** — most likely the lattice/reachability mismatch. That is a
+  scene problem: re-capture, do not start debugging code.
+- **a plan found but the rollout fails** — the symbolic cascade disagrees with
+  the physics, which is genuinely informative and worth chasing.
 
 ## Stage 2 — dry executor, replayed perception
 
