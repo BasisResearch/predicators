@@ -84,6 +84,12 @@ class PandaPyBulletRobot(SingleArmPyBulletRobot):
             return float(CFG.pybullet_closed_fingers)
         return 0.03
 
+    @property
+    def push_ee_yaw_offset(self) -> float:
+        # The Franka Hand leads with its knuckles spanning the
+        # object's face.
+        return np.pi / 2
+
     @classmethod
     def ikfast_info(cls) -> Optional[IKFastInfo]:
         return IKFastInfo(

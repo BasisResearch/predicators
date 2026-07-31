@@ -59,7 +59,7 @@ from predicators.settings import CFG
 from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
 # Canonical continuous parameters for Push. The approach upper bound
-# leaves room for the side-oriented gripper (skill_push_ee_yaw_offset 0),
+# leaves room for a side-oriented gripper (yaw offset 0),
 # whose body extends along the approach axis: a descend waypoint closer
 # than ~0.07 m can itself collide with the pushed object. That caveat is
 # stated in the description because the tool-facing params text is the
@@ -73,6 +73,17 @@ _PUSH_PARAMS = [
      "descend into the target/support and can stall, near-max values may "
      "pass over a short target)", 0.0, 0.11),
 ]
+
+
+def resolve_ee_yaw_offset(config: SkillConfig) -> float:
+    """The EE yaw offset Push should use, in radians.
+
+    Which face of the gripper leads into the object is a property of the
+    hand, so it comes from the robot unless the config forces one.
+    """
+    if CFG.skill_push_ee_yaw_offset is None:
+        return config.robot.push_ee_yaw_offset
+    return float(CFG.skill_push_ee_yaw_offset)
 
 
 def create_push_skill(
@@ -133,7 +144,7 @@ def create_push_skill(
         push_xy = obj_xy
         home_xy = np.array(cfg.robot_home_pos[:2])
         home_z = cfg.robot_home_pos[2]
-        ee_yaw = oyaw + CFG.skill_push_ee_yaw_offset
+        ee_yaw = oyaw + resolve_ee_yaw_offset(cfg)
         return [
             (*behind_xy, cfg.transport_z, ee_yaw, "closed"),
             (*behind_xy, oz + s_offset_z, ee_yaw, "closed"),
