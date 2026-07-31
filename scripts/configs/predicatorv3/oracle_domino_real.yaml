@@ -1,0 +1,41 @@
+# Thin launcher: the ORACLE arm on the real-world domino scene, in pure
+# simulation. This is Stage 1 of docs/real_robot_bringup.md -- it answers
+# "is this captured scene solvable at all?", which gates every stage that
+# touches hardware.
+# Usage: python scripts/local/launch_simp.py -c predicatorv3/oracle_domino_real.yaml
+#
+# Nothing real: real_robot_execute stays False (envs/all.yaml), so no executor
+# is attached and no arm moves.
+#
+# Why a launcher rather than `python predicators/main.py --env
+# pybullet_domino_real --approach oracle`: that bare command inherits none of
+# the env's flags from envs/all.yaml, and this env does not work on the
+# settings.py defaults. Most sharply, domino_use_domino_blocks_as_target
+# defaults False, which sizes the domino component with the target held as a
+# separate object -- so a 4-domino scene allocates 3 slots and task
+# construction fails with "perceived 4 dominoes but only 3 slots".
+---
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ENVS:
+  domino_real:
+    SKIP: False
+    FLAGS:
+      # Point this at the scene you captured in Stage 0. Note this must be set
+      # HERE, not in settings.py: envs/all.yaml already sets it, and a config
+      # value beats the settings.py default, so editing settings.py has no
+      # effect on a launcher run.
+      domino_real_scene: "/home/amberli/babyrobot/BabyRobotPredicator/scenes/domino_straight.json"
+      # Matches how oracle runs the other domino envs: the push target is
+      # inferred from state rather than named by the caller. The agent configs
+      # rely on the codebase default (False) so an LLM can name the trigger
+      # domino explicitly.
+      domino_restricted_push: True
+APPROACHES:
+  oracle:
+    SKIP: False
+# One seed: this is a solvability check on one captured scene, not a
+# statistical comparison.
+NUM_SEEDS: 1
