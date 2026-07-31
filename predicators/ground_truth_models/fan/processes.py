@@ -19,7 +19,7 @@ def _push_sampler(state: State, goal: Set[GroundAtom],
     """Return fixed push params for fan switch push.
 
     Approach 0.075 sits in a measured window: with the side-oriented
-    gripper (default skill_push_ee_yaw_offset 0) the hand extends along
+    gripper (the fetch's push_ee_yaw_offset, 0) the hand extends along
     the approach axis, so below ~0.073 the descend waypoint collides
     with an end-of-row switch (BiRRT goal-in-collision), while at 0.08
     the far-side (Off-push) waypoint already stalls at the fetch arm's
