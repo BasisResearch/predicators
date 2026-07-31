@@ -241,12 +241,7 @@ class SingleArmPyBulletRobot(abc.ABC):
     def push_ee_yaw_offset(self) -> float:
         """End-effector yaw during Push, relative to the pushed object's yaw.
 
-        A property of the hand's geometry: it says which face of
-        this gripper should lead into the object. 0.0 is a side push
-        (leading with the gripper's narrow side); pi/2 is a front push
-        (knuckles spanning the object's face).
-
-        Defaults to the side push, which is what the Fetch hand was
+        Defaults to 0.0, which is what the Fetch hand was
         verified with on domino chains and fan/boil switches
         (2026-07-14). A gripper whose geometry differs overrides this.
         ``CFG.skill_push_ee_yaw_offset`` overrides it for everyone when

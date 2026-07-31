@@ -1158,7 +1158,7 @@ class TestCreatePushSkill:
         _, robot = robot_scene
         utils.reset_config({"seed": 123, "skill_push_ee_yaw_offset": None})
         config = self._make_push_config(robot)
-        # The fetch pushes with its side, so its offset is the 0.0 default.
+        # The fetch pushes with the 0.0 default.
         assert resolve_ee_yaw_offset(config) == robot.push_ee_yaw_offset == 0.0
 
     def test_ee_yaw_offset_config_override_wins(self, robot_scene):

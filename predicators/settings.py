@@ -464,18 +464,7 @@ class GlobalSettings:
     # skill phase parameters
     skill_phase_use_motion_planning = False
     # EE yaw relative to the pushed object's yaw during Push. None (the
-    # default) takes it from the robot -- see
-    # SingleArmPyBulletRobot.push_ee_yaw_offset -- because which face of the
-    # gripper should lead into the object is a fact about the hand, not the
-    # task. The Fetch uses a side push (0.0), leading with the gripper's
-    # narrow side, which shrinks the swept width so the stroke and retreat
-    # are less likely to clip neighbors (verified equivalent to the legacy
-    # front push on domino chains and fan/boil switches, 2026-07-14). The
-    # Panda uses a front push (pi/2), knuckles spanning the object's face.
-    # Set this to force one for every robot, e.g. to compare the two.
-    # Note a side push makes the hand longer ALONG the approach axis, so it
-    # needs a real approach distance (a zero-length stroke cannot drag a
-    # switch, and a too-small offset puts the descend waypoint in collision).
+    # default) takes it from the robot.
     skill_push_ee_yaw_offset = None
 
     # coffee env parameters
