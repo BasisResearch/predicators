@@ -43,6 +43,28 @@ def _base_pose(xyz: Sequence[float], quat_xyzw: Sequence[float]) -> Pose6D:
     return Pose6D((x, y, z), (qx, qy, qz, qw))
 
 
+def _canonical_roll(roll: float) -> float:
+    """Fold a perceived roll into ``[-pi/2, pi/2)``.
+
+    A domino is a box, so turning it 180 degrees about its own width
+    axis leaves it exactly where it was. Both orientations are equally
+    correct descriptions of the same physical domino, and a marker-based
+    pose estimate returns one or the other arbitrarily -- in a single
+    capture, some dominoes come back at roll 0 and others at roll +-pi.
+
+    Roll is therefore only meaningful modulo pi, and folding it is not
+    cosmetic: ``Toppled`` is defined as ``|roll| >= 10 degrees``, so an
+    unfolded ``roll = pi`` makes an upright domino read as knocked over
+    before anything has moved. A task whose goal is ``Toppled(target)``
+    is then already satisfied in its own initial state, and the planner
+    returns an empty plan and reports success.
+
+    Standing (0 or +-pi) folds to ~0. Knocked over (+-pi/2) keeps its
+    magnitude, which is all ``Toppled`` and ``Upright`` read.
+    """
+    return (roll + math.pi / 2) % math.pi - math.pi / 2
+
+
 @dataclass(frozen=True)
 class _PerceivedDomino:
     """One domino as perceived, normalized from either source.
@@ -288,6 +310,8 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
         table. Anything else (propped diagonally on a neighbour, say)
         loses its pitch when the state is written into PyBullet, so say
         so rather than silently flattening it.
+
+        The roll is folded modulo pi; see :func:`_canonical_roll`.
         """
         roll, pitch, yaw = domino_env_euler(world)
         if abs(pitch) >= DominoComponent.domino_roll_threshold:
@@ -295,7 +319,7 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
                 "pybullet_domino_real: domino %s is pitched %.1f deg, which "
                 "the (yaw, roll) domino state cannot represent; dropping the "
                 "pitch", capture_id, math.degrees(pitch))
-        return roll, yaw
+        return _canonical_roll(roll), yaw
 
     @staticmethod
     def _canonical_start_yaw(
