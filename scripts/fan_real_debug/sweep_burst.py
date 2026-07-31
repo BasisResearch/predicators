@@ -63,7 +63,10 @@ def main() -> None:
         env.reset("test", 0)
         state = env.get_observation()
         memory: dict = {}
-        params = np.array([burst], dtype=np.float64)
+        # float32 to match ``Array``; the option's own params_space is
+        # float64, and grounding would convert, but this drives the
+        # parameterized option directly.
+        params = np.array([burst], dtype=np.float32)
         assert option.initiable(state, memory, objects, params)
         steps = 0
         for steps in range(1, CFG.horizon + 1):

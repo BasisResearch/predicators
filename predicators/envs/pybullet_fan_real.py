@@ -169,10 +169,10 @@ class PyBulletFanRealEnv(PyBulletEnv):
 
         super().__init__(use_gui=use_gui, **kwargs)
 
-        self._FanOn = Predicate(
-            "FanOn", [self._fan_type],
-            self._FanOn_holds,
-            natural_language_assertion=lambda os: f"the fan {os[0]} is running")
+        self._FanOn = Predicate("FanOn", [self._fan_type],
+                                self._FanOn_holds,
+                                natural_language_assertion=lambda os:
+                                f"the fan {os[0]} is running")
         self._FanOff = Predicate(
             "FanOff", [self._fan_type],
             lambda s, o: not self._FanOn_holds(s, o),
@@ -227,10 +227,11 @@ class PyBulletFanRealEnv(PyBulletEnv):
     def _action_dt(cls) -> float:
         """Wall-clock seconds one env action covers.
 
-        PyBullet's default 1/240 s timestep, ``pybullet_sim_steps_per_action``
-        sub-steps per action. This is the conversion between the burst
-        duration the option is parameterized by (seconds) and the number of
-        env steps the hold phase actually runs for.
+        PyBullet's default 1/240 s timestep,
+        ``pybullet_sim_steps_per_action`` sub-steps per action. This is
+        the conversion between the burst duration the option is
+        parameterized by (seconds) and the number of env steps the hold
+        phase actually runs for.
         """
         return CFG.pybullet_sim_steps_per_action / 240.0
 
@@ -336,7 +337,11 @@ class PyBulletFanRealEnv(PyBulletEnv):
                 position=(cls.zone_center_x(i + 1), CFG.fan_real_lane_y,
                           cls.table_height),
                 physics_client_id=pcid)
-            p.setCollisionFilterPair(zid, ball_id, -1, -1, 0,
+            p.setCollisionFilterPair(zid,
+                                     ball_id,
+                                     -1,
+                                     -1,
+                                     0,
                                      physicsClientId=pcid)
             zone_ids.append(zid)
         bodies["zone_ids"] = zone_ids
@@ -447,10 +452,11 @@ class PyBulletFanRealEnv(PyBulletEnv):
     def _set_domain_specific_state(self, state: State) -> None:
         """Nothing to write.
 
-        ``is_on`` is not stored anywhere -- it is a function of where the
-        arm is, and ``_set_state`` has already restored the arm. That is
-        the whole benefit of a momentary button: there is no latched bit
-        that could disagree with the pose it is supposed to follow.
+        ``is_on`` is not stored anywhere -- it is a function of where
+        the arm is, and ``_set_state`` has already restored the arm.
+        That is the whole benefit of a momentary button: there is no
+        latched bit that could disagree with the pose it is supposed to
+        follow.
         """
         del state
         self._recolor_button()
@@ -533,8 +539,8 @@ class PyBulletFanRealEnv(PyBulletEnv):
         """Is the gripper on the button right now?
 
         Momentary, so this is the ONLY notion of the fan being on: the
-        answer is recomputed from the live gripper position every time it
-        is asked, and it goes false the instant the arm lifts away.
+        answer is recomputed from the live gripper position every time
+        it is asked, and it goes false the instant the arm lifts away.
         """
         ee = self._pybullet_robot.get_state()[:3]
         press = self.button_press_point()
@@ -562,9 +568,9 @@ class PyBulletFanRealEnv(PyBulletEnv):
     def _BallInZone_holds(state: State, objects: Sequence[Object]) -> bool:
         """The ball's center lies within the zone's footprint.
 
-        Only the lane coordinate is a real test; the ball cannot leave the
-        lane's y band, but checking it keeps the predicate honest about
-        what the pad actually covers.
+        Only the lane coordinate is a real test; the ball cannot leave
+        the lane's y band, but checking it keeps the predicate honest
+        about what the pad actually covers.
         """
         ball, zone = objects
         dx = abs(state.get(ball, "x") - state.get(zone, "x"))
@@ -582,8 +588,8 @@ class PyBulletFanRealEnv(PyBulletEnv):
         return self._make_tasks(CFG.num_test_tasks, self._test_rng)
 
     def _init_dict(self) -> Dict[Object, Dict[str, float]]:
-        """The one scene this bench has: everything at its bench pose, the
-        fan off, and the ball parked at the lane's upwind end."""
+        """The one scene this bench has: everything at its bench pose, the fan
+        off, and the ball parked at the lane's upwind end."""
         init: Dict[Object, Dict[str, float]] = {
             self._robot: {
                 "x": self.robot_init_x,

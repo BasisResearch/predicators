@@ -73,8 +73,8 @@ class _ParamSlicedChain(ParameterizedOption):
         memory["child_idx"] = 0
         memory["child_memory"] = [{} for _ in self._children]
         return self._children[0].initiable(state, memory["child_memory"][0],
-                                           objects, self._child_params[0]
-                                           (params))
+                                           objects,
+                                           self._child_params[0](params))
 
     def _policy(self, state: State, memory: Dict, objects: Sequence[Object],
                 params: Array) -> Action:
@@ -173,16 +173,15 @@ class PyBulletFanRealGroundTruthOptionFactory(GroundTruthOptionFactory):
             del state, objects, params, cfg
             return press_x, press_y, press_z, 0.0
 
-        def _standoff_pose(state: State, objects: Sequence[Object],
-                           params: Array,
-                           cfg: SkillConfig) -> Tuple[float, float, float,
-                                                      float]:
+        def _standoff_pose(
+                state: State, objects: Sequence[Object], params: Array,
+                cfg: SkillConfig) -> Tuple[float, float, float, float]:
             """Directly above the button, clear of it.
 
             Both the approach and the release go through here, so the
-            gripper drops straight down onto the button and lifts straight
-            off it. Anything with lateral travel at press height would
-            sweep the fan on and off again on the way past.
+            gripper drops straight down onto the button and lifts
+            straight off it. Anything with lateral travel at press
+            height would sweep the fan on and off again on the way past.
             """
             del state, objects, params
             return press_x, press_y, cfg.transport_z, 0.0

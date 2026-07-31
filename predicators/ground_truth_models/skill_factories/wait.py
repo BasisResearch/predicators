@@ -62,9 +62,9 @@ def _hold_pose_action(config: SkillConfig, state: State,
                       robot_obj: Object) -> Action:
     """One action that re-commands the robot's current joint positions.
 
-    The fingers are nudged a hair further in whichever direction they are
-    already closest to, so a hold does not drift them open (or closed)
-    over a long wait.
+    The fingers are nudged a hair further in whichever direction they
+    are already closest to, so a hold does not drift them open (or
+    closed) over a long wait.
     """
     robot = config.robot
     mid_point = (config.open_fingers_joint + config.closed_fingers_joint) / 2
