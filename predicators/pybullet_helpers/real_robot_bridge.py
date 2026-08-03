@@ -133,6 +133,20 @@ def reset_arm(robot: "RealRobot", joints: Sequence[float]) -> Sequence[float]:
     return reply.joints
 
 
+def observe_scene(robot: "RealRobot", settle_s: float = 0.0) -> Any:
+    """Look at the scene and return what the cameras saw. Moves nothing.
+
+    The bare look, without ``reset_env``'s arm homing and human prompt
+    or ``execute_chunks``' motion: dwelling ``settle_s`` before
+    capturing, so dominoes disturbed by whatever happened last come to
+    rest first. Used to measure the twin against reality with no episode
+    running.
+    """
+    # pylint: disable=import-outside-toplevel,import-error
+    from babyrobot.realrobot.messages import ObserveRequest
+    return robot.observe(ObserveRequest(settle_s=float(settle_s)))
+
+
 def reset_env(robot: "RealRobot",
               joints: Optional[Sequence[float]] = None) -> Any:
     """Home the arm, wait for a human to rearrange the scene, then look.

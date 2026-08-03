@@ -1,0 +1,71 @@
+# Stage 3 of docs/real_robot_bringup.md: dry arm, live cameras, human resets.
+#
+# Usage: python scripts/local/launch_simp.py -c predicatorv3/stage3_domino_real.yaml
+#
+# Stage 2 plus one flag (real_robot_human_reset). NOTHING MOVES -- real_robot_dry
+# builds the RealRobot with no arm -- so this adds exactly one new source of
+# failure over Stage 2: the reset cadence and the task rebuild.
+#
+# What to check:
+#   * Exactly ONE prompt for the episode, and the arm homes BEFORE it appears,
+#     i.e. before a human reaches into the workspace. In dry mode nothing
+#     actually moves, so confirm the ordering in the log -- you are checking it
+#     now so it is already trusted at Stage 7, when the arm is live.
+#   * executor.resets_done == 1, and the log line "scene reset #1; rebuilding
+#     the test task from what the cameras see".
+#   * The episode's initial state reflects how you JUST arranged the dominoes,
+#     not the capture in domino_real_scene. Rearrange them noticeably before
+#     confirming the prompt, or you cannot tell the two apart.
+#
+# ONE EPISODE PER RUN, deliberately. The doc says "run two episodes", but oracle
+# is not learning-based, so main.py takes the non-learning branch (main.py:233):
+# a single _run_testing over the env's test tasks, and this env's
+# _generate_test_tasks returns exactly one task regardless of num_test_tasks.
+# Setting num_test_tasks here would silently do nothing. Multi-episode cadence
+# comes from num_online_learning_cycles, which needs a learning approach and the
+# LLM -- that is Stage 7, not this. The across-episode bookkeeping it would
+# exercise (_reset_pending re-arming, so episode 2 owes a fresh prompt) is
+# already covered in simulation by
+# tests/envs/test_domino_real_online.py::test_each_episode_prompts_exactly_once.
+# So: run this twice if you want to see the cadence twice. What hardware adds
+# over that test is the physical loop, not the counter.
+#
+# Why oracle rather than the agent: this stage tests reset plumbing, and running
+# predicate invention alongside it would make a failure ambiguous between the
+# learner and the resets -- which is the attribution the whole ladder exists to
+# preserve. oracle needs no LLM.
+---
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ENVS:
+  domino_real:
+    SKIP: False
+    FLAGS:
+      # Must be set HERE, not in settings.py: envs/all.yaml already sets it and
+      # a config value beats the settings.py default.
+      domino_real_scene: "/home/amberli/babyrobot/BabyRobotPredicator/scenes/domino_straight.json"
+      # How oracle runs the other domino envs: the push target is inferred from
+      # state rather than named by the caller. This makes Push ground as
+      # [robot] instead of [robot, domino], so a plan dumped under an agent
+      # config will NOT ground here.
+      domino_restricted_push: True
+      # -- Stage 3 ---------------------------------------------------------
+      real_robot_execute: True
+      real_robot_dry: True     # no arm is built; every call runs, nothing moves
+      real_robot_perception: "zed"   # live cameras, as in Stage 2
+      real_robot_human_reset: True   # the one new thing this stage adds
+      # Carried from Stage 2: the twin is still corrected between options, so a
+      # divergence line per boundary confirms perception stayed healthy across
+      # the reset. Harmless while dry, since nothing moves to diverge.
+      real_robot_observe_at_option_boundary: True
+      real_robot_divergence_atol: 0.02
+      # Dwell before each capture so the dominoes come to rest after a human
+      # has been rearranging them by hand.
+      real_robot_settle_s: 0.5
+APPROACHES:
+  oracle:
+    SKIP: False
+# One seed: this is a plumbing check on one physical scene, not a comparison.
+NUM_SEEDS: 1
