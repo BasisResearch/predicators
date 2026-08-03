@@ -17,7 +17,10 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
 
     @classmethod
     def get_env_names(cls) -> Set[str]:
-        return {"pybullet_domino", "pybullet_domino_real"}
+        return {
+            "pybullet_domino", "pybullet_domino_real",
+            "pybullet_domino_real_geometry"
+        }
 
     @classmethod
     def get_helper_predicates(cls, env_name: str,

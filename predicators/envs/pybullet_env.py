@@ -1492,6 +1492,11 @@ class PyBulletEnv(BaseEnv):
         normalized hand, blocks' pose_x/y/z) should override this.
         """
         rx, ry, rz, qx, qy, qz, qw, rf = self._pybullet_robot.get_state()
+        # Rescale the finger JOINT into the State domain. _extract_robot_state
+        # applies _fingers_state_to_joint on the way out, so reading the raw
+        # joint here makes the round-trip asymmetric: the skills' fingers
+        # helper re-converts an already-joint value, deflating every reading.
+        rf = self._fingers_joint_to_state(self._pybullet_robot, rf)
         r_dict: Dict[str, float] = {"x": rx, "y": ry, "z": rz, "fingers": rf}
         roll, tilt, wrist = p.getEulerFromQuaternion([qx, qy, qz, qw])
         r_features = self._robot.type.feature_names
