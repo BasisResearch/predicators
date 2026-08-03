@@ -195,9 +195,26 @@ def _split_actions(actions: Sequence[Action],
     gidx = layout.finger_joint_idxs
     closed, opened = layout.closed_fingers, layout.open_fingers
 
+    # A commanded width this far above `closed` still counts as closed, so
+    # only a deliberate opening reads as a release.
+    close_tol = 0.05 * abs(opened - closed)
+
     def grip(arr: Array) -> str:
+        """Binary hand state for a commanded finger width.
+
+        The real hand only grasps or releases, so ANY width meaningfully
+        wider than `closed` is a release. A midpoint test used to be
+        used here, and it silently held the object far too long: with
+        `release_until_ungrasped`, Place opens just enough for the
+        simulator to drop the grasp, then a few millimetres more to
+        clear -- both well below the midpoint. The bridge therefore read
+        "closed" through the release AND the retreat, and shipped its
+        one `open` at Place's final FullyOpenFingers phase, which
+        happens at transport height. On hardware that carried the domino
+        up and dropped it from height.
+        """
         v = float(arr[layout.left_finger_joint_idx])
-        return "close" if abs(v - closed) < abs(v - opened) else "open"
+        return "close" if abs(v - closed) <= close_tol else "open"
 
     def arm_only(arr: Array) -> Tuple[float, ...]:
         return tuple(float(v) for i, v in enumerate(arr) if i not in gidx)
