@@ -139,11 +139,16 @@ def main() -> None:
     # driven by an override policy, exactly as the online-learning path does
     # (main.py sets the override, then resets). With an override in place
     # CogMan never asks the approach to solve, so the plan being replayed is
-    # the plan that executes. That is also why the approach and monitor below
-    # are the cheap ones: neither is consulted for control, and "oracle" plus
-    # "trivial" avoid dragging an LLM into a debug replay.
+    # the plan that executes.
+    #
+    # The approach is therefore never consulted for control, and only has to
+    # *construct*. "random_options" is a plain BaseApproach that needs nothing
+    # but the option set. Not "oracle": that one builds ground-truth NSRTs in
+    # its constructor, and this env has none -- it is planned over processes,
+    # so get_gt_nsrts raises NotImplementedError for pybullet_domino_real and
+    # the replay dies before it renders a frame.
     cogman = CogMan(
-        create_approach("oracle", env.predicates,
+        create_approach("random_options", env.predicates,
                         get_gt_options(env.get_name()), env.types,
                         env.action_space, [task]),
         create_perceiver(CFG.perceiver), create_execution_monitor("trivial"))

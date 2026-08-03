@@ -29,7 +29,8 @@ from scipy.spatial.transform import Rotation
 from predicators import utils
 from predicators.envs.pybullet_domino.real_geometry import _REAL_TO_ENV_BODY, \
     Pose6D, domino_env_euler, domino_upright_yaw, pose_base_to_world
-from predicators.envs.pybullet_domino_real import PyBulletDominoRealEnv
+from predicators.envs.pybullet_domino_real import PyBulletDominoRealEnv, \
+    _canonical_roll
 from predicators.pybullet_helpers.real_robot_bridge import \
     gripper_joint_layout_from_robot
 from predicators.structs import GroundAtom
@@ -616,3 +617,79 @@ def test_unrepresentable_pitch_is_reported(env, caplog):
         env.state_from_observation(obs, task.init)
 
     assert "pitched" in caplog.text
+
+
+# -- the 180-degree box symmetry ---------------------------------------------
+# A domino is a box: turning it 180 degrees about its own width axis leaves it
+# exactly where it was, and a marker-based pose estimate returns either
+# representative arbitrarily. Roll is therefore only meaningful modulo pi.
+
+
+@pytest.mark.parametrize("raw_deg, folded_deg", [
+    (0.0, 0.0),
+    (180.0, 0.0),
+    (-180.0, 0.0),
+    (5.0, 5.0),
+    (-5.0, -5.0),
+    (90.0, -90.0),
+    (-90.0, -90.0),
+    (175.0, -5.0),
+])
+def test_canonical_roll_folds_modulo_pi(raw_deg, folded_deg):
+    """Standing folds to ~0; knocked over keeps its magnitude.
+
+    Magnitude is what matters: ``Toppled`` and ``Upright`` are both
+    defined on ``|roll|``, so a fold that flips the sign at +-90 degrees
+    is free, while folding 180 -> 0 is the whole point.
+    """
+    got = _canonical_roll(np.deg2rad(raw_deg))
+    assert np.rad2deg(got) == pytest.approx(folded_deg, abs=1e-9)
+
+
+def test_no_domino_starts_toppled_when_perception_flips_it(tmp_path):
+    """A capture where some dominoes come back 180-degree-flipped must still
+    build a task whose dominoes are all standing.
+
+    This is the regression. Perception legitimately reports a standing
+    domino as ``roll = pi``; unfolded, ``Toppled`` (``|roll| >= 10 deg``)
+    then holds for it in the task's own initial state, so a
+    ``Toppled(target)`` goal is satisfied before anything moves and the
+    planner returns an empty plan and reports success.
+    """
+    flipped = _base_quat(roll=np.pi)
+    scene = _write_scene(tmp_path, [
+        _record(_START_ID, (0.0, 0.0)),
+        _record(11, (0.1, 0.05), quat=flipped),
+        _record(_TARGET_ID, (0.2, 0.0), quat=flipped),
+    ],
+                         name="flipped.json")
+    env = _make_env(scene)
+    comp = env._domino_component  # pylint: disable=protected-access
+    task = env._build_task_from_scene()  # pylint: disable=protected-access
+
+    for slot in range(3):
+        dom = comp.dominos[slot]
+        # pylint: disable=protected-access
+        assert comp._Upright_holds(task.init, [dom]), \
+            f"{dom.name} did not start upright"
+        assert not comp._Toppled_holds(task.init, [dom]), \
+            f"{dom.name} started toppled"
+
+    # And the goal is therefore not already satisfied by the initial state.
+    assert not task.goal.issubset(utils.abstract(task.init, env.predicates))
+
+
+def test_a_flipped_observation_is_still_upright(env):
+    """The same fold applies mid-episode, not just at task construction."""
+    task = env._build_task_from_scene()  # pylint: disable=protected-access
+    comp = env._domino_component  # pylint: disable=protected-access
+    target = comp.dominos[3]
+
+    obs = _StubDominoObservation(
+        [_StubDominoPose(_TARGET_ID, (0.2, 0.0, 0.03), _base_quat(np.pi))])
+    state = env.state_from_observation(obs, task.init)
+
+    assert state.get(target, "roll") == pytest.approx(0.0, abs=1e-9)
+    # pylint: disable=protected-access
+    assert comp._Upright_holds(state, [target])
+    assert not comp._Toppled_holds(state, [target])
