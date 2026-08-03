@@ -184,6 +184,77 @@ ENVS:
       domino_block_cost: 0.1
       domino_test_turn_ratio: 1.0
       online_learning_early_stopping_ignore_reward_bar: True
+  # domino_high_friction_turn, staged on the real scene's physical setup: the
+  # Franka Panda on its short pedestal and the extended table tile.
+  #
+  # Tasks, friction mismatch, span and turn-leg
+  # bands, blue budget and reward semantics are all copied verbatim from the
+  # arm above; only the robot and the table change. The dominoes stay the
+  # SIMULATED ones, so the 2026-07-12 calibration above still holds here --
+  # those bands are a property of the blocks and the friction pair, and
+  # neither moved. A difference between the two arms is therefore
+  # attributable to the robot.
+  #
+  # NOT the same thing as domino_real below: that env throws the generated
+  # tasks away and rebuilds a single one from a perceived scene.
+  domino_high_friction_turn_real:
+    NAME: "pybullet_domino_real_geometry"
+    SKIP: True
+    FLAGS:
+      max_initial_demos: 0
+      excluded_objects_in_state_str: "loc,rot,angle,direction"
+      horizon: 500
+      domino_initialize_at_finished_state: False
+      domino_use_domino_blocks_as_target: True
+      domino_use_continuous_place: True
+      process_planning_heuristic_weight: 2.0
+      domino_has_glued_dominos: False
+      keep_failed_demos: True
+      predicate_invent_invent_derived_predicates: True
+      pybullet_birrt_extend_num_interp: 20
+      pybullet_birrt_path_subsample_ratio: 2
+      # --- min-block / system-ID experiment ---
+      domino_min_block_tasks: True
+      domino_true_friction: 0.5
+      domino_planning_friction: 0.1
+      # Straight spans carry over from the arm above unchanged: re-probed on
+      # this setup at 3 reps, true K*=1 vs believed 2 on both 0.29 and 0.31,
+      # matching the Fetch. Train tasks are all straight
+      # (domino_train_turn_ratio defaults to 0.0), so this band feeds training.
+      domino_min_block_span_lo: 0.29
+      domino_min_block_span_hi: 0.31
+      # TURN legs: UNRESOLVED - these are the Fetch values and they do NOT
+      # certify on the Panda, so the TEST split (all turn tasks, since
+      # domino_test_turn_ratio is 1.0) generates ZERO tasks and every cycle
+      # reports "Tasks solved: 0 / 0" over an empty set. Training is
+      # unaffected: train tasks are all straight (domino_train_turn_ratio
+      # defaults to 0.0) and the straight band above does transfer.
+      #
+      # Left at the Fetch values deliberately rather than replaced with
+      # measured ones. Recalibration is blocked on a real bug: on the Panda
+      # (not the Fetch) straight_span_k_star depends on CFG.seed - k=1 at
+      # seeds 0/1 vs k=4/None at seed 2 for the same leg, converging to 1 for
+      # every seed once motion planning is off - because the Push's BiRRT
+      # approach path is stochastic. Any band tuned now inherits that, which
+      # is how the 2026-08-01 attempt produced values that worked for seeds
+      # 0-1 and left seed 2's split empty.
+      # Parked work, measured values and full evidence:
+      #   .claude/worktrees/domino-calibration-probe/CALIBRATION_NOTES.md
+      domino_min_block_turn_entry_lo: 0.21
+      domino_min_block_turn_entry_hi: 0.24
+      domino_min_block_turn_exit_lo: 0.17
+      domino_min_block_turn_exit_hi: 0.20
+      # Kept at the simulated arm's four so this arm stays comparable to it.
+      # The parked calibration wanted five; that belongs with the band retune,
+      # not ahead of it.
+      domino_min_block_num_blues: 4
+      domino_block_cost: 0.1
+      domino_test_turn_ratio: 1.0
+      online_learning_early_stopping_ignore_reward_bar: True
+      # --- the real scene's physical setup ---
+      pybullet_robot: "panda"
+      # REQUIRED, and only the Panda reads it. Needed to clamp the simulated domino.
+      pybullet_closed_fingers: 0.007
   # Real-world domino: Learning + exploration stay in sim on
   # the reconstructed real scene; testing moves to the real Franka inside the
   # env (test mode only). un-skipped by exp_domino_real.yaml. Flags are

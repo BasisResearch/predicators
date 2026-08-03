@@ -110,7 +110,8 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
     @classmethod
     def get_env_names(cls) -> Set[str]:
         return {
-            "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real"
+            "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real",
+            "pybullet_domino_real_geometry"
         }
 
     @classmethod
@@ -579,7 +580,8 @@ class PyBulletDominoGroundTruthSamplerFactory(GroundTruthSamplerFactory):
     @classmethod
     def get_env_names(cls) -> Set[str]:
         return {
-            "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real"
+            "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real",
+            "pybullet_domino_real_geometry"
         }
 
     @classmethod
