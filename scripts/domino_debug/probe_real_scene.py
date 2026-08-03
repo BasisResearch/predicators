@@ -125,6 +125,29 @@ def _ground_sketch(sketch: str, env: Any, state: State, robot: Object,
     return plan
 
 
+def _dump_plan(path: str, plan: List[_Option], header: List[str]) -> None:
+    """Write the grounded plan in ``replay_plan.py``'s text format.
+
+    The continuous parameters here came out of the oracle samplers, so this
+    file is the only record of the exact numbers that were just watched
+    working. ``replay_plan`` re-grounds them verbatim, which is the whole
+    point: the plan that reaches the Franka is the plan that was verified in
+    simulation, not a fresh sample that merely came from the same sampler.
+
+    ``_Option.simple_str`` is deliberately parameter-free, so the line format
+    is built here. It has to satisfy ``replay_plan._LINE``, i.e.
+    ``Name(objs)[nums]``.
+    """
+    lines = [f"# {h}" for h in header]
+    for opt in plan:
+        objs = ", ".join(f"{o.name}:{o.type.name}" for o in opt.objects)
+        params = ", ".join(f"{float(p):.6f}" for p in opt.params)
+        lines.append(f"{opt.name}({objs})[{params}]")
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
 def main() -> None:
     """Parse args, roll out the sketch on the real scene, and save the MP4."""
     ap = argparse.ArgumentParser(
@@ -155,6 +178,11 @@ def main() -> None:
                     default=None,
                     help="output mp4 path (default: "
                     "logs/probe_real_scene/<scene>_<sketch>.mp4).")
+    ap.add_argument("--dump-plan",
+                    default=None,
+                    help="also write the grounded plan (with the sampled "
+                    "parameters) in replay_plan.py's format, so this exact "
+                    "rollout can be shipped to the real arm.")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -197,9 +225,25 @@ def main() -> None:
 
     final = traj.states[-1]
     toppled = {d.name: bool(Toppled.holds(final, [d])) for d in dominoes}
+    solved = bool(all(a.holds(final) for a in task.goal))
     print(f"# steps   : {len(traj.actions)}")
     print(f"# toppled : {toppled}")
-    print(f"# solved  : {bool(all(a.holds(final) for a in task.goal))}")
+    print(f"# solved  : {solved}")
+
+    if args.dump_plan:
+        # The verdict rides along in the header so a plan file found later
+        # still says what it did in sim. replay_plan skips '#' lines.
+        _dump_plan(args.dump_plan, plan, [
+            f"scene   : {CFG.domino_real_scene}",
+            f"sketch  : {args.sketch}",
+            f"seed    : {args.seed}",
+            f"steps   : {len(traj.actions)}",
+            f"toppled : {toppled}",
+            f"solved  : {solved}",
+            "replay  : python scripts/domino_debug/replay_plan.py "
+            f"--plan {args.dump_plan} --scene {CFG.domino_real_scene}",
+        ])
+        print(f"# plan    : {args.dump_plan}")
 
     video = monitor.get_video()[::max(1, args.frame_stride)]
     # save_video writes to CFG.video_dir/<out> (default videos/) and only
