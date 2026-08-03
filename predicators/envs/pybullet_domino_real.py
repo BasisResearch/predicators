@@ -203,8 +203,8 @@ class PyBulletDominoRealGeometryEnv(RealSceneGeometryMixin, PyBulletDominoEnv):
 
 
 class PyBulletDominoRealEnv(RealSceneGeometryMixin, PyBulletDominoEnv):
-    """``pybullet_domino`` on the real scene: the geometry above, plus a
-    single task sized and built from a perceived scene JSON."""
+    """``pybullet_domino`` on the real scene: the geometry above, plus a single
+    task sized and built from a perceived scene JSON."""
 
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         self._z_off = domino_world_z_offset(CFG.domino_real_table_z)
