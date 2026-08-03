@@ -1,11 +1,21 @@
-"""Real-world domino env: the ``pybullet_domino`` env retargeted to the real
-Franka robot. This is a **pure simulation** environment. It holds no robot,
-ships no motion, and has no real/dry mode.
+"""Real-world domino envs: the ``pybullet_domino`` env retargeted to the real
+Franka robot. These are **pure simulation** environments. They hold no robot,
+ship no motion, and have no real/dry mode.
 
-Driving an arm with it is the real-robot executor's job
+"Real" is two independent things, and this module keeps them separable:
+
+  * the robot SETUP -- the Franka standing on its short pedestal, the
+    extended table tile (:class:`RealSceneGeometryMixin`);
+  * the TASKS and the blocks -- a single task rebuilt from a perceived
+    scene, with the real dominoes (:class:`PyBulletDominoRealEnv`).
+
+``pybullet_domino_real`` takes both. ``pybullet_domino_real_geometry``
+(:class:`PyBulletDominoRealGeometryEnv`) takes only the first.
+
+Driving an arm with either is the real-robot executor's job
 (``predicators/pybullet_helpers/real_robot_executor.py``), which attaches to
-this env and calls the conversions below. Keeping the two apart is what lets
-this env be tested without hardware and the executor without PyBullet.
+the env and calls the conversions below. Keeping the two apart is what lets
+these envs be tested without hardware and the executor without PyBullet.
 """
 from __future__ import annotations
 
@@ -13,7 +23,7 @@ import json
 import logging
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pybullet as p
@@ -80,28 +90,39 @@ class _PerceivedDomino:
     role: str
 
 
-class PyBulletDominoRealEnv(PyBulletDominoEnv):
-    """``pybullet_domino`` on the real bench, sized/tasked from a scene
-    JSON."""
+class RealSceneGeometryMixin:
+    """Stages a ``pybullet_domino`` env on the real scene's ROBOT geometry.
 
-    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
-        self._z_off = domino_world_z_offset(CFG.domino_real_table_z)
-        # Dominoes are placed in scene order, so slot i <-> capture id
-        # self._scene_ids[i]; that mapping is what lets a live observation,
-        # which carries capture ids and nothing else, name component slots.
-        with open(CFG.domino_real_scene, encoding="utf-8") as f:
-            self._scene_ids = [int(d["id"]) for d in json.load(f)["dominoes"]]
-        super().__init__(use_gui=use_gui, **kwargs)
+    This is the physical setup only -- where the arm stands and what it
+    stands on. Mixing it
+    into a domino env raises the robot base onto the real scene's short
+    pedestal, homes the arm at the real tilt/wrist, and spawns the
+    pedestal plus the extended table tile the real scene has.
 
-    @classmethod
-    def get_name(cls) -> str:
-        return "pybullet_domino_real"
+    Split out from :class:`PyBulletDominoRealEnv` so the two axes compose
+    independently: that env pairs this geometry with tasks rebuilt from a
+    perceived scene, while :class:`PyBulletDominoRealGeometryEnv` pairs it
+    with the ordinary generated tasks.
 
-    # -- geometry + pybullet build + decoration -----------------------------
+    Deliberately NOT a ``BaseEnv`` subclass. ``create_new_env`` resolves an
+    env by scanning ``get_all_subclasses(BaseEnv)`` for a matching
+    ``get_name()``, so an intermediate env class here would inherit
+    ``PyBulletDominoEnv.get_name()`` and shadow the real
+    ``pybullet_domino``. A plain mixin never enters that scan.
+    """
+
+    # Annotations only, no values: these ClassVars belong to the domino env
+    # this mixin is combined with. Declaring them tells the type checker what
+    # _apply_real_geometry configures without giving the mixin its own copies
+    # (which would shadow the env's) and without inheriting BaseEnv.
+    robot_base_pos: ClassVar[Optional[Tuple[float, float, float]]]
+    robot_init_tilt: ClassVar[float]
+    robot_init_wrist: ClassVar[float]
+
     @classmethod
     def _apply_real_geometry(cls) -> None:
         """Set THIS subclass's robot geometry ClassVars from CFG (raise the
-        base to the real bench).
+        base onto the real scene's pedestal).
 
         Applied in ``initialize_pybullet`` so it takes effect on BOTH
         the normal env build AND the skill factory's direct
@@ -126,7 +147,7 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
 
     @classmethod
     def initialize_pybullet(cls, using_gui: bool) -> Tuple[Any, Any, Any]:
-        """Apply the real-bench geometry, build the world, then decorate this
+        """Apply the real-scene geometry, build the world, then decorate this
         instance's sim (extended-table tile + robot pedestal).
 
         Every pipeline env is an instance of this class, so each
@@ -134,7 +155,7 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
         """
         cls._apply_real_geometry()
         physics_client_id, pybullet_robot, bodies = super(
-        ).initialize_pybullet(using_gui)
+        ).initialize_pybullet(using_gui)  # type: ignore[misc]
         if CFG.domino_real_decorate:
             cls._decorate(physics_client_id,
                           domino_world_z_offset(CFG.domino_real_table_z))
@@ -176,6 +197,49 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
                                   position=(0.75, 0.72, 0.4 + riser_h / 2),
                                   orientation=yq(0.0),
                                   physics_client_id=pcid)
+
+
+class PyBulletDominoRealGeometryEnv(RealSceneGeometryMixin, PyBulletDominoEnv):
+    """``pybullet_domino``'s OWN generated tasks, staged on the real scene's
+    robot geometry.
+
+    The point of separating this from :class:`PyBulletDominoRealEnv` is
+    which half of "real" you want. That env replaces the tasks: it rebuilds
+    a single task from a perceived scene and sizes its domino component
+    from that scene's roles, so the generated-task machinery never runs.
+    This env keeps all of that machinery and changes only where the arm
+    stands.
+
+    Point ``pybullet_robot`` at ``panda`` in the
+    env config to get the Franka; the pedestal and table tile come from
+    the mixin.
+
+    The DOMINOES are deliberately the simulated ones -- same dimensions,
+    same mass, built by the inherited ``_make_domino_component``. Only the
+    robot and the table change.
+    """
+
+    @classmethod
+    def get_name(cls) -> str:
+        return "pybullet_domino_real_geometry"
+
+
+class PyBulletDominoRealEnv(RealSceneGeometryMixin, PyBulletDominoEnv):
+    """``pybullet_domino`` on the real scene: the geometry above, plus a single
+    task sized and built from a perceived scene JSON."""
+
+    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
+        self._z_off = domino_world_z_offset(CFG.domino_real_table_z)
+        # Dominoes are placed in scene order, so slot i <-> capture id
+        # self._scene_ids[i]; that mapping is what lets a live observation,
+        # which carries capture ids and nothing else, name component slots.
+        with open(CFG.domino_real_scene, encoding="utf-8") as f:
+            self._scene_ids = [int(d["id"]) for d in json.load(f)["dominoes"]]
+        super().__init__(use_gui=use_gui, **kwargs)
+
+    @classmethod
+    def get_name(cls) -> str:
+        return "pybullet_domino_real"
 
     # -- roles --------------------------------------------------------------
     @staticmethod
