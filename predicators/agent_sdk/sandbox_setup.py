@@ -239,16 +239,22 @@ def setup_sandbox_directory(
         need_initial_commit = True
 
     # 3. .claude/settings.json with PreToolUse hooks
+    #    Every write below is explicitly utf-8: these strings carry em dashes,
+    #    and bare write_text() encodes with the locale's preferred encoding,
+    #    so on a C/POSIX locale the whole sandbox setup dies with
+    #    "'ascii' codec can't encode character '—'" -- and because setup
+    #    runs once per query, every solve attempt fails identically.
     claude_dir = sandbox / ".claude"
     claude_dir.mkdir(exist_ok=True)
-    (claude_dir / "settings.json"
-     ).write_text(json.dumps(SANDBOX_SETTINGS, indent=2) + "\n")
+    (claude_dir / "settings.json").write_text(
+        json.dumps(SANDBOX_SETTINGS, indent=2) + "\n", encoding="utf-8")
 
     # 4. validate_sandbox.py hook script
-    (claude_dir / "validate_sandbox.py").write_text(VALIDATE_SANDBOX_SCRIPT)
+    (claude_dir / "validate_sandbox.py").write_text(VALIDATE_SANDBOX_SCRIPT,
+                                                    encoding="utf-8")
 
     # 5. CLAUDE.md
-    (sandbox / "CLAUDE.md").write_text(claude_md_content)
+    (sandbox / "CLAUDE.md").write_text(claude_md_content, encoding="utf-8")
 
     # 6. Create subdirectories and seed files
     for subdir in ("session_logs", "test_images", "proposed_code"):
@@ -257,7 +263,7 @@ def setup_sandbox_directory(
     if seed_scratchpad:
         notes_path = sandbox / "notes.md"
         if not notes_path.exists():
-            notes_path.write_text("")
+            notes_path.write_text("", encoding="utf-8")
 
     # 7. Log full system prompt to main log dir for easy inspection.
     #    Suffix with the phase tag when provided so solve and synthesis
