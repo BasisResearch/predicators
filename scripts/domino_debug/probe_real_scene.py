@@ -135,7 +135,8 @@ def _dump_plan(path: str, plan: List[_Option], header: List[str]) -> None:
     simulation, not a fresh sample that merely came from the same sampler.
 
     ``_Option.simple_str`` is deliberately parameter-free, so the line format
-    is built here. It has to satisfy ``replay_plan._LINE``: ``Name(objs)[nums]``.
+    is built here. It has to satisfy ``replay_plan._LINE``, i.e.
+    ``Name(objs)[nums]``.
     """
     lines = [f"# {h}" for h in header]
     for opt in plan:
