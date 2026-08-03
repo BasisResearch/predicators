@@ -14,12 +14,22 @@ Plan-file format (one option per line; ``-> {...}`` subgoals optional/ignored):
     Push(robot:robot, domino_0:domino)[0.03, 0.05]
     Wait(robot:robot)[]
 
-Usage (from the predicators repo root, robot-ml; PYTHONHASHSEED=0):
-    # dry-run (pure sim)
+Three rungs, in order. Take them all; each adds exactly one new source of
+failure (from the predicators repo root, robot-ml; PYTHONHASHSEED=0):
+
+    # 1. pure sim: no executor, no robot object at all
     PYTHONPATH=. python scripts/domino_debug/replay_plan.py --plan plan.txt
-    # MOVES THE ARM
-    PYTHONPATH=. python scripts/domino_debug/replay_plan.py --plan plan.txt \
-        --execute
+
+    # 2. dry arm: the whole RealRobot minus the arm. Attachment, per-option
+    #    chunking and the gripper split all run; nothing moves. Needs
+    #    babyrobot importable, needs no hardware powered on.
+    PYTHONPATH=.:/path/to/BabyRobotPredicator \
+        python scripts/domino_debug/replay_plan.py --plan plan.txt \
+        --execute --dry
+
+    # 3. MOVES THE ARM
+    PYTHONPATH=.:/path/to/BabyRobotPredicator \
+        python scripts/domino_debug/replay_plan.py --plan plan.txt --execute
 """
 import argparse
 import logging
@@ -80,6 +90,13 @@ def main() -> None:
                     help="EXECUTE ON THE REAL FRANKA (needs the babyrobot "
                     "submodule installed). Default: dry-run (pure sim, no "
                     "motion).")
+    ap.add_argument("--dry",
+                    action="store_true",
+                    help="with --execute: build the whole RealRobot but with "
+                    "NO arm attached. The executor still attaches, every "
+                    "option still chunks and ships, the gripper split still "
+                    "runs -- and nothing moves. This is the rung between pure "
+                    "sim and real motion; take it before every new plan.")
     ap.add_argument("--out", default=None, help="optional MP4 of the rollout")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -92,6 +109,16 @@ def main() -> None:
     if args.scene:
         flags["domino_real_scene"] = args.scene
     flags["real_robot_execute"] = bool(args.execute)
+    # Build the arm-less RealRobot: everything downstream of the executor runs
+    # for real, so this exercises chunking, the gripper split and the drift
+    # guard without a Franka in the room (and without one powered on).
+    flags["real_robot_dry"] = bool(args.dry)
+    # RealRobot opens its perception session at CONSTRUCTION, so leaving this
+    # at the "zed" default would hold both cameras open for a run that, three
+    # lines below, is hard-forced never to look. Worse, it makes a plan replay
+    # fail when the cameras are busy or unplugged -- the one situation this
+    # tool is meant to stay usable in.
+    flags["real_robot_perception"] = "none"
     # This tool replays an EXACT plan, so it does not look at the scene even
     # though the closed loop is the default elsewhere: re-syncing the twin
     # mid-replay would let the option policies see states the recorded plan was
@@ -127,9 +154,15 @@ def main() -> None:
     print("# grounded plan:")
     for g in plan:
         print("   ", g.simple_str())
-    print(f"# EXECUTE_REAL = {CFG.real_robot_execute}  "
-          f"(in-process RealRobot, dry={CFG.real_robot_dry})" if CFG.
-          real_robot_execute else "# DRY-RUN (pure sim, no motion)")
+    # Say plainly whether metal is about to move: this banner is the last
+    # thing a human reads before deciding where their hand is.
+    if not CFG.real_robot_execute:
+        print("# SIM ONLY -- no executor attached, no arm, nothing moves")
+    elif CFG.real_robot_dry:
+        print("# DRY ARM -- RealRobot built without an arm; chunks ship, "
+              "nothing moves")
+    else:
+        print("# *** THE REAL FRANKA WILL MOVE *** (in-process RealRobot)")
 
     policy = utils.option_plan_to_policy(
         plan, abstract_function=lambda s: utils.abstract(s, env.predicates))

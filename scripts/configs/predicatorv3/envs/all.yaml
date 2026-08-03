@@ -298,7 +298,7 @@ ENVS:
       domino_use_skill_factories: True
       # -- real-bench scene + roles (bench geometry defaults live in settings.py;
       #    override there or here if the bench is re-calibrated) --
-      domino_real_scene: "/home/amberli/babyrobot/BabyRobotPredicator/scenes/domino_real_0000.json"
+      domino_real_scene: "/home/amberli/babyrobot/BabyRobotPredicator/scenes/domino_straight.json"
       # Raw capture has no per-domino role; assign by id (green=start,
       # purple=target, rest movable). Ignored if the scene carries 'role'.
       domino_real_start_id: 6

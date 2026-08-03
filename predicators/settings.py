@@ -595,7 +595,7 @@ class GlobalSettings:
     # env builds its single train/test task from; the env sizes its domino
     # component from this scene's role counts.
     domino_real_scene = ("/home/amberli/babyrobot/BabyRobotPredicator/"
-                         "scenes/domino_real_0000.json")
+                         "scenes/domino_straight.json")
     # Raw capture JSONs have no per-domino role, so roles are keyed by domino
     # id: the id of the start (green) domino and of the target (purple) domino;
     # every other domino is movable (blue). Ignored if the scene already carries
