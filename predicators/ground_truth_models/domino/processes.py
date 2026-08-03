@@ -14,7 +14,8 @@ from predicators.structs import Array, CausalProcess, EndogenousProcess, \
 from predicators.utils import ConstantDelay, DiscreteGaussianDelay, \
     null_sampler, wrap_angle
 
-# Fixed parameter values for domino environment.
+# Fixed parameter values for domino environment. Both z offsets were tuned on
+# the Fetch; see _hand_z_correction for what that means on another arm.
 _DOMINO_GRASP_Z_OFFSET = 0.0825  # domino_height * 0.55
 # Slightly above the legacy drop height. With the skill-factory Pick grasp
 # transform, 0.5695 leaves the held domino penetrating the table at the
@@ -24,12 +25,47 @@ _DOMINO_DROP_Z = 0.58
 _DOMINO_OFFSET_X = 0.045  # domino_depth * 3
 _DOMINO_OFFSET_Z = 0.0825  # domino_height * 0.55
 
+# How far each hand reaches below its tool frame, measured at home as the
+# lowest finger-link AABB against the tool link.
+_FINGERTIP_REACH_BELOW_TOOL = {
+    "fetch": 0.0320,
+    "mobile_fetch": 0.0320,
+    "panda": 0.0152,
+}
+
+
+def _hand_z_correction() -> float:
+    """How much lower to command the tool frame on a shorter-fingered hand.
+
+    The z offsets above position the TOOL frame, but what has to clear or
+    contact the domino is the hand hanging below it -- and the Fetch reaches
+    1.68cm further down than the Panda. Left uncorrected, the same number puts
+    the Fetch's fingertips at 84% of a 0.15m domino's height and the Panda's at
+    95%, the very top edge: the Panda barely catches the top on a grasp and
+    skims over it on a push.
+
+    Zero for the Fetch, so every value tuned on it is preserved exactly.
+    """
+    fetch_reach = _FINGERTIP_REACH_BELOW_TOOL["fetch"]
+    return fetch_reach - _FINGERTIP_REACH_BELOW_TOOL.get(
+        CFG.pybullet_robot, fetch_reach)
+
+
+def _grasp_z_offset() -> float:
+    """Pick grasp height, corrected for the hand in use."""
+    return _DOMINO_GRASP_Z_OFFSET - _hand_z_correction()
+
+
+def _push_contact_z_offset() -> float:
+    """Push contact height, corrected for the hand in use."""
+    return _DOMINO_OFFSET_Z - _hand_z_correction()
+
 
 def _pick_sampler(state: State, goal: Set[GroundAtom],
                   rng: np.random.Generator, objs: Sequence[Object]) -> Array:
     """Return fixed grasp_z_offset for domino pick."""
     del state, goal, rng, objs
-    return np.array([_DOMINO_GRASP_Z_OFFSET], dtype=np.float32)
+    return np.array([_grasp_z_offset()], dtype=np.float32)
 
 
 def _push_sampler(state: State, goal: Set[GroundAtom],
@@ -38,7 +74,8 @@ def _push_sampler(state: State, goal: Set[GroundAtom],
     if not CFG.domino_use_skill_factories:
         return np.array([], dtype=np.float32)
     del state, goal, rng, objs
-    return np.array([_DOMINO_OFFSET_X, _DOMINO_OFFSET_Z], dtype=np.float32)
+    return np.array(
+        [_DOMINO_OFFSET_X, _push_contact_z_offset()], dtype=np.float32)
 
 
 def _place_sampler(state: State, goal: Set[GroundAtom],
@@ -375,7 +412,7 @@ def _pick_option_sampler(state: State, subgoal_atoms: Set[GroundAtom],
                          objects: Sequence[Object]) -> Array:
     """Grid-free Pick sampler: fixed grasp height above the domino origin."""
     del state, subgoal_atoms, rng, objects
-    return np.array([_DOMINO_GRASP_Z_OFFSET], dtype=np.float32)
+    return np.array([_grasp_z_offset()], dtype=np.float32)
 
 
 @_deterministic
@@ -384,7 +421,8 @@ def _push_option_sampler(state: State, subgoal_atoms: Set[GroundAtom],
                          objects: Sequence[Object]) -> Array:
     """Grid-free Push sampler: fixed approach distance / contact height."""
     del state, subgoal_atoms, rng, objects
-    return np.array([_DOMINO_OFFSET_X, _DOMINO_OFFSET_Z], dtype=np.float32)
+    return np.array(
+        [_DOMINO_OFFSET_X, _push_contact_z_offset()], dtype=np.float32)
 
 
 def _score_placement(state: State, subgoal_atoms: Set[GroundAtom],
