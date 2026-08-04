@@ -10,7 +10,7 @@
 #   * Exactly ONE prompt for the episode, and the arm homes BEFORE it appears,
 #     i.e. before a human reaches into the workspace. In dry mode nothing
 #     actually moves, so confirm the ordering in the log -- you are checking it
-#     now so it is already trusted at Stage 7, when the arm is live.
+#     now so it is already trusted at Stage 6, when the arm is live.
 #   * executor.resets_done == 1, and the log line "scene reset #1; rebuilding
 #     the test task from what the cameras see".
 #   * The episode's initial state reflects how you JUST arranged the dominoes,
@@ -23,7 +23,7 @@
 # _generate_test_tasks returns exactly one task regardless of num_test_tasks.
 # Setting num_test_tasks here would silently do nothing. Multi-episode cadence
 # comes from num_online_learning_cycles, which needs a learning approach and the
-# LLM -- that is Stage 7, not this. The across-episode bookkeeping it would
+# LLM -- that is Stage 6, not this. The across-episode bookkeeping it would
 # exercise (_reset_pending re-arming, so episode 2 owes a fresh prompt) is
 # already covered in simulation by
 # tests/envs/test_domino_real_online.py::test_each_episode_prompts_exactly_once.
