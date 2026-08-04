@@ -353,6 +353,34 @@ def test_state_from_observation_maps_capture_id_to_slot(env):
                              feat) == pytest.approx(task.init.get(other, feat))
 
 
+def test_state_from_observation_leaves_a_held_domino_alone(env):
+    """A domino in the gripper keeps the twin's pose, not perception's.
+
+    Perception snaps every domino to a resting pose on the table, so it
+    reports a held one lying where it would be if the hand let go.
+    Writing that in teleports it out of the gripper -- and
+    ``_set_state`` then rebuilds the grasp constraint around the wrong
+    offset, leaving the twin holding something that is not there.
+    """
+    # pylint: disable=protected-access
+    task = env._build_task_from_scene()
+    comp = env._domino_component
+    held = comp.dominos[2]
+    carried = task.init.copy()
+    carried.set(held, "is_held", 1.0)
+    # Lifted well clear of the table, as a carry leaves it.
+    carried.set(held, "z", task.init.get(held, "z") + 0.2)
+
+    # Perception insists it is back on the table, at its old spot.
+    obs = _StubDominoObservation([_StubDominoPose(12, (0.15, -0.05, 0.03))])
+    state = env.state_from_observation(obs, carried)
+
+    for feat in ("x", "y", "z", "yaw", "roll"):
+        expected = carried.get(held, feat)
+        assert state.get(held, feat) == pytest.approx(expected), \
+            f"{feat} of the held domino was overwritten by perception"
+
+
 def test_state_from_observation_carries_unseen_dominoes_forward(env):
     """Observations carry no visibility flag, so absent means unchanged."""
     task = env._build_task_from_scene()  # pylint: disable=protected-access
