@@ -21,7 +21,7 @@ import numpy as np
 import pytest
 
 from predicators import utils
-from predicators.pybullet_helpers.real_robot_bridge import \
+from predicators.pybullet_helpers.real_robot_bridge import _RELEASE_EPS, \
     GripperJointLayout, MissingBabyRobotError, _make_perception, \
     _split_actions, make_real_robot
 from predicators.settings import CFG
@@ -184,22 +184,83 @@ def test_split_actions_emits_gripper_transitions_and_arm_moves():
     assert all(len(wp) == _N_ARM for m in moves for wp in m.waypoints)
 
 
-def test_split_actions_treats_any_widening_as_a_release():
-    """The hand is binary: at or tighter than closed_fingers is a grasp, wider
-    is a release.
+def _commands(widths, layout):
+    """The gripper commands a finger-width sequence splits into, in order."""
+    segments = _split_actions([_action(0.0, w) for w in widths], layout)
+    return [s.command for s in segments if s.type == "gripper"]
 
-    This used to be a nearest-value test, which held the object far too
-    long. Place opens only just enough for the simulator to drop the
-    grasp, then a few millimetres to clear, and fully opens after the
-    retreat -- so a midpoint rule read "closed" through the release AND
-    the retreat, and the object was dropped from transport height.
+
+# closed_fingers well above a firm grasp, as on the real domino scene.
+_TIGHT_LAYOUT = GripperJointLayout(left_finger_joint_idx=7,
+                                   right_finger_joint_idx=8,
+                                   open_fingers=0.04,
+                                   closed_fingers=0.02)
+
+
+def test_split_actions_judges_a_release_against_the_grasp_width():
+    """A release is a widening from where the grasp SETTLED, not a crossing of
+    some absolute mark.
+
+    Both absolute rules tried here were wrong. A nearest-value test kept
+    the hand shut through the release AND the retreat, so the object was
+    dropped from transport height. Anchoring at ``closed_fingers``
+    instead only moved the problem: a firm grasp settles far tighter
+    than ``closed_fingers`` -- a real Pick bottoms out at 0.0 against a
+    closed of 0.02 -- so the whole release still sat under the mark.
     """
     pytest.importorskip("babyrobot")
-    barely_wider = _action(0.0, 0.002)  # a release, however small
-    fully_open = _action(0.0, 0.04)
+    # grasp 0.005, release +0.01, clear, retreat holding, full open at height.
+    widths = [0.04, 0.04, 0.005, 0.005, 0.015, 0.019, 0.019, 0.04]
 
-    assert _split_actions([barely_wider], _LAYOUT)[0].command == "open"
-    assert _split_actions([fully_open], _LAYOUT)[0].command == "open"
+    assert _commands(widths, _TIGHT_LAYOUT) == ["open", "close", "open"]
+
+
+def test_split_actions_releases_before_the_retreat():
+    """The release must be commanded while the arm is still at the drop pose.
+
+    This is the property that matters on hardware: an ``open`` emitted
+    after the retreat waypoints drops the object from transport height.
+    """
+    pytest.importorskip("babyrobot")
+    widths = [0.04, 0.005, 0.005, 0.015, 0.019, 0.019, 0.019, 0.04]
+    segments = _split_actions([_action(0.0, w) for w in widths], _TIGHT_LAYOUT)
+    kinds = [(s.type, getattr(s, "command", None)) for s in segments]
+    release = kinds.index(("gripper", "open"), 1)
+    # Waypoints remain after the release -- those are the retreat.
+    assert any(k[0] == "move" for k in kinds[release + 1:])
+
+
+def test_split_actions_ignores_wobble_while_closing():
+    """The closing motion is not monotonic, so a bare "any widening" test would
+    report a release mid-grasp and drop the object on the spot."""
+    pytest.importorskip("babyrobot")
+    # 0.010 -> 0.01183 is a real +1.8mm wobble seen while closing.
+    widths = [0.04, 0.010, 0.01183, 0.005, 0.0, 0.0122, 0.0122]
+
+    assert _commands(widths, _TIGHT_LAYOUT) == ["open", "close", "open"]
+
+
+def test_split_actions_can_grasp_again_after_releasing():
+    """Holding open after a release must not prevent a genuine re-grasp."""
+    pytest.importorskip("babyrobot")
+    widths = [0.04, 0.005, 0.015, 0.019, 0.04, 0.004, 0.004]
+
+    assert _commands(widths,
+                     _TIGHT_LAYOUT) == ["open", "close", "open", "close"]
+
+
+def test_release_epsilon_stays_below_the_skill_layers_open_step():
+    """``_RELEASE_EPS`` is a local copy of a skill-layer quantity.
+
+    ``skill_factories`` imports ``pybullet_helpers``, so the bridge
+    cannot import it back without inverting the layering. Pin the two
+    together here instead: a release opens by ``_RELEASE_OPEN_STEP``
+    from the grasp width, so the epsilon has to sit below that, and
+    above the few millimetres of wobble seen while closing.
+    """
+    from predicators.ground_truth_models.skill_factories.base import \
+        _RELEASE_OPEN_STEP
+    assert 0.002 < _RELEASE_EPS < _RELEASE_OPEN_STEP
 
 
 def test_split_actions_keeps_a_tighter_than_closed_grasp_closed():
