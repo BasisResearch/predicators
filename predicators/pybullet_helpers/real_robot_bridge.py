@@ -202,9 +202,16 @@ def _split_actions(actions: Sequence[Action],
     def grip(arr: Array) -> str:
         """Binary hand state for a commanded finger width.
 
-        The real hand only grasps or releases, so ANY width meaningfully
-        wider than `closed` is a release. A midpoint test used to be
-        used here, and it silently held the object far too long: with
+        The real hand only grasps or releases, so any width wider than
+        `closed` is a release and anything at or tighter than it is a
+        grasp. The test is deliberately one-sided: a grasp commands
+        values well BELOW closed_fingers (a Pick on the real scene
+        descends through 0.0), so a symmetric ``abs(v - closed) <= tol``
+        would read the entire carry as an open hand and never close the
+        gripper at all.
+
+        A midpoint test was used here before, and it held the object far
+        too long: with
         `release_until_ungrasped`, Place opens just enough for the
         simulator to drop the grasp, then a few millimetres more to
         clear -- both well below the midpoint. The bridge therefore read
@@ -214,7 +221,7 @@ def _split_actions(actions: Sequence[Action],
         up and dropped it from height.
         """
         v = float(arr[layout.left_finger_joint_idx])
-        return "close" if abs(v - closed) <= close_tol else "open"
+        return "close" if v <= closed + close_tol else "open"
 
     def arm_only(arr: Array) -> Tuple[float, ...]:
         return tuple(float(v) for i, v in enumerate(arr) if i not in gidx)

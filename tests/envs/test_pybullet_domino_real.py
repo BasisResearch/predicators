@@ -121,6 +121,10 @@ def _config(scene_path):
     """Apply the config this env is actually run with."""
     utils.reset_config({
         "env": "pybullet_domino_real",
+        # The real scene is a Panda on a pedestal, and envs/all.yaml sets this
+        # for every shipped run. Leaving it at the default built the env with
+        # the Fetch, whose IK cannot reach the real home orientation.
+        "pybullet_robot": "panda",
         "domino_real_scene": scene_path,
         "domino_real_table_z": _TABLE_Z,
         "domino_real_start_id": _START_ID,

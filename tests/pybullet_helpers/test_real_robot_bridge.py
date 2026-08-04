@@ -184,15 +184,40 @@ def test_split_actions_emits_gripper_transitions_and_arm_moves():
     assert all(len(wp) == _N_ARM for m in moves for wp in m.waypoints)
 
 
-def test_split_actions_classifies_fingers_by_nearest_value():
-    """A finger value is a `close` when it is nearer closed_fingers than
-    open_fingers, so a partially-closed gripper does not flip mid-carry."""
-    pytest.importorskip("babyrobot")
-    nearly_closed = _action(0.0, 0.015)
-    nearly_open = _action(0.0, 0.03)
+def test_split_actions_treats_any_widening_as_a_release():
+    """The hand is binary: at or tighter than closed_fingers is a grasp, wider
+    is a release.
 
-    assert _split_actions([nearly_closed], _LAYOUT)[0].command == "close"
-    assert _split_actions([nearly_open], _LAYOUT)[0].command == "open"
+    This used to be a nearest-value test, which held the object far too
+    long. Place opens only just enough for the simulator to drop the
+    grasp, then a few millimetres to clear, and fully opens after the
+    retreat -- so a midpoint rule read "closed" through the release AND
+    the retreat, and the object was dropped from transport height.
+    """
+    pytest.importorskip("babyrobot")
+    barely_wider = _action(0.0, 0.002)  # a release, however small
+    fully_open = _action(0.0, 0.04)
+
+    assert _split_actions([barely_wider], _LAYOUT)[0].command == "open"
+    assert _split_actions([fully_open], _LAYOUT)[0].command == "open"
+
+
+def test_split_actions_keeps_a_tighter_than_closed_grasp_closed():
+    """The widening test is one-sided, and has to be.
+
+    A real Pick descends through finger values well BELOW
+    closed_fingers, so a symmetric ``abs(v - closed) <= tol`` would read
+    the whole carry as an open hand and never close the gripper.
+    """
+    pytest.importorskip("babyrobot")
+    layout = GripperJointLayout(left_finger_joint_idx=7,
+                                right_finger_joint_idx=8,
+                                open_fingers=0.04,
+                                closed_fingers=0.02)
+    for tighter in (0.0, 0.005, 0.0125, 0.02):
+        segments = _split_actions([_action(0.0, tighter)], layout)
+        assert segments[0].command == "close", \
+            f"finger value {tighter} should be a grasp, not a release"
 
 
 def test_split_actions_is_stateless_across_calls():
