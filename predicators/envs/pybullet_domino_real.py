@@ -555,9 +555,18 @@ class PyBulletDominoRealEnv(RealSceneGeometryMixin, PyBulletDominoEnv):
         assert comp is not None, "env has no domino component"
         state = prev_state.copy()
         for pd in self._perceived_from_observation(obs):
+            dom = comp.dominos[pd.slot]
+            if prev_state.get(dom, "is_held") > 0.5:
+                # Perception cannot see a domino in the gripper: it snaps
+                # every pose to a resting one on the table, so a held domino
+                # is reported lying where it would be if the hand let go.
+                # Writing that in teleports it out of the gripper and makes
+                # _set_state rebuild the grasp constraint around the wrong
+                # offset, leaving the twin holding something that is not
+                # there. The twin's belief wins for whatever it is holding.
+                continue
             world = pose_base_to_world(pd.pose_base, self._z_off)
             roll, yaw = self._env_angles(world, pd.capture_id)
-            dom = comp.dominos[pd.slot]
             state.set(dom, "x", world.xyz[0])
             state.set(dom, "y", world.xyz[1])
             state.set(dom, "z", world.xyz[2])

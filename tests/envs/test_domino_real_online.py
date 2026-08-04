@@ -98,6 +98,7 @@ def _config(scene_path: str, **overrides: Any) -> None:
     """The real-execution config for this env."""
     flags = {
         "env": "pybullet_domino_real",
+        "pybullet_robot": "panda",
         "domino_real_scene": scene_path,
         "domino_real_table_z": _TABLE_Z,
         "domino_real_start_id": _START_ID,

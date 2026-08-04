@@ -16,6 +16,7 @@ what to do with any observation that comes back, belongs to the caller --
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, List, Optional, Sequence, Tuple
 
@@ -34,6 +35,9 @@ _MISSING_BABYROBOT = (
     "submodules/BabyRobotPredicator. Check it out and install it:\n"
     "    git submodule update --init submodules/BabyRobotPredicator\n"
     "    pip install -e submodules/BabyRobotPredicator")
+
+# How much wider than the grasp counts as a release.
+_RELEASE_EPS = 0.005
 
 
 class MissingBabyRobotError(ImportError):
@@ -181,12 +185,11 @@ def _split_actions(actions: Sequence[Action],
                    layout: GripperJointLayout) -> List["Segment"]:
     """Joint-target actions -> [Segment(move, waypoints) | Segment(gripper)].
 
-    A finger value nearer ``closed_fingers`` than ``open_fingers`` is a
-    ``close``; consecutive same-gripper steps coalesce into one move of
-    arm waypoints, with the finger joints removed.
+    Consecutive same-gripper steps coalesce into one move of arm waypoints,
+    with the finger joints removed.
 
-    Stateless: gripper tracking restarts on every call, so a chunk that
-    begins already holding an object re-emits its leading ``close``.
+    Stateless ACROSS calls: gripper tracking restarts every call, so a chunk
+    that begins already holding an object re-emits its leading ``close``.
     ``RealRobot`` drops that redundant command session-wide, which is what
     makes per-chunk shipping safe.
     """
@@ -195,20 +198,45 @@ def _split_actions(actions: Sequence[Action],
     gidx = layout.finger_joint_idxs
     closed, opened = layout.closed_fingers, layout.open_fingers
 
-    def grip(arr: Array) -> str:
-        v = float(arr[layout.left_finger_joint_idx])
-        return "close" if abs(v - closed) < abs(v - opened) else "open"
+    # A width this far above `closed` is tight enough to be a grasp. Only used
+    # to spot the START of a grasp; a release is judged against the grasp, not
+    # against this.
+    close_tol = 0.05 * abs(opened - closed)
 
     def arm_only(arr: Array) -> Tuple[float, ...]:
         return tuple(float(v) for i, v in enumerate(arr) if i not in gidx)
 
     segments: List["Segment"] = []
     cur_grip: str = ""
+    # Tightest width commanded since the hand closed; inf while it is open.
+    grip_ref = math.inf
+    # Width at which the hand last released; inf before any release.
+    open_ref = math.inf
     moves: List[Tuple[float, ...]] = []
     for action in actions:
         arr = action.arr
-        g = grip(arr)
+        v = float(arr[layout.left_finger_joint_idx])
+        if cur_grip == "close":
+            # Judge a release against the GRASP width, not against
+            # `closed_fingers`. Otherwise the release width is still under
+            # the closed threshold. That is what made the hand hold on
+            # through the retreat and drop the domino from transport height.
+            if v > grip_ref + _RELEASE_EPS:
+                g = "open"
+            else:
+                g = "close"
+                grip_ref = min(grip_ref, v)
+        else:
+            # Re-close only well below where the hand released, since a firm
+            # grasp lets go at a width still under `closed_fingers`.
+            g = ("close" if v <= closed + close_tol
+                 and v < open_ref - _RELEASE_EPS else "open")
+            if g == "close":
+                grip_ref = v
         if g != cur_grip:
+            if g == "open":
+                open_ref = v
+                grip_ref = math.inf
             if moves:
                 segments.append(_Segment(type="move", waypoints=tuple(moves)))
                 moves = []

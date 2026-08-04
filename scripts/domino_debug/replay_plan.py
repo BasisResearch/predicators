@@ -97,6 +97,12 @@ def main() -> None:
                     "option still chunks and ships, the gripper split still "
                     "runs -- and nothing moves. This is the rung between pure "
                     "sim and real motion; take it before every new plan.")
+    ap.add_argument("--observe",
+                    action="store_true",
+                    help="look at the scene between options and correct the "
+                    "twin from what was seen (bring-up Stage 5). Opens the "
+                    "cameras. The replay stops being a pure replay -- that is "
+                    "the point of the rung, not a side effect.")
     ap.add_argument("--out", default=None, help="optional MP4 of the rollout")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -113,17 +119,15 @@ def main() -> None:
     # for real, so this exercises chunking, the gripper split and the drift
     # guard without a Franka in the room (and without one powered on).
     flags["real_robot_dry"] = bool(args.dry)
-    # RealRobot opens its perception session at CONSTRUCTION, so leaving this
-    # at the "zed" default would hold both cameras open for a run that, three
-    # lines below, is hard-forced never to look. Worse, it makes a plan replay
-    # fail when the cameras are busy or unplugged -- the one situation this
-    # tool is meant to stay usable in.
-    flags["real_robot_perception"] = "none"
-    # This tool replays an EXACT plan, so it does not look at the scene even
-    # though the closed loop is the default elsewhere: re-syncing the twin
-    # mid-replay would let the option policies see states the recorded plan was
-    # never chosen against. It also keeps the tool usable with the cameras down.
-    flags["real_robot_observe_at_option_boundary"] = False
+    # By default this tool replays an EXACT plan and never looks: re-syncing
+    # the twin mid-replay lets the option policies see states the recorded plan
+    # was never chosen against, and not looking keeps the tool usable with the
+    # cameras down. --observe opts into exactly that mid-replay correction,
+    # which is the closed-loop rung. Perception follows, because RealRobot
+    # opens its session at CONSTRUCTION -- left at the "zed" default a run that
+    # never looks would still hold both cameras open.
+    flags["real_robot_perception"] = "zed" if args.observe else "none"
+    flags["real_robot_observe_at_option_boundary"] = bool(args.observe)
     # ...and no human reset either: that rebuilds the episode's task from a
     # live look, which would rename and re-place the very objects the recorded
     # plan refers to. The task must stay the captured scene the plan was

@@ -30,7 +30,7 @@ import argparse
 import json
 import logging
 import os
-from typing import Any, Callable, List, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -86,43 +86,66 @@ def _build_resolver(
     return resolve, start, target, dominoes
 
 
-def _ground_sketch(sketch: str, env: Any, state: State, robot: Object,
-                   resolve: Callable[[str], Object], preds: Set[Predicate],
-                   seed: int) -> List[_Option]:
-    """Turn a sketch string into a list of ground options, sampling params on
-    the init state with the domino oracle samplers."""
+def _ground_token(tok: str, state: State, opt: Dict[str, Any],
+                  in_front: Optional[Predicate], robot: Object,
+                  resolve: Callable[[str], Object],
+                  rng: np.random.Generator) -> _Option:
+    """Ground one sketch token, sampling its parameters on ``state``.
+
+    ``state`` is the state this option will actually start from, not the
+    episode's initial state -- see ``_lazy_option_policy``.
+    """
+    name, _, rest = tok.partition(":")
+    objref, _, ref = rest.partition("@")
+    if name == "Pick":
+        d = resolve(objref)
+        params = P._pick_option_sampler(state, set(), rng, [robot, d])
+        return opt["Pick"].ground([robot, d], params)
+    if name == "Place":
+        place_d = resolve(objref) if objref else None
+        goal = set()
+        if ref and in_front is not None and place_d is not None:
+            goal = {utils.GroundAtom(in_front, [place_d, resolve(ref)])}
+        params = P._place_option_sampler(state, goal, rng, [robot])
+        return opt["Place"].ground([robot], params)
+    if name == "Push":
+        d = resolve(objref) if objref else resolve("start")
+        params = P._push_option_sampler(state, set(), rng, [robot])
+        push = opt["Push"]
+        return (push.ground([robot], params)
+                if len(push.types) == 1 else push.ground([robot, d], params))
+    if name == "Wait":
+        wait = opt["Wait"]
+        params = np.zeros(wait.params_space.shape[0], dtype=np.float32)
+        return wait.ground([robot], params)
+    raise ValueError(f"unknown skill in sketch: {name!r}")
+
+
+def _lazy_option_policy(sketch: str, env: Any, robot: Object,
+                        resolve: Callable[[str], Object], seed: int,
+                        recorded: List[_Option]) -> Callable[[State], _Option]:
+    """Ground the sketch one token at a time, each against the live state."""
+    tokens = sketch.split()
     opt = {o.name: o for o in get_gt_options(env.get_name())}
-    InFront = next((p for p in preds if p.name == "InFront"), None)
+    in_front = next((p for p in env.predicates if p.name == "InFront"), None)
     rng = np.random.default_rng(seed)
-    plan: List[_Option] = []
-    for tok in sketch.split():
-        name, _, rest = tok.partition(":")
-        objref, _, ref = rest.partition("@")
-        if name == "Pick":
-            d = resolve(objref)
-            params = P._pick_option_sampler(state, set(), rng, [robot, d])
-            plan.append(opt["Pick"].ground([robot, d], params))
-        elif name == "Place":
-            place_d = resolve(objref) if objref else None
-            goal = set()
-            if ref and InFront is not None and place_d is not None:
-                goal = {utils.GroundAtom(InFront, [place_d, resolve(ref)])}
-            params = P._place_option_sampler(state, goal, rng, [robot])
-            plan.append(opt["Place"].ground([robot], params))
-        elif name == "Push":
-            d = resolve(objref) if objref else resolve("start")
-            params = P._push_option_sampler(state, set(), rng, [robot])
-            push = opt["Push"]
-            plan.append(
-                push.ground([robot], params) if len(push.types) ==
-                1 else push.ground([robot, d], params))
-        elif name == "Wait":
-            wait = opt["Wait"]
-            params = np.zeros(wait.params_space.shape[0], dtype=np.float32)
-            plan.append(wait.ground([robot], params))
-        else:
-            raise ValueError(f"unknown skill in sketch: {name!r}")
-    return plan
+    index = 0
+
+    def _option_policy(state: State) -> _Option:
+        nonlocal index
+        if index >= len(tokens):
+            # The rollout ends here rather than erroring
+            raise utils.OptionExecutionFailure("sketch exhausted")
+        tok = tokens[index]
+        index += 1
+        ground = _ground_token(tok, state, opt, in_front, robot, resolve, rng)
+        print(f"#   ground : {tok} -> {ground.simple_str()}"
+              f"[{', '.join(f'{float(p):.4f}' for p in ground.params)}]")
+        # Append the grounded option to the plan
+        recorded.append(ground)
+        return ground
+
+    return _option_policy
 
 
 def _dump_plan(path: str, plan: List[_Option], header: List[str]) -> None:
@@ -204,14 +227,14 @@ def main() -> None:
     print(f"# sketch  : {args.sketch}")
     print(f"# goal    : {sorted(str(a) for a in task.goal)}")
 
-    plan = _ground_sketch(args.sketch, env, state, robot, resolve, preds,
-                          args.seed)
-    print(f"# grounded: {[o.simple_str() for o in plan]}")
-
+    # Filled in as the rollout grounds each token; empty until then, which is
+    # why the grounded plan is printed per option above rather than up front.
+    plan: List[_Option] = []
     # Wait terminates on an abstract-atom change (CFG.wait_option_terminate_
     # on_atom_change), so the policy needs an abstract function over the preds.
-    policy = utils.option_plan_to_policy(
-        plan, abstract_function=lambda s: utils.abstract(s, preds))
+    policy = utils.option_policy_to_policy(
+        _lazy_option_policy(args.sketch, env, robot, resolve, args.seed, plan),
+        abstract_function=lambda s: utils.abstract(s, preds))
     monitor = utils.VideoMonitor(env.render)
     traj, _ = utils.run_policy(
         policy,
