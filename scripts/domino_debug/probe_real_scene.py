@@ -124,32 +124,9 @@ def _ground_token(tok: str, state: State, opt: Dict[str, Any],
 def _lazy_option_policy(sketch: str, env: Any, robot: Object,
                         resolve: Callable[[str], Object], seed: int,
                         recorded: List[_Option]) -> Callable[[State], _Option]:
-    """Ground the sketch one token at a time, each against the LIVE state.
-
-    Grounding the whole sketch up front cannot work, because the samplers
-    read the state they are handed: ``_place_option_sampler`` requires a
-    domino already held (``is_held > 0.5``), which does not exist until
-    ``Pick`` has run. Sampling every token against ``task.init`` therefore
-    only ever worked for skills whose parameters do not depend on what came
-    before -- Push, Pick, Wait -- and raised "expected one held domino,
-    found 0" the moment a sketch chained Pick into Place.
-
-    ``option_policy_to_policy`` asks for the next option only when the
-    previous one has terminated, and hands over the state at that moment,
-    which is exactly the state the next sampler needs.
-
-    Grounded options are appended to ``recorded`` as they are produced, so
-    ``--dump-plan`` writes the parameters that actually ran.
-    """
+    """Ground the sketch one token at a time, each against the live state."""
     tokens = sketch.split()
     opt = {o.name: o for o in get_gt_options(env.get_name())}
-    # From env.predicates, NOT the excluded-filtered set: the stock
-    # config excludes InFront from the LEARNER's vocabulary
-    # (excluded_predicates in exp_domino_real.yaml), but the @ref subgoal
-    # is an instruction to the oracle sampler about where to aim. Reading
-    # it from `preds` silently yielded None, so every @ref was dropped and
-    # the placer then failed with "no InFront subgoal references the held
-    # domino".
     in_front = next((p for p in env.predicates if p.name == "InFront"), None)
     rng = np.random.default_rng(seed)
     index = 0
@@ -157,15 +134,14 @@ def _lazy_option_policy(sketch: str, env: Any, robot: Object,
     def _option_policy(state: State) -> _Option:
         nonlocal index
         if index >= len(tokens):
-            # The rollout ends here rather than erroring: run_policy is told
-            # to break on OptionExecutionFailure, which is how a finished
-            # sketch stops without being mistaken for a failed one.
+            # The rollout ends here rather than erroring
             raise utils.OptionExecutionFailure("sketch exhausted")
         tok = tokens[index]
         index += 1
         ground = _ground_token(tok, state, opt, in_front, robot, resolve, rng)
         print(f"#   ground : {tok} -> {ground.simple_str()}"
               f"[{', '.join(f'{float(p):.4f}' for p in ground.params)}]")
+        # Append the grounded option to the plan
         recorded.append(ground)
         return ground
 

@@ -605,10 +605,6 @@ class GlobalSettings:
     # Real-scene geometry.
     domino_real_table_z = -0.041  # real table height in the robot base frame
     domino_real_robot_init_tilt = np.pi
-    # Matches PyBulletDominoEnv.robot_init_wrist. The real-scene override used
-    # to be 0.0, which homed the wrist a quarter turn from the base domino
-    # env's for no stated reason, so the fingers opened across the domino's
-    # broad face instead of its thickness.
     domino_real_robot_init_wrist = np.pi / 2
     domino_real_domino_dims = [0.15, 0.07,
                                0.029]  # (L, W, H) -> height,width,depth

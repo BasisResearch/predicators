@@ -36,13 +36,7 @@ _MISSING_BABYROBOT = (
     "    git submodule update --init submodules/BabyRobotPredicator\n"
     "    pip install -e submodules/BabyRobotPredicator")
 
-# How much wider than the grasp counts as a release. The skill layer opens by
-# _RELEASE_OPEN_STEP (0.01) from the grasp width and then clears by
-# _RELEASE_CLEAR_SLACK, while the closing motion itself is non-monotonic by
-# about 2mm -- so half the open step separates a real release from that wobble.
-# Kept local rather than imported: skill_factories depends on pybullet_helpers,
-# so importing it back would invert the layering. test_real_robot_bridge pins
-# the two together.
+# How much wider than the grasp counts as a release.
 _RELEASE_EPS = 0.005
 
 
