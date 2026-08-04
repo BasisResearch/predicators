@@ -224,24 +224,17 @@ def _split_actions(actions: Sequence[Action],
         v = float(arr[layout.left_finger_joint_idx])
         if cur_grip == "close":
             # Judge a release against the GRASP width, not against
-            # `closed_fingers`. Place opens by _RELEASE_OPEN_STEP from wherever
-            # the grasp settled, and a firm grasp settles far tighter than
-            # closed_fingers -- on the real scene a Pick bottoms out at 0.0
-            # against a closed of 0.02, and the whole release then sits under
-            # any threshold anchored at closed. That is what made the hand hold
-            # on through the retreat and drop the domino from transport height.
+            # `closed_fingers`. Otherwise the release width is still under
+            # the closed threshold. That is what made the hand hold on
+            # through the retreat and drop the domino from transport height.
             if v > grip_ref + _RELEASE_EPS:
                 g = "open"
             else:
                 g = "close"
                 grip_ref = min(grip_ref, v)
         else:
-            # Starting a grasp needs a genuinely tight width AND, once the
-            # hand has released, a real tightening below where it let go.
-            # Without that second test the post-release hold re-reads as a
-            # grasp -- a firm grasp releases to a width still under
-            # `closed_fingers`, so the hand would clamp shut again on the
-            # retreat, one action after opening.
+            # Re-close only well below where the hand released, since a firm
+            # grasp lets go at a width still under `closed_fingers`.
             g = ("close" if v <= closed + close_tol
                  and v < open_ref - _RELEASE_EPS else "open")
             if g == "close":
