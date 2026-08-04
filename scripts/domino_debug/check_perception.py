@@ -15,8 +15,8 @@ The three checks (run this once per check; the table is the point):
 
   1. Static.  Untouched scene. Divergence sits at the perception noise floor.
      Use ``--repeat`` and write the number down: it is what
-     ``real_robot_divergence_atol`` should be set from, and today that ships
-     as a guessed 0.02.
+     ``real_robot_divergence_atol`` should be set from. The shipped 0.02
+     started as a guess and a Stage 2 run has since confirmed it.
   2. Moved.   Physically slide one domino ~5cm and re-run. Divergence should
      report ~0.05 -- and THAT domino should be the one that moved. A different
      one moving means the capture-id -> slot mapping is wrong, which is the
