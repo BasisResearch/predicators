@@ -13,6 +13,7 @@ those helpers ship is babyrobot's contract, covered in
 """
 import ast
 import inspect
+import json
 from typing import Any, List, Optional, cast
 
 import numpy as np
@@ -23,7 +24,8 @@ from predicators import utils
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.real_robot_bridge import GripperJointLayout
 from predicators.pybullet_helpers.real_robot_executor import \
-    OptionBoundaryBuffer, RealRobotExecutor, attach_real_robot
+    OptionBoundaryBuffer, RealRobotExecutor, _dump_look, \
+    _per_object_divergence, attach_real_robot
 from predicators.structs import Action, Object, ParameterizedOption, State, \
     Type
 
@@ -486,3 +488,72 @@ def test_attach_rejects_a_non_pybullet_env():
     with pytest.raises(TypeError) as exc:
         attach_real_robot(cast(Any, object()), _StubRobot())
     assert "PyBullet" in str(exc.value)
+
+
+# -- per-look observability --------------------------------------------------
+
+_OTHER = Object("block1", _BLOCK_TYPE)
+
+
+def _two_object_state(x0: float, x1: float) -> State:
+    """A two-object state, so a per-object breakdown has something to break
+    down."""
+    return State({
+        _BLOCK: np.array([x0, 0.0, 0.0]),
+        _OTHER: np.array([x1, 0.0, 0.0]),
+    })
+
+
+def test_per_object_divergence_names_the_object_and_orders_by_distance():
+    """The max alone cannot tell a knocked object from a shared offset.
+
+    ``_max_position_divergence`` answers "how bad", which is what the
+    tolerance tests; this answers "which", which is what a human reads.
+    """
+    predicted = _two_object_state(0.0, 0.0)
+    perceived = _two_object_state(0.01, 0.05)
+
+    result = _per_object_divergence(predicted, perceived)
+
+    assert [obj.name for obj, _ in result] == ["block1", "block0"]
+    assert result[0][1] == pytest.approx(0.05)
+    assert result[1][1] == pytest.approx(0.01)
+
+
+def test_dump_look_writes_both_sides_of_the_comparison(tmp_path):
+    """A dumped look records the prediction beside the perception.
+
+    Recording only the divergence would leave a session unable to say
+    WHERE things were, which is what makes a capture re-examinable
+    offline.
+    """
+    utils.reset_config({
+        "seed": 0,
+        "real_robot_observation_dump_dir": str(tmp_path),
+    })
+    predicted = _two_object_state(0.0, 0.0)
+    perceived = _two_object_state(0.01, 0.05)
+
+    _dump_look(3, predicted, perceived,
+               _per_object_divergence(predicted, perceived), 0.05)
+
+    written = sorted(tmp_path.glob("*.json"))
+    assert [f.name for f in written] == ["look_0003.json"]
+    record = json.loads(written[0].read_text(encoding="utf-8"))
+    assert record["look"] == 3
+    assert record["worst_divergence"] == pytest.approx(0.05)
+    assert record["predicted"]["block1"] == [0.0, 0.0, 0.0]
+    assert record["perceived"]["block1"] == [0.05, 0.0, 0.0]
+    assert record["per_object"]["block1"] == pytest.approx(0.05)
+
+
+def test_dump_look_is_off_by_default(tmp_path):
+    """Dumping is opt-in: an unset directory writes nothing at all."""
+    utils.reset_config({"seed": 0, "real_robot_observation_dump_dir": ""})
+    predicted = _two_object_state(0.0, 0.0)
+    perceived = _two_object_state(0.01, 0.0)
+
+    _dump_look(1, predicted, perceived,
+               _per_object_divergence(predicted, perceived), 0.01)
+
+    assert not list(tmp_path.iterdir())
