@@ -5,9 +5,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-from predicators import utils
-from predicators.settings import CFG
-
 START_SEED = 456
 NUM_SEEDS = 10
 
@@ -27,6 +24,13 @@ _GPU_TIME = "06:00:00"
 
 
 def _run() -> None:
+    # Imported here rather than at module level so that importers of
+    # submit_engaging_job() (e.g. launch.py) do not pay for the full
+    # predicators import chain, which pulls in gym, pybullet and genai.
+    # pylint: disable=import-outside-toplevel
+    from predicators import utils
+    from predicators.settings import CFG
+
     args = utils.parse_args(seed_required=False)
     utils.update_config(args)
     assert CFG.seed is None, "Do not pass in a seed to this script!"
