@@ -4,14 +4,15 @@ Regression for run_20260728_111805: the synthesis agent declined
 PHYSICAL_PARAMS because teacher-forced residuals structurally cannot see
 compounding divergence (they predict each step from the recorded state),
 so "the base sim replicates the data" looked true at a friction that was
-wrong by 5x open-loop. The rollout mode replays trajectories free-running
-and sweeps each env-registry physical parameter, surfacing "this data is
-explained Nx better at a different value" before the declaration
-decision.
+wrong by 5x open-loop. The rollout mode replays trajectories free-running;
+``sweep_params`` (a list, or "all") opts into sweeping env-registry
+physical parameters, surfacing "this data is explained Nx better at a
+different value" before the declaration decision, and ``phys_params``
+scores a single hypothesized point.
 """
 
 from pathlib import Path
-from typing import cast
+from typing import Callable, Optional, cast
 
 import numpy as np
 import pybullet as p
@@ -112,7 +113,9 @@ def _observed_trajectory(num_steps: int = 6) -> LowLevelTrajectory:
     return LowLevelTrajectory(states, actions)
 
 
-def _make_toolkit(tmp_path: Path) -> SynthesisToolkit:
+def _make_toolkit(
+        tmp_path: Path,
+        budget_check: Optional[Callable[[], None]] = None) -> SynthesisToolkit:
     sim_file = tmp_path / "simulator.py"
     sim_file.write_text(_NOOP_SIMULATOR, encoding="utf-8")
     return create_synthesis_tools(exec_ns={},
@@ -122,7 +125,8 @@ def _make_toolkit(tmp_path: Path) -> SynthesisToolkit:
                                   versions_dir=str(tmp_path / "versions"),
                                   approach=cast(
                                       SynthesisBackend,
-                                      _FakeApproach([_observed_trajectory()])))
+                                      _FakeApproach([_observed_trajectory()])),
+                                  budget_check=budget_check)
 
 
 def test_rollout_residuals_flags_effective_param(tmp_path) -> None:
@@ -134,7 +138,9 @@ def test_rollout_residuals_flags_effective_param(tmp_path) -> None:
     """
     utils.reset_config({"seed": 0})
     toolkit = _make_toolkit(tmp_path)
-    report = toolkit.residuals_runner(rollout=True, sweep_num_points=6)
+    report = toolkit.residuals_runner(rollout=True,
+                                      sweep_num_points=6,
+                                      sweep_params="all")
     assert "OPEN-LOOP ROLLOUT residual report" in report
     assert "ball: x" in report
     # friction: baseline 0.1 vs truth 1.0 - geomspace(0.01, 2, 6) has a
@@ -147,13 +153,115 @@ def test_rollout_residuals_flags_effective_param(tmp_path) -> None:
     assert "cannot constrain it" in report
 
 
-def test_rollout_residuals_unknown_sweep_param(tmp_path) -> None:
-    """Unknown sweep_params names error with the available registry."""
+def test_rollout_residuals_default_reports_without_sweep(tmp_path) -> None:
+    """Without sweep_params the report is baseline-only plus the nudge.
+
+    The sweep is opt-in (it costs one fresh-env rollout per candidate
+    per segment), so the bare rollout report must still hand the agent
+    the registry and point at sweep_params/phys_params.
+    """
+    utils.reset_config({"seed": 0})
+    toolkit = _make_toolkit(tmp_path)
+    report = toolkit.residuals_runner(rollout=True)
+    assert "OPEN-LOOP ROLLOUT residual report" in report
+    assert "Rollout SSE at current baselines" in report
+    assert "No parameter probing requested" in report
+    # The registry listing with baselines and boxes.
+    assert "friction: baseline 0.1, box [0.01, 2] (log scale)" in report
+    assert "bounce: baseline 0, box [0, 1] (linear scale)" in report
+    # The nudge toward the PHYSICAL_PARAMS decision.
+    assert "sweep_params" in report and "phys_params" in report
+    assert "BEFORE deciding the PHYSICAL_PARAMS declaration" in report
+    # And no sweep actually ran.
+    assert "Physical-parameter sweep" not in report
+
+
+def test_rollout_residuals_phys_params_point(tmp_path) -> None:
+    """phys_params scores one point and reports the ratio vs baseline.
+
+    At the true friction the replay reproduces the data, so the point
+    must come back materially better explained than the 0.1 baseline.
+    """
+    utils.reset_config({"seed": 0})
+    toolkit = _make_toolkit(tmp_path)
+    report = toolkit.residuals_runner(rollout=True,
+                                      phys_params={"friction": 1.0})
+    assert "SSE at phys_params (friction=1)" in report
+    assert "better explained at this point" in report
+    assert "strong evidence FOR declaring" in report
+
+
+def test_rollout_residuals_phys_params_worse_point(tmp_path) -> None:
+    """A hypothesized point the baseline beats reads as evidence against.
+
+    Data drifting at the 0.1 baseline is explained perfectly there, so
+    scoring friction=1.0 must come back WORSE, not "cannot distinguish".
+    """
+    utils.reset_config({"seed": 0})
+    sim_file = tmp_path / "simulator.py"
+    sim_file.write_text(_NOOP_SIMULATOR, encoding="utf-8")
+    ball = Object("ball0", _BALL_TYPE)
+    states = [State({ball: np.array([0.1 * t])}) for t in range(7)]
+    actions = [Action(np.zeros(1, dtype=np.float32)) for _ in range(6)]
+    toolkit = create_synthesis_tools(
+        exec_ns={},
+        base_pred_triples=[],
+        inferred_process_features={},
+        simulator_file=str(sim_file),
+        versions_dir=str(tmp_path / "versions"),
+        approach=cast(SynthesisBackend,
+                      _FakeApproach([LowLevelTrajectory(states, actions)])))
+    worse = toolkit.residuals_runner(rollout=True,
+                                     phys_params={"friction": 1.0})
+    assert "WORSE explained at this point" in worse
+    assert "evidence against this hypothesis" in worse
+
+
+def test_rollout_residuals_param_arg_validation(tmp_path) -> None:
+    """Bad sweep_params/phys_params inputs error with the registry."""
     utils.reset_config({"seed": 0})
     toolkit = _make_toolkit(tmp_path)
     out = toolkit.residuals_runner(rollout=True, sweep_params=["nope"])
     assert "not in the env's physical-param registry" in out
     assert "'bounce'" in out and "'friction'" in out
+    out = toolkit.residuals_runner(rollout=True, sweep_params="everything")
+    assert "must be a list of registry names or the string 'all'" in out
+    out = toolkit.residuals_runner(rollout=True, phys_params={"nope": 1.0})
+    assert "phys_params ['nope'] not in the env's physical-param " \
+        "registry" in out
+    out = toolkit.residuals_runner(rollout=True,
+                                   phys_params={"friction": float("nan")})
+    assert "must be finite numbers" in out
+    out = toolkit.residuals_runner(rollout=True,
+                                   sweep_params=["friction"],
+                                   phys_params={"friction": 1.0})
+    assert "mutually exclusive" in out
+    out = toolkit.residuals_runner(sweep_params=["friction"])
+    assert "apply to the open-loop report only" in out
+
+
+def test_rollout_residuals_budget_stop_salvages_partial(tmp_path) -> None:
+    """A budget stop mid-sweep returns the completed params, not nothing.
+
+    The checkpoint fires between candidate rollouts; 'bounce' (first in
+    sorted order) completes within the allowance, 'friction' is reported
+    as unswept.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.agent_sdk.belief_probe import ProbeBudgetExceeded
+    utils.reset_config({"seed": 0})
+    calls = {"n": 0}
+
+    def _budget_check() -> None:
+        calls["n"] += 1
+        if calls["n"] > 6:  # bounce's 6 candidates pass, then stop.
+            raise ProbeBudgetExceeded("time limit reached")
+
+    toolkit = _make_toolkit(tmp_path, budget_check=_budget_check)
+    report = toolkit.residuals_runner(rollout=True, sweep_params="all")
+    assert "bounce (linear scale, baseline 0)" in report
+    assert "SWEEP STOPPED EARLY after 1/2 parameters" in report
+    assert "still unswept: ['friction']" in report
 
 
 def test_rollout_residuals_contains_rule_crashes(tmp_path) -> None:

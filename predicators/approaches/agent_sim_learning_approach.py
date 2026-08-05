@@ -1344,6 +1344,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # is the single source of truth for what the agent sees:
         # anything a builder constructs but the names list omits is
         # dropped here.
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.belief_probe import _check_time_budget
         toolkit = create_synthesis_tools(
             exec_ns,
             base_pred_triples,
@@ -1354,6 +1356,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             sandbox_dir=paths.base,
             sandbox_dir_for_agent=paths.sandbox_dir_for_agent,
             cycle_index_provider=self._learning_cycle_index,
+            budget_check=lambda: _check_time_budget(self._tool_context),
         )
         tools = list(toolkit.tools)
         tools.extend(
@@ -3121,13 +3124,16 @@ files to see exactly which rules and predicates produced each failed plan.
             "manifests - is invisible to them. Near-zero per-step "
             "residuals are fully compatible with rollouts that are "
             "hundreds of times worse than at the correct value. Before "
-            "deciding, run `sim.residuals(rollout=True)`: it replays "
-            "the recorded trajectories free-running and sweeps each "
-            "parameter above across its box. Declare a parameter whose "
-            "sweep is materially better away from the baseline; a flat "
-            "sweep is honest evidence the data cannot constrain it. "
-            "Omitting PHYSICAL_PARAMS is justified by a flat rollout "
-            "sweep, never by small per-step residuals.",
+            "deciding, run `sim.residuals(rollout=True, "
+            "sweep_params='all')` (or name the suspect parameters): it "
+            "replays the recorded trajectories free-running and sweeps "
+            "each requested parameter across its box; "
+            "`phys_params={name: value}` instead scores one "
+            "hypothesized point. Declare a parameter whose sweep is "
+            "materially better away from the baseline; a flat sweep is "
+            "honest evidence the data cannot constrain it. Omitting "
+            "PHYSICAL_PARAMS is justified by a flat rollout sweep, "
+            "never by small per-step residuals.",
             "- **Undeclared parameters keep their built-in values in "
             "every base-sim rollout** - including an evaluator's "
             "verification replay deciding what counts as a SOLVE. Your "
