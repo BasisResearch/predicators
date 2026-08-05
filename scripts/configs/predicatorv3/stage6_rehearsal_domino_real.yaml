@@ -32,7 +32,7 @@ includes:
 FLAGS:
   # One cycle is enough to exercise explore -> learn -> test. Two only doubles
   # the wait for the same evidence.
-  num_online_learning_cycles: 1
+  num_online_learning_cycles: 2
 NUM_SEEDS: 1
 ENVS:
   domino_real:
@@ -49,8 +49,14 @@ ENVS:
       real_robot_divergence_atol: 0.02
       # Leave the same evidence a real session would.
       real_robot_observation_dump_dir: "logs/stage6_rehearsal_looks"
+      # Score the episodes. Without this every episode reports reward 0.0,
+      # so an over-built chain reads the same as a minimal one -- and this
+      # is the cheap place to find out whether the cascade certificate
+      # accepts an episode whose states came from perception rather than
+      # from physics, before a hardware session depends on it.
+      domino_real_attach_evaluator: True
 APPROACHES:
-  agent_po_predicate_invention_al:
+  agent_po_predicate_invention_al_margin:
     SKIP: False
     FLAGS:
       # The whole point: no planning explorer, no LLM in the exploration half.
