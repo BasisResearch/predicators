@@ -22,7 +22,7 @@ from predicators.ground_truth_models.skill_factories.place import \
 from predicators.ground_truth_models.skill_factories.push import \
     create_push_skill, resolve_ee_yaw_offset
 from predicators.ground_truth_models.skill_factories.wait import \
-    create_wait_option, rebaseline_quiescence
+    create_wait_option, note_external_state_change
 from predicators.pybullet_helpers.geometry import Pose
 from predicators.pybullet_helpers.inverse_kinematics import \
     InverseKinematicsError
@@ -781,24 +781,24 @@ class TestWaitOption:
         assert not grounded.terminal(state_with_block_z(0.475))
         assert not grounded.terminal(state_with_block_z(0.475))
         assert not grounded.terminal(state_with_block_z(0.475))
-        # A look resyncs the twin by the table-height bias -- 4 mm, which is
-        # far more than the eps and would otherwise zero the tally.
+        # A look writes perception in, moving the block 4 mm -- far more than
+        # the eps, so it would otherwise zero the tally.
         resynced = state_with_block_z(0.471)
-        rebaseline_quiescence(grounded, resynced)
+        note_external_state_change(grounded, resynced)
         # The next settled step is still the boundary.
         assert grounded.terminal(state_with_block_z(0.471))
 
-    def test_rebaseline_quiescence_ignores_an_untracked_option(
+    def test_external_state_change_ignores_an_untracked_option(
             self, robot_scene):
         """Without quiescence tracking there is no tally to protect, so the
-        resync hook has to leave the option alone rather than invent one."""
+        hook has to leave the option alone rather than invent one."""
         _, robot = robot_scene
         opt = create_wait_option("Wait", _make_config(robot), _ROBOT_TYPE)
         robot_obj = _make_robot_obj()
         grounded = opt.ground([robot_obj], np.zeros(0))
         state = _build_state(robot_obj, robot, *_EE_HOME)
 
-        rebaseline_quiescence(grounded, state)
+        note_external_state_change(grounded, state)
 
         assert not grounded.memory
 

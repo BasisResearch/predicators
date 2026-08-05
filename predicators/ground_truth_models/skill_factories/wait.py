@@ -28,14 +28,15 @@ from predicators.structs import Action, Array, Object, ParameterizedOption, \
     State, Type, _Option
 
 
-def rebaseline_quiescence(option: _Option, state: State) -> None:
-    """Tell ``option`` that ``state`` is a resync, not the scene moving.
+def note_external_state_change(option: _Option, state: State) -> None:
+    """Tell ``option`` that ``state`` was set from outside, not moved into.
 
     ``Wait`` ends once the scene holds still for several consecutive steps.
-    Writing perception into the twin moves objects without the scene having
-    moved, so counting that jolt would zero the tally every time and
-    ``Wait`` would never see the scene settle. Re-seeding the baseline while
-    keeping the tally skips the jolt instead of counting it.
+    Writing perception into the twin replaces object poses without the
+    scene having moved, so counting that jump would zero the tally at
+    every look and ``Wait`` would never see the scene settle. This keeps
+    the tally and moves the comparison point past the jump, so the jump is
+    skipped rather than counted as motion.
 
     A no-op for options that track no quiescence.
     """

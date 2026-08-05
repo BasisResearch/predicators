@@ -27,7 +27,7 @@ from predicators import utils
 from predicators.envs.base_env import BaseEnv
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.ground_truth_models.skill_factories.wait import \
-    rebaseline_quiescence
+    note_external_state_change
 from predicators.pybullet_helpers.real_robot_bridge import execute_chunks, \
     make_real_robot, reset_arm, reset_env
 from predicators.settings import CFG
@@ -371,7 +371,7 @@ class RealRobotExecutor:
         # that judge the scene settled have to be told, or every look would
         # read as motion and they would never see it come to rest.
         if isinstance(obs, State):
-            rebaseline_quiescence(action.get_option(), obs)
+            note_external_state_change(action.get_option(), obs)
         return obs
 
     # -- helpers -----------------------------------------------------------
