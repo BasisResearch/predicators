@@ -25,7 +25,30 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.ground_truth_models.skill_factories.base import SkillConfig
 from predicators.structs import Action, Array, Object, ParameterizedOption, \
-    State, Type
+    State, Type, _Option
+
+
+def rebaseline_quiescence(option: _Option, state: State) -> None:
+    """Tell ``option`` that ``state`` is a resync, not the scene moving.
+
+    ``Wait`` ends once the scene holds still for several consecutive steps.
+    Writing perception into the twin moves objects without the scene having
+    moved, so counting that jolt would zero the tally every time and
+    ``Wait`` would never see the scene settle. Re-seeding the baseline while
+    keeping the tally skips the jolt instead of counting it.
+
+    A no-op for options that track no quiescence.
+    """
+    memory = option.memory
+    if "quiescence_prev" not in memory:
+        return
+    robot_obj = option.objects[0]
+    scene_objs = sorted((o for o in state if o != robot_obj), key=str)
+    if not scene_objs:
+        return
+    memory["quiescence_prev"] = state.vec(scene_objs)
+    # The cached identity names the pre-resync state, so drop it.
+    memory.pop("quiescence_sref", None)
 
 
 def create_wait_option(

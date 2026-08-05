@@ -26,6 +26,8 @@ import numpy as np
 from predicators import utils
 from predicators.envs.base_env import BaseEnv
 from predicators.envs.pybullet_env import PyBulletEnv
+from predicators.ground_truth_models.skill_factories.wait import \
+    rebaseline_quiescence
 from predicators.pybullet_helpers.real_robot_bridge import execute_chunks, \
     make_real_robot, reset_arm, reset_env
 from predicators.settings import CFG
@@ -43,11 +45,12 @@ _REQUIRED_HOOKS = {
 def _ends_at(option: Any, obs: Observation) -> bool:
     """Whether ``option`` ends at ``obs``, without disturbing the option.
 
-    ``terminal`` may be stateful: ``Wait`` counts consecutive settled steps
-    in ``option.memory``, and the option's own policy is already counting
-    that series one call per step. Asking here without putting the memory
-    back would insert an extra sample per step, so ``Wait`` would judge the
-    scene settled in a third of the steps it actually takes.
+    ``terminal`` may be stateful: ``Wait`` counts consecutive settled
+    steps in ``option.memory``, and the option's own policy is already
+    counting that series one call per step. Asking here without putting
+    the memory back would insert an extra sample per step, so ``Wait``
+    would judge the scene settled in a third of the steps it actually
+    takes.
     """
     saved = dict(option.memory)
     try:
@@ -364,6 +367,11 @@ class RealRobotExecutor:
                                       settle_s=self._settle_s)
         for observation in observations:
             obs = self._corrector.absorb(observation)
+        # The correction moved objects, but the scene did not move. Options
+        # that judge the scene settled have to be told, or every look would
+        # read as motion and they would never see it come to rest.
+        if isinstance(obs, State):
+            rebaseline_quiescence(action.get_option(), obs)
         return obs
 
     # -- helpers -----------------------------------------------------------

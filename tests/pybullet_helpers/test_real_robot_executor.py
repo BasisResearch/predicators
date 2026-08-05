@@ -241,9 +241,9 @@ def test_buffer_does_not_disturb_a_stateful_terminal():
     """``Wait`` counts consecutive settled steps in its own memory, and its
     policy already consults it once per step.
 
-    A boundary check that counted as well would insert a second sample per
-    step, so ``Wait`` would call the scene settled in half the steps it
-    really takes -- and on the arm, a look would be spent every time.
+    A boundary check that counted as well would insert a second sample
+    per step, so ``Wait`` would call the scene settled in half the steps
+    it really takes -- and on the arm, a look would be spent every time.
     """
     settle_steps = 3
 

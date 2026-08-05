@@ -22,7 +22,7 @@ from predicators.ground_truth_models.skill_factories.place import \
 from predicators.ground_truth_models.skill_factories.push import \
     create_push_skill, resolve_ee_yaw_offset
 from predicators.ground_truth_models.skill_factories.wait import \
-    create_wait_option
+    create_wait_option, rebaseline_quiescence
 from predicators.pybullet_helpers.geometry import Pose
 from predicators.pybullet_helpers.inverse_kinematics import \
     InverseKinematicsError
@@ -748,6 +748,59 @@ class TestWaitOption:
         # option must not terminate instantly on stale counts.
         assert grounded.initiable(settled[3])
         assert not grounded.terminal(settled[3])
+
+    def test_wait_quiescence_survives_a_twin_resync(self, robot_scene):
+        """Writing perception into the twin moves objects without the scene
+        having moved.
+
+        Counting that jolt as motion would zero the settle tally at
+        every look, and on the real robot Wait would never see the scene
+        rest.
+        """
+        from dataclasses import \
+            replace  # pylint: disable=import-outside-toplevel
+        _, robot = robot_scene
+        config = replace(_make_config(robot),
+                         wait_quiescence_eps=1e-4,
+                         wait_quiescence_steps=3)
+        opt = create_wait_option("Wait", config, _ROBOT_TYPE)
+        robot_obj = _make_robot_obj()
+        block = Object("block0", _OBJ_TYPE)
+
+        def state_with_block_z(z):
+            return _build_state(robot_obj,
+                                robot,
+                                *_EE_HOME,
+                                obj=block,
+                                obj_xyz=(0.5, 0.0, z))
+
+        grounded = opt.ground([robot_obj], np.zeros(0))
+        assert grounded.initiable(state_with_block_z(0.475))
+        # The first call only seeds the baseline; then two settled steps,
+        # leaving the tally one short of the boundary.
+        assert not grounded.terminal(state_with_block_z(0.475))
+        assert not grounded.terminal(state_with_block_z(0.475))
+        assert not grounded.terminal(state_with_block_z(0.475))
+        # A look resyncs the twin by the table-height bias -- 4 mm, which is
+        # far more than the eps and would otherwise zero the tally.
+        resynced = state_with_block_z(0.471)
+        rebaseline_quiescence(grounded, resynced)
+        # The next settled step is still the boundary.
+        assert grounded.terminal(state_with_block_z(0.471))
+
+    def test_rebaseline_quiescence_ignores_an_untracked_option(
+            self, robot_scene):
+        """Without quiescence tracking there is no tally to protect, so the
+        resync hook has to leave the option alone rather than invent one."""
+        _, robot = robot_scene
+        opt = create_wait_option("Wait", _make_config(robot), _ROBOT_TYPE)
+        robot_obj = _make_robot_obj()
+        grounded = opt.ground([robot_obj], np.zeros(0))
+        state = _build_state(robot_obj, robot, *_EE_HOME)
+
+        rebaseline_quiescence(grounded, state)
+
+        assert not grounded.memory
 
     def test_wait_quiescence_disabled_by_default(self, robot_scene):
         """Without wait_quiescence_eps the legacy never-terminate behavior
