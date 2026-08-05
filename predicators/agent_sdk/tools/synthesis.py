@@ -1,6 +1,6 @@
 """Synthesis-session tools for sim learning (create_synthesis_tools)."""
 import dataclasses
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -38,6 +38,7 @@ def create_synthesis_tools(
     sandbox_dir: Optional[str] = None,
     sandbox_dir_for_agent: Optional[str] = None,
     cycle_index_provider: Optional[Callable[[], int]] = None,
+    budget_check: Optional[Callable[[], None]] = None,
 ) -> SynthesisToolkit:
     """Create the sim-learning synthesis agent's tool surface.
 
@@ -110,6 +111,11 @@ def create_synthesis_tools(
             same tools instance reflects later cycle bumps. If ``None``,
             cycle defaults to 0 (still valid; produces
             ``cycle_000_vers_YYY``).
+        budget_check: Callable raising ``ProbeBudgetExceeded`` when the
+            session's wall-clock budget is spent. Long-running backends
+            (the rollout-residuals sweep) call it between rollouts so a
+            budget stop returns the partial report instead of burning
+            the rest of the attempt. ``None`` disables the checks.
     """
     # pylint: disable=import-outside-toplevel
     import traceback  # pylint: disable=redefined-outer-name,reimported
@@ -670,23 +676,40 @@ def create_synthesis_tools(
 
     def _run_rollout_residuals(rules: list, specs: list, latent_init: Any,
                                version_tag: str, sweep_num_points: int,
-                               sweep_params: Optional[List[str]]) -> str:
-        """Open-loop rollout fidelity report with a registry-param sweep.
+                               sweep_params: Optional[Union[str, List[str]]],
+                               phys_params: Optional[Dict[str, float]]) -> str:
+        """Open-loop rollout fidelity report, with opt-in param probing.
 
         The ``rollout=True`` branch of ``sim.residuals``. Replays each
         recorded trajectory's actions free-running from its initial
         state (fresh env per rollout, same objective the system-ID fit
-        minimizes) and reports the divergence at the current baselines,
-        then sweeps each env-registry physical parameter alone across
-        its plausible range. The sweep is the interpretive anchor: an
-        absolute rollout SSE is meaningless under chaotic replay
-        divergence, but "the same data is explained N times better at a
-        different friction" is exactly the evidence the PHYSICAL_PARAMS
-        declaration decision needs - evidence the teacher-forced report
-        structurally cannot surface (run_20260728_111805 declined to
-        declare on near-zero per-step residuals while the open-loop SSE
-        ratio on the same data was ~340x).
+        minimizes) and reports the divergence at the current baselines.
+        Two mutually exclusive opt-ins ride on top:
+
+        * ``sweep_params`` (list of registry names, or ``"all"``) sweeps
+          each named env-registry physical parameter alone across its
+          plausible range. The sweep is the interpretive anchor: an
+          absolute rollout SSE is meaningless under chaotic replay
+          divergence, but "the same data is explained N times better at
+          a different friction" is exactly the evidence the
+          PHYSICAL_PARAMS declaration decision needs - evidence the
+          teacher-forced report structurally cannot surface
+          (run_20260728_111805 declined to declare on near-zero
+          per-step residuals while the open-loop SSE ratio on the same
+          data was ~340x). Costs one fresh-env rollout per candidate
+          per motion segment, hence opt-in.
+        * ``phys_params`` ({name: value}) scores the same data at ONE
+          hypothesized physical-parameter point and reports the SSE
+          ratio against the baseline - the composable primitive for
+          agent-written targeted sweeps.
         """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.belief_probe import ProbeBudgetExceeded
+        if sweep_params is not None and phys_params:
+            return (f"[{version_tag}] Error: sweep_params and phys_params "
+                    "are mutually exclusive - sweep_params tests each named "
+                    "parameter across its box, phys_params scores one "
+                    "explicit point. Make two calls if you want both.")
         if approach is None:
             return (f"[{version_tag}] Error: rollout residuals require a "
                     "bound approach (raw trajectories + fit env) - "
@@ -718,13 +741,35 @@ def create_synthesis_tools(
             for n, e in info.items()
             if e.get("lo") is not None and e.get("hi") is not None
         }
-        if sweep_params is not None:
+        if sweep_params is None:
+            selected: Dict[str, Dict[str, Any]] = {}
+        elif isinstance(sweep_params, str):
+            if sweep_params != "all":
+                return (f"[{version_tag}] Error: sweep_params must be a "
+                        "list of registry names or the string 'all', got "
+                        f"{sweep_params!r} (available: "
+                        f"{sorted(sweepable)}).")
+            selected = dict(sweepable)
+        else:
             unknown = sorted(set(sweep_params) - set(sweepable))
             if unknown:
                 return (f"[{version_tag}] Error: sweep_params {unknown} not "
                         "in the env's physical-param registry (available: "
                         f"{sorted(sweepable)}).")
-            sweepable = {n: sweepable[n] for n in sweep_params}
+            selected = {n: sweepable[n] for n in sweep_params}
+        if phys_params:
+            unknown = sorted(set(phys_params) - set(info))
+            if unknown:
+                return (f"[{version_tag}] Error: phys_params {unknown} not "
+                        "in the env's physical-param registry (available: "
+                        f"{sorted(info)}).")
+            bad_vals = sorted(
+                n for n, v in phys_params.items()
+                if not isinstance(v, (int, float)) or not np.isfinite(v))
+            if bad_vals:
+                return (f"[{version_tag}] Error: phys_params values must be "
+                        f"finite numbers; got {bad_vals} = "
+                        f"{[phys_params[n] for n in bad_vals]!r}.")
         num_points = max(2, int(sweep_num_points))
         # Rules run inside every rollout evaluation, so a buggy rule
         # (e.g. reading a param this version no longer declares) must
@@ -735,6 +780,18 @@ def create_synthesis_tools(
                                                scaling)
             seg_rms = per_trajectory_rms(fit_env, rollouts, rule_params, scope,
                                          [], rules, latent_init, scaling)
+            point_sse: Optional[float] = None
+            point_rms: Optional[List[float]] = None
+            if phys_params:
+                overrides = sorted(phys_params)
+                point_sse = compute_rollout_sse(fit_env, rollouts, {
+                    **rule_params,
+                    **phys_params
+                }, scope, overrides, rules, latent_init, scaling)
+                point_rms = per_trajectory_rms(fit_env, rollouts, {
+                    **rule_params,
+                    **phys_params
+                }, scope, overrides, rules, latent_init, scaling)
         except Exception as e:  # pylint: disable=broad-except
             return (f"[{version_tag}] Error: open-loop rollout scoring "
                     f"failed (often a PROCESS_RULES bug - rules run on "
@@ -764,67 +821,155 @@ def create_synthesis_tools(
             f"Per-segment RMS at current baselines: [{rms_str}]  "
             f"({len(rollouts)} motion segments after settled-tail "
             "truncation / rest-point segmentation).",
-            "",
-            "Physical-parameter sweep (each registry param swept ALONE "
-            "across its plausible range, all others held at baseline; SSEs "
-            "are comparable within this report only):",
         ]
-        for name in sorted(sweepable):
-            entry = sweepable[name]
-            spec = ParamSpec(name,
-                             float(entry["default"]),
-                             lo=float(entry["lo"]),
-                             hi=float(entry["hi"]),
-                             scale=entry.get("scale", "linear"))
-            cands = [float(v) for v in grid_candidates(spec, num_points)]
-            try:
-                sses = [
-                    compute_rollout_sse(fit_env, rollouts, {
-                        **rule_params, name: c
-                    }, scope, [name], rules, latent_init, scaling)
-                    for c in cands
-                ]
-            except Exception as e:  # pylint: disable=broad-except
-                lines.append(f"  {name}: sweep failed:\n    {e}")
-                continue
-            best_i = int(np.argmin(sses))
-            best_sse = sses[best_i]
-            worst_sse = max(sses)
-            base_ratio = (baseline_sse /
-                          best_sse if best_sse > 0 else float("inf"))
-            spread = (worst_sse / best_sse if best_sse > 0 else float("inf"))
-            if worst_sse <= 0:
-                # Every candidate scores exactly 0 (static or perfectly
-                # reproduced data): a flat landscape, not evidence.
-                verdict = ("flat across the range - this data cannot "
-                           "constrain it (declaring it would fit noise)")
-            elif base_ratio >= ratio_bar:
-                verdict = (f"the data is {base_ratio:.1f}x better explained "
-                           f"at {cands[best_i]:.4g} than at the baseline - "
-                           "strong evidence FOR declaring this parameter in "
-                           "PHYSICAL_PARAMS")
-            elif spread < ratio_bar:
-                verdict = ("flat across the range - this data cannot "
-                           "constrain it (declaring it would fit noise)")
+        if phys_params:
+            assert point_sse is not None and point_rms is not None
+            desc = ", ".join(f"{k}={float(v):.4g}"
+                             for k, v in sorted(phys_params.items()))
+            prms_str = ", ".join(f"{r:.4g}" for r in point_rms)
+            lines.append("")
+            lines.append(f"SSE at phys_params ({desc}): {point_sse:.6f}")
+            lines.append(f"Per-segment RMS at this point: [{prms_str}]")
+            if baseline_sse <= 0 and point_sse <= 0:
+                lines.append("Both SSEs are exactly 0 (static or perfectly "
+                             "reproduced data) - no evidence either way.")
             else:
-                verdict = (f"best at {cands[best_i]:.4g} "
-                           f"({base_ratio:.1f}x vs baseline) - weak "
-                           "evidence; consider data that exercises it")
-            cand_str = ", ".join(f"{c:.4g} -> {s:.4g}"
-                                 for c, s in zip(cands, sses))
-            lines.append(f"  {name} ({spec.scale} scale, baseline "
-                         f"{float(entry['default']):.4g}):")
-            lines.append(f"    {cand_str}")
-            lines.append(f"    {verdict}.")
-        lines.extend([
-            "",
-            "How to read this: replay divergence is chaotic, so the SSE "
-            "never reaches 0 even at perfect parameters - compare ratios, "
-            f"not absolutes (the run's consistency bar is {ratio_bar:g}x). "
-            "A parameter materially better at another value belongs in "
-            "PHYSICAL_PARAMS so the system-ID fit can calibrate it; a flat "
-            "sweep means this data cannot distinguish values.",
-        ])
+                better = (baseline_sse /
+                          point_sse if point_sse > 0 else float("inf"))
+                worse = (point_sse /
+                         baseline_sse if baseline_sse > 0 else float("inf"))
+                if better >= ratio_bar:
+                    lines.append(
+                        f"The data is {better:.1f}x better explained at "
+                        "this point than at the baseline - strong evidence "
+                        "FOR declaring the overridden parameter(s) in "
+                        "PHYSICAL_PARAMS.")
+                elif worse >= ratio_bar:
+                    lines.append(
+                        f"The data is {worse:.1f}x WORSE explained at "
+                        "this point than at the baseline - evidence "
+                        "against this hypothesis.")
+                else:
+                    lines.append(
+                        f"SSE ratio baseline/point = {better:.2f}, within "
+                        f"the {ratio_bar:g}x consistency bar - this data "
+                        "cannot distinguish the two points.")
+        if selected:
+            lines.append("")
+            lines.append(
+                "Physical-parameter sweep (each requested registry param "
+                "swept ALONE across its plausible range, all others held "
+                "at baseline; SSEs are comparable within this report "
+                "only):")
+            swept: List[str] = []
+            try:
+                for name in sorted(selected):
+                    entry = selected[name]
+                    spec = ParamSpec(name,
+                                     float(entry["default"]),
+                                     lo=float(entry["lo"]),
+                                     hi=float(entry["hi"]),
+                                     scale=entry.get("scale", "linear"))
+                    cands = [
+                        float(v) for v in grid_candidates(spec, num_points)
+                    ]
+                    try:
+                        sses = []
+                        for c in cands:
+                            # Between-rollout checkpoint: a budget stop
+                            # must salvage the completed params below,
+                            # not discard minutes of sim time.
+                            if budget_check is not None:
+                                budget_check()
+                            sses.append(
+                                compute_rollout_sse(fit_env, rollouts, {
+                                    **rule_params, name: c
+                                }, scope, [name], rules, latent_init, scaling))
+                    except ProbeBudgetExceeded:
+                        raise
+                    except Exception as e:  # pylint: disable=broad-except
+                        lines.append(f"  {name}: sweep failed:\n    {e}")
+                        swept.append(name)
+                        continue
+                    best_i = int(np.argmin(sses))
+                    best_sse = sses[best_i]
+                    worst_sse = max(sses)
+                    base_ratio = (baseline_sse /
+                                  best_sse if best_sse > 0 else float("inf"))
+                    spread = (worst_sse /
+                              best_sse if best_sse > 0 else float("inf"))
+                    if worst_sse <= 0:
+                        # Every candidate scores exactly 0 (static or
+                        # perfectly reproduced data): a flat landscape,
+                        # not evidence.
+                        verdict = ("flat across the range - this data "
+                                   "cannot constrain it (declaring it "
+                                   "would fit noise)")
+                    elif base_ratio >= ratio_bar:
+                        verdict = (f"the data is {base_ratio:.1f}x better "
+                                   f"explained at {cands[best_i]:.4g} than "
+                                   "at the baseline - strong evidence FOR "
+                                   "declaring this parameter in "
+                                   "PHYSICAL_PARAMS")
+                    elif spread < ratio_bar:
+                        verdict = ("flat across the range - this data "
+                                   "cannot constrain it (declaring it "
+                                   "would fit noise)")
+                    else:
+                        verdict = (f"best at {cands[best_i]:.4g} "
+                                   f"({base_ratio:.1f}x vs baseline) - weak "
+                                   "evidence; consider data that exercises "
+                                   "it")
+                    cand_str = ", ".join(f"{c:.4g} -> {s:.4g}"
+                                         for c, s in zip(cands, sses))
+                    lines.append(f"  {name} ({spec.scale} scale, baseline "
+                                 f"{float(entry['default']):.4g}):")
+                    lines.append(f"    {cand_str}")
+                    lines.append(f"    {verdict}.")
+                    swept.append(name)
+            except ProbeBudgetExceeded as e:
+                remaining = sorted(set(selected) - set(swept))
+                lines.append(
+                    f"  SWEEP STOPPED EARLY after {len(swept)}/"
+                    f"{len(selected)} parameters ({e}). Parameters "
+                    "reported above are complete; still unswept: "
+                    f"{remaining} - re-run with sweep_params={remaining} "
+                    "if their evidence is still needed.")
+        if selected or phys_params:
+            lines.extend([
+                "",
+                "How to read this: replay divergence is chaotic, so the "
+                "SSE never reaches 0 even at perfect parameters - compare "
+                "ratios, not absolutes (the run's consistency bar is "
+                f"{ratio_bar:g}x). A parameter materially better at "
+                "another value belongs in PHYSICAL_PARAMS so the "
+                "system-ID fit can calibrate it; a flat sweep means this "
+                "data cannot distinguish values.",
+            ])
+        else:
+            lines.append("")
+            lines.append(
+                "No parameter probing requested. Env-registry physical "
+                "parameters this data could be tested against:")
+            for name in sorted(sweepable):
+                entry = sweepable[name]
+                lines.append(
+                    f"  {name}: baseline {float(entry['default']):.4g}, "
+                    f"box [{float(entry['lo']):.4g}, "
+                    f"{float(entry['hi']):.4g}] "
+                    f"({entry.get('scale', 'linear')} scale)")
+            lines.append(
+                "An absolute rollout SSE is meaningless under chaotic "
+                "replay divergence - only ratios between parameter values "
+                "carry evidence. Pass sweep_params=[...] (or 'all') to "
+                "sweep each named parameter alone across its box, or "
+                "phys_params={name: value} to score one hypothesized "
+                "point. Consult a sweep BEFORE deciding the "
+                "PHYSICAL_PARAMS declaration, in either direction: 'this "
+                "data is explained Nx better at a different value' is the "
+                "open-loop evidence the declaration needs, and a flat "
+                "sweep is honest evidence the data cannot constrain a "
+                "parameter.")
         return "\n".join(lines)
 
     # ── run_residuals (the ``sim.residuals`` backend) ───────────
@@ -837,7 +982,8 @@ def create_synthesis_tools(
                       path: Optional[str] = None,
                       rollout: bool = False,
                       sweep_num_points: int = 6,
-                      sweep_params: Optional[List[str]] = None) -> str:
+                      sweep_params: Optional[Union[str, List[str]]] = None,
+                      phys_params: Optional[Dict[str, float]] = None) -> str:
         """Per-feature residual report for the current PROCESS_RULES.
 
         The backend behind ``sim.residuals``. Loads the rules fresh
@@ -853,25 +999,32 @@ def create_synthesis_tools(
         simulator_versions/ and tags output ``[cycle_XXX_vers_YYY]``.
 
         ``rollout=True`` switches to the OPEN-LOOP report (see
-        ``_run_rollout_residuals``): free-running replay divergence plus
-        a per-parameter sweep of the env's physical-param registry
-        (``sweep_num_points`` candidates each; ``sweep_params`` narrows
-        which - each candidate costs one fresh-env rollout per motion
-        segment, so the default full sweep takes a few minutes). The
-        two modes answer different questions: per-step localizes WHICH
-        feature has an unmodeled process; rollout answers whether the
-        base physics is globally faithful, which per-step residuals
-        cannot see.
+        ``_run_rollout_residuals``): free-running replay divergence at
+        the current baselines. On top of that, ``sweep_params`` (a list
+        of registry names, or ``"all"``) opts into a per-parameter
+        sweep of the env's physical-param registry
+        (``sweep_num_points`` candidates each - each candidate costs
+        one fresh-env rollout per motion segment, so a full-registry
+        sweep takes minutes), and ``phys_params`` ({name: value},
+        mutually exclusive with ``sweep_params``) scores the data at
+        one hypothesized point and reports the SSE ratio vs the
+        baseline. The two modes answer different questions: per-step
+        localizes WHICH feature has an unmodeled process; rollout
+        answers whether the base physics is globally faithful, which
+        per-step residuals cannot see.
         """
         p = path or simulator_file
         rules, specs, declared, latent_init, _physical_specs, version_tag, \
             err = _snapshot_and_load(p)
         if err:
             return str(err)
+        if not rollout and (sweep_params is not None or phys_params):
+            return (f"[{version_tag}] Error: sweep_params/phys_params apply "
+                    "to the open-loop report only - pass rollout=True.")
         if rollout:
             return _run_rollout_residuals(rules, specs, latent_init,
                                           version_tag, sweep_num_points,
-                                          sweep_params)
+                                          sweep_params, phys_params)
 
         process_features = (declared if isinstance(declared, dict) else
                             inferred_process_features)

@@ -334,6 +334,8 @@ as `cycle_XXX_vers_YYY_samplers.py`."""
         # The probe's `sim.refine` gives the agent the samples-to-refine
         # feedback signal; the sampler tool installs + sanity-checks the
         # samplers.
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.belief_probe import _check_time_budget
         toolkit = create_synthesis_tools(
             exec_ns,
             base_pred_triples,
@@ -347,6 +349,7 @@ as `cycle_XXX_vers_YYY_samplers.py`."""
             sandbox_dir=base,
             sandbox_dir_for_agent=sandbox_dir_for_agent,
             cycle_index_provider=self._learning_cycle_index,
+            budget_check=lambda: _check_time_budget(self._tool_context),
         )
         tools = list(toolkit.tools)
         tools.extend(self._make_sampler_tools(paths))
