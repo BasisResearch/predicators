@@ -40,6 +40,23 @@ _REQUIRED_HOOKS = {
 }
 
 
+def _ends_at(option: Any, obs: Observation) -> bool:
+    """Whether ``option`` ends at ``obs``, without disturbing the option.
+
+    ``terminal`` may be stateful: ``Wait`` counts consecutive settled steps
+    in ``option.memory``, and the option's own policy is already counting
+    that series one call per step. Asking here without putting the memory
+    back would insert an extra sample per step, so ``Wait`` would judge the
+    scene settled in a third of the steps it actually takes.
+    """
+    saved = dict(option.memory)
+    try:
+        return cast(bool, option.terminal(obs))
+    finally:
+        option.memory.clear()
+        option.memory.update(saved)
+
+
 class _DomainHooks(Protocol):
     """The domain-specific conversions, which no base class can declare.
 
@@ -81,7 +98,7 @@ class OptionBoundaryBuffer:
         if not action.has_option():
             return None
         self._actions.append(action)
-        if not action.get_option().terminal(obs):
+        if not _ends_at(action.get_option(), obs):
             return None
         chunk, self._actions = self._actions, []
         return chunk

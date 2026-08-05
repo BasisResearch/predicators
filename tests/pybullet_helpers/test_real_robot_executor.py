@@ -237,6 +237,44 @@ def test_buffer_returns_a_chunk_only_at_a_boundary():
     assert not buffer  # emptied by the handover
 
 
+def test_buffer_does_not_disturb_a_stateful_terminal():
+    """``Wait`` counts consecutive settled steps in its own memory, and its
+    policy already consults it once per step.
+
+    A boundary check that counted as well would insert a second sample per
+    step, so ``Wait`` would call the scene settled in half the steps it
+    really takes -- and on the arm, a look would be spent every time.
+    """
+    settle_steps = 3
+
+    def _terminal(state: Any, memory: Any, objects: Any, params: Any) -> bool:
+        del state, objects, params
+        memory["count"] = memory.get("count", 0) + 1
+        return cast(bool, memory["count"] >= settle_steps)
+
+    param_opt = ParameterizedOption("Wait", [],
+                                    Box(0, 1, (1, )),
+                                    policy=lambda s, m, o, p: Action(p),
+                                    initiable=lambda s, m, o, p: True,
+                                    terminal=_terminal)
+    option = param_opt.ground([], [0.5])
+    buffer = OptionBoundaryBuffer()
+
+    def _carry(opt: Any) -> Action:
+        """An action carrying ``opt`` with its real ``terminal`` intact."""
+        action = Action(np.zeros(9, dtype=np.float32))
+        action.set_option(opt)
+        return action
+
+    for _ in range(2):
+        option.terminal(None)  # the option policy's own call, which counts
+        buffer.add(_carry(option), None)  # the executor's, which must not
+    assert option.memory["count"] == 2
+
+    # So the boundary is still the third settled step, not the second.
+    assert option.terminal(None)
+
+
 def test_buffer_ignores_actions_with_no_option():
     """An action carrying no option has no boundary to attribute it to, so it
     is never buffered and never shipped alone."""
