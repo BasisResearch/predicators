@@ -23,7 +23,7 @@ import json
 import logging
 import math
 from dataclasses import dataclass
-from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 import pybullet as p
@@ -31,14 +31,15 @@ import pybullet as p
 from predicators import utils
 from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
-from predicators.envs.pybullet_domino.env import PyBulletDominoComposedEnv, \
-    PyBulletDominoEnv
+from predicators.envs.pybullet_domino.env import DominoEvaluator, \
+    PyBulletDominoComposedEnv, PyBulletDominoEnv
 from predicators.envs.pybullet_domino.real_geometry import Pose6D, \
     domino_env_euler, domino_world_z_offset, pose_base_to_world
 from predicators.pybullet_helpers.objects import create_object, \
     create_pybullet_block
 from predicators.settings import CFG
-from predicators.structs import EnvironmentTask, GroundAtom, State
+from predicators.structs import EnvironmentTask, GroundAtom, State, \
+    TaskEvaluator
 
 
 def _base_pose(xyz: Sequence[float], quat_xyzw: Sequence[float]) -> Pose6D:
@@ -500,8 +501,40 @@ class PyBulletDominoRealEnv(RealSceneGeometryMixin, PyBulletDominoEnv):
             "Move the blue dominoes such that when the green domino is pushed, "
             "the purple domino is toppled. Do NOT directly push or topple the "
             "purple domino yourself.")
-        task = EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl)
+        task = EnvironmentTask(init_state,
+                               goal_atoms,
+                               goal_nl=goal_nl,
+                               evaluator=self._evaluator_for(
+                                   init_state, goal_atoms))
         return self._add_pybullet_state_to_tasks([task])[0]
+
+    def _evaluator_for(self, init_state: State,
+                       goal_atoms: Set[GroundAtom]) -> Optional[TaskEvaluator]:
+        """A ``DominoEvaluator`` for this scene, or None when it is off.
+
+        Without one every episode scores 0.0, so an over-built chain
+        reads the same as a minimal one -- which is the whole signal the
+        friction mismatch is measured by. The evaluator holds no oracle
+        quantity and no env handle, so it is safe to ship on the agent-
+        facing task.
+        """
+        if not CFG.domino_real_attach_evaluator:
+            return None
+        comp = self._domino_component
+        assert comp is not None, "env has no domino component"
+        num_movables = sum(1
+                           for dom in init_state.get_objects(comp.domino_type)
+                           if comp._MovableBlock_holds(init_state, [dom]))  # pylint: disable=protected-access
+        # DominoEvaluator asserts this itself, but it would fire mid-episode
+        # on the real robot; name the scene's own numbers instead.
+        if CFG.domino_block_cost * num_movables >= 1.0:
+            raise ValueError(
+                f"domino_real_attach_evaluator: {num_movables} movable "
+                f"dominoes at domino_block_cost={CFG.domino_block_cost} "
+                "costs at least as much as a success is worth, so a "
+                "legitimate cascade would not outscore failing. Lower "
+                "domino_block_cost or stage fewer movable dominoes.")
+        return DominoEvaluator(goal_atoms, num_movables)
 
     def _build_task_from_scene(self) -> EnvironmentTask:
         """Build the captured-scene task with attached pybullet state."""

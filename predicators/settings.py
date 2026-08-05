@@ -619,6 +619,14 @@ class GlobalSettings:
     domino_real_domino_dims = [0.15, 0.07,
                                0.029]  # (L, W, H) -> height,width,depth
     domino_real_decorate = True  # spawn extended-table tile + robot pedestal
+    # Attach a DominoEvaluator to the tasks built from the real scene. Off by
+    # default: a real task otherwise carries no evaluator, so every episode
+    # scores reward 0.0 and an over-built chain is indistinguishable from a
+    # minimal one. Turn it on to measure that difference -- it is what the
+    # friction-mismatch experiments are read off. Requires
+    # domino_block_cost * (movable dominoes in the scene) < 1.0, so that a
+    # legitimate success still outscores any failure.
+    domino_real_attach_evaluator = False
     # Reach-limited "minimum-blocks" task mode: generate start/target pairs
     # spaced so that toppling requires bridging near the reach limit, and
     # attach each task a ``DominoEvaluator``. Success = toppling the target

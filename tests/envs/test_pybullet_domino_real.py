@@ -33,6 +33,7 @@ from predicators.envs.pybullet_domino_real import PyBulletDominoRealEnv, \
     _canonical_roll
 from predicators.pybullet_helpers.real_robot_bridge import \
     gripper_joint_layout_from_robot
+from predicators.settings import CFG
 from predicators.structs import GroundAtom
 
 _TABLE_Z = -0.041
@@ -722,3 +723,55 @@ def test_a_flipped_observation_is_still_upright(env):
     # pylint: disable=protected-access
     assert comp._Upright_holds(state, [target])
     assert not comp._Toppled_holds(state, [target])
+
+
+# -- the task evaluator ------------------------------------------------------
+def test_no_evaluator_by_default(env):
+    """A real task ships without one, as it always has.
+
+    Attaching an evaluator changes what every episode scores, so it
+    stays opt-in rather than arriving with an upgrade.
+    """
+    task = env._build_task_from_scene()  # pylint: disable=protected-access
+
+    assert task.evaluator is None
+
+
+def test_evaluator_counts_the_scene_s_movable_dominoes(env):
+    """Turned on, the task carries an evaluator budgeted by this scene.
+
+    The count has to come from the scene rather than the min-block flag:
+    a real scene stages whatever the person put on the table.
+    """
+    CFG.domino_real_attach_evaluator = True
+    old_blues = CFG.domino_min_block_num_blues
+    # A budget the min-block flag could never satisfy: if the count were
+    # taken from it rather than from the scene, DominoEvaluator's own
+    # assertion would fire here (0.05 * 25 > 1.0).
+    CFG.domino_min_block_num_blues = 25
+    try:
+        task = env._build_task_from_scene()  # pylint: disable=protected-access
+    finally:
+        CFG.domino_min_block_num_blues = old_blues
+        CFG.domino_real_attach_evaluator = False
+
+    assert task.evaluator is not None
+    assert task.evaluator.goal == task.goal
+
+
+def test_evaluator_refuses_a_scene_it_cannot_score(env):
+    """Too many movables and a success stops outscoring a failure.
+
+    DominoEvaluator asserts this itself, but that would fire mid-episode
+    on the real robot; this names the scene's own numbers up front
+    instead.
+    """
+    CFG.domino_real_attach_evaluator = True
+    old_cost = CFG.domino_block_cost
+    CFG.domino_block_cost = 0.9  # 2 movables -> 1.8, well over the bar
+    try:
+        with pytest.raises(ValueError, match="domino_real_attach_evaluator"):
+            env._build_task_from_scene()  # pylint: disable=protected-access
+    finally:
+        CFG.domino_block_cost = old_cost
+        CFG.domino_real_attach_evaluator = False
