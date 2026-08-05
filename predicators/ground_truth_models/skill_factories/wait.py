@@ -25,7 +25,31 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.ground_truth_models.skill_factories.base import SkillConfig
 from predicators.structs import Action, Array, Object, ParameterizedOption, \
-    State, Type
+    State, Type, _Option
+
+
+def note_external_state_change(option: _Option, state: State) -> None:
+    """Tell ``option`` that ``state`` was set from outside, not moved into.
+
+    ``Wait`` ends once the scene holds still for several consecutive steps.
+    Writing perception into the twin replaces object poses without the
+    scene having moved, so counting that jump would zero the tally at
+    every look and ``Wait`` would never see the scene settle. This keeps
+    the tally and moves the comparison point past the jump, so the jump is
+    skipped rather than counted as motion.
+
+    A no-op for options that track no quiescence.
+    """
+    memory = option.memory
+    if "quiescence_prev" not in memory:
+        return
+    robot_obj = option.objects[0]
+    scene_objs = sorted((o for o in state if o != robot_obj), key=str)
+    if not scene_objs:
+        return
+    memory["quiescence_prev"] = state.vec(scene_objs)
+    # The cached identity names the pre-resync state, so drop it.
+    memory.pop("quiescence_sref", None)
 
 
 def create_wait_option(

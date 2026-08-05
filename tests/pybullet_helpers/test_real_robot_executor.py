@@ -13,6 +13,7 @@ those helpers ship is babyrobot's contract, covered in
 """
 import ast
 import inspect
+import json
 from typing import Any, List, Optional, cast
 
 import numpy as np
@@ -23,7 +24,8 @@ from predicators import utils
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.real_robot_bridge import GripperJointLayout
 from predicators.pybullet_helpers.real_robot_executor import \
-    OptionBoundaryBuffer, RealRobotExecutor, attach_real_robot
+    OptionBoundaryBuffer, RealRobotExecutor, _dump_look, \
+    _per_object_divergence, attach_real_robot
 from predicators.structs import Action, Object, ParameterizedOption, State, \
     Type
 
@@ -233,6 +235,44 @@ def test_buffer_returns_a_chunk_only_at_a_boundary():
 
     assert chunk is not None and len(chunk) == 3
     assert not buffer  # emptied by the handover
+
+
+def test_buffer_does_not_disturb_a_stateful_terminal():
+    """``Wait`` counts consecutive settled steps in its own memory, and its
+    policy already consults it once per step.
+
+    A boundary check that counted as well would insert a second sample
+    per step, so ``Wait`` would call the scene settled in half the steps
+    it really takes -- and on the arm, a look would be spent every time.
+    """
+    settle_steps = 3
+
+    def _terminal(state: Any, memory: Any, objects: Any, params: Any) -> bool:
+        del state, objects, params
+        memory["count"] = memory.get("count", 0) + 1
+        return cast(bool, memory["count"] >= settle_steps)
+
+    param_opt = ParameterizedOption("Wait", [],
+                                    Box(0, 1, (1, )),
+                                    policy=lambda s, m, o, p: Action(p),
+                                    initiable=lambda s, m, o, p: True,
+                                    terminal=_terminal)
+    option = param_opt.ground([], [0.5])
+    buffer = OptionBoundaryBuffer()
+
+    def _carry(opt: Any) -> Action:
+        """An action carrying ``opt`` with its real ``terminal`` intact."""
+        action = Action(np.zeros(9, dtype=np.float32))
+        action.set_option(opt)
+        return action
+
+    for _ in range(2):
+        option.terminal(None)  # the option policy's own call, which counts
+        buffer.add(_carry(option), None)  # the executor's, which must not
+    assert option.memory["count"] == 2
+
+    # So the boundary is still the third settled step, not the second.
+    assert option.terminal(None)
 
 
 def test_buffer_ignores_actions_with_no_option():
@@ -486,3 +526,72 @@ def test_attach_rejects_a_non_pybullet_env():
     with pytest.raises(TypeError) as exc:
         attach_real_robot(cast(Any, object()), _StubRobot())
     assert "PyBullet" in str(exc.value)
+
+
+# -- per-look observability --------------------------------------------------
+
+_OTHER = Object("block1", _BLOCK_TYPE)
+
+
+def _two_object_state(x0: float, x1: float) -> State:
+    """A two-object state, so a per-object breakdown has something to break
+    down."""
+    return State({
+        _BLOCK: np.array([x0, 0.0, 0.0]),
+        _OTHER: np.array([x1, 0.0, 0.0]),
+    })
+
+
+def test_per_object_divergence_names_the_object_and_orders_by_distance():
+    """The max alone cannot tell a knocked object from a shared offset.
+
+    ``_max_position_divergence`` answers "how bad", which is what the
+    tolerance tests; this answers "which", which is what a human reads.
+    """
+    predicted = _two_object_state(0.0, 0.0)
+    perceived = _two_object_state(0.01, 0.05)
+
+    result = _per_object_divergence(predicted, perceived)
+
+    assert [obj.name for obj, _ in result] == ["block1", "block0"]
+    assert result[0][1] == pytest.approx(0.05)
+    assert result[1][1] == pytest.approx(0.01)
+
+
+def test_dump_look_writes_both_sides_of_the_comparison(tmp_path):
+    """A dumped look records the prediction beside the perception.
+
+    Recording only the divergence would leave a session unable to say
+    WHERE things were, which is what makes a capture re-examinable
+    offline.
+    """
+    utils.reset_config({
+        "seed": 0,
+        "real_robot_observation_dump_dir": str(tmp_path),
+    })
+    predicted = _two_object_state(0.0, 0.0)
+    perceived = _two_object_state(0.01, 0.05)
+
+    _dump_look(3, predicted, perceived,
+               _per_object_divergence(predicted, perceived), 0.05)
+
+    written = sorted(tmp_path.glob("*.json"))
+    assert [f.name for f in written] == ["look_0003.json"]
+    record = json.loads(written[0].read_text(encoding="utf-8"))
+    assert record["look"] == 3
+    assert record["worst_divergence"] == pytest.approx(0.05)
+    assert record["predicted"]["block1"] == [0.0, 0.0, 0.0]
+    assert record["perceived"]["block1"] == [0.05, 0.0, 0.0]
+    assert record["per_object"]["block1"] == pytest.approx(0.05)
+
+
+def test_dump_look_is_off_by_default(tmp_path):
+    """Dumping is opt-in: an unset directory writes nothing at all."""
+    utils.reset_config({"seed": 0, "real_robot_observation_dump_dir": ""})
+    predicted = _two_object_state(0.0, 0.0)
+    perceived = _two_object_state(0.01, 0.0)
+
+    _dump_look(1, predicted, perceived,
+               _per_object_divergence(predicted, perceived), 0.01)
+
+    assert not list(tmp_path.iterdir())

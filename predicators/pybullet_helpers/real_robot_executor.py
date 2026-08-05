@@ -16,14 +16,18 @@ overwritten by the twin's own simulation on the very next action.
 """
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any, List, Optional, Protocol, cast
+import os
+from typing import Any, Dict, List, Optional, Protocol, Tuple, cast
 
 import numpy as np
 
 from predicators import utils
 from predicators.envs.base_env import BaseEnv
 from predicators.envs.pybullet_env import PyBulletEnv
+from predicators.ground_truth_models.skill_factories.wait import \
+    note_external_state_change
 from predicators.pybullet_helpers.real_robot_bridge import execute_chunks, \
     make_real_robot, reset_arm, reset_env
 from predicators.settings import CFG
@@ -36,6 +40,24 @@ _REQUIRED_HOOKS = {
     "state_from_observation": "convert a perceived observation into a State",
     "task_from_observation": "build a task from a perceived observation",
 }
+
+
+def _ends_at(option: Any, obs: Observation) -> bool:
+    """Whether ``option`` ends at ``obs``, without disturbing the option.
+
+    ``terminal`` may be stateful: ``Wait`` counts consecutive settled
+    steps in ``option.memory``, and the option's own policy is already
+    counting that series one call per step. Asking here without putting
+    the memory back would insert an extra sample per step, so ``Wait``
+    would judge the scene settled in a third of the steps it actually
+    takes.
+    """
+    saved = dict(option.memory)
+    try:
+        return cast(bool, option.terminal(obs))
+    finally:
+        option.memory.clear()
+        option.memory.update(saved)
 
 
 class _DomainHooks(Protocol):
@@ -79,7 +101,7 @@ class OptionBoundaryBuffer:
         if not action.has_option():
             return None
         self._actions.append(action)
-        if not action.get_option().terminal(obs):
+        if not _ends_at(action.get_option(), obs):
             return None
         chunk, self._actions = self._actions, []
         return chunk
@@ -97,6 +119,8 @@ class TwinCorrector:
     def __init__(self, env: PyBulletEnv, divergence_atol: float) -> None:
         self._env = env
         self._divergence_atol = divergence_atol
+        # Looks so far, used to name the dumps in the order they happened.
+        self._look_count = 0
         # Largest per-object position disagreement between the twin and the
         # real scene at the last look, in metres; None before the first look.
         self.last_divergence: Optional[float] = None
@@ -118,6 +142,16 @@ class TwinCorrector:
         domain = cast(_DomainHooks, self._env)
         perceived = domain.state_from_observation(observation, predicted)
         self.last_divergence = _max_position_divergence(predicted, perceived)
+        self._look_count += 1
+        per_object = _per_object_divergence(predicted, perceived)
+        # Log every look, not only the ones over tolerance: a run whose looks
+        # all behaved should still say so, and the per-object breakdown is
+        # what distinguishes one bad capture from a systematic offset.
+        logging.info(
+            "real robot: look %d, worst %.4f m (tolerance %.3f m); %s",
+            self._look_count, self.last_divergence or float("nan"),
+            self._divergence_atol, ", ".join(f"{obj.name} {dist:.4f}"
+                                             for obj, dist in per_object))
         if self.last_divergence is not None and \
                 self.last_divergence > self._divergence_atol:
             logging.warning(
@@ -125,11 +159,73 @@ class TwinCorrector:
                 "predicted (tolerance %.3f m); the twin is being corrected, "
                 "but the current plan was made against the prediction",
                 self.last_divergence, self._divergence_atol)
+        _dump_look(self._look_count, predicted, perceived, per_object,
+                   self.last_divergence)
         self._env.sync_to_state(perceived)
         # No need to refresh the env's cached observation by hand:
         # PyBulletEnv.get_observation re-reads the state out of PyBullet, so
         # this picks the corrected world up (and re-caches it).
         return self._env.get_observation()
+
+
+def _per_object_divergence(predicted: State,
+                           perceived: State) -> List[Tuple[Any, float]]:
+    """Per-object ``(object, distance)``, worst first.
+
+    ``_max_position_divergence`` answers "how bad", which is what the
+    tolerance is checked against; this answers "which object", which is
+    what tells a knocked domino apart from a table-height offset shared
+    by all of them.
+    """
+    out = []
+    for obj in predicted.data:
+        if obj not in perceived.data:
+            continue
+        if not {"x", "y", "z"}.issubset(obj.type.feature_names):
+            continue
+        delta = np.array(
+            [predicted.get(obj, f) - perceived.get(obj, f) for f in "xyz"])
+        out.append((obj, float(np.linalg.norm(delta))))
+    return sorted(out, key=lambda pair: pair[1], reverse=True)
+
+
+def _dump_look(index: int, predicted: State, perceived: State,
+               per_object: List[Tuple[Any,
+                                      float]], worst: Optional[float]) -> None:
+    """Write one look to ``CFG.real_robot_observation_dump_dir`` as JSON.
+
+    Records the twin's prediction beside what was perceived, so a
+    session can be re-examined offline -- including the looks that
+    raised no warning. Failing to write must never take the arm down
+    mid-episode, so any error here is logged and swallowed.
+    """
+    out_dir = CFG.real_robot_observation_dump_dir
+    if not out_dir:
+        return
+
+    def _poses(state: State) -> Dict[str, List[float]]:
+        return {
+            obj.name: [float(state.get(obj, f)) for f in "xyz"]
+            for obj in state.data
+            if {"x", "y", "z"}.issubset(obj.type.feature_names)
+        }
+
+    record = {
+        "look": index,
+        "worst_divergence": worst,
+        "divergence_atol": CFG.real_robot_divergence_atol,
+        "predicted": _poses(predicted),
+        "perceived": _poses(perceived),
+        "per_object": {obj.name: dist
+                       for obj, dist in per_object},
+    }
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+        path = os.path.join(out_dir, f"look_{index:04d}.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(record, f, indent=2, sort_keys=True)
+    except OSError as exc:  # pragma: no cover - disk trouble only
+        logging.warning("real robot: could not write %s (%s)", out_dir, exc)
 
 
 class RealRobotExecutor:
@@ -271,6 +367,11 @@ class RealRobotExecutor:
                                       settle_s=self._settle_s)
         for observation in observations:
             obs = self._corrector.absorb(observation)
+        # The correction moved objects, but the scene did not move. Options
+        # that judge the scene settled have to be told, or every look would
+        # read as motion and they would never see it come to rest.
+        if isinstance(obs, State):
+            note_external_state_change(action.get_option(), obs)
         return obs
 
     # -- helpers -----------------------------------------------------------

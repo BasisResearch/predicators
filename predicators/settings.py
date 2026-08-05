@@ -585,6 +585,16 @@ class GlobalSettings:
     # How far (metres) the scene may be from where the twin predicted before
     # the disagreement is worth logging.
     real_robot_divergence_atol = 0.02
+    # Write every option-boundary look to this directory as JSON: what was
+    # perceived, what the twin predicted, and the per-object disagreement.
+    # Empty disables it. The divergence WARNING only fires above tolerance, so
+    # without this a run leaves no record of the looks that behaved -- and no
+    # way to tell a systematic offset from one bad capture after the fact.
+    real_robot_observation_dump_dir = ""
+    # Plan file the "fixed_plan" explorer replays every episode, in
+    # replay_plan.py's format. Lets the online loop be exercised without
+    # paying for a planning explorer.
+    fixed_plan_explorer_path = ""
     # Between episodes, home the arm and wait for a human to rearrange the
     # scene, then rebuild that episode's task from what the cameras then see.
     # False keeps the captured scene, which is what a fixed-plan
