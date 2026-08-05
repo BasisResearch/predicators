@@ -106,6 +106,10 @@ class AgentBilevelExplorer(BaseExplorer):
                 # The explorer refines its own sketch for exploration; it does
                 # not use the approach's tool-validated capture path.
                 require_tool_validation=False,
+                # Explore contract: the sketch is a real-env experiment, and
+                # the belief model may lack goal-critical dynamics, so a
+                # simulator-failing sketch is a valid deliverable.
+                explore_mode=True,
                 ground_samplers=CFG.agent_bilevel_ground_samplers,
             )
             responses = run_query_sync(self._agent_session,

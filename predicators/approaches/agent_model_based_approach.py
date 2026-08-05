@@ -225,16 +225,27 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
                 "arguments and subgoal atoms after each step, plus continuous "
                 f"parameters you find with {refine_ref}")
 
-        # The deliverable is a plan that WORKS IN THE SIMULATOR, submitted
-        # by evaluate_option_plan; refine_plan_sketch is only a (slower)
-        # aid for finding parameters while reasoning.
-        job = ("Your job is to produce a plan that WORKS IN THE SIMULATOR - " +
-               sketch_desc +
-               " that reaches the goal. You DELIVER it by running "
+        # One session serves two query kinds with different delivery
+        # contracts: SOLVE (hard capture gate) and EXPLORE (experiment
+        # sketch - the belief model may lack goal-critical dynamics, so
+        # a goal-reaching capture can be impossible by construction).
+        # State both contracts; each query's Instructions pick one.
+        job = ("Your job is to produce a plan - " + sketch_desc +
+               " - that reaches the goal. Queries arrive in two kinds; "
+               "each query's Instructions section states which contract "
+               "applies.\n"
+               "- SOLVE queries: you DELIVER by running "
                "evaluate_option_plan with per-step subgoals on the current "
-               "task until it reaches the goal - that captured plan is your "
-               "ONLY output, so do not finish until evaluate_option_plan "
-               "reaches the goal. It runs your EXACT parameters with no "
+               "task until it reaches the goal - that captured plan is "
+               "your ONLY accepted output, so do not finish until "
+               "evaluate_option_plan reaches the goal.\n"
+               "- EXPLORE queries: the deliverable is your final "
+               "plan-sketch TEXT, an experiment to run in the real "
+               "environment. A simulator-validated sketch is preferred "
+               "when the current model supports one; when it does not, "
+               "submit the sketch most likely to work in reality instead "
+               "of grinding for a capture the model cannot produce.\n"
+               "evaluate_option_plan runs your EXACT parameters with no "
                "sampling, so every parameter must be right. To find working "
                f"values you MAY use {refine_ref} while reasoning (it "
                "searches for parameters but is slower); read the parameters "
