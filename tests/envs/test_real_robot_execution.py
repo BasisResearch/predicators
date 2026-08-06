@@ -98,6 +98,9 @@ def _config(scene_path, **overrides):
         # These cover per-option execution and the twin sync. The human-gated
         # task rebuild is its own concern, in test_domino_real_online.py.
         "real_robot_human_reset": False,
+        # ...so the captured scene is what these tests mean to run against,
+        # which is what the stale-task guard asks callers to say out loud.
+        "real_robot_allow_captured_scene_task": True,
     }
     flags.update(overrides)
     utils.reset_config(flags)

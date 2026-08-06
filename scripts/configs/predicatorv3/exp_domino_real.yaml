@@ -17,6 +17,9 @@ ENVS:
   domino_real:
     SKIP: False
     FLAGS:
+      # No learning for now, just hybrid sim.
+      agent_sim_learn_oracle_sim_program: True
+      agent_sim_learn_oracle_sim_params: True
       excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
       domino_real_scene: "/home/amberli/babyrobot/BabyRobotPredicator/scenes/domino_straight.json"
       real_robot_execute: True
@@ -25,7 +28,9 @@ ENVS:
       # what the cameras saw beside what the twin predicted.
       real_robot_observation_dump_dir: "logs/stage6_looks"
 APPROACHES:
-  agent_po_predicate_invention_al_margin:
+  agent_oracle_hybrid_sim:
     SKIP: False
+  agent_po_predicate_invention_al_margin:
+    SKIP: True
     FLAGS:
       skip_initial_test: True

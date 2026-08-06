@@ -328,6 +328,7 @@ class RealRobotExecutor:
         off. The latter is what keeps a fixed-plan replay reproducible.
         """
         if not self._human_reset:
+            self._refuse_stale_task(train_or_test)
             return None
         if self._reset_pending:
             # Homes the arm out of the way, blocks until the human confirms,
@@ -352,6 +353,27 @@ class RealRobotExecutor:
             domain.task_from_observation(self._reset_observation,
                                          train_or_test)
         ]
+
+    def _refuse_stale_task(self, train_or_test: str) -> None:
+        """Refuse to hand back the captured scene while the cameras are live.
+
+        Falling through to it is silent: the JSON's poses look like a
+        scene, planning succeeds against them, and the twin only jumps
+        to the truth at the first option boundary -- by which point the
+        plan was written for a world that is not there. Raising here
+        costs a run that was going to be meaningless anyway.
+        """
+        if CFG.real_robot_perception != "zed":
+            return  # not looking at anything, so nothing to be stale about
+        if CFG.real_robot_allow_captured_scene_task:
+            return  # replaying a plan written against exactly those poses
+        raise ValueError(
+            f"the {train_or_test} task would come from "
+            f"{CFG.domino_real_scene!r}, a snapshot, while the cameras are "
+            "live and no one has looked at the scene. Turn "
+            "real_robot_human_reset on so the task is rebuilt from a look, "
+            "or set real_robot_allow_captured_scene_task if you mean to "
+            "replay a plan written against that capture.")
 
     def after_reset(self, train_or_test: str, task_idx: int,
                     obs: Observation) -> None:

@@ -663,15 +663,49 @@ def test_a_second_arrangement_replaces_the_first(monkeypatch):
     assert first[0][0] is not second[0][0]
 
 
-def test_no_task_before_any_scene_has_been_looked_at(monkeypatch):
-    """With human resets off there is no look, so the captured scene stands.
+def test_captured_scene_task_is_refused_while_the_cameras_are_live(
+        monkeypatch):
+    """Live cameras plus no look is a plan written for a world that is not
+    there.
 
-    That is what keeps a fixed-plan replay reproducible.
+    Silent in every other way: the JSON's poses look like a scene and
+    planning against them succeeds, so the run only reveals itself on
+    the arm.
     """
     monkeypatch.setattr(
         "predicators.pybullet_helpers.real_robot_executor.reset_arm",
         lambda robot, joints: tuple(joints))
+    utils.reset_config({
+        "real_robot_perception": "zed",
+        "real_robot_allow_captured_scene_task": False,
+    })
     ex = _executor(_StubEnv(), human_reset=False)
 
-    assert ex.tasks_for("train") is None
+    with pytest.raises(ValueError, match="no one has looked at the scene"):
+        ex.tasks_for("test")
+
+
+def test_replaying_a_recorded_plan_may_keep_the_captured_scene(monkeypatch):
+    """The one case that wants those exact poses says so explicitly."""
+    monkeypatch.setattr(
+        "predicators.pybullet_helpers.real_robot_executor.reset_arm",
+        lambda robot, joints: tuple(joints))
+    utils.reset_config({
+        "real_robot_perception": "zed",
+        "real_robot_allow_captured_scene_task": True,
+    })
+    ex = _executor(_StubEnv(), human_reset=False)
+
+    assert ex.tasks_for("test") is None
+
+
+def test_no_cameras_means_nothing_to_be_stale_about(monkeypatch):
+    """A cameraless run has no truer scene to compare against, so the captured
+    one stands without complaint."""
+    monkeypatch.setattr(
+        "predicators.pybullet_helpers.real_robot_executor.reset_arm",
+        lambda robot, joints: tuple(joints))
+    utils.reset_config({"real_robot_perception": "scene_file"})
+    ex = _executor(_StubEnv(), human_reset=False)
+
     assert ex.tasks_for("test") is None

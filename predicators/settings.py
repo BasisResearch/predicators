@@ -626,6 +626,14 @@ class GlobalSettings:
     domino_real_domino_dims = [0.15, 0.07,
                                0.029]  # (L, W, H) -> height,width,depth
     domino_real_decorate = True  # spawn extended-table tile + robot pedestal
+    # Allow a task built from the scene JSON to be used while the cameras are
+    # live. Off by default, and deliberately: the JSON's poses are a snapshot,
+    # so planning against them while the arm works a scene nobody looked at
+    # plans for a world that is not there -- silently, because the twin only
+    # jumps to the truth at the first option boundary. Replaying a recorded
+    # plan is the one case that wants it (the plan was written against those
+    # poses), which is why replay_plan turns it on.
+    real_robot_allow_captured_scene_task = False
     # Reach-limited "minimum-blocks" task mode: generate start/target pairs
     # spaced so that toppling requires bridging near the reach limit, and
     # attach each task a ``DominoEvaluator``. Success = toppling the target
