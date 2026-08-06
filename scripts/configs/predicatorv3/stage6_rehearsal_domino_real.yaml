@@ -61,7 +61,7 @@ APPROACHES:
     FLAGS:
       # The whole point: no planning explorer, no LLM in the exploration half.
       explorer: "fixed_plan"
-      fixed_plan_explorer_path: "plans/pickplace.txt"
+      fixed_plan_explorer_path: "plans/solve_v2.txt"
       # The pre-loop test is a second full episode before anything is learned;
       # the rehearsal is about the cycle, so skip it.
       skip_initial_test: True
