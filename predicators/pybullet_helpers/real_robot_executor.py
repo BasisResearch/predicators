@@ -272,6 +272,9 @@ class RealRobotExecutor:
         # The scene has to be arranged before the first episode, so a reset is
         # owed from the start. Set again by every reset, i.e. once per episode.
         self._reset_pending = True
+        # What the last reset saw, kept so both splits rebuild from the same
+        # arrangement. None until the first look.
+        self._reset_observation: Optional[Observation] = None
         # The twin's home arm configuration, captured now: an executor is
         # attached right after the env is built, so the simulated arm is still
         # at home. A scene reset has to send the real arm somewhere before the
@@ -310,24 +313,45 @@ class RealRobotExecutor:
         For a real environment "give me the train task" honestly means
         "look at the scene", so that is what it does.
 
+        **Both splits are served by one look.** A physical reset arranges
+        one scene, and the person who arranged it meant it for whatever
+        runs next -- so the perceived observation is kept and the second
+        split rebuilds from it rather than being refused. Consuming the
+        look on whichever split asked first is what left the other one
+        holding the captured-scene task: with the online loop off,
+        ``main.py`` requests the train tasks during setup, so the *test*
+        task -- the one that gets solved -- silently stayed on the scene
+        JSON while the arm executed in the real one.
+
         Returns None -- leaving the env's captured-scene task alone --
-        when no reset is owed, or when human resets are off. The latter
-        is what keeps a fixed-plan replay reproducible.
+        when no scene has been looked at yet, or when human resets are
+        off. The latter is what keeps a fixed-plan replay reproducible.
         """
-        if not self._human_reset or not self._reset_pending:
+        if not self._human_reset:
             return None
-        # Homes the arm out of the way, blocks until the human confirms, then
-        # perceives.
-        observation = reset_env(self._robot, self._home_arm)
-        self._reset_pending = False
-        self.resets_done += 1
-        logging.info(
-            "real robot: scene reset #%d; rebuilding the %s task "
-            "from what the cameras see", self.resets_done, train_or_test)
+        if self._reset_pending:
+            # Homes the arm out of the way, blocks until the human confirms,
+            # then perceives.
+            self._reset_observation = reset_env(self._robot, self._home_arm)
+            self._reset_pending = False
+            self.resets_done += 1
+            logging.info(
+                "real robot: scene reset #%d; rebuilding the %s task "
+                "from what the cameras see", self.resets_done, train_or_test)
+        elif self._reset_observation is not None:
+            logging.info(
+                "real robot: rebuilding the %s task from scene reset #%d "
+                "(one arrangement serves both splits)", train_or_test,
+                self.resets_done)
+        else:
+            return None
         domain = cast(_DomainHooks, self._env)
         # One task, because a physical scene is one scene. The env keeps the
         # list length stable, so task indices already handed out stay valid.
-        return [domain.task_from_observation(observation, train_or_test)]
+        return [
+            domain.task_from_observation(self._reset_observation,
+                                         train_or_test)
+        ]
 
     def after_reset(self, train_or_test: str, task_idx: int,
                     obs: Observation) -> None:
