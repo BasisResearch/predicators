@@ -129,7 +129,7 @@ def create_pick_skill(
         robot_obj = objects[0]
         current = cfg.fingers_state_to_joint(cfg.robot,
                                              state.get(robot_obj, "fingers"))
-        target = cfg.closed_fingers_joint - 0.01
+        target = cfg.closed_fingers_joint - cfg.pick_close_overshoot
         return current, target
 
     def _above_pose(

@@ -466,6 +466,13 @@ class GlobalSettings:
     # EE yaw relative to the pushed object's yaw during Push. None (the
     # default) takes it from the robot.
     skill_push_ee_yaw_offset = None
+    # How far past the closed-finger value Pick drives the fingers. None
+    # (the default) keeps SkillConfig's 0.01. A grasp is a weld created on
+    # proximity, so overshoot buys nothing once the fingers touch; past
+    # that it drives them into the object and the stored contact impulse
+    # kicks it when the weld is released. Lower it for an object thinner
+    # than the closed gap.
+    skill_pick_close_overshoot = None
 
     # coffee env parameters
     coffee_num_cups_train = [1, 2]
