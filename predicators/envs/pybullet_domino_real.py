@@ -35,6 +35,7 @@ from predicators.envs.pybullet_domino.env import DominoEvaluator, \
     PyBulletDominoComposedEnv, PyBulletDominoEnv
 from predicators.envs.pybullet_domino.real_geometry import Pose6D, \
     domino_env_euler, domino_world_z_offset, pose_base_to_world
+from predicators.envs.pybullet_domino.task_generators import goal_text
 from predicators.pybullet_helpers.objects import create_object, \
     create_pybullet_block
 from predicators.settings import CFG
@@ -52,6 +53,23 @@ def _base_pose(xyz: Sequence[float], quat_xyzw: Sequence[float]) -> Pose6D:
     x, y, z = (float(v) for v in xyz)
     qx, qy, qz, qw = (float(v) for v in quat_xyzw)
     return Pose6D((x, y, z), (qx, qy, qz, qw))
+
+
+def _scoring_nl() -> str:
+    """The reward structure, in the words the generator already uses.
+
+    Kept identical to ``DominoTaskGenerator._make_task`` for the reason
+    recorded there: without it an agent reads a rejected goal-reaching
+    attempt as a fatal per-blue penalty rather than a missing solve
+    bonus, and spends its budget theorising about that instead.
+    """
+    cost = CFG.domino_block_cost
+    return ((f" Scoring: a solve earns +1 reward, and each blue "
+             f"domino the cascade consumes (toppled or shoved "
+             f"out of place) costs {cost:g}, so a solve that "
+             f"uses one blue scores +{1.0 - cost:g}. Using "
+             f"blues never disqualifies a solve.") +
+            goal_text.CASCADE_VERIFICATION_NL)
 
 
 def _canonical_roll(roll: float) -> float:
@@ -501,27 +519,38 @@ class PyBulletDominoRealEnv(RealSceneGeometryMixin, PyBulletDominoEnv):
             "Move the blue dominoes such that when the green domino is pushed, "
             "the purple domino is toppled. Do NOT directly push or topple the "
             "purple domino yourself.")
+        evaluator = self._evaluator_for(init_state, goal_atoms)
+        if evaluator is not None:
+            goal_nl += _scoring_nl()
         task = EnvironmentTask(init_state,
                                goal_atoms,
                                goal_nl=goal_nl,
-                               evaluator=self._evaluator_for(
-                                   init_state, goal_atoms))
+                               evaluator=evaluator)
         return self._add_pybullet_state_to_tasks([task])[0]
 
     def _evaluator_for(self, init_state: State,
                        goal_atoms: Set[GroundAtom]) -> Optional[TaskEvaluator]:
-        """A ``DominoEvaluator`` for this scene, or None when it is off.
+        """A ``DominoEvaluator`` for this scene, or None if it cannot judge it.
 
-        Without one every episode scores 0.0, so an over-built chain
-        reads the same as a minimal one -- which is the whole signal the
-        friction mismatch is measured by. The evaluator holds no oracle
-        quantity and no env handle, so it is safe to ship on the agent-
-        facing task.
+        Attached on the same terms the task generator uses for the
+        simulated envs (``DominoTaskGenerator._make_task``), because the
+        certificate's causal model is what decides whether a verdict
+        means anything -- not which env built the scene. Without one
+        every episode scores 0.0, so an over-built chain reads the same
+        as a minimal one.
+
+        The two conditions are the generator's, for its reasons: targets
+        must be roll-tracked dominoes, or the certificate cannot see a
+        direct robot knock on one; and dominoes must be the only dynamic
+        component, or something else topples them without a Push and the
+        certificate rejects a legitimate cascade. A real scene is
+        dominoes and nothing else, so the second holds by construction.
         """
-        if not CFG.domino_real_attach_evaluator:
-            return None
         comp = self._domino_component
         assert comp is not None, "env has no domino component"
+        others = [c for c in self._components if c is not comp]
+        if not CFG.domino_use_domino_blocks_as_target or others:
+            return None
         num_movables = sum(1
                            for dom in init_state.get_objects(comp.domino_type)
                            if comp._MovableBlock_holds(init_state, [dom]))  # pylint: disable=protected-access
@@ -529,11 +558,11 @@ class PyBulletDominoRealEnv(RealSceneGeometryMixin, PyBulletDominoEnv):
         # on the real robot; name the scene's own numbers instead.
         if CFG.domino_block_cost * num_movables >= 1.0:
             raise ValueError(
-                f"domino_real_attach_evaluator: {num_movables} movable "
-                f"dominoes at domino_block_cost={CFG.domino_block_cost} "
-                "costs at least as much as a success is worth, so a "
-                "legitimate cascade would not outscore failing. Lower "
-                "domino_block_cost or stage fewer movable dominoes.")
+                f"this scene stages {num_movables} movable dominoes, which "
+                f"at domino_block_cost={CFG.domino_block_cost} cost at least "
+                "as much as a success is worth -- a legitimate cascade would "
+                "not outscore failing. Lower domino_block_cost or stage "
+                "fewer movable dominoes.")
         return DominoEvaluator(goal_atoms, num_movables)
 
     def _build_task_from_scene(self) -> EnvironmentTask:

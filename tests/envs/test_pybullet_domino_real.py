@@ -726,24 +726,12 @@ def test_a_flipped_observation_is_still_upright(env):
 
 
 # -- the task evaluator ------------------------------------------------------
-def test_no_evaluator_by_default(env):
-    """A real task ships without one, as it always has.
-
-    Attaching an evaluator changes what every episode scores, so it
-    stays opt-in rather than arriving with an upgrade.
-    """
-    task = env._build_task_from_scene()  # pylint: disable=protected-access
-
-    assert task.evaluator is None
-
-
 def test_evaluator_counts_the_scene_s_movable_dominoes(env):
-    """Turned on, the task carries an evaluator budgeted by this scene.
+    """A real task carries an evaluator budgeted by its own scene.
 
     The count has to come from the scene rather than the min-block flag:
     a real scene stages whatever the person put on the table.
     """
-    CFG.domino_real_attach_evaluator = True
     old_blues = CFG.domino_min_block_num_blues
     # A budget the min-block flag could never satisfy: if the count were
     # taken from it rather than from the scene, DominoEvaluator's own
@@ -753,10 +741,39 @@ def test_evaluator_counts_the_scene_s_movable_dominoes(env):
         task = env._build_task_from_scene()  # pylint: disable=protected-access
     finally:
         CFG.domino_min_block_num_blues = old_blues
-        CFG.domino_real_attach_evaluator = False
 
     assert task.evaluator is not None
     assert task.evaluator.goal == task.goal
+
+
+def test_evaluator_explains_the_scoring_it_introduces(env):
+    """The goal text says what the reward does, as the generator's does.
+
+    An agent that is scored but not told how reads a rejected goal-
+    reaching attempt as a fatal per-blue penalty.
+    """
+    task = env._build_task_from_scene()  # pylint: disable=protected-access
+
+    assert task.goal_nl is not None
+    assert "Scoring:" in task.goal_nl
+    assert "never disqualifies a solve" in task.goal_nl
+
+
+def test_no_evaluator_when_the_certificate_cannot_judge(env):
+    """Targets that are not roll-tracked dominoes get no evaluator.
+
+    Mirrors the generator's own gate: with a separate target type the
+    certificate is blind to a direct robot knock on a target, so it
+    would certify that at zero cost. Better to score nothing than to
+    score it wrongly.
+    """
+    CFG.domino_use_domino_blocks_as_target = False
+    try:
+        # pylint: disable-next=protected-access
+        assert env._evaluator_for(env._build_task_from_scene().init,
+                                  set()) is None
+    finally:
+        CFG.domino_use_domino_blocks_as_target = True
 
 
 def test_evaluator_refuses_a_scene_it_cannot_score(env):
@@ -766,12 +783,10 @@ def test_evaluator_refuses_a_scene_it_cannot_score(env):
     on the real robot; this names the scene's own numbers up front
     instead.
     """
-    CFG.domino_real_attach_evaluator = True
     old_cost = CFG.domino_block_cost
     CFG.domino_block_cost = 0.9  # 2 movables -> 1.8, well over the bar
     try:
-        with pytest.raises(ValueError, match="domino_real_attach_evaluator"):
+        with pytest.raises(ValueError, match="movable dominoes"):
             env._build_task_from_scene()  # pylint: disable=protected-access
     finally:
         CFG.domino_block_cost = old_cost
-        CFG.domino_real_attach_evaluator = False

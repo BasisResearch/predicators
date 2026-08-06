@@ -51,7 +51,6 @@ ENVS:
       # A run this long should leave evidence: one JSON per look, recording
       # what the cameras saw beside what the twin predicted.
       real_robot_observation_dump_dir: "logs/stage6_underreach_looks"
-      domino_real_attach_evaluator: True
 APPROACHES:
   agent_po_predicate_invention_al_margin:
     SKIP: False

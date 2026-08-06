@@ -44,8 +44,6 @@ ENVS:
       real_robot_perception: "none"
       real_robot_observe_at_option_boundary: False
       real_robot_human_reset: False
-      # The point of the exercise.
-      domino_real_attach_evaluator: True
 APPROACHES:
   agent_po_predicate_invention_al:
     SKIP: False
