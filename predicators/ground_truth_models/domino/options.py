@@ -12,6 +12,7 @@ from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.ground_truth_models.skill_factories import SkillConfig, \
     create_pick_skill, create_place_skill, create_push_skill, \
     create_wait_option, shared_skill_robot, shared_skill_simulator
+from predicators.ground_truth_models.skill_factories.pick import _PICK_PARAMS
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Array, Object, ParameterizedOption, \
@@ -194,6 +195,52 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
                                  get_target_pose_fn=_get_target)
 
     @classmethod
+    def _pick_param_defs(cls) -> Optional[Sequence[Tuple[str, float, float]]]:
+        """Grasp-offset bounds for THIS robot, or None to keep the default.
+
+        Sweeping a real domino at 5 mm resolution, both arms stop
+        colliding at the same 0.045 -- that edge is the domino's
+        geometry, not the hand's -- but the edge above which the fingers
+        close without ever reaching the domino IS the hand's: past 0.100
+        on the Fetch, 0.080 on the Panda. The shipped (0, 0.1) box was
+        drawn around the Fetch, whose top edge is its reach edge and
+        whose feasible band is the top 55%; on the Panda the same box is
+        only 35% feasible, so a sampler spends most of its budget on
+        offsets that cannot work.
+
+        Rather than shrink-wrap the Panda's band, reproduce the Fetch's
+        proportions around the Panda's own reach edge: same 55% feasible,
+        same shape of learning problem, so a sampler tuned or compared
+        across the two arms is comparing embodiment and not box width.
+        The reach edge is derived from ``_hand_z_correction``, which is
+        zero on the Fetch -- so the Fetch keeps the shipped box and its
+        description exactly, and any future hand gets bounds without
+        another sweep.
+
+        Below the lower edge Pick is refused by BiRRT; above the upper
+        one it fails silently, adding no Holding atom and leaving Place
+        to move an empty gripper.
+        """
+        # pylint: disable-next=import-outside-toplevel  # avoids a cycle
+        from predicators.ground_truth_models.domino.processes import \
+            _hand_z_correction
+        correction = _hand_z_correction()
+        if not correction:
+            return None  # the Fetch: shipped box, untouched
+        # The Fetch's box, as the proportions to mirror.
+        _, fetch_lo, fetch_reach = _PICK_PARAMS[0]
+        collision_edge = 0.045  # shared: set by the domino, not the hand
+        feasible_frac = (fetch_reach - collision_edge) / (fetch_reach -
+                                                          fetch_lo)
+        hi = round(fetch_reach - correction, 4)
+        lo = round(hi - (hi - collision_edge) / feasible_frac, 4)
+        return [(f"grasp_z_offset (height above the domino origin to close "
+                 f"the gripper; on this hand the gripper is in contact at "
+                 f"the grasp pose below {collision_edge:.3f}, and closes "
+                 f"above the domino without grasping it above "
+                 f"{hi:.3f})", lo, hi)]
+
+    @classmethod
     def _create_sf_pick(cls, cfg: SkillConfig, robot_type: Type,
                         domino_type: Type) -> ParameterizedOption:
         """Pick option using create_pick_skill."""
@@ -211,6 +258,7 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
             types=[robot_type, domino_type],
             config=cfg,
             get_target_pose_fn=_get_domino_pose,
+            param_defs=cls._pick_param_defs(),
         )
 
     @classmethod
