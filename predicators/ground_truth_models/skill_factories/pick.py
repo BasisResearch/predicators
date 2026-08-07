@@ -69,6 +69,7 @@ def create_pick_skill(
     anchor_lift: bool = False,
     grasp_finger_tol: Optional[float] = None,
     lift_dz: float = 0.01,
+    param_defs: Optional[Sequence[Tuple[str, float, float]]] = None,
 ) -> ParameterizedOption:
     """Create a multi-phase pick skill that grasps and lifts an object.
 
@@ -111,11 +112,23 @@ def create_pick_skill(
             a neighboring object, which then invalidates the NEXT
             option's BiRRT start config -- unrecoverable by replanning
             since the arm physically stays put.
+        param_defs: Optional override for the continuous parameter
+            definitions (``(description, low, high)`` triples). The
+            default box spans the whole plausible range for any hand,
+            so on a short-fingered arm most of it is dead: below the
+            collision edge the grasp pose is infeasible, and above the
+            reach edge the fingers close on nothing. Narrow it when the
+            env knows its object and its robot -- the dead ends are what
+            a sampler spends its budget on.
 
     Returns:
         A ``ParameterizedOption`` implementing the pick skill.
     """
-    params_space, params_description = build_params_space(_PICK_PARAMS)
+    if param_defs is None:
+        param_defs = _PICK_PARAMS
+    assert len(param_defs) == len(_PICK_PARAMS), \
+        "param_defs must keep the canonical (grasp_z_offset,) order"
+    params_space, params_description = build_params_space(param_defs)
     _empty = np.array([], dtype=np.float32)
     _shared: dict = {}
 
