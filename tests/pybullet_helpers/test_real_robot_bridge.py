@@ -99,6 +99,20 @@ def test_gripper_joint_layout_finger_idxs():
     assert _LAYOUT.finger_joint_idxs == (7, 8)
 
 
+def test_no_cameras_survives_the_command_line():
+    """A launcher config asking for no cameras has to actually get them off.
+
+    ``utils.string_to_python_object`` maps "none" to Python ``None`` on
+    the way in from the command line, so a config's ``"none"`` never
+    reaches here as a string. Setting the string directly (as the test
+    below does) exercises a path no shipped config can take.
+    """
+    assert utils.string_to_python_object("none") is None
+    utils.reset_config(
+        {"real_robot_perception": utils.string_to_python_object("none")})
+    assert _make_perception() is None
+
+
 def test_perception_kinds_and_unknown_names():
     """"none" really means no cameras, and an unrecognised name fails loudly
     rather than silently leaving the robot blind."""
