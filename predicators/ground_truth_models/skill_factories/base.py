@@ -121,13 +121,6 @@ class SkillConfig:
             resistance in the wait option and during move phases.
         max_vel_norm: Maximum velocity norm for incremental IK EE movement.
         grasp_tol: Squared-distance tolerance for CHANGE_FINGERS terminal.
-        pick_close_overshoot: How far past ``closed_fingers_joint`` Pick
-            drives the fingers, to be sure of the grasp.  A grasp is a
-            weld created on proximity, so the overshoot buys nothing once
-            the fingers touch -- and past that it drives them into the
-            object, which stores contact impulses that kick it when the
-            weld is released.  Lower it for an object thinner than the
-            closed gap.
         ik_validate: Whether to validate IK solutions.
         robot_init_tilt: Default EE tilt (pitch) angle — the second Euler
             angle in ``[roll=0, pitch, yaw]``.
@@ -157,7 +150,6 @@ class SkillConfig:
     finger_action_nudge_magnitude: float = 1e-3
     max_vel_norm: float = 0.05
     grasp_tol: float = 5e-4
-    pick_close_overshoot: float = 0.01
     ik_validate: bool = True
     robot_init_tilt: float = 0.0
     robot_init_wrist: float = 0.0

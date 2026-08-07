@@ -122,7 +122,7 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
             env_cls = cls.env_cls
         simulator = shared_skill_simulator(env_cls) \
             if CFG.skill_phase_use_motion_planning else None
-        config = SkillConfig(
+        return SkillConfig(
             robot=pybullet_robot,
             open_fingers_joint=pybullet_robot.open_fingers,
             closed_fingers_joint=pybullet_robot.closed_fingers,
@@ -150,11 +150,6 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
             # time in the 2026-07-17 run audits.
             wait_quiescence_eps=1e-4,
         )
-        if CFG.skill_pick_close_overshoot is not None:
-            config = replace(config,
-                             pick_close_overshoot=float(
-                                 CFG.skill_pick_close_overshoot))
-        return config
 
     @classmethod
     def _create_sf_push(cls, cfg: SkillConfig, robot_type: Type,
