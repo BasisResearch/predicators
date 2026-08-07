@@ -106,7 +106,8 @@ def _make_perception() -> Any:
     ``RealRobot`` opens on construction and closes on ``close()``.
     ``"scene_file"`` replays ``CFG.domino_real_scene`` -- a cameraless
     stand-in that always reports the captured layout, so it exercises the
-    plumbing but never reports a topple. ``"none"`` leaves the robot
+    plumbing but never reports a topple. ``"none"`` (or ``None``, which
+    is what a launcher config's ``"none"`` becomes) leaves the robot
     without cameras at all, which only a blind open-loop run can use.
 
     The table height is passed through rather than left to babyrobot's
@@ -115,7 +116,10 @@ def _make_perception() -> Any:
     """
     # pylint: disable=import-outside-toplevel,import-error
     kind = CFG.real_robot_perception
-    if kind == "none":
+    # A launcher config cannot deliver the string: utils.string_to_python
+    # _object maps both "None" and "none" to None on the way in from the
+    # command line, so a config asking for no cameras arrives as None.
+    if kind is None or kind == "none":
         return None
     if kind == "scene_file":
         from babyrobot.realrobot.perception import FileDominoPerception
