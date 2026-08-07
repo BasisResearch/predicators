@@ -133,6 +133,9 @@ def main() -> None:
     # plan refers to. The task must stay the captured scene the plan was
     # written against.
     flags["real_robot_human_reset"] = False
+    # ...which is exactly the case the stale-task guard exists for, so opt in
+    # explicitly: these poses are the ones the plan was written against.
+    flags["real_robot_allow_captured_scene_task"] = True
     utils.reset_config(flags)
 
     env = get_or_create_env(CFG.env)
