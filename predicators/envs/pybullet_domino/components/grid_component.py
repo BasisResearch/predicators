@@ -290,7 +290,7 @@ class GridComponent(DominoEnvComponent):
 
         domino_rot = state.get(domino, "yaw")
         target_rot_radians = np.radians(state.get(rotation, "angle"))
-        rotation_tolerance = np.radians(15)
+        rotation_tolerance = np.radians(22)
         angle_diff = abs(utils.wrap_angle(domino_rot - target_rot_radians))
         return angle_diff <= rotation_tolerance
 

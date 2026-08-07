@@ -1,15 +1,6 @@
 # Thin launcher: real-world domino testing through the Predicators
 # pipeline.
 # Usage: python scripts/local/launch_simp.py -c predicatorv3/exp_domino_real.yaml
-# With real_robot_execute (default off, i.e. pure sim)
-# a RealRobotExecutor is attached and its rollouts drive the real Franka --
-# BOTH train and testsplits, so exploration episodes execute like evaluation ones, and the
-# scene is re-perceived between skills to correct the simulated twin.
-# Between episodes a human rearranges the dominoes and the episode's task is
-# rebuilt from what the cameras see (real_robot_human_reset).
-# Env definition lives in envs/all.yaml (domino_real) and the approach in
-# approaches/all.yaml; this file only un-skips the env + approach it runs and
-# sets the agent-only ENVS overrides.
 ---
 includes:
   - common.yaml
@@ -17,6 +8,7 @@ includes:
   - approaches/all.yaml
 FLAGS:
   num_online_learning_cycles: 2
+  wait_option_max_steps: 200
 NUM_SEEDS: 1
 # Agent-only env overrides: deep-merged on top of envs/all.yaml. These
 # excluded_predicates are dropped for "ours" runs (matches exp_domino.yaml;
@@ -26,6 +18,14 @@ ENVS:
     SKIP: False
     FLAGS:
       excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
+      domino_real_scene: "/home/amberli/babyrobot/BabyRobotPredicator/scenes/domino_straight.json"
+      real_robot_execute: True
+      real_robot_divergence_atol: 0.02
+      # A run this long should leave evidence: one JSON per look, recording
+      # what the cameras saw beside what the twin predicted.
+      real_robot_observation_dump_dir: "logs/stage6_looks"
 APPROACHES:
-  agent_po_predicate_invention_al:
+  agent_po_predicate_invention_al_margin:
     SKIP: False
+    FLAGS:
+      skip_initial_test: True
