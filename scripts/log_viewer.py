@@ -14,7 +14,9 @@ logs/<family>/<env>-<approach>/seed<N>/run_<timestamp>/. Features:
     (and its mirrored videos dir), targeted at that run's PIDs only - or,
     on a Slurm cluster, at its own job id
   * cluster-aware liveness: served from a login node, where a run's process
-    is out of reach of ps/lsof, squeue says which runs are still going
+    is out of reach of ps/lsof, squeue says which runs are still going, each
+    job pinned to its exact run dir via the "Logging to ..." line in its
+    stdout file - so parallel launches of one config all show live
 
 Format contracts this viewer relies on:
   * episode filenames {query:03d}_{kind}[_task{K}]_{YYYYMMDD_HHMMSS}.md from
@@ -28,7 +30,9 @@ Format contracts this viewer relies on:
 
 Format contracts, continued:
   * videos/<approach>/<experiment_id>/seed<N>/run_<timestamp>/ mirrors the log
-    dir, via the run subdir utils.configure_logging shares with save_video
+    dir, via the run subdir utils.configure_logging shares with save_video;
+    for a log dir later moved or renamed by hand, the "Wrote out to" lines
+    in its info.log recover the actual video dir (see _video_base)
   * video names ...__task<K+1>[_failure]__cycle<C>.mp4 from main.py _save_video
   * interaction video names ...__ep<i>__cycle<C>.mp4 (no __task part) from
     main.py _generate_interaction_results under CFG.make_interaction_videos;
@@ -111,6 +115,12 @@ INTERACTION_BAR_RE = re.compile(
 # requests (see _parse_info_log).
 SAVED_EP_RE = re.compile(r"Saved local sandbox query/response to .*[/\\]"
                          r"(\d{3})_([a-z]+)(?:_task\d+)?_\d{8}_\d{6}\.md")
+# utils.save_video's announcement of a written video file. Its
+# <approach>/<experiment_id>/seed<N>/run_<timestamp> tail names the video
+# dir the run actually wrote, which the mirrored-layout assumption gets
+# wrong whenever a run's log dir was later moved or renamed by hand.
+VIDEO_SAVED_RE = re.compile(r"Wrote out to "
+                            r"\S*?([^\s/]+/[^\s/]+/seed\d+/run_\d{8}_\d{6})/")
 # main.py logs this only after the pipeline returns, so it is the one
 # trustworthy "this run completed" marker; a crash or a kill leaves none.
 DONE_RE = re.compile(r"^Main script terminated in")
@@ -375,9 +385,10 @@ def _live_proc_matches() -> List[Tuple[str, str, str, Set[str]]]:
 _SLURM_LIVE_STATES = "R,S,ST,CG"
 # squeue -O fields and column widths, each wide enough that Slurm never
 # truncates a value: the id scancel takes, the array task id (the run's
-# seed), the job name (its experiment_id), and the stdout path.
-_SQUEUE_FIELDS = (("JobArrayID", 32), ("ArrayTaskID", 24), ("Name", 512),
-                  ("stdout", 1024))
+# seed), the per-task numeric id (what %j expands to in a stdout path),
+# the job name (its experiment_id), and the stdout path.
+_SQUEUE_FIELDS = (("JobArrayID", 32), ("ArrayTaskID", 24), ("JobID", 24),
+                  ("Name", 512), ("stdout", 1024))
 
 
 def _squeue_rows(
@@ -413,15 +424,17 @@ def _squeue_rows(
     return rows
 
 
-def _slurm_live_jobs() -> List[Tuple[str, str, str, str]]:
-    """(job id, approach, experiment_id, seed) per live Slurm job.
+def _slurm_live_jobs() -> List[Tuple[str, str, str, str, str]]:
+    """(job id, approach, experiment_id, seed, stdout) per live Slurm job.
 
     The submit scripts under scripts/<cluster>/ name each job after its
     experiment_id and give it one array task per seed, and Slurm expands
     the job's stdout path from the same config - <env>__<approach>__...,
     whose second field is the approach (see cluster_utils
     config_to_logfile and utils.get_config_path_str). The approach comes
-    back "" when that path is absent or shaped otherwise.
+    back "" when that path is absent or shaped otherwise. The stdout
+    path has its %-specifiers expanded (see _expand_stdout_path); it is
+    "" when unknown.
     """
     if shutil.which("squeue") is None:
         return []  # not a cluster: spare every page render two spawns
@@ -429,8 +442,9 @@ def _slurm_live_jobs() -> List[Tuple[str, str, str, str]]:
     if rows is None:  # older Slurm may not know the stdout field
         older = _squeue_rows(_SQUEUE_FIELDS[:-1])
         rows = [r + [""] for r in older] if older is not None else []
-    jobs: List[Tuple[str, str, str, str]] = []
-    for job_id, task_id, name, stdout in rows:
+    jobs: List[Tuple[str, str, str, str, str]] = []
+    for job_id, task_id, plain_id, name, stdout in rows:
+        stdout = _expand_stdout_path(stdout, job_id, task_id, plain_id, name)
         parts = os.path.basename(stdout).split("__")
         approach = parts[1] if len(parts) > 2 else ""
         # An array job carries the seed as its task id; a single-seed job
@@ -438,31 +452,107 @@ def _slurm_live_jobs() -> List[Tuple[str, str, str, str]]:
         # approach (get_config_path_str) or after the experiment_id.
         seed = next((f for f in [task_id] + parts[2:4] if f.isdigit()), "")
         if name and seed:
-            jobs.append((job_id, approach, name, f"seed{seed}"))
+            jobs.append((job_id, approach, name, f"seed{seed}", stdout))
     return jobs
 
 
-def _slurm_run_keys(
-        runs: List[Dict[str, Any]]) -> Dict[Tuple[str, str], Set[str]]:
-    """Runs owned by a live Slurm job, as (exp, seed) -> job ids.
+def _expand_stdout_path(stdout: str, job_id: str, task_id: str, plain_id: str,
+                        name: str) -> str:
+    """Resolve a squeue stdout path to an absolute expanded filename.
 
-    A job names its run by experiment_id and seed; the approach - the
-    rest of the exp key - is only as good as the job's stdout path, so
-    a job whose approach matches no run on disk falls back to every
-    experiment of that name and seed, which is nearly always just one.
+    Depending on the Slurm version, the stdout field comes back either
+    expanded or still holding the -o pattern's %-specifiers, so the
+    common ones are substituted here; a path with any other specifier
+    left is dropped rather than half-resolved. A relative path is
+    anchored at the submission-time working directory, which for the
+    submit scripts of this repo is the repo root: the parent of
+    LOGS_ROOT.
+    """
+    if "%" in stdout:
+        array_master = job_id.partition("_")[0]
+        for spec, value in (("%%", "%"), ("%A", array_master),
+                            ("%a", task_id), ("%j", plain_id or job_id),
+                            ("%x", name), ("%u", getpass.getuser())):
+            stdout = stdout.replace(spec, value)
+        if "%" in stdout:
+            return ""
+    if stdout and not os.path.isabs(stdout):
+        stdout = os.path.join(os.path.dirname(LOGS_ROOT), stdout)
+    return stdout
+
+
+# The run dir a main.py process announces in its first log lines (see
+# utils.log_initial_info); the job's stdout file captures it, ANSI color
+# codes and all, which pins the job to one run_<timestamp> exactly.
+_LOGGING_TO_RE = re.compile(
+    r"Logging to \S*?([^\s/]+/[^\s/]+/seed\d+/run_\d{8}_\d{6})/")
+# Positive pins per stdout path. The announcement is in the first lines
+# of the file and never changes, so a hit is cacheable forever; a miss
+# is retried every render, since the file may simply not be there yet.
+_stdout_pin_cache: Dict[str, str] = {}
+
+
+def _job_run_rel(stdout: str) -> str:
+    """The run (rel to LOGS_ROOT) a Slurm job's stdout file announces.
+
+    Returns "" when the file is unreadable (e.g. the viewer host does
+    not share the cluster filesystem) or does not name a run, in which
+    case the job stays attributed to the newest run of its experiment
+    and seed.
+    """
+    if not stdout:
+        return ""
+    hit = _stdout_pin_cache.get(stdout)
+    if hit is not None:
+        return hit
+    try:
+        with open(stdout, "r", encoding="utf-8", errors="replace") as f:
+            head = f.read(65536)
+    except OSError:
+        return ""
+    m = _LOGGING_TO_RE.search(head)
+    if not m:
+        return ""
+    _stdout_pin_cache[stdout] = m.group(1)
+    return m.group(1)
+
+
+def _slurm_owned(
+    runs: List[Dict[str, Any]]
+) -> Tuple[Dict[Tuple[str, str, str], Set[str]], Dict[Tuple[str, str],
+                                                      Set[str]]]:
+    """Runs owned by live Slurm jobs: exact pins, then loose fallbacks.
+
+    Each live job lands in exactly one of the two mappings. A job whose
+    stdout file announces a run dir that exists on disk is pinned to it:
+    (exp, seed, run name) -> job ids. The rest fall back to
+    (exp, seed) -> job ids, attributed to the newest run of that key: a
+    job names its run by experiment_id and seed, and the approach - the
+    rest of the exp key - is only as good as the job's stdout path, so a
+    job whose approach matches no run on disk widens to every experiment
+    of that name and seed, which is nearly always just one.
     """
     by_exp_id: Dict[Tuple[str, str], Set[Tuple[str, str]]] = {}
+    on_disk: Set[Tuple[str, str, str]] = set()
     for r in runs:
         key = (r["exp"], r["seed"])
         by_exp_id.setdefault((r["exp"].rpartition("/")[2], r["seed"]),
                              set()).add(key)
-    owned: Dict[Tuple[str, str], Set[str]] = {}
-    for job_id, approach, exp_id, seed in _slurm_live_jobs():
+        on_disk.add((r["exp"], r["seed"], r["name"]))
+    pinned: Dict[Tuple[str, str, str], Set[str]] = {}
+    loose: Dict[Tuple[str, str], Set[str]] = {}
+    for job_id, approach, exp_id, seed, stdout in _slurm_live_jobs():
+        run_rel = _job_run_rel(stdout)
+        if run_rel:
+            run_key = _run_key(run_rel)
+            if run_key in on_disk:
+                pinned.setdefault(run_key, set()).add(job_id)
+                continue
         candidates = by_exp_id.get((exp_id, seed), set())
         exact = (f"{approach}/{exp_id}", seed)
         for key in ({exact} if exact in candidates else candidates):
-            owned.setdefault(key, set()).add(job_id)
-    return owned
+            loose.setdefault(key, set()).add(job_id)
+    return pinned, loose
 
 
 def live_runs(runs: List[Dict[str, Any]]) -> LiveProcs:
@@ -478,8 +568,10 @@ def live_runs(runs: List[Dict[str, Any]]) -> LiveProcs:
 
     Slurm jobs are the second source. On a cluster the viewer serves a
     login node while the runs execute on compute nodes, where ps and
-    lsof see nothing at all, so squeue answers instead - always as bare
-    keys, since only the process itself knows its run_<timestamp>.
+    lsof see nothing at all, so squeue answers instead. A job's stdout
+    file names the exact run dir its process logs into, so most jobs
+    arrive pinned; one whose stdout cannot be read stays a bare key
+    (see _slurm_owned).
     """
     pinned: Set[Tuple[str, str, str]] = set()
     unpinned: Set[Tuple[str, str]] = set()
@@ -488,7 +580,9 @@ def live_runs(runs: List[Dict[str, Any]]) -> LiveProcs:
             pinned.update((exp, seed, name) for name in names)
         else:
             unpinned.add((exp, seed))
-    unpinned.update(_slurm_run_keys(runs))
+    slurm_pinned, slurm_loose = _slurm_owned(runs)
+    pinned.update(slurm_pinned)
+    unpinned.update(slurm_loose)
     return pinned, unpinned
 
 
@@ -535,15 +629,19 @@ def pids_for_run(run_rel: str) -> List[str]:
 def slurm_jobs_for_run(run_rel: str) -> List[str]:
     """Ids of the live Slurm jobs attributed to this run.
 
-    Attribution mirrors run_status again: a job owns the newest run of
-    its experiment and seed, since from a login node nothing can tell
-    which run dir its compute-node process actually holds open.
+    Attribution mirrors run_status: a job whose stdout file announces
+    this exact run dir owns it outright; a job that could not be pinned
+    that way owns the newest run of its experiment and seed. Only these
+    ids are ever cancelled, so a pinned job of an older parallel launch
+    is reachable and a kill on the newest run spares its siblings.
     """
     exp, seed, name = _run_key(run_rel)
     runs = find_runs()
-    if not _is_newest_run(exp, seed, name, runs):
-        return []
-    return sorted(_slurm_run_keys(runs).get((exp, seed), set()))
+    pinned, loose = _slurm_owned(runs)
+    jobs = set(pinned.get((exp, seed, name), set()))
+    if _is_newest_run(exp, seed, name, runs):
+        jobs.update(loose.get((exp, seed), set()))
+    return sorted(jobs)
 
 
 def run_is_live(run_rel: str) -> bool:
@@ -651,12 +749,14 @@ def delete_run(run_rel: str, kill: bool) -> Tuple[bool, str]:
             # Nothing here can force a compute node to let go, and its
             # logging would recreate files under a half-deleted dir.
             return False, "Slurm job is still cancelling; retry shortly"
+    # Resolve the video dir before the log dir goes: a moved run's dir
+    # is found through its info.log (see _video_base).
+    video_abs = _video_base(run_rel)
     try:
         shutil.rmtree(run_abs)
     except OSError as e:
         return False, f"delete failed: {e}"
     _prune_empty_parents(run_abs, LOGS_ROOT)
-    video_abs = safe_join_video(run_rel)
     if video_abs and os.path.isdir(video_abs):
         shutil.rmtree(video_abs, ignore_errors=True)
         _prune_empty_parents(video_abs, VIDEOS_ROOT)
@@ -737,6 +837,7 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
     """
     text, _ = read_text(path, max_bytes=8 * 1024 * 1024)
     text = ANSI_RE.sub("", text)
+    m_vid = VIDEO_SAVED_RE.search(text)
     totals: List[Tuple[int, int, Optional[float]]] = []
     rounds: List[Dict[int, Dict[str, Any]]] = []
     current: Dict[int, Dict[str, Any]] = {}
@@ -818,6 +919,7 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
         "explore": explore,
         "test_round": test_round,
         "done": done,
+        "video_rel": m_vid.group(1) if m_vid else "",
     }
 
 
@@ -1984,9 +2086,9 @@ def status_chip(r: Dict[str, Any], summary: Dict[str, Any], live: LiveProcs,
         "done":
         "info.log ends with main.py's completion line",
         "live":
-        "a live main.py process holds this run's logs open, or this is "
-        "the newest run of a live process lsof could not pin, or of a "
-        "live Slurm job",
+        "a live main.py process holds this run's logs open, or a live "
+        "Slurm job's stdout names this run dir, or this is the newest "
+        "run of a live process or job that could not be pinned",
         "stopped":
         "no completion line in info.log, and no live process or Slurm "
         "job: killed or crashed",
@@ -2268,6 +2370,39 @@ def _cycle_tag(rnd: int) -> str:
     return "cycleNone" if rnd == 0 else f"cycle{rnd - 1}"
 
 
+def _video_base(run_rel: str) -> Optional[str]:
+    """The on-disk video dir of a run, tolerating moved log dirs.
+
+    videos/ mirrors logs/ by construction, but a log dir renamed or
+    moved after the fact (e.g. experiment families reorganized by hand)
+    leaves the mirror stale; the "Wrote out to" lines in the run's own
+    info.log then name where its videos actually live.
+    """
+    base = safe_join_video(run_rel)
+    if base and os.path.isdir(base):
+        return base
+    run_abs = safe_join(run_rel)
+    if not run_abs:
+        return None
+    parsed = _cached(os.path.join(run_abs, "info.log"), _parse_info_log) or {}
+    rel = parsed.get("video_rel", "")
+    if rel:
+        alt = safe_join_video(rel)
+        if alt and os.path.isdir(alt):
+            return alt
+    return None
+
+
+def video_url_rel(run_rel: str, name: str) -> str:
+    """The /rawvideo path of one of a run's video files."""
+    base = _video_base(run_rel)
+    if base:
+        rel = os.path.relpath(base, VIDEOS_ROOT).replace(os.sep, "/")
+        if not rel.startswith(".."):
+            return rel + "/" + name
+    return run_rel + "/" + name
+
+
 def videos_for_run(run_rel: str) -> VidMap:
     """Test videos of a run, from videos/<run_rel>/.
 
@@ -2275,9 +2410,9 @@ def videos_for_run(run_rel: str) -> VidMap:
     so the 1-based number in the filename is converted here and nowhere
     else.
     """
-    base = safe_join_video(run_rel)
+    base = _video_base(run_rel)
     out: VidMap = {}
-    if not base or not os.path.isdir(base):
+    if not base:
         return out
     try:
         names = sorted(os.listdir(base))
@@ -2303,9 +2438,9 @@ def interaction_videos_for_run(
     Each entry is (episode index within the cycle, filename), or (None,
     filename) for a legacy whole-cycle concatenation.
     """
-    base = safe_join_video(run_rel)
+    base = _video_base(run_rel)
     out: Dict[str, List[Tuple[Optional[int], str]]] = {}
-    if not base or not os.path.isdir(base):
+    if not base:
         return out
     try:
         names = sorted(os.listdir(base))
@@ -2348,7 +2483,7 @@ def episode_videos(ep: Dict[str, Any], run_rel: str) -> str:
     if ep["kind"] == "test" and ep["task"] is not None:
         key = (int(ep["task"]), _cycle_tag(int(ep.get("round", 0))))
         for name, is_failure in videos_for_run(run_rel).get(key, []):
-            url = "/rawvideo?p=" + q(run_rel + "/" + name)
+            url = "/rawvideo?p=" + q(video_url_rel(run_rel, name))
             label = "failure video" if is_failure else "test video"
             out.append(_video_figure(url, label))
     elif ep["kind"] == "explore":
@@ -2364,7 +2499,7 @@ def episode_videos(ep: Dict[str, Any], run_rel: str) -> str:
                 label = "interaction video"
             else:
                 continue  # another explore session's episode
-            url = "/rawvideo?p=" + q(run_rel + "/" + name)
+            url = "/rawvideo?p=" + q(video_url_rel(run_rel, name))
             out.append(_video_figure(url, label))
     return f"<div class='vids'>{''.join(out)}</div>" if out else ""
 
