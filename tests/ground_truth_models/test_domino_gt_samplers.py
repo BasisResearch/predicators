@@ -17,8 +17,8 @@ from predicators import utils  # noqa: F401  (settles import order)
 from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
 from predicators.ground_truth_models import get_gt_samplers
-from predicators.ground_truth_models.domino.processes import \
-    _DOMINO_DROP_Z, _place_option_sampler
+from predicators.ground_truth_models.domino.processes import _DOMINO_DROP_Z, \
+    _place_option_sampler
 from predicators.structs import GroundAtom, Object, Predicate, State, Type
 
 # Domino feature layout (matches the env's domino type).
