@@ -17,17 +17,11 @@ from predicators.utils import ConstantDelay, DiscreteGaussianDelay, \
 # Fixed parameter values for domino environment. Both z offsets were tuned on
 # the Fetch; see _hand_z_correction for what that means on another arm.
 _DOMINO_GRASP_Z_OFFSET = 0.0825  # domino_height * 0.55
-# EE height at the moment Place opens the fingers. The domino hangs about
-# 0.066 below this, so every centimetre here is a centimetre it falls, and
-# the fall is what scatters it: measured over 3 placements each, mean error
-# was 43 mm at 0.580, 15 mm at 0.568 and 10 mm at 0.565.
-#
-# The floor is the collision-aware Place goal, not the physics -- BiRRT
-# cannot route the held domino to a goal that puts it through the table, and
-# raises OptionExecutionFailure. 0.560 fails outright; 0.565 is the lowest
-# value measured to work. 0.568 keeps 8 mm of margin above that edge, which
-# a perceived pose a few millimetres off can eat.
-_DOMINO_DROP_Z = 0.568
+#  Slightly above the legacy drop height. With the skill-factory Pick grasp
+# transform, 0.5695 leaves the held domino penetrating the table at the
+# collision-aware Place goal; 0.58 clears the table and still settles to the
+# intended upright pose.
+_DOMINO_DROP_Z = 0.58
 _DOMINO_OFFSET_X = 0.045  # domino_depth * 3
 _DOMINO_OFFSET_Z = 0.0825  # domino_height * 0.55
 
