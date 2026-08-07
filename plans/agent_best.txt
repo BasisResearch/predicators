@@ -1,0 +1,13 @@
+# scene   : domino_straight.json
+# goal    : ['Toppled(domino_3:domino)']
+# roles   : start=domino_0 target=domino_3
+# bridge  : 1 domino
+# source  : found by the agent explorer in run_20260807_091533 (turn ~121),
+#           12/12 solved at reward 0.95 -- but measured in the agent's
+#           sandbox, which wraps the REAL env (agent_planner_use_base_
+#           simulator defaults False), so that rate is at TRUE friction,
+#           not the belief sim's 0.1.
+Pick(robot:robot, domino_4:domino)[0.082]
+Place(robot:robot)[0.72, 1.28, 0.57, 1.57]
+Push(robot:robot, domino_0:domino)[0.04, 0.03]
+Wait(robot:robot)[]

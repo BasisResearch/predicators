@@ -19,18 +19,26 @@ ENVS:
     FLAGS:
       excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
       real_robot_execute: True
-      # Everything the real path does, minus the motion: no RobotInterface is
-      # built, so the arm is never contacted and no polymetis server is needed.
-      real_robot_dry: True
-      # Blind, so the twin evolves in sim instead of being corrected back to a
-      # scene that a motionless arm never changes.
+      # LIVE: the arm moves and the cameras look. Learning a friction from
+      # real observations needs a real cascade to observe, so neither half
+      # can be faked -- a dry arm leaves the scene untouched and a blind run
+      # has nothing to report. (For the no-motion rung instead, set
+      # real_robot_dry True with perception "none" and the two flags below
+      # False; "none" with the look on raises at executor construction.)
+      real_robot_dry: False
+      real_robot_perception: "zed"
+      real_robot_observe_at_option_boundary: True
+      # Rebuild the task from a live look each episode. That is the thing
+      # under test here -- whether perception is good enough to learn from --
+      # and it also keeps _refuse_stale_task happy, which otherwise refuses
+      # the captured scene while the cameras are live.
       #
-      # These next three go together -- "none" alone raises. The boundary look
-      # asks the robot to perceive, and reset_env perceives after the human
-      # confirms, so both have to be off for a run with no cameras.
-      real_robot_perception: "none"
-      real_robot_observe_at_option_boundary: False
-      real_robot_human_reset: False
+      # The person must restore the layout between episodes. Pick and Push
+      # follow the perceived poses, so they adapt on their own; only the
+      # Place drop point is absolute world coordinates, so a rebuild that is
+      # a couple of centimetres off will still bridge, but a rearranged
+      # scene will not.
+      real_robot_human_reset: True
       real_robot_divergence_atol: 0.02
       # No learning for now, just hybrid sim.
       # agent_sim_learn_oracle_sim_program: True
@@ -56,4 +64,23 @@ APPROACHES:
   agent_po_predicate_invention_al_margin:
     SKIP: False
     FLAGS:
+      # Replay one fixed plan every episode instead of planning. What is
+      # being tested is whether perception feeds the learner well enough to
+      # move the friction belief, so the exploration half should be a
+      # constant: a run that goes wrong is then the loop's fault and not the
+      # planner's, and every episode is directly comparable to the last.
+      # (explorer is only ever set in approaches/all.yaml, never in
+      # envs/all.yaml, so this override is not shadowed by the env block.)
+      explorer: "fixed_plan"
+      fixed_plan_explorer_path: "plans/agent_best.txt"
+      # The agent's own plan-testing simulator is built with
+      # skip_process_dynamics=agent_planner_use_base_simulator, and only a
+      # skip_process_dynamics=True env picks up domino_planning_friction.
+      # Left False (the default) the agent tests its plans against the TRUE
+      # friction -- its belief is not mismatched at all, and there is
+      # nothing for the sysID to discover. True is what makes the agent
+      # actually believe 0.1.
+      agent_planner_use_base_simulator: True
+      # The pre-loop test is a second full episode on the hardware before
+      # anything is learned; the experiment is about the cycle.
       skip_initial_test: True

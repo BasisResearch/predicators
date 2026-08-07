@@ -1,0 +1,9 @@
+# First attempt: bridge the 0.2871m gap between start (id6) and target (id5)
+# with two placements 0.0957m apart, then push. Executes all six options; the
+# start topples but the cascade dies at the first bridge domino.
+Pick(robot:robot, domino_1:domino)[0.065700]
+Place(robot:robot)[0.726500, 1.325100, 0.568000, 1.533900]
+Pick(robot:robot, domino_3:domino)[0.065700]
+Place(robot:robot)[0.822200, 1.328700, 0.568000, 1.533900]
+Push(robot:robot, domino_2:domino)[0.045000, 0.065700]
+Wait(robot:robot)[]

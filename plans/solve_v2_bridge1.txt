@@ -1,0 +1,9 @@
+# scene   : domino_straight.json
+# goal    : ['Toppled(domino_3:domino)']
+# roles   : start=domino_0 target=domino_3
+# bridge  : 2 dominoes, spacing 0.0749 m over 0.2248 m, yaw 1.5513 rad
+# push    : carried over from plans/solve_v2.txt, not the sampler default
+Pick(robot:robot, domino_4:domino)[0.065700]
+Place(robot:robot)[0.688349, 1.275297, 0.568000, 1.551323]
+Push(robot:robot, domino_0:domino)[0.090000, 0.065700]
+Wait(robot:robot)[]

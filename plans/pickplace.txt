@@ -1,0 +1,10 @@
+# scene   : /home/amberli/babyrobot/BabyRobotPredicator/scenes/domino_straight.json
+# sketch  : Pick:1 Place:1@2 Wait
+# seed    : 0
+# steps   : 75
+# toppled : {'domino_0': False, 'domino_1': False, 'domino_2': False, 'domino_3': False}
+# solved  : False
+# replay  : python scripts/domino_debug/replay_plan.py --plan plans/pickplace.txt --scene /home/amberli/babyrobot/BabyRobotPredicator/scenes/domino_straight.json
+Pick(robot:robot, domino_1:domino)[0.065700]
+Place(robot:robot)[0.933713, 1.145765, 0.580000, 2.358696]
+Wait(robot:robot)[]
