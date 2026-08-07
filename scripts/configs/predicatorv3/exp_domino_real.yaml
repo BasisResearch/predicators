@@ -19,11 +19,18 @@ ENVS:
     FLAGS:
       excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
       real_robot_execute: True
-      # Everything the real path does, minus the motion:
+      # Everything the real path does, minus the motion: no RobotInterface is
+      # built, so the arm is never contacted and no polymetis server is needed.
       real_robot_dry: True
-      real_robot_human_reset: True
-      # For a dry run whose twin evolves normally:
+      # Blind, so the twin evolves in sim instead of being corrected back to a
+      # scene that a motionless arm never changes.
+      #
+      # These next three go together -- "none" alone raises. The boundary look
+      # asks the robot to perceive, and reset_env perceives after the human
+      # confirms, so both have to be off for a run with no cameras.
       real_robot_perception: "none"
+      real_robot_observe_at_option_boundary: False
+      real_robot_human_reset: False
       real_robot_divergence_atol: 0.02
       # No learning for now, just hybrid sim.
       # agent_sim_learn_oracle_sim_program: True
