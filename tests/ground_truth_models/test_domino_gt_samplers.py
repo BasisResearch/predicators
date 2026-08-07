@@ -18,7 +18,7 @@ from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
 from predicators.ground_truth_models import get_gt_samplers
 from predicators.ground_truth_models.domino.processes import \
-    _place_option_sampler
+    _DOMINO_DROP_Z, _place_option_sampler
 from predicators.structs import GroundAtom, Object, Predicate, State, Type
 
 # Domino feature layout (matches the env's domino type).
@@ -174,7 +174,9 @@ def test_place_sampler_prefers_target_bridgeable_first_placement():
                                    [robot])
 
     assert np.allclose(params[:2], [0.88985, 1.32665], atol=1e-3)
-    assert np.isclose(float(params[2]), 0.58)
+    # The canonical drop height, whatever it is currently tuned to --
+    # the claim is that the sampler uses it, not its value.
+    assert np.isclose(float(params[2]), _DOMINO_DROP_Z)
     assert abs(utils.wrap_angle(float(params[3]) - np.pi / 4)) < 1e-3
 
 
