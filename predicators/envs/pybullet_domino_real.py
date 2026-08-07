@@ -590,6 +590,28 @@ class PyBulletDominoRealEnv(RealSceneGeometryMixin, PyBulletDominoEnv):
         del train_or_test  # same goal either way for this env
         return self._task_from_perceived(self._perceived_from_observation(obs))
 
+    def _target_xy(self, perceived: List[_PerceivedDomino],
+                   prev_state: State) -> Optional[Tuple[float, float]]:
+        """``(x, y)`` of the target domino, for orienting the start's yaw.
+
+        Prefers what this observation saw. Falls back to the twin's last
+        known pose when the observation does not name the target, which
+        is the same "absent means unchanged" policy the rest of the
+        correction follows -- a target hidden behind the arm must not
+        silently cost the start its heading.
+        """
+        for pd in perceived:
+            if pd.role == "target":
+                world = pose_base_to_world(pd.pose_base, self._z_off)
+                return (world.xyz[0], world.xyz[1])
+        comp = self._domino_component
+        assert comp is not None, "env has no domino component"
+        for slot, capture_id in enumerate(self._scene_ids):
+            if self._role_for_capture_id(capture_id) == "target":
+                dom = comp.dominos[slot]
+                return (prev_state.get(dom, "x"), prev_state.get(dom, "y"))
+        return None
+
     def state_from_observation(self, obs: Any, prev_state: State) -> State:
         """Correct ``prev_state`` with what the cameras just saw.
 
@@ -601,10 +623,21 @@ class PyBulletDominoRealEnv(RealSceneGeometryMixin, PyBulletDominoEnv):
         by design, so "absent means unchanged" is the policy, and it
         lives here where it can be tested.
 
-        The start domino's yaw is NOT canonicalized here. That flip
-        exists to orient the opening push, so it belongs to building a
-        task's initial state; mid-episode the start domino may already
-        have been pushed, and re-canonicalizing would fight reality.
+        The start domino's yaw IS canonicalized here, but only while it
+        is still standing. Perception picks one of the two
+        180-degree-symmetric headings arbitrarily, and Push takes its
+        entire direction from that yaw
+        (``push.py``: ``facing = (sin(yaw), cos(yaw))``), so a look that
+        writes back the other branch turns the opening push around.
+        Every option boundary before the push is such a look, which is
+        how a plan that ends in Push(start) comes to shove the start
+        away from the target.
+
+        The guard is what keeps this honest: once the start has actually
+        gone over, its heading is real and is left alone -- there is no
+        push left to orient, and flipping it would misreport which way
+        it fell. Same rule, and same ``fallen_threshold``, as
+        ``_task_from_perceived`` applies when it builds the task.
 
         Knocked-over dominoes are read back as knocked over: the
         perceived orientation becomes the env's ``(yaw, roll)`` pair, and
@@ -616,7 +649,9 @@ class PyBulletDominoRealEnv(RealSceneGeometryMixin, PyBulletDominoEnv):
         comp = self._domino_component
         assert comp is not None, "env has no domino component"
         state = prev_state.copy()
-        for pd in self._perceived_from_observation(obs):
+        perceived = self._perceived_from_observation(obs)
+        target_xy = self._target_xy(perceived, prev_state)
+        for pd in perceived:
             dom = comp.dominos[pd.slot]
             if prev_state.get(dom, "is_held") > 0.5:
                 # Perception cannot see a domino in the gripper: it snaps
@@ -629,6 +664,11 @@ class PyBulletDominoRealEnv(RealSceneGeometryMixin, PyBulletDominoEnv):
                 continue
             world = pose_base_to_world(pd.pose_base, self._z_off)
             roll, yaw = self._env_angles(world, pd.capture_id)
+            # A live observation carries no explicit push direction, so
+            # "toward the target" is the one available intent.
+            if pd.role == "start" and \
+                    abs(roll) < DominoComponent.fallen_threshold:
+                yaw = self._canonical_start_yaw(yaw, world, None, target_xy)
             state.set(dom, "x", world.xyz[0])
             state.set(dom, "y", world.xyz[1])
             state.set(dom, "z", world.xyz[2])

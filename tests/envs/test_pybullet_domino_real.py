@@ -27,6 +27,8 @@ import pytest
 from scipy.spatial.transform import Rotation
 
 from predicators import utils
+from predicators.envs.pybullet_domino.components.domino_component import \
+    DominoComponent
 from predicators.envs.pybullet_domino.real_geometry import _REAL_TO_ENV_BODY, \
     Pose6D, domino_env_euler, domino_upright_yaw, pose_base_to_world
 from predicators.envs.pybullet_domino_real import PyBulletDominoRealEnv, \
@@ -422,22 +424,45 @@ def test_state_from_observation_ignores_unknown_capture_ids(env):
     assert state.allclose(task.init)
 
 
-def test_state_from_observation_does_not_canonicalize_start_yaw(env):
-    """The yaw flip orients the OPENING push, so it belongs to task
-    construction.
+def test_state_from_observation_canonicalizes_a_standing_start_yaw(env):
+    """A look must not turn the opening push around.
 
-    Mid-episode the start domino may already have been pushed; re-
-    canonicalizing would fight what the cameras actually saw.
+    A domino is 180-degree symmetric, so perception returns whichever
+    heading branch it likes, and Push takes its entire direction from
+    that yaw. Every option boundary before the push is a look, so
+    writing the raw branch back is enough to send the start away from
+    the target -- which is what a real run did.
     """
     task = env._build_task_from_scene()  # pylint: disable=protected-access
     comp = env._domino_component  # pylint: disable=protected-access
     # The task build flipped the start's yaw to 0 (target is at world +y).
     assert task.init.get(comp.dominos[0], "yaw") == pytest.approx(0.0)
-    # Re-observing the same pose reports the raw branch, unflipped.
+    # Re-observing the raw branch keeps the heading the task was built with.
     obs = _StubDominoObservation(
         [_StubDominoPose(_START_ID, (0.0, 0.0, 0.03))])
     state = env.state_from_observation(obs, task.init)
+    assert state.get(comp.dominos[0], "yaw") == pytest.approx(0.0)
+
+
+def test_state_from_observation_leaves_a_toppled_start_yaw_alone(env):
+    """Once the start has gone over there is no push left to orient.
+
+    Its heading is then a real observation of which way it fell, and
+    flipping it would misreport that -- the reason the correction did
+    not canonicalize at all before.
+    """
+    task = env._build_task_from_scene()  # pylint: disable=protected-access
+    comp = env._domino_component  # pylint: disable=protected-access
+    fallen = float(DominoComponent.fallen_threshold) + 0.2
+    obs = _StubDominoObservation([
+        _StubDominoPose(_START_ID, (0.0, 0.0, 0.03),
+                        _base_quat(roll=fallen, yaw=_STANDING_YAW))
+    ])
+    state = env.state_from_observation(obs, task.init)
+    # The raw branch survives: no flip toward the target.
     assert state.get(comp.dominos[0], "yaw") == pytest.approx(_STANDING_YAW)
+    assert abs(state.get(comp.dominos[0], "roll")) >= \
+        DominoComponent.fallen_threshold
 
 
 # -- PyBulletEnv primitives --------------------------------------------------
