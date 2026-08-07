@@ -364,6 +364,65 @@ def test_blue_relocation_passes():
     assert ok, reason
 
 
+def test_blue_placed_slightly_crooked_passes():
+    """A bridge domino set down off plumb is standing, not falling.
+
+    A real placement does not land at exactly zero roll, so the blue
+    never re-enters the upright band (5 degrees) after release. The
+    onset search must not walk back through the carry on that account
+    and date the cascade's topple to the grasp: run_20260807_105851 was
+    rejected exactly that way, reporting that the blue "started falling
+    at step 21" -- the step the gripper closed -- while the cascade
+    actually reached it long after the push. Sim never showed it,
+    because a placed domino settles there at exactly zero roll.
+    """
+    objs = _make_objects(["green", "blue1", "target"])
+    crooked = np.deg2rad(6.0)
+    # Above the upright band but below fallen: resting, not toppled.
+    assert DominoComponent.domino_roll_threshold < crooked
+    assert crooked < DominoComponent.fallen_threshold
+    # Upright, carried (3-8), then resting crooked until the cascade.
+    rolls = [0.0] * 3 + [crooked] * 15 + [_FALLEN_ROLL] * 13
+    states = _build_states(objs,
+                           30, {
+                               "green": 14,
+                               "blue1": 18,
+                               "target": 22
+                           },
+                           roll_profiles={"blue1": rolls},
+                           held_spans={"blue1": (3, 8)})
+    step_options = _options([("Pick", ("robot", "blue1"), 0, 3),
+                             ("Place", ("robot", ), 4, 8),
+                             ("Push", ("robot", "green"), 10, 13)], 30)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert ok, reason
+
+
+def test_blue_dropped_over_before_the_push_still_fails():
+    """The guard above must not excuse actually knocking one down.
+
+    Same staging, but the blue is on its side the moment it is released
+    -- before the push. The fall then lands at the release and is caught
+    there, so a crooked resting pose being forgiven does not forgive a
+    robot that drops a domino over.
+    """
+    objs = _make_objects(["green", "blue1", "target"])
+    rolls = [0.0] * 8 + [_FALLEN_ROLL] * 23
+    states = _build_states(objs,
+                           30, {
+                               "green": 14,
+                               "target": 22
+                           },
+                           roll_profiles={"blue1": rolls},
+                           held_spans={"blue1": (3, 8)})
+    step_options = _options([("Pick", ("robot", "blue1"), 0, 3),
+                             ("Place", ("robot", ), 4, 8),
+                             ("Push", ("robot", "green"), 10, 13)], 30)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert not ok
+    assert "blue1" in reason and "before" in reason
+
+
 def test_push_placed_blue_fails():
     """Pushing a blue directly: rejected outright by the only-green rule."""
     objs = _make_objects(["green", "blue1", "target"])

@@ -34,6 +34,7 @@ from predicators import utils
 from predicators.envs.pybullet_domino.real_geometry import _REAL_TO_ENV_BODY
 from predicators.envs.pybullet_domino_real import PyBulletDominoRealEnv
 from predicators.pybullet_helpers.real_robot_executor import RealRobotExecutor
+from predicators.settings import CFG
 from predicators.structs import EnvironmentTask, Object
 
 _TABLE_Z = -0.041
@@ -269,6 +270,10 @@ def test_no_human_reset_keeps_the_captured_scene(env: PyBulletDominoRealEnv,
     is what a fixed-plan replay depends on."""
     robot = _FakeRobot([_observation(0.30)])
     attached(robot, human_reset=False)
+    # A replay opts in to those exact poses, as replay_plan does; without it
+    # the stale-task guard refuses to plan against a snapshot while the
+    # cameras are live.
+    CFG.real_robot_allow_captured_scene_task = True
 
     tasks = env.get_train_tasks()
 

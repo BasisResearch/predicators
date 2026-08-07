@@ -101,8 +101,8 @@ class _StubEnv:
         return _state(obs.x)
 
     def task_from_observation(self, obs: Any, train_or_test: str) -> Any:
-        """Unused here; present so the hook check passes."""
-        raise NotImplementedError
+        """Name the observation and the split it was rebuilt for."""
+        return (obs, train_or_test)
 
 
 class _StubRobot:
@@ -595,3 +595,117 @@ def test_dump_look_is_off_by_default(tmp_path):
                _per_object_divergence(predicted, perceived), 0.01)
 
     assert not list(tmp_path.iterdir())
+
+
+# -- one arrangement, both splits --------------------------------------------
+def test_one_reset_serves_both_splits(monkeypatch):
+    """A physical reset arranges one scene, so both splits rebuild from it.
+
+    Consuming the look on whichever split asked first left the other one
+    holding the captured-scene task: with the online loop off, main.py
+    requests the train tasks during setup, so the TEST task -- the one
+    that gets solved -- silently stayed on the scene JSON while the arm
+    executed in the real scene.
+    """
+    looks = []
+
+    def _fake_reset_env(robot, joints):
+        del robot, joints
+        looks.append(len(looks))
+        return _StubObservation(float(len(looks)))
+
+    monkeypatch.setattr(
+        "predicators.pybullet_helpers.real_robot_executor.reset_env",
+        _fake_reset_env)
+    monkeypatch.setattr(
+        "predicators.pybullet_helpers.real_robot_executor.reset_arm",
+        lambda robot, joints: tuple(joints))
+    ex = _executor(_StubEnv(), human_reset=True)
+
+    train = ex.tasks_for("train")
+    test = ex.tasks_for("test")
+
+    # One look, not two: the person arranged the scene once.
+    assert len(looks) == 1
+    assert ex.resets_done == 1
+    # Both splits rebuilt from THAT observation, each for its own split.
+    assert train is not None and test is not None
+    assert train[0][0] is test[0][0]
+    assert train[0][1] == "train" and test[0][1] == "test"
+
+
+def test_a_second_arrangement_replaces_the_first(monkeypatch):
+    """The next episode's reset supersedes the cached look.
+
+    Otherwise every later episode would keep rebuilding from the first
+    scene the person ever arranged.
+    """
+    seen = []
+
+    def _fake_reset_env(robot, joints):
+        del robot, joints
+        seen.append(len(seen))
+        return _StubObservation(float(len(seen)))
+
+    monkeypatch.setattr(
+        "predicators.pybullet_helpers.real_robot_executor.reset_env",
+        _fake_reset_env)
+    monkeypatch.setattr(
+        "predicators.pybullet_helpers.real_robot_executor.reset_arm",
+        lambda robot, joints: tuple(joints))
+    ex = _executor(_StubEnv(), human_reset=True)
+
+    first = ex.tasks_for("train")
+    ex.after_reset("train", 0, _state(0.0))  # an episode began; one is owed
+    second = ex.tasks_for("test")
+
+    assert len(seen) == 2
+    assert first[0][0] is not second[0][0]
+
+
+def test_captured_scene_task_is_refused_while_the_cameras_are_live(
+        monkeypatch):
+    """Live cameras plus no look is a plan written for a world that is not
+    there.
+
+    Silent in every other way: the JSON's poses look like a scene and
+    planning against them succeeds, so the run only reveals itself on
+    the arm.
+    """
+    monkeypatch.setattr(
+        "predicators.pybullet_helpers.real_robot_executor.reset_arm",
+        lambda robot, joints: tuple(joints))
+    utils.reset_config({
+        "real_robot_perception": "zed",
+        "real_robot_allow_captured_scene_task": False,
+    })
+    ex = _executor(_StubEnv(), human_reset=False)
+
+    with pytest.raises(ValueError, match="no one has looked at the scene"):
+        ex.tasks_for("test")
+
+
+def test_replaying_a_recorded_plan_may_keep_the_captured_scene(monkeypatch):
+    """The one case that wants those exact poses says so explicitly."""
+    monkeypatch.setattr(
+        "predicators.pybullet_helpers.real_robot_executor.reset_arm",
+        lambda robot, joints: tuple(joints))
+    utils.reset_config({
+        "real_robot_perception": "zed",
+        "real_robot_allow_captured_scene_task": True,
+    })
+    ex = _executor(_StubEnv(), human_reset=False)
+
+    assert ex.tasks_for("test") is None
+
+
+def test_no_cameras_means_nothing_to_be_stale_about(monkeypatch):
+    """A cameraless run has no truer scene to compare against, so the captured
+    one stands without complaint."""
+    monkeypatch.setattr(
+        "predicators.pybullet_helpers.real_robot_executor.reset_arm",
+        lambda robot, joints: tuple(joints))
+    utils.reset_config({"real_robot_perception": "scene_file"})
+    ex = _executor(_StubEnv(), human_reset=False)
+
+    assert ex.tasks_for("test") is None

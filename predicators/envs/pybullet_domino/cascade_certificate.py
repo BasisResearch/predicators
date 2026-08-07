@@ -163,6 +163,22 @@ def _topple_onset(states: Sequence[State], domino: Object) -> Optional[int]:
     (|roll| < ``domino_roll_threshold``) before that first full topple,
     so placement wobbles that recover never register and a wobble that
     precedes the real fall is not mistaken for it.
+
+    That backward search may not cross a carry. A domino cannot have
+    been falling since before the robot picked it up and moved it, so
+    the search floor is the step after it was last released. Without
+    that floor the search walks straight through the pick-and-place: a
+    bridge domino that lands a few degrees off plumb never re-enters the
+    upright band, so the last "standing" moment found is the one before
+    it was ever picked up, and a cascade that arrives long after the
+    push gets dated to the grasp. A real run was rejected exactly that
+    way -- the search stopped at step 21, the step the gripper closed.
+
+    A domino that was staged and then rested below ``fallen_threshold``
+    until something reached it is standing, not falling, so its fall is
+    dated to the fall itself. Being set down slightly crooked is not the
+    beginning of a topple; the robot dropping it over still is, because
+    then the full topple lands at the release and is caught there.
     """
     fall_idx: Optional[int] = None
     for t, state in enumerate(states):
@@ -173,8 +189,14 @@ def _topple_onset(states: Sequence[State], domino: Object) -> Optional[int]:
             break
     if fall_idx is None:
         return None
-    onset = None
+    # Step after the last release before the fall; 0 if never carried.
+    floor = 0
     for t in range(fall_idx - 1, -1, -1):
+        if states[t].get(domino, "is_held") > 0.5:
+            floor = t + 1
+            break
+    onset = None
+    for t in range(fall_idx - 1, floor - 1, -1):
         state = states[t]
         if state.get(domino, "is_held") > 0.5:
             continue
@@ -184,6 +206,10 @@ def _topple_onset(states: Sequence[State], domino: Object) -> Optional[int]:
             break
     if onset is not None:
         return onset
+    if floor > 0:
+        # Staged by the robot and never seen dead upright since, i.e. it
+        # sat where it was placed until something reached it.
+        return fall_idx
     # Never observed upright and non-held before falling: use the first
     # non-held index (conservative earliest).
     for t in range(fall_idx + 1):
