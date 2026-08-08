@@ -16,6 +16,7 @@ import pytest
 from predicators import utils
 from predicators.code_sim_learning.utils import apply_rules, merge_updates
 from predicators.envs import create_new_env
+from predicators.envs.pybullet_fan import PyBulletFanEnv
 from predicators.ground_truth_models import get_gt_simulator
 from predicators.structs import Action
 
@@ -138,9 +139,16 @@ def test_fan_hybrid_clear_column_and_multi_fan(fan_setup):
                                            ball_xy=(0.67, 1.694))
     assert max_err < GOAL_TOL
     ball = _get_obj(s_real, "ball")
-    # Crossed the full grid to the lower boundary (grid edge 1.534).
-    assert abs(s_real.get(ball, "y") - 1.534) < 0.005
-    assert abs(s_hyb.get(ball, "y") - 1.534) < 0.005
+    # Crossed the full grid to the lower boundary. Derive the grid edge
+    # from the (stationary, on-grid) target the same way the GT rules do,
+    # rather than hard-coding it: the whole arena translates with
+    # PyBulletFanEnv.fan_row_y_shift.
+    target = _get_obj(s_real, "target")
+    _, y_coords = PyBulletFanEnv._grid_coords_for_point(  # pylint: disable=protected-access
+        s_real.get(target, "x"), s_real.get(target, "y"))
+    grid_y_lo = min(y_coords)
+    assert abs(s_real.get(ball, "y") - grid_y_lo) < 0.005
+    assert abs(s_hyb.get(ball, "y") - grid_y_lo) < 0.005
 
     max_err, _, _ = _rollout_pair(fan_setup, [0.0, 2.0], 35)
     assert max_err < GOAL_TOL

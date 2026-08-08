@@ -121,8 +121,21 @@ class PyBulletFanEnv(PyBulletEnv):
     # far edge. Deepening the arena this way gives the left/right sides room
     # for 5 evenly-spaced fans, and re-centers the grid (loc_y_mid, the
     # midpoint of down_fan_y/up_fan_y) between the top and bottom fan rows.
-    up_fan_y: ClassVar[float] = 2.02
-    down_fan_y: ClassVar[float] = y_lb + fan_x_len / 2 + 0.1
+    # Both rows are pushed this much further from the robot than the
+    # geometry above would otherwise place them. The down row's rotor
+    # link reaches ~0.093 behind the switch row, and a SwitchOff push -
+    # whose approach waypoint sits at switch_y + approach_distance, on
+    # the far side of the switch - wedges the wrist against it for
+    # approach distances the params space advertises as legal (0.08
+    # stalls, 0.06 clears). Shifting BOTH rows keeps the arena's
+    # y-extent the same size and just translates it, spending the
+    # headroom at the far edge (y_ub - up_fan_y = 0.08, less the rotor's
+    # ~0.015 overhang). Everything downstream - fan_y_lb/ub and the
+    # loc_* grid bounds - is derived from these two, so the grid
+    # translates with the fans.
+    fan_row_y_shift: ClassVar[float] = 0.03
+    up_fan_y: ClassVar[float] = 2.02 + fan_row_y_shift
+    down_fan_y: ClassVar[float] = y_lb + fan_x_len / 2 + 0.1 + fan_row_y_shift
 
     # Fan placement boundaries
     fan_y_lb: ClassVar[
@@ -659,6 +672,10 @@ class PyBulletFanEnv(PyBulletEnv):
         # in _set_domain_specific_state)
         # pylint: disable=attribute-defined-outside-init
         self._boundary_wall_ids: List[int] = []
+        # Grid extent the current boundary walls were built for; lets
+        # _reposition_boundary_walls skip an identical rebuild.
+        self._boundary_wall_extent: Optional[Tuple[float, float, float,
+                                                   float]] = None
 
     # -------------------------------------------------------------------------
     # Read state from PyBullet
@@ -668,8 +685,20 @@ class PyBulletFanEnv(PyBulletEnv):
 
     def _set_domain_specific_state(self, state: State) -> None:
         for switch_obj in self._switches:
-            is_on_val = state.get(switch_obj, "is_on")
-            self._set_switch_on(switch_obj.id, bool(is_on_val > 0.5))
+            want_on = bool(state.get(switch_obj, "is_on") > 0.5)
+            # Only reconcile a lever whose on/off reading actually
+            # disagrees with the requested one. `is_on` is a threshold
+            # over a continuous joint (see _is_switch_on), while
+            # _set_switch_on snaps the joint to its travel *limit* - so
+            # re-imposing an already-matching value teleports the lever
+            # out from under a gripper that is mid-push and discards the
+            # contact. _set_state runs on every step of a combined
+            # base+learned simulator rollout (the learned rules edit
+            # features the engine also holds, so State.allclose misses),
+            # which let a jammed SwitchOn converge in the belief sim
+            # while it stalled for real.
+            if self._is_switch_on(switch_obj.id) != want_on:
+                self._set_switch_on(switch_obj.id, want_on)
 
         # Position all fans correctly based on their side
         self._position_fans_on_sides()
@@ -685,16 +714,25 @@ class PyBulletFanEnv(PyBulletEnv):
                           position=(oov_x, oov_y, 0.0),
                           physics_client_id=self._physics_client_id)
 
-    def _reposition_boundary_walls(self, state: State) -> None:
-        """Recreate boundary walls with correct dimensions based on the actual
-        grid positions used in this task."""
-        # Remove existing boundary walls
+    def _remove_boundary_walls(self) -> None:
+        """Tear down the current boundary wall bodies."""
         for wall_id in self._boundary_wall_ids:
             if wall_id >= 0:
                 p.removeBody(wall_id, physicsClientId=self._physics_client_id)
         # pylint: disable=attribute-defined-outside-init
         self._boundary_wall_ids = []
+        self._boundary_wall_extent = None
 
+    def _reposition_boundary_walls(self, state: State) -> None:
+        """Recreate boundary walls with correct dimensions based on the actual
+        grid positions used in this task.
+
+        No-op when the grid extent is unchanged: the walls are a pure
+        function of it, so an identical rebuild only churns four bodies.
+        That matters because _set_state runs on every step of a combined
+        base+learned simulator rollout, and removing a body discards any
+        contact it was part of.
+        """
         # Reproduce the original grid-tight arena. The loc objects are no
         # longer in the (grid-free) state, so derive the grid extent from the
         # TARGET's position (stationary, on-grid) - NOT the ball, which moves
@@ -703,12 +741,18 @@ class PyBulletFanEnv(PyBulletEnv):
         if not ref_objs:
             ref_objs = state.get_objects(self._ball_type)
         if not ref_objs:
+            self._remove_boundary_walls()
             return
         ref = ref_objs[0]
         x_coords, y_coords = self._grid_coords_for_point(
             state.get(ref, "x"), state.get(ref, "y"))
         grid_x_min, grid_x_max = min(x_coords), max(x_coords)
         grid_y_min, grid_y_max = min(y_coords), max(y_coords)
+
+        extent = (grid_x_min, grid_x_max, grid_y_min, grid_y_max)
+        if self._boundary_wall_ids and extent == self._boundary_wall_extent:
+            return
+        self._remove_boundary_walls()
 
         # Create boundary walls with correct dimensions for this grid
         # Left boundary wall (pos_gap to the left of leftmost grid positions)
@@ -776,6 +820,7 @@ class PyBulletFanEnv(PyBulletEnv):
         self._boundary_wall_ids = [
             left_wall_id, right_wall_id, front_wall_id, back_wall_id
         ]
+        self._boundary_wall_extent = extent
 
     @classmethod
     def _generate_grid_coordinates(
