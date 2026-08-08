@@ -13,7 +13,7 @@ Main public API:
     step(action) — _step_base (robot control, physics, grasps)
         → _domain_specific_step (water filling, heating, etc.)
         → get_observation. Domain dynamics are skipped when
-        skip_process_dynamics=True is passed to the constructor.
+        skip_residual_dynamics=True is passed to the constructor.
     get_observation() — read PyBullet state, optionally attach images/masks
 
 State synchronization:
@@ -260,7 +260,7 @@ class PyBulletEnv(BaseEnv):
 
     def __init__(self,
                  use_gui: bool = False,
-                 skip_process_dynamics: bool = False) -> None:
+                 skip_residual_dynamics: bool = False) -> None:
         super().__init__(use_gui)
 
         # Forward declaration: subclasses must define _robot
@@ -275,7 +275,7 @@ class PyBulletEnv(BaseEnv):
 
         # When True, _domain_specific_step() is skipped in step().
         # Used by sim-learning to create base-sim-only envs.
-        self._skip_domain_specific_dynamics: bool = skip_process_dynamics
+        self._skip_domain_specific_dynamics: bool = skip_residual_dynamics
 
         # Drives real hardware from this env's rollouts; None means pure sim,
         # which is what every env built by the planner stays.
@@ -754,7 +754,7 @@ class PyBulletEnv(BaseEnv):
 
         Override in subclasses to add post-base-sim effects (water
         filling, heating, balance beam physics, etc.). Skipped when
-        ``skip_process_dynamics=True`` is passed to the constructor.
+        ``skip_residual_dynamics=True`` is passed to the constructor.
         """
 
     # ── Real execution ──────────────────────────────────────────
@@ -1014,7 +1014,7 @@ class PyBulletEnv(BaseEnv):
         (kinematic ``x, y`` a robot can move) untouched. Angle features
         are compared modulo 2π; the orientation-triple geodesic handling
         in ``_reconstruction_diff`` is unnecessary here because
-        orientation features are kinematic — never process features — so
+        orientation features are kinematic — never residual features — so
         they are filtered out by the caller's intersection regardless.
         """
         out: List[Tuple[Object, str]] = []

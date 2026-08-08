@@ -2,7 +2,7 @@
 
 Verifies that given a correct plan sketch (from a real agent run) and a
 ground-truth simulator program, the hybrid learned option model
-(PyBullet + learned process dynamics) can find continuous parameters
+(PyBullet + learned residual dynamics) can find continuous parameters
 that solve a pybullet_boil task.
 """
 # pylint: disable=protected-access
@@ -28,7 +28,7 @@ from predicators.code_sim_learning.utils import LearnedSimulator, \
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.ground_truth_models.boil.gt_simulator import PARAM_SPECS, \
-    PROCESS_RULES
+    RESIDUAL_RULES
 from predicators.option_model import _OracleOptionModel
 from predicators.planning import run_backtracking_refinement
 from predicators.settings import CFG
@@ -72,15 +72,15 @@ def _build_oracle_model(env):
 
 
 def _build_kinematics_only_oracle(env):
-    """Build an oracle that only handles kinematics (no process dynamics).
+    """Build an oracle that only handles kinematics (no residual dynamics).
 
-    Creates a separate env instance with process dynamics disabled, so
+    Creates a separate env instance with residual dynamics disabled, so
     that water filling, heating, and happiness are not simulated.
     """
     base_env = create_new_env("pybullet_boil",
                               do_cache=False,
                               use_gui=False,
-                              skip_process_dynamics=True)
+                              skip_residual_dynamics=True)
     options = get_gt_options(base_env.get_name())
     oracle = _OracleOptionModel(options, base_env.simulate)
     preds = env.predicates
@@ -98,9 +98,9 @@ def _build_combined_model(env):
     base_env = create_new_env("pybullet_boil",
                               do_cache=False,
                               use_gui=False,
-                              skip_process_dynamics=True)
+                              skip_residual_dynamics=True)
     gt_params = {s.name: s.init_value for s in PARAM_SPECS()}
-    rules = PROCESS_RULES
+    rules = RESIDUAL_RULES
 
     simulator = LearnedSimulator(
         step_fn=lambda s, _r=rules, _p=gt_params: apply_rules(s, _r, _p),
@@ -393,7 +393,7 @@ def test_build_option_model_binds_sim_env():
     # Pre-learning (no rules): the certificate probe stays base-only.
     assert fake_env.probe_process_model_factory is None
     # With rules, the combined-substrate factory is stamped alongside.
-    approach._process_rules = [lambda s, u, p: u]
+    approach._residual_rules = [lambda s, u, p: u]
     approach._fitted_params = {}
     model = approach._build_option_model(lambda s, a: s)
     assert model.sim_env is fake_env
@@ -645,9 +645,9 @@ def test_make_probe_process_model_factory() -> None:
     noop = Action(np.zeros(1, dtype=np.float32))
 
     obj = object.__new__(AgentSimLearningApproach)
-    obj._process_rules = None
+    obj._residual_rules = None
     assert obj._make_probe_process_model_factory() is None
-    obj._process_rules = []
+    obj._residual_rules = []
     assert obj._make_probe_process_model_factory() is None
 
     def drift_rule(state: State, updates: dict, params: dict) -> dict:
@@ -655,7 +655,7 @@ def test_make_probe_process_model_factory() -> None:
             state.get(thing, "x") + params["dx"]
         return updates
 
-    obj._process_rules = [drift_rule]
+    obj._residual_rules = [drift_rule]
     obj._fitted_params = {"dx": 0.5}
     factory = obj._make_probe_process_model_factory()
     assert factory is not None
@@ -671,7 +671,7 @@ def test_make_probe_process_model_factory() -> None:
             state.get(thing, "x") + latent["count"]
         return updates
 
-    obj._process_rules = [latent_rule]
+    obj._residual_rules = [latent_rule]
     obj._latent_init = {"count": 0}
     factory = obj._make_probe_process_model_factory()
     assert factory is not None

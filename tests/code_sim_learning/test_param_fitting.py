@@ -19,7 +19,7 @@ from predicators.code_sim_learning.fitting import fit_params
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.ground_truth_models.boil.gt_simulator import PARAM_SPECS, \
-    PROCESS_FEATURES, PROCESS_RULES
+    RESIDUAL_FEATURES, RESIDUAL_RULES
 from predicators.option_model import _OracleOptionModel
 from predicators.planning import run_backtracking_refinement
 from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
@@ -275,13 +275,13 @@ def test_emcee_recovers_rate_params():
     env, task, options = _setup_env()
     oracle = _build_oracle_model(env)
     transitions = _generate_oracle_transitions(env, task, options, oracle)
-    process_features = PROCESS_FEATURES
+    residual_features = RESIDUAL_FEATURES
 
     logger.info("Generated %d oracle transitions.", len(transitions))
 
     def simulator_fn(state, _action, params):
         updates = {}
-        for rule in PROCESS_RULES:
+        for rule in RESIDUAL_RULES:
             updates = rule(state, updates, params)
         return updates
 
@@ -302,7 +302,7 @@ def test_emcee_recovers_rate_params():
         simulator_fn=simulator_fn,
         transitions=transitions,
         param_specs=param_specs,
-        process_features=process_features,
+        residual_features=residual_features,
         num_walkers=32,
         num_steps=500,
         burn_in=200,

@@ -55,7 +55,7 @@ BOXES = [
      "5  declaring is a decision"),
     ("A3", 0, 8.5, "Learn session artifact", "sandbox/simulator.py:\n"
      "PHYSICAL_PARAMS (ParamSpec,\n"
-     "log scale) + PROCESS_FEATURES\n"
+     "log scale) + RESIDUAL_FEATURES\n"
      "+ rules and rule params", None),
     ("B1", 1, 7.0, "Trajectory prep", "settled-tail truncation\n"
      "-> rest-point segmentation\n"

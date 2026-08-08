@@ -1,9 +1,9 @@
-"""Ground-truth simulator program for pybullet_fan process dynamics.
+"""Ground-truth simulator program for pybullet_fan residual dynamics.
 
-Reproduces the wind dynamics from pybullet_fan.py as process rules.
+Reproduces the wind dynamics from pybullet_fan.py as residual rules.
 The env applies the fan wind inside ``_domain_specific_step``
 (``_simulate_fans``), which the approaches' base sims skip
-(``skip_process_dynamics=True``), so - unlike pybullet_domino, whose
+(``skip_residual_dynamics=True``), so - unlike pybullet_domino, whose
 toppling is plain rigid-body physics and whose GT simulator is a no-op
 - the fan GT simulator must model the ball's wind-driven motion itself.
 
@@ -41,7 +41,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 
 from predicators.code_sim_learning.fit_space import ParamSpec
-from predicators.code_sim_learning.utils import Params, ProcessUpdate, \
+from predicators.code_sim_learning.utils import Params, ResidualUpdate, \
     objs_by_type
 from predicators.envs.pybullet_fan import PyBulletFanEnv
 from predicators.ground_truth_models import GroundTruthSimulatorFactory
@@ -81,7 +81,7 @@ BOUNDARY_MARGIN = (
     _ENV.pos_gap / 2 - _ENV.boundary_wall_thickness / 2 -
     _sphere_overhang(_ENV.ball_radius, _ENV.boundary_wall_height))
 
-# ── Process rules ────────────────────────────────────────────────
+# ── Residual rules ────────────────────────────────────────────────
 
 
 def _axis_move(pos: float, perp: float, delta: float,
@@ -114,8 +114,8 @@ def _axis_move(pos: float, perp: float, delta: float,
     return cand
 
 
-def _wind_blowing(state: State, updates: ProcessUpdate,
-                  params: Params) -> ProcessUpdate:
+def _wind_blowing(state: State, updates: ResidualUpdate,
+                  params: Params) -> ResidualUpdate:
     """Active fans blow the ball; walls and the grid boundary block it.
 
     Blocking is a hard clamp, unlike boil's sigmoid-softened gates: a
@@ -183,14 +183,14 @@ def _wind_blowing(state: State, updates: ProcessUpdate,
 # ── Public API: consumed by read_simulator_components ────────────
 # Same contract used by agent-synthesized simulator files.
 
-PROCESS_RULES = [_wind_blowing]
+RESIDUAL_RULES = [_wind_blowing]
 
 PARAM_SPECS: List[ParamSpec] = [
     ParamSpec("ball_speed", BALL_STEP_SIZE, lo=0.0),
     ParamSpec("wall_clearance", WALL_CLEARANCE, lo=0.0),
 ]
 
-PROCESS_FEATURES: Dict[str, List[str]] = {
+RESIDUAL_FEATURES: Dict[str, List[str]] = {
     "ball": ["x", "y"],
 }
 
@@ -198,10 +198,10 @@ PROCESS_FEATURES: Dict[str, List[str]] = {
 
 
 class PyBulletFanGroundTruthSimulatorFactory(GroundTruthSimulatorFactory):
-    """GT process-dynamics simulator for pybullet_fan.
+    """GT residual-dynamics simulator for pybullet_fan.
 
-    The actual simulator components (``PROCESS_RULES``, ``PARAM_SPECS``,
-    ``PROCESS_FEATURES``) live as module globals above; this class only
+    The actual simulator components (``RESIDUAL_RULES``, ``PARAM_SPECS``,
+    ``RESIDUAL_FEATURES``) live as module globals above; this class only
     pins the env-name binding so ``get_gt_simulator`` can locate the
     right module via the factory registry.
     """

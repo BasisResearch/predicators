@@ -175,7 +175,7 @@ def solve_lm(
     init_residuals = internal_residuals(init)
     if init_residuals.size == 0:
         logger.warning(
-            "No residuals to fit (empty process_features); "
+            "No residuals to fit (empty residual_features); "
             "skipping %s LM fit.", label)
         return from_fit_space(param_specs, init), None
 

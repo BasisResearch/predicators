@@ -219,14 +219,14 @@ class AgentModelFreeApproach(AgentSessionMixin, BaseApproach):
           baseline).
         * ``agent_planner_use_base_simulator`` -- when True (and a
           simulator is used), wraps the *base* env
-          (``skip_process_dynamics=True``), denying the planner the delayed
+          (``skip_residual_dynamics=True``), denying the planner the delayed
           ``_domain_specific_step`` dynamics; otherwise wraps the real env.
         """
         if not CFG.agent_planner_use_simulator:
             return None
         return create_option_model(
             CFG.option_model_name,
-            skip_process_dynamics=CFG.agent_planner_use_base_simulator)
+            skip_residual_dynamics=CFG.agent_planner_use_base_simulator)
 
     # ------------------------------------------------------------------ #
     # AgentSessionMixin hooks

@@ -1,5 +1,5 @@
 """Ground-truth simulator program for pybullet_bridge (glue construction)
-process dynamics -- fully-observable variant.
+residual dynamics -- fully-observable variant.
 
 The residual slow processes the base rigid-body sim cannot model:
 
@@ -25,7 +25,7 @@ import numpy as np
 
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.utils import SOFT_EPS, Params, \
-    ProcessUpdate, objs_by_type, sigmoid
+    ResidualUpdate, objs_by_type, sigmoid
 from predicators.ground_truth_models import GroundTruthSimulatorFactory
 from predicators.settings import CFG
 from predicators.structs import Object, State
@@ -135,8 +135,8 @@ def _block_index(blocks: List[Object]) -> Dict[str, int]:
     return {name: i for i, name in enumerate(full)}
 
 
-def _glue_application(state: State, updates: ProcessUpdate,
-                      params: Params) -> ProcessUpdate:
+def _glue_application(state: State, updates: ResidualUpdate,
+                      params: Params) -> ResidualUpdate:
     """Wet the single nearest face within the bottle tip's radius."""
     objs = objs_by_type(state)
     blocks = objs.get("block", [])
@@ -172,8 +172,8 @@ def _glue_application(state: State, updates: ProcessUpdate,
     return updates
 
 
-def _curing(state: State, updates: ProcessUpdate,
-            params: Params) -> ProcessUpdate:
+def _curing(state: State, updates: ResidualUpdate,
+            params: Params) -> ResidualUpdate:
     """Tick each wet aligned joint's counter; latch attachment at the threshold
     (hard latch; the counter accumulation is soft-gated)."""
     objs = objs_by_type(state)
@@ -230,9 +230,9 @@ def _build_param_specs() -> List[ParamSpec]:
     ]
 
 
-PROCESS_RULES = [_glue_application, _curing]
+RESIDUAL_RULES = [_glue_application, _curing]
 PARAM_SPECS = _build_param_specs
-PROCESS_FEATURES: Dict[str, List[str]] = {
+RESIDUAL_FEATURES: Dict[str, List[str]] = {
     "block":
     [f"glue_{f}" for f in GLUE_FACES] + [f"cure_{f}" for f in GLUE_FACES] +
     [f"attached_{s}" for s in ATTACH_SLOTS]
@@ -240,7 +240,7 @@ PROCESS_FEATURES: Dict[str, List[str]] = {
 
 
 class PyBulletBridgeGroundTruthSimulatorFactory(GroundTruthSimulatorFactory):
-    """GT process-dynamics simulator for pybullet_bridge (fully observable)."""
+    """GT residual-dynamics simulator for pybullet_bridge (fully observable)."""
 
     @classmethod
     def get_env_names(cls) -> set:

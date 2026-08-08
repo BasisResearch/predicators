@@ -37,7 +37,7 @@ def compute_rollout_sse(
     base_env: Any,
     trajectories: List[RolloutTrajectory],
     params: Dict[str, float],
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     physical_names: Sequence[str],
     rules: Sequence[Any] = (),
     latent_init: Any = None,
@@ -65,7 +65,7 @@ def compute_rollout_sse(
     the same ``scaling`` object or their SSEs are incomparable.
     """
     return sum(r * r for r in _iter_rollout_residual_terms(
-        base_env, trajectories, params, process_features, physical_names,
+        base_env, trajectories, params, residual_features, physical_names,
         rules, latent_init, scaling, config))
 
 
@@ -73,7 +73,7 @@ def compute_rollout_residuals(
     base_env: Any,
     trajectories: List[RolloutTrajectory],
     params: Dict[str, float],
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     physical_names: Sequence[str],
     rules: Sequence[Any] = (),
     latent_init: Any = None,
@@ -89,7 +89,7 @@ def compute_rollout_residuals(
     """
     return np.asarray(list(
         _iter_rollout_residual_terms(base_env, trajectories, params,
-                                     process_features, physical_names, rules,
+                                     residual_features, physical_names, rules,
                                      latent_init, scaling, config)),
                       dtype=float)
 
@@ -120,7 +120,7 @@ def _iter_rollout_residual_terms(
     base_env: Any,
     trajectories: List[RolloutTrajectory],
     params: Dict[str, float],
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     physical_names: Sequence[str],
     rules: Sequence[Any],
     latent_init: Any,
@@ -178,7 +178,7 @@ def _iter_rollout_residual_terms(
             obs_by_name = {o.name: o for o in obs_state}
             is_last = i == len(sim_states) - 1
             for obj in sim_state:
-                feats = process_features.get(obj.type.name, [])
+                feats = residual_features.get(obj.type.name, [])
                 if not feats:
                     continue
                 obs_obj = obs_by_name.get(obj.name)
@@ -202,12 +202,12 @@ def _iter_rollout_residual_terms(
             for res in endpoint_residuals:
                 yield summary_w * _huberize(res, delta)
             yield from _onset_residuals([states[0]] + sim_states, states,
-                                        process_features, config.settle_tol,
+                                        residual_features, config.settle_tol,
                                         summary_w)
 
 
 def _onset_residuals(sim_states: List[State], obs_states: List[State],
-                     process_features: Dict[str, List[str]], motion_tol: float,
+                     residual_features: Dict[str, List[str]], motion_tol: float,
                      weight: float) -> Iterator[float]:
     """Per-object (sim onset - observed onset) / horizon, weighted.
 
@@ -237,7 +237,7 @@ def _onset_residuals(sim_states: List[State], obs_states: List[State],
 
     baseline = obs_states[0]
     for obj in baseline:
-        feats = process_features.get(obj.type.name, [])
+        feats = residual_features.get(obj.type.name, [])
         if not feats:
             continue
         obs_onset = _onset(obs_states, obj.name, feats, baseline)
@@ -253,7 +253,7 @@ def fit_map_lm_rollout(
     base_env: Any,
     trajectories: List[RolloutTrajectory],
     physical_specs: Sequence[ParamSpec],
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     rules: Sequence[Any] = (),
     rule_specs: Sequence[ParamSpec] = (),
     latent_init: Any = None,
@@ -299,7 +299,7 @@ def fit_map_lm_rollout(
         params = {n: float(theta[i]) for i, n in enumerate(names)}
         params.update(fixed)
         res = compute_rollout_residuals(base_env, trajectories, params,
-                                        process_features, physical_names,
+                                        residual_features, physical_names,
                                         rules, latent_init, scaling)
         if not use_prior:
             return res
@@ -321,7 +321,7 @@ def per_trajectory_rms(
     base_env: Any,
     trajectories: List[RolloutTrajectory],
     params: Dict[str, float],
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     physical_names: Sequence[str],
     rules: Sequence[Any] = (),
     latent_init: Any = None,
@@ -339,7 +339,7 @@ def per_trajectory_rms(
     out: List[float] = []
     for traj in trajectories:
         res = compute_rollout_residuals(base_env, [traj], params,
-                                        process_features, physical_names,
+                                        residual_features, physical_names,
                                         rules, latent_init, scaling, config)
         out.append(float(np.sqrt(np.mean(res**2))) if res.size else 0.0)
     return out
