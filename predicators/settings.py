@@ -1401,15 +1401,6 @@ class GlobalSettings:
 
     # Agent bilevel approach settings
     agent_bilevel_max_samples_per_step = 50  # param samples per step
-    # Full agent plan-queries per solve attempt: the first query plus
-    # re-queries after RETRYABLE errors only (unparseable/empty final
-    # text, output-token overflow, or a session that finished without
-    # submitting an evaluate_option_plan capture). Budget ends (turn
-    # cap, spent attempt wall clock) never re-query: with restarts
-    # remaining (agent_solve_max_attempts) the attempt ends and the
-    # fresh-context restart is the retry, and on the final attempt the
-    # best-effort submission nudge is the fallback.
-    agent_bilevel_max_plan_queries = 3
     # Total refine_plan_sketch attempts (fresh rng each) when a refined
     # plan reaches the goal atoms but the task evaluator scores it as a
     # non-solve; all attempts share the one tool-call timeout budget.
@@ -1448,6 +1439,12 @@ class GlobalSettings:
     # (below) carries curated knowledge across attempts. An attempt ends
     # early with a validated (evaluator-solved) capture; otherwise its
     # best-effort capture is banked and the best across attempts executes.
+    # Each attempt is exactly ONE agent query: however that query ends -
+    # a spent budget, an unparseable sketch, or a session that simply
+    # never submitted - the fresh-context restart is the only retry, so
+    # this is the sole knob controlling how many shots a task gets. Only
+    # the final attempt (no restart left) pays for the best-effort
+    # submission nudge.
     agent_solve_max_attempts = 1
     # Wall-clock budget per solve attempt, in seconds (0 disables). The
     # turn cap bounds turns, not compute - one explore_python sweep hid
