@@ -749,7 +749,7 @@ class GlobalSettings:
     fan_train_num_pos_x = 3
     fan_train_num_pos_y = 3
     fan_test_num_pos_x = 6  # can do 9
-    fan_test_num_pos_y = 4
+    fan_test_num_pos_y = 6
     fan_train_num_walls_per_task = [1]
     fan_test_num_walls_per_task = [2, 3]  # can do 4
 
