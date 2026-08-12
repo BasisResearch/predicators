@@ -611,8 +611,10 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
                     "wrist": self.robot_init_wrist,
                 }
 
-                # For 3x3 grid, ensure ball starts at edge position (not center)
-                if num_pos_x == 3 and num_pos_y == 3:
+                # Optional curated 3x3 generation: ball on an edge cell,
+                # target axis-aligned two cells away, one blocking wall.
+                if (CFG.fan_3x3_strategic_task_gen and num_pos_x == 3
+                        and num_pos_y == 3):
                     # Edge positions in 3x3 grid: exclude center position
                     center_pos = (x_coords[1], y_coords[1])  # Center position
                     edge_positions = [
@@ -673,7 +675,7 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
                             wall_positions.append(blocking_pos)
                             # Safely remove the blocking position
                 else:
-                    # Original logic for non-3x3 grids
+                    # Uniform random placement (the default for all grids)
                     # Target
                     tar_pos = tuple(rng.choice(available_pos))
                     available_pos.remove(tar_pos)

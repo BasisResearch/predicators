@@ -752,6 +752,11 @@ class GlobalSettings:
     fan_test_num_pos_y = 6
     fan_train_num_walls_per_task = [1]
     fan_test_num_walls_per_task = [2, 3]  # can do 4
+    # When True, 3x3 grids use curated task generation: ball on an edge
+    # cell, target axis-aligned two cells away, and a single wall placed
+    # to block the direct path. When False, all grid sizes use uniform
+    # random placement of ball, target, and walls.
+    fan_3x3_strategic_task_gen = False
 
     # domino_fan env (combined domino + fan environment)
     domino_domino_on_stairs = False

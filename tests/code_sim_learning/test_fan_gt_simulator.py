@@ -36,6 +36,9 @@ def _fan_setup():
         "env": "pybullet_fan",
         "seed": 0,
         "fan_use_skill_factories": True,
+        # The assertions below are written against the curated seed-0
+        # task (ball/wall/target aligned in the center column).
+        "fan_3x3_strategic_task_gen": True,
     })
     rules, specs, _ = get_gt_simulator("pybullet_fan")
     params = {s.name: s.init_value for s in specs}
