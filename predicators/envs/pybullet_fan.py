@@ -279,8 +279,35 @@ class PyBulletFanEnv(PyBulletEnv):
         ],
         sim_features=["id", "joint_id", "side_idx"],
         angular_features=["rot"])
-    _wall_type = Type("wall", ["x", "y", "z", "rot"], angular_features=["rot"])
-    _ball_type = Type("ball", ["x", "y", "z"])
+    # Blockers. ``x_len``/``y_len``/``z_len`` are the side lengths of the
+    # body's WORLD-AXIS-ALIGNED bounding box (not the body frame), so they
+    # always pair with the ``x``/``y``/``z`` pose features: a collision rule
+    # can write ``abs(bx - wx) < w.x_len / 2 + reach`` without consulting
+    # ``rot``. For a box at rot = 0 or +/-pi/2 (the only rotations this env
+    # uses; see ``wall_rot``) the AABB is exact.
+    #
+    # ``wall`` is the task's obstacle walls; ``boundary`` is the four slabs
+    # enclosing the grid. They are deliberately DISTINCT types rather than
+    # one type or a hierarchy: the dynamics treat them identically (one
+    # contact rule iterating both), while predicates and NSRTs quantify over
+    # ``wall`` alone, so the four always-present, never-manipulable boundary
+    # slabs never enter symbolic grounding.
+    _wall_type = Type("wall",
+                      ["x", "y", "z", "rot", "x_len", "y_len", "z_len"],
+                      angular_features=["rot"])
+    # The boundary extents are task-dependent (they track the grid size), so
+    # unlike the obstacle walls they cannot come from a class constant. They
+    # are cached in sim_data by _reposition_boundary_walls, which is the same
+    # code that writes them into PyBullet - so _get_state reads back exactly
+    # the geometry the ball is colliding with.
+    _boundary_type = Type("boundary",
+                          ["x", "y", "z", "rot", "x_len", "y_len", "z_len"],
+                          sim_features=["id", "x_len", "y_len", "z_len"],
+                          angular_features=["rot"])
+    # ``radius`` completes the contact geometry: with it and the blocker
+    # extents above, the ball's stop distance is pure geometry over
+    # observable features instead of a fitted constant.
+    _ball_type = Type("ball", ["x", "y", "z", "radius"])
     _target_type = Type("target", ["x", "y", "z", "rot", "is_hit"],
                         angular_features=["rot"])
     _location_type = Type("loc", ["xx", "yy"], sim_features=["id", "xx", "yy"])
@@ -333,6 +360,15 @@ class PyBulletFanEnv(PyBulletEnv):
         self._walls = [
             Object(f"wall{i}", self._wall_type)
             for i in range(max_walls_per_task)
+        ]
+
+        # Boundary slabs enclosing the grid. Unlike the obstacle walls these
+        # are always present, one per side, named after the same directions
+        # the fans/switches use (left/right/down/up).
+        self._boundary_sides = ["left", "right", "down", "up"]
+        self._boundaries = [
+            Object(f"boundary_{side}", self._boundary_type)
+            for side in self._boundary_sides
         ]
         # Create positions based on maximum grid size to support both train and
         # test
@@ -439,7 +475,8 @@ class PyBulletFanEnv(PyBulletEnv):
         # injected only for the oracle / process-planning approaches.
         return {
             self._robot_type, self._fan_type, self._switch_type,
-            self._wall_type, self._ball_type, self._target_type
+            self._wall_type, self._boundary_type, self._ball_type,
+            self._target_type
         }
 
     @property
@@ -668,14 +705,16 @@ class PyBulletFanEnv(PyBulletEnv):
         self._ball.id = pybullet_bodies["ball_id"]
         self._target.id = pybullet_bodies["target_id"]
 
-        # Initialize boundary wall IDs list (will be populated
-        # in _set_domain_specific_state)
+        # Boundary slab bodies, parallel to self._boundaries. They are
+        # rebuilt from the state (a box collision shape cannot be resized
+        # in place) by _reposition_boundary_walls, which also refreshes the
+        # Objects' ids.
         # pylint: disable=attribute-defined-outside-init
         self._boundary_wall_ids: List[int] = []
-        # Grid extent the current boundary walls were built for; lets
+        # The (pose, extents) spec the current bodies were built for; lets
         # _reposition_boundary_walls skip an identical rebuild.
-        self._boundary_wall_extent: Optional[Tuple[float, float, float,
-                                                   float]] = None
+        self._boundary_wall_spec: Optional[Tuple[Tuple[float, ...],
+                                                 ...]] = None
 
     # -------------------------------------------------------------------------
     # Read state from PyBullet
@@ -703,7 +742,7 @@ class PyBulletFanEnv(PyBulletEnv):
         # Position all fans correctly based on their side
         self._position_fans_on_sides()
 
-        # Reposition boundary walls based on actual grid positions in the state
+        # Rebuild the boundary slabs from their own state features.
         self._reposition_boundary_walls(state)
 
         oov_x, oov_y = self._out_of_view_xy
@@ -714,113 +753,144 @@ class PyBulletFanEnv(PyBulletEnv):
                           position=(oov_x, oov_y, 0.0),
                           physics_client_id=self._physics_client_id)
 
+    def _reset_single_object(self, obj: Object, state: State) -> None:
+        """Skip the boundary slabs; they are rebuilt, not teleported.
+
+        A box collision shape cannot be resized in place, so
+        _reposition_boundary_walls destroys and recreates the boundary
+        bodies from the state (refreshing the Objects' ids). It runs from
+        _set_domain_specific_state, i.e. *after* this generic pose reset -
+        so teleporting them here would dereference an id belonging to a
+        body the previous rebuild already removed.
+        """
+        if obj.type == self._boundary_type:
+            return
+        super()._reset_single_object(obj, state)
+
     def _remove_boundary_walls(self) -> None:
-        """Tear down the current boundary wall bodies."""
+        """Tear down the current boundary slab bodies."""
         for wall_id in self._boundary_wall_ids:
             if wall_id >= 0:
                 p.removeBody(wall_id, physicsClientId=self._physics_client_id)
         # pylint: disable=attribute-defined-outside-init
         self._boundary_wall_ids = []
-        self._boundary_wall_extent = None
+        self._boundary_wall_spec = None
+        for boundary_obj in self._boundaries:
+            boundary_obj.id = None
+
+    @staticmethod
+    def _body_dims_from_aabb(x_len: float, y_len: float, z_len: float,
+                             rot: float) -> Tuple[float, float, float]:
+        """Body-frame side lengths of a box whose world AABB is the input.
+
+        The blocker types publish world-axis-aligned extents (see
+        ``_wall_type``), but PyBullet needs body-frame half-extents. The
+        inversion is exact for the only rotations this env uses (multiples
+        of pi/2): a quarter turn just swaps x and y.
+        """
+        if abs(np.sin(rot)) > 0.5:  # +/-pi/2
+            return (y_len, x_len, z_len)
+        return (x_len, y_len, z_len)
+
+    @classmethod
+    def _aabb_from_body_dims(cls, x_len: float, y_len: float, z_len: float,
+                             rot: float) -> Tuple[float, float, float]:
+        """World AABB side lengths of a box with the given body dims.
+
+        Inverse of ``_body_dims_from_aabb`` (the map is an involution).
+        """
+        return cls._body_dims_from_aabb(x_len, y_len, z_len, rot)
 
     def _reposition_boundary_walls(self, state: State) -> None:
-        """Recreate boundary walls with correct dimensions based on the actual
-        grid positions used in this task.
+        """Rebuild the boundary slab bodies from their state features.
 
-        No-op when the grid extent is unchanged: the walls are a pure
-        function of it, so an identical rebuild only churns four bodies.
-        That matters because _set_state runs on every step of a combined
-        base+learned simulator rollout, and removing a body discards any
-        contact it was part of.
+        The four ``boundary`` objects carry their own pose and extents, so
+        this is a straight state -> PyBullet write with no grid inference:
+        the arena geometry the ball collides with is exactly what the agent
+        observes.
+
+        No-op when the requested spec is unchanged. That matters because
+        _set_state runs on every step of a combined base+learned simulator
+        rollout, and a box collision shape cannot be resized in place - the
+        rebuild removes bodies, discarding any contact they were part of.
         """
-        # Reproduce the original grid-tight arena. The loc objects are no
-        # longer in the (grid-free) state, so derive the grid extent from the
-        # TARGET's position (stationary, on-grid) - NOT the ball, which moves
-        # during execution and would flip the grid phase mid-episode.
-        ref_objs = state.get_objects(self._target_type)
-        if not ref_objs:
-            ref_objs = state.get_objects(self._ball_type)
-        if not ref_objs:
+        present = [b for b in self._boundaries if b in state]
+        if not present:
+            # A state with no boundary objects describes an open arena.
             self._remove_boundary_walls()
             return
-        ref = ref_objs[0]
-        x_coords, y_coords = self._grid_coords_for_point(
-            state.get(ref, "x"), state.get(ref, "y"))
-        grid_x_min, grid_x_max = min(x_coords), max(x_coords)
-        grid_y_min, grid_y_max = min(y_coords), max(y_coords)
 
-        extent = (grid_x_min, grid_x_max, grid_y_min, grid_y_max)
-        if self._boundary_wall_ids and extent == self._boundary_wall_extent:
+        spec = tuple(
+            tuple(
+                float(state.get(b, f))
+                for f in ("x", "y", "z", "rot", "x_len", "y_len", "z_len"))
+            for b in present)
+        if self._boundary_wall_ids and spec == self._boundary_wall_spec:
             return
         self._remove_boundary_walls()
 
-        # Create boundary walls with correct dimensions for this grid
-        # Left boundary wall (pos_gap to the left of leftmost grid positions)
-        left_wall_x = grid_x_min - self.pos_gap / 2
-        left_wall_y = (grid_y_min + grid_y_max) / 2
-        left_wall_id = create_pybullet_block(
-            color=self.boundary_wall_color,
-            half_extents=(self.boundary_wall_thickness / 2,
-                          (grid_y_max - grid_y_min + self.pos_gap) / 2,
-                          self.boundary_wall_height / 2),
-            mass=self.wall_mass,
-            friction=self.wall_friction,
-            position=(left_wall_x, left_wall_y,
-                      self.table_height + self.boundary_wall_height / 2),
-            orientation=p.getQuaternionFromEuler([0, 0, 0]),
-            physics_client_id=self._physics_client_id)
+        wall_ids = []
+        for boundary_obj, (bx, by, bz, brot, x_len, y_len,
+                           z_len) in zip(present, spec):
+            dims = self._body_dims_from_aabb(x_len, y_len, z_len, brot)
+            wall_id = create_pybullet_block(
+                color=self.boundary_wall_color,
+                half_extents=(dims[0] / 2, dims[1] / 2, dims[2] / 2),
+                mass=self.wall_mass,
+                friction=self.wall_friction,
+                position=(bx, by, bz),
+                orientation=p.getQuaternionFromEuler([0.0, 0.0, brot]),
+                physics_client_id=self._physics_client_id)
+            boundary_obj.id = wall_id
+            boundary_obj.x_len = x_len
+            boundary_obj.y_len = y_len
+            boundary_obj.z_len = z_len
+            wall_ids.append(wall_id)
 
-        # Right boundary wall (pos_gap to the right of rightmost grid positions)
-        right_wall_x = grid_x_max + self.pos_gap / 2
-        right_wall_y = (grid_y_min + grid_y_max) / 2
-        right_wall_id = create_pybullet_block(
-            color=self.boundary_wall_color,
-            half_extents=(self.boundary_wall_thickness / 2,
-                          (grid_y_max - grid_y_min + self.pos_gap) / 2,
-                          self.boundary_wall_height / 2),
-            mass=self.wall_mass,
-            friction=self.wall_friction,
-            position=(right_wall_x, right_wall_y,
-                      self.table_height + self.boundary_wall_height / 2),
-            orientation=p.getQuaternionFromEuler([0, 0, 0]),
-            physics_client_id=self._physics_client_id)
-
-        # Front boundary wall (pos_gap in front of front grid positions)
-        front_wall_x = (grid_x_min + grid_x_max) / 2
-        front_wall_y = grid_y_min - self.pos_gap / 2
-        front_wall_id = create_pybullet_block(
-            color=self.boundary_wall_color,
-            half_extents=((grid_x_max - grid_x_min + self.pos_gap) / 2,
-                          self.boundary_wall_thickness / 2,
-                          self.boundary_wall_height / 2),
-            mass=self.wall_mass,
-            friction=self.wall_friction,
-            position=(front_wall_x, front_wall_y,
-                      self.table_height + self.boundary_wall_height / 2),
-            orientation=p.getQuaternionFromEuler([0, 0, 0]),
-            physics_client_id=self._physics_client_id)
-
-        # Back boundary wall (pos_gap behind back grid positions)
-        back_wall_x = (grid_x_min + grid_x_max) / 2
-        back_wall_y = grid_y_max + self.pos_gap / 2
-        back_wall_id = create_pybullet_block(
-            color=self.boundary_wall_color,
-            half_extents=((grid_x_max - grid_x_min + self.pos_gap) / 2,
-                          self.boundary_wall_thickness / 2,
-                          self.boundary_wall_height / 2),
-            mass=self.wall_mass,
-            friction=self.wall_friction,
-            position=(back_wall_x, back_wall_y,
-                      self.table_height + self.boundary_wall_height / 2),
-            orientation=p.getQuaternionFromEuler([0, 0, 0]),
-            physics_client_id=self._physics_client_id)
-
-        # Store the new boundary wall IDs
         # pylint: disable=attribute-defined-outside-init
-        self._boundary_wall_ids = [
-            left_wall_id, right_wall_id, front_wall_id, back_wall_id
-        ]
-        self._boundary_wall_extent = extent
+        self._boundary_wall_ids = wall_ids
+        self._boundary_wall_spec = spec
+
+    @classmethod
+    def _boundary_specs_for_grid(
+            cls, x_coords: List[float],
+            y_coords: List[float]) -> Dict[str, Dict[str, float]]:
+        """Pose + world extents of the four boundary slabs for a grid.
+
+        The slabs sit half a grid gap outside the extreme cells and span the
+        full arena width, reproducing the grid-tight enclosure.
+        """
+        grid_x_min, grid_x_max = min(x_coords), max(x_coords)
+        grid_y_min, grid_y_max = min(y_coords), max(y_coords)
+        mid_x = (grid_x_min + grid_x_max) / 2
+        mid_y = (grid_y_min + grid_y_max) / 2
+        span_x = grid_x_max - grid_x_min + cls.pos_gap
+        span_y = grid_y_max - grid_y_min + cls.pos_gap
+        thickness = cls.boundary_wall_thickness
+        z = cls.table_height + cls.boundary_wall_height / 2
+
+        def _spec(x: float, y: float, x_len: float,
+                  y_len: float) -> Dict[str, float]:
+            return {
+                "x": x,
+                "y": y,
+                "z": z,
+                "rot": 0.0,
+                "x_len": x_len,
+                "y_len": y_len,
+                "z_len": cls.boundary_wall_height,
+            }
+
+        return {
+            "left": _spec(grid_x_min - cls.pos_gap / 2, mid_y, thickness,
+                          span_y),
+            "right": _spec(grid_x_max + cls.pos_gap / 2, mid_y, thickness,
+                           span_y),
+            "down": _spec(mid_x, grid_y_min - cls.pos_gap / 2, span_x,
+                          thickness),
+            "up": _spec(mid_x, grid_y_max + cls.pos_gap / 2, span_x,
+                        thickness),
+        }
 
     @classmethod
     def _generate_grid_coordinates(
@@ -962,6 +1032,28 @@ class PyBulletFanEnv(PyBulletEnv):
 
     def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
         """Extract features for creating the State object."""
+        if obj.type == self._ball_type:
+            if feature == "radius":
+                return self.ball_radius
+        if obj.type == self._wall_type and feature in ("x_len", "y_len",
+                                                       "z_len"):
+            # Obstacle walls are all built from the same class constants
+            # (see initialize_pybullet); only their yaw varies.
+            rot = p.getEulerFromQuaternion(
+                p.getBasePositionAndOrientation(
+                    obj.id, physicsClientId=self._physics_client_id)[1])[2]
+            dims = self._aabb_from_body_dims(self.wall_x_len, self.wall_y_len,
+                                             self.obstacle_wall_height, rot)
+            return dims[("x_len", "y_len", "z_len").index(feature)]
+        if obj.type == self._boundary_type and feature in ("x_len", "y_len",
+                                                           "z_len"):
+            # Cached by _reposition_boundary_walls when it built the body.
+            cached = getattr(obj, feature)
+            if cached is None:
+                raise ValueError(
+                    f"Boundary {obj.name} has no body yet; "
+                    f"_reposition_boundary_walls must run before _get_state.")
+            return float(cached)
         if obj.type == self._fan_type:
             if feature == "facing_side":
                 return float(obj.side_idx)
@@ -1529,19 +1621,37 @@ class PyBulletFanEnv(PyBulletEnv):
 
                     # Walls
                     for i, wall_pos in enumerate(wall_positions):
+                        wall_rot = rng.uniform(-self.wall_rot, self.wall_rot)
+                        wall_dims = self._aabb_from_body_dims(
+                            self.wall_x_len, self.wall_y_len,
+                            self.obstacle_wall_height, wall_rot)
                         init_dict[self._walls[i]] = {
                             "x": wall_pos[0],
                             "y": wall_pos[1],
                             "z":
                             self.table_height + self.obstacle_wall_height / 2,
-                            "rot": rng.uniform(-self.wall_rot, self.wall_rot)
+                            "rot": wall_rot,
+                            "x_len": wall_dims[0],
+                            "y_len": wall_dims[1],
+                            "z_len": wall_dims[2],
                         }
+
+                    # Boundary slabs enclosing the grid. Unlike the loc/side
+                    # grid helpers these ARE part of the agent-visible state:
+                    # they are real bodies the ball collides with, so the
+                    # dynamics must be expressible without them being latent.
+                    boundary_specs = self._boundary_specs_for_grid(
+                        x_coords, y_coords)
+                    for boundary_obj, side in zip(self._boundaries,
+                                                  self._boundary_sides):
+                        init_dict[boundary_obj] = boundary_specs[side]
 
                     # Ball
                     ball_dict = {
                         "x": ball_pos[0],
                         "y": ball_pos[1],
-                        "z": self.table_height + self.ball_height_offset
+                        "z": self.table_height + self.ball_height_offset,
+                        "radius": self.ball_radius,
                     }
                     init_dict[self._ball] = ball_dict
                     break

@@ -16,14 +16,22 @@ position-control stepping, 20 substeps/action, seed 0):
   high ball damping (10.0) dissipates it before the next one).
 * When all fans turn off the ball stops immediately (zero coasting,
   measured < 1e-8 m).
-* The ball parks against an obstacle wall with its center at
-  ``wall_half_len + overhang`` from the wall center, where ``overhang``
-  = sqrt(r^2 - (r - wall_h)^2) is the sphere's horizontal reach at the
-  wall's top edge (the low walls let the ball overhang them): 0.03 +
-  0.0346 = 0.0646, measured 0.0642.
-* The boundary walls stop the ball center within 0.3 mm of the grid
-  extremes themselves (face + overhang at boundary height ~ pos_gap/2),
-  measured 1.5335 vs grid edge 1.534.
+* The ball parks against a blocker with its center at ``half_extent +
+  reach`` from the blocker center, where ``reach`` is the sphere's
+  horizontal extent at the blocker's top edge (see ``_horizontal_reach``).
+  For the low obstacle walls the ball overhangs them: 0.03 + 0.0346 =
+  0.0646 (measured 0.0642). The taller boundary slabs reach past the
+  ball's equator, so ``reach`` is the full radius: 0.001 + 0.04 = 0.041
+  from the slab center, i.e. the ball center stops within a millimetre of
+  the grid extremes (measured 1.5335 vs grid edge 1.534).
+
+Every quantity above is a function of features the agent observes: the
+blocker poses and extents (``x``/``y``/``z`` + ``x_len``/``y_len``/
+``z_len`` on the ``wall`` and ``boundary`` types) and the ball's ``z``
+and ``radius``. This program therefore lives in the same hypothesis
+space as an agent-synthesized one - it needs no privileged access to
+the task grid, and the boundary slabs are ordinary blockers rather than
+latent structure.
 
 Known simplifications (all sub-tolerance for planning; the goal check
 ``BallAtTarget`` uses pos_gap/2 = 0.04):
@@ -43,10 +51,9 @@ import numpy as np
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.utils import Params, ResidualUpdate, \
     objs_by_type
-from predicators.envs.pybullet_fan import PyBulletFanEnv
 from predicators.ground_truth_models import GroundTruthSimulatorFactory
 from predicators.settings import CFG
-from predicators.structs import State
+from predicators.structs import Object, State
 
 # ── Constants ────────────────────────────────────────────────────
 
@@ -55,72 +62,112 @@ from predicators.structs import State
 # the unused fan_use_kinematic mode).
 BALL_STEP_SIZE = 0.00228
 
+# Types the ball collides with. Obstacle walls and the arena boundary
+# slabs obey the same contact law and differ only in their extents, so
+# the rule below iterates them together; they are separate types purely
+# so that predicates and NSRTs can quantify over the obstacles alone.
+BLOCKER_TYPES = ("wall", "boundary")
 
-def _sphere_overhang(radius: float, wall_height: float) -> float:
-    """Horizontal reach of the ball past a wall face at the wall's top.
 
-    The walls are lower than the ball's center height, so the sphere
-    overhangs them and its center stops closer to the wall than face +
-    radius would suggest.
+def _horizontal_reach(ball_z: float, ball_radius: float,
+                      blocker_top_z: float) -> float:
+    """How far past a blocker's face the ball's center can come to rest.
+
+    A blocker taller than the ball's center is a plain side contact at
+    the equator, so the reach is the full radius. A lower one is
+    overhung: the ball rests on its top edge and its center comes in by
+    the sphere's horizontal extent at that height. A blocker lower than
+    the ball's underside does not block at all.
     """
-    if wall_height >= radius:
-        return radius
-    return float(np.sqrt(radius**2 - (radius - wall_height)**2))
+    drop = ball_z - blocker_top_z
+    if drop <= 0.0:
+        return ball_radius
+    if drop >= ball_radius:
+        return 0.0
+    return float(np.sqrt(ball_radius**2 - drop**2))
 
 
-# Obstacle walls: in-axis stop distance (and perpendicular overlap
-# threshold - the walls are square) between ball center and wall center.
-_ENV = PyBulletFanEnv
-WALL_CLEARANCE = _ENV.wall_x_len / 2 + _sphere_overhang(
-    _ENV.ball_radius, _ENV.obstacle_wall_height)
+def _blocker_stops(state: State, blockers: List[Object], ball_z: float,
+                   ball_radius: float,
+                   slack: float) -> List[Tuple[float, float, float, float]]:
+    """Precompute each blocker's (x, y, x_stop, y_stop) in world axes.
 
-# Boundary walls sit pos_gap/2 outside the extreme grid cells; with the
-# thin face and the overhang at boundary-wall height, the ball center
-# stops within a fraction of a millimeter of the grid extremes.
-BOUNDARY_MARGIN = (
-    _ENV.pos_gap / 2 - _ENV.boundary_wall_thickness / 2 -
-    _sphere_overhang(_ENV.ball_radius, _ENV.boundary_wall_height))
-
-# ── Residual rules ────────────────────────────────────────────────
+    ``x_stop`` is the center-to-center distance at which the ball parks
+    when approaching along x; it doubles as the perpendicular overlap
+    threshold for a y-approach, and vice versa. Blockers the ball rides
+    over entirely are dropped.
+    """
+    out = []
+    for b in blockers:
+        top_z = float(state.get(b, "z")) + float(state.get(b, "z_len")) / 2
+        reach = _horizontal_reach(ball_z, ball_radius, top_z)
+        if reach <= 0.0:
+            continue
+        x_stop = float(state.get(b, "x_len")) / 2 + reach + slack
+        y_stop = float(state.get(b, "y_len")) / 2 + reach + slack
+        b_x = float(state.get(b, "x"))
+        b_y = float(state.get(b, "y"))
+        out.append((b_x, b_y, x_stop, y_stop))
+    return out
 
 
 def _axis_move(pos: float, perp: float, delta: float,
-               walls: List[Tuple[float, float]], lo: float, hi: float,
-               clearance: float) -> float:
+               blockers: List[Tuple[float, float, float,
+                                    float]], along_idx: int) -> float:
     """Move one coordinate by ``delta`` with hard stops, never backward.
 
-    ``walls`` holds (along, perp) wall-center coordinates in this axis's
-    frame. Stops are one-sided: a ball already resting inside a stop
-    (contact compliance in the real env leaves ~1.5 mm penetration) is
-    not pushed back out, it just cannot advance further.
+    ``blockers`` holds (x, y, x_stop, y_stop) tuples; ``along_idx`` is 0
+    when moving along x and 1 when moving along y.
+
+    Which axis a blocker actually stops is decided by comparing the two
+    overlaps, the standard minimum-translation rule. It matters here
+    because the boundary slabs are long: a ball resting against the left
+    slab's face overlaps it slightly in x and hugely in y, and a test
+    that only asked "do the perpendicular extents overlap?" would freeze
+    the ball's y motion instead of letting it slide along the face.
+
+    Stops are one-sided: a ball already resting inside a stop (contact
+    compliance in the real env leaves ~1.5 mm penetration) is not pushed
+    back out, it just cannot advance further.
     """
     if delta == 0.0:
         return pos
+    perp_idx = 1 - along_idx
     cand = pos + delta
-    if delta > 0.0:
-        cand = min(cand, max(pos, hi))
-        for w_along, w_perp in walls:
-            if abs(perp - w_perp) >= clearance:
-                continue
-            if pos < w_along:
-                cand = min(cand, max(pos, w_along - clearance))
-    else:
-        cand = max(cand, min(pos, lo))
-        for w_along, w_perp in walls:
-            if abs(perp - w_perp) >= clearance:
-                continue
-            if pos > w_along:
-                cand = max(cand, min(pos, w_along + clearance))
+    for blocker in blockers:
+        b_along = blocker[along_idx]
+        b_perp = blocker[perp_idx]
+        # Stop distances are indexed the same way: entry 2 is the x
+        # distance, entry 3 the y distance.
+        stop_along = blocker[2 + along_idx]
+        stop_perp = blocker[2 + perp_idx]
+        # Approaching from behind is never blocked.
+        if (delta > 0.0) != (pos < b_along):
+            continue
+        overlap_perp = stop_perp - abs(perp - b_perp)
+        if overlap_perp <= 0.0:
+            continue  # beside the blocker: nothing in the way
+        overlap_along = stop_along - abs(pos - b_along)
+        if overlap_along > 0.0:
+            # Already interpenetrating on both axes. This is the blocking
+            # axis only if it is the shallower one - otherwise the ball is
+            # pressed against a face perpendicular to this move and is
+            # free to slide along it.
+            if overlap_along < overlap_perp:
+                cand = min(cand, pos) if delta > 0.0 else max(cand, pos)
+            continue
+        face = b_along - stop_along if delta > 0.0 else b_along + stop_along
+        cand = min(cand, face) if delta > 0.0 else max(cand, face)
     return cand
 
 
 def _wind_blowing(state: State, updates: ResidualUpdate,
                   params: Params) -> ResidualUpdate:
-    """Active fans blow the ball; walls and the grid boundary block it.
+    """Active fans blow the ball; walls and boundary slabs block it.
 
     Blocking is a hard clamp, unlike boil's sigmoid-softened gates: a
-    hinge still has gradient 1 in ``wall_clearance`` on every sample
-    where the clamp binds (parked-against-wall steps), so the LM
+    hinge still has gradient 1 in ``contact_slack`` on every sample
+    where the clamp binds (parked-against-blocker steps), so the LM
     Jacobian stays informative without leaky walls.
     """
     objs = objs_by_type(state)
@@ -148,32 +195,19 @@ def _wind_blowing(state: State, updates: ResidualUpdate,
     dx *= params["ball_speed"]
     dy *= params["ball_speed"]
 
-    # Grid boundary, inferred from the stationary target exactly like the
-    # env's boundary-wall construction and the oracle helper injection.
     bx = float(state.get(ball, "x"))
     by = float(state.get(ball, "y"))
-    targets = objs.get("target", [])
-    if targets:
-        x_coords, y_coords = PyBulletFanEnv._grid_coords_for_point(  # pylint: disable=protected-access
-            float(state.get(targets[0], "x")),
-            float(state.get(targets[0], "y")))
-        x_lo = min(x_coords) - BOUNDARY_MARGIN
-        x_hi = max(x_coords) + BOUNDARY_MARGIN
-        y_lo = min(y_coords) - BOUNDARY_MARGIN
-        y_hi = max(y_coords) + BOUNDARY_MARGIN
-    else:  # pragma: no cover - tasks always have a target
-        x_lo, x_hi = PyBulletFanEnv.x_lb, PyBulletFanEnv.x_ub
-        y_lo, y_hi = PyBulletFanEnv.y_lb, PyBulletFanEnv.y_ub
-
-    walls_xy = [(float(state.get(w, "x")), float(state.get(w, "y")))
-                for w in objs.get("wall", [])]
-    clearance = params["wall_clearance"]
+    blockers: List[Object] = []
+    for type_name in BLOCKER_TYPES:
+        blockers.extend(objs.get(type_name, []))
+    stops = _blocker_stops(state, blockers, float(state.get(ball, "z")),
+                           float(state.get(ball, "radius")),
+                           params["contact_slack"])
 
     # Axis-by-axis move (x then y) so a blocked axis still allows sliding
     # along the wall in the other axis.
-    new_x = _axis_move(bx, by, dx, walls_xy, x_lo, x_hi, clearance)
-    walls_yx = [(wy, wx) for wx, wy in walls_xy]
-    new_y = _axis_move(by, new_x, dy, walls_yx, y_lo, y_hi, clearance)
+    new_x = _axis_move(bx, by, dx, stops, 0)
+    new_y = _axis_move(by, new_x, dy, stops, 1)
 
     updates.setdefault(ball, {})["x"] = new_x
     updates.setdefault(ball, {})["y"] = new_y
@@ -187,7 +221,12 @@ RESIDUAL_RULES = [_wind_blowing]
 
 PARAM_SPECS: List[ParamSpec] = [
     ParamSpec("ball_speed", BALL_STEP_SIZE, lo=0.0),
-    ParamSpec("wall_clearance", WALL_CLEARANCE, lo=0.0),
+    # Contact compliance only: the geometric part of the stop distance is
+    # computed from the observed blocker extents and ball radius, so what
+    # remains to fit is the sub-millimetre penetration the real contact
+    # solver leaves (measured -0.4 mm on obstacle walls, -1.5 mm on the
+    # boundary slabs).
+    ParamSpec("contact_slack", 0.0, lo=-0.01, hi=0.01),
 ]
 
 RESIDUAL_FEATURES: Dict[str, List[str]] = {
