@@ -78,30 +78,23 @@ def _obj_name(obj: Any, what: str) -> str:
 class ApplyForce:
     """World-frame force (Newtons) on a body's center of mass.
 
-    ``hold=True`` (the default): re-applied before every physics
-    substep of the following env action - a continuous force across
-    that action. ``hold=False``: applied before the FIRST substep only
-    - a single impulse of ``force * substep_dt`` at the start of the
-    action. The two are not interchangeable at a rescaled magnitude in
-    contact-rich regimes: a marginal held force can stick-slip on
-    rolling stiction and surface imperfections that an impulse of the
-    same per-action momentum punches straight through (the fan env's
-    wind is impulse-mode for exactly this reason).
+    Re-applied before every physics substep of the following env action
+    - a continuous push across that action, like wind or a magnet
+    (PyBullet clears external forces after each ``stepSimulation``, so
+    continuous actuation requires this re-application).
     """
     obj_name: str
     force: Vec3
-    hold: bool = True
 
 
 @dataclass(frozen=True)
 class ApplyTorque:
     """World-frame torque (N*m) on a body.
 
-    ``hold`` semantics as in :class:`ApplyForce`.
+    Held semantics as in :class:`ApplyForce`.
     """
     obj_name: str
     torque: Vec3
-    hold: bool = True
 
 
 @dataclass(frozen=True)
@@ -135,28 +128,21 @@ class CommandBuffer:
 
     # ── Rule-facing API ──────────────────────────────────────────
 
-    def apply_force(self,
-                    obj: Any,
-                    force: Sequence[float],
-                    hold: bool = True) -> None:
+    def apply_force(self, obj: Any, force: Sequence[float]) -> None:
         """Queue a world-frame force (N) on ``obj`` for the next action.
 
-        ``hold=True`` holds the force across the action's substeps;
-        ``hold=False`` makes it a single impulse at the action's start
-        (see :class:`ApplyForce` for when each is appropriate).
+        The force is held across all of the action's physics substeps
+        (see :class:`ApplyForce`).
         """
         self._commands.append(
             ApplyForce(_obj_name(obj, "apply_force obj"),
-                       _as_vec3(force, "apply_force force"), bool(hold)))
+                       _as_vec3(force, "apply_force force")))
 
-    def apply_torque(self,
-                     obj: Any,
-                     torque: Sequence[float],
-                     hold: bool = True) -> None:
+    def apply_torque(self, obj: Any, torque: Sequence[float]) -> None:
         """Queue a world-frame torque (N*m) on ``obj`` for the next action."""
         self._commands.append(
             ApplyTorque(_obj_name(obj, "apply_torque obj"),
-                        _as_vec3(torque, "apply_torque torque"), bool(hold)))
+                        _as_vec3(torque, "apply_torque torque")))
 
     def set_velocity(self,
                      obj: Any,

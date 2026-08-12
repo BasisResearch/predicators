@@ -737,13 +737,11 @@ class PyBulletEnv(BaseEnv):
         # Step the simulation here before adding or removing constraints
         # because detect_held_object() should use the updated state.
         if CFG.pybullet_control_mode != "reset":
-            for substep_idx in range(CFG.pybullet_sim_steps_per_action):
+            for _ in range(CFG.pybullet_sim_steps_per_action):
                 # Residual physics commands act during this one action
                 # (applyExternalForce is cleared by each stepSimulation,
-                # so held actuation must be re-applied per substep;
-                # non-hold commands fire on the first substep only).
-                self._apply_pending_residual_commands(
-                    first_substep=substep_idx == 0)
+                # so continuous actuation is re-applied per substep).
+                self._apply_pending_residual_commands()
                 p.stepSimulation(physicsClientId=self._physics_client_id)
         # Consumed: commands act for exactly one action and expire
         # unless the residual simulator re-queues them post-step.
@@ -801,19 +799,17 @@ class PyBulletEnv(BaseEnv):
         """
         self._pending_residual_commands = list(commands)
 
-    def _apply_pending_residual_commands(self,
-                                         first_substep: bool = True) -> None:
+    def _apply_pending_residual_commands(self) -> None:
         """Execute the queued commands against the live PyBullet world.
 
-        Called before every physics substep; ``hold`` commands are
-        applied each time (continuous actuation), non-hold force/torque
-        commands only when ``first_substep`` (a single impulse at the
-        start of the action). Objects are resolved by NAME against
-        ``self._objects`` (the set the current state carries), so
-        command emitters built from another env instance's ``State``
-        still drive this env. Fails soft on unknown names or bodiless
-        objects - agent-written rules may reference objects a probe
-        state dropped - with a warning rather than a crashed rollout.
+        Called before every physics substep, so force/torque commands
+        act as continuous actuation across the whole action. Objects
+        are resolved by NAME against ``self._objects`` (the set the
+        current state carries), so command emitters built from another
+        env instance's ``State`` still drive this env. Fails soft on
+        unknown names or bodiless objects - agent-written rules may
+        reference objects a probe state dropped - with a warning rather
+        than a crashed rollout.
         """
         if not self._pending_residual_commands:
             return
@@ -823,8 +819,6 @@ class PyBulletEnv(BaseEnv):
             if obj_id is not None and obj_id >= 0:
                 ids_by_name[obj.name] = obj_id
         for cmd in self._pending_residual_commands:
-            if not first_substep and not getattr(cmd, "hold", True):
-                continue
             body_id = ids_by_name.get(cmd.obj_name)
             if body_id is None:
                 logging.warning(
