@@ -1859,15 +1859,15 @@ class GlobalSettings:
     # even goal predicates - from the agent's prompts/tools; tasks whose
     # goal atoms are stripped must then carry goal_nl.
     agent_sim_learn_kept_predicates_names: List[str] = []
-    # Ablation axis: when True, copy the env's base-sim source modules
-    # (the files the env declares via ``get_base_sim_source_files()``,
-    # e.g. pybullet_fan_base.py + pybullet_env.py) into the synthesis
-    # sandbox's ./reference/ directory. Framing: "the robot knows its
-    # own simulator" - the visible sim core is byte-identical to the
-    # code the base-sim rollouts execute, while the residual dynamics,
-    # task generation, and goal semantics live in modules that are
-    # never provided (a structural visibility split, not redaction).
-    # Envs that declare no source files are unaffected by the flag.
+    # Ablation axis ("the robot knows its own simulator"): when True,
+    # copy the env's declared base-sim source modules
+    # (``get_base_sim_source_files()``, e.g. pybullet_fan_base.py +
+    # pybullet_env.py) into the synthesis sandbox's ./reference/. The
+    # visibility split is structural: residual dynamics, task
+    # generation, and goal semantics live in modules that are never
+    # declared, so the provided files are byte-identical to the code
+    # the base-sim rollouts execute. Envs that declare no source files
+    # are unaffected.
     agent_sim_provide_base_sim_source = False
 
     @classmethod

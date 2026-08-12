@@ -328,10 +328,10 @@ def test_residual_commands_expire_after_one_action(fan_setup):
 def test_fan_rule_forces_come_from_observed_fans(fan_setup):
     """The rule's commands are a pure function of observed fan features.
 
-    No contact geometry lives in the rule anymore (the engine owns it),
-    so what remains to check is the force law itself: direction from
-    each on-fan's ``rot``, vector summation for simultaneous fans, no
-    feature overwrites, and silence when every fan is off.
+    Contact geometry is the engine's job, so the rule's whole contract
+    is the force law: direction from each on-fan's ``rot``, vector
+    summation for simultaneous fans, no feature overwrites, and silence
+    when every fan is off.
     """
     _, _, rules, params, task = fan_setup
     state = task.init.copy()

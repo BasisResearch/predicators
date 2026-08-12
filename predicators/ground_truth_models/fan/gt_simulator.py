@@ -1,35 +1,23 @@
 """Ground-truth simulator program for pybullet_fan residual dynamics.
 
-Reproduces the wind dynamics from pybullet_fan.py on the
-physics-command channel: while a fan is on, the rule emits an
-impulse-mode world-frame force on the ball along the fan's facing
-direction (``cmds.apply_force(..., hold=False)``), and the base sim's
-engine does the rest - contact stops against the obstacle walls and
+While a fan is on, the rule emits an impulse-mode world-frame force on
+the ball along the fan's facing direction
+(``cmds.apply_force(..., hold=False)``); the base sim's engine handles
+everything downstream - contact stops against the obstacle walls and
 boundary slabs, sliding along their faces, corner deflection. The env
 applies its wind inside ``_domain_specific_step`` (``_simulate_fans``),
 which the approaches' base sims skip (``skip_residual_dynamics=True``);
-this program is that hidden step's learned-space counterpart. Since the
-env's own wind goes through the SAME residual-command executor (same
-post-step emission, same first-substep impulse), a rule emitting the
-env's force is bit-identical to the env - equivalence is structural,
-not calibrated.
-
-Contrast with the pre-command revision of this file, which modeled the
-wind KINEMATICALLY (per-action displacement plus ~150 lines of
-hand-derived contact geometry: sphere-overhang reach, per-blocker stop
-distances, a minimum-translation rule for sliding). All of that is now
-the engine's job; what remains is exactly the part an agent must
-discover - which condition gates the force, its direction, its
-magnitude, and its mode - so the program lives in the same hypothesis
-space as an agent-synthesized one.
+this program is that hidden step's learned-space counterpart. The env's
+own wind goes through the same residual-command executor (same
+post-step emission, same first-substep impulse), so a rule emitting the
+env's force is bit-identical to the env.
 
 Why impulse mode (``hold=False``): the ball's rolling stiction stalls
 a marginal HELD force into stick-slip creep (measured: ~0.0297 N held
 matches the free-field 0.00228 m/action but freezes for ~100 actions
 on the two-table seam), whereas the once-per-action 0.4 N spike
 punches through every such threshold and gives the clean constant
-speed the recorded data shows. A hold-mode hypothesis is not wrong a
-priori - the rollout fit simply prefers the impulse on this data.
+speed the recorded data shows.
 
 Because commands act through engine stepping, this artifact is scored
 and fit by free-running rollout matching (``has_physics_rules``
@@ -52,10 +40,8 @@ from predicators.structs import State
 
 # ── Constants ────────────────────────────────────────────────────
 
-# Impulse-mode force (N): equals the env's wind_force_magnitude, and
-# since both sides run through the same executor the match is exact by
-# construction (steady-state free field: 0.00228 m/action). Fitted
-# init; see the module docstring for why hold=False.
+# Impulse-mode force (N), equal to the env's wind_force_magnitude
+# (steady-state free field: 0.00228 m/action). Fitted init.
 WIND_FORCE = 0.4
 
 

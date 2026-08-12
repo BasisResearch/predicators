@@ -283,13 +283,8 @@ class PyBulletEnv(BaseEnv):
         # which is what every env built by the planner stays.
         self._executor: Optional[ActionExecutor] = None
 
-        # Physics commands queued by a learned residual simulator (see
-        # code_sim_learning.commands): applied before every physics
-        # substep of the NEXT action, then cleared. This is the learned
-        # counterpart of a hidden ``_domain_specific_step`` that calls
-        # ``applyExternalForce`` - same post-step emission cadence, with
-        # the engine resolving whatever contacts the commanded motion
-        # runs into. See queue_residual_commands for the contract.
+        # Residual physics commands awaiting the next action's substeps;
+        # see queue_residual_commands for the contract.
         self._pending_residual_commands: List[PhysicsCommand] = []
 
         # Set up all the static PyBullet content.
@@ -788,13 +783,11 @@ class PyBulletEnv(BaseEnv):
 
         The shared executor for residual actuation (see
         :mod:`predicators.code_sim_learning.commands`), with two
-        callers on the same post-step cadence: learned residual rules
-        run on the post-step state and emit commands, and an env's own
-        ``_domain_specific_step`` may route its residual dynamics
-        through here too (the fan wind does), which makes a learned
-        rule emitting the same command bit-identical to the env's
-        behavior. Queued commands are executed across every physics
-        substep of the following ``step``/``simulate`` call - so the
+        callers on the same post-step cadence: learned residual rules,
+        and an env's own ``_domain_specific_step`` (the fan wind) - so
+        a learned rule emitting the env's command is bit-identical to
+        the env. Queued commands are executed during the physics
+        substeps of the following ``step``/``simulate`` call - the
         engine, not the emitter, resolves the contacts the commanded
         motion runs into. They expire after that one action (re-queue
         to persist) and at episode reset. The caller owns

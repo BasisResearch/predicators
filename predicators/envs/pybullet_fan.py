@@ -39,16 +39,14 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
     # Fan Motor & Physics
     # -------------------------------------------------------------------------
     fan_spin_velocity: ClassVar[float] = 100.0  # Velocity for joint_0
-    # Wind force on the ball (N), applied as a single impulse at the
-    # start of the action after emission (an impulse-mode ApplyForce
-    # through the shared residual-command executor, see
-    # _simulate_fans_dynamic) - dynamically identical to the historical
-    # direct applyExternalForce implementation. Impulse mode is a
-    # deliberate physical choice, not a legacy artifact: the ball's
-    # rolling stiction (and micro-imperfections like the two-table
-    # seam) stall a marginal HELD force into stick-slip creep, whereas
-    # the 0.4 N spike punches through and yields the clean, constant
-    # 0.00228 m/action free-field speed the domain is tuned around.
+    # Wind force on the ball (N), fired as a single impulse at the
+    # start of the action after emission (an impulse-mode ApplyForce,
+    # see _simulate_fans_dynamic). Impulse mode is a physical
+    # requirement, not a tuning choice: the ball's rolling stiction
+    # (and micro-imperfections like the two-table seam) stall a
+    # marginal HELD force into stick-slip creep, whereas the 0.4 N
+    # spike punches through and yields the clean, constant 0.00228
+    # m/action free-field speed the domain is tuned around.
     wind_force_magnitude: ClassVar[float] = 0.4
     joint_motor_force: ClassVar[float] = 20.0  # Motor control force
 
@@ -67,10 +65,9 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
     # =========================================================================
     # DERIVED/CALCULATED VALUES
     # =========================================================================
-    # Grid bounds derived from the base scene geometry. Task-generation
-    # knowledge: the base class knows where the fans are, but that tasks
+    # Grid bounds. Derived from base scene geometry, but that tasks
     # place cells on a pos_gap grid inside these bounds is part of the
-    # (hidden) task distribution.
+    # hidden task distribution, so they live here, not in the base sim.
     loc_y_lb = PyBulletFanBaseEnv.down_fan_y + 0.05
     loc_y_ub = PyBulletFanBaseEnv.up_fan_y - 0.05
     loc_x_lb = PyBulletFanBaseEnv.left_fan_x + 0.05
@@ -355,17 +352,14 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
             self._simulate_fans_dynamic()
 
     def _simulate_fans_dynamic(self) -> None:
-        """Dynamic fan simulation: wind forces via the residual-command
-        executor.
+        """Spin any on-side's fans and queue its wind on the ball.
 
-        The wind goes through the SAME machinery a learned simulator
-        uses (``queue_residual_commands`` +
-        ``_apply_pending_residual_commands``): each on-side contributes
-        an impulse-mode ``ApplyForce`` on the ball, queued here
-        (post-step) and fired on the first physics substep of the next
-        action. This makes sim/real equivalence structural - a learned
+        The wind goes through the same machinery a learned simulator
+        uses (``queue_residual_commands``): each on-side contributes an
+        impulse-mode ``ApplyForce``, queued here (post-step) and fired
+        on the first physics substep of the next action - so a learned
         rule emitting the same command is bit-identical to the env's
-        own wind - instead of a calibration fact.
+        own wind.
         """
         # For each switch, if on => spin all fans with same side_idx
         wind_commands = []
@@ -407,9 +401,6 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
                             force=self.joint_motor_force,
                             physicsClientId=self._physics_client_id,
                         )
-        # Unconditional replace: an empty list is "no wind next action"
-        # (the executor consumed and cleared last action's commands
-        # already, so this is belt-and-braces, not required for expiry).
         self.queue_residual_commands(wind_commands)
 
     def _simulate_fans_kinematic(self) -> None:

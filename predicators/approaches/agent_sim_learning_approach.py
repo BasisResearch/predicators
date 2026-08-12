@@ -2940,13 +2940,12 @@ files to see exactly which rules and predicates produced each failed plan.
         """Copy the env's base-sim source into the sandbox; return the
         agent-visible paths.
 
-        The ablation channel behind ``CFG.agent_sim_provide_base_sim_source``
-        ("the robot knows its own simulator"): the env declares which
-        modules ARE its observable sim core via
-        ``get_base_sim_source_files()`` - a structural visibility split,
-        so the copied files are byte-identical to the code the base-sim
-        rollouts execute and there is nothing to redact. Returns an
-        empty list when the flag is off or the env declares no files.
+        The channel behind ``CFG.agent_sim_provide_base_sim_source``:
+        the env declares its observable sim-core modules via
+        ``get_base_sim_source_files()``, and they are copied verbatim -
+        the visibility split is structural, so there is nothing to
+        redact. Returns an empty list when the flag is off or the env
+        declares no files.
         """
         if not CFG.agent_sim_provide_base_sim_source:
             return []

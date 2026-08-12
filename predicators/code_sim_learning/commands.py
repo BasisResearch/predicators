@@ -1,25 +1,17 @@
 """Physics-command vocabulary for residual rules.
 
-Residual rules originally had exactly one output channel: *feature
-overwrites* (``ResidualUpdate``), applied on top of the base sim's
-post-step state. That channel is right for non-spatial residual
-processes (heating, filling, curing) but wrong for residuals that move
-rigid bodies through space: a rule that overwrites poses must re-derive
-everything the physics engine already knows (contact stops, sliding,
-corner deflection), which bloats the hypothesis space and - worse -
-biases learning toward kinematic fictions ("the gust decays") when the
-true mechanism is "a constant force plus a wall".
-
-This module adds the second output channel: *physics commands*. A rule
-that declares a ``cmds`` parameter receives a :class:`CommandBuffer`
-and may queue generic rigid-body actuation - forces, torques, velocity
-overrides - expressed against the symbolic ``State``'s objects. The
-buffer is pure data: rules never touch a physics client or body ids.
-The base sim executes queued commands during the physics substeps of
-its *next* action (see ``PyBulletEnv.queue_residual_commands``), the
-same cadence at which a hidden ``_domain_specific_step`` would act, so
-the engine - not the rule - resolves every contact the commanded
-motion runs into.
+Residual rules have two output channels. *Feature overwrites*
+(``ResidualUpdate``) suit non-spatial residual processes (heating,
+filling, curing). *Physics commands* - this module - suit residuals
+that move rigid bodies through space: a rule that declares a ``cmds``
+parameter receives a :class:`CommandBuffer` and may queue generic
+rigid-body actuation - forces, torques, velocity overrides - expressed
+against the symbolic ``State``'s objects. The buffer is pure data:
+rules never touch a physics client or body ids. The base sim executes
+queued commands during the physics substeps of its *next* action (see
+``PyBulletEnv.queue_residual_commands``), the same cadence at which a
+hidden ``_domain_specific_step`` acts, so the engine - not the rule -
+resolves every contact the commanded motion runs into.
 
 Command semantics:
 

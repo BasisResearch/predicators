@@ -165,13 +165,11 @@ def _iter_rollout_residual_terms(
         latent: Dict[str, Any] = (init_latent(latent_init, params)
                                   if latent_mode else {})
         history: List[Tuple[State, Optional[Action]]] = []
-        # Rules run IN the rollout loop (not on its output): a rule
-        # that emits physics commands must shape the remainder of this
-        # very rollout - its wind, current, or pull acts through engine
-        # stepping, so applying it after the fact would score a
-        # commands-free trajectory. Feature updates keep their original
-        # semantics: scoring-side overrides of the rolled-out state
-        # (they are not written back into the physics world).
+        # Rules run IN the rollout loop, not on its output: physics
+        # commands must shape the remainder of this very rollout, or
+        # the objective would score a commands-free trajectory.
+        # Feature updates stay scoring-side overrides of the rolled-out
+        # state (never written back into the physics world).
         updates_per_step: List[Dict[Any, Dict[str, Any]]] = []
 
         # pylint: disable=cell-var-from-loop
