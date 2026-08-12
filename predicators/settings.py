@@ -1862,7 +1862,8 @@ class GlobalSettings:
     # Ablation axis ("the robot knows its own simulator"): when True,
     # copy the env's declared base-sim source modules
     # (``get_base_sim_source_files()``, e.g. pybullet_fan_base.py +
-    # pybullet_env.py) into the synthesis sandbox's ./reference/. The
+    # pybullet_env.py) into the sandbox's ./reference/base_sim/ for
+    # every agent session (solve, explore, and synthesis). The
     # visibility split is structural: residual dynamics, task
     # generation, and goal semantics live in modules that are never
     # declared, so the provided files are byte-identical to the code

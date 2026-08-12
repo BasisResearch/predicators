@@ -32,7 +32,6 @@ import numpy as np
 import pybullet
 from gym.spaces import Box
 
-import predicators
 from predicators import utils
 from predicators.agent_sdk.tools import SAMPLER_SYNTHESIS_TOOL_NAMES, \
     SYNTHESIS_TOOL_NAMES, _SnapshotTarget, create_synthesis_tools, \
@@ -700,7 +699,32 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     def _get_agent_system_prompt(self) -> str:
         if self._learning_mode:
             return self._build_synthesis_system_prompt()
-        return super()._get_agent_system_prompt()
+        prompt = super()._get_agent_system_prompt()
+        base_sim_refs = self._base_sim_reference_paths()
+        if base_sim_refs:
+            ref_listing = "\n".join(f"  - {r}" for r in base_sim_refs)
+            prompt += (
+                "\n\n## Base Simulator Source\n"
+                "The environment simulator's own source code is "
+                "available (read-only):\n"
+                f"{ref_listing}\n"
+                "It covers the observable sim core: scene geometry and "
+                "constants, body construction, physics stepping, and "
+                "state read/write. It deliberately omits the hidden "
+                "domain-specific dynamics, task generation, and goal "
+                "semantics. Read it to ground your spatial and physical "
+                "reasoning (dimensions, contact geometry, actuation) "
+                "instead of guessing from images or trial and error.\n")
+        return prompt
+
+    def _get_sandbox_reference_files(self) -> Dict[str, str]:
+        files = super()._get_sandbox_reference_files()
+        # Base-sim source rides the standard reference channel so every
+        # session (solve, explore, synthesis) gets the same copies.
+        if CFG.agent_sim_provide_base_sim_source:
+            for rel in self._base_env.get_base_sim_source_files():
+                files[f"base_sim/{os.path.basename(rel)}"] = rel
+        return files
 
     def _get_synthesis_tool_names(self) -> Optional[List[str]]:
         """Complete tool surface for the synthesis agent.
@@ -1288,7 +1312,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         self._close_agent_session()
         self._ensure_agent_session()
         structs_ref = self._write_structs_reference()
-        base_sim_refs = self._write_base_sim_reference()
+        base_sim_refs = self._base_sim_reference_paths()
         message = self._build_synthesis_learn_message(
             trajectories, obs_triples, inferred_hint, paths, structs_ref,
             extra_paths, sampler_paths, base_sim_refs)
@@ -2936,16 +2960,17 @@ files to see exactly which rules and predicates produced each failed plan.
             return "/sandbox/reference/structs.py"
         return ref_path
 
-    def _write_base_sim_reference(self) -> List[str]:
-        """Copy the env's base-sim source into the sandbox; return the
-        agent-visible paths.
+    def _base_sim_reference_paths(self) -> List[str]:
+        """Agent-visible paths of the provisioned base-sim sources.
 
         The channel behind ``CFG.agent_sim_provide_base_sim_source``:
         the env declares its observable sim-core modules via
-        ``get_base_sim_source_files()``, and they are copied verbatim -
-        the visibility split is structural, so there is nothing to
-        redact. Returns an empty list when the flag is off or the env
-        declares no files.
+        ``get_base_sim_source_files()``, and sandbox setup copies them
+        verbatim into ``reference/base_sim/`` at every session creation
+        (see :meth:`_get_sandbox_reference_files`) - the visibility
+        split is structural, so there is nothing to redact. Returns an
+        empty list when the flag is off, the env declares no files, or
+        the session has no sandbox (no file surface to read them from).
         """
         if not CFG.agent_sim_provide_base_sim_source:
             return []
@@ -2956,32 +2981,13 @@ files to see exactly which rules and predicates produced each failed plan.
                 "declares no base-sim source files; providing none.",
                 type(self._base_env).__name__)
             return []
-        repo_root = os.path.dirname(
-            os.path.dirname(os.path.abspath(predicators.__file__)))
-        base = self._tool_context.sandbox_dir or self._get_log_dir()
-        ref_dir = os.path.join(base, "reference", "base_sim")
-        os.makedirs(ref_dir, exist_ok=True)
-        agent_paths = []
-        for rel in src_files:
-            src = os.path.join(repo_root, rel)
-            assert os.path.isfile(src), (
-                f"Declared base-sim source file missing: {rel}")
-            dest_name = os.path.basename(rel)
-            with open(src, "r", encoding="utf-8") as f:
-                content = f.read()
-            with open(os.path.join(ref_dir, dest_name), "w",
-                      encoding="utf-8") as f:
-                f.write(content)
-            # Same backend-dependent path mapping as
-            # _write_structs_reference.
-            if CFG.agent_sdk_use_local_sandbox:
-                agent_paths.append(f"./reference/base_sim/{dest_name}")
-            elif self._tool_context.sandbox_dir:
-                agent_paths.append(f"/sandbox/reference/base_sim/{dest_name}")
-            else:
-                agent_paths.append(os.path.join(ref_dir, dest_name))
-        logger.info("Provided base-sim source to the sandbox: %s", src_files)
-        return agent_paths
+        names = [os.path.basename(rel) for rel in src_files]
+        # Same backend-dependent path mapping as _write_structs_reference.
+        if CFG.agent_sdk_use_local_sandbox:
+            return [f"./reference/base_sim/{n}" for n in names]
+        if CFG.agent_sdk_use_docker_sandbox:
+            return [f"/sandbox/reference/base_sim/{n}" for n in names]
+        return []
 
     @staticmethod
     def _extract_obs_triples(
