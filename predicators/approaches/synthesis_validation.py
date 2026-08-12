@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Tuple
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.fitting import fit_rule_parameters
 from predicators.code_sim_learning.utils import LearnedSimulator, \
-    apply_rules, has_latent_rules
+    apply_rules, has_latent_rules, has_physics_rules
 from predicators.structs import Action, State
 
 if TYPE_CHECKING:
@@ -72,7 +72,16 @@ def build_candidate_option_model(
         approach._latent_init = latent_init
 
     try:
-        if latent:
+        if has_physics_rules(rules):
+            # Physics-command rules act through engine stepping, so the
+            # teacher-forced objectives below cannot see them; fit
+            # against free-running rollouts instead (the same routing
+            # sim.fit uses). The joint fit also covers any declared
+            # PHYSICAL_PARAMS, which _load_simulator_from_module_file
+            # published onto the approach before this runs.
+            fit_result, fit_sse = approach._fit_parameters_joint_rollout(
+                rules, specs, residual_features)
+        elif latent:
             fit_result, fit_sse = approach._fit_parameters_recurrent(
                 rules, specs, base_pred_triples, residual_features)
         else:
@@ -87,12 +96,12 @@ def build_candidate_option_model(
     approach._fitted_params.clear()
     approach._fitted_params.update(params)
 
-    # Fully-observable rules run through this 3-arg `learned` object; for
+    # Fully-observable rules run through this `learned` object; for
     # recurrent rules _build_combined_simulator bypasses it and threads
     # state.latent through the candidate rules published above.
     learned = LearnedSimulator(
-        step_fn=lambda s, _r=rules, _p=params:  # type: ignore[misc]
-        apply_rules(s, _r, _p),
+        step_fn=lambda s, c, _r=rules, _p=params:  # type: ignore[misc]
+        apply_rules(s, _r, _p, cmds=c),
         name="agent_in_session")
     combined_sim = approach._build_combined_simulator(learned)
     return approach._build_option_model(combined_sim), params, fit_sse

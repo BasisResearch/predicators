@@ -102,9 +102,9 @@ def _build_combined_model(env):
     gt_params = {s.name: s.init_value for s in PARAM_SPECS()}
     rules = RESIDUAL_RULES
 
-    simulator = LearnedSimulator(
-        step_fn=lambda s, _r=rules, _p=gt_params: apply_rules(s, _r, _p),
-        name="gt_combined")
+    simulator = LearnedSimulator(step_fn=lambda s, c, _r=rules, _p=gt_params:
+                                 apply_rules(s, _r, _p, cmds=c),
+                                 name="gt_combined")
 
     def combined_simulate(state, action):
         kin_state = base_env.simulate(state, action)

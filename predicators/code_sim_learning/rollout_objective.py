@@ -50,10 +50,12 @@ def compute_rollout_sse(
     namespace); the ``physical_names`` subset is pushed into the env via
     ``apply_physical_param_overrides`` while the full dict is handed to the
     rules, mirroring how ``compute_sse``/``compute_sse_recurrent`` pass params.
-    When ``rules`` are present they are applied on top of each *rolled-out*
-    base state (latents threaded per trajectory when declared), and a rule's
-    predicted feature overrides the base sim's — the same precedence
-    ``merge_updates`` uses at plan time.
+    When ``rules`` are present they run in-the-loop on each *rolled-out*
+    base state (latents threaded per trajectory when declared): physics
+    commands they emit are queued on the env and shape the remainder of
+    the rollout, while a rule's predicted feature overrides the base
+    sim's in the scoring — the same precedence ``merge_updates`` uses at
+    plan time.
 
     Observed and simulated states may carry different ``Object`` instances
     (e.g. from separately-constructed envs / real-env trajectories), so
@@ -147,6 +149,7 @@ def _iter_rollout_residual_terms(
     in the physical params where mid-flight paths are chaos).
     """
     # pylint: disable=import-outside-toplevel
+    from predicators.code_sim_learning.commands import CommandBuffer
     from predicators.code_sim_learning.utils import apply_rules, \
         apply_rules_with_latent, has_latent_rules, init_latent
 
@@ -159,22 +162,51 @@ def _iter_rollout_residual_terms(
     latent_mode = bool(rules_list) and has_latent_rules(rules_list)
 
     for states, actions in trajectories:
-        sim_states = rollout_states(base_env, states[0], actions, physical)
         latent: Dict[str, Any] = (init_latent(latent_init, params)
                                   if latent_mode else {})
         history: List[Tuple[State, Optional[Action]]] = []
+        # Rules run IN the rollout loop (not on its output): a rule
+        # that emits physics commands must shape the remainder of this
+        # very rollout - its wind, current, or pull acts through engine
+        # stepping, so applying it after the fact would score a
+        # commands-free trajectory. Feature updates keep their original
+        # semantics: scoring-side overrides of the rolled-out state
+        # (they are not written back into the physics world).
+        updates_per_step: List[Dict[Any, Dict[str, Any]]] = []
+
+        # pylint: disable=cell-var-from-loop
+        # (Consumed within this same loop iteration, before rebinding.)
+        def _run_rules_post_step(env: Any, sim_state: State, i: int) -> None:
+            cmds = CommandBuffer()
+            if latent_mode:
+                history.append((sim_state, actions[i]))
+                step_updates = apply_rules_with_latent(sim_state,
+                                                       latent,
+                                                       history,
+                                                       rules_list,
+                                                       params,
+                                                       cmds=cmds)
+            else:
+                step_updates = apply_rules(sim_state,
+                                           rules_list,
+                                           params,
+                                           cmds=cmds)
+            updates_per_step.append(step_updates)
+            if cmds:
+                env.queue_residual_commands(cmds.commands)
+
+        # pylint: enable=cell-var-from-loop
+        sim_states = rollout_states(
+            base_env,
+            states[0],
+            actions,
+            physical,
+            post_step=_run_rules_post_step if rules_list else None)
         endpoint_residuals: List[float] = []
         for i, sim_state in enumerate(sim_states):
             obs_state = states[i + 1]
-            updates: Dict[Any, Dict[str, Any]] = {}
-            if rules_list:
-                if latent_mode:
-                    history.append((sim_state, actions[i]))
-                    updates = apply_rules_with_latent(sim_state, latent,
-                                                      history, rules_list,
-                                                      params)
-                else:
-                    updates = apply_rules(sim_state, rules_list, params)
+            updates: Dict[Any, Dict[str, Any]] = (updates_per_step[i]
+                                                  if rules_list else {})
             obs_by_name = {o.name: o for o in obs_state}
             is_last = i == len(sim_states) - 1
             for obj in sim_state:

@@ -9,7 +9,7 @@ teacher-forcing per step.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import pybullet as p
 
@@ -123,9 +123,21 @@ def dispose_env(env: Any) -> None:
     p.disconnect(env._physics_client_id)  # pylint: disable=protected-access
 
 
-def rollout_states(base_env: Any, init_state: State, actions: List[Action],
-                   physical_params: Dict[str, float]) -> List[State]:
+def rollout_states(
+    base_env: Any,
+    init_state: State,
+    actions: List[Action],
+    physical_params: Dict[str, float],
+    post_step: Optional[Callable[[Any, State, int],
+                                 None]] = None) -> List[State]:
     """Free-run the base sim from ``init_state`` under ``actions``.
+
+    ``post_step(env, state, i)`` (optional) runs after each action with
+    the live env, the post-step state, and the step index. The rollout
+    objective uses it to run the residual rules in-the-loop: rules that
+    emit physics commands queue them on ``env`` there, so the commands
+    shape the remainder of THIS rollout (feature-update rules remain
+    scoring-side only; see ``_iter_rollout_residual_terms``).
 
     ``base_env`` is either an env instance or a zero-arg FACTORY: a
     factory is invoked to build a fresh env for this single rollout and
@@ -158,8 +170,11 @@ def rollout_states(base_env: Any, init_state: State, actions: List[Action],
         # dynamics.
         _pin_all_physical_params(env, physical_params)
         out: List[State] = []
-        for action in actions:
-            out.append(env.step(action))
+        for i, action in enumerate(actions):
+            state = env.step(action)
+            if post_step is not None:
+                post_step(env, state, i)
+            out.append(state)
         return out
     finally:
         if env is not base_env:
