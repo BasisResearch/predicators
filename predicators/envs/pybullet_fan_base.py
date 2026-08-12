@@ -190,7 +190,13 @@ class PyBulletFanBaseEnv(PyBulletEnv):
     ball_mass: ClassVar[float] = 0.01
     ball_friction: ClassVar[float] = 10.0
     ball_height_offset: ClassVar[float] = ball_radius
-    ball_linear_damping: ClassVar[float] = 10.0
+    # High linear damping acts as the ball's air/rolling resistance: it
+    # sets the terminal speed under a continuously held force. The wind
+    # (a held 0.06 N, see PyBulletFanEnv) terminal-velocities at the
+    # ~0.00224 m/action free-field speed the domain is tuned around,
+    # while staying far enough above the ~0.036 N stiction/seam creep
+    # threshold to roll reliably from rest and across the table seam.
+    ball_linear_damping: ClassVar[float] = 120.0
     ball_angular_damping: ClassVar[float] = 10.0
     ball_color: ClassVar[Tuple[float, float, float,
                                float]] = (0.0, 0.0, 1.0, 1)

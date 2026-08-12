@@ -314,9 +314,9 @@ def test_residual_commands_expire_after_one_action(fan_setup):
 
     s0 = base_env.simulate(state, _make_noop(state, base_env))
     buf = CommandBuffer()
-    # Impulse mode, matching the wind's semantics (a held 0.4 N would
-    # be a 20x stronger push whose leftover momentum coasts visibly).
-    buf.apply_force(ball, (params["wind_force"], 0.0, 0.0), hold=False)
+    # The force is held across every substep of exactly one action,
+    # then expires.
+    buf.apply_force(ball, (params["wind_force"], 0.0, 0.0))
     base_env.queue_residual_commands(buf.commands)
     s1 = base_env.simulate(s0, _make_noop(s0, base_env))
     pushed = s1.get(ball, "x") - s0.get(ball, "x")

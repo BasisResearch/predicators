@@ -1,23 +1,24 @@
 """Ground-truth simulator program for pybullet_fan residual dynamics.
 
-While a fan is on, the rule emits an impulse-mode world-frame force on
-the ball along the fan's facing direction
-(``cmds.apply_force(..., hold=False)``); the base sim's engine handles
-everything downstream - contact stops against the obstacle walls and
-boundary slabs, sliding along their faces, corner deflection. The env
-applies its wind inside ``_domain_specific_step`` (``_simulate_fans``),
-which the approaches' base sims skip (``skip_residual_dynamics=True``);
-this program is that hidden step's learned-space counterpart. The env's
-own wind goes through the same residual-command executor (same
-post-step emission, same first-substep impulse), so a rule emitting the
-env's force is bit-identical to the env.
+While a fan is on, the rule emits a world-frame force on the ball
+along the fan's facing direction (``cmds.apply_force``): a continuous
+push re-applied on every physics substep, like real wind. The base sim's engine
+handles everything downstream - contact stops against the obstacle
+walls and boundary slabs, sliding along their faces, corner
+deflection. The env applies its wind inside ``_domain_specific_step``
+(``_simulate_fans``), which the approaches' base sims skip
+(``skip_residual_dynamics=True``); this program is that hidden step's
+learned-space counterpart. The env's own wind goes through the same
+residual-command executor (same post-step emission, same held
+re-application), so a rule emitting the env's force is bit-identical
+to the env.
 
-Why impulse mode (``hold=False``): the ball's rolling stiction stalls
-a marginal HELD force into stick-slip creep (measured: ~0.0297 N held
-matches the free-field 0.00228 m/action but freezes for ~100 actions
-on the two-table seam), whereas the once-per-action 0.4 N spike
-punches through every such threshold and gives the clean constant
-speed the recorded data shows.
+The magnitude works jointly with the ball's high linear damping (see
+``PyBulletFanBaseEnv.ball_linear_damping``): the damping sets the
+terminal speed of the held push (~0.00224 m/action free-field) while
+the force sits ~60% above the ~0.036 N stiction/seam creep threshold,
+so the ball rolls reliably from rest and across the two-table seam
+instead of stick-slipping.
 
 Because commands act through engine stepping, this artifact is scored
 and fit by free-running rollout matching (``has_physics_rules``
@@ -40,9 +41,9 @@ from predicators.structs import State
 
 # ── Constants ────────────────────────────────────────────────────
 
-# Impulse-mode force (N), equal to the env's wind_force_magnitude
-# (steady-state free field: 0.00228 m/action). Fitted init.
-WIND_FORCE = 0.4
+# Held-mode force (N), equal to the env's wind_force_magnitude
+# (steady-state free field: 0.00224 m/action). Fitted init.
+WIND_FORCE = 0.06
 
 
 def _wind_blowing(state: State, updates: ResidualUpdate, params: Params,
@@ -73,7 +74,7 @@ def _wind_blowing(state: State, updates: ResidualUpdate, params: Params,
     if fx == 0.0 and fy == 0.0:
         return updates
     for ball in balls:
-        cmds.apply_force(ball, (fx, fy, 0.0), hold=False)
+        cmds.apply_force(ball, (fx, fy, 0.0))
     return updates
 
 
@@ -83,7 +84,7 @@ def _wind_blowing(state: State, updates: ResidualUpdate, params: Params,
 RESIDUAL_RULES = [_wind_blowing]
 
 PARAM_SPECS: List[ParamSpec] = [
-    ParamSpec("wind_force", WIND_FORCE, lo=0.0, hi=1.0),
+    ParamSpec("wind_force", WIND_FORCE, lo=0.0, hi=0.2),
 ]
 
 # Features the wind dynamics own. Scored by the rollout objective

@@ -39,15 +39,15 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
     # Fan Motor & Physics
     # -------------------------------------------------------------------------
     fan_spin_velocity: ClassVar[float] = 100.0  # Velocity for joint_0
-    # Wind force on the ball (N), fired as a single impulse at the
-    # start of the action after emission (an impulse-mode ApplyForce,
-    # see _simulate_fans_dynamic). Impulse mode is a physical
-    # requirement, not a tuning choice: the ball's rolling stiction
-    # (and micro-imperfections like the two-table seam) stall a
-    # marginal HELD force into stick-slip creep, whereas the 0.4 N
-    # spike punches through and yields the clean, constant 0.00228
-    # m/action free-field speed the domain is tuned around.
-    wind_force_magnitude: ClassVar[float] = 0.4
+    # Wind force on the ball (N): a continuous force held across every
+    # physics substep of the action after emission (a held-mode
+    # ApplyForce, see _simulate_fans_dynamic), like real wind. The
+    # magnitude is calibrated jointly with the ball's linear damping
+    # (see PyBulletFanBaseEnv.ball_linear_damping): it sits ~60% above
+    # the ~0.036 N stiction/seam creep threshold, and the damping
+    # brings its terminal speed to the constant ~0.00224 m/action
+    # free-field rate the domain is tuned around.
+    wind_force_magnitude: ClassVar[float] = 0.06
     joint_motor_force: ClassVar[float] = 20.0  # Motor control force
 
     # -------------------------------------------------------------------------
@@ -355,9 +355,9 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
         """Spin any on-side's fans and queue its wind on the ball.
 
         The wind goes through the same machinery a learned simulator
-        uses (``queue_residual_commands``): each on-side contributes an
-        impulse-mode ``ApplyForce``, queued here (post-step) and fired
-        on the first physics substep of the next action - so a learned
+        uses (``queue_residual_commands``): each on-side contributes a
+        held-mode ``ApplyForce``, queued here (post-step) and re-applied
+        on every physics substep of the next action - so a learned
         rule emitting the same command is bit-identical to the env's
         own wind.
         """
@@ -477,7 +477,7 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
                 physicsClientId=self._physics_client_id)
 
     def _fan_wind_command(self, fan_id: int) -> ApplyForce:
-        """The wind an on-fan blows: an impulse-mode world-frame force on
+        """The wind an on-fan blows: a held-mode world-frame force on
         the ball along the fan's +X (local frame), for the
         residual-command executor."""
         _, orn_fan = p.getBasePositionAndOrientation(fan_id,
@@ -492,8 +492,7 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
         force_vec = self.wind_force_magnitude * world_dir
         return ApplyForce(
             self._ball.name,
-            (float(force_vec[0]), float(force_vec[1]), float(force_vec[2])),
-            hold=False)
+            (float(force_vec[0]), float(force_vec[1]), float(force_vec[2])))
 
     # -------------------------------------------------------------------------
     # Helpers
