@@ -139,16 +139,26 @@ base sim's physics engine.
 
 ```python
 def rule(..., cmds):        # same leading args as above, plus `cmds`
-    cmds.apply_force(obj, (fx, fy, fz))    # world-frame Newtons
+    cmds.apply_force(obj, (fx, fy, fz))    # world-frame Newtons, held
+    cmds.apply_force(obj, (fx, fy, fz), hold=False)   # single impulse
     cmds.apply_torque(obj, (tx, ty, tz))   # world-frame N*m
     cmds.set_velocity(obj, linear=(vx, vy, vz))   # kinematic override
     return updates
 ```
 
-Commands act across every physics substep of the NEXT env action and \
-then expire - re-emit them each step the process is active (a wind \
-that blows while a device is on is simply "emit the force whenever \
-`is_on > 0.5`"). The engine resolves everything the commanded motion \
+Commands act during the NEXT env action and then expire - re-emit \
+them each step the process is active (a wind that blows while a \
+device is on is simply "emit the force whenever `is_on > 0.5`"). \
+`hold=True` (default) re-applies the force on every physics substep \
+of that action (a continuous push); `hold=False` fires it on the \
+first substep only (a single impulse at the action's start). They \
+are NOT interchangeable at a rescaled magnitude in contact-rich \
+regimes: a marginal held force can stall into stick-slip creep on \
+rolling stiction and surface imperfections, where an impulse train \
+of the same per-action momentum punches through and produces clean \
+constant motion - if the data shows steady per-action displacement \
+but your held-force fit stalls or creeps in rollouts, try \
+`hold=False`. The engine resolves everything the commanded motion \
 runs into: contact stops, sliding along surfaces, deflection. Do NOT \
 re-derive collision handling in rule code on top of commands.
 

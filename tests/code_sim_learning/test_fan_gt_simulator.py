@@ -190,15 +190,10 @@ def test_fan_hybrid_slides_along_boundary(fan_setup):
     x_coords, y_coords = PyBulletFanEnv._grid_coords_for_point(  # pylint: disable=protected-access
         task.init.get(target, "x"), task.init.get(target, "y"))
     # Park the ball against the left boundary in the top row, then blow it
-    # left (into the slab) and down (along it) at the same time. The
-    # hybrid slides the column ~20% slower than the real env (the held
-    # continuous force presses the ball into the slab, and face friction
-    # resists the slide; the env's once-per-action impulse punches
-    # through it), converging to the same resting cell by ~step 100 -
-    # hence the longer horizon.
+    # left (into the slab) and down (along it) at the same time.
     start = (min(x_coords), max(y_coords))
     max_err, s_real, s_hyb = _rollout_pair(fan_setup, [1.0, 3.0],
-                                           120,
+                                           80,
                                            ball_xy=start)
     assert max_err < GOAL_TOL
     ball = _get_obj(s_real, "ball")
@@ -316,7 +311,9 @@ def test_residual_commands_expire_after_one_action(fan_setup):
 
     s0 = base_env.simulate(state, _make_noop(state, base_env))
     buf = CommandBuffer()
-    buf.apply_force(ball, (params["wind_force"], 0.0, 0.0))
+    # Impulse mode, matching the wind's semantics (a held 0.4 N would
+    # be a 20x stronger push whose leftover momentum coasts visibly).
+    buf.apply_force(ball, (params["wind_force"], 0.0, 0.0), hold=False)
     base_env.queue_residual_commands(buf.commands)
     s1 = base_env.simulate(s0, _make_noop(s0, base_env))
     pushed = s1.get(ball, "x") - s0.get(ball, "x")

@@ -1,36 +1,35 @@
 """Ground-truth simulator program for pybullet_fan residual dynamics.
 
 Reproduces the wind dynamics from pybullet_fan.py on the
-physics-command channel: while a fan is on, the rule applies a constant
-world-frame force to the ball along the fan's facing direction
-(``cmds.apply_force``), and the base sim's engine does the rest -
-contact stops against the obstacle walls and boundary slabs, sliding
-along their faces, corner deflection. The env applies its wind inside
-``_domain_specific_step`` (``_simulate_fans``), which the approaches'
-base sims skip (``skip_residual_dynamics=True``); this program is that
-hidden step's learned-space counterpart, emitted at the same post-step
-cadence and executed across the next action's physics substeps.
+physics-command channel: while a fan is on, the rule emits an
+impulse-mode world-frame force on the ball along the fan's facing
+direction (``cmds.apply_force(..., hold=False)``), and the base sim's
+engine does the rest - contact stops against the obstacle walls and
+boundary slabs, sliding along their faces, corner deflection. The env
+applies its wind inside ``_domain_specific_step`` (``_simulate_fans``),
+which the approaches' base sims skip (``skip_residual_dynamics=True``);
+this program is that hidden step's learned-space counterpart. Since the
+env's own wind goes through the SAME residual-command executor (same
+post-step emission, same first-substep impulse), a rule emitting the
+env's force is bit-identical to the env - equivalence is structural,
+not calibrated.
 
-Contrast with the previous revision of this file, which modeled the
+Contrast with the pre-command revision of this file, which modeled the
 wind KINEMATICALLY (per-action displacement plus ~150 lines of
 hand-derived contact geometry: sphere-overhang reach, per-blocker stop
 distances, a minimum-translation rule for sliding). All of that is now
 the engine's job; what remains is exactly the part an agent must
-discover - which condition gates the force, its direction, and its
-magnitude - so the program lives in the same hypothesis space as an
-agent-synthesized one.
+discover - which condition gates the force, its direction, its
+magnitude, and its mode - so the program lives in the same hypothesis
+space as an agent-synthesized one.
 
-Calibration: the env applies its wind as a 0.4 N impulse once per
-action (a single ``applyExternalForce`` consumed by the first substep
-of the next action), whereas the command channel holds the force across
-all ``pybullet_sim_steps_per_action`` = 20 substeps. ``WIND_FORCE``
-below is measured (scripted bisection on base-sim rollouts, seed 0)
-so the steady-state free-field ball speed matches the env's 0.00228
-m/action; the rollout-matching fit refines it from data. The response
-is NOT linear in the force: a continuous push must overcome rolling
-stiction that the env's impulse punches through, so speeds are ~0
-below ~0.028 N and rise steeply after - keep the init near the
-calibrated point rather than deriving it as impulse/substeps.
+Why impulse mode (``hold=False``): the ball's rolling stiction stalls
+a marginal HELD force into stick-slip creep (measured: ~0.0297 N held
+matches the free-field 0.00228 m/action but freezes for ~100 actions
+on the two-table seam), whereas the once-per-action 0.4 N spike
+punches through every such threshold and gives the clean constant
+speed the recorded data shows. A hold-mode hypothesis is not wrong a
+priori - the rollout fit simply prefers the impulse on this data.
 
 Because commands act through engine stepping, this artifact is scored
 and fit by free-running rollout matching (``has_physics_rules``
@@ -53,11 +52,11 @@ from predicators.structs import State
 
 # ── Constants ────────────────────────────────────────────────────
 
-# Continuous per-substep force (N) whose steady-state per-action ball
-# displacement matches the env's measured 0.00228 m/action. Fitted
-# init; see the module docstring for the calibration and the stiction
-# cliff just below it.
-WIND_FORCE = 0.0302
+# Impulse-mode force (N): equals the env's wind_force_magnitude, and
+# since both sides run through the same executor the match is exact by
+# construction (steady-state free field: 0.00228 m/action). Fitted
+# init; see the module docstring for why hold=False.
+WIND_FORCE = 0.4
 
 
 def _wind_blowing(state: State, updates: ResidualUpdate, params: Params,
@@ -88,7 +87,7 @@ def _wind_blowing(state: State, updates: ResidualUpdate, params: Params,
     if fx == 0.0 and fy == 0.0:
         return updates
     for ball in balls:
-        cmds.apply_force(ball, (fx, fy, 0.0))
+        cmds.apply_force(ball, (fx, fy, 0.0), hold=False)
     return updates
 
 

@@ -742,12 +742,13 @@ class PyBulletEnv(BaseEnv):
         # Step the simulation here before adding or removing constraints
         # because detect_held_object() should use the updated state.
         if CFG.pybullet_control_mode != "reset":
-            for _ in range(CFG.pybullet_sim_steps_per_action):
-                # Residual physics commands act across every substep of
-                # this one action (applyExternalForce is cleared by each
-                # stepSimulation, so continuous actuation must be
-                # re-applied per substep).
-                self._apply_pending_residual_commands()
+            for substep_idx in range(CFG.pybullet_sim_steps_per_action):
+                # Residual physics commands act during this one action
+                # (applyExternalForce is cleared by each stepSimulation,
+                # so held actuation must be re-applied per substep;
+                # non-hold commands fire on the first substep only).
+                self._apply_pending_residual_commands(
+                    first_substep=substep_idx == 0)
                 p.stepSimulation(physicsClientId=self._physics_client_id)
         # Consumed: commands act for exactly one action and expire
         # unless the residual simulator re-queues them post-step.
@@ -785,33 +786,41 @@ class PyBulletEnv(BaseEnv):
                                 commands: Sequence[PhysicsCommand]) -> None:
         """Queue physics commands to act during the NEXT action's substeps.
 
-        The learned-simulator counterpart of a hidden
-        ``_domain_specific_step``: residual rules run on the post-step
-        state and emit commands (see
-        :mod:`predicators.code_sim_learning.commands`), which this env
-        then executes across every physics substep of the following
-        ``step``/``simulate`` call - so the engine, not the rule,
-        resolves the contacts the commanded motion runs into. Queued
-        commands expire after that one action (re-queue to persist) and
-        at episode reset. The caller owns jump-validity: queue only
-        commands computed for the state the next step will run from
-        (the combined simulators key their pending commands to that
-        exact state and drop them when the planner backtracks
-        elsewhere). Only meaningful on position/velocity control modes:
-        the kinematic ``reset`` control mode runs no physics substeps,
-        so commands would have nothing to act on.
+        The shared executor for residual actuation (see
+        :mod:`predicators.code_sim_learning.commands`), with two
+        callers on the same post-step cadence: learned residual rules
+        run on the post-step state and emit commands, and an env's own
+        ``_domain_specific_step`` may route its residual dynamics
+        through here too (the fan wind does), which makes a learned
+        rule emitting the same command bit-identical to the env's
+        behavior. Queued commands are executed across every physics
+        substep of the following ``step``/``simulate`` call - so the
+        engine, not the emitter, resolves the contacts the commanded
+        motion runs into. They expire after that one action (re-queue
+        to persist) and at episode reset. The caller owns
+        jump-validity: queue only commands computed for the state the
+        next step will run from (the combined simulators key their
+        pending commands to that exact state and drop them when the
+        planner backtracks elsewhere). Only meaningful on
+        position/velocity control modes: the kinematic ``reset``
+        control mode runs no physics substeps, so commands would have
+        nothing to act on.
         """
         self._pending_residual_commands = list(commands)
 
-    def _apply_pending_residual_commands(self) -> None:
+    def _apply_pending_residual_commands(self,
+                                         first_substep: bool = True) -> None:
         """Execute the queued commands against the live PyBullet world.
 
-        Objects are resolved by NAME against ``self._objects`` (the
-        set the current state carries), so command emitters built from
-        another env instance's ``State`` still drive this env. Fails
-        soft on unknown names or bodiless objects - agent-written rules
-        may reference objects a probe state dropped - with a warning
-        rather than a crashed rollout.
+        Called before every physics substep; ``hold`` commands are
+        applied each time (continuous actuation), non-hold force/torque
+        commands only when ``first_substep`` (a single impulse at the
+        start of the action). Objects are resolved by NAME against
+        ``self._objects`` (the set the current state carries), so
+        command emitters built from another env instance's ``State``
+        still drive this env. Fails soft on unknown names or bodiless
+        objects - agent-written rules may reference objects a probe
+        state dropped - with a warning rather than a crashed rollout.
         """
         if not self._pending_residual_commands:
             return
@@ -821,6 +830,8 @@ class PyBulletEnv(BaseEnv):
             if obj_id is not None and obj_id >= 0:
                 ids_by_name[obj.name] = obj_id
         for cmd in self._pending_residual_commands:
+            if not first_substep and not getattr(cmd, "hold", True):
+                continue
             body_id = ids_by_name.get(cmd.obj_name)
             if body_id is None:
                 logging.warning(

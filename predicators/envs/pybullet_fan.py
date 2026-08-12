@@ -19,6 +19,7 @@ import numpy as np
 import pybullet as p
 
 from predicators import utils
+from predicators.code_sim_learning.commands import ApplyForce
 from predicators.envs.pybullet_fan_base import PyBulletFanBaseEnv
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
@@ -38,7 +39,17 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
     # Fan Motor & Physics
     # -------------------------------------------------------------------------
     fan_spin_velocity: ClassVar[float] = 100.0  # Velocity for joint_0
-    wind_force_magnitude: ClassVar[float] = 0.4  # Force applied to ball
+    # Wind force on the ball (N), applied as a single impulse at the
+    # start of the action after emission (an impulse-mode ApplyForce
+    # through the shared residual-command executor, see
+    # _simulate_fans_dynamic) - dynamically identical to the historical
+    # direct applyExternalForce implementation. Impulse mode is a
+    # deliberate physical choice, not a legacy artifact: the ball's
+    # rolling stiction (and micro-imperfections like the two-table
+    # seam) stall a marginal HELD force into stick-slip creep, whereas
+    # the 0.4 N spike punches through and yields the clean, constant
+    # 0.00228 m/action free-field speed the domain is tuned around.
+    wind_force_magnitude: ClassVar[float] = 0.4
     joint_motor_force: ClassVar[float] = 20.0  # Motor control force
 
     # -------------------------------------------------------------------------
@@ -344,8 +355,20 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
             self._simulate_fans_dynamic()
 
     def _simulate_fans_dynamic(self) -> None:
-        """Original dynamic fan simulation using forces."""
+        """Dynamic fan simulation: wind forces via the residual-command
+        executor.
+
+        The wind goes through the SAME machinery a learned simulator
+        uses (``queue_residual_commands`` +
+        ``_apply_pending_residual_commands``): each on-side contributes
+        an impulse-mode ``ApplyForce`` on the ball, queued here
+        (post-step) and fired on the first physics substep of the next
+        action. This makes sim/real equivalence structural - a learned
+        rule emitting the same command is bit-identical to the env's
+        own wind - instead of a calibration fact.
+        """
         # For each switch, if on => spin all fans with same side_idx
+        wind_commands = []
         for ctrl_fan_idx, switch_obj in enumerate(self._switches):
             on = self._is_switch_on(switch_obj.id)
             fan_obj = self._fans[
@@ -368,9 +391,9 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
                             force=self.joint_motor_force,
                             physicsClientId=self._physics_client_id,
                         )
-                # Apply force using the first fan in the group for direction
-                self._apply_fan_force_to_ball(fan_obj.fan_ids[0],
-                                              self._ball.id)
+                # Wind force using the first fan in the group for direction
+                wind_commands.append(self._fan_wind_command(
+                    fan_obj.fan_ids[0]))
             else:
                 # Turn off all physical fans for this side
                 for i, fan_id in enumerate(fan_obj.fan_ids):
@@ -384,6 +407,10 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
                             force=self.joint_motor_force,
                             physicsClientId=self._physics_client_id,
                         )
+        # Unconditional replace: an empty list is "no wind next action"
+        # (the executor consumed and cleared last action's commands
+        # already, so this is belt-and-braces, not required for expiry).
+        self.queue_residual_commands(wind_commands)
 
     def _simulate_fans_kinematic(self) -> None:
         """Kinematic fan simulation using position-based movement."""
@@ -458,9 +485,10 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
                 ornObj=ball_orn,
                 physicsClientId=self._physics_client_id)
 
-    def _apply_fan_force_to_ball(self, fan_id: int, ball_id: int) -> None:
-        """Compute the direction the fan blows (+X in fan local frame) and
-        apply force."""
+    def _fan_wind_command(self, fan_id: int) -> ApplyForce:
+        """The wind an on-fan blows: an impulse-mode world-frame force on
+        the ball along the fan's +X (local frame), for the
+        residual-command executor."""
         _, orn_fan = p.getBasePositionAndOrientation(fan_id,
                                                      self._physics_client_id)
 
@@ -470,17 +498,11 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
             local_dir = np.array([1.0, 0.0, 0.0])  # +X is "forward"
         rmat = np.array(p.getMatrixFromQuaternion(orn_fan)).reshape((3, 3))
         world_dir = rmat.dot(local_dir)
-        pos_ball, _ = p.getBasePositionAndOrientation(ball_id,
-                                                      self._physics_client_id)
         force_vec = self.wind_force_magnitude * world_dir
-        p.applyExternalForce(
-            objectUniqueId=ball_id,
-            linkIndex=-1,
-            forceObj=force_vec.tolist(),
-            posObj=pos_ball,
-            flags=p.WORLD_FRAME,
-            physicsClientId=self._physics_client_id,
-        )
+        return ApplyForce(
+            self._ball.name,
+            (float(force_vec[0]), float(force_vec[1]), float(force_vec[2])),
+            hold=False)
 
     # -------------------------------------------------------------------------
     # Helpers
