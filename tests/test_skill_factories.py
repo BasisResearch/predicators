@@ -1226,6 +1226,28 @@ class TestCreatePushSkill:
         assert robot.push_ee_yaw_offset == 0.0
         utils.reset_config({"seed": 123})
 
+    def test_contact_phases_never_motion_planned(self, robot_scene):
+        """Waypoint_2 (stroke) and Waypoint_3 (retreat) step IK straight at the
+        target even when the config turns motion planning on.
+
+        A collision-free planner asked for a goal pose inside the pushed
+        object either fails or detours around it and strikes it from the
+        wrong side, so only the free-space phases may follow the config.
+        """
+        _, robot = robot_scene
+        utils.reset_config({
+            "seed": 123,
+            "skill_phase_use_motion_planning": True,
+        })
+        opt = self._make_push(robot)
+        skill = opt.policy.__self__
+        phases = {ph.name: ph for ph in skill._phases}  # pylint: disable=protected-access
+        assert phases["Waypoint_0"].use_motion_planning
+        assert phases["Waypoint_1"].use_motion_planning
+        assert not phases["Waypoint_2"].use_motion_planning
+        assert not phases["Waypoint_3"].use_motion_planning
+        utils.reset_config({"seed": 123})
+
 
 def test_fmt_option_params():
     """Params render compactly for failure messages, including empty."""

@@ -209,30 +209,36 @@ def create_push_skill(
 
     for i in range(4):
         # Waypoint_2 (push into target) and Waypoint_3 (retreat from target)
-        # expect robot-object contact, so suppress collision diagnostics AND
-        # name the object they may drive into (index 1 = the pushed object in
-        # ``[robot, obj]``), which drops it from the planner's collision set.
+        # expect robot-object contact, so suppress collision diagnostics.
         #
-        # Unnamed, these phases are still motion-planned, and BiRRT plans a
-        # COLLISION-FREE path to a goal pose that is inside the very object the
-        # stroke exists to strike. It does not fail -- it succeeds, by routing
-        # around: measured, it lifted above the block's top, swung 59 mm to the
-        # side, travelled past, then came down onto the goal from the far side,
-        # so the last hop ran AGAINST the push direction and toppled the block
-        # backwards, away from the row.
+        # They must also NOT be motion-planned: their goal poses sit at (or
+        # inside) the pushed object, and BiRRT plans a COLLISION-FREE path.
+        # What that does is a knife-edge of scene and hand geometry. If the
+        # goal config registers as colliding (every sim scene so far),
+        # planning fails and the ``expect_contact`` fallback quietly runs
+        # incremental IK. If it squeaks past the ~1 mm
+        # ``pybullet_birrt_contact_margin`` (the real captured scenes), BiRRT
+        # SUCCEEDS by routing around -- measured: over the block's top, 59 mm
+        # out to the side, past the block, then down onto the goal from the
+        # far side, so the last hop struck the block AGAINST the push
+        # direction and toppled it backwards. The direction of travel is the
+        # payload of a stroke, and only stepping IK straight at the target
+        # guarantees it -- identically in sim and on the real bench.
         #
-        # ``expect_contact`` alone does not prevent that: it only suppresses
-        # diagnostics and silences a planning FAILURE, and no failure occurs.
-        # Nor does the contact-partner mechanism in run_motion_planning, which
-        # relaxes nearby bodies to ``pybullet_birrt_contact_margin`` -- 1 mm of
-        # tolerated penetration, where a push buries the gripper centimetres.
+        # Deliberately not fixed by dropping the pushed object from the
+        # planner's collision set: the planner then remains free to detour
+        # around a BYSTANDER near the stroke (the same wrong-direction strike
+        # one object over), and the restricted Push variant grounds as
+        # ``[robot]`` alone, where an index into ``objects`` silently misses.
+        # A stroke that cannot go straight should fail and be resampled, not
+        # rerouted.
         phases.append(
             make_move_to_phase(
                 name=f"Waypoint_{i}",
                 get_target_pose_fn=_make_waypoint_position_fn(i),
                 finger_status="closed",
                 expect_contact=(i >= 2),
-                contact_object_index=(1 if i >= 2 else None)))
+                use_motion_planning=(False if i >= 2 else None)))
 
     phases.append(
         Phase(name="OpenFingers",
