@@ -210,12 +210,23 @@ def create_push_skill(
     for i in range(4):
         # Waypoint_2 (push into target) and Waypoint_3 (retreat from target)
         # expect robot-object contact, so suppress collision diagnostics.
+        #
+        # They must also NOT be motion-planned. BiRRT plans a COLLISION-FREE
+        # path, and the goal of the push stroke is the object itself: asked to
+        # reach it without touching anything, the planner either routes the
+        # gripper up and over the block -- so the stroke misses entirely and
+        # the retreat sweeps the block over BACKWARDS -- or fails outright and
+        # drops to incremental IK from a pose it has already contorted into.
+        # Either way the block ends up pushed away from the row rather than
+        # along it. A contact motion is exactly the case a collision-free
+        # planner cannot express, so these two phases step IK directly.
         phases.append(
             make_move_to_phase(
                 name=f"Waypoint_{i}",
                 get_target_pose_fn=_make_waypoint_position_fn(i),
                 finger_status="closed",
-                expect_contact=(i >= 2)))
+                expect_contact=(i >= 2),
+                use_motion_planning=(False if i >= 2 else None)))
 
     phases.append(
         Phase(name="OpenFingers",

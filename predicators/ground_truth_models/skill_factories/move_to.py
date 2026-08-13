@@ -104,6 +104,7 @@ def make_move_to_phase(
     allow_shallow_held_object_contacts: bool = False,
     validate_ik: bool = False,
     check_release_clearance: bool = False,
+    use_motion_planning: Optional[bool] = None,
 ) -> Phase:
     """Create a MOVE_TO_POSE phase for use in a ``PhaseSkill``.
 
@@ -165,6 +166,9 @@ def make_move_to_phase(
             status = _get_finger_status(state, robot_obj, cfg)
         return current_pose, target_pose, status
 
+    kwargs = {}
+    if use_motion_planning is not None:
+        kwargs["use_motion_planning"] = use_motion_planning
     return Phase(
         name=name,
         action_type=PhaseAction.MOVE_TO_POSE,
@@ -173,4 +177,5 @@ def make_move_to_phase(
         allow_shallow_held_object_contacts=allow_shallow_held_object_contacts,
         validate_ik=validate_ik,
         check_release_clearance=check_release_clearance,
+        **kwargs,
     )
