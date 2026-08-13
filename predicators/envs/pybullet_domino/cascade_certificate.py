@@ -71,16 +71,7 @@ _PUSH_OPTION_NAME = "Push"
 
 # Consecutive non-held states a domino must spend at or past
 # ``fallen_threshold`` before that counts as a topple rather than as
-# noise. Releasing a domino is the reason this is not 1: the twin's
-# Place drops it the last millimetre, and on the first state after
-# ``is_held`` clears it can be found several degrees off plumb while it
-# settles -- measured at 4.9 deg against a 5 deg upright band, and a
-# carried domino swings past ``fallen_threshold`` (13.1 deg measured)
-# routinely, masked only by ``is_held``. One state at 10 deg therefore
-# says nothing; three consecutive ones do, because a real topple grows
-# monotonically past the threshold and stays there for tens of states,
-# while the release transient decays back inside the upright band within
-# about two.
+# noise.
 _TOPPLE_MIN_STEPS = 3
 
 # Minimum base displacement for a movable blue to count as consumed by
@@ -173,14 +164,10 @@ def _topple_onset(states: Sequence[State], domino: Object) -> Optional[int]:
 
     A domino has a topple event iff its |roll| holds at or past
     ``fallen_threshold`` for ``_TOPPLE_MIN_STEPS`` consecutive states
-    while not held (carried blocks tilt legitimately), or does so in a
-    run that reaches the end of the episode. One state past the
-    threshold is not enough: the state right after ``is_held`` clears
-    catches the domino mid-release, still settling, and reading that as
-    a topple dated a whole real run's cascade to the grasp. The onset is
-    the first state of that run. The run restarts whenever the domino is
-    held or comes back inside the threshold, so a domino set down
-    crooked and a domino swinging in the gripper both stay quiet.
+    while not held, or does so in a run that reaches the end of the episode.
+    The run restarts whenever the domino is held or comes back inside the
+    threshold, so a domino set down crooked or a domino swinging in the
+    gripper both stay quiet.
 
     The onset is then walked back to the moment it last left the upright
     band (|roll| < ``domino_roll_threshold``) before that first full
@@ -209,9 +196,7 @@ def _topple_onset(states: Sequence[State], domino: Object) -> Optional[int]:
         held = state.get(domino, "is_held") > 0.5
         fallen = abs(state.get(domino,
                                "roll")) >= DominoComponent.fallen_threshold
-        # A carry breaks the run as surely as standing back up does: the
-        # tilt of a domino in the gripper is not evidence about the one
-        # on the table.
+        # A carry breaks the run.
         if held or not fallen:
             run_start = None
             continue
