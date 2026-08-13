@@ -35,6 +35,7 @@ from gym.spaces import Box
 from predicators.ground_truth_models.skill_factories.base import Phase, \
     PhaseAction, PhaseSkill, SkillConfig, TargetPoseFn
 from predicators.pybullet_helpers.geometry import Pose
+from predicators.settings import CFG
 from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
 
@@ -166,9 +167,11 @@ def make_move_to_phase(
             status = _get_finger_status(state, robot_obj, cfg)
         return current_pose, target_pose, status
 
-    kwargs = {}
-    if use_motion_planning is not None:
-        kwargs["use_motion_planning"] = use_motion_planning
+    # None means "whatever the config says", which is what Phase's own default
+    # resolves to; both are read at construction time, so naming it here is the
+    # same value the default would have picked.
+    plan_motion = (CFG.skill_phase_use_motion_planning
+                   if use_motion_planning is None else use_motion_planning)
     return Phase(
         name=name,
         action_type=PhaseAction.MOVE_TO_POSE,
@@ -177,5 +180,5 @@ def make_move_to_phase(
         allow_shallow_held_object_contacts=allow_shallow_held_object_contacts,
         validate_ik=validate_ik,
         check_release_clearance=check_release_clearance,
-        **kwargs,
+        use_motion_planning=plan_motion,
     )
