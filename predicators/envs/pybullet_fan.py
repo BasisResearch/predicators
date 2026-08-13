@@ -758,10 +758,10 @@ class PyBulletFanEnv(PyBulletEnv):
 
         A box collision shape cannot be resized in place, so
         _reposition_boundary_walls destroys and recreates the boundary
-        bodies from the state (refreshing the Objects' ids). It runs from
-        _set_domain_specific_state, i.e. *after* this generic pose reset -
-        so teleporting them here would dereference an id belonging to a
-        body the previous rebuild already removed.
+        bodies from the state (refreshing the Objects' ids). It runs
+        from _set_domain_specific_state, i.e. *after* this generic pose
+        reset - so teleporting them here would dereference an id
+        belonging to a body the previous rebuild already removed.
         """
         if obj.type == self._boundary_type:
             return
@@ -785,8 +785,8 @@ class PyBulletFanEnv(PyBulletEnv):
 
         The blocker types publish world-axis-aligned extents (see
         ``_wall_type``), but PyBullet needs body-frame half-extents. The
-        inversion is exact for the only rotations this env uses (multiples
-        of pi/2): a quarter turn just swaps x and y.
+        inversion is exact for the only rotations this env uses
+        (multiples of pi/2): a quarter turn just swaps x and y.
         """
         if abs(np.sin(rot)) > 0.5:  # +/-pi/2
             return (y_len, x_len, z_len)
@@ -857,8 +857,8 @@ class PyBulletFanEnv(PyBulletEnv):
             y_coords: List[float]) -> Dict[str, Dict[str, float]]:
         """Pose + world extents of the four boundary slabs for a grid.
 
-        The slabs sit half a grid gap outside the extreme cells and span the
-        full arena width, reproducing the grid-tight enclosure.
+        The slabs sit half a grid gap outside the extreme cells and span
+        the full arena width, reproducing the grid-tight enclosure.
         """
         grid_x_min, grid_x_max = min(x_coords), max(x_coords)
         grid_y_min, grid_y_max = min(y_coords), max(y_coords)
