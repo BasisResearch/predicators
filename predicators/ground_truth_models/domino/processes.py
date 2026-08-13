@@ -54,10 +54,10 @@ def _domino_depth() -> float:
     """Thickness of the domino actually in play, in metres.
 
     ``pybullet_domino_real`` sizes its component from
-    ``CFG.domino_real_domino_dims`` (L, W, thickness); every other domino env
-    takes the class ClassVar. Read at call time rather than folded into a
-    constant, because the two differ by nearly 2x and the push geometry below
-    is a multiple of it.
+    ``CFG.domino_real_domino_dims`` (L, W, thickness); every other
+    domino env takes the class ClassVar. Read at call time rather than
+    folded into a constant, because the two differ by nearly 2x and the
+    push geometry below is a multiple of it.
     """
     # pylint: disable=import-outside-toplevel  # local: avoid import cycle
     from predicators.envs.pybullet_domino import PyBulletDominoEnv
@@ -450,8 +450,8 @@ def _pick_option_sampler(state: State, subgoal_atoms: Set[GroundAtom],
 def _push_option_sampler(state: State, subgoal_atoms: Set[GroundAtom],
                          rng: np.random.Generator,
                          objects: Sequence[Object]) -> Array:
-    """Grid-free Push sampler: approach distance / contact height, both
-    derived from the domino actually in play rather than folded constants."""
+    """Grid-free Push sampler: approach distance / contact height, both derived
+    from the domino actually in play rather than folded constants."""
     del state, subgoal_atoms, rng, objects
     return np.array([_push_approach_distance(),
                      _push_contact_z_offset()],
