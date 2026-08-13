@@ -139,9 +139,10 @@ def create_synthesis_tools(
     from predicators.code_sim_learning.trajectory_prep import \
         compute_residual_scaling
     from predicators.code_sim_learning.utils import apply_rules, \
-        has_latent_rules, iter_feature_residuals, read_latent_init, \
-        read_physical_param_specs, read_simulator_components, \
-        rollout_predictions, stamp_physical_spec_scales
+        has_latent_rules, has_physics_rules, iter_feature_residuals, \
+        read_latent_init, read_physical_param_specs, \
+        read_simulator_components, rollout_predictions, \
+        stamp_physical_spec_scales
     from predicators.settings import CFG
 
     # pylint: enable=import-outside-toplevel
@@ -244,9 +245,10 @@ def create_synthesis_tools(
         heterogeneous data, not a parameter).
         """
         if approach is None:
-            return (f"[{version_tag}] Error: PHYSICAL_PARAMS requires a bound "
-                    "approach (raw trajectories + base env) — unavailable in "
-                    "this session.")
+            return (f"[{version_tag}] Error: the rollout fit "
+                    "(PHYSICAL_PARAMS / command-emitting rules) requires a "
+                    "bound approach (raw trajectories + base env) — "
+                    "unavailable in this session.")
         exploratory = traj_idxs is not None
         if exploratory and not traj_idxs:
             return (f"[{version_tag}] Error: traj_idxs is empty - pass the "
@@ -344,9 +346,11 @@ def create_synthesis_tools(
         mode_note = (
             f"EXPLORATORY, trajectories {sorted(traj_idxs or [])} only"
             if exploratory else "canonical")
+        fit_reason = ("PHYSICAL_PARAMS declared"
+                      if physical_specs else "command-emitting rules")
         lines = [
-            f"[{version_tag}] JOINT ROLLOUT SYSTEM-ID FIT (PHYSICAL_PARAMS "
-            f"declared; {mode_note}) on {len(rollouts)} motion segments "
+            f"[{version_tag}] JOINT ROLLOUT SYSTEM-ID FIT ({fit_reason}; "
+            f"{mode_note}) on {len(rollouts)} motion segments "
             f"(scope: {scope_note}; {len(physical_names)} physical + "
             f"{len(list(rule_specs))} rule params). Residuals are "
             "per-feature normalized (angles wrapped), so SSE/RMS are "
@@ -502,22 +506,26 @@ def create_synthesis_tools(
                       "inferred (RESIDUAL_FEATURES not declared)")
         canonical = traj_idxs is None and not fixed
 
-        # PHYSICAL_PARAMS declared -> joint system-identification fit on
-        # free-running rollouts (the per-transition/teacher-forced paths
-        # below cannot see physical params: State carries no velocities).
+        # PHYSICAL_PARAMS declared, or rules on the physics-command
+        # channel (a ``cmds`` parameter) -> joint system-identification
+        # fit on free-running rollouts (the per-transition /
+        # teacher-forced paths below cannot see physical params - State
+        # carries no velocities - and cannot see command effects, which
+        # only exist through engine stepping).
         # traj_idxs is allowed (exploratory subset fit; applies nothing);
         # fixed is not - pinning a physical param has a versioned channel
         # already (its lo/hi bounds in the PHYSICAL_PARAMS declaration).
-        if physical_specs:
+        if physical_specs or has_physics_rules(rules):
             if fixed:
                 return (f"[{version_tag}] Error: fixed is not supported "
-                        "with PHYSICAL_PARAMS. Pin a physical param by "
-                        "narrowing its lo/hi bounds in PHYSICAL_PARAMS "
-                        "instead (versioned in simulator.py, respected by "
-                        "the whole fit stack).")
+                        "with the rollout fit (PHYSICAL_PARAMS or "
+                        "command-emitting rules). Pin a param by narrowing "
+                        "its lo/hi bounds in the declaration instead "
+                        "(versioned in simulator.py, respected by the "
+                        "whole fit stack).")
             return _evaluate_rollout_fit(rules,
                                          specs,
-                                         physical_specs,
+                                         physical_specs or [],
                                          latent_init,
                                          residual_features,
                                          scope_note,
@@ -1021,6 +1029,19 @@ def create_synthesis_tools(
         if not rollout and (sweep_params is not None or phys_params):
             return (f"[{version_tag}] Error: sweep_params/phys_params apply "
                     "to the open-loop report only - pass rollout=True.")
+        if not rollout and has_physics_rules(rules):
+            # Command-emitting rules act through engine stepping, which
+            # the per-transition report cannot replay; auto-route to the
+            # open-loop report rather than scoring a commands-free
+            # prediction and reporting phantom residuals.
+            note = (f"[{version_tag}] Note: RESIDUAL_RULES emit physics "
+                    "commands (a `cmds` parameter), so the per-transition "
+                    "report cannot score them; showing the OPEN-LOOP "
+                    "rollout report instead (equivalent to rollout=True).")
+            report = _run_rollout_residuals(rules, specs, latent_init,
+                                            version_tag, sweep_num_points,
+                                            sweep_params, phys_params)
+            return note + "\n\n" + report
         if rollout:
             return _run_rollout_residuals(rules, specs, latent_init,
                                           version_tag, sweep_num_points,

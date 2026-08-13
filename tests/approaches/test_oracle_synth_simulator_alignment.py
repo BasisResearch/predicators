@@ -168,9 +168,9 @@ def test_synth_simulator_refinement_agrees_with_real_execution():
     })
 
     rules, params, _features = _load_synth_simulator(_SYNTH_PATH)
-    learned = LearnedSimulator(
-        step_fn=lambda s, _r=rules, _p=params: apply_rules(s, _r, _p),
-        name="run_20260512_210304_snapshot")
+    learned = LearnedSimulator(step_fn=lambda s, c, _r=rules, _p=params:
+                               apply_rules(s, _r, _p, cmds=c),
+                               name="run_20260512_210304_snapshot")
 
     # Build the combined simulator the same way
     # AgentSimLearningApproach._build_combined_simulator does: a base

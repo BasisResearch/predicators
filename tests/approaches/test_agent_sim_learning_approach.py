@@ -26,6 +26,7 @@ from predicators.code_sim_learning.identifiability import Verdict
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, merge_updates
 from predicators.envs import create_new_env
+from predicators.envs.pybullet_fan import PyBulletFanEnv
 from predicators.ground_truth_models import get_gt_options
 from predicators.ground_truth_models.boil.gt_simulator import PARAM_SPECS, \
     RESIDUAL_RULES
@@ -102,9 +103,9 @@ def _build_combined_model(env):
     gt_params = {s.name: s.init_value for s in PARAM_SPECS()}
     rules = RESIDUAL_RULES
 
-    simulator = LearnedSimulator(
-        step_fn=lambda s, _r=rules, _p=gt_params: apply_rules(s, _r, _p),
-        name="gt_combined")
+    simulator = LearnedSimulator(step_fn=lambda s, c, _r=rules, _p=gt_params:
+                                 apply_rules(s, _r, _p, cmds=c),
+                                 name="gt_combined")
 
     def combined_simulate(state, action):
         kin_state = base_env.simulate(state, action)
@@ -761,3 +762,33 @@ def test_persist_fit_trajectories(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(CFG, "code_sim_learning_persist_fit_data", False)
     obj._persist_fit_trajectories()
     assert len(list(out_dir.glob("*.pkl"))) == 2
+
+
+def test_base_sim_reference_provisioning() -> None:
+    """Base-sim source rides the sandbox reference registry (so every session
+    phase gets it) and the agent-visible paths map per backend."""
+    obj = object.__new__(AgentSimLearningApproach)
+    obj._base_env = object.__new__(PyBulletFanEnv)
+    utils.reset_config({
+        "env": "pybullet_fan",
+        "agent_sim_provide_base_sim_source": True,
+        "agent_sdk_use_local_sandbox": True,
+    })
+    files = obj._get_sandbox_reference_files()
+    assert files["base_sim/pybullet_fan_base.py"] == \
+        "predicators/envs/pybullet_fan_base.py"
+    assert files["base_sim/pybullet_env.py"] == \
+        "predicators/envs/pybullet_env.py"
+    assert obj._base_sim_reference_paths() == [
+        "./reference/base_sim/pybullet_fan_base.py",
+        "./reference/base_sim/pybullet_env.py",
+    ]
+    # Flag off: no registry entries, no advertised paths.
+    utils.reset_config({
+        "env": "pybullet_fan",
+        "agent_sim_provide_base_sim_source": False,
+        "agent_sdk_use_local_sandbox": True,
+    })
+    assert not any(
+        k.startswith("base_sim/") for k in obj._get_sandbox_reference_files())
+    assert obj._base_sim_reference_paths() == []

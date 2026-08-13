@@ -23,3 +23,8 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
+      # Ablation axis: surface the fan env's base-sim source
+      # (pybullet_fan_base.py + pybullet_env.py) in the agent sandbox's
+      # ./reference/base_sim/. The wind dynamics, task generation, and
+      # goal semantics live in pybullet_fan.py, which is never provided.
+      agent_sim_provide_base_sim_source: True

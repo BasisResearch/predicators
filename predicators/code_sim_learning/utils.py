@@ -7,7 +7,12 @@ and agent-synthesized code) are written against:
 
 * ``apply_rules`` / ``apply_rules_with_latent`` — run a list of rule
   functions on a state, return feature updates (``ResidualUpdate``);
-  the latent variant threads a hidden-state dict and ``History``.
+  the latent variant threads a hidden-state dict and ``History``. Both
+  thread an optional :class:`~predicators.code_sim_learning.commands.
+  CommandBuffer` into rules that declare a ``cmds`` parameter (the
+  physics-command output channel); ``has_physics_rules`` is the
+  dispatch signal that such rules exist and must be scored by
+  env-in-the-loop rollout matching.
 * ``merge_updates`` — overwrite features in a ``State`` with values
   from a ``ResidualUpdate``.
 * ``rollout_predictions`` / ``iter_feature_residuals`` — teacher-forced
@@ -38,6 +43,7 @@ from typing import Any, Callable, Dict, Iterable, Iterator, List, Mapping, \
 
 import numpy as np
 
+from predicators.code_sim_learning.commands import CommandBuffer
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.structs import Action, Object, State
 
@@ -82,17 +88,29 @@ def objs_by_type(state: State) -> Dict[str, List[Object]]:
 # ── Primitives ────────────────────────────────────────────────────
 
 
-def apply_rules(state: State, rules: List,
-                params: Dict[str, float]) -> ResidualUpdate:
+def apply_rules(state: State,
+                rules: List,
+                params: Dict[str, float],
+                cmds: Optional[CommandBuffer] = None) -> ResidualUpdate:
     """Apply residual rules sequentially and return feature updates.
 
-    Each rule has signature ``rule(state, updates, params) -> updates``.
-    Values are normalised to plain floats (rules may return numpy
-    scalars).
+    Each rule has signature ``rule(state, updates, params) -> updates``,
+    optionally extended with a trailing ``cmds`` parameter (the
+    physics-command channel, see
+    :mod:`predicators.code_sim_learning.commands`). ``cmds`` is threaded
+    only into rules that declare it; when the caller passes ``None`` a
+    throwaway buffer is used so command-emitting rules still run, but
+    their commands are discarded - callers that can execute commands
+    must pass their own buffer and hand its contents to the env. Values
+    are normalised to plain floats (rules may return numpy scalars).
     """
+    buf = cmds if cmds is not None else CommandBuffer()
     updates: ResidualUpdate = {}
     for rule in rules:
-        updates = rule(state, updates, params)
+        if _rule_accepts_cmds(rule):
+            updates = rule(state, updates, params, cmds=buf)
+        else:
+            updates = rule(state, updates, params)
     return {
         obj: {feat: float(val)
               for feat, val in feat_dict.items()}
@@ -130,6 +148,36 @@ def _rule_accepts_latent(rule: Callable) -> bool:
                for p in params.values())
 
 
+@lru_cache(maxsize=None)
+def _rule_accepts_cmds(rule: Callable) -> bool:
+    """True iff ``rule`` declares an explicit ``cmds`` parameter.
+
+    Unlike :func:`_rule_accepts_latent`, a bare ``**kwargs`` does NOT
+    count: declaring ``cmds`` doubles as the fit-routing signal
+    (:func:`has_physics_rules` forces the env-in-the-loop rollout
+    objective), so it must be an explicit, auditable opt-in rather
+    than something a generic signature acquires by accident.
+    """
+    try:
+        params = inspect.signature(rule).parameters
+    except (TypeError, ValueError):
+        return False
+    return "cmds" in params
+
+
+def has_physics_rules(rules: Iterable[Callable]) -> bool:
+    """True iff any rule declares a ``cmds`` param (physics commands).
+
+    The dispatch signal that a simulator acts through the engine:
+    command effects only exist through physics stepping, so fitting and
+    residual scoring must run the env-in-the-loop rollout objective
+    (teacher-forced pure-function scoring cannot see them). Mirrors
+    :func:`has_latent_rules`: keyed off the rule *signatures* so it is
+    correct on both the oracle and the agent-synthesis path.
+    """
+    return any(_rule_accepts_cmds(r) for r in rules)
+
+
 def has_latent_rules(rules: Iterable[Callable]) -> bool:
     """True iff any rule declares a `latent` param (recurrent 5-arg).
 
@@ -150,6 +198,7 @@ def apply_rules_with_latent(
     history: History,
     rules: List,
     params: Dict[str, float],
+    cmds: Optional[CommandBuffer] = None,
 ) -> ResidualUpdate:
     """Apply rules with a ``latent`` state-feature block and read-only
     ``history``.
@@ -163,16 +212,23 @@ def apply_rules_with_latent(
       same dict object passed in by the caller is threaded across
       steps.
 
+    Either form may additionally declare a trailing ``cmds`` parameter
+    (the physics-command channel); it is threaded exactly as in
+    :func:`apply_rules`, with a throwaway buffer when the caller passes
+    ``None``.
+
     Signature is inspected once per rule (cached). Values are
     normalised to plain floats. The returned update dict has the
     same shape as ``apply_rules``'s output.
     """
+    buf = cmds if cmds is not None else CommandBuffer()
     updates: ResidualUpdate = {}
     for rule in rules:
+        extra = {"cmds": buf} if _rule_accepts_cmds(rule) else {}
         if _rule_accepts_latent(rule):
-            updates = rule(state, latent, history, updates, params)
+            updates = rule(state, latent, history, updates, params, **extra)
         else:
-            updates = rule(state, updates, params)
+            updates = rule(state, updates, params, **extra)
     return {
         obj: {feat: float(val)
               for feat, val in feat_dict.items()}
@@ -427,10 +483,14 @@ class LearnedSimulator:
 
     The function predicts residual dynamics — features like
     water_volume, heat_level, spilled_level that aren't captured by
-    rigid body physics.
+    rigid body physics, and (for rules on the physics-command channel)
+    the commands to queue on the base env for its next action.
     """
 
-    StepFn = Callable[[State], ResidualUpdate]
+    # (state, command buffer) -> feature updates. The buffer is always
+    # provided by predict_step; step functions whose rules don't use
+    # the command channel simply leave it empty.
+    StepFn = Callable[[State, CommandBuffer], ResidualUpdate]
 
     def __init__(self,
                  step_fn: StepFn,
@@ -438,15 +498,22 @@ class LearnedSimulator:
         self._step_fn = step_fn
         self.name = name
 
-    def predict_step(self, state: State) -> ResidualUpdate:
+    def predict_step(self,
+                     state: State,
+                     cmds: Optional[CommandBuffer] = None) -> ResidualUpdate:
         """Predict residual feature updates for a single timestep.
+
+        ``cmds`` collects physics commands emitted by command-channel
+        rules; callers that can execute them pass their own buffer,
+        others may omit it (commands are then discarded).
 
         Fails soft: agent-written simulators may raise on states they
         never anticipated, so any exception is logged and treated as "no
         update" rather than crashing the rollout.
         """
+        buf = cmds if cmds is not None else CommandBuffer()
         try:
-            return self._step_fn(state)
+            return self._step_fn(state, buf)
         except Exception as e:  # pylint: disable=broad-except
             logger.warning("Simulator '%s' step raised: %s", self.name, e)
             return {}

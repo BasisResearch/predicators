@@ -3,18 +3,23 @@
 The fan env applies its wind dynamics in ``_domain_specific_step``,
 which the approaches' base sims skip (``skip_residual_dynamics=True``),
 so the GT residual rules must reproduce the ball's wind-driven motion.
-These tests roll the hybrid sim (base env + GT rules, composed exactly
-like ``AgentSimLearningApproach._build_combined_simulator``) side by
-side with the real env under identical no-op action sequences, covering
-free runs, obstacle-wall blocking, boundary parking, simultaneous fans,
-and the fans-off case.
+The GT rules act on the physics-command channel: they emit a constant
+force on the ball while a fan is on (``cmds.apply_force``) and the base
+sim's engine handles contacts. These tests roll the hybrid sim (base
+env + GT rules + command queueing, composed exactly like
+``AgentSimLearningApproach._build_combined_simulator``) side by side
+with the real env under identical no-op action sequences, covering free
+runs, obstacle-wall blocking, boundary parking, simultaneous fans, and
+the fans-off case.
 """
 
 import numpy as np
 import pytest
 
 from predicators import utils
-from predicators.code_sim_learning.utils import apply_rules, merge_updates
+from predicators.code_sim_learning.commands import ApplyForce, CommandBuffer
+from predicators.code_sim_learning.utils import apply_rules, \
+    has_physics_rules, merge_updates
 from predicators.envs import create_new_env
 from predicators.envs.pybullet_fan import PyBulletFanEnv
 from predicators.ground_truth_models import get_gt_simulator
@@ -31,6 +36,9 @@ def _fan_setup():
         "env": "pybullet_fan",
         "seed": 0,
         "fan_use_skill_factories": True,
+        # The assertions below are written against the curated seed-0
+        # task (ball/wall/target aligned in the center column).
+        "fan_3x3_strategic_task_gen": True,
     })
     rules, specs, _ = get_gt_simulator("pybullet_fan")
     params = {s.name: s.init_value for s in specs}
@@ -77,7 +85,12 @@ def _rollout_pair(fan_setup, switch_sides, n_steps, ball_xy=None):
 
     def hybrid_simulate(s, a):
         base_state = base_env.simulate(s, a)
-        updates = apply_rules(base_state, rules, params)
+        cmds = CommandBuffer()
+        updates = apply_rules(base_state, rules, params, cmds=cmds)
+        if cmds:
+            # Post-step emission, consumed by the next action's substeps
+            # - the same cadence _domain_specific_step's force has.
+            base_env.queue_residual_commands(cmds.commands)
         return merge_updates(base_state, updates) if updates else base_state
 
     s_real, s_hyb = state, state
@@ -99,8 +112,11 @@ def test_fan_gt_simulator_loads():
     rules, specs, features = get_gt_simulator("pybullet_fan")
     assert [r.__name__ for r in rules] == ["_wind_blowing"]
     names = {s.name for s in specs}
-    assert names == {"ball_speed", "contact_slack"}
+    assert names == {"wind_force"}
     assert features == {"ball": ["x", "y"]}
+    # The rules act through the physics-command channel, so the fitting
+    # stack must route them to the rollout objective.
+    assert has_physics_rules(rules)
 
 
 def test_fan_hybrid_free_run_and_boundary(fan_setup):
@@ -228,32 +244,130 @@ def test_fan_boundary_slabs_are_observed_grid_tight_objects(fan_setup):
     assert not np.isclose(_left_span(train_init), _left_span(test_init))
 
 
-def test_fan_rules_need_no_hidden_grid(fan_setup):
-    """The rules park the ball using only observed geometry.
+def test_fan_rollout_objective_scores_command_rules(fan_setup):
+    """The sysID rollout objective runs command rules IN the free-run.
 
-    Translating the whole arena - ball, walls and boundary slabs - moves
-    the stopping locus with it. A rule that recovered the grid from a
-    class constant or from the target's position (as the pre-boundary-
-    object version did) would keep stopping the ball at the old place.
+    Records a short real-env trajectory with a fan on, then scores it
+    with ``compute_rollout_sse`` against a fresh base env: at the
+    calibrated wind force the free-run tracks the recording (small
+    SSE); with the wind zeroed the rolled-out ball never moves and the
+    SSE grows by orders of magnitude. This is the routing every
+    command-emitting artifact takes (``has_physics_rules``) - without
+    the in-rollout command feed, both scores would be identical.
+    """
+    # pylint: disable=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        compute_rollout_sse
+    _, _, rules, params, task = fan_setup
+    state = task.init.copy()
+    switch = _get_obj(state, "switch",
+                      lambda s, o: s.get(o, "controls_fan") == 0.0)
+    state.set(switch, "is_on", 1.0)
+    # Record from a FRESH real env, not the module-shared one: earlier
+    # tests leave solver warm-start state a state-level reset cannot
+    # flush (the same mechanism documented in rollout_states), and the
+    # scoring below free-runs fresh envs - the recording must come from
+    # the same distribution.
+    rec_env = create_new_env("pybullet_fan", do_cache=False, use_gui=False)
+    try:
+        states, actions = [state], []
+        s = state
+        for _ in range(15):
+            a = _make_noop(s, rec_env)
+            s = rec_env.simulate(s, a)
+            states.append(s)
+            actions.append(a)
+    finally:
+        rec_env.dispose()
+    ball = _get_obj(s, "ball")
+    assert s.get(ball, "x") - state.get(ball, "x") > 0.02  # wind acted
+
+    def fit_env():
+        return create_new_env("pybullet_fan",
+                              do_cache=False,
+                              use_gui=False,
+                              skip_residual_dynamics=True)
+
+    features = {"ball": ["x", "y"]}
+    sse_gt = compute_rollout_sse(fit_env, [(states, actions)], params,
+                                 features, [], rules)
+    sse_off = compute_rollout_sse(fit_env, [(states, actions)],
+                                  {"wind_force": 0.0}, features, [], rules)
+    assert sse_gt < 1e-3
+    assert sse_off > 10 * max(sse_gt, 1e-6)
+
+
+def test_residual_commands_expire_after_one_action(fan_setup):
+    """Queued commands act on exactly one action, then expire.
+
+    The env-side contract: a queued force is applied across the next
+    action's physics substeps and cleared afterwards - a persistent
+    process must re-emit per step. A second step WITHOUT re-queueing
+    must show (damped) coasting only, not another pushed step.
+    """
+    _, base_env, _, params, task = fan_setup
+    state = task.init.copy()
+    ball = _get_obj(state, "ball")
+    # Free-field cell (target row, left column) so nothing blocks +x.
+    state.set(ball, "x", 0.67)
+    state.set(ball, "y", 1.534)
+
+    s0 = base_env.simulate(state, _make_noop(state, base_env))
+    buf = CommandBuffer()
+    # The force is held across every substep of exactly one action,
+    # then expires.
+    buf.apply_force(ball, (params["wind_force"], 0.0, 0.0))
+    base_env.queue_residual_commands(buf.commands)
+    s1 = base_env.simulate(s0, _make_noop(s0, base_env))
+    pushed = s1.get(ball, "x") - s0.get(ball, "x")
+    assert pushed > 1e-3  # the queued force moved the ball
+    s2 = base_env.simulate(s1, _make_noop(s1, base_env))
+    coasted = s2.get(ball, "x") - s1.get(ball, "x")
+    # Expired: the un-requeued force contributes nothing; the heavily
+    # damped ball travels a small fraction of the pushed step.
+    assert abs(coasted) < 0.25 * pushed
+
+
+def test_fan_rule_forces_come_from_observed_fans(fan_setup):
+    """The rule's commands are a pure function of observed fan features.
+
+    Contact geometry is the engine's job, so the rule's whole contract
+    is the force law: direction from each on-fan's ``rot``, vector
+    summation for simultaneous fans, no feature overwrites, and silence
+    when every fan is off.
     """
     _, _, rules, params, task = fan_setup
-    shift = 0.5
     state = task.init.copy()
-    for obj in state:
-        if obj.type.name in ("ball", "wall", "boundary", "target"):
-            state.set(obj, "x", state.get(obj, "x") + shift)
-            state.set(obj, "y", state.get(obj, "y") + shift)
-    # Rules read the fan, not the switch (no base sim here to propagate).
+    ball = _get_obj(state, "ball")
+
+    # All fans off: no commands, no updates.
+    cmds = CommandBuffer()
+    updates = apply_rules(state, rules, params, cmds=cmds)
+    assert not updates and len(cmds) == 0
+
+    # One fan on: force along (cos rot, sin rot), still no updates -
+    # the engine, not merge_updates, moves the ball.
     fan = _get_obj(state, "fan", lambda s, o: s.get(o, "facing_side") == 0.0)
     state.set(fan, "is_on", 1.0)
+    cmds = CommandBuffer()
+    updates = apply_rules(state, rules, params, cmds=cmds)
+    assert not updates
+    assert len(cmds) == 1
+    cmd = cmds.commands[0]
+    assert isinstance(cmd, ApplyForce) and cmd.obj_name == ball.name
+    rot = state.get(fan, "rot")
+    expected = np.array([np.cos(rot), np.sin(rot), 0.0]) * \
+        params["wind_force"]
+    assert np.allclose(cmd.force, expected)
 
-    ball = _get_obj(state, "ball")
-    right = next(o for o in state if o.name == "boundary_right")
-    # Rules only (no base sim): the arena has no PyBullet counterpart here.
-    for _ in range(200):
-        updates = apply_rules(state, rules, params)
-        state = merge_updates(state, updates) if updates else state
-
-    expected = (state.get(right, "x") - state.get(right, "x_len") / 2 -
-                state.get(ball, "radius"))
-    assert abs(state.get(ball, "x") - expected) < 1e-6
+    # Two fans on: per-axis vector sum.
+    fan2 = _get_obj(state, "fan", lambda s, o: s.get(o, "facing_side") == 3.0)
+    state.set(fan2, "is_on", 1.0)
+    cmds = CommandBuffer()
+    apply_rules(state, rules, params, cmds=cmds)
+    assert len(cmds) == 1
+    cmd = cmds.commands[0]
+    rot2 = state.get(fan2, "rot")
+    expected2 = expected + np.array([np.cos(rot2),
+                                     np.sin(rot2), 0.0]) * params["wind_force"]
+    assert np.allclose(cmd.force, expected2)

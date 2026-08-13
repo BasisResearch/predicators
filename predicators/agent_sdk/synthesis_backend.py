@@ -110,6 +110,14 @@ class SynthesisBackend(Protocol):
     ) -> Tuple[FitResult, float]:
         ...
 
+    def _fit_parameters_joint_rollout(
+        self,
+        rules: List,
+        rule_specs: List[ParamSpec],
+        residual_features: Dict[str, List[str]],
+    ) -> Tuple[FitResult, float]:
+        ...
+
     def _build_combined_simulator(
         self,
         learned_simulator: LearnedSimulator,

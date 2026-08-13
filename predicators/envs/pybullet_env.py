@@ -45,6 +45,8 @@ from gym.spaces import Box
 from PIL import Image
 
 from predicators import utils
+from predicators.code_sim_learning.commands import ApplyForce, ApplyTorque, \
+    PhysicsCommand, SetVelocity
 from predicators.envs import BaseEnv
 from predicators.pybullet_helpers import retry_pybullet_call, studio_visuals
 from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
@@ -280,6 +282,10 @@ class PyBulletEnv(BaseEnv):
         # Drives real hardware from this env's rollouts; None means pure sim,
         # which is what every env built by the planner stays.
         self._executor: Optional[ActionExecutor] = None
+
+        # Residual physics commands awaiting the next action's substeps;
+        # see queue_residual_commands for the contract.
+        self._pending_residual_commands: List[PhysicsCommand] = []
 
         # Set up all the static PyBullet content.
         self._physics_client_id, self._pybullet_robot, pybullet_bodies = \
@@ -622,6 +628,9 @@ class PyBulletEnv(BaseEnv):
               task_idx: int,
               render: bool = False) -> Observation:
         state = super().reset(train_or_test, task_idx)
+        # Episode boundary: any residual commands queued for a step that
+        # never ran belong to the abandoned rollout.
+        self._pending_residual_commands = []
         self._set_state(state)
         observation = self.get_observation(render=render)
         if self._executor is not None:
@@ -729,7 +738,14 @@ class PyBulletEnv(BaseEnv):
         # because detect_held_object() should use the updated state.
         if CFG.pybullet_control_mode != "reset":
             for _ in range(CFG.pybullet_sim_steps_per_action):
+                # Residual physics commands act during this one action
+                # (applyExternalForce is cleared by each stepSimulation,
+                # so continuous actuation is re-applied per substep).
+                self._apply_pending_residual_commands()
                 p.stepSimulation(physicsClientId=self._physics_client_id)
+        # Consumed: commands act for exactly one action and expire
+        # unless the residual simulator re-queues them post-step.
+        self._pending_residual_commands = []
 
         if self._contact_log is not None:
             self._record_step_contacts()
@@ -756,6 +772,83 @@ class PyBulletEnv(BaseEnv):
         filling, heating, balance beam physics, etc.). Skipped when
         ``skip_residual_dynamics=True`` is passed to the constructor.
         """
+
+    # ── Residual physics commands ───────────────────────────────
+
+    def queue_residual_commands(self,
+                                commands: Sequence[PhysicsCommand]) -> None:
+        """Queue physics commands to act during the NEXT action's substeps.
+
+        The shared executor for residual actuation (see
+        :mod:`predicators.code_sim_learning.commands`), with two
+        callers on the same post-step cadence: learned residual rules,
+        and an env's own ``_domain_specific_step`` (the fan wind) - so
+        a learned rule emitting the env's command is bit-identical to
+        the env. Queued commands are executed during the physics
+        substeps of the following ``step``/``simulate`` call - the
+        engine, not the emitter, resolves the contacts the commanded
+        motion runs into. They expire after that one action (re-queue
+        to persist) and at episode reset. The caller owns
+        jump-validity: queue only commands computed for the state the
+        next step will run from (the combined simulators key their
+        pending commands to that exact state and drop them when the
+        planner backtracks elsewhere). Only meaningful on
+        position/velocity control modes: the kinematic ``reset``
+        control mode runs no physics substeps, so commands would have
+        nothing to act on.
+        """
+        self._pending_residual_commands = list(commands)
+
+    def _apply_pending_residual_commands(self) -> None:
+        """Execute the queued commands against the live PyBullet world.
+
+        Called before every physics substep, so force/torque commands
+        act as continuous actuation across the whole action. Objects
+        are resolved by NAME against ``self._objects`` (the set the
+        current state carries), so command emitters built from another
+        env instance's ``State`` still drive this env. Fails soft on
+        unknown names or bodiless objects - agent-written rules may
+        reference objects a probe state dropped - with a warning rather
+        than a crashed rollout.
+        """
+        if not self._pending_residual_commands:
+            return
+        ids_by_name: Dict[str, int] = {}
+        for obj in self._objects:
+            obj_id = getattr(obj, "id", None)
+            if obj_id is not None and obj_id >= 0:
+                ids_by_name[obj.name] = obj_id
+        for cmd in self._pending_residual_commands:
+            body_id = ids_by_name.get(cmd.obj_name)
+            if body_id is None:
+                logging.warning(
+                    "Residual command targets unknown or bodiless object "
+                    "'%s'; skipping.", cmd.obj_name)
+                continue
+            if isinstance(cmd, ApplyForce):
+                pos, _ = p.getBasePositionAndOrientation(
+                    body_id, physicsClientId=self._physics_client_id)
+                p.applyExternalForce(objectUniqueId=body_id,
+                                     linkIndex=-1,
+                                     forceObj=list(cmd.force),
+                                     posObj=pos,
+                                     flags=p.WORLD_FRAME,
+                                     physicsClientId=self._physics_client_id)
+            elif isinstance(cmd, ApplyTorque):
+                p.applyExternalTorque(objectUniqueId=body_id,
+                                      linkIndex=-1,
+                                      torqueObj=list(cmd.torque),
+                                      flags=p.WORLD_FRAME,
+                                      physicsClientId=self._physics_client_id)
+            elif isinstance(cmd, SetVelocity):
+                kwargs: Dict[str, Any] = {}
+                if cmd.linear is not None:
+                    kwargs["linearVelocity"] = list(cmd.linear)
+                if cmd.angular is not None:
+                    kwargs["angularVelocity"] = list(cmd.angular)
+                p.resetBaseVelocity(body_id,
+                                    physicsClientId=self._physics_client_id,
+                                    **kwargs)
 
     # ── Real execution ──────────────────────────────────────────
 

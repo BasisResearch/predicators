@@ -752,6 +752,11 @@ class GlobalSettings:
     fan_test_num_pos_y = 6
     fan_train_num_walls_per_task = [1]
     fan_test_num_walls_per_task = [2, 3]  # can do 4
+    # When True, 3x3 grids use curated task generation: ball on an edge
+    # cell, target axis-aligned two cells away, and a single wall placed
+    # to block the direct path. When False, all grid sizes use uniform
+    # random placement of ball, target, and walls.
+    fan_3x3_strategic_task_gen = False
 
     # domino_fan env (combined domino + fan environment)
     domino_domino_on_stairs = False
@@ -1859,6 +1864,17 @@ class GlobalSettings:
     # even goal predicates - from the agent's prompts/tools; tasks whose
     # goal atoms are stripped must then carry goal_nl.
     agent_sim_learn_kept_predicates_names: List[str] = []
+    # Ablation axis ("the robot knows its own simulator"): when True,
+    # copy the env's declared base-sim source modules
+    # (``get_base_sim_source_files()``, e.g. pybullet_fan_base.py +
+    # pybullet_env.py) into the sandbox's ./reference/base_sim/ for
+    # every agent session (solve, explore, and synthesis). The
+    # visibility split is structural: residual dynamics, task
+    # generation, and goal semantics live in modules that are never
+    # declared, so the provided files are byte-identical to the code
+    # the base-sim rollouts execute. Envs that declare no source files
+    # are unaffected.
+    agent_sim_provide_base_sim_source = False
 
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:

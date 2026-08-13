@@ -47,6 +47,7 @@ from predicators.approaches.synthesis_validation import \
 from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
     mean_bernoulli_entropy, perturbation_ensemble, \
     posterior_subsample_ensemble
+from predicators.code_sim_learning.commands import CommandBuffer
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
 from predicators.code_sim_learning.fitting import FIT_NOISE_SIGMA, \
     compute_sse, compute_sse_recurrent, fit_rule_parameters, \
@@ -57,12 +58,13 @@ from predicators.code_sim_learning.orchestrator import run_rollout_sysid
 from predicators.code_sim_learning.physical_sysid import fit_params_rollout
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
     dispose_env, physical_param_anchors
+from predicators.code_sim_learning.rollout_objective import compute_rollout_sse
 from predicators.code_sim_learning.trajectory_prep import \
     split_at_rest_points, truncate_settled_tail
 from predicators.code_sim_learning.utils import LearnedSimulator, \
-    apply_rules, apply_rules_with_latent, has_latent_rules, init_latent, \
-    iter_feature_residuals, merge_updates, read_latent_init, \
-    read_physical_param_specs, read_simulator_components, \
+    apply_rules, apply_rules_with_latent, has_latent_rules, \
+    has_physics_rules, init_latent, iter_feature_residuals, merge_updates, \
+    read_latent_init, read_physical_param_specs, read_simulator_components, \
     stamp_physical_spec_scales
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_simulator
@@ -127,6 +129,59 @@ time. Be honest - listing features your rules don't actually update \
 inflates the loss without giving MCMC anything to optimise.
 __PHYSICAL_PARAMS_SECTION__
 __RULE_SIGNATURE_SECTION__
+
+### Physics commands (`cmds`) - moving rigid bodies through the engine
+
+A rule may declare one extra trailing parameter named `cmds` to gain a \
+second output channel: generic rigid-body actuation executed by the \
+base sim's physics engine.
+
+```python
+def rule(..., cmds):        # same leading args as above, plus `cmds`
+    cmds.apply_force(obj, (fx, fy, fz))    # world-frame Newtons
+    cmds.apply_torque(obj, (tx, ty, tz))   # world-frame N*m
+    cmds.set_velocity(obj, linear=(vx, vy, vz))   # kinematic override
+    return updates
+```
+
+Commands act during the NEXT env action and then expire - re-emit \
+them each step the process is active (a wind that blows while a \
+device is on is simply "emit the force whenever `is_on > 0.5`"). \
+A force/torque is re-applied on every physics substep of that action: \
+a continuous push, like real wind or a magnet. The engine resolves \
+everything the commanded motion runs into: contact stops, sliding \
+along surfaces, deflection. Do NOT re-derive collision handling in \
+rule code on top of commands.
+
+**Choosing the channel - run this diagnostic ladder, in order:**
+
+1. **The base sim already produces the motion, but quantitatively \
+off** (bodies move on replay, with drifting angles/timing): the \
+mechanism lives in the engine and the error is a function of its \
+physical parameters. Declare `PHYSICAL_PARAMS` and write NO rule for \
+it.
+2. **A body moves in the data but is inert in base-sim replay** \
+whenever some observable condition holds: the mechanism is missing - \
+an exogenous influence the engine knows nothing about. Model it with \
+force/velocity commands gated on the condition.
+3. **The feature is not a rigid-body pose at all** (a level, a \
+temperature, a counter): use the feature-update channel.
+
+Never write a rule that overwrites or pushes a body the base sim is \
+already moving - the two fight, and the fit lets the rule absorb \
+physics error. And prefer the simplest force hypothesis first: a \
+body that moves at a constant rate while a condition holds and stops \
+when it ends (or when something is in the way) is a constant force \
+plus engine contacts, not a decaying gust, a one-shot kick, or an \
+edge-triggered pulse.
+
+Declaring `cmds` switches fitting and residual scoring to \
+env-in-the-loop rollout matching automatically (`sim.fit` reports it); \
+command effects cannot be scored teacher-forced. `RESIDUAL_FEATURES` \
+still declares the features your dynamics own - list the pose \
+features your commands move (e.g. `{"ball": ["x", "y"]}`); they are \
+scored against observations but NOT overwritten at test time (the \
+engine moves them).
 
 ### Multiple objects of the same type
 
@@ -636,7 +691,32 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     def _get_agent_system_prompt(self) -> str:
         if self._learning_mode:
             return self._build_synthesis_system_prompt()
-        return super()._get_agent_system_prompt()
+        prompt = super()._get_agent_system_prompt()
+        base_sim_refs = self._base_sim_reference_paths()
+        if base_sim_refs:
+            ref_listing = "\n".join(f"  - {r}" for r in base_sim_refs)
+            prompt += (
+                "\n\n## Base Simulator Source\n"
+                "The environment simulator's own source code is "
+                "available (read-only):\n"
+                f"{ref_listing}\n"
+                "It covers the observable sim core: scene geometry and "
+                "constants, body construction, physics stepping, and "
+                "state read/write. It deliberately omits the hidden "
+                "domain-specific dynamics, task generation, and goal "
+                "semantics. Read it to ground your spatial and physical "
+                "reasoning (dimensions, contact geometry, actuation) "
+                "instead of guessing from images or trial and error.\n")
+        return prompt
+
+    def _get_sandbox_reference_files(self) -> Dict[str, str]:
+        files = super()._get_sandbox_reference_files()
+        # Base-sim source rides the standard reference channel so every
+        # session (solve, explore, synthesis) gets the same copies.
+        if CFG.agent_sim_provide_base_sim_source:
+            for rel in self._base_env.get_base_sim_source_files():
+                files[f"base_sim/{os.path.basename(rel)}"] = rel
+        return files
 
     def _get_synthesis_tool_names(self) -> Optional[List[str]]:
         """Complete tool surface for the synthesis agent.
@@ -848,8 +928,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         if self._residual_rules is not None and self._fitted_params:
             rules, params = self._residual_rules, self._fitted_params
             self._learned_simulator = LearnedSimulator(
-                step_fn=lambda s, _r=rules, _p=params:  # type: ignore[misc]
-                apply_rules(s, _r, _p),
+                step_fn=lambda s, c, _r=rules, _p=params:  # type: ignore[misc]
+                apply_rules(s, _r, _p, cmds=c),
                 name="agent_synthesized")
         elif self._learned_simulator is None:
             logger.warning("Synthesis produced no simulator, skipping.")
@@ -1224,11 +1304,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         self._close_agent_session()
         self._ensure_agent_session()
         structs_ref = self._write_structs_reference()
-        message = self._build_synthesis_learn_message(trajectories,
-                                                      obs_triples,
-                                                      inferred_hint, paths,
-                                                      structs_ref, extra_paths,
-                                                      sampler_paths)
+        base_sim_refs = self._base_sim_reference_paths()
+        message = self._build_synthesis_learn_message(
+            trajectories, obs_triples, inferred_hint, paths, structs_ref,
+            extra_paths, sampler_paths, base_sim_refs)
         try:
             self._query_agent_sync(message, kind="learn")
         finally:
@@ -1415,6 +1494,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         structs_ref: str,
         extra_paths: Dict[str, str],
         sampler_paths: Dict[str, str],
+        base_sim_refs: Optional[List[str]] = None,
     ) -> str:
         """Compose the synthesis session's first user message.
 
@@ -1467,6 +1547,22 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         if session_tool_names:
             tool_listing = "\n".join(f"  - {t}" for t in session_tool_names)
             tools_block = f"## Available Tools\n{tool_listing}\n\n"
+        base_sim_block = ""
+        if base_sim_refs:
+            ref_listing = "\n".join(f"  - {r}" for r in base_sim_refs)
+            base_sim_block = (
+                "\nThe BASE SIMULATOR's own source code is available "
+                "(read-only) - the robot knows its own simulator:\n"
+                f"{ref_listing}\n"
+                "These files are byte-identical to the code your base-sim "
+                "rollouts execute: scene geometry and constants, body "
+                "construction, stepping, and state read/write. What they "
+                "deliberately do NOT contain is the environment's hidden "
+                "domain-specific step - the residual dynamics you are "
+                "here to model - nor task generation or goal semantics. "
+                "Use them to ground hypotheses (masses, damping, substeps "
+                "per action, how switches toggle) instead of re-measuring "
+                "those from data.\n")
         message = f"""\
 Synthesize a residual dynamics simulator for this environment. \
 There are {n_trajs} trajectories ({len(obs_triples)} step \
@@ -1490,7 +1586,7 @@ should work" but the env disagreed.
 
 {objective_block}{prior_state_block}Data-structure source code is at: \
 {structs_ref}
-
+{base_sim_block}
 A residual scan between the base simulator's prediction and the \
 observed next state suggests these features carry residual dynamics \
 (starting hint, may include base-sim jitter - refine as you go):
@@ -1643,10 +1739,12 @@ re-score.{probe_note}"""
             # CFG.code_sim_learning_num_mcmc_steps; any extra
             # info-seeking MCMC is run below and is not published into
             # _fitted_params.
-            if self._physical_param_specs:
+            if self._physical_param_specs or has_physics_rules(rules):
                 # System ID: physical + rule params fit jointly against
                 # free-running rollouts (teacher-forced triples cannot
-                # see physical params - no velocities in State).
+                # see physical params - no velocities in State - and
+                # cannot see physics-command rules either, whose effects
+                # only exist through engine stepping).
                 fit_result, self._fit_sse = (
                     self._fit_parameters_joint_rollout(rules, specs,
                                                        residual_features))
@@ -1695,7 +1793,7 @@ re-score.{probe_note}"""
         num_steps = self._separate_exploration_fit_num_steps()
         if num_steps is None:
             return
-        if self._physical_param_specs:
+        if self._physical_param_specs or has_physics_rules(rules):
             logger.info("Skipping separate active-experiment fit: the joint "
                         "rollout sysID posterior is reused for exploration.")
             return
@@ -1729,12 +1827,16 @@ re-score.{probe_note}"""
         """Compute and log the SSE for oracle params (no fitting).
 
         ``self._fitted_params`` is assumed already populated with the
-        oracle values. Returns the SSE. Recurrent (5-arg) rules cannot
-        run per-transition, so when the loaded rules carry a latent
-        block this dispatches to :meth:`_oracle_param_sse_recurrent`;
-        otherwise it rolls each transition independently through the
-        legacy 3-arg ``apply_rules``.
+        oracle values. Returns the SSE. Physics-command rules only act
+        through engine stepping, so they are scored with the rollout
+        objective; recurrent (5-arg) rules cannot run per-transition, so
+        when the loaded rules carry a latent block this dispatches to
+        :meth:`_oracle_param_sse_recurrent`; otherwise it rolls each
+        transition independently through the legacy 3-arg
+        ``apply_rules``.
         """
+        if has_physics_rules(rules):
+            return self._oracle_param_sse_rollout(rules, residual_features)
         if has_latent_rules(rules):
             return self._oracle_param_sse_recurrent(rules, base_pred_triples,
                                                     residual_features,
@@ -2370,6 +2472,39 @@ re-score.{probe_note}"""
             logger.info("  %-30s  %.4f", name, val)
         return sse
 
+    def _oracle_param_sse_rollout(
+        self,
+        rules: List,
+        residual_features: Dict[str, List[str]],
+    ) -> float:
+        """Oracle-param SSE via the free-running rollout objective.
+
+        Physics-command counterpart to :meth:`_oracle_param_sse`'s per-
+        transition body: command effects only exist through engine
+        stepping, so the score free-runs the base sim with the rules in-
+        the-loop (the same objective the rollout fit minimizes), scored
+        on the declared features. Raw (unscaled) residuals, like the
+        other oracle SSE paths.
+        """
+        rollouts = self._rollout_fit_trajectories(residual_features)
+        if not rollouts:
+            logger.warning("No complete trajectories for the rollout oracle "
+                           "SSE; reporting inf.")
+            return float("inf")
+        sse = compute_rollout_sse(self._get_rollout_fit_env(),
+                                  rollouts,
+                                  self._fitted_params,
+                                  residual_features,
+                                  physical_names=[],
+                                  rules=rules,
+                                  latent_init=self._latent_init)
+        logger.info(
+            "Oracle params (rollout, physics-command rules) - "
+            "SSE: %.6f over %d trajectories", sse, len(rollouts))
+        for name, val in sorted(self._fitted_params.items()):
+            logger.info("  %-30s  %.4f", name, val)
+        return sse
+
     def _attach_initial_latent(self, task: Task) -> Task:
         """Seed ``task.init.latent`` with the initial latent block.
 
@@ -2446,8 +2581,16 @@ re-score.{probe_note}"""
         # Reference the dict (not its values) so MCMC param updates are
         # picked up by the closure live.
         params = self._fitted_params
+        # Physics-command hand-off across sequential calls; see the
+        # matching block in _build_combined_simulator.
+        pending: Dict[str, Any] = {"state": None, "commands": []}
 
         def combined_simulate(state: State, action: Action) -> State:
+            if pending["commands"]:
+                if pending["state"] is not None and \
+                        state.allclose(pending["state"]):
+                    self._base_env.queue_residual_commands(pending["commands"])
+                pending["state"], pending["commands"] = None, []
             # `state` is one sample of the augmented state: observable
             # features in `.data` + inferred latent dims in `.latent`.
             # Deep-copy the incoming latent so this call can't mutate the
@@ -2474,11 +2617,19 @@ re-score.{probe_note}"""
             # must accumulate it in ``latent``.
             history: List[Tuple[State,
                                 Optional[Action]]] = [(base_state, action)]
-            updates = apply_rules_with_latent(base_state, latent, history,
-                                              rules, params)
+            cmds = CommandBuffer()
+            updates = apply_rules_with_latent(base_state,
+                                              latent,
+                                              history,
+                                              rules,
+                                              params,
+                                              cmds=cmds)
             next_state = (merge_updates(base_state, updates)
                           if updates else base_state)
             next_state.latent = latent
+            if cmds:
+                pending["state"], pending["commands"] = (next_state,
+                                                         cmds.commands)
             return next_state
 
         return combined_simulate
@@ -2801,6 +2952,35 @@ files to see exactly which rules and predicates produced each failed plan.
             return "/sandbox/reference/structs.py"
         return ref_path
 
+    def _base_sim_reference_paths(self) -> List[str]:
+        """Agent-visible paths of the provisioned base-sim sources.
+
+        The channel behind ``CFG.agent_sim_provide_base_sim_source``:
+        the env declares its observable sim-core modules via
+        ``get_base_sim_source_files()``, and sandbox setup copies them
+        verbatim into ``reference/base_sim/`` at every session creation
+        (see :meth:`_get_sandbox_reference_files`) - the visibility
+        split is structural, so there is nothing to redact. Returns an
+        empty list when the flag is off, the env declares no files, or
+        the session has no sandbox (no file surface to read them from).
+        """
+        if not CFG.agent_sim_provide_base_sim_source:
+            return []
+        src_files = self._base_env.get_base_sim_source_files()
+        if not src_files:
+            logger.warning(
+                "agent_sim_provide_base_sim_source is on, but env %s "
+                "declares no base-sim source files; providing none.",
+                type(self._base_env).__name__)
+            return []
+        names = [os.path.basename(rel) for rel in src_files]
+        # Same backend-dependent path mapping as _write_structs_reference.
+        if CFG.agent_sdk_use_local_sandbox:
+            return [f"./reference/base_sim/{n}" for n in names]
+        if CFG.agent_sdk_use_docker_sandbox:
+            return [f"/sandbox/reference/base_sim/{n}" for n in names]
+        return []
+
     @staticmethod
     def _extract_obs_triples(
         trajectories: List[LowLevelTrajectory],
@@ -2962,7 +3142,21 @@ files to see exactly which rules and predicates produced each failed plan.
         if has_latent_rules(self._residual_rules or []):
             return self._build_latent_combined_simulator()
 
+        # Physics commands emitted by the rules at step t act during the
+        # substeps of step t+1 (the same cadence a hidden
+        # _domain_specific_step's applyExternalForce has). They are held
+        # here keyed to the exact state they were computed for and only
+        # queued on the env when the next call continues from that state
+        # - a planner backtrack to a different state silently drops
+        # them, exactly like a reset drops an env-applied force.
+        pending: Dict[str, Any] = {"state": None, "commands": []}
+
         def combined_simulate(state: State, action: Action) -> State:
+            if pending["commands"]:
+                if pending["state"] is not None and \
+                        state.allclose(pending["state"]):
+                    self._base_env.queue_residual_commands(pending["commands"])
+                pending["state"], pending["commands"] = None, []
             try:
                 base_state = self._base_env.simulate(state, action)
             except pybullet.error as e:
@@ -2973,10 +3167,16 @@ files to see exactly which rules and predicates produced each failed plan.
                 base_state = self._base_env.simulate(state, action)
             self._restore_unreconstructible_residual_features(
                 base_state, state)
-            updates = learned_simulator.predict_step(base_state)
-            if not updates:
-                return base_state
-            return merge_updates(base_state, updates)
+            cmds = CommandBuffer()
+            updates = learned_simulator.predict_step(base_state, cmds)
+            next_state = (merge_updates(base_state, updates)
+                          if updates else base_state)
+            if cmds:
+                # Keyed to the state the planner will hand back on the
+                # next sequential call (the merged one, not base_state).
+                pending["state"], pending["commands"] = (next_state,
+                                                         cmds.commands)
+            return next_state
 
         return combined_simulate
 
@@ -2999,6 +3199,9 @@ files to see exactly which rules and predicates produced each failed plan.
         round-trip through ``_set_state`` (hidden-derived, e.g. a
         ``bubbling_level``) are not restored inside the probe replay -
         no env with a physics-replaying certificate declares any today.
+        Physics commands are likewise not replayed here (the steppers
+        run the rules with a throwaway buffer): the only consumer is
+        the domino cascade probe, whose GT dynamics are command-free.
         """
         rules = getattr(self, "_residual_rules", None)
         if not rules:
