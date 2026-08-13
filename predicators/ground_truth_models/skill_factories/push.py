@@ -226,7 +226,7 @@ def create_push_skill(
                 get_target_pose_fn=_make_waypoint_position_fn(i),
                 finger_status="closed",
                 expect_contact=(i >= 2),
-                use_motion_planning=(False if i >= 2 else None)))
+                contact_object_index=(1 if i >= 2 else None)))
 
     phases.append(
         Phase(name="OpenFingers",

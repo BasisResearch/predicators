@@ -304,6 +304,14 @@ class Phase:
     finger_direction: Optional[str] = None
     use_motion_planning: bool = field(
         default_factory=lambda: CFG.skill_phase_use_motion_planning)
+    # Index into the option's ``objects`` naming the one object this phase is
+    # allowed to drive into. That object is dropped from the planner's
+    # collision set, because a phase whose goal pose is IN the object cannot be
+    # planned around it: the contact-partner mechanism in run_motion_planning
+    # only tolerates ``pybullet_birrt_contact_margin`` (1mm) of penetration,
+    # and a push has to bury the closed gripper centimetres deep. Left unset,
+    # the planner sees every object, which is right for free-space motion.
+    contact_object_index: Optional[int] = None
     expect_contact: bool = False
     allow_shallow_held_object_contacts: bool = False
     # Force validated (iterative) IK for this phase's BiRRT goal pose, even
@@ -1054,11 +1062,23 @@ class PhaseSkill:
         the simulator, collects collision body IDs, and runs IK + BiRRT
         on the simulator's physics client.
         """
-        del objects  # Unused; kept for a uniform planner signature.
         sim = self._config.simulator
         assert sim is not None
         remapped_state, collision_bodies, body_names, held_object = \
             self._sim_collision_context(pb_state)
+
+        # Drop the one object this phase is meant to drive into, so the
+        # planner can reach a goal pose that is inside it. Without this a
+        # collision-free planner routes AROUND the object it is supposed to
+        # strike and arrives at the goal from the far side, which on a push
+        # means the object is hit backwards.
+        idx = phase.contact_object_index if phase is not None else None
+        if idx is not None and idx < len(objects):
+            contact_name = objects[idx].name
+            collision_bodies = {
+                b
+                for b in collision_bodies if body_names.get(b) != contact_name
+            }
 
         # 5. IK + motion planning on simulator's robot
         planning_robot = sim._pybullet_robot  # pylint: disable=protected-access

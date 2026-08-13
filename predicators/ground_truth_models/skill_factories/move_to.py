@@ -106,6 +106,7 @@ def make_move_to_phase(
     validate_ik: bool = False,
     check_release_clearance: bool = False,
     use_motion_planning: Optional[bool] = None,
+    contact_object_index: Optional[int] = None,
 ) -> Phase:
     """Create a MOVE_TO_POSE phase for use in a ``PhaseSkill``.
 
@@ -181,4 +182,5 @@ def make_move_to_phase(
         validate_ik=validate_ik,
         check_release_clearance=check_release_clearance,
         use_motion_planning=plan_motion,
+        contact_object_index=contact_object_index,
     )
