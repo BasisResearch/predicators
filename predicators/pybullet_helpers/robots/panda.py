@@ -85,6 +85,15 @@ class PandaPyBulletRobot(SingleArmPyBulletRobot):
         return 0.03
 
     @property
+    def finger_motor_force(self) -> Optional[float]:
+        # The URDF effort limit of the finger joints. Without a finite
+        # cap, position-controlled fingers commanded past a grasped
+        # object crush straight through it (the fingers only need to
+        # come within grasp_tol of the object; the grasp itself is a
+        # fixed constraint).
+        return 20.0
+
+    @property
     def push_ee_yaw_offset(self) -> float:
         # The Franka Hand leads with its knuckles spanning the
         # object's face.

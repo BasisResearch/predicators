@@ -178,6 +178,10 @@ def test_fetch_pybullet_robot(physics_client_id):
     # The robot arm is 7 DOF and the left and right fingers are appended last.
     assert robot.left_finger_joint_idx == 7
     assert robot.right_finger_joint_idx == 8
+    # The Fetch keeps PyBullet's default (unlimited) finger motor force: its
+    # finger joint damping (100) is only stable with unlimited motor
+    # authority, and its gripper stalls benignly on grasped objects as-is.
+    assert robot.finger_motor_force is None
 
     robot_state = np.array(ee_home_position + tuple(ee_orn) +
                            (robot.open_fingers, ),
