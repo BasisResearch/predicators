@@ -234,8 +234,8 @@ def test_attempt_wall_spent():
 
     Agents that watch the [budget] footer end their query shortly before
     the deadline (run_20260718_125643 queries 002-003); an attempt whose
-    remaining tools would only refuse must be labelled spent, not
-    "no submission".
+    remaining tools would only refuse must be labelled spent, not "no
+    submission".
     """
     approach, _task = _make_approach({"agent_solve_attempt_wall_clock": 2700})
     ctx = approach._tool_context

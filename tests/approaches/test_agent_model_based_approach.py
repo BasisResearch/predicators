@@ -597,7 +597,7 @@ class TestRefineSketch:
             "num_test_tasks": 1,
             "seed": 42,
             "agent_bilevel_max_samples_per_step": 3,
-                "agent_bilevel_check_subgoals": False,
+            "agent_bilevel_check_subgoals": False,
         })
 
         call_count = 0

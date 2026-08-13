@@ -892,9 +892,8 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         return policy
 
     def _nudge_final_submission(self) -> Optional[Callable[[State], Action]]:
-        """One short follow-up query on the LAST attempt, after its query
-        ended with no captured plan: tell the agent to submit its best plan
-        now.
+        """One short follow-up query on the LAST attempt, after its query ended
+        with no captured plan: tell the agent to submit its best plan now.
 
         A session that hits the turn cap mid-iteration contributes
         nothing, even when it has a near-working plan in context; this
