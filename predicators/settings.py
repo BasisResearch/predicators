@@ -749,7 +749,7 @@ class GlobalSettings:
     fan_train_num_pos_x = 3
     fan_train_num_pos_y = 3
     fan_test_num_pos_x = 6  # can do 9
-    fan_test_num_pos_y = 4
+    fan_test_num_pos_y = 6
     fan_train_num_walls_per_task = [1]
     fan_test_num_walls_per_task = [2, 3]  # can do 4
 
@@ -1551,8 +1551,8 @@ class GlobalSettings:
     # agent adds design margin in-session. Runs only when the approach
     # installs a fresh-env scope (perturbing the shared env would leak)
     # and a fit with nonzero posterior width has been applied. Default
-    # False so existing arms keep their behavior; the treatment arm
-    # (approaches/all.yaml agent_po_predicate_invention_al_margin)
+    # False so existing arms keep their behavior; the main arm
+    # (approaches/all.yaml agent_po_predicate_invention_al)
     # turns it on.
     agent_plan_validation_physics_margin = False
     # Number of grid points the margin gate (and the sim.run physics
