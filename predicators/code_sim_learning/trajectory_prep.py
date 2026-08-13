@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def _active_step_indices(states: List[State], actions: List[Action],
-                         process_features: Dict[str, List[str]],
+                         residual_features: Dict[str, List[str]],
                          motion_tol: float) -> List[int]:
     """Indices of steps where any scored feature moved more than
     ``motion_tol``.
@@ -38,7 +38,7 @@ def _active_step_indices(states: List[State], actions: List[Action],
         s_prev, s_next = states[i], states[i + 1]
         prev_by_name = {o.name: o for o in s_prev}
         for obj in s_next:
-            feats = process_features.get(obj.type.name, [])
+            feats = residual_features.get(obj.type.name, [])
             prev_obj = prev_by_name.get(obj.name)
             if not feats or prev_obj is None:
                 continue
@@ -54,14 +54,14 @@ def _active_step_indices(states: List[State], actions: List[Action],
 
 def truncate_settled_tail(
     trajectory: RolloutTrajectory,
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     motion_tol: Optional[float] = None,
     margin: Optional[int] = None,
     config: Optional[SysIdConfig] = None,
 ) -> RolloutTrajectory:
     """Cut a recorded trajectory once its scored features have settled.
 
-    Scans the OBSERVED per-step deltas of the ``process_features`` and
+    Scans the OBSERVED per-step deltas of the ``residual_features`` and
     keeps everything up to the last step where any of them moved by more
     than ``motion_tol``, plus a ``margin`` of settle steps (so the
     rollout is still scored on coming to rest at the right pose). The
@@ -83,7 +83,7 @@ def truncate_settled_tail(
     if margin is None:
         margin = config.settle_margin
     states, actions = trajectory
-    active = _active_step_indices(states, actions, process_features,
+    active = _active_step_indices(states, actions, residual_features,
                                   motion_tol)
     last_active = active[-1] if active else -1
     if last_active < 0:
@@ -135,7 +135,7 @@ class ResidualScaling:
 
 def compute_residual_scaling(
     trajectories: List[RolloutTrajectory],
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     config: Optional[SysIdConfig] = None,
 ) -> Optional[ResidualScaling]:
     """Data-derived :class:`ResidualScaling` for a fit's trajectory set.
@@ -165,7 +165,7 @@ def compute_residual_scaling(
     for states, _actions in trajectories:
         for state in states:
             for obj in state:
-                feats = process_features.get(obj.type.name, [])
+                feats = residual_features.get(obj.type.name, [])
                 if not feats:
                     continue
                 type_angular = set(getattr(obj.type, "angular_features", ()))
@@ -185,7 +185,7 @@ def compute_residual_scaling(
 
 def split_at_rest_points(
     trajectory: RolloutTrajectory,
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     motion_tol: Optional[float] = None,
     min_rest_steps: Optional[int] = None,
     margin: Optional[int] = None,
@@ -225,7 +225,7 @@ def split_at_rest_points(
         margin = config.settle_margin
     states, actions = trajectory
     num_steps = len(actions)
-    active = _active_step_indices(states, actions, process_features,
+    active = _active_step_indices(states, actions, residual_features,
                                   motion_tol)
     if not active:
         return []

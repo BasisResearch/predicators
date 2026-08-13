@@ -363,7 +363,7 @@ ENVS:
     # Parked by default; exp_fan.yaml and oracle.yaml un-skip it.
     SKIP: True
     FLAGS:
-      max_initial_demos: 1
+      max_initial_demos: 0
       excluded_objects_in_state_str: "switch"
       terminate_on_goal_reached: True
       process_planning_heuristic_weight: 10.0

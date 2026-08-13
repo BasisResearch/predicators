@@ -30,7 +30,7 @@ class SynthesisBackend(Protocol):
     synthesis tool factories.
 
     The synthesis tools mutate approach state (fitted params, learned
-    predicates, synthesized samplers, candidate process rules) so the
+    predicates, synthesized samplers, candidate residual rules) so the
     live session and later refinement calls see the agent's drafts;
     everything else is read-only access to the approach's env, tasks,
     vocabulary, and fitting engine. Member names mirror the (mostly
@@ -61,7 +61,7 @@ class SynthesisBackend(Protocol):
     _synthesized_samplers: Dict[str, ParameterizedSampler]
     # Candidate simulator state published during validation so the
     # recurrent combined simulator sees the rules under evaluation.
-    _process_rules: Optional[List]
+    _residual_rules: Optional[List]
     _latent_init: Any
 
     # ── Vocabulary / engine accessors ────────────────────────────
@@ -82,7 +82,7 @@ class SynthesisBackend(Protocol):
 
     def _rollout_fit_trajectories(
         self,
-        process_features: Optional[Dict[str, List[str]]] = None,
+        residual_features: Optional[Dict[str, List[str]]] = None,
         traj_idxs: Optional[Sequence[int]] = None,
     ) -> List[RolloutTrajectory]:
         ...
@@ -105,8 +105,16 @@ class SynthesisBackend(Protocol):
         rules: List,
         specs: List[ParamSpec],
         base_pred_triples: List[Tuple[State, Action, State]],
-        process_features: Dict[str, List[str]],
+        residual_features: Dict[str, List[str]],
         num_steps: Optional[int] = None,
+    ) -> Tuple[FitResult, float]:
+        ...
+
+    def _fit_parameters_joint_rollout(
+        self,
+        rules: List,
+        rule_specs: List[ParamSpec],
+        residual_features: Dict[str, List[str]],
     ) -> Tuple[FitResult, float]:
         ...
 

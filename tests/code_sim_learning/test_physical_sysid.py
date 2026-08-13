@@ -25,7 +25,7 @@ from predicators.structs import Action, Object, State, Type
 
 _DOMINO_TYPE = Type("domino", ["x"])
 _ROBOT_TYPE = Type("robot", ["x"])
-_PROCESS_FEATURES = {"domino": ["x"]}
+_RESIDUAL_FEATURES = {"domino": ["x"]}
 
 
 def _trajectory(domino_xs, robot_xs=None):
@@ -50,7 +50,7 @@ def test_truncate_cuts_static_tail():
     """Motion for 10 steps, static for 90 -> cut at last motion + margin."""
     xs = [0.01 * i for i in range(11)] + [0.1] * 90
     states, actions = truncate_settled_tail(_trajectory(xs),
-                                            _PROCESS_FEATURES,
+                                            _RESIDUAL_FEATURES,
                                             motion_tol=1e-3,
                                             margin=5)
     # Last moving step is index 9 (states[9] -> states[10]); keep 9+1+5.
@@ -63,7 +63,7 @@ def test_truncate_keeps_intermediate_pause():
     xs = ([0.01 * i for i in range(11)] + [0.1] * 40 +
           [0.1 + 0.01 * i for i in range(10)] + [0.2] * 60)
     states, actions = truncate_settled_tail(_trajectory(xs),
-                                            _PROCESS_FEATURES,
+                                            _RESIDUAL_FEATURES,
                                             motion_tol=1e-3,
                                             margin=5)
     # Last motion is the step onto the final plateau (index 60); both
@@ -77,7 +77,7 @@ def test_truncate_noop_when_motion_never_stops():
     xs = [0.01 * i for i in range(100)]
     traj = _trajectory(xs)
     states, actions = truncate_settled_tail(traj,
-                                            _PROCESS_FEATURES,
+                                            _RESIDUAL_FEATURES,
                                             motion_tol=1e-3,
                                             margin=5)
     assert len(actions) == len(traj[1])
@@ -88,7 +88,7 @@ def test_truncate_static_trajectory_keeps_margin_prefix():
     """No scored feature ever moves -> keep only the margin prefix."""
     xs = [0.5] * 100
     states, actions = truncate_settled_tail(_trajectory(xs),
-                                            _PROCESS_FEATURES,
+                                            _RESIDUAL_FEATURES,
                                             motion_tol=1e-3,
                                             margin=5)
     assert len(actions) == 5
@@ -100,7 +100,7 @@ def test_truncate_ignores_unscored_features():
     domino_xs = [0.01 * i for i in range(11)] + [0.1] * 90
     robot_xs = [0.02 * i for i in range(101)]  # robot moves the whole time
     states, actions = truncate_settled_tail(_trajectory(domino_xs, robot_xs),
-                                            _PROCESS_FEATURES,
+                                            _RESIDUAL_FEATURES,
                                             motion_tol=1e-3,
                                             margin=5)
     assert len(actions) == 15
@@ -888,7 +888,7 @@ def test_split_at_rest_points_separates_phases():
     xs = ([0.01 * i for i in range(11)] + [0.1] * 40 +
           [0.1 + 0.01 * i for i in range(11)] + [0.2] * 40)
     segments = trajectory_prep.split_at_rest_points(_trajectory(xs),
-                                                    _PROCESS_FEATURES,
+                                                    _RESIDUAL_FEATURES,
                                                     motion_tol=1e-3,
                                                     min_rest_steps=10,
                                                     margin=5)
@@ -913,7 +913,7 @@ def test_split_at_rest_points_keeps_short_pauses_together():
     xs = ([0.01 * i for i in range(11)] + [0.1] * 4 +
           [0.1 + 0.01 * i for i in range(11)] + [0.2] * 30)
     segments = trajectory_prep.split_at_rest_points(_trajectory(xs),
-                                                    _PROCESS_FEATURES,
+                                                    _RESIDUAL_FEATURES,
                                                     motion_tol=1e-3,
                                                     min_rest_steps=10,
                                                     margin=5)
@@ -923,7 +923,7 @@ def test_split_at_rest_points_keeps_short_pauses_together():
 def test_split_at_rest_points_static_trajectory_yields_nothing():
     """No scored motion -> no segments (no parameter signal at all)."""
     segments = trajectory_prep.split_at_rest_points(_trajectory([0.5] * 50),
-                                                    _PROCESS_FEATURES,
+                                                    _RESIDUAL_FEATURES,
                                                     motion_tol=1e-3,
                                                     min_rest_steps=10,
                                                     margin=5)
@@ -1368,7 +1368,7 @@ def test_anchor_ablation_reverts_compensatory_param():
                        prior_sigma=prior_sigma,
                        scales=["log", "linear"])
     out = physical_sysid._anchor_backward_elimination(
-        env, [traj], [spec_a, spec_b], [], _PROCESS_FEATURES, [], None, None,
+        env, [traj], [spec_a, spec_b], [], _RESIDUAL_FEATURES, [], None, None,
         anchors, 0.05, 0.75, result, 0.01, config)
     assert out.anchor_ablation is not None
     assert set(out.anchor_ablation) == {"gain_b"}
@@ -1422,7 +1422,7 @@ def test_anchor_ablation_cheap_pretest_skips_lm_refit(monkeypatch):
                        prior_sigma=prior_sigma,
                        scales=["log", "linear"])
     out = physical_sysid._anchor_backward_elimination(
-        env, [traj], [spec_a, spec_b], [], _PROCESS_FEATURES, [], None, None,
+        env, [traj], [spec_a, spec_b], [], _RESIDUAL_FEATURES, [], None, None,
         anchors, 0.05, 0.75, result, 0.01, config)
     assert out.anchor_ablation is not None
     assert set(out.anchor_ablation) == {"gain_b"}
@@ -1444,7 +1444,7 @@ def test_anchor_ablation_keeps_genuinely_moved_param():
                        prior_sigma=prior_widths([spec_a, spec_b], 0.75),
                        scales=["log", "linear"])
     out = physical_sysid._anchor_backward_elimination(
-        env, [traj], [spec_a, spec_b], [], _PROCESS_FEATURES, [], None, None,
+        env, [traj], [spec_a, spec_b], [], _RESIDUAL_FEATURES, [], None, None,
         anchors, 0.05, 0.75, result, 0.01, config)
     assert out is result
     assert out.anchor_ablation is None
@@ -1486,7 +1486,7 @@ def test_rollout_sse_summary_residuals(monkeypatch):
                             weight)
         return rollout_objective.compute_rollout_sse(None, [(states, actions)],
                                                      {"friction": 0.5},
-                                                     _PROCESS_FEATURES,
+                                                     _RESIDUAL_FEATURES,
                                                      ["friction"])
 
     base = sse(0.0)
@@ -1512,7 +1512,7 @@ def test_rollout_sse_huber_caps_spike(monkeypatch):
                             delta)
         return rollout_objective.compute_rollout_sse(None, [(states, actions)],
                                                      {"friction": 0.5},
-                                                     _PROCESS_FEATURES,
+                                                     _RESIDUAL_FEATURES,
                                                      ["friction"])
 
     assert sse(0.0) == pytest.approx(100.0**2)

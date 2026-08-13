@@ -63,7 +63,7 @@ def test_create_synthesis_tools_matches_constant(tmp_path) -> None:
     toolkit = create_synthesis_tools(
         exec_ns={},
         base_pred_triples=[],
-        inferred_process_features={},
+        inferred_residual_features={},
         simulator_file=str(tmp_path / "simulator.py"),
         versions_dir=str(tmp_path / "simulator_versions"),
         approach=None,
@@ -93,7 +93,7 @@ def test_sysid_fit_gate_traj_idxs_vs_fixed(tmp_path) -> None:
     toolkit = create_synthesis_tools(
         exec_ns={},
         base_pred_triples=[],
-        inferred_process_features={},
+        inferred_residual_features={},
         simulator_file=str(sim_file),
         versions_dir=str(tmp_path / "simulator_versions"),
         approach=None,
@@ -110,7 +110,7 @@ def test_sysid_fit_gate_traj_idxs_vs_fixed(tmp_path) -> None:
     toolkit = create_synthesis_tools(
         exec_ns={},
         base_pred_triples=[],
-        inferred_process_features={},
+        inferred_residual_features={},
         simulator_file=str(sim_file),
         versions_dir=str(tmp_path / "simulator_versions"),
         approach=cast(Any, SimpleNamespace()),

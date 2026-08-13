@@ -27,7 +27,7 @@ class BaseEnv(abc.ABC):
     # this on its belief env so that physics-replaying task-evaluator
     # certificates (e.g. the domino counterfactual push probe) judge
     # plans under the agent's FULL current world model - base sim plus
-    # fitted process rules - instead of a deliberately rules-free base
+    # fitted residual rules - instead of a deliberately rules-free base
     # sim. Called once per replay attempt; the returned step callable is
     # applied after every probe physics step as
     # ``merged = step(post_step_state, action)`` and written back. The
@@ -102,6 +102,37 @@ class BaseEnv(abc.ABC):
             raise NotImplementedError(
                 f"{type(self).__name__} exposes no physical parameters "
                 f"(got {sorted(params)}).")
+
+    def queue_residual_commands(self, commands: Sequence) -> None:
+        """Queue physics commands for the next step (see
+        :mod:`predicators.code_sim_learning.commands`).
+
+        Follows the :meth:`apply_physical_param_overrides` pattern: the
+        base class supports none, and PyBullet envs override this with
+        the real executor. A learned simulator emitting commands
+        against an env without one is a routing bug, not a soft skip.
+        """
+        if commands:
+            raise NotImplementedError(
+                f"{type(self).__name__} cannot execute residual physics "
+                f"commands ({len(list(commands))} queued).")
+
+    @classmethod
+    def get_base_sim_source_files(cls) -> List[str]:
+        """Repo-relative source files that ARE this env's base sim.
+
+        Consumed by the sim-learning provisioning when
+        ``CFG.agent_sim_provide_base_sim_source`` is on: the listed
+        files are copied verbatim into the learning agent's sandbox as
+        reference material ("the robot knows its own simulator").
+        Declare only modules whose exposure is safe by construction -
+        the visibility contract is structural: an env that wants to
+        surface its sim core must split it into its own module(s),
+        keeping residual dynamics, task generation, and goal semantics
+        in modules that are never listed (see pybullet_fan_base.py for
+        the pattern). The base class declares none.
+        """
+        return []
 
     @abc.abstractmethod
     def _generate_train_tasks(self) -> List[EnvironmentTask]:

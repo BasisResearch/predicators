@@ -207,7 +207,11 @@ def build_agent_options(*,
         # `mcp__predicator_tools` miscalls) and re-paid it after each
         # compaction - the handful of core tools are always needed,
         # so deferring their schemas saves nothing.
-        disallowed_tools=["ToolSearch"],
+        # AskUserQuestion: sessions run unattended, so there is never a
+        # user to answer; without the ban, agents at a dead end call it
+        # repeatedly and burn turns reasoning about the opaque error it
+        # returns headless.
+        disallowed_tools=["ToolSearch", "AskUserQuestion"],
         mcp_servers={MCP_SERVER_NAME: mcp_server},
         permission_mode="bypassPermissions",
         system_prompt=system_prompt,

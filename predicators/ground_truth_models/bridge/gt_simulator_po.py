@@ -1,5 +1,5 @@
 """Ground-truth simulator program for pybullet_bridge (glue construction)
-process dynamics -- partially-observable variant.
+residual dynamics -- partially-observable variant.
 
 In PO mode the per-joint ``cure_*`` dwell counters are hidden: each
 joint's progress is carried recurrently in ``latent["cure"]`` keyed by
@@ -22,7 +22,7 @@ import numpy as np
 
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.utils import History, Params, \
-    ProcessUpdate, objs_by_type
+    ResidualUpdate, objs_by_type
 from predicators.ground_truth_models import GroundTruthSimulatorFactory
 from predicators.settings import CFG
 from predicators.structs import Object, State
@@ -106,7 +106,7 @@ def _find_mate(state: State, blocks: List[Object], blk: Object, face: str,
 
 
 def _gluing(state: State, latent: Dict[str, Any], history: History,
-            updates: ProcessUpdate, params: Params) -> ProcessUpdate:
+            updates: ResidualUpdate, params: Params) -> ResidualUpdate:
     """Recurrent hidden-counter rule: wet faces near the held bottle's tip;
     tick a hidden per-joint counter while a wet face is in aligned resting
     contact; emit only the wet-glue flags and the discrete ``attached_*``
@@ -204,17 +204,17 @@ def _build_param_specs() -> List[ParamSpec]:
     ]
 
 
-PROCESS_RULES = [_gluing]
+RESIDUAL_RULES = [_gluing]
 PARAM_SPECS = _build_param_specs
 LATENT_INIT = _latent_init
-PROCESS_FEATURES: Dict[str, List[str]] = {
+RESIDUAL_FEATURES: Dict[str, List[str]] = {
     "block": [f"glue_{f}"
               for f in GLUE_FACES] + [f"attached_{s}" for s in ATTACH_SLOTS]
 }
 
 
 class PyBulletBridgePOGroundTruthSimulatorFactory(GroundTruthSimulatorFactory):
-    """GT process-dynamics simulator for pybullet_bridge (partially
+    """GT residual-dynamics simulator for pybullet_bridge (partially
     observable)."""
 
     @classmethod

@@ -51,7 +51,7 @@ the state's objects coincide.
 Belief-side substrate: when the certifying env carries a
 ``probe_process_model_factory`` (stamped by a sim-learning approach on
 its belief env, never on the real env), each replay attempt applies the
-agent's fitted process rules after every physics step and writes the
+agent's fitted residual rules after every physics step and writes the
 merged state back - the same combined-substrate contract the option
 model's ``combined_simulate`` uses at plan time. The belief verdict is
 a PREDICTION of the real evaluator's verdict, so it should run the
@@ -74,7 +74,7 @@ from predicators.structs import Action, GroundAtom, Object, \
 
 # One belief-side verification rollout's process model: called after
 # every probe physics step with the post-step state and the executed
-# action, returns the state with the learned process rules applied (or
+# action, returns the state with the learned residual rules applied (or
 # the input state unchanged). A factory (fresh callable per replay
 # attempt) rather than a bare callable so recurrent rules can thread
 # their latent per rollout. See ``BaseEnv.probe_process_model_factory``.
@@ -243,7 +243,7 @@ def run_counterfactual_push_probe(
     every non-fingertip robot link collision-masked; see module
     docstring), retrying the identical replay a few times. With
     ``process_model_factory`` (belief-side verdicts on an env whose
-    approach learned process rules) each attempt replays on the
+    approach learned residual rules) each attempt replays on the
     COMBINED substrate: a fresh per-attempt process step is applied and
     written back after every physics step, replay and settle alike, so
     the verdict predicts what the agent's full current model says - the
@@ -261,7 +261,7 @@ def run_counterfactual_push_probe(
     _ensure_fingertips_only_collision(probe_env)
     cid = probe_env._physics_client_id
     robot = next(o for o in pre_push_state if o.type.name == "robot")
-    substrate = ("with the fitted process rules riding on the base sim"
+    substrate = ("with the fitted residual rules riding on the base sim"
                  if process_model_factory is not None else
                  "on the base sim alone")
     attempts = num_attempts if num_attempts is not None else _NUM_ATTEMPTS

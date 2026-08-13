@@ -108,7 +108,6 @@ def _make_approach():
         "option_model_name": "oracle",
         "seed": 42,
         "agent_bilevel_max_samples_per_step": 10,
-        "agent_bilevel_max_plan_queries": 0,
         "agent_bilevel_check_subgoals": True,
     })
 
@@ -598,7 +597,6 @@ class TestRefineSketch:
             "num_test_tasks": 1,
             "seed": 42,
             "agent_bilevel_max_samples_per_step": 3,
-            "agent_bilevel_max_plan_queries": 0,
             "agent_bilevel_check_subgoals": False,
         })
 
@@ -1228,10 +1226,15 @@ class TestExecutionReplanning:
         state = _make_state()
         policy(state)
         approach._replan_suffix = MagicMock(return_value=None)
-        # agent_bilevel_max_plan_queries=0, so reaching the fresh-sketch body
-        # raises its distinctive failure - proof we fell through.
-        with pytest.raises(ApproachFailure, match="Bilevel solve failed"):
-            approach._solve(Task(state, task.goal), timeout=10)
+        # Reaching the fresh-sketch body raises its distinctive failure -
+        # proof we fell through to a fresh agent query.
+        sketch_query = MagicMock(side_effect=ApproachFailure("no sketch"))
+        approach._query_agent_for_plan_sketch = sketch_query
+        with patch.object(approach, '_nudge_final_submission',
+                          MagicMock(return_value=None)):
+            with pytest.raises(ApproachFailure, match="Bilevel solve failed"):
+                approach._solve(Task(state, task.goal), timeout=10)
+        sketch_query.assert_called_once()
         approach._replan_suffix.assert_called_once()
 
     def test_budget_shared_across_chained_replans(self):
@@ -1427,12 +1430,10 @@ class TestTurnCapHandling:
                 approach._query_agent_for_plan_sketch(task)
         assert approach._last_sketch_query_hit_turn_cap
 
-    def test_solve_no_retry_on_turn_cap(self):
-        """A capped attempt takes the best-effort nudge and stops; the sketch
-        retries stay reserved for real errors."""
+    def test_solve_one_query_per_attempt_on_turn_cap(self):
+        """A capped attempt takes the final nudge and stops."""
         from predicators.approaches import ApproachFailure
         approach, _, task = _make_approach()
-        utils.update_config({"agent_bilevel_max_plan_queries": 3})
         query = MagicMock(
             return_value=[self._cap_result(subtype="error_max_turns")])
         nudge = MagicMock(return_value=None)
@@ -1440,21 +1441,18 @@ class TestTurnCapHandling:
                 patch.object(approach, '_nudge_final_submission', nudge):
             with pytest.raises(ApproachFailure, match="Bilevel solve failed"):
                 approach._solve(task, timeout=10)
-        assert query.call_count == 1  # no full-budget retries
-        nudge.assert_called_once_with(accept_best_effort=True)
+        assert query.call_count == 1  # no re-query on the same context
+        nudge.assert_called_once_with()
 
-    def test_solve_turn_cap_with_restarts_skips_nudge(self):
-        """Budget-ended non-final attempts restart directly with no nudge.
+    def test_solve_restarts_with_no_nudge_until_final_attempt(self):
+        """Non-final attempts restart directly with no nudge.
 
         The best-effort submission nudge fires only on the FINAL
         attempt, as the ultimate fallback.
         """
         from predicators.approaches import ApproachFailure
         approach, _, task = _make_approach()
-        utils.update_config({
-            "agent_bilevel_max_plan_queries": 3,
-            "agent_solve_max_attempts": 3,
-        })
+        utils.update_config({"agent_solve_max_attempts": 3})
         query = MagicMock(
             return_value=[self._cap_result(subtype="error_max_turns")])
         nudge = MagicMock(return_value=None)
@@ -1463,13 +1461,18 @@ class TestTurnCapHandling:
             with pytest.raises(ApproachFailure, match="Bilevel solve failed"):
                 approach._solve(task, timeout=10)
         assert query.call_count == 3  # one full query per attempt
-        nudge.assert_called_once_with(accept_best_effort=True)
+        nudge.assert_called_once_with()
 
-    def test_solve_retries_on_non_cap_failure(self):
-        """A non-cap failure (e.g. unparseable output) still retries."""
+    def test_solve_no_requery_on_non_cap_failure(self):
+        """A non-cap failure (e.g. unparseable output) ends the attempt too.
+
+        The fresh-context restart is the ONLY retry: a query that merely
+        failed to submit does not buy a second full-price query on a
+        context that already contains whatever went wrong.
+        """
         from predicators.approaches import ApproachFailure
         approach, _, task = _make_approach()
-        utils.update_config({"agent_bilevel_max_plan_queries": 3})
+        utils.update_config({"agent_solve_max_attempts": 3})
         # Well under the cap, but no plan text: a real error, not budget end.
         query = MagicMock(
             return_value=[self._cap_result(subtype="success", num_turns=5)])
@@ -1478,10 +1481,32 @@ class TestTurnCapHandling:
                 patch.object(approach, '_nudge_final_submission', nudge):
             with pytest.raises(ApproachFailure, match="Bilevel solve failed"):
                 approach._solve(task, timeout=10)
-        assert query.call_count == 3
-        assert nudge.call_count == 3
-        for call in nudge.call_args_list:
-            assert call.kwargs == {"accept_best_effort": False}
+        assert query.call_count == 3  # one per attempt, not one per query
+        nudge.assert_called_once_with()
+
+    def test_attempt_end_reason_labels_journal_outcome(self):
+        """A capture-less attempt records WHY it ended.
+
+        That reason is the one fact the next fresh-context attempt
+        cannot rediscover from the transcript it no longer has.
+        """
+        from predicators.approaches import ApproachFailure
+        approach, _, task = _make_approach()
+        nudge = MagicMock(return_value=None)
+
+        for subtype, num_turns, reason in [
+            ("error_max_turns", None, "turn cap"),
+            ("success", 5, "no submission"),
+        ]:
+            query = MagicMock(
+                return_value=[self._cap_result(subtype, num_turns)])
+            with patch.object(approach, '_query_agent_sync', query), \
+                    patch.object(approach, '_nudge_final_submission', nudge):
+                with pytest.raises(ApproachFailure, match=reason):
+                    approach._solve(task, timeout=10)
+            assert approach._last_attempt_end_reason == reason
+            assert approach._attempt_outcome_text(
+                None, None) == f"no capture ({reason})"
 
     def test_nudge_best_effort_flag_set_and_cleared(self):
         """The nudge exposes best-effort capture to the tools only for the
@@ -1496,16 +1521,11 @@ class TestTurnCapHandling:
             return []
 
         with patch.object(approach, '_query_agent_sync', _fake_query):
-            policy = approach._nudge_final_submission(accept_best_effort=True)
+            policy = approach._nudge_final_submission()
         assert policy is None
         assert seen["flag"] is True
         assert "even if it does not fully reach the goal" in seen["message"]
         assert not approach._tool_context.capture_best_effort_plan
-
-        with patch.object(approach, '_query_agent_sync', _fake_query):
-            approach._nudge_final_submission(accept_best_effort=False)
-        assert seen["flag"] is False
-        assert "If it reaches the goal it is captured" in seen["message"]
 
     def test_nudge_returns_captured_best_effort_plan(self):
         """The nudge consumes a captured plan into a policy even when the
@@ -1524,7 +1544,7 @@ class TestTurnCapHandling:
             return []
 
         with patch.object(approach, '_query_agent_sync', _fake_query):
-            policy = approach._nudge_final_submission(accept_best_effort=True)
+            policy = approach._nudge_final_submission()
         assert policy is not None
         assert approach._tool_context.solved_plan is None
         assert approach._tool_context.solved_plan_reached_goal is None

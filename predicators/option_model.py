@@ -46,14 +46,14 @@ def _check_wait_termination(option: _Option, state: State, last_state: State,
 def create_option_model(
         name: str,
         use_gui: Optional[bool] = None,
-        skip_process_dynamics: bool = False) -> _OptionModelBase:
+        skip_residual_dynamics: bool = False) -> _OptionModelBase:
     """Create an option model given its name.
 
     Args:
         name: The name of the option model.
         use_gui: If provided, overrides CFG.option_model_use_gui for the
             environment created by this option model.
-        skip_process_dynamics: If True, the wrapped env runs with its
+        skip_residual_dynamics: If True, the wrapped env runs with its
             delayed ``_domain_specific_step`` dynamics disabled (the
             "base" simulator). Forwarded to the env only when True, so
             non-PyBullet analog envs whose ``__init__`` does not accept
@@ -61,8 +61,8 @@ def create_option_model(
     """
     gui = CFG.option_model_use_gui if use_gui is None else use_gui
     env_kwargs: Dict[str, Any] = {}
-    if skip_process_dynamics:
-        env_kwargs["skip_process_dynamics"] = True
+    if skip_residual_dynamics:
+        env_kwargs["skip_residual_dynamics"] = True
     if name == "oracle":
         env = create_new_env(CFG.env,
                              do_cache=False,

@@ -646,7 +646,7 @@ class GlobalSettings:
     # high-friction (no-learning) planner over-reach.
     domino_true_friction = 0.5
     # Friction for the *planning* base sim only — envs created with
-    # skip_process_dynamics=True (the approaches' base envs / option models),
+    # skip_residual_dynamics=True (the approaches' base envs / option models),
     # the same flag that already denies planners the ground-truth delayed
     # dynamics. The eval env (main.py) is created without that flag and keeps
     # domino_true_friction. Either mismatch direction defeats an uncalibrated
@@ -749,9 +749,14 @@ class GlobalSettings:
     fan_train_num_pos_x = 3
     fan_train_num_pos_y = 3
     fan_test_num_pos_x = 6  # can do 9
-    fan_test_num_pos_y = 4
+    fan_test_num_pos_y = 6
     fan_train_num_walls_per_task = [1]
     fan_test_num_walls_per_task = [2, 3]  # can do 4
+    # When True, 3x3 grids use curated task generation: ball on an edge
+    # cell, target axis-aligned two cells away, and a single wall placed
+    # to block the direct path. When False, all grid sizes use uniform
+    # random placement of ball, target, and walls.
+    fan_3x3_strategic_task_gen = False
 
     # domino_fan env (combined domino + fan environment)
     domino_domino_on_stairs = False
@@ -1392,7 +1397,7 @@ class GlobalSettings:
     # -- the genuinely model-free baseline.
     agent_planner_use_simulator = True
     # When a simulator IS given, whether to wrap the *base* env
-    # (skip_process_dynamics=True -- delayed _domain_specific_step effects
+    # (skip_residual_dynamics=True -- delayed _domain_specific_step effects
     # such as boiling/heating are disabled) instead of the real env. Lets the
     # model-free planner be denied the ground-truth delayed dynamics that a
     # world-model learner has to reconstruct. No effect when
@@ -1401,15 +1406,6 @@ class GlobalSettings:
 
     # Agent bilevel approach settings
     agent_bilevel_max_samples_per_step = 50  # param samples per step
-    # Full agent plan-queries per solve attempt: the first query plus
-    # re-queries after RETRYABLE errors only (unparseable/empty final
-    # text, output-token overflow, or a session that finished without
-    # submitting an evaluate_option_plan capture). Budget ends (turn
-    # cap, spent attempt wall clock) never re-query: with restarts
-    # remaining (agent_solve_max_attempts) the attempt ends and the
-    # fresh-context restart is the retry, and on the final attempt the
-    # best-effort submission nudge is the fallback.
-    agent_bilevel_max_plan_queries = 3
     # Total refine_plan_sketch attempts (fresh rng each) when a refined
     # plan reaches the goal atoms but the task evaluator scores it as a
     # non-solve; all attempts share the one tool-call timeout budget.
@@ -1448,6 +1444,12 @@ class GlobalSettings:
     # (below) carries curated knowledge across attempts. An attempt ends
     # early with a validated (evaluator-solved) capture; otherwise its
     # best-effort capture is banked and the best across attempts executes.
+    # Each attempt is exactly ONE agent query: however that query ends -
+    # a spent budget, an unparseable sketch, or a session that simply
+    # never submitted - the fresh-context restart is the only retry, so
+    # this is the sole knob controlling how many shots a task gets. Only
+    # the final attempt (no restart left) pays for the best-effort
+    # submission nudge.
     agent_solve_max_attempts = 1
     # Wall-clock budget per solve attempt, in seconds (0 disables). The
     # turn cap bounds turns, not compute - one explore_python sweep hid
@@ -1551,8 +1553,8 @@ class GlobalSettings:
     # agent adds design margin in-session. Runs only when the approach
     # installs a fresh-env scope (perturbing the shared env would leak)
     # and a fit with nonzero posterior width has been applied. Default
-    # False so existing arms keep their behavior; the treatment arm
-    # (approaches/all.yaml agent_po_predicate_invention_al_margin)
+    # False so existing arms keep their behavior; the main arm
+    # (approaches/all.yaml agent_po_predicate_invention_al)
     # turns it on.
     agent_plan_validation_physics_margin = False
     # Number of grid points the margin gate (and the sim.run physics
@@ -1817,7 +1819,7 @@ class GlobalSettings:
     code_sim_learning_warm_start_with_lm = True
 
     # Sim-learning oracle flags (for ablation / debugging).
-    # When True, load GT process rules instead of running agent synthesis.
+    # When True, load GT residual rules instead of running agent synthesis.
     # Parameters init_values are perturbed so MCMC still has work to do.
     agent_sim_learn_oracle_sim_program = False
     # Relative scale for perturbing oracle parameter init_values before MCMC.
@@ -1862,6 +1864,17 @@ class GlobalSettings:
     # even goal predicates - from the agent's prompts/tools; tasks whose
     # goal atoms are stripped must then carry goal_nl.
     agent_sim_learn_kept_predicates_names: List[str] = []
+    # Ablation axis ("the robot knows its own simulator"): when True,
+    # copy the env's declared base-sim source modules
+    # (``get_base_sim_source_files()``, e.g. pybullet_fan_base.py +
+    # pybullet_env.py) into the sandbox's ./reference/base_sim/ for
+    # every agent session (solve, explore, and synthesis). The
+    # visibility split is structural: residual dynamics, task
+    # generation, and goal semantics live in modules that are never
+    # declared, so the provided files are byte-identical to the code
+    # the base-sim rollouts execute. Envs that declare no source files
+    # are unaffected.
+    agent_sim_provide_base_sim_source = False
 
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:

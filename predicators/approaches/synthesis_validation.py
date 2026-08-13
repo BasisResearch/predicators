@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Tuple
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.fitting import fit_rule_parameters
 from predicators.code_sim_learning.utils import LearnedSimulator, \
-    apply_rules, has_latent_rules
+    apply_rules, has_latent_rules, has_physics_rules
 from predicators.structs import Action, State
 
 if TYPE_CHECKING:
@@ -31,7 +31,7 @@ def build_candidate_option_model(
     approach: "SynthesisBackend",
     rules: List,
     specs: List[ParamSpec],
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     base_pred_triples: List[Tuple[State, Action, State]],
     latent_init: Any = None,
 ) -> Tuple[Any, Dict[str, float], float]:
@@ -62,23 +62,32 @@ def build_candidate_option_model(
 
     # Publish the candidate rules / latent_init *before* building the
     # combined simulator: the recurrent combined sim reads
-    # self._process_rules / self._latent_init / self._fitted_params, so
+    # self._residual_rules / self._latent_init / self._fitted_params, so
     # without this it would validate a stale cycle's rules - or, with
-    # _process_rules still None, mis-dispatch a latent candidate onto
+    # _residual_rules still None, mis-dispatch a latent candidate onto
     # the 3-arg path. Per-cycle state; overwritten when synthesis
     # finalises.
-    approach._process_rules = rules
+    approach._residual_rules = rules
     if latent:
         approach._latent_init = latent_init
 
     try:
-        if latent:
+        if has_physics_rules(rules):
+            # Physics-command rules act through engine stepping, so the
+            # teacher-forced objectives below cannot see them; fit
+            # against free-running rollouts instead (the same routing
+            # sim.fit uses). The joint fit also covers any declared
+            # PHYSICAL_PARAMS, which _load_simulator_from_module_file
+            # published onto the approach before this runs.
+            fit_result, fit_sse = approach._fit_parameters_joint_rollout(
+                rules, specs, residual_features)
+        elif latent:
             fit_result, fit_sse = approach._fit_parameters_recurrent(
-                rules, specs, base_pred_triples, process_features)
+                rules, specs, base_pred_triples, residual_features)
         else:
             fit_result, fit_sse = fit_rule_parameters(rules, specs,
                                                       base_pred_triples,
-                                                      process_features)
+                                                      residual_features)
         params = fit_result.point_estimate
     except Exception as e:
         raise RuntimeError(f"param fitting failed:\n{e}") from e
@@ -87,12 +96,12 @@ def build_candidate_option_model(
     approach._fitted_params.clear()
     approach._fitted_params.update(params)
 
-    # Fully-observable rules run through this 3-arg `learned` object; for
+    # Fully-observable rules run through this `learned` object; for
     # recurrent rules _build_combined_simulator bypasses it and threads
     # state.latent through the candidate rules published above.
     learned = LearnedSimulator(
-        step_fn=lambda s, _r=rules, _p=params:  # type: ignore[misc]
-        apply_rules(s, _r, _p),
+        step_fn=lambda s, c, _r=rules, _p=params:  # type: ignore[misc]
+        apply_rules(s, _r, _p, cmds=c),
         name="agent_in_session")
     combined_sim = approach._build_combined_simulator(learned)
     return approach._build_option_model(combined_sim), params, fit_sse
