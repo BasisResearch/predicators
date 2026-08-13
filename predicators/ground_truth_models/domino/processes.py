@@ -55,9 +55,7 @@ def _domino_depth() -> float:
 
     ``pybullet_domino_real`` sizes its component from
     ``CFG.domino_real_domino_dims`` (L, W, thickness); every other
-    domino env takes the class ClassVar. Read at call time rather than
-    folded into a constant, because the two differ by nearly 2x and the
-    push geometry below is a multiple of it.
+    domino env takes the class ClassVar.
     """
     # pylint: disable=import-outside-toplevel  # local: avoid import cycle
     from predicators.envs.pybullet_domino import PyBulletDominoEnv
@@ -67,17 +65,7 @@ def _domino_depth() -> float:
 
 
 def _push_approach_distance() -> float:
-    """How far behind the block the gripper descends before pushing it.
-
-    Three domino thicknesses. This was the constant ``_DOMINO_OFFSET_X =
-    0.045``, whose comment read ``domino_depth * 3`` -- folded at the SIMULATED
-    15 mm thickness and never re-derived. The real blocks are 29 mm, so the
-    same 45 mm left the descent only 30.5 mm clear of the back face instead of
-    37.5 mm. That descent runs the full 150 mm height of a standing block, so
-    on hardware the fingertips clipped its top edge and toppled it before the
-    push stroke ever ran -- away from the row, which reads as the push having
-    gone backwards.
-    """
+    """How far behind the block the gripper descends before pushing it."""
     return 3.0 * _domino_depth()
 
 
@@ -450,8 +438,7 @@ def _pick_option_sampler(state: State, subgoal_atoms: Set[GroundAtom],
 def _push_option_sampler(state: State, subgoal_atoms: Set[GroundAtom],
                          rng: np.random.Generator,
                          objects: Sequence[Object]) -> Array:
-    """Grid-free Push sampler: approach distance / contact height, both derived
-    from the domino actually in play rather than folded constants."""
+    """Grid-free Push sampler: approach distance / contact height."""
     del state, subgoal_atoms, rng, objects
     return np.array([_push_approach_distance(),
                      _push_contact_z_offset()],
