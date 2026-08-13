@@ -209,17 +209,23 @@ def create_push_skill(
 
     for i in range(4):
         # Waypoint_2 (push into target) and Waypoint_3 (retreat from target)
-        # expect robot-object contact, so suppress collision diagnostics.
+        # expect robot-object contact, so suppress collision diagnostics AND
+        # name the object they may drive into (index 1 = the pushed object in
+        # ``[robot, obj]``), which drops it from the planner's collision set.
         #
-        # They must also NOT be motion-planned. BiRRT plans a COLLISION-FREE
-        # path, and the goal of the push stroke is the object itself: asked to
-        # reach it without touching anything, the planner either routes the
-        # gripper up and over the block -- so the stroke misses entirely and
-        # the retreat sweeps the block over BACKWARDS -- or fails outright and
-        # drops to incremental IK from a pose it has already contorted into.
-        # Either way the block ends up pushed away from the row rather than
-        # along it. A contact motion is exactly the case a collision-free
-        # planner cannot express, so these two phases step IK directly.
+        # Unnamed, these phases are still motion-planned, and BiRRT plans a
+        # COLLISION-FREE path to a goal pose that is inside the very object the
+        # stroke exists to strike. It does not fail -- it succeeds, by routing
+        # around: measured, it lifted above the block's top, swung 59 mm to the
+        # side, travelled past, then came down onto the goal from the far side,
+        # so the last hop ran AGAINST the push direction and toppled the block
+        # backwards, away from the row.
+        #
+        # ``expect_contact`` alone does not prevent that: it only suppresses
+        # diagnostics and silences a planning FAILURE, and no failure occurs.
+        # Nor does the contact-partner mechanism in run_motion_planning, which
+        # relaxes nearby bodies to ``pybullet_birrt_contact_margin`` -- 1 mm of
+        # tolerated penetration, where a push buries the gripper centimetres.
         phases.append(
             make_move_to_phase(
                 name=f"Waypoint_{i}",
