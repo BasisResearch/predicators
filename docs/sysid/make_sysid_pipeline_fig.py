@@ -43,19 +43,16 @@ MAX_GAP = 3.2
 # (id, lane, height, title, body, flag), listed top to bottom per lane;
 # y centers are computed in _layout so boxes cannot drift into each other.
 BOXES = [
-    ("A1", 0, 7.5, "Explore episodes",
-     "agent_bilevel explorer, 2/cycle\n"
+    ("A1", 0, 7.5, "Explore episodes", "agent_bilevel explorer, 2/cycle\n"
      "-> LowLevelTrajectory\n"
      "12 Hz pose setpoints, no velocities", None),
-    ("A2", 0, 10.0, "Declaration evidence",
-     "sim.residuals(rollout=True):\n"
+    ("A2", 0, 10.0, "Declaration evidence", "sim.residuals(rollout=True):\n"
      "open-loop replay + per-param\n"
      "box sweep; a flat sweep is the\n"
-     "honest reason to omit a param",
-     "5  declaring is a decision"),
+     "honest reason to omit a param", "5  declaring is a decision"),
     ("A3", 0, 8.5, "Learn session artifact", "sandbox/simulator.py:\n"
      "PHYSICAL_PARAMS (ParamSpec,\n"
-     "log scale) + PROCESS_FEATURES\n"
+     "log scale) + RESIDUAL_FEATURES\n"
      "+ rules and rule params", None),
     ("B1", 1, 7.0, "Trajectory prep", "settled-tail truncation\n"
      "-> rest-point segmentation\n"
@@ -69,15 +66,12 @@ BOXES = [
      "-> joint LM MAP, log space,\n"
      "Gaussian prior  [lm]", None),
     ("B4", 1, 4.2, "Anchor ablation", "revert compensatory moves", None),
-    ("B5", 1, 7.5, "Consistency loop",
-     "per-segment refits; on disagreement\n"
+    ("B5", 1, 7.5, "Consistency loop", "per-segment refits; on disagreement\n"
      "DROP least trustworthy + refit;\n"
-     "dropped fits -> hull candidates",
-     "2  the doubt is kept"),
+     "dropped fits -> hull candidates", "2  the doubt is kept"),
     ("C1", 2, 8.0, "Laplace posterior", "posterior_std per param,\n"
      "floored at 0.1 (log space)", "3  floor is a lower bound"),
-    ("C2", 2, 10.0, "Identifiability report",
-     "posterior/prior contraction:\n"
+    ("C2", 2, 10.0, "Identifiability report", "posterior/prior contraction:\n"
      "identified / weakly / NOT /\n"
      "INCONSISTENT across cycles,\n"
      "arbitrated on pooled SSE", "4  INCONSISTENT is swept"),
@@ -94,15 +88,11 @@ BOXES = [
      "legitimacy -> 3x/6x decorrelated\n"
      "validation -> 32-pt hull sweep\n"
      "-> PARAM-SENSITIVE on failure", None),
-    ("D3", 3, 6.5, "Certificate probe",
-     "legitimacy replays run on base sim\n"
-     "+ learned rules  [probe factory]",
-     "6  the agent's own substrate"),
-    ("D4", 3, 5.5, "Agent pre-check",
-     "sim.run(plan, physics_sweep=True)\n"
+    ("D3", 3, 6.5, "Certificate probe", "legitimacy replays run on base sim\n"
+     "+ learned rules  [probe factory]", "6  the agent's own substrate"),
+    ("D4", 3, 5.5, "Agent pre-check", "sim.run(plan, physics_sweep=True)\n"
      "same grid, one rollout per point", None),
-    ("D5", 3, 5.5, "Exploration ensemble",
-     "6 Laplace members -> explorer\n"
+    ("D5", 3, 5.5, "Exploration ensemble", "6 Laplace members -> explorer\n"
      "info-seeking disagreement", None),
 ]
 
@@ -125,25 +115,24 @@ ARROWS = [
     ("C4", "D4"),
 ]
 
-LEGEND = (
-    "Green badges: honesty fixes landed on master 2026-07-30 (PRs "
-    "#99-#103), each replacing a measured failure mode.\n"
-    "[1] Huber cap + summary-statistic residuals (settled poses, motion "
-    "onset), replacing bare per-step SSE that one chaos spike could "
-    "steer;  [2] a dropped segment's own-best fits become hull "
-    "candidates - what leaves the mean reappears in the variance;\n"
-    "[3] the floored posterior_std is a lower bound only: the swept "
-    "interval is the disagreement HULL (sigma band widened to every "
-    "candidate fit);  [4] INCONSISTENT is swept and held on the last "
-    "TRUSTED value (it used to disarm the gate), with flagged jumps "
-    "arbitrated on pooled SSE;\n"
-    "[5] declaring PHYSICAL_PARAMS is an explicit decision backed by an "
-    "open-loop sweep, not a silent omission;  [6] certificate replays "
-    "judge plans on the combined substrate the agent plans on.\n"
-    "Drivers: run_20260724_232411 (fits 1.0358 / 0.3236 -> 0.6267 vs "
-    "true 0.5, both 0/1), run_20260724_140531 (failure hole AT truth), "
-    "run_20260727_210827 (sticky biased fit), al_margin seeds 1-2 "
-    "(sysID skipped, gate stuck at the prior).")
+LEGEND = ("Green badges: honesty fixes landed on master 2026-07-30 (PRs "
+          "#99-#103), each replacing a measured failure mode.\n"
+          "[1] Huber cap + summary-statistic residuals (settled poses, motion "
+          "onset), replacing bare per-step SSE that one chaos spike could "
+          "steer;  [2] a dropped segment's own-best fits become hull "
+          "candidates - what leaves the mean reappears in the variance;\n"
+          "[3] the floored posterior_std is a lower bound only: the swept "
+          "interval is the disagreement HULL (sigma band widened to every "
+          "candidate fit);  [4] INCONSISTENT is swept and held on the last "
+          "TRUSTED value (it used to disarm the gate), with flagged jumps "
+          "arbitrated on pooled SSE;\n"
+          "[5] declaring PHYSICAL_PARAMS is an explicit decision backed by an "
+          "open-loop sweep, not a silent omission;  [6] certificate replays "
+          "judge plans on the combined substrate the agent plans on.\n"
+          "Drivers: run_20260724_232411 (fits 1.0358 / 0.3236 -> 0.6267 vs "
+          "true 0.5, both 0/1), run_20260724_140531 (failure hole AT truth), "
+          "run_20260727_210827 (sticky biased fit), al_margin seeds 1-2 "
+          "(sysID skipped, gate stuck at the prior).")
 
 
 def _lane_x(lane):

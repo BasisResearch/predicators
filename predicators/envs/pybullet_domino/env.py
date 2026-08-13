@@ -259,9 +259,9 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
 
         # Apply the configured domino friction to the live bodies. Two roles,
         # distinguished by how this instance was constructed:
-        #   * eval/"real" env (skip_process_dynamics=False, e.g. main.py) ->
+        #   * eval/"real" env (skip_residual_dynamics=False, e.g. main.py) ->
         #     CFG.domino_true_friction;
-        #   * planning base sim (skip_process_dynamics=True — the approaches'
+        #   * planning base sim (skip_residual_dynamics=True — the approaches'
         #     base envs / option models, the same flag that already denies
         #     planners the ground-truth delayed dynamics) ->
         #     CFG.domino_planning_friction when set (else true friction).
@@ -654,7 +654,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             # pylint: disable-next=no-value-for-parameter
             self._cascade_probe_env = type(self)(  # type: ignore[call-arg]
                 use_gui=False,
-                skip_process_dynamics=self._skip_domain_specific_dynamics)
+                skip_residual_dynamics=self._skip_domain_specific_dynamics)
         probe_env = self._cascade_probe_env
         # pylint: disable-next=protected-access
         probe_component = probe_env._domino_component
@@ -680,7 +680,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         reports whether the push cascades to the goal atoms. When this
         env carries a ``probe_process_model_factory`` (a sim-learning
         approach's belief env), the replay runs on the combined
-        substrate (learned process rules applied per step); a passing
+        substrate (learned residual rules applied per step); a passing
         combined verdict is then double-checked base-only with the same
         attempt count, purely as a diagnostic of whether the rules were
         load-bearing. See
@@ -730,7 +730,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                 push_params,
                 push_option=self._probe_push_option)
             if not base_ok:
-                note = ("the learned process rules appear load-bearing "
+                note = ("the learned residual rules appear load-bearing "
                         "for this verdict (no base-sim-only replay "
                         "attempt cascades)")
                 logging.info("[cascade probe] %s", note)

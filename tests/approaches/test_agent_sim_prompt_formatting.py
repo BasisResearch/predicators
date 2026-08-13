@@ -209,7 +209,7 @@ def test_goal_nl_block_multiple_distinct_goals():
 # ── _build_synthesis_system_prompt (FO vs PO rule signature) ────────
 # These render the whole synthesis system prompt. The method only touches
 # ``self`` through pure no-state helpers (``_rule_signature_section``,
-# ``_process_rule_signature``, ``_extra_synthesis_system_prompt``), so a
+# ``_residual_rule_signature``, ``_extra_synthesis_system_prompt``), so a
 # bare instance via ``object.__new__`` is enough to render it.
 
 
@@ -224,7 +224,7 @@ def test_synthesis_prompt_no_leftover_placeholders(approach_cls):
     """Every templated placeholder is substituted in the rendered prompt."""
     prompt = _render_prompt(approach_cls)
     for placeholder in ("__RULE_SIGNATURE_SECTION__",
-                        "__PROCESS_RULE_SIGNATURE__",
+                        "__RESIDUAL_RULE_SIGNATURE__",
                         "__SYNTHESIS_PROMPT_EXTRA__"):
         assert placeholder not in prompt
 
@@ -245,7 +245,7 @@ def test_fo_prompt_uses_three_arg_signature(approach_cls):
     """The fully-observable prompt advertises only the legacy 3-arg rule."""
     prompt = _render_prompt(approach_cls)
     assert "def rule(state, updates, params):" in prompt
-    assert "def process_rule(state, updates, params):" in prompt
+    assert "def residual_rule(state, updates, params):" in prompt
     assert "def rule(state, latent, history, updates, params):" not in prompt
 
 
@@ -260,11 +260,11 @@ def test_po_prompt_uses_five_arg_signature_only():
         agent_po_sim_predicate_invention_approach as po_mod
     prompt = _render_prompt(po_mod.AgentPOSimPredicateInventionApproach)
     assert "def rule(state, latent, history, updates, params):" in prompt
-    assert ("def process_rule(state, latent, history, updates, params):"
+    assert ("def residual_rule(state, latent, history, updates, params):"
             in prompt)
     # The 3-arg canonical forms must be gone.
     assert "def rule(state, updates, params):" not in prompt
-    assert "def process_rule(state, updates, params):" not in prompt
+    assert "def residual_rule(state, updates, params):" not in prompt
     # Recurrent guidance is injected exactly once (single extra marker).
     import re
     headers = re.findall(r"(?m)^## Recurrent rules \(partial observability\)$",

@@ -98,7 +98,7 @@ def run_rollout_sysid(
     fit_env: Any,
     rollouts: List[RolloutTrajectory],
     physical_specs: Sequence[ParamSpec],
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     *,
     rules: Sequence[Any] = (),
     rule_specs: Sequence[ParamSpec] = (),
@@ -146,7 +146,7 @@ def run_rollout_sysid(
     core: Optional[_FitComputation] = None
     if fit_cache is not None and fit_cache_key is not None:
         scaling_for_key = compute_residual_scaling(rollouts,
-                                                   process_features,
+                                                   residual_features,
                                                    config=config)
         cache_key = (fit_cache_key,
                      _explainability_cache_key(physical_specs, rule_specs,
@@ -161,7 +161,7 @@ def run_rollout_sysid(
     from_cache = core is not None
     if core is None:
         core = _compute_fit(fit_env, rollouts, physical_specs,
-                            process_features, rules, rule_specs, latent_init,
+                            residual_features, rules, rule_specs, latent_init,
                             anchors, rms_cache, config)
         if fit_cache is not None and cache_key is not None:
             fit_cache[cache_key] = core
@@ -234,7 +234,7 @@ def _compute_fit(
     fit_env: Any,
     rollouts: List[RolloutTrajectory],
     physical_specs: Sequence[ParamSpec],
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     rules: Sequence[Any],
     rule_specs: Sequence[ParamSpec],
     latent_init: Any,
@@ -252,17 +252,17 @@ def _compute_fit(
     # One scaling object per fit: every SSE/RMS below must share it or
     # their values are incomparable.
     scaling = compute_residual_scaling(rollouts,
-                                       process_features,
+                                       residual_features,
                                        config=config)
     pre_sse = compute_rollout_sse(fit_env, rollouts, init_params,
-                                  process_features, physical_names, rules,
+                                  residual_features, physical_names, rules,
                                   latent_init, scaling)
     logger.info("Rollout sysID - pre-SSE: %.6f", pre_sse)
     result, survivors, rms, hull_candidates = fit_params_rollout_trimmed(
         fit_env,
         rollouts,
         physical_specs,
-        process_features,
+        residual_features,
         rules=rules,
         rule_specs=rule_specs,
         latent_init=latent_init,
@@ -286,13 +286,13 @@ def _compute_fit(
     # otherwise re-poison the verdicts with its noise.
     fitted = result.point_estimate
     post_sse = compute_rollout_sse(fit_env, survivors, fitted,
-                                   process_features, physical_names, rules,
+                                   residual_features, physical_names, rules,
                                    latent_init, scaling)
     logger.info("Rollout sysID - post-SSE: %.6f", post_sse)
 
     def rollout_sse_fn(params: Dict[str, float]) -> float:
         return compute_rollout_sse(fit_env, survivors, params,
-                                   process_features, physical_names, rules,
+                                   residual_features, physical_names, rules,
                                    latent_init, scaling)
 
     report = identifiability_report(

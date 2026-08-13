@@ -31,9 +31,9 @@ def _noop_rule(state, updates, params):
     _ = params["dummy_k"]
     return updates
 
-PROCESS_RULES = [_noop_rule]
+RESIDUAL_RULES = [_noop_rule]
 PARAM_SPECS = [ParamSpec("dummy_k", 0.1, lo=0.0, hi=1.0)]
-PROCESS_FEATURES = {"ball": []}
+RESIDUAL_FEATURES = {"ball": []}
 """
 
 
@@ -92,9 +92,11 @@ class _FakeApproach:
         self._fit_trajectories = trajectories
         self._base_env = _LinearEnv()
 
-    def _rollout_fit_trajectories(self, process_features=None, traj_idxs=None):
+    def _rollout_fit_trajectories(self,
+                                  residual_features=None,
+                                  traj_idxs=None):
         # Real signature/semantics minus truncation config coupling.
-        del process_features, traj_idxs
+        del residual_features, traj_idxs
         return [(list(t.states), list(t.actions))
                 for t in self._fit_trajectories]
 
@@ -120,7 +122,7 @@ def _make_toolkit(
     sim_file.write_text(_NOOP_SIMULATOR, encoding="utf-8")
     return create_synthesis_tools(exec_ns={},
                                   base_pred_triples=[],
-                                  inferred_process_features={},
+                                  inferred_residual_features={},
                                   simulator_file=str(sim_file),
                                   versions_dir=str(tmp_path / "versions"),
                                   approach=cast(
@@ -132,7 +134,7 @@ def _make_toolkit(
 def test_rollout_residuals_flags_effective_param(tmp_path) -> None:
     """Sweep flags the mis-set effective param; the inert one reads flat.
 
-    The artifact's PROCESS_FEATURES is empty (the exact 111805 shape),
+    The artifact's RESIDUAL_FEATURES is empty (the exact 111805 shape),
     so the report's scope must come from observed motion, not from the
     declared rule scope.
     """
@@ -206,7 +208,7 @@ def test_rollout_residuals_phys_params_worse_point(tmp_path) -> None:
     toolkit = create_synthesis_tools(
         exec_ns={},
         base_pred_triples=[],
-        inferred_process_features={},
+        inferred_residual_features={},
         simulator_file=str(sim_file),
         versions_dir=str(tmp_path / "versions"),
         approach=cast(SynthesisBackend,
@@ -265,7 +267,7 @@ def test_rollout_residuals_budget_stop_salvages_partial(tmp_path) -> None:
 
 
 def test_rollout_residuals_contains_rule_crashes(tmp_path) -> None:
-    """A crashing PROCESS_RULES function comes back as a report.
+    """A crashing RESIDUAL_RULES function comes back as a report.
 
     Not as a raw traceback through the tool: rules run on every rolled-
     out step, so an agent's buggy rule is a routine input here.
@@ -278,14 +280,14 @@ def test_rollout_residuals_contains_rule_crashes(tmp_path) -> None:
     toolkit = create_synthesis_tools(
         exec_ns={},
         base_pred_triples=[],
-        inferred_process_features={},
+        inferred_residual_features={},
         simulator_file=str(sim_file),
         versions_dir=str(tmp_path / "versions"),
         approach=cast(SynthesisBackend,
                       _FakeApproach([_observed_trajectory()])))
     out = toolkit.residuals_runner(rollout=True)
     assert "Error: open-loop rollout scoring failed" in out
-    assert "PROCESS_RULES bug" in out
+    assert "RESIDUAL_RULES bug" in out
 
 
 def test_rollout_residuals_requires_full_trajectories(tmp_path) -> None:
@@ -299,7 +301,7 @@ def test_rollout_residuals_requires_full_trajectories(tmp_path) -> None:
     sim_file.write_text(_NOOP_SIMULATOR, encoding="utf-8")
     toolkit = create_synthesis_tools(exec_ns={},
                                      base_pred_triples=[],
-                                     inferred_process_features={},
+                                     inferred_residual_features={},
                                      simulator_file=str(sim_file),
                                      versions_dir=str(tmp_path / "versions"),
                                      approach=cast(SynthesisBackend,

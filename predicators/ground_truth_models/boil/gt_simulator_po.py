@@ -20,7 +20,7 @@ Differences from the fully-observable ``gt_simulator.py``:
   It is the *callable* form so each rollout gets its own nested dict
   (a module-level literal would be shared across trajectories by
   ``init_latent`` and silently accumulate).
-* ``PROCESS_FEATURES`` scopes the fit to the jug observables
+* ``RESIDUAL_FEATURES`` scopes the fit to the jug observables
   (``water_volume``, ``bubbling_level``); the fully-observable module's
   spill/happiness chain is dropped here, keeping the reference focused on
   the partially-observable signal.
@@ -44,7 +44,7 @@ import numpy as np
 
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.utils import History, Params, \
-    ProcessUpdate, objs_by_type
+    ResidualUpdate, objs_by_type
 from predicators.ground_truth_models import GroundTruthSimulatorFactory
 from predicators.settings import CFG
 from predicators.structs import State
@@ -67,11 +67,11 @@ _WATER_HEIGHT_TO_LEVEL_RATIO = 10
 BUBBLING_ONSET = 0.85
 BUBBLING_RAMP = 1.0 / (1.0 - BUBBLING_ONSET)  # ≈ 6.667
 
-# ── Process rules ────────────────────────────────────────────────
+# ── Residual rules ────────────────────────────────────────────────
 
 
-def _water_filling(state: State, updates: ProcessUpdate,
-                   params: Params) -> ProcessUpdate:
+def _water_filling(state: State, updates: ResidualUpdate,
+                   params: Params) -> ResidualUpdate:
     """Faucet on + nearest non-held jug aligned and under capacity → fill.
 
     Fully observable: ``water_volume`` is a visible feature, so no
@@ -115,7 +115,7 @@ def _water_filling(state: State, updates: ProcessUpdate,
 
 def _heating(  # pylint: disable=unused-argument
         state: State, latent: Dict[str, Any], history: History,
-        updates: ProcessUpdate, params: Params) -> ProcessUpdate:
+        updates: ResidualUpdate, params: Params) -> ResidualUpdate:
     """Burner on + jug with water aligned → accumulate hidden heat, surfaced
     through the observable ``bubbling_level``.
 
@@ -206,13 +206,13 @@ def _build_param_specs() -> List[ParamSpec]:
 # approach. PARAM_SPECS is bound to the *callable* so CFG-dependent
 # defaults resolve when the loader pulls the value, after CFG is final.
 
-PROCESS_RULES = [_water_filling, _heating]
+RESIDUAL_RULES = [_water_filling, _heating]
 
 PARAM_SPECS = _build_param_specs
 
 LATENT_INIT = _latent_init
 
-PROCESS_FEATURES: Dict[str, List[str]] = {
+RESIDUAL_FEATURES: Dict[str, List[str]] = {
     "jug": ["water_volume", "bubbling_level"],
 }
 
@@ -220,7 +220,7 @@ PROCESS_FEATURES: Dict[str, List[str]] = {
 
 
 class PyBulletBoilPOGroundTruthSimulatorFactory(GroundTruthSimulatorFactory):
-    """PO GT process-dynamics simulator for pybullet_boil.
+    """PO GT residual-dynamics simulator for pybullet_boil.
 
     Claims ``pybullet_boil`` only in partially-observable mode; the
     fully-observable ``gt_simulator.py`` claims it otherwise, so

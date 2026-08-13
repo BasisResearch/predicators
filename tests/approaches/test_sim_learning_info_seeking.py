@@ -276,9 +276,9 @@ def test_exploration_mcmc_does_not_replace_solver_params(monkeypatch):
     def _fake_fit(rules,
                   specs,
                   base_pred_triples,
-                  process_features,
+                  residual_features,
                   num_steps=None):
-        del rules, specs, base_pred_triples, process_features
+        del rules, specs, base_pred_triples, residual_features
         calls.append(num_steps)
         if num_steps is None:
             return solver_result, 10.0

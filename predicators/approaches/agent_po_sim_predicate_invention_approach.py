@@ -82,9 +82,9 @@ class AgentPOSimPredicateInventionApproach(AgentSimPredicateInventionApproach):
         # rules (partial observability)" section.
         return _PO_RULE_SIGNATURE_SECTION
 
-    def _process_rule_signature(self) -> str:
+    def _residual_rule_signature(self) -> str:
         # Keep the geometric-gate worked example on the same 5-arg shape.
-        return "def process_rule(state, latent, history, updates, params):"
+        return "def residual_rule(state, latent, history, updates, params):"
 
     def _extra_synthesis_system_prompt(self) -> str:
         base = super()._extra_synthesis_system_prompt()
@@ -153,7 +153,7 @@ def my_rule(state, latent, history, updates, params):
     #            dims you track, threaded across steps
     # history  : List[Tuple[State, Optional[Action]]], read-only;
     #            most recent last; first action is None
-    # updates  : ProcessUpdate dict, also mutated in place
+    # updates  : ResidualUpdate dict, also mutated in place
     # params   : Dict[str, float] (fitted scalars)
     ...
     return updates

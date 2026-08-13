@@ -630,8 +630,8 @@ class BeliefProbe:
                   phys_params: Optional[Dict[str, float]] = None) -> str:
         """Per-feature residual report for the current simulator rules.
 
-        Synthesis sessions only. Loads PROCESS_RULES fresh from
-        ``simulator.py`` and reports, per feature in PROCESS_FEATURES,
+        Synthesis sessions only. Loads RESIDUAL_RULES fresh from
+        ``simulator.py`` and reports, per feature in RESIDUAL_FEATURES,
         mismatch counts, mean/max abs error, improvement over the
         no-rule baseline (negative = the rules hurt), and the worst-N
         example transitions - the fast inner loop for finding where the

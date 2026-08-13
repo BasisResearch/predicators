@@ -31,7 +31,7 @@ class SynthesisToolkit:
 def create_synthesis_tools(
     exec_ns: Dict[str, Any],
     base_pred_triples: list,
-    inferred_process_features: Dict[str, List[str]],
+    inferred_residual_features: Dict[str, List[str]],
     simulator_file: str,
     versions_dir: str,
     approach: Optional[SynthesisBackend] = None,
@@ -52,8 +52,8 @@ def create_synthesis_tools(
     The agent's source-of-truth for the simulator is the file at
     ``simulator_file`` (which it edits with ``Write`` / ``Edit``). The
     fit and residuals backends each ``exec`` that file fresh into an
-    isolated namespace per call and read ``PROCESS_RULES``,
-    ``PARAM_SPECS``, ``PROCESS_FEATURES`` from it — no namespace state
+    isolated namespace per call and read ``RESIDUAL_RULES``,
+    ``PARAM_SPECS``, ``RESIDUAL_FEATURES`` from it — no namespace state
     leaks across iterations. Before loading, every call also snapshots
     the current contents into ``versions_dir`` as
     ``cycle_XXX_vers_YYY_simulator.py`` (``XXX`` from
@@ -68,7 +68,7 @@ def create_synthesis_tools(
       sessions, the candidate probe ``sim``). It does **not** define
       rules — write ``simulator.py`` for that.
     * ``fit_runner`` (not a tool; bound as ``sim.fit``) — SSE of the
-      current ``PROCESS_RULES`` at init_value params, plus post-fit
+      current ``RESIDUAL_RULES`` at init_value params, plus post-fit
       SSE and fitted values; the joint rollout system-ID path when
       ``PHYSICAL_PARAMS`` is declared; exploratory ``traj_idxs`` /
       ``fixed`` variants that publish nothing.
@@ -84,8 +84,8 @@ def create_synthesis_tools(
         base_pred_triples: ``(s_base, action, s_next_obs)`` triples
             with the base step already advanced — eval/test consume
             ``s_base`` directly so no live env is needed.
-        inferred_process_features: Data-driven default scope used
-            when the agent hasn't declared ``PROCESS_FEATURES`` in
+        inferred_residual_features: Data-driven default scope used
+            when the agent hasn't declared ``RESIDUAL_FEATURES`` in
             ``simulator.py`` yet.
         simulator_file: Host path to the canonical simulator file
             the agent edits. Synthesis tools ``exec`` this file
@@ -151,8 +151,8 @@ def create_synthesis_tools(
         versions_dir=versions_dir,
         artifact_name="simulator",
         cycle_index_provider=cycle_index_provider,
-        missing_file_hint=("Use Write to create it with PROCESS_RULES, "
-                           "PARAM_SPECS, PROCESS_FEATURES."),
+        missing_file_hint=("Use Write to create it with RESIDUAL_RULES, "
+                           "PARAM_SPECS, RESIDUAL_FEATURES."),
     )
     # Spill oversize output from the synthesis tools into the sandbox,
     # so nothing is dumped to ``~/.claude/projects/.../tool-results/``.
@@ -192,7 +192,7 @@ def create_synthesis_tools(
         if rules is None:
             if not physical_specs:
                 return None, None, None, None, None, version_tag, (
-                    f"[{version_tag}] PROCESS_RULES missing or empty in "
+                    f"[{version_tag}] RESIDUAL_RULES missing or empty in "
                     f"{path}.")
             rules = []
         if specs is None:
@@ -226,7 +226,7 @@ def create_synthesis_tools(
                               rule_specs: list,
                               physical_specs: list,
                               latent_init: Any,
-                              process_features: Dict[str, List[str]],
+                              residual_features: Dict[str, List[str]],
                               scope_note: str,
                               version_tag: str,
                               traj_idxs: Optional[List[int]] = None) -> str:
@@ -258,7 +258,7 @@ def create_synthesis_tools(
                                                     approach._base_env)  # pylint: disable=protected-access
         try:
             rollouts = approach._rollout_fit_trajectories(  # pylint: disable=protected-access
-                process_features,
+                residual_features,
                 traj_idxs=traj_idxs)
         except ValueError as e:
             return f"[{version_tag}] Error: {e}"
@@ -282,7 +282,7 @@ def create_synthesis_tools(
                 fit_env,
                 rollouts,
                 physical_specs,
-                process_features,
+                residual_features,
                 rules=rules,
                 rule_specs=rule_specs,
                 latent_init=latent_init,
@@ -459,7 +459,7 @@ def create_synthesis_tools(
             "a head/tail preview plus that path is returned - use Read/Grep "
             "to inspect the full file. This does NOT define rules - write "
             "`simulator.py` for that; `sim.fit` and `sim.residuals` "
-            "load PROCESS_RULES, PARAM_SPECS, PROCESS_FEATURES from that "
+            "load RESIDUAL_RULES, PARAM_SPECS, RESIDUAL_FEATURES from that "
             "file fresh on every call." + probe_blurb),
         exec_ns=exec_ns,
         sandbox_dir=sandbox_dir,
@@ -496,10 +496,10 @@ def create_synthesis_tools(
         if err:
             return str(err)
 
-        process_features = (declared if isinstance(declared, dict) else
-                            inferred_process_features)
+        residual_features = (declared if isinstance(declared, dict) else
+                             inferred_residual_features)
         scope_note = ("declared" if isinstance(declared, dict) else
-                      "inferred (PROCESS_FEATURES not declared)")
+                      "inferred (RESIDUAL_FEATURES not declared)")
         canonical = traj_idxs is None and not fixed
 
         # PHYSICAL_PARAMS declared -> joint system-identification fit on
@@ -519,7 +519,7 @@ def create_synthesis_tools(
                                          specs,
                                          physical_specs,
                                          latent_init,
-                                         process_features,
+                                         residual_features,
                                          scope_note,
                                          version_tag,
                                          traj_idxs=traj_idxs)
@@ -578,12 +578,12 @@ def create_synthesis_tools(
         try:
             if latent_mode:
                 pre_sse = compute_sse_recurrent(fit_rules, groups, init_params,
-                                                latent_init, process_features)
+                                                latent_init, residual_features)
             else:
                 sim_fn = lambda s, _a, prm: apply_rules(  # noqa: E731
                     s, fit_rules, prm)
                 pre_sse = compute_sse(sim_fn, triples, init_params,
-                                      process_features)
+                                      residual_features)
         except Exception as e:  # pylint: disable=broad-except
             return f"[{version_tag}] Error: SSE computation failed:\n{e}"
 
@@ -613,10 +613,10 @@ def create_synthesis_tools(
             if latent_mode:
                 fit_result, post_sse = fit_rule_parameters_latent(
                     fit_rules, fit_specs, groups, latent_init,
-                    process_features)
+                    residual_features)
             else:
                 fit_result, post_sse = fit_rule_parameters(
-                    fit_rules, fit_specs, triples, process_features)
+                    fit_rules, fit_specs, triples, residual_features)
             fitted_params = fit_result.point_estimate
         except Exception as e:  # pylint: disable=broad-except
             return f"[{version_tag}] Error: fit_params failed:\n{e}"
@@ -649,7 +649,7 @@ def create_synthesis_tools(
 
         The open-loop report scores global fidelity, so its scope is
         "everything that moves" - independent of the artifact's declared
-        PROCESS_FEATURES, which describe rule scope and may legitimately
+        RESIDUAL_FEATURES, which describe rule scope and may legitimately
         be empty (a physics-only artifact, or one that concluded no rule
         is needed). A feature is in scope when its observed span across
         all recorded states exceeds the settle tolerance (the same
@@ -794,7 +794,7 @@ def create_synthesis_tools(
                 }, scope, overrides, rules, latent_init, scaling)
         except Exception as e:  # pylint: disable=broad-except
             return (f"[{version_tag}] Error: open-loop rollout scoring "
-                    f"failed (often a PROCESS_RULES bug - rules run on "
+                    f"failed (often a RESIDUAL_RULES bug - rules run on "
                     f"every rolled-out step):\n{e}")
         ratio_bar = CFG.code_sim_learning_rollout_consistency_sse_ratio
         scope_str = "; ".join(f"{t}: {', '.join(fs)}"
@@ -803,7 +803,7 @@ def create_synthesis_tools(
         lines = [
             f"[{version_tag}] OPEN-LOOP ROLLOUT residual report - each "
             "recorded trajectory's actions replayed free-running from its "
-            "initial state on the base sim with the current PROCESS_RULES "
+            "initial state on the base sim with the current RESIDUAL_RULES "
             "riding (params at init_value; physical params at the env "
             "registry baselines, NOT any already-applied fit). Errors "
             "COMPOUND across steps here; the per-step (teacher-forced) "
@@ -812,7 +812,7 @@ def create_synthesis_tools(
             "can look near-perfect per step and still diverge wildly "
             "open-loop.",
             f"Scope (every feature with observed motion, independent of "
-            f"PROCESS_FEATURES): {scope_str}.",
+            f"RESIDUAL_FEATURES): {scope_str}.",
             "Residuals are normalized (angles wrapped), Huber-capped, with "
             "endpoint/onset summary terms - the same objective the "
             "system-ID fit minimizes.",
@@ -984,11 +984,11 @@ def create_synthesis_tools(
                       sweep_num_points: int = 6,
                       sweep_params: Optional[Union[str, List[str]]] = None,
                       phys_params: Optional[Dict[str, float]] = None) -> str:
-        """Per-feature residual report for the current PROCESS_RULES.
+        """Per-feature residual report for the current RESIDUAL_RULES.
 
         The backend behind ``sim.residuals``. Loads the rules fresh
         from ``simulator.py`` and reports, for each feature in
-        PROCESS_FEATURES (or the inferred fallback), the mismatch
+        RESIDUAL_FEATURES (or the inferred fallback), the mismatch
         count, mean/max abs error, and the relative improvement over
         the no-rule baseline (negative means the rules are worse than
         not running them at all), plus the worst-N example transitions
@@ -1026,8 +1026,8 @@ def create_synthesis_tools(
                                           version_tag, sweep_num_points,
                                           sweep_params, phys_params)
 
-        process_features = (declared if isinstance(declared, dict) else
-                            inferred_process_features)
+        residual_features = (declared if isinstance(declared, dict) else
+                             inferred_residual_features)
         scope_label = ("declared"
                        if isinstance(declared, dict) else "inferred")
 
@@ -1046,10 +1046,10 @@ def create_synthesis_tools(
             try:
                 if latent_mode:
                     fit_result, _ = fit_rule_parameters_latent(
-                        rules, specs, groups, latent_init, process_features)
+                        rules, specs, groups, latent_init, residual_features)
                 else:
                     fit_result, _ = fit_rule_parameters(
-                        rules, specs, base_pred_triples, process_features)
+                        rules, specs, base_pred_triples, residual_features)
                 t_params = fit_result.point_estimate
                 param_label = "fitted"
             except Exception as e:  # pylint: disable=broad-except
@@ -1082,7 +1082,7 @@ def create_synthesis_tools(
         mismatched_steps: set = set()
 
         for i, obj, tn, feat, pred, obs in iter_feature_residuals(
-                triples_rules, process_features):
+                triples_rules, residual_features):
             key = (tn, feat)
             err = abs(pred - obs)
             thr = rel_tol * abs(obs) + abs_tol
@@ -1096,20 +1096,20 @@ def create_synthesis_tools(
                 worst[key].append((i, obj.name, pred, obs, err))
 
         for _, _, tn, feat, pred, obs in iter_feature_residuals(
-                triples_base, process_features):
+                triples_base, residual_features):
             key = (tn, feat)
             base_n_total[key] += 1
             base_sum_err[key] += abs(pred - obs)
 
         if not rule_n_total:
-            return (f"[{version_tag}] PROCESS_FEATURES is empty; "
+            return (f"[{version_tag}] RESIDUAL_FEATURES is empty; "
                     "nothing to report.")
 
         n_steps = len(triples_rules)
         perfect_steps = n_steps - len(mismatched_steps)
         lines = [
             f"[{version_tag}] Residual report — {n_steps} step transitions, "
-            f"scope: {scope_label} PROCESS_FEATURES, "
+            f"scope: {scope_label} RESIDUAL_FEATURES, "
             f"params: {param_label}, "
             f"tol: {rel_tol:g}*|obs| + {abs_tol:g}.",
             f"Steps with all in-scope features within tol: "

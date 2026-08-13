@@ -39,7 +39,7 @@ def iter_step_terms(
     state: State,
     updates: Dict,
     next_obs: State,
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
 ) -> Any:
     """Yield one ``(obj, feat, predicted, observed, rule_fired)`` term per
     (state object x allowed feature) for a single step.
@@ -55,7 +55,7 @@ def iter_step_terms(
     """
     for obj in state:
         type_name = obj.type.name
-        for feat_name in process_features.get(type_name, []):
+        for feat_name in residual_features.get(type_name, []):
             fired = obj in updates and feat_name in updates[obj]
             if fired:
                 raw = updates[obj][feat_name]
@@ -70,9 +70,9 @@ def compute_sse(
     simulator_fn: StepSimulatorFn,
     transitions: List[Tuple[State, Action, State]],
     params: Dict[str, float],
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
 ) -> float:
-    """Sum of squared errors between predicted and observed process features.
+    """Sum of squared errors between predicted and observed residual features.
 
     Returns the total (un-normalized) SSE so that the Gaussian
     log-likelihood ``-0.5 * SSE / noise_sigma**2`` is the correct
@@ -84,7 +84,7 @@ def compute_sse(
     for s_t, action, s_next_obs in transitions:
         updates = simulator_fn(s_t, action, params)
         for _obj, _feat, pred, obs, _fired in iter_step_terms(
-                s_t, updates, s_next_obs, process_features):
+                s_t, updates, s_next_obs, residual_features):
             total_se += (pred - obs)**2
     return total_se
 
@@ -94,7 +94,7 @@ def compute_sse_recurrent(
     trajectories: List[TrajectoryTriples],
     params: Dict[str, float],
     latent_init: Any,
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
 ) -> float:
     """SSE on observables, with the ``latent`` block threaded per trajectory.
 
@@ -136,7 +136,7 @@ def compute_sse_recurrent(
                                               rules, params)
 
             for _obj, _feat, pred, obs, _fired in iter_step_terms(
-                    state_base, updates, state_obs, process_features):
+                    state_base, updates, state_obs, residual_features):
                 total_se += (pred - obs)**2
 
     return total_se
@@ -147,7 +147,7 @@ def fit_params_recurrent(
     trajectories: List[TrajectoryTriples],
     param_specs: List[ParamSpec],
     latent_init: Any,
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     num_walkers: int = 32,
     num_steps: Optional[int] = None,
     burn_in: int = 200,
@@ -188,9 +188,9 @@ def fit_params_recurrent(
     # rollouts, so it is only paid when one of the gating flags is set.
     walker_center, lm_theta, lm_jac = lm_prefit(
         lambda: fit_map_lm_recurrent(rules, trajectories, param_specs,
-                                     latent_init, process_features),
+                                     latent_init, residual_features),
         lambda p: compute_sse_recurrent(rules, trajectories, p, latent_init,
-                                        process_features), names, init_values,
+                                        residual_features), names, init_values,
         noise_sigma, prior_sigma, "recurrent")
 
     if num_steps == 0:
@@ -209,7 +209,7 @@ def fit_params_recurrent(
     samples, log_probs = run_emcee_posterior(
         param_specs,
         lambda p: compute_sse_recurrent(rules, trajectories, p, latent_init,
-                                        process_features),
+                                        residual_features),
         walker_center,
         init_int,
         prior_sigma,
@@ -237,7 +237,7 @@ def compute_residuals(
     simulator_fn: StepSimulatorFn,
     transitions: List[Tuple[State, Action, State]],
     params: Dict[str, float],
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
 ) -> np.ndarray:
     """Per-feature residuals (predicted - observed) as a flat vector.
 
@@ -251,7 +251,7 @@ def compute_residuals(
         updates = simulator_fn(s_t, action, params)
         residuals.extend(pred - obs
                          for _obj, _feat, pred, obs, _fired in iter_step_terms(
-                             s_t, updates, s_next_obs, process_features))
+                             s_t, updates, s_next_obs, residual_features))
     return np.asarray(residuals, dtype=float)
 
 
@@ -260,7 +260,7 @@ def compute_residuals_recurrent(
     trajectories: List[TrajectoryTriples],
     params: Dict[str, float],
     latent_init: Any,
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
 ) -> np.ndarray:
     """Per-feature residuals (predicted - observed) for the recurrent rollout.
 
@@ -294,7 +294,7 @@ def compute_residuals_recurrent(
             residuals.extend(
                 pred - obs
                 for _obj, _feat, pred, obs, _fired in iter_step_terms(
-                    state_base, updates, state_obs, process_features))
+                    state_base, updates, state_obs, residual_features))
     return np.asarray(residuals, dtype=float)
 
 
@@ -302,7 +302,7 @@ def log_sse_breakdown(
     simulator_fn: StepSimulatorFn,
     transitions: List[Tuple[State, Action, State]],
     params: Dict[str, float],
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     label: str = "",
 ) -> None:
     """Log per-(type, feature) SSE so we can see which features dominate.
@@ -331,7 +331,7 @@ def log_sse_breakdown(
     for s_t, action, s_next_obs in transitions:
         updates = simulator_fn(s_t, action, params)
         for obj, feat_name, pred, obs, fired in iter_step_terms(
-                s_t, updates, s_next_obs, process_features):
+                s_t, updates, s_next_obs, residual_features):
             err = pred - obs
             slot = _slot((obj.type.name, feat_name))
             if fired:
@@ -446,7 +446,7 @@ def fit_map_lm(
     simulator_fn: StepSimulatorFn,
     transitions: List[Tuple[State, Action, State]],
     param_specs: List[ParamSpec],
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     max_nfev: int = 200,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """Find a MAP estimate via Levenberg-Marquardt (trust-region reflective).
@@ -458,7 +458,7 @@ def fit_map_lm(
     How LM finds the MAP here:
       * ``compute_residuals`` returns r(theta) = (s_{t+1}_obs - sim(s_t, a;
         theta)) flattened over transitions and the features named in
-        ``process_features``. Minimizing 0.5 * ||r||^2 is exactly MLE
+        ``residual_features``. Minimizing 0.5 * ||r||^2 is exactly MLE
         under iid Gaussian observation noise; with the broad Gaussian
         prior used elsewhere in this module being effectively flat near
         init, the least-squares minimizer coincides with the MAP.
@@ -486,7 +486,7 @@ def fit_map_lm(
     def residuals_fn(theta: np.ndarray) -> np.ndarray:
         params = {n: float(theta[i]) for i, n in enumerate(names)}
         return compute_residuals(simulator_fn, transitions, params,
-                                 process_features)
+                                 residual_features)
 
     return solve_lm(residuals_fn, param_specs, max_nfev, "per-transition")
 
@@ -496,7 +496,7 @@ def fit_map_lm_recurrent(
     trajectories: List[TrajectoryTriples],
     param_specs: List[ParamSpec],
     latent_init: Any,
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     max_nfev: int = 200,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """Levenberg-Marquardt MAP fit for the recurrent (latent-threaded) sim.
@@ -528,7 +528,7 @@ def fit_map_lm_recurrent(
     def residuals_fn(theta: np.ndarray) -> np.ndarray:
         params = {n: float(theta[i]) for i, n in enumerate(names)}
         return compute_residuals_recurrent(rules, trajectories, params,
-                                           latent_init, process_features)
+                                           latent_init, residual_features)
 
     return solve_lm(residuals_fn, param_specs, max_nfev, "recurrent")
 
@@ -537,7 +537,7 @@ def fit_params(
     simulator_fn: StepSimulatorFn,
     transitions: List[Tuple[State, Action, State]],
     param_specs: List[ParamSpec],
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     num_walkers: int = 32,
     num_steps: Optional[int] = None,
     burn_in: int = 200,
@@ -556,7 +556,7 @@ def fit_params(
             Should run the base sim internally if needed.
         transitions: List of (s_t, action, s_{t+1}_obs) triples.
         param_specs: Parameter specifications (name, init_value).
-        process_features: {type_name: [feat_names]} to fit.
+        residual_features: {type_name: [feat_names]} to fit.
         num_walkers: Number of ensemble walkers (>= 2*ndim).
         num_steps: Total MCMC steps per walker. If None, defaults to
             CFG.code_sim_learning_num_mcmc_steps. If 0, skip training and
@@ -583,8 +583,8 @@ def fit_params(
     # Optional one-shot LM fit (see lm_prefit for its three uses).
     walker_center, lm_theta, lm_jac = lm_prefit(
         lambda: fit_map_lm(simulator_fn, transitions, param_specs,
-                           process_features),
-        lambda p: compute_sse(simulator_fn, transitions, p, process_features),
+                           residual_features),
+        lambda p: compute_sse(simulator_fn, transitions, p, residual_features),
         names,
         init_values,
         noise_sigma,
@@ -593,7 +593,7 @@ def fit_params(
         warm_start_breakdown_fn=lambda p: log_sse_breakdown(simulator_fn,
                                                             transitions,
                                                             p,
-                                                            process_features,
+                                                            residual_features,
                                                             label=
                                                             "lm-warm-start"))
 
@@ -612,7 +612,7 @@ def fit_params(
                 min(burn_in, max(num_steps - 1, 0)))
     samples, log_probs = run_emcee_posterior(
         param_specs,
-        lambda p: compute_sse(simulator_fn, transitions, p, process_features),
+        lambda p: compute_sse(simulator_fn, transitions, p, residual_features),
         walker_center,
         init_int,
         prior_sigma,
@@ -661,10 +661,10 @@ def fit_rule_parameters(
     rules: List,
     specs: List[ParamSpec],
     base_pred_triples: List[Tuple[State, Action, State]],
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     num_steps: Optional[int] = None,
 ) -> Tuple[FitResult, float]:
-    """Fit parameters for synthesized process rules (teacher-forced).
+    """Fit parameters for synthesized residual rules (teacher-forced).
 
     ``base_pred_triples`` must already have the base step applied;
     precomputing avoids re-running it inside the MCMC inner loop.
@@ -687,34 +687,34 @@ def fit_rule_parameters(
 
     init_params = {s.name: s.init_value for s in specs}
     pre_sse = compute_sse(sim_fn, base_pred_triples, init_params,
-                          process_features)
+                          residual_features)
     pre_ll = -0.5 * pre_sse / (FIT_NOISE_SIGMA**2)
     logger.info("Before fitting - SSE: %.6f  log-likelihood: %.2f", pre_sse,
                 pre_ll)
     log_sse_breakdown(sim_fn,
                       base_pred_triples,
                       init_params,
-                      process_features,
+                      residual_features,
                       label="before")
 
     result = fit_params(
         simulator_fn=sim_fn,
         transitions=base_pred_triples,
         param_specs=specs,
-        process_features=process_features,
+        residual_features=residual_features,
         num_steps=num_steps,
     )
 
     fitted_params = result.point_estimate
     post_sse = compute_sse(sim_fn, base_pred_triples, fitted_params,
-                           process_features)
+                           residual_features)
     post_ll = -0.5 * post_sse / (FIT_NOISE_SIGMA**2)
     logger.info("After fitting  - SSE: %.6f  log-likelihood: %.2f", post_sse,
                 post_ll)
     log_sse_breakdown(sim_fn,
                       base_pred_triples,
                       fitted_params,
-                      process_features,
+                      residual_features,
                       label="after")
     log_param_changes(init_params, fitted_params)
     return result, post_sse
@@ -725,7 +725,7 @@ def fit_rule_parameters_latent(
     specs: List[ParamSpec],
     groups: List[TrajectoryTriples],
     latent_init: Any,
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     num_steps: Optional[int] = None,
 ) -> Tuple[FitResult, float]:
     """Recurrent MCMC fit over pre-grouped trajectories.
@@ -744,7 +744,7 @@ def fit_rule_parameters_latent(
     """
     init_params = {s.name: s.init_value for s in specs}
     pre_sse = compute_sse_recurrent(rules, groups, init_params, latent_init,
-                                    process_features)
+                                    residual_features)
     logger.info("Recurrent fit - pre-SSE: %.6f", pre_sse)
 
     result = fit_params_recurrent(
@@ -752,12 +752,12 @@ def fit_rule_parameters_latent(
         trajectories=groups,
         param_specs=specs,
         latent_init=latent_init,
-        process_features=process_features,
+        residual_features=residual_features,
         num_steps=num_steps,
     )
     fitted_params = result.point_estimate
     post_sse = compute_sse_recurrent(rules, groups, fitted_params, latent_init,
-                                     process_features)
+                                     residual_features)
     logger.info("Recurrent fit - post-SSE: %.6f", post_sse)
     log_param_changes(init_params, fitted_params)
     return result, post_sse

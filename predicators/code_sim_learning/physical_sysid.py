@@ -1,8 +1,8 @@
 """System identification of PyBullet physical parameters by rollout matching.
 
-The process-rule fitting in :mod:`predicators.code_sim_learning.fitting` is
+The residual-rule fitting in :mod:`predicators.code_sim_learning.fitting` is
 *teacher-forced and single-step*: it resets the base sim to each observed
-``s_t`` and predicts one step. That is correct for slow process features
+``s_t`` and predicts one step. That is correct for slow residual features
 (heating, filling) but wrong for **momentum-driven** dynamics such as a domino
 cascade: the :class:`~predicators.structs.State` carries pose but no velocity,
 so resetting to a mid-cascade state discards the angular momentum that produced
@@ -127,7 +127,7 @@ def fit_params_rollout(
     base_env: Any,
     trajectories: List[RolloutTrajectory],
     physical_specs: Sequence[ParamSpec],
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     rules: Sequence[Any] = (),
     rule_specs: Sequence[ParamSpec] = (),
     latent_init: Any = None,
@@ -216,7 +216,7 @@ def fit_params_rollout(
         }
         floor_evals = [
             compute_rollout_sse(base_env, trajectories, anchor_point,
-                                process_features, physical_names, rules,
+                                residual_features, physical_names, rules,
                                 latent_init, scaling)
             for _ in range(NOISE_FLOOR_EVALS)
         ]
@@ -225,7 +225,7 @@ def fit_params_rollout(
             base_env,
             trajectories,
             physical_specs,
-            process_features,
+            residual_features,
             rules,
             rule_specs,
             latent_init,
@@ -264,7 +264,7 @@ def fit_params_rollout(
     lm_theta, lm_jac = fit_map_lm_rollout(base_env,
                                           trajectories,
                                           lm_physical_specs,
-                                          process_features,
+                                          residual_features,
                                           rules,
                                           rule_specs,
                                           latent_init,
@@ -290,7 +290,7 @@ def fit_params_rollout(
             trajectories,
             physical_specs,
             rule_specs,
-            process_features,
+            residual_features,
             rules,
             latent_init,
             scaling,
@@ -322,7 +322,7 @@ def _anchor_backward_elimination(
     trajectories: List[RolloutTrajectory],
     physical_specs: Sequence[ParamSpec],
     rule_specs: Sequence[ParamSpec],
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     rules: Sequence[Any],
     latent_init: Any,
     scaling: Optional[ResidualScaling],
@@ -375,7 +375,7 @@ def _anchor_backward_elimination(
 
     def sse_at(params: Dict[str, float], declared: List[str]) -> float:
         return compute_rollout_sse(base_env, trajectories, params,
-                                   process_features, declared, rules,
+                                   residual_features, declared, rules,
                                    latent_init, scaling)
 
     assert list(result.names) == [s.name for s in all_specs]
@@ -439,7 +439,7 @@ def _anchor_backward_elimination(
             base_env,
             trajectories,
             warm_physical,
-            process_features,
+            residual_features,
             rules,
             warm_rules,
             latent_init,
@@ -616,7 +616,7 @@ def fit_params_rollout_trimmed(
     base_env: Any,
     trajectories: List[RolloutTrajectory],
     physical_specs: Sequence[ParamSpec],
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     rules: Sequence[Any] = (),
     rule_specs: Sequence[ParamSpec] = (),
     latent_init: Any = None,
@@ -678,14 +678,14 @@ def fit_params_rollout_trimmed(
     all_specs = list(physical_specs) + list(rule_specs)
     if scaling is None:
         scaling = compute_residual_scaling(trajectories,
-                                           process_features,
+                                           residual_features,
                                            config=config)
     anchors = anchors or {}
     if not trajectories or factor <= 0:
         result = fit_params_rollout(base_env,
                                     trajectories,
                                     physical_specs,
-                                    process_features,
+                                    residual_features,
                                     rules=rules,
                                     rule_specs=rule_specs,
                                     latent_init=latent_init,
@@ -711,7 +711,7 @@ def fit_params_rollout_trimmed(
         cached = min_explainable_fits(base_env,
                                       trajectories,
                                       physical_specs,
-                                      process_features,
+                                      residual_features,
                                       rules=rules,
                                       rule_specs=rule_specs,
                                       latent_init=latent_init,
@@ -761,7 +761,7 @@ def fit_params_rollout_trimmed(
         result = fit_params_rollout(base_env,
                                     survivors,
                                     physical_specs,
-                                    process_features,
+                                    residual_features,
                                     rules=rules,
                                     rule_specs=rule_specs,
                                     latent_init=latent_init,
@@ -772,7 +772,7 @@ def fit_params_rollout_trimmed(
         if len(survivors) <= 1 or consistency <= 0:
             break
         fit_rms = per_trajectory_rms(base_env, survivors,
-                                     result.point_estimate, process_features,
+                                     result.point_estimate, residual_features,
                                      physical_names, rules, latent_init,
                                      scaling)
         violated = [

@@ -123,15 +123,15 @@ def test_candidate_probe_model_provider_glue(tmp_path, monkeypatch) -> None:
 
     # Broken file: hard error too.
     with open(simulator_file, "w", encoding="utf-8") as f:
-        f.write("PROCESS_RULES = None\n")
+        f.write("RESIDUAL_RULES = None\n")
     with pytest.raises(RuntimeError, match="failed to load"):
         provider()
 
     valid = ("def _rule(state, updates, params):\n"
              "    return updates\n"
-             "PROCESS_RULES = [_rule]\n"
+             "RESIDUAL_RULES = [_rule]\n"
              "PARAM_SPECS = [ParamSpec('k', 1.0, lo=0.0, hi=2.0)]\n"
-             "PROCESS_FEATURES = {'thing': ['x']}\n")
+             "RESIDUAL_FEATURES = {'thing': ['x']}\n")
     with open(simulator_file, "w", encoding="utf-8") as f:
         f.write(valid)
     model = provider()
@@ -176,7 +176,7 @@ def test_probe_descriptions_follow_phase() -> None:
         from predicators.agent_sdk.tools import create_synthesis_tools
         toolkit = create_synthesis_tools(exec_ns={},
                                          base_pred_triples=[],
-                                         inferred_process_features={},
+                                         inferred_residual_features={},
                                          simulator_file="/dev/null",
                                          versions_dir="/dev/null")
         (run_python, ) = (t for t in toolkit.tools

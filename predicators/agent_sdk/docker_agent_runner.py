@@ -242,7 +242,7 @@ def main() -> None:
                     _cfg.option_model_name)
         ctx.option_model = create_option_model(
             _cfg.option_model_name,
-            skip_process_dynamics=_cfg.agent_planner_use_base_simulator)
+            skip_residual_dynamics=_cfg.agent_planner_use_base_simulator)
         # Sync with all options in context (GT + any previously proposed)
         # after the model has its physics server set up.
         ctx.option_model._name_to_parameterized_option = {  # pylint: disable=protected-access

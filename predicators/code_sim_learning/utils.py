@@ -2,26 +2,26 @@
 
 Two groups live here:
 
-Rule-DSL primitives — the API process-rule simulators (oracle modules
+Rule-DSL primitives — the API residual-rule simulators (oracle modules
 and agent-synthesized code) are written against:
 
 * ``apply_rules`` / ``apply_rules_with_latent`` — run a list of rule
-  functions on a state, return feature updates (``ProcessUpdate``);
+  functions on a state, return feature updates (``ResidualUpdate``);
   the latent variant threads a hidden-state dict and ``History``.
 * ``merge_updates`` — overwrite features in a ``State`` with values
-  from a ``ProcessUpdate``.
+  from a ``ResidualUpdate``.
 * ``rollout_predictions`` / ``iter_feature_residuals`` — teacher-forced
   rollouts of a rule set over recorded trajectories.
 * ``sigmoid`` / ``SOFT_EPS`` — building blocks for differentiable
-  soft gates in process rules.
+  soft gates in residual rules.
 * ``objs_by_type`` / ``init_latent`` / ``has_latent_rules`` — rule
   introspection and setup helpers.
 
 Simulator-artifact decoding — how a synthesized ``simulator.py``
 namespace is unpacked:
 
-* ``read_simulator_components`` — pull the ``PROCESS_RULES``,
-  ``PARAM_SPECS``, ``PROCESS_FEATURES`` triple out of a namespace
+* ``read_simulator_components`` — pull the ``RESIDUAL_RULES``,
+  ``PARAM_SPECS``, ``RESIDUAL_FEATURES`` triple out of a namespace
   (oracle module globals or agent-synthesized exec namespace).
 * ``read_latent_init`` / ``read_physical_param_specs`` /
   ``stamp_physical_spec_scales`` — optional artifact entries.
@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 # {Object: {feature_name: new_value}} — the dict that rule functions
 # accumulate into.
-ProcessUpdate = Dict[Object, Dict[str, float]]
+ResidualUpdate = Dict[Object, Dict[str, float]]
 
 # {param_name: value} — the params dict passed to rule functions.
 Params = Dict[str, float]
@@ -83,14 +83,14 @@ def objs_by_type(state: State) -> Dict[str, List[Object]]:
 
 
 def apply_rules(state: State, rules: List,
-                params: Dict[str, float]) -> ProcessUpdate:
-    """Apply process rules sequentially and return feature updates.
+                params: Dict[str, float]) -> ResidualUpdate:
+    """Apply residual rules sequentially and return feature updates.
 
     Each rule has signature ``rule(state, updates, params) -> updates``.
     Values are normalised to plain floats (rules may return numpy
     scalars).
     """
-    updates: ProcessUpdate = {}
+    updates: ResidualUpdate = {}
     for rule in rules:
         updates = rule(state, updates, params)
     return {
@@ -150,7 +150,7 @@ def apply_rules_with_latent(
     history: History,
     rules: List,
     params: Dict[str, float],
-) -> ProcessUpdate:
+) -> ResidualUpdate:
     """Apply rules with a ``latent`` state-feature block and read-only
     ``history``.
 
@@ -167,7 +167,7 @@ def apply_rules_with_latent(
     normalised to plain floats. The returned update dict has the
     same shape as ``apply_rules``'s output.
     """
-    updates: ProcessUpdate = {}
+    updates: ResidualUpdate = {}
     for rule in rules:
         if _rule_accepts_latent(rule):
             updates = rule(state, latent, history, updates, params)
@@ -212,7 +212,7 @@ def init_latent(
 
 def merge_updates(
     base_state: State,
-    updates: ProcessUpdate,
+    updates: ResidualUpdate,
 ) -> State:
     """Overwrite features in *base_state* with values from *updates*."""
     if not updates:
@@ -316,13 +316,13 @@ def read_simulator_components(
 
     Looks for three names by convention:
 
-    * ``PROCESS_RULES`` — non-empty list of rule functions.
+    * ``RESIDUAL_RULES`` — non-empty list of rule functions.
     * ``PARAM_SPECS``   — list of ``ParamSpec``, **or** a zero-arg
       callable returning such a list. The callable form lets oracle
       modules defer CFG-dependent values until consumption time, so the
       module can be imported before CFG is finalized; the agent's
       saved-file form normally just uses a list.
-    * ``PROCESS_FEATURES`` — ``{type_name: [feature_names]}`` dict.
+    * ``RESIDUAL_FEATURES`` — ``{type_name: [feature_names]}`` dict.
 
     Returns ``(rules, specs, features)`` with ``None`` for any
     missing-or-malformed component; callers decide how to react.
@@ -332,7 +332,9 @@ def read_simulator_components(
     :func:`read_latent_init` so existing callers don't have to grow
     a fourth tuple element.
     """
-    rules = ns.get("PROCESS_RULES")
+    # Legacy simulator files (pre-rename snapshots under logs/) still
+    # define PROCESS_RULES / PROCESS_FEATURES; accept them as aliases.
+    rules = ns.get("RESIDUAL_RULES", ns.get("PROCESS_RULES"))
     if not isinstance(rules, list) or not rules:
         rules = None
 
@@ -342,7 +344,7 @@ def read_simulator_components(
     if not isinstance(specs, list) or not specs:
         specs = None
 
-    features = ns.get("PROCESS_FEATURES")
+    features = ns.get("RESIDUAL_FEATURES", ns.get("PROCESS_FEATURES"))
     if features is not None and not isinstance(features, dict):
         features = None
 
@@ -382,7 +384,7 @@ def read_physical_param_specs(ns: Mapping[str, Any]) -> Optional[List]:
     ``PARAM_SPECS`` pattern). When present, these are fit *jointly* with
     ``PARAM_SPECS`` against free-running base-sim rollouts
     (:mod:`predicators.code_sim_learning.physical_sysid`), and a
-    physics-only artifact (no ``PROCESS_RULES``) becomes valid. Returns
+    physics-only artifact (no ``RESIDUAL_RULES``) becomes valid. Returns
     ``None`` if absent or malformed.
     """
     specs = ns.get("PHYSICAL_PARAMS")
@@ -423,12 +425,12 @@ def stamp_physical_spec_scales(specs: List, base_env: Any) -> List:
 class LearnedSimulator:
     """Wraps a step-level simulator function (handwritten or LLM-synthesized).
 
-    The function predicts process dynamics — features like water_volume,
-    heat_level, spilled_level that aren't captured by rigid body
-    physics.
+    The function predicts residual dynamics — features like
+    water_volume, heat_level, spilled_level that aren't captured by
+    rigid body physics.
     """
 
-    StepFn = Callable[[State], ProcessUpdate]
+    StepFn = Callable[[State], ResidualUpdate]
 
     def __init__(self,
                  step_fn: StepFn,
@@ -436,8 +438,8 @@ class LearnedSimulator:
         self._step_fn = step_fn
         self.name = name
 
-    def predict_step(self, state: State) -> ProcessUpdate:
-        """Predict process feature updates for a single timestep.
+    def predict_step(self, state: State) -> ResidualUpdate:
+        """Predict residual feature updates for a single timestep.
 
         Fails soft: agent-written simulators may raise on states they
         never anticipated, so any exception is logged and treated as "no

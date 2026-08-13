@@ -57,8 +57,8 @@ def _load_synth_simulator(
     exec(src, exec_ns)  # pylint: disable=exec-used
     rules, specs, features = read_simulator_components(exec_ns)
     assert rules and specs and features, (
-        f"Snapshot {path} is missing PROCESS_RULES/PARAM_SPECS/"
-        f"PROCESS_FEATURES.")
+        f"Snapshot {path} is missing RESIDUAL_RULES/PARAM_SPECS/"
+        f"RESIDUAL_FEATURES.")
     params = {s.name: s.init_value for s in specs}
     return rules, params, features
 
@@ -130,7 +130,7 @@ def test_synth_simulator_refinement_agrees_with_real_execution():
     body inside the jug during Wait — a mass=0.01 body with collision
     geometry, recreated every fill tick — that pushed the jug a few cm
     over Wait's ~30-50 ticks. The synth simulator (base env with
-    skip_process_dynamics=True + learned step dynamics) never spawned
+    skip_residual_dynamics=True + learned step dynamics) never spawned
     that body, so its post-Wait jug pose matched Place exactly, while
     the real env's drifted. The 2nd PickJug's IK target tracks
     ``jug.x + cos(rot)*handle_offset``, so the divergent jug pose
@@ -174,11 +174,11 @@ def test_synth_simulator_refinement_agrees_with_real_execution():
 
     # Build the combined simulator the same way
     # AgentSimLearningApproach._build_combined_simulator does: a base
-    # env with skip_process_dynamics=True + the learned step dynamics.
+    # env with skip_residual_dynamics=True + the learned step dynamics.
     base_env = create_new_env("pybullet_boil",
                               do_cache=False,
                               use_gui=False,
-                              skip_process_dynamics=True)
+                              skip_residual_dynamics=True)
 
     def combined_simulate(state, action):
         base_state = base_env.simulate(state, action)

@@ -395,7 +395,7 @@ automatically. To share parameters between a rule and a predicate — a \
 distance threshold, and the local-frame anchor offset (`*_local_dx`, \
 `*_local_dy`) it is measured from — declare them once in `PARAM_SPECS` \
 and reference `params["name"]` from both. This is the recommended \
-pattern whenever a single physical gate drives both process dynamics \
+pattern whenever a single physical gate drives both residual dynamics \
 (the rule's "fire" condition) and a control-relevant predicate (the \
 planner's "this subgoal is reached" check); it also gives the anchor \
 offset an SSE signal from the rule's step data, which a predicate-only \

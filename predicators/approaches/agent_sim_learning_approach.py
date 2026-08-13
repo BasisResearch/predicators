@@ -1,6 +1,6 @@
 """Agent sim-learning approach: learns a simulator program online.
 
-Extends AgentModelBasedApproach to learn process dynamics via an
+Extends AgentModelBasedApproach to learn residual dynamics via an
 agent-synthesized step-level simulator with parameterized process
 rules. Parameters are fitted via emcee ensemble MCMC (training.py).
 
@@ -100,11 +100,11 @@ def rule(state, updates, params):
 # ``__UPPER_SNAKE__`` placeholders are substituted per instance
 # (observability, env parameter menu, tool surface, subclass extras).
 _SYNTHESIS_SYSTEM_PROMPT_TEMPLATE = """\
-You are synthesizing a parameterized process-dynamics simulator for a \
+You are synthesizing a parameterized residual-dynamics simulator for a \
 robotic manipulation environment.
 
 A separate PyBullet base sim handles robot movement, grasping, and rigid- \
-body physics. Your simulator handles **process dynamics** - features \
+body physics. Your simulator handles **residual dynamics** - features \
 that change due to physical or causal processes (gradual level changes, \
 accumulation, propagation between contacting objects, sensor readouts \
 that lag actuators, etc.) that the base sim doesn't model.
@@ -115,12 +115,12 @@ One file `simulator.py` (path given in the first message) defining three \
 top-level names:
 
 ```python
-PROCESS_RULES:    List[Callable]            # rule functions (see signature below)
+RESIDUAL_RULES:    List[Callable]            # rule functions (see signature below)
 PARAM_SPECS:      List[ParamSpec]           # learnable parameters
-PROCESS_FEATURES: Dict[str, List[str]]      # {type_name: [feature_names]} your rules predict
+RESIDUAL_FEATURES: Dict[str, List[str]]      # {type_name: [feature_names]} your rules predict
 ```
 
-`PROCESS_FEATURES` defines both the loss scope and the test-time overwrite \
+`RESIDUAL_FEATURES` defines both the loss scope and the test-time overwrite \
 scope: only the listed `(type, feature)` pairs are scored against \
 observations, and only those are written on top of the base sim at test \
 time. Be honest - listing features your rules don't actually update \
@@ -163,7 +163,7 @@ Each rule fires once per step:
 ```
 state[t] ──base_sim──▶ draft state[t+1] ──your rules──▶ final state[t+1]
                                                ^^^^^^^
-                        (only PROCESS_FEATURES are overwritten)
+                        (only RESIDUAL_FEATURES are overwritten)
 ```
 
 Rules see `state[t]`. They cannot see actions, the base sim's draft, or \
@@ -200,7 +200,7 @@ PARAM_SPECS = [
 ]
 
 # `fixture`, `widget`: the relevant object pair (bind as your rule needs).
-__PROCESS_RULE_SIGNATURE__
+__RESIDUAL_RULE_SIGNATURE__
     rot = state.get(fixture, "rot")
     cos_r, sin_r = np.cos(rot), np.sin(rot)
     rot_mat = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
@@ -298,7 +298,7 @@ When `sim.refine` passes but the continuous `sim.run` reports a \
 almost always one of these:
 
 1. **A learned gate threshold is wider than the env's effective \
-threshold.** Example: the env's process rule only fires when the \
+threshold.** Example: the env's residual rule only fires when the \
 widget-to-fixture distance < 0.05, but you set \
 `widget_at_fixture_dist = 0.063` for "safety margin". Refinement \
 accepts a Place at distance 0.05–0.063 (your `WidgetAtFixture` \
@@ -405,7 +405,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     During online learning:
     1. Collect trajectories (inherited from AgentModelBasedApproach)
     2. Segment into option-level transitions
-    3. Synthesize parameterized process rules via Claude agent
+    3. Synthesize parameterized residual rules via Claude agent
     4. Fit rule parameters via emcee ensemble MCMC
     5. Compose with base oracle into a combined simulator
     6. Build _OracleOptionModel with the combined simulator
@@ -443,7 +443,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         self._base_env = create_new_env(CFG.env,
                                         do_cache=False,
                                         use_gui=CFG.option_model_use_gui,
-                                        skip_process_dynamics=True)
+                                        skip_residual_dynamics=True)
         if option_model is None:
             option_model = _OracleOptionModel(initial_options,
                                               self._base_env.simulate)
@@ -491,8 +491,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 f"Missing on train task indices: {missing_nl}")
         self._learned_simulator: Optional[LearnedSimulator] = None
         # Loss-scope mask for parameter fitting (compute_sse).
-        self._process_features: Dict[str, List[str]] = {}
-        self._process_rules: Optional[List] = None
+        self._residual_features: Dict[str, List[str]] = {}
+        self._residual_rules: Optional[List] = None
         # Always the same dict object: fits update it in place via
         # clear()+update() so _ParamsView (held by invented predicate
         # classifiers) picks up new values without holding a reference to
@@ -816,7 +816,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             fit_env = create_new_env(CFG.env,
                                      do_cache=False,
                                      use_gui=False,
-                                     skip_process_dynamics=True)
+                                     skip_residual_dynamics=True)
             logger.info("Pre-computing base states for %d transitions.",
                         len(obs_triples))
             try:
@@ -828,9 +828,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 # cycle leaks a full physics world (~145MB for the
                 # domino env).
                 dispose_env(fit_env)
-            inferred_hint = self._infer_process_features_from_residuals(
+            inferred_hint = self._infer_residual_features_from_scan(
                 obs_triples, base_pred_triples)
-            logger.info("Process features (data-driven hint): %s",
+            logger.info("Residual features (data-driven hint): %s",
                         inferred_hint)
         else:
             # The oracle sim program is data-free (rules and parameter
@@ -845,8 +845,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         self._synthesize_with_agent(trajectories, obs_triples,
                                     base_pred_triples, inferred_hint)
 
-        if self._process_rules is not None and self._fitted_params:
-            rules, params = self._process_rules, self._fitted_params
+        if self._residual_rules is not None and self._fitted_params:
+            rules, params = self._residual_rules, self._fitted_params
             self._learned_simulator = LearnedSimulator(
                 step_fn=lambda s, _r=rules, _p=params:  # type: ignore[misc]
                 apply_rules(s, _r, _p),
@@ -936,8 +936,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             if not os.path.isfile(simulator_file):
                 raise RuntimeError(
                     "explore_python probe: no candidate simulator yet - "
-                    "write ./simulator.py (PROCESS_RULES / PARAM_SPECS / "
-                    "PROCESS_FEATURES) first; the probe runs against it.")
+                    "write ./simulator.py (RESIDUAL_RULES / PARAM_SPECS / "
+                    "RESIDUAL_FEATURES) first; the probe runs against it.")
             with open(simulator_file, "rb") as f:
                 digest = hashlib.sha256(f.read()).hexdigest()
             if cache.get("digest") == digest:
@@ -948,17 +948,17 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             if rules is None or specs is None:
                 raise RuntimeError(
                     "explore_python probe: ./simulator.py failed to load "
-                    "(exec error, or PROCESS_RULES / PARAM_SPECS missing) - "
+                    "(exec error, or RESIDUAL_RULES / PARAM_SPECS missing) - "
                     "fix the file and probe again.")
-            process_features = (features
-                                if features is not None else inferred_hint)
+            residual_features = (features
+                                 if features is not None else inferred_hint)
             latent_init = read_latent_init(ns) if isinstance(ns,
                                                              dict) else None
             model, _, fit_sse = build_candidate_option_model(
                 self,
                 rules,
                 specs,
-                process_features,
+                residual_features,
                 base_pred_triples,
                 latent_init=latent_init)
             logger.info(
@@ -1119,18 +1119,18 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         base_pred_triples: List[Tuple[State, Action, State]],
         inferred_hint: Dict[str, List[str]],
     ) -> None:
-        """Obtain PROCESS_RULES / PARAM_SPECS / PROCESS_FEATURES, then fit.
+        """Obtain RESIDUAL_RULES / PARAM_SPECS / RESIDUAL_FEATURES, then fit.
 
         ``inferred_hint`` is passed to the agent as a starting point and
         used as the eval/test scope until it declares its own
-        ``PROCESS_FEATURES``. CFG flag
+        ``RESIDUAL_FEATURES``. CFG flag
         ``agent_sim_learn_oracle_sim_program`` short-circuits the agent
         session by loading the GT simulator instead (and
         ``agent_sim_learn_oracle_sim_params`` additionally skips the
         MCMC fit; see :meth:`_fit_params_after_synthesis`).
         """
         if CFG.agent_sim_learn_oracle_sim_program:
-            rules, specs, process_features = \
+            rules, specs, residual_features = \
                 self._load_oracle_sim_program(inferred_hint)
         else:
             loaded = self._run_agent_synthesis_session(trajectories,
@@ -1139,11 +1139,11 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                                                        inferred_hint)
             if loaded is None:
                 return
-            rules, specs, process_features = loaded
-        self._process_rules = rules
-        self._process_features = process_features
+            rules, specs, residual_features = loaded
+        self._residual_rules = rules
+        self._residual_features = residual_features
         self._fit_params_after_synthesis(rules, specs, base_pred_triples,
-                                         process_features)
+                                         residual_features)
 
     def _load_oracle_sim_program(
         self, inferred_hint: Dict[str, List[str]]
@@ -1163,14 +1163,14 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         declared parameter inits are perturbed so the subsequent fit
         starts from a miscalibrated - not oracle - belief.
         """
-        rules, specs, process_features = get_gt_simulator(CFG.env)
-        self._log_feature_set_diff(inferred_hint, process_features, "inferred",
-                                   "oracle")
+        rules, specs, residual_features = get_gt_simulator(CFG.env)
+        self._log_feature_set_diff(inferred_hint, residual_features,
+                                   "inferred", "oracle")
         if not CFG.agent_sim_learn_oracle_sim_params:
             specs = self._perturb_spec_inits(specs)
         logger.info("Loaded oracle sim program (%d rules, %d params).",
                     len(rules), len(specs))
-        return rules, specs, process_features
+        return rules, specs, residual_features
 
     @staticmethod
     def _perturb_spec_inits(specs: List[ParamSpec]) -> List[ParamSpec]:
@@ -1208,7 +1208,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     ) -> Optional[Tuple[List, List[ParamSpec], Dict[str, List[str]]]]:
         """Run one agent synthesis session and load what it committed.
 
-        Returns ``(rules, specs, process_features)``, or None when the
+        Returns ``(rules, specs, residual_features)``, or None when the
         session left no loadable simulator artifact. Per-skill samplers
         (when enabled) ride along in the same session.
         """
@@ -1468,7 +1468,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             tool_listing = "\n".join(f"  - {t}" for t in session_tool_names)
             tools_block = f"## Available Tools\n{tool_listing}\n\n"
         message = f"""\
-Synthesize a process dynamics simulator for this environment. \
+Synthesize a residual dynamics simulator for this environment. \
 There are {n_trajs} trajectories ({len(obs_triples)} step \
 transitions) available: {n_demos} oracle demonstration(s) (goal \
 reached by construction) and {n_interaction} interaction \
@@ -1492,7 +1492,7 @@ should work" but the env disagreed.
 {structs_ref}
 
 A residual scan between the base simulator's prediction and the \
-observed next state suggests these features carry process dynamics \
+observed next state suggests these features carry residual dynamics \
 (starting hint, may include base-sim jitter - refine as you go):
 {inferred_hint}
 
@@ -1518,8 +1518,8 @@ data with `run_python` (variables: `trajectories`, `train_tasks`, \
 `is_goal_state`, `describe_trajectory(traj_idx)` for a per-timestep \
 digest, `np`, `ParamSpec`, plus `evaluate_trajectory` when a \
 task objective is stated above). Write your simulator to \
-`{simulator_file_for_agent}` - define PROCESS_RULES, PARAM_SPECS, \
-and PROCESS_FEATURES there. Begin the file with a short DECISION \
+`{simulator_file_for_agent}` - define RESIDUAL_RULES, PARAM_SPECS, \
+and RESIDUAL_FEATURES there. Begin the file with a short DECISION \
 RECORD comment stating your key modeling choices and the evidence \
 behind them: which dynamics the base sim carries vs. your process \
 rules, which features the rules own, any latent structure, and any \
@@ -1552,7 +1552,7 @@ re-score.{probe_note}"""
     ) -> Optional[Tuple[List, List[ParamSpec], Dict[str, List[str]]]]:
         """Load the artifacts the finished session committed to disk.
 
-        Returns ``(rules, specs, process_features)`` or None when no
+        Returns ``(rules, specs, residual_features)`` or None when no
         loadable simulator exists. The optional LATENT_INIT /
         PHYSICAL_PARAMS side exports are recorded on ``self`` before the
         loadability check, so they are picked up even from an artifact
@@ -1590,24 +1590,24 @@ re-score.{probe_note}"""
         if rules is None or specs is None:
             return None
         assert declared_features is not None, (
-            "Agent did not declare PROCESS_FEATURES; "
+            "Agent did not declare RESIDUAL_FEATURES; "
             "synthesis output is incomplete.")
-        process_features = declared_features
-        self._log_feature_set_diff(inferred_hint, process_features, "inferred",
-                                   "declared")
+        residual_features = declared_features
+        self._log_feature_set_diff(inferred_hint, residual_features,
+                                   "inferred", "declared")
         logger.info("Agent synthesized %d rules, %d params.", len(rules),
                     len(specs))
         self._post_synthesis_loading(extra_paths, specs)
         if self._do_synthesize_samplers:
             self._finalize_and_load_samplers(sampler_paths)
-        return rules, specs, process_features
+        return rules, specs, residual_features
 
     def _fit_params_after_synthesis(
         self,
         rules: List,
         specs: List[ParamSpec],
         base_pred_triples: List[Tuple[State, Action, State]],
-        process_features: Dict[str, List[str]],
+        residual_features: Dict[str, List[str]],
     ) -> None:
         """Fit/store solver params and, separately, explorer posterior."""
         if CFG.agent_sim_learn_oracle_sim_params:
@@ -1623,7 +1623,7 @@ re-score.{probe_note}"""
             if base_pred_triples:
                 self._fit_sse = self._oracle_param_sse(rules,
                                                        base_pred_triples,
-                                                       process_features,
+                                                       residual_features,
                                                        FIT_NOISE_SIGMA)
             else:
                 logger.info("No transitions; skipping oracle-param SSE.")
@@ -1649,13 +1649,13 @@ re-score.{probe_note}"""
                 # see physical params - no velocities in State).
                 fit_result, self._fit_sse = (
                     self._fit_parameters_joint_rollout(rules, specs,
-                                                       process_features))
+                                                       residual_features))
             elif has_latent_rules(rules):
                 fit_result, self._fit_sse = self._fit_parameters_recurrent(
-                    rules, specs, base_pred_triples, process_features)
+                    rules, specs, base_pred_triples, residual_features)
             else:
                 fit_result, self._fit_sse = fit_rule_parameters(
-                    rules, specs, base_pred_triples, process_features)
+                    rules, specs, base_pred_triples, residual_features)
             self._last_fit_result = fit_result
             self._fitted_params.clear()
             self._fitted_params.update(fit_result.point_estimate)
@@ -1667,7 +1667,7 @@ re-score.{probe_note}"""
 
             self._maybe_refit_exploration_posterior(rules, specs,
                                                     base_pred_triples,
-                                                    process_features)
+                                                    residual_features)
 
         # Remember the specs (names + bounds) and rebuild the active-
         # experiment ensemble. Cheap and only consumed when info-seeking
@@ -1681,7 +1681,7 @@ re-score.{probe_note}"""
         rules: List,
         specs: List[ParamSpec],
         base_pred_triples: List[Tuple[State, Action, State]],
-        process_features: Dict[str, List[str]],
+        residual_features: Dict[str, List[str]],
     ) -> None:
         """Run the exploration-only posterior fit, when one is needed.
 
@@ -1704,13 +1704,13 @@ re-score.{probe_note}"""
                 rules,
                 specs,
                 base_pred_triples,
-                process_features,
+                residual_features,
                 num_steps=num_steps)
         else:
             fit_result, sse = fit_rule_parameters(rules,
                                                   specs,
                                                   base_pred_triples,
-                                                  process_features,
+                                                  residual_features,
                                                   num_steps=num_steps)
         self._last_fit_result = fit_result
         logger.info(
@@ -1723,7 +1723,7 @@ re-score.{probe_note}"""
         self,
         rules: List,
         base_pred_triples: List[Tuple[State, Action, State]],
-        process_features: Dict[str, List[str]],
+        residual_features: Dict[str, List[str]],
         noise_sigma: float,
     ) -> float:
         """Compute and log the SSE for oracle params (no fitting).
@@ -1737,12 +1737,12 @@ re-score.{probe_note}"""
         """
         if has_latent_rules(rules):
             return self._oracle_param_sse_recurrent(rules, base_pred_triples,
-                                                    process_features,
+                                                    residual_features,
                                                     noise_sigma)
         oracle_sim_fn = lambda s, a, p: apply_rules(  # noqa: E731
             s, rules, p)
         sse = compute_sse(oracle_sim_fn, base_pred_triples,
-                          self._fitted_params, process_features)
+                          self._fitted_params, residual_features)
         fit_ll = -0.5 * sse / (noise_sigma**2)
         logger.info("Oracle params - SSE: %.6f  log-likelihood: %.2f", sse,
                     fit_ll)
@@ -1751,7 +1751,7 @@ re-score.{probe_note}"""
         log_sse_breakdown(oracle_sim_fn,
                           base_pred_triples,
                           self._fitted_params,
-                          process_features,
+                          residual_features,
                           label="oracle")
         return sse
 
@@ -1778,20 +1778,20 @@ re-score.{probe_note}"""
             return create_new_env(CFG.env,
                                   do_cache=False,
                                   use_gui=False,
-                                  skip_process_dynamics=True)
+                                  skip_residual_dynamics=True)
 
         return _make
 
     def _rollout_fit_trajectories(
         self,
-        process_features: Optional[Dict[str, List[str]]] = None,
+        residual_features: Optional[Dict[str, List[str]]] = None,
         traj_idxs: Optional[Sequence[int]] = None,
     ) -> List[RolloutTrajectory]:
         """Raw observed (states, actions) sequences for rollout matching.
 
         Unlike ``base_pred_triples`` these keep each trajectory whole, so
         momentum can accrue across steps in the free-running rollout.
-        When ``process_features`` is given (the fit's scored features)
+        When ``residual_features`` is given (the fit's scored features)
         and ``CFG.code_sim_learning_rollout_truncate_settled`` is on,
         each trajectory's static tail is cut (see
         :func:`trajectory_prep.truncate_settled_tail`) so the fit scores
@@ -1815,11 +1815,11 @@ re-score.{probe_note}"""
         for traj in source:
             if traj.actions and len(traj.states) == len(traj.actions) + 1:
                 rollouts.append((list(traj.states), list(traj.actions)))
-        if (process_features is not None
+        if (residual_features is not None
                 and CFG.code_sim_learning_rollout_truncate_settled
                 and rollouts):
             truncated = [
-                truncate_settled_tail(r, process_features) for r in rollouts
+                truncate_settled_tail(r, residual_features) for r in rollouts
             ]
             logger.info(
                 "Rollout sysID: settled-tail truncation %s (tol=%g, "
@@ -1828,7 +1828,7 @@ re-score.{probe_note}"""
                 CFG.code_sim_learning_rollout_settle_tol,
                 CFG.code_sim_learning_rollout_settle_margin)
             rollouts = truncated
-        if (process_features is not None
+        if (residual_features is not None
                 and CFG.code_sim_learning_rollout_segment_on_rest
                 and rollouts):
             # Multiple shooting: re-anchor at observed rest points so
@@ -1837,7 +1837,7 @@ re-score.{probe_note}"""
             # discarding the clean cascade next to it.
             segments: List[RolloutTrajectory] = []
             for r in rollouts:
-                segments.extend(split_at_rest_points(r, process_features))
+                segments.extend(split_at_rest_points(r, residual_features))
             logger.info(
                 "Rollout sysID: rest-point segmentation %d trajectories -> "
                 "%d segments (lengths %s).", len(rollouts), len(segments),
@@ -1925,7 +1925,7 @@ re-score.{probe_note}"""
         self,
         rules: List,
         rule_specs: List[ParamSpec],
-        process_features: Dict[str, List[str]],
+        residual_features: Dict[str, List[str]],
     ) -> Tuple[FitResult, float]:
         """Joint physical+rule fit against free-running base-sim rollouts.
 
@@ -1946,7 +1946,7 @@ re-score.{probe_note}"""
         # Factory, not an instance: every rollout runs in a fresh env.
         fit_env = self._get_rollout_fit_env()
         self._persist_fit_trajectories()
-        rollouts = self._rollout_fit_trajectories(process_features)
+        rollouts = self._rollout_fit_trajectories(residual_features)
         init_params = {
             s.name: s.init_value
             for s in physical_specs + rule_specs
@@ -1958,7 +1958,7 @@ re-score.{probe_note}"""
                 "declared physical-param inits unfitted.")
             result = fit_params_rollout(fit_env, [],
                                         physical_specs,
-                                        process_features,
+                                        residual_features,
                                         rules=rules,
                                         rule_specs=rule_specs,
                                         latent_init=self._latent_init,
@@ -1978,7 +1978,7 @@ re-score.{probe_note}"""
             fit_env,
             rollouts,
             physical_specs,
-            process_features,
+            residual_features,
             rules=rules,
             rule_specs=rule_specs,
             latent_init=self._latent_init,
@@ -2315,7 +2315,7 @@ re-score.{probe_note}"""
         rules: List,
         specs: List[ParamSpec],
         base_pred_triples: List[Tuple[State, Action, State]],
-        process_features: Dict[str, List[str]],
+        residual_features: Dict[str, List[str]],
         num_steps: Optional[int] = None,
     ) -> Tuple[FitResult, float]:
         """MCMC over the recurrent (per-trajectory) SSE.
@@ -2339,14 +2339,14 @@ re-score.{probe_note}"""
                                           specs,
                                           groups,
                                           self._latent_init,
-                                          process_features,
+                                          residual_features,
                                           num_steps=num_steps)
 
     def _oracle_param_sse_recurrent(
         self,
         rules: List,
         base_pred_triples: List[Tuple[State, Action, State]],
-        process_features: Dict[str, List[str]],
+        residual_features: Dict[str, List[str]],
         noise_sigma: float,
     ) -> float:
         """Oracle-param SSE via the recurrent (latent-threaded) rollout.
@@ -2361,7 +2361,7 @@ re-score.{probe_note}"""
                            "falling back to single-trajectory rollout.")
             groups = [base_pred_triples]
         sse = compute_sse_recurrent(rules, groups, self._fitted_params,
-                                    self._latent_init, process_features)
+                                    self._latent_init, residual_features)
         fit_ll = -0.5 * sse / (noise_sigma**2)
         logger.info(
             "Oracle params (recurrent) - SSE: %.6f  log-likelihood: %.2f", sse,
@@ -2406,9 +2406,9 @@ re-score.{probe_note}"""
         rules are loaded, every entry is ``None`` so latent-aware
         classifiers fall back to their default branch.
         """
-        if not self._process_rules:
+        if not self._residual_rules:
             return [None] * len(traj.states)
-        rules = self._process_rules
+        rules = self._residual_rules
         params = self._fitted_params
         latent = init_latent(self._latent_init, params)
         out: List[Optional[Dict[str, Any]]] = [dict(latent)]
@@ -2439,9 +2439,9 @@ re-score.{probe_note}"""
         ``init_latent``. The latent-free ``learned_simulator`` used by
         :meth:`_build_combined_simulator` is bypassed.
         """
-        assert self._process_rules is not None, (
+        assert self._residual_rules is not None, (
             "_build_latent_combined_simulator called before rules loaded")
-        rules: List = self._process_rules
+        rules: List = self._residual_rules
         latent_init = self._latent_init
         # Reference the dict (not its values) so MCMC param updates are
         # picked up by the closure live.
@@ -2468,7 +2468,8 @@ re-score.{probe_note}"""
             # (e.g. bubbling_level derived from a hidden heat_level): the
             # base env's value is meaningless there, so restore the carried
             # value before the rules read it.
-            self._restore_unreconstructible_process_features(base_state, state)
+            self._restore_unreconstructible_residual_features(
+                base_state, state)
             # Single-step history window; rules needing longer context
             # must accumulate it in ``latent``.
             history: List[Tuple[State,
@@ -2482,7 +2483,7 @@ re-score.{probe_note}"""
 
         return combined_simulate
 
-    # ── Process-feature inference ────────────────────────────────
+    # ── Residual-feature inference ────────────────────────────────
 
     @staticmethod
     def _compute_base_pred_triples(
@@ -2494,7 +2495,7 @@ re-score.{probe_note}"""
                 for s, a, s_next in obs_triples]
 
     @staticmethod
-    def _infer_process_features_from_residuals(
+    def _infer_residual_features_from_scan(
         obs_triples: List[Tuple[State, Action, State]],
         base_pred_triples: List[Tuple[State, Action, State]],
         abs_tol: float = 1e-4,
@@ -2718,16 +2719,16 @@ files to see exactly which rules and predicates produced each failed plan.
         trajectories: Optional[List[LowLevelTrajectory]] = None,
     ) -> Tuple[Optional[List], Optional[List[ParamSpec]], Optional[Dict[
             str, List[str]]], Optional[Dict[str, Any]]]:
-        """Load PROCESS_RULES, PARAM_SPECS, PROCESS_FEATURES from one file.
+        """Load RESIDUAL_RULES, PARAM_SPECS, RESIDUAL_FEATURES from one file.
 
         Execs ``path`` once in a fresh namespace and returns ``(rules,
         specs, features, ns)``, where ``ns`` is that exec namespace so
         callers/subclasses can read extra exports (e.g. ``LATENT_INIT``)
         without re-execing. ``ns`` is ``None`` only when no exec
         happened (missing file or exec failure). ``rules``/``specs`` are
-        ``None`` when ``PROCESS_RULES``/``PARAM_SPECS`` is absent (the
+        ``None`` when ``RESIDUAL_RULES``/``PARAM_SPECS`` is absent (the
         caller treats that as failure); ``features`` may be ``None``
-        independently (``PROCESS_FEATURES`` is then asserted by the
+        independently (``RESIDUAL_FEATURES`` is then asserted by the
         caller).
         """
         if not os.path.isfile(path):
@@ -2748,13 +2749,13 @@ files to see exactly which rules and predicates produced each failed plan.
             return None, None, None, None
 
         rules, specs, features = read_simulator_components(ns)
-        # A physics-only artifact (PHYSICAL_PARAMS with no process rules)
+        # A physics-only artifact (PHYSICAL_PARAMS with no residual rules)
         # is valid: the base sim carries all the dynamics once its
         # parameters are identified, so rules/specs default to empty.
         physics_only = read_physical_param_specs(ns) is not None
         if rules is None:
             if not physics_only:
-                logger.warning("Simulator file %s missing PROCESS_RULES.",
+                logger.warning("Simulator file %s missing RESIDUAL_RULES.",
                                path)
                 return None, None, None, ns
             rules = []
@@ -2827,7 +2828,7 @@ files to see exactly which rules and predicates produced each failed plan.
         self._base_env = create_new_env(CFG.env,
                                         do_cache=False,
                                         use_gui=CFG.option_model_use_gui,
-                                        skip_process_dynamics=True)
+                                        skip_residual_dynamics=True)
         # A fresh env comes up with built-in physics; re-assert any
         # identified physical params (the in-place override does not
         # survive env recreation).
@@ -2878,7 +2879,7 @@ files to see exactly which rules and predicates produced each failed plan.
         fresh = create_new_env(CFG.env,
                                do_cache=False,
                                use_gui=False,
-                               skip_process_dynamics=True)
+                               skip_residual_dynamics=True)
         if self._identified_physical_params:
             fresh.apply_physical_param_overrides(
                 self._identified_physical_params)
@@ -2915,9 +2916,9 @@ files to see exactly which rules and predicates produced each failed plan.
                 except Exception:  # pylint: disable=broad-except
                     pass  # client already dead (crashed mid-rollout)
 
-    def _restore_unreconstructible_process_features(self, base_state: State,
-                                                    prev_state: State) -> None:
-        """Restore process features the base env's reset couldn't round-trip.
+    def _restore_unreconstructible_residual_features(
+            self, base_state: State, prev_state: State) -> None:
+        """Restore residual features the base env's reset couldn't round-trip.
 
         When the option model backtracks (jumps to a non-current node), the
         base PyBullet env reconstructs the State from observables only, so a
@@ -2929,7 +2930,7 @@ files to see exactly which rules and predicates produced each failed plan.
 
         Scoping is the key to not breaking co-owned features: restore only
         the intersection of (a) the env's reported unreconstructible set for
-        this step and (b) the declared ``PROCESS_FEATURES``. A kinematic,
+        this step and (b) the declared ``RESIDUAL_FEATURES``. A kinematic,
         base-reconstructible feature that a robot legitimately moves (e.g. a
         wind-blown ball's ``x, y`` in the fans env) round-trips through the
         reset, so it never enters the env's set and is left to the base sim.
@@ -2937,10 +2938,10 @@ files to see exactly which rules and predicates produced each failed plan.
         """
         lossy = getattr(self._base_env, "_last_unreconstructible_features",
                         None)
-        if not lossy or not self._process_features:
+        if not lossy or not self._residual_features:
             return
         for obj, feat in lossy:
-            if feat in self._process_features.get(obj.type.name, []) \
+            if feat in self._residual_features.get(obj.type.name, []) \
                     and obj in prev_state.data:
                 base_state.set(obj, feat, prev_state.get(obj, feat))
 
@@ -2958,7 +2959,7 @@ files to see exactly which rules and predicates produced each failed plan.
         ``state.latent`` through the recurrent rules instead of the
         latent-free ``learned_simulator``.
         """
-        if has_latent_rules(self._process_rules or []):
+        if has_latent_rules(self._residual_rules or []):
             return self._build_latent_combined_simulator()
 
         def combined_simulate(state: State, action: Action) -> State:
@@ -2970,7 +2971,8 @@ files to see exactly which rules and predicates produced each failed plan.
                     "recreating base env and retrying.", e)
                 self._recreate_base_env()
                 base_state = self._base_env.simulate(state, action)
-            self._restore_unreconstructible_process_features(base_state, state)
+            self._restore_unreconstructible_residual_features(
+                base_state, state)
             updates = learned_simulator.predict_step(base_state)
             if not updates:
                 return base_state
@@ -2993,12 +2995,12 @@ files to see exactly which rules and predicates produced each failed plan.
         Reads the live ``self._fitted_params`` dict so in-session
         ``sim.fit`` updates reach the probe, matching the combined
         simulator's closure. Returns None (probe stays base-only) until
-        rules exist. Limitation: process features the env cannot
+        rules exist. Limitation: residual features the env cannot
         round-trip through ``_set_state`` (hidden-derived, e.g. a
         ``bubbling_level``) are not restored inside the probe replay -
         no env with a physics-replaying certificate declares any today.
         """
-        rules = getattr(self, "_process_rules", None)
+        rules = getattr(self, "_residual_rules", None)
         if not rules:
             return None
         params = self._fitted_params
@@ -3046,8 +3048,8 @@ files to see exactly which rules and predicates produced each failed plan.
         prompt = _SYNTHESIS_SYSTEM_PROMPT_TEMPLATE
         prompt = prompt.replace("__RULE_SIGNATURE_SECTION__",
                                 self._rule_signature_section())
-        prompt = prompt.replace("__PROCESS_RULE_SIGNATURE__",
-                                self._process_rule_signature())
+        prompt = prompt.replace("__RESIDUAL_RULE_SIGNATURE__",
+                                self._residual_rule_signature())
         prompt = prompt.replace("__PHYSICAL_PARAMS_SECTION__",
                                 self._physical_params_prompt_section())
         prompt = prompt.replace("__SCENE_VIZ_HINT__", self._scene_viz_hint())
@@ -3164,10 +3166,10 @@ files to see exactly which rules and predicates produced each failed plan.
             "fit destroys), and physical + rule parameters are fit "
             "**jointly** in one posterior, so rules cannot silently "
             "absorb physics error.",
-            "- A physics-only artifact is valid: `PROCESS_RULES = []` and "
+            "- A physics-only artifact is valid: `RESIDUAL_RULES = []` and "
             "`PARAM_SPECS = []` with a non-empty `PHYSICAL_PARAMS` means "
             "the calibrated base sim carries all the dynamics. "
-            "`PROCESS_FEATURES` must still be declared - it defines which "
+            "`RESIDUAL_FEATURES` must still be declared - it defines which "
             "features the rollout is scored on (e.g. the pose features "
             "of the objects whose motion you are calibrating).",
             "- After the fit, the identified values are applied to the "
@@ -3186,11 +3188,11 @@ files to see exactly which rules and predicates produced each failed plan.
         """
         return _FO_RULE_SIGNATURE_SECTION
 
-    def _process_rule_signature(self) -> str:
+    def _residual_rule_signature(self) -> str:
         """The ``def`` line used in the geometric-gate example.
 
         Matches the signature advertised by
         :meth:`_rule_signature_section` so the worked example doesn't
         contradict the canonical signature.
         """
-        return "def process_rule(state, updates, params):"
+        return "def residual_rule(state, updates, params):"

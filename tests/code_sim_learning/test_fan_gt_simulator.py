@@ -1,8 +1,8 @@
 """Test the fan GT hybrid simulator against the real env.
 
 The fan env applies its wind dynamics in ``_domain_specific_step``,
-which the approaches' base sims skip (``skip_process_dynamics=True``),
-so the GT process rules must reproduce the ball's wind-driven motion.
+which the approaches' base sims skip (``skip_residual_dynamics=True``),
+so the GT residual rules must reproduce the ball's wind-driven motion.
 These tests roll the hybrid sim (base env + GT rules, composed exactly
 like ``AgentSimLearningApproach._build_combined_simulator``) side by
 side with the real env under identical no-op action sequences, covering
@@ -37,7 +37,7 @@ def _fan_setup():
     base_env = create_new_env("pybullet_fan",
                               do_cache=False,
                               use_gui=False,
-                              skip_process_dynamics=True)
+                              skip_residual_dynamics=True)
     task = real_env.get_train_tasks()[0]
     return real_env, base_env, rules, params, task
 

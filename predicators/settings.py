@@ -646,7 +646,7 @@ class GlobalSettings:
     # high-friction (no-learning) planner over-reach.
     domino_true_friction = 0.5
     # Friction for the *planning* base sim only — envs created with
-    # skip_process_dynamics=True (the approaches' base envs / option models),
+    # skip_residual_dynamics=True (the approaches' base envs / option models),
     # the same flag that already denies planners the ground-truth delayed
     # dynamics. The eval env (main.py) is created without that flag and keeps
     # domino_true_friction. Either mismatch direction defeats an uncalibrated
@@ -1392,7 +1392,7 @@ class GlobalSettings:
     # -- the genuinely model-free baseline.
     agent_planner_use_simulator = True
     # When a simulator IS given, whether to wrap the *base* env
-    # (skip_process_dynamics=True -- delayed _domain_specific_step effects
+    # (skip_residual_dynamics=True -- delayed _domain_specific_step effects
     # such as boiling/heating are disabled) instead of the real env. Lets the
     # model-free planner be denied the ground-truth delayed dynamics that a
     # world-model learner has to reconstruct. No effect when
@@ -1814,7 +1814,7 @@ class GlobalSettings:
     code_sim_learning_warm_start_with_lm = True
 
     # Sim-learning oracle flags (for ablation / debugging).
-    # When True, load GT process rules instead of running agent synthesis.
+    # When True, load GT residual rules instead of running agent synthesis.
     # Parameters init_values are perturbed so MCMC still has work to do.
     agent_sim_learn_oracle_sim_program = False
     # Relative scale for perturbing oracle parameter init_values before MCMC.

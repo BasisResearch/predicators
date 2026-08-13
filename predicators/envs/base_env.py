@@ -27,7 +27,7 @@ class BaseEnv(abc.ABC):
     # this on its belief env so that physics-replaying task-evaluator
     # certificates (e.g. the domino counterfactual push probe) judge
     # plans under the agent's FULL current world model - base sim plus
-    # fitted process rules - instead of a deliberately rules-free base
+    # fitted residual rules - instead of a deliberately rules-free base
     # sim. Called once per replay attempt; the returned step callable is
     # applied after every probe physics step as
     # ``merged = step(post_step_state, action)`` and written back. The
