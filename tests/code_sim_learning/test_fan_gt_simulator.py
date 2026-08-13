@@ -16,6 +16,7 @@ import pytest
 from predicators import utils
 from predicators.code_sim_learning.utils import apply_rules, merge_updates
 from predicators.envs import create_new_env
+from predicators.envs.pybullet_fan import PyBulletFanEnv
 from predicators.ground_truth_models import get_gt_simulator
 from predicators.structs import Action
 
@@ -98,7 +99,7 @@ def test_fan_gt_simulator_loads():
     rules, specs, features = get_gt_simulator("pybullet_fan")
     assert [r.__name__ for r in rules] == ["_wind_blowing"]
     names = {s.name for s in specs}
-    assert names == {"ball_speed", "wall_clearance"}
+    assert names == {"ball_speed", "contact_slack"}
     assert features == {"ball": ["x", "y"]}
 
 
@@ -138,9 +139,16 @@ def test_fan_hybrid_clear_column_and_multi_fan(fan_setup):
                                            ball_xy=(0.67, 1.694))
     assert max_err < GOAL_TOL
     ball = _get_obj(s_real, "ball")
-    # Crossed the full grid to the lower boundary (grid edge 1.534).
-    assert abs(s_real.get(ball, "y") - 1.534) < 0.005
-    assert abs(s_hyb.get(ball, "y") - 1.534) < 0.005
+    # Crossed the full grid to the lower boundary. Derive the grid edge
+    # from the (stationary, on-grid) target the same way the GT rules do,
+    # rather than hard-coding it: the whole arena translates with
+    # PyBulletFanEnv.fan_row_y_shift.
+    target = _get_obj(s_real, "target")
+    _, y_coords = PyBulletFanEnv._grid_coords_for_point(  # pylint: disable=protected-access
+        s_real.get(target, "x"), s_real.get(target, "y"))
+    grid_y_lo = min(y_coords)
+    assert abs(s_real.get(ball, "y") - grid_y_lo) < 0.005
+    assert abs(s_hyb.get(ball, "y") - grid_y_lo) < 0.005
 
     max_err, _, _ = _rollout_pair(fan_setup, [0.0, 2.0], 35)
     assert max_err < GOAL_TOL
@@ -154,3 +162,98 @@ def test_fan_hybrid_fans_off_no_motion(fan_setup):
     task_init = fan_setup[4].init
     assert abs(s_hyb.get(ball, "x") - task_init.get(ball, "x")) < 0.005
     assert abs(s_hyb.get(ball, "y") - task_init.get(ball, "y")) < 0.005
+
+
+def test_fan_hybrid_slides_along_boundary(fan_setup):
+    """A ball pressed into a boundary slab still slides along its face.
+
+    The slabs are long, so a ball touching the left one overlaps it
+    slightly in x and across the whole grid in y. A contact rule that
+    only asked whether the perpendicular extents overlap would freeze
+    the ball's y motion instead of letting it slide.
+    """
+    task = fan_setup[4]
+    target = _get_obj(task.init, "target")
+    x_coords, y_coords = PyBulletFanEnv._grid_coords_for_point(  # pylint: disable=protected-access
+        task.init.get(target, "x"), task.init.get(target, "y"))
+    # Park the ball against the left boundary in the top row, then blow it
+    # left (into the slab) and down (along it) at the same time.
+    start = (min(x_coords), max(y_coords))
+    max_err, s_real, s_hyb = _rollout_pair(fan_setup, [1.0, 3.0],
+                                           80,
+                                           ball_xy=start)
+    assert max_err < GOAL_TOL
+    ball = _get_obj(s_real, "ball")
+    for s in (s_real, s_hyb):
+        assert abs(s.get(ball, "x") - min(x_coords)) < 0.005  # held by slab
+        assert abs(s.get(ball, "y") - min(y_coords)) < 0.005  # slid the column
+
+
+def test_fan_boundary_slabs_are_observed_grid_tight_objects(fan_setup):
+    """The arena boundary is in the state, and tracks the task's grid."""
+    real_env = fan_setup[0]
+    train_init = real_env.get_train_tasks()[0].init
+    test_init = real_env.get_test_tasks()[0].init
+
+    for init in (train_init, test_init):
+        boundaries = [o for o in init if o.type.name == "boundary"]
+        assert {o.name
+                for o in boundaries} == {
+                    "boundary_left", "boundary_right", "boundary_down",
+                    "boundary_up"
+                }
+        target = _get_obj(init, "target")
+        x_coords, y_coords = PyBulletFanEnv._grid_coords_for_point(  # pylint: disable=protected-access
+            init.get(target, "x"), init.get(target, "y"))
+        gap = PyBulletFanEnv.pos_gap
+        by_name = {o.name: o for o in boundaries}
+        # Half a grid gap outside the extreme cells, spanning the arena.
+        assert np.isclose(init.get(by_name["boundary_left"], "x"),
+                          min(x_coords) - gap / 2)
+        assert np.isclose(init.get(by_name["boundary_right"], "x"),
+                          max(x_coords) + gap / 2)
+        assert np.isclose(init.get(by_name["boundary_down"], "y"),
+                          min(y_coords) - gap / 2)
+        assert np.isclose(init.get(by_name["boundary_up"], "y"),
+                          max(y_coords) + gap / 2)
+        assert np.isclose(init.get(by_name["boundary_left"], "y_len"),
+                          max(y_coords) - min(y_coords) + gap)
+
+    # The two grids differ, so a model that memorized the train boundary
+    # would place it wrong at test time - hence it has to be observed.
+    def _left_span(init):
+        left = next(o for o in init if o.name == "boundary_left")
+        return init.get(left, "y_len")
+
+    assert not np.isclose(_left_span(train_init), _left_span(test_init))
+
+
+def test_fan_rules_need_no_hidden_grid(fan_setup):
+    """The rules park the ball using only observed geometry.
+
+    Translating the whole arena - ball, walls and boundary slabs - moves
+    the stopping locus with it. A rule that recovered the grid from a
+    class constant or from the target's position (as the pre-boundary-
+    object version did) would keep stopping the ball at the old place.
+    """
+    _, _, rules, params, task = fan_setup
+    shift = 0.5
+    state = task.init.copy()
+    for obj in state:
+        if obj.type.name in ("ball", "wall", "boundary", "target"):
+            state.set(obj, "x", state.get(obj, "x") + shift)
+            state.set(obj, "y", state.get(obj, "y") + shift)
+    # Rules read the fan, not the switch (no base sim here to propagate).
+    fan = _get_obj(state, "fan", lambda s, o: s.get(o, "facing_side") == 0.0)
+    state.set(fan, "is_on", 1.0)
+
+    ball = _get_obj(state, "ball")
+    right = next(o for o in state if o.name == "boundary_right")
+    # Rules only (no base sim): the arena has no PyBullet counterpart here.
+    for _ in range(200):
+        updates = apply_rules(state, rules, params)
+        state = merge_updates(state, updates) if updates else state
+
+    expected = (state.get(right, "x") - state.get(right, "x_len") / 2 -
+                state.get(ball, "radius"))
+    assert abs(state.get(ball, "x") - expected) < 1e-6
