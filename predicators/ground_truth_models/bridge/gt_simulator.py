@@ -240,7 +240,8 @@ RESIDUAL_FEATURES: Dict[str, List[str]] = {
 
 
 class PyBulletBridgeGroundTruthSimulatorFactory(GroundTruthSimulatorFactory):
-    """GT residual-dynamics simulator for pybullet_bridge (fully observable)."""
+    """GT residual-dynamics simulator for pybullet_bridge (fully
+    observable)."""
 
     @classmethod
     def get_env_names(cls) -> set:

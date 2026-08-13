@@ -207,8 +207,8 @@ def _iter_rollout_residual_terms(
 
 
 def _onset_residuals(sim_states: List[State], obs_states: List[State],
-                     residual_features: Dict[str, List[str]], motion_tol: float,
-                     weight: float) -> Iterator[float]:
+                     residual_features: Dict[str, List[str]],
+                     motion_tol: float, weight: float) -> Iterator[float]:
     """Per-object (sim onset - observed onset) / horizon, weighted.
 
     The onset is the first state index at which ANY of the object's

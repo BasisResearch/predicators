@@ -1014,8 +1014,9 @@ class PyBulletEnv(BaseEnv):
         (kinematic ``x, y`` a robot can move) untouched. Angle features
         are compared modulo 2π; the orientation-triple geodesic handling
         in ``_reconstruction_diff`` is unnecessary here because
-        orientation features are kinematic — never residual features — so
-        they are filtered out by the caller's intersection regardless.
+        orientation features are kinematic — never residual features —
+        so they are filtered out by the caller's intersection
+        regardless.
         """
         out: List[Tuple[Object, str]] = []
         for obj in set(requested.data) & set(reconstructed.data):

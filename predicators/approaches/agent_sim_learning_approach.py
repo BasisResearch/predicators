@@ -951,7 +951,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                     "(exec error, or RESIDUAL_RULES / PARAM_SPECS missing) - "
                     "fix the file and probe again.")
             residual_features = (features
-                                if features is not None else inferred_hint)
+                                 if features is not None else inferred_hint)
             latent_init = read_latent_init(ns) if isinstance(ns,
                                                              dict) else None
             model, _, fit_sse = build_candidate_option_model(
@@ -1164,8 +1164,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         starts from a miscalibrated - not oracle - belief.
         """
         rules, specs, residual_features = get_gt_simulator(CFG.env)
-        self._log_feature_set_diff(inferred_hint, residual_features, "inferred",
-                                   "oracle")
+        self._log_feature_set_diff(inferred_hint, residual_features,
+                                   "inferred", "oracle")
         if not CFG.agent_sim_learn_oracle_sim_params:
             specs = self._perturb_spec_inits(specs)
         logger.info("Loaded oracle sim program (%d rules, %d params).",
@@ -1593,8 +1593,8 @@ re-score.{probe_note}"""
             "Agent did not declare RESIDUAL_FEATURES; "
             "synthesis output is incomplete.")
         residual_features = declared_features
-        self._log_feature_set_diff(inferred_hint, residual_features, "inferred",
-                                   "declared")
+        self._log_feature_set_diff(inferred_hint, residual_features,
+                                   "inferred", "declared")
         logger.info("Agent synthesized %d rules, %d params.", len(rules),
                     len(specs))
         self._post_synthesis_loading(extra_paths, specs)
@@ -2468,7 +2468,8 @@ re-score.{probe_note}"""
             # (e.g. bubbling_level derived from a hidden heat_level): the
             # base env's value is meaningless there, so restore the carried
             # value before the rules read it.
-            self._restore_unreconstructible_residual_features(base_state, state)
+            self._restore_unreconstructible_residual_features(
+                base_state, state)
             # Single-step history window; rules needing longer context
             # must accumulate it in ``latent``.
             history: List[Tuple[State,
@@ -2915,8 +2916,8 @@ files to see exactly which rules and predicates produced each failed plan.
                 except Exception:  # pylint: disable=broad-except
                     pass  # client already dead (crashed mid-rollout)
 
-    def _restore_unreconstructible_residual_features(self, base_state: State,
-                                                    prev_state: State) -> None:
+    def _restore_unreconstructible_residual_features(
+            self, base_state: State, prev_state: State) -> None:
         """Restore residual features the base env's reset couldn't round-trip.
 
         When the option model backtracks (jumps to a non-current node), the
@@ -2970,7 +2971,8 @@ files to see exactly which rules and predicates produced each failed plan.
                     "recreating base env and retrying.", e)
                 self._recreate_base_env()
                 base_state = self._base_env.simulate(state, action)
-            self._restore_unreconstructible_residual_features(base_state, state)
+            self._restore_unreconstructible_residual_features(
+                base_state, state)
             updates = learned_simulator.predict_step(base_state)
             if not updates:
                 return base_state

@@ -92,7 +92,9 @@ class _FakeApproach:
         self._fit_trajectories = trajectories
         self._base_env = _LinearEnv()
 
-    def _rollout_fit_trajectories(self, residual_features=None, traj_idxs=None):
+    def _rollout_fit_trajectories(self,
+                                  residual_features=None,
+                                  traj_idxs=None):
         # Real signature/semantics minus truncation config coupling.
         del residual_features, traj_idxs
         return [(list(t.states), list(t.actions))

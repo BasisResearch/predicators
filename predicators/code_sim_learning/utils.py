@@ -425,9 +425,9 @@ def stamp_physical_spec_scales(specs: List, base_env: Any) -> List:
 class LearnedSimulator:
     """Wraps a step-level simulator function (handwritten or LLM-synthesized).
 
-    The function predicts residual dynamics — features like water_volume,
-    heat_level, spilled_level that aren't captured by rigid body
-    physics.
+    The function predicts residual dynamics — features like
+    water_volume, heat_level, spilled_level that aren't captured by
+    rigid body physics.
     """
 
     StepFn = Callable[[State], ResidualUpdate]

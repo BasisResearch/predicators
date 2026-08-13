@@ -497,7 +497,7 @@ def create_synthesis_tools(
             return str(err)
 
         residual_features = (declared if isinstance(declared, dict) else
-                            inferred_residual_features)
+                             inferred_residual_features)
         scope_note = ("declared" if isinstance(declared, dict) else
                       "inferred (RESIDUAL_FEATURES not declared)")
         canonical = traj_idxs is None and not fixed
@@ -1027,7 +1027,7 @@ def create_synthesis_tools(
                                           sweep_params, phys_params)
 
         residual_features = (declared if isinstance(declared, dict) else
-                            inferred_residual_features)
+                             inferred_residual_features)
         scope_label = ("declared"
                        if isinstance(declared, dict) else "inferred")
 

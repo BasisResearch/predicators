@@ -218,10 +218,11 @@ RESIDUAL_FEATURES: Dict[str, List[str]] = {
 class PyBulletBoilGroundTruthSimulatorFactory(GroundTruthSimulatorFactory):
     """GT residual-dynamics simulator for pybullet_boil.
 
-    The actual simulator components (``RESIDUAL_RULES``, ``PARAM_SPECS``,
-    ``RESIDUAL_FEATURES``) live as module globals above; this class only
-    pins the env-name binding so ``get_gt_simulator`` can locate the
-    right module via the factory registry.
+    The actual simulator components (``RESIDUAL_RULES``,
+    ``PARAM_SPECS``, ``RESIDUAL_FEATURES``) live as module globals
+    above; this class only pins the env-name binding so
+    ``get_gt_simulator`` can locate the right module via the factory
+    registry.
     """
 
     @classmethod
