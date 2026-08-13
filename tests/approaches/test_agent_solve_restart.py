@@ -230,12 +230,12 @@ def test_attempt_bookkeeping_reset_per_attempt():
 
 
 def test_attempt_wall_spent():
-    """_attempt_wall_spent trips BEFORE the deadline, at the re-query floor.
+    """_attempt_wall_spent trips BEFORE the deadline, at the spent floor.
 
     Agents that watch the [budget] footer end their query shortly before
-    the deadline; the remnant must count as spent or the loop pays a
-    strict nudge plus a full re-query of refused tool calls
-    (run_20260718_125643 queries 002-003).
+    the deadline (run_20260718_125643 queries 002-003); an attempt whose
+    remaining tools would only refuse must be labelled spent, not "no
+    submission".
     """
     approach, _task = _make_approach({"agent_solve_attempt_wall_clock": 2700})
     ctx = approach._tool_context
@@ -246,24 +246,24 @@ def test_attempt_wall_spent():
     # 2 min left of 45: below the 20% floor (540s), counts as spent.
     ctx.attempt_deadline = time.monotonic() + 120.0
     assert approach._attempt_wall_spent()
-    # 20 min left: plenty for a re-query.
+    # 20 min left: plenty of budget still on the clock.
     ctx.attempt_deadline = time.monotonic() + 1200.0
     assert not approach._attempt_wall_spent()
 
 
 def test_nudge_suspends_and_restores_attempt_deadline():
-    """A mid-attempt nudge must not permanently disarm the wall clock.
+    """The nudge must not permanently disarm the wall clock.
 
-    The nudge fires on retry paths that continue the sketch loop; if it
-    cleared the deadline for good, every later query in the attempt
-    would run unbounded - the exact runaway the time-box targets.
+    It suspends the deadline so its own submission is not refused, but
+    a helper that leaked the None would let any future mid-attempt
+    caller run unbounded - the exact runaway the time-box targets.
     """
     approach, _task = _make_approach({})
     ctx = approach._tool_context
     deadline = time.monotonic() + 1000.0
     ctx.attempt_deadline = deadline
     approach._query_agent_sync = lambda *a, **k: []
-    policy = approach._nudge_final_submission(accept_best_effort=False)
+    policy = approach._nudge_final_submission()
     assert policy is None
     assert ctx.attempt_deadline == deadline
     assert ctx.capture_best_effort_plan is False

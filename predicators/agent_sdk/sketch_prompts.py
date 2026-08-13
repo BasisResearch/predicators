@@ -19,11 +19,11 @@ def build_solve_prompt(
     trajectory_summary: str = "",
     tool_names: Optional[Sequence[str]] = None,
     experiment_guidance: str = "",
-    prior_failures: str = "",
     scheduled_plans: Optional[Sequence[str]] = None,
     initial_image_section: str = "",
     propose_params: bool = False,
     require_tool_validation: bool = False,
+    explore_mode: bool = False,
     ground_samplers: bool = False,
     journal: str = "",
     physics_margin: bool = False,
@@ -36,12 +36,6 @@ def build_solve_prompt(
 
     Mirrors ``AgentModelBasedApproach._build_solve_prompt`` but takes
     dependencies explicitly so explorers can reuse it.
-
-    ``prior_failures`` is a pre-formatted block summarizing earlier
-    sketch attempts that the backtracking search could not refine (with a
-    pointer to the full per-step log in the sandbox). Injected so a
-    re-query produces a *different* skeleton instead of re-emitting the
-    dead one.
 
     ``scheduled_plans`` lists sketch-line descriptions of exploration
     plans already generated this online-learning cycle (all of a cycle's
@@ -60,6 +54,16 @@ def build_solve_prompt(
     has no refinement fallback. When False, validation is merely
     encouraged.
 
+    ``explore_mode`` marks the query as an exploration request whose
+    sketch will run in the REAL environment as an experiment. It adds a
+    belief-model disclosure (the simulator is base physics plus dynamics
+    learned so far, so an unlearned mechanism shows zero effect) and an
+    explicit delivery contract: a simulator-failing sketch is a valid
+    deliverable when the goal depends on a mechanism the belief model
+    lacks. Without it, agents have burned entire sessions exhaustively
+    proving such a mechanism's absence instead of submitting the
+    experiment that would let it be learned.
+
     ``journal`` is the run's solve-journal content (see
     ``predicators/agent_sdk/journal.py``): the curated record of earlier
     attempts' outcomes and lessons, injected so fresh-context sessions
@@ -74,6 +78,10 @@ def build_solve_prompt(
     ``sim.run(..., physics_sweep=True)`` instead of discovering
     PARAM-SENSITIVE rejections one submission at a time.
     """
+    assert not (explore_mode and require_tool_validation), (
+        "explore_mode accepts an uncaptured experiment sketch, which "
+        "contradicts the hard capture gate of require_tool_validation")
+
     init_state = task.init
     objects = list(init_state)
 
@@ -126,17 +134,20 @@ def build_solve_prompt(
         experiment_section = (f"\n## Experiment Guidance\n"
                               f"{experiment_guidance}\n")
 
-    prior_failures_section = ""
-    if prior_failures:
-        prior_failures_section = (
-            "\n## Previous Sketch Attempts (FAILED — do NOT repeat them)\n"
-            "Each block below is a sketch you already tried and the "
-            "backtracking search could NOT refine, with where it got stuck "
-            "and a pointer to the full per-step refinement log (read it with "
-            "`Read` for details). Produce a DIFFERENT skeleton that avoids "
-            "the failure — change the step that got stuck (object choice, "
-            "ordering, an intermediate step, or its subgoal annotation).\n"
-            f"{prior_failures}\n")
+    belief_model_section = ""
+    if explore_mode:
+        belief_model_section = (
+            "\n## Belief-Model Simulator\n"
+            "The simulator behind your tools is the current BELIEF MODEL: "
+            "known base physics plus whatever additional dynamics have been "
+            "learned from real interaction data so far. A mechanism that "
+            "has not been learned yet is simply ABSENT from it - the "
+            "simulator shows zero effect for that mechanism no matter how "
+            "you arrange the probe, and early in learning this can include "
+            "the very mechanism the goal depends on. Treat a null effect "
+            "after a few well-aimed probes as \"not in the belief model "
+            "yet\", NOT as evidence about the real environment, and do not "
+            "spend the session exhaustively confirming the absence.\n")
 
     scheduled_plans_section = ""
     if scheduled_plans:
@@ -392,6 +403,23 @@ def build_solve_prompt(
         submit_guidance = (
             f"You may vet a sketch with {refine_ref} before finishing; "
             "the backtracking search will find continuous parameters.")
+    if explore_mode:
+        submit_guidance += (
+            " Your plan will be executed in the REAL environment as an "
+            "experiment, and the data it produces is what the next "
+            "learning cycle uses to correct the belief model. A plan "
+            "that reaches the goal in the simulator is ideal when one "
+            "exists; when the goal depends on a mechanism the belief "
+            "model lacks (see the Belief-Model Simulator section), "
+            "still submit the plan most likely to achieve the goal in "
+            "reality - reason from the goal description, the scene "
+            "geometry, and physical common sense - and annotate the "
+            "subgoals that SHOULD hold if the mechanism works. The "
+            "disagreement between the model's prediction and reality "
+            "is exactly the signal exploration exists to collect, so a "
+            "simulator-failing sketch is a valid, useful deliverable "
+            "there. Do NOT keep searching for a simulator-validated "
+            "plan the belief model cannot produce.")
 
     if require_tool_validation:
         # Plain text is NOT a submission in this mode; saying "output the
@@ -408,6 +436,12 @@ def build_solve_prompt(
             "text-only, that applied to writing the summary itself, not to "
             "this task; resume calling tools. After the goal-reaching run, "
             "repeat its plan lines as your final text.")
+    elif explore_mode:
+        closing_block = (
+            "This is an EXPLORE query: your final plan-sketch text IS the "
+            "deliverable (a simulator-validated capture is welcome but NOT "
+            "required). Output ONLY the plan sketch lines at the end, "
+            "after any analysis.")
     else:
         closing_block = (
             "Output ONLY the plan sketch lines at the end, after any "
@@ -415,7 +449,8 @@ def build_solve_prompt(
 
     prompt = f"""You are solving a task. \
 Generate a plan sketch to achieve the goal.
-{goal_nl_section}{scoring_section}{goal_atoms_section}{experiment_section}
+{goal_nl_section}{scoring_section}{goal_atoms_section}{belief_model_section}\
+{experiment_section}
 ## Initial State Atoms
 {chr(10).join(atom_strs)}
 
@@ -430,7 +465,7 @@ Generate a plan sketch to achieve the goal.
 
 ## Available Predicates (for subgoal annotations)
 {chr(10).join(pred_strs)}
-{trajectory_summary}{tools_str}{journal_section}{prior_failures_section}\
+{trajectory_summary}{tools_str}{journal_section}\
 {scheduled_plans_section}
 ## Instructions
 Use your available tools to inspect the environment before producing the plan.
