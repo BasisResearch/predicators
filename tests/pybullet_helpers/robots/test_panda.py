@@ -2,6 +2,7 @@
 from unittest.mock import patch
 
 import numpy as np
+import pybullet as p
 import pytest
 from pybullet_utils.transformations import quaternion_from_euler
 
@@ -187,3 +188,41 @@ def test_panda_home_keeps_canonical_arm_under_rolled_orientation(
 def test_panda_pushes_with_its_front_face(panda):
     """The Franka Hand pushes front-on, unlike the base class's default."""
     assert panda.push_ee_yaw_offset == pytest.approx(np.pi / 2)
+
+
+def test_panda_finger_dynamics(panda):
+    """The gripper must be able to stall on a grasped object instead of
+    crushing through it: finite finger motor force, real finger inertials, and.
+
+    joint damping stable under that force cap (damping < 2 * mass / dt).
+    """
+    # The URDF effort limit, applied as the motor force cap in set_motors.
+    assert panda.finger_motor_force == pytest.approx(20.0)
+    for finger_id in (panda.left_finger_id, panda.right_finger_id):
+        mass = p.getDynamicsInfo(panda.robot_id, finger_id,
+                                 panda.physics_client_id)[0]
+        damping = p.getJointInfo(panda.robot_id, finger_id,
+                                 panda.physics_client_id)[6]
+        # Real Franka finger mass, not PyBullet's mass=1 default for links
+        # that lack an <inertial> tag.
+        assert mass == pytest.approx(0.015)
+        # PyBullet's joint damping is only stable when the motor can pin
+        # the joint velocity; with a finite force cap that requires
+        # damping < 2 * mass / dt (dt = 1/240).
+        assert 0 < damping < 2 * mass * 240
+
+
+def test_panda_set_motors_position_mode(physics_client_id):
+    """set_motors in position control mode issues the capped finger motor
+    command without error and holds the commanded finger position."""
+    utils.reset_config({"pybullet_control_mode": "position"})
+    panda = PandaPyBulletRobot(physics_client_id=physics_client_id)
+    target = list(panda.initial_joint_positions)
+    target[panda.left_finger_joint_idx] = 0.02
+    target[panda.right_finger_joint_idx] = 0.02
+    for _ in range(50):
+        panda.set_motors(target)
+        p.stepSimulation(physicsClientId=physics_client_id)
+    joints = panda.get_joints()
+    assert np.isclose(joints[panda.left_finger_joint_idx], 0.02, atol=1e-3)
+    assert np.isclose(joints[panda.right_finger_joint_idx], 0.02, atol=1e-3)

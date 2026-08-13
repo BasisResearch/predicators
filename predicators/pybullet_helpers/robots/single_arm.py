@@ -469,6 +469,21 @@ class SingleArmPyBulletRobot(abc.ABC):
                 physicsClientId=self.physics_client_id,
             )
 
+    @property
+    def finger_motor_force(self) -> Optional[float]:
+        """Maximum motor force (N) for the finger joints, or None to keep
+        PyBullet's default (effectively unlimited) motor force.
+
+        Skills routinely command finger targets past a grasped object
+        and rely on contact to stall the fingers; a robot whose gripper
+        crushes through objects under unlimited force should override
+        this with its URDF effort limit. NOTE: a finite cap means joint
+        damping is no longer masked by motor authority, so the finger
+        joints' URDF damping must satisfy damping < 2 * mass / dt or
+        the fingers oscillate unstably.
+        """
+        return None
+
     def set_motors(self, joint_positions: JointPositions) -> None:
         """Update the motors to move toward the given joint positions."""
         assert len(joint_positions) == len(self.arm_joints)
@@ -482,6 +497,21 @@ class SingleArmPyBulletRobot(abc.ABC):
                 targetPositions=joint_positions,
                 physicsClientId=self.physics_client_id,
             )
+            # Re-issue the finger motors with a finite force cap for
+            # robots that request one (overriding the command above for
+            # just those two joints).
+            if self.finger_motor_force is not None:
+                p.setJointMotorControlArray(
+                    bodyUniqueId=self.robot_id,
+                    jointIndices=[self.left_finger_id, self.right_finger_id],
+                    controlMode=p.POSITION_CONTROL,
+                    targetPositions=[
+                        joint_positions[self.left_finger_joint_idx],
+                        joint_positions[self.right_finger_joint_idx],
+                    ],
+                    forces=[self.finger_motor_force] * 2,
+                    physicsClientId=self.physics_client_id,
+                )
         elif CFG.pybullet_control_mode == "reset":
             self.set_joints(joint_positions)
         else:
