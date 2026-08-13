@@ -470,9 +470,9 @@ def _expand_stdout_path(stdout: str, job_id: str, task_id: str, plain_id: str,
     """
     if "%" in stdout:
         array_master = job_id.partition("_")[0]
-        for spec, value in (("%%", "%"), ("%A", array_master),
-                            ("%a", task_id), ("%j", plain_id or job_id),
-                            ("%x", name), ("%u", getpass.getuser())):
+        for spec, value in (("%%", "%"), ("%A", array_master), ("%a", task_id),
+                            ("%j", plain_id or job_id), ("%x", name),
+                            ("%u", getpass.getuser())):
             stdout = stdout.replace(spec, value)
         if "%" in stdout:
             return ""
@@ -679,10 +679,10 @@ def kill_run(run_rel: str, sig: int = signal.SIGTERM) -> Tuple[bool, str]:
     """Signal every process attributed to this run, children included.
 
     Workers and helper subprocesses would survive a signal to the
-    main.py process alone, so its whole descendant tree is signalled.
-    A run owned by a Slurm job has no process on this machine, so its
-    job is cancelled instead; scancel handles the escalation to KILL on
-    the compute node itself, so sig does not apply to that path.
+    main.py process alone, so its whole descendant tree is signalled. A
+    run owned by a Slurm job has no process on this machine, so its job
+    is cancelled instead; scancel handles the escalation to KILL on the
+    compute node itself, so sig does not apply to that path.
     """
     pids = pids_for_run(run_rel)
     if pids:
