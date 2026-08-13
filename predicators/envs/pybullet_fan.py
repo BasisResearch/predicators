@@ -27,8 +27,7 @@ from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
 
 
 class PyBulletFanEnv(PyBulletFanBaseEnv):
-    """A PyBullet environment where a ball is blown around by fans in a
-    maze.
+    """A PyBullet environment where a ball is blown around by fans in a maze.
 
     Subclass of the observable sim core (see
     :mod:`predicators.envs.pybullet_fan_base`); this class adds the
@@ -173,8 +172,8 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
             y_coords: List[float]) -> Dict[str, Dict[str, float]]:
         """Pose + world extents of the four boundary slabs for a grid.
 
-        The slabs sit half a grid gap outside the extreme cells and span the
-        full arena width, reproducing the grid-tight enclosure.
+        The slabs sit half a grid gap outside the extreme cells and span
+        the full arena width, reproducing the grid-tight enclosure.
         """
         grid_x_min, grid_x_max = min(x_coords), max(x_coords)
         grid_y_min, grid_y_max = min(y_coords), max(y_coords)
@@ -278,8 +277,8 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
 
     def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
         """Handle the oracle helper objects and the goal-flavored
-        ``target.is_hit`` sensor, then defer to the base sim for every
-        physical feature."""
+        ``target.is_hit`` sensor, then defer to the base sim for every physical
+        feature."""
         # loc/side helper objects are injected only for the oracle (see
         # PyBulletFanGroundTruthTypeFactory) and carry no PyBullet body, so
         # their feature values are encoded in their names. Reconstruct them
@@ -477,9 +476,8 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
                 physicsClientId=self._physics_client_id)
 
     def _fan_wind_command(self, fan_id: int) -> ApplyForce:
-        """The wind an on-fan blows: a held-mode world-frame force on
-        the ball along the fan's +X (local frame), for the
-        residual-command executor."""
+        """The wind an on-fan blows: a held-mode world-frame force on the ball
+        along the fan's +X (local frame), for the residual-command executor."""
         _, orn_fan = p.getBasePositionAndOrientation(fan_id,
                                                      self._physics_client_id)
 

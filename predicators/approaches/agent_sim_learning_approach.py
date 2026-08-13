@@ -2479,12 +2479,12 @@ re-score.{probe_note}"""
     ) -> float:
         """Oracle-param SSE via the free-running rollout objective.
 
-        Physics-command counterpart to :meth:`_oracle_param_sse`'s
-        per-transition body: command effects only exist through engine
-        stepping, so the score free-runs the base sim with the rules
-        in-the-loop (the same objective the rollout fit minimizes),
-        scored on the declared features. Raw (unscaled) residuals, like
-        the other oracle SSE paths.
+        Physics-command counterpart to :meth:`_oracle_param_sse`'s per-
+        transition body: command effects only exist through engine
+        stepping, so the score free-runs the base sim with the rules in-
+        the-loop (the same objective the rollout fit minimizes), scored
+        on the declared features. Raw (unscaled) residuals, like the
+        other oracle SSE paths.
         """
         rollouts = self._rollout_fit_trajectories(residual_features)
         if not rollouts:

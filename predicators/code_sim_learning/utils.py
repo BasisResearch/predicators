@@ -481,10 +481,10 @@ def stamp_physical_spec_scales(specs: List, base_env: Any) -> List:
 class LearnedSimulator:
     """Wraps a step-level simulator function (handwritten or LLM-synthesized).
 
-    The function predicts residual dynamics — features like water_volume,
-    heat_level, spilled_level that aren't captured by rigid body
-    physics, and (for rules on the physics-command channel) the
-    commands to queue on the base env for its next action.
+    The function predicts residual dynamics — features like
+    water_volume, heat_level, spilled_level that aren't captured by
+    rigid body physics, and (for rules on the physics-command channel)
+    the commands to queue on the base env for its next action.
     """
 
     # (state, command buffer) -> feature updates. The buffer is always

@@ -48,8 +48,7 @@ WIND_FORCE = 0.06
 
 def _wind_blowing(state: State, updates: ResidualUpdate, params: Params,
                   cmds: CommandBuffer) -> ResidualUpdate:
-    """Each on-fan blows the ball along its local +X; the engine owns
-    contacts.
+    """Each on-fan blows the ball along its local +X; the engine owns contacts.
 
     The force is re-emitted every step any fan is on and expires with
     the next action otherwise, so fans-off means no wind - the measured

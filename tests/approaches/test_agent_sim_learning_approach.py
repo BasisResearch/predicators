@@ -765,8 +765,8 @@ def test_persist_fit_trajectories(tmp_path, monkeypatch) -> None:
 
 
 def test_base_sim_reference_provisioning() -> None:
-    """Base-sim source rides the sandbox reference registry (so every
-    session phase gets it) and the agent-visible paths map per backend."""
+    """Base-sim source rides the sandbox reference registry (so every session
+    phase gets it) and the agent-visible paths map per backend."""
     obj = object.__new__(AgentSimLearningApproach)
     obj._base_env = object.__new__(PyBulletFanEnv)
     utils.reset_config({

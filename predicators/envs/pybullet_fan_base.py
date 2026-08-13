@@ -33,8 +33,8 @@ from predicators.structs import Object, State, Type
 
 
 class PyBulletFanBaseEnv(PyBulletEnv):
-    """Sim core of the fan arena: a ball on a walled grid table, four
-    banks of fans, and four switches.
+    """Sim core of the fan arena: a ball on a walled grid table, four banks of
+    fans, and four switches.
 
     Abstract on purpose - it defines no name, predicates, tasks, or
     domain-specific step, so env discovery skips it; the concrete env
@@ -654,10 +654,10 @@ class PyBulletFanBaseEnv(PyBulletEnv):
 
         A box collision shape cannot be resized in place, so
         _reposition_boundary_walls destroys and recreates the boundary
-        bodies from the state (refreshing the Objects' ids). It runs from
-        _set_domain_specific_state, i.e. *after* this generic pose reset -
-        so teleporting them here would dereference an id belonging to a
-        body the previous rebuild already removed.
+        bodies from the state (refreshing the Objects' ids). It runs
+        from _set_domain_specific_state, i.e. *after* this generic pose
+        reset - so teleporting them here would dereference an id
+        belonging to a body the previous rebuild already removed.
         """
         if obj.type == self._boundary_type:
             return
@@ -681,8 +681,8 @@ class PyBulletFanBaseEnv(PyBulletEnv):
 
         The blocker types publish world-axis-aligned extents (see
         ``_wall_type``), but PyBullet needs body-frame half-extents. The
-        inversion is exact for the only rotations this env uses (multiples
-        of pi/2): a quarter turn just swaps x and y.
+        inversion is exact for the only rotations this env uses
+        (multiples of pi/2): a quarter turn just swaps x and y.
         """
         if abs(np.sin(rot)) > 0.5:  # +/-pi/2
             return (y_len, x_len, z_len)
