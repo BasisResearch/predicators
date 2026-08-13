@@ -14,7 +14,8 @@ import numpy as np
 import pytest
 
 from predicators.envs.pybullet_domino.cascade_certificate import \
-    check_cascade_legitimacy, count_movable_blocks_used
+    _TOPPLE_MIN_STEPS, _topple_onset, check_cascade_legitimacy, \
+    count_movable_blocks_used
 from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
 from predicators.structs import GroundAtom, Object, Predicate, State, Type
@@ -1215,3 +1216,108 @@ def test_domino_evaluator_binds_probe_from_sim_env():
     assert "no counterfactual push probe is available" in reason3
     # Leak-freedom: the transient env was never stored on the evaluator.
     assert all(v is not fake_env for v in vars(evaluator).values())
+
+
+# --- Topple debounce ------------------------------------------------
+#
+# A single state past fallen_threshold is not a topple. The state right
+# after is_held clears catches the domino mid-release, still settling,
+# several degrees off plumb; reading that as a fall dated a real run's
+# cascade to the grasp that preceded it by ~100 steps. See
+# _TOPPLE_MIN_STEPS.
+
+# Past fallen_threshold, like _FALLEN_ROLL, but used for transients that
+# must NOT register.
+_SPIKE_ROLL = -0.35
+
+
+def test_release_transient_is_not_a_topple():
+    """One state past the threshold as a placed domino settles: not a fall."""
+    objs = _make_objects(["green", "blue1", "blue2", "target"])
+    # Held 3-8; state 9 (the first non-held one) catches it mid-release.
+    rolls = [0.0] * 9 + [_SPIKE_ROLL] + [0.0] * 21
+    states = _build_states(objs,
+                           30, {},
+                           roll_profiles={"blue1": rolls},
+                           held_spans={"blue1": (3, 8)})
+    assert _topple_onset(states, objs["blue1"]) is None
+
+
+def test_release_transient_of_two_states_is_not_a_topple():
+    """A transient just under _TOPPLE_MIN_STEPS still does not register."""
+    objs = _make_objects(["green", "blue1", "blue2", "target"])
+    n = _TOPPLE_MIN_STEPS - 1
+    rolls = [0.0] * 9 + [_SPIKE_ROLL] * n + [0.0] * (22 - n)
+    states = _build_states(objs,
+                           30, {},
+                           roll_profiles={"blue1": rolls},
+                           held_spans={"blue1": (3, 8)})
+    assert _topple_onset(states, objs["blue1"]) is None
+
+
+def test_sustained_fall_after_release_registers_at_its_first_state():
+    """Dropped over rather than set down: the run persists, so it counts."""
+    objs = _make_objects(["green", "blue1", "blue2", "target"])
+    rolls = [0.0] * 9 + [_FALLEN_ROLL] * 22
+    states = _build_states(objs,
+                           30, {},
+                           roll_profiles={"blue1": rolls},
+                           held_spans={"blue1": (3, 8)})
+    # Onset is the first state of the run, not the state that completed it.
+    assert _topple_onset(states, objs["blue1"]) == 9
+
+
+def test_topple_reaching_the_end_of_the_episode_registers():
+    """A run too short to persist, but ending the episode, still counts.
+
+    Dropping it would empty ``onsets`` and pass the episode unexamined -
+    a false accept, which is worse than the false reject being fixed.
+    """
+    objs = _make_objects(["green", "blue1", "blue2", "target"])
+    for run in range(1, _TOPPLE_MIN_STEPS):
+        rolls = [0.0] * (31 - run) + [_FALLEN_ROLL] * run
+        states = _build_states(objs, 30, {}, roll_profiles={"blue1": rolls})
+        assert _topple_onset(states, objs["blue1"]) == 31 - run, \
+            f"run of {run} reaching the end should register"
+
+
+def test_a_carry_breaks_the_run():
+    """Tilt in the gripper never accumulates, however long the carry."""
+    objs = _make_objects(["green", "blue1", "blue2", "target"])
+    # Swinging past the threshold the whole way, but held throughout.
+    rolls = [0.0] * 3 + [_FALLEN_ROLL] * 20 + [0.0] * 8
+    states = _build_states(objs,
+                           30, {},
+                           roll_profiles={"blue1": rolls},
+                           held_spans={"blue1": (3, 22)})
+    assert _topple_onset(states, objs["blue1"]) is None
+
+
+def test_place_transient_before_the_push_does_not_reject_the_run():
+    """Regression: the 20260813 real run, rejected by a release transient.
+
+    Pick and place a blue, whose first non-held state catches it
+    settling; push green much later; the cascade then runs. Before the
+    debounce the transient was a topple predating the push, so the
+    episode was rejected with the fall dated to the grasp.
+    """
+    objs = _make_objects(["green", "blue1", "blue2", "target"])
+    # blue1: held 3-8, one settling state at 9, upright until the cascade
+    # reaches it at 30.
+    blue1_rolls = ([0.0] * 9 + [_SPIKE_ROLL] + [0.0] * 20 +
+                   [_FALLEN_ROLL] * 11)
+    states = _build_states(objs,
+                           40, {
+                               "green": 25,
+                               "blue2": 33,
+                               "target": 36
+                           },
+                           roll_profiles={"blue1": blue1_rolls},
+                           held_spans={"blue1": (3, 8)})
+    step_options = _options([("Pick", ("robot", "blue1"), 0, 3),
+                             ("Place", ("robot", ), 4, 8),
+                             ("Push", ("robot", "green"), 20, 24)], 40)
+    # The transient is not a topple, so blue1's fall is the cascade.
+    assert _topple_onset(states, objs["blue1"]) == 30
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert ok, reason
