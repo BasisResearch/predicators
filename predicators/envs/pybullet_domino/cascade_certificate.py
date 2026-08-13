@@ -69,6 +69,11 @@ from predicators.structs import GroundAtom, Object, State, StepOption
 # the green start block.
 _PUSH_OPTION_NAME = "Push"
 
+# Consecutive non-held states a domino must spend at or past
+# ``fallen_threshold`` before that counts as a topple rather than as
+# noise.
+_TOPPLE_MIN_STEPS = 3
+
 # Minimum base displacement for a movable blue to count as consumed by
 # the cascade (shoved off its stand) in ``count_movable_blocks_used``.
 # Well above resting jitter and release-settle skids (millimeters); a
@@ -157,12 +162,17 @@ def _role_label(state: State, domino: Object) -> str:
 def _topple_onset(states: Sequence[State], domino: Object) -> Optional[int]:
     """State index where ``domino``'s final fall began, or None.
 
-    A domino has a topple event iff its |roll| ever reaches
-    ``fallen_threshold`` while not held (carried blocks tilt
-    legitimately). The onset is the moment it last left the upright band
-    (|roll| < ``domino_roll_threshold``) before that first full topple,
-    so placement wobbles that recover never register and a wobble that
-    precedes the real fall is not mistaken for it.
+    A domino has a topple event iff its |roll| holds at or past
+    ``fallen_threshold`` for ``_TOPPLE_MIN_STEPS`` consecutive states
+    while not held, or does so in a run that reaches the end of the episode.
+    The run restarts whenever the domino is held or comes back inside the
+    threshold, so a domino set down crooked or a domino swinging in the
+    gripper both stay quiet.
+
+    The onset is then walked back to the moment it last left the upright
+    band (|roll| < ``domino_roll_threshold``) before that first full
+    topple, so placement wobbles that recover never register and a
+    wobble that precedes the real fall is not mistaken for it.
 
     That backward search may not cross a carry. A domino cannot have
     been falling since before the robot picked it up and moved it, so
@@ -181,12 +191,26 @@ def _topple_onset(states: Sequence[State], domino: Object) -> Optional[int]:
     then the full topple lands at the release and is caught there.
     """
     fall_idx: Optional[int] = None
+    run_start: Optional[int] = None
     for t, state in enumerate(states):
-        if state.get(domino, "is_held") > 0.5:
+        held = state.get(domino, "is_held") > 0.5
+        fallen = abs(state.get(domino,
+                               "roll")) >= DominoComponent.fallen_threshold
+        # A carry breaks the run.
+        if held or not fallen:
+            run_start = None
             continue
-        if abs(state.get(domino, "roll")) >= DominoComponent.fallen_threshold:
-            fall_idx = t
+        if run_start is None:
+            run_start = t
+        if t - run_start + 1 >= _TOPPLE_MIN_STEPS:
+            fall_idx = run_start
             break
+    if fall_idx is None and run_start is not None:
+        # The run was still going when the episode ended. A topple in the
+        # last states has no room to persist, and discarding it would
+        # empty ``onsets`` and pass the episode unexamined -- turning a
+        # false reject into a false accept, which is the worse failure.
+        fall_idx = run_start
     if fall_idx is None:
         return None
     # Step after the last release before the fall; 0 if never carried.
