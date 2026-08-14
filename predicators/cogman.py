@@ -245,6 +245,10 @@ def run_episode_and_get_observations(
     metrics["policy_call_time"] = 0.0
     metrics["num_options_executed"] = 0.0
     exception_raised_in_step = False
+    # Whether this episode ran to a clean end, as opposed to being cut short
+    # by an exception. An env driving something outside itself needs the
+    # difference: a prefix of a plan is not a plan.
+    episode_completed = True
     step_num = -1
     if not (terminate_on_goal_reached and env.goal_reached()):
         for step_num in range(max_num_steps):
@@ -287,16 +291,19 @@ def run_episode_and_get_observations(
                     # The agent session backend is unusable; neither
                     # break_on handling nor keep_failed_demos may absorb
                     # this into a failed episode - the run terminates.
+                    env.finish_execution(False)
                     raise
                 if exceptions_to_break_on is not None and \
                    any(issubclass(type(e), c) for c in exceptions_to_break_on):
                     if monitor_observed:
                         exception_raised_in_step = True
+                    episode_completed = False
                     logging.debug(
                         f"[CogMan] loop break: exception in break_on set: {e}")
                     break
                 if CFG.terminate_on_goal_reached_and_option_terminated and \
                     env.goal_reached():
+                    episode_completed = False
                     logging.debug(
                         f"[CogMan] loop break: goal_reached+option_terminated "
                         f"(exception: {e})")
@@ -305,9 +312,11 @@ def run_episode_and_get_observations(
                     monitor.observe(obs, None)
                 if CFG.keep_failed_demos:
                     cogman.finish_episode(obs)
+                    env.finish_execution(False)
                     traj = (observations, actions)
                     solved = _certified_solved()
                     return traj, solved, metrics
+                env.finish_execution(False)
                 raise e
             if terminate_on_goal_reached and env.goal_reached():
                 logging.debug("[CogMan] loop break: terminate_on_goal_reached")
@@ -325,6 +334,7 @@ def run_episode_and_get_observations(
     if monitor is not None and not exception_raised_in_step:
         monitor.observe(obs, None)
     cogman.finish_episode(obs)
+    env.finish_execution(episode_completed)
     traj = (observations, actions)
     solved = _certified_solved()
     return traj, solved, metrics

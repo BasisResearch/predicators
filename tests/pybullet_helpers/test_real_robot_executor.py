@@ -709,3 +709,182 @@ def test_no_cameras_means_nothing_to_be_stale_about(monkeypatch):
     ex = _executor(_StubEnv(), human_reset=False)
 
     assert ex.tasks_for("test") is None
+
+
+# -- open-loop episodes ------------------------------------------------------
+def _run_episode(ex, options, recorder, completed=True):
+    """Drive ``ex`` through whole options, then end the episode.
+
+    Each option contributes two actions, the second terminal, so a chunk
+    is two actions long and the option count is recoverable from the
+    shipped chunks.
+    """
+    obs = _state(0.0)
+    for name in options:
+        option = _option(name)
+        ex.after_step(_act(option, terminal=False), obs)
+        ex.after_step(_act(option, terminal=True), obs)
+    ex.after_episode(completed)
+    return recorder
+
+
+def test_open_loop_ships_once_per_episode_not_once_per_option(recorder):
+    """The point of the flag: one request for the whole episode.
+
+    Per-boundary shipping calls execute_chunks once per option; open-loop
+    calls it once, with every option's chunk in order.
+    """
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   open_loop_episode=True)
+
+    _run_episode(ex, ["Pick", "Place", "Push"], recorder)
+
+    assert len(recorder.shipped) == 1, \
+        "open-loop must ship the episode in a single execute_chunks call"
+    (batch, ) = recorder.shipped
+    assert len(batch) == 3, "every option's chunk must be in the batch"
+    assert all(len(chunk) == 2 for chunk in batch)
+
+
+def test_open_loop_preserves_option_order(recorder):
+    """A batch is a plan, so the arm must run it in the order it was
+    simulated."""
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   open_loop_episode=True)
+
+    _run_episode(ex, ["Pick", "Place", "Push"], recorder)
+
+    (batch, ) = recorder.shipped
+    shipped = [chunk[0].get_option().name for chunk in batch]
+    assert shipped == ["Pick", "Place", "Push"]
+
+
+def test_open_loop_leaves_the_twin_trajectory_bit_identical(recorder):
+    """The whole safety argument for deferring: with the boundary look off,
+    shipping is a pure write-only side effect, so *when* it happens cannot
+    change what the rollout sees.
+
+    Same actions through both paths; the observations handed back must
+    match exactly, not approximately.
+    """
+    options = ["Pick", "Place", "Push"]
+
+    per_boundary = _executor(_StubEnv(), observe_at_boundaries=False)
+    open_loop = _executor(_StubEnv(),
+                          observe_at_boundaries=False,
+                          open_loop_episode=True)
+
+    def _observed(ex):
+        # A distinct observation per step, so a path that hands back
+        # anything other than the one it was given is visible. With a
+        # constant obs this assertion would hold for the wrong reasons.
+        seen = []
+        for i, name in enumerate(options):
+            option = _option(name)
+            seen.append(
+                ex.after_step(_act(option, terminal=False),
+                              _state(2.0 * i + 1.0)))
+            seen.append(
+                ex.after_step(_act(option, terminal=True),
+                              _state(2.0 * i + 2.0)))
+        ex.after_episode(True)
+        return seen
+
+    eager = _observed(per_boundary)
+    deferred = _observed(open_loop)
+
+    assert len(eager) == len(deferred)
+    for a, b in zip(eager, deferred):
+        assert a is b or a.allclose(b), \
+            "deferring the ship changed what the rollout observed"
+
+
+def test_open_loop_discards_an_episode_that_did_not_complete(recorder):
+    """A prefix of a plan is not a plan.
+
+    Half a bridge, or a transport with no place at the end of it, would
+    be executed by an arm with nobody having decided it was a good idea.
+    """
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   open_loop_episode=True)
+
+    _run_episode(ex, ["Pick", "Place"], recorder, completed=False)
+
+    assert recorder.shipped == [], \
+        "an incomplete episode must ship nothing at all"
+
+
+def test_open_loop_drops_a_half_option_but_ships_the_whole_ones(recorder):
+    """The buffer holds whole options, so a trailing partial one is not
+    shippable -- but the options that did finish still are."""
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   open_loop_episode=True)
+    obs = _state(0.0)
+
+    finished = _option("Pick")
+    ex.after_step(_act(finished, terminal=False), obs)
+    ex.after_step(_act(finished, terminal=True), obs)
+    # A second option that never reaches its boundary.
+    ex.after_step(_act(_option("Place"), terminal=False), obs)
+    ex.after_episode(True)
+
+    (batch, ) = recorder.shipped
+    assert len(batch) == 1
+    assert batch[0][0].get_option().name == "Pick"
+
+
+def test_open_loop_does_not_leak_across_episodes(recorder):
+    """If finish_execution never runs, the next episode must not inherit the
+    last one's motion -- it would be driven against a rearranged scene."""
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   open_loop_episode=True,
+                   human_reset=False)
+    obs = _state(0.0)
+    stale = _option("Pick")
+    ex.after_step(_act(stale, terminal=False), obs)
+    ex.after_step(_act(stale, terminal=True), obs)
+
+    # No after_episode: the episode ended some other way.
+    ex.after_reset("train", 0, _state(0.0))
+    _run_episode(ex, ["Push"], recorder)
+
+    (batch, ) = recorder.shipped
+    assert len(batch) == 1, "stale options must not ride along"
+    assert batch[0][0].get_option().name == "Push"
+
+
+def test_per_boundary_path_is_unchanged_by_the_flag(recorder):
+    """Off by default: the existing behaviour must be exactly what it was."""
+    ex = _executor(_StubEnv(), observe_at_boundaries=False)
+
+    _run_episode(ex, ["Pick", "Place", "Push"], recorder)
+
+    assert len(recorder.shipped) == 3, \
+        "per-boundary shipping still ships each option as it is simulated"
+
+
+def test_open_loop_and_boundary_looks_are_mutually_exclusive():
+    """A boundary look has to happen between the two options it separates,
+    and open-loop leaves no such moment. Refuse rather than silently drop
+    whichever was asked for second."""
+    with pytest.raises(ValueError, match="no moment between two options"):
+        _executor(_StubEnv(),
+                  observe_at_boundaries=True,
+                  open_loop_episode=True)
+
+
+def test_after_episode_is_a_no_op_for_the_per_boundary_path(recorder):
+    """Nothing is outstanding when every option shipped as it was
+    simulated."""
+    ex = _executor(_StubEnv(), observe_at_boundaries=False)
+    _run_episode(ex, ["Pick"], recorder)
+    before = len(recorder.shipped)
+
+    ex.after_episode(True)
+
+    assert len(recorder.shipped) == before

@@ -544,6 +544,15 @@ class BaseEnv(abc.ABC):
         assert isinstance(self._current_observation, State)
         return self._current_observation.copy()
 
+    def finish_execution(self, completed: bool) -> None:
+        """The episode is over; release anything held on its behalf.
+
+        A no-op for a simulated env, which has nothing outstanding when
+        the last action has been simulated. Overridden where an env can
+        be driving something outside itself, so ``cogman`` can end an
+        episode without knowing whether this one is.
+        """
+
     def step(self, action: Action) -> Observation:
         """Apply the action, update the state, and return an observation.
 
