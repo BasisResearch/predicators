@@ -35,6 +35,7 @@ from gym.spaces import Box
 from predicators.ground_truth_models.skill_factories.base import Phase, \
     PhaseAction, PhaseSkill, SkillConfig, TargetPoseFn
 from predicators.pybullet_helpers.geometry import Pose
+from predicators.settings import CFG
 from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
 
@@ -104,6 +105,7 @@ def make_move_to_phase(
     allow_shallow_held_object_contacts: bool = False,
     validate_ik: bool = False,
     check_release_clearance: bool = False,
+    use_motion_planning: Optional[bool] = None,
 ) -> Phase:
     """Create a MOVE_TO_POSE phase for use in a ``PhaseSkill``.
 
@@ -118,6 +120,13 @@ def make_move_to_phase(
         finger_status: ``"open"``, ``"closed"``, or ``"hold"`` (keep the
             current width, e.g. retreating from a partial-open release).
             If ``None``, preserves the current finger status from state.
+        use_motion_planning: ``None`` (the default) defers to
+            ``CFG.skill_phase_use_motion_planning``. Pass ``False`` for a
+            contact stroke -- a phase whose goal pose is at or inside an
+            object -- which must step IK straight at the target; a
+            collision-free planner asked for such a goal either fails or
+            reaches it by a detour that arrives from the wrong direction
+            (see ``create_push_skill``).
 
     Returns:
         A ``Phase`` that can be included in a ``PhaseSkill``.
@@ -165,6 +174,11 @@ def make_move_to_phase(
             status = _get_finger_status(state, robot_obj, cfg)
         return current_pose, target_pose, status
 
+    # None means "whatever the config says", which is what Phase's own default
+    # resolves to; both are read at construction time, so naming it here is the
+    # same value the default would have picked.
+    plan_motion = (CFG.skill_phase_use_motion_planning
+                   if use_motion_planning is None else use_motion_planning)
     return Phase(
         name=name,
         action_type=PhaseAction.MOVE_TO_POSE,
@@ -173,4 +187,5 @@ def make_move_to_phase(
         allow_shallow_held_object_contacts=allow_shallow_held_object_contacts,
         validate_ik=validate_ik,
         check_release_clearance=check_release_clearance,
+        use_motion_planning=plan_motion,
     )
