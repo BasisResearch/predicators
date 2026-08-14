@@ -589,6 +589,26 @@ class GlobalSettings:
     # Off by default -- batching removes every natural stopping point, so a
     # bad plan runs to its end with the e-stop as the only intervention.
     real_robot_open_loop_episode = False
+    # Record each episode's execution to an SVO take, for offline pose
+    # estimation. Nothing is estimated during the run: the markerless pipeline
+    # runs at roughly 3x real time, so a take is post-processed after the
+    # episode that produced it. Mutually exclusive with a live "zed"
+    # perception, which owns the same cameras.
+    real_robot_record_episodes = False
+    # Where takes are written; one directory per episode. Empty means
+    # logs/zed_takes.
+    real_robot_recording_dir = ""
+    # HD720 is the resolution the markerless pipeline was measured on.
+    real_robot_recording_resolution = "HD720"
+    # 60, not 30: a real cascade's topple onsets came 6, 4 and 2 frames apart
+    # at 30 fps, and those inter-domino intervals are what the friction fit is
+    # scored on -- at 30 fps a one-frame detection error is half the shortest
+    # interval. HD720 runs at 60, so the resolution is already paid for.
+    real_robot_recording_fps = 60
+    # Stop a take after this many frames per camera; 0 is unbounded. A guard
+    # against a take nothing stops, not a disk-budget knob -- bundles are
+    # ~48 MB now that depth is no longer stored.
+    real_robot_recording_max_frames = 0
     # Dwell before a capture, so the dominoes come to rest after the motion.
     real_robot_settle_s = 0.5
     # How far (metres) the scene may be from where the twin predicted before
