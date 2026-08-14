@@ -580,6 +580,15 @@ class GlobalSettings:
     # was seen. This is the point of running on real hardware -- the learner
     # sees perceived transitions rather than the simulator's guesses.
     real_robot_observe_at_option_boundary = True
+    # Ship the whole episode's motion in one batch once it has all been
+    # simulated, instead of one option at a time as each is simulated. The arm
+    # then runs the plan as one contiguous motion rather than idling through
+    # the next option's motion planning. Mutually exclusive with
+    # real_robot_observe_at_option_boundary: a boundary look has to happen
+    # between the two options it separates, and here there is no such moment.
+    # Off by default -- batching removes every natural stopping point, so a
+    # bad plan runs to its end with the e-stop as the only intervention.
+    real_robot_open_loop_episode = False
     # Dwell before a capture, so the dominoes come to rest after the motion.
     real_robot_settle_s = 0.5
     # How far (metres) the scene may be from where the twin predicted before

@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from typing import Any, Dict, List, Optional, Protocol, Tuple, cast
 
 import numpy as np
@@ -242,7 +243,8 @@ class RealRobotExecutor:
                  observe_at_boundaries: bool = True,
                  settle_s: float = 0.0,
                  divergence_atol: float = 0.02,
-                 human_reset: bool = True) -> None:
+                 human_reset: bool = True,
+                 open_loop_episode: bool = False) -> None:
         missing = sorted(name for name in _REQUIRED_HOOKS
                          if not callable(getattr(env, name, None)))
         if missing:
@@ -262,9 +264,20 @@ class RealRobotExecutor:
                 "human resets rebuild each episode's task from the scene, so "
                 "the robot needs perception; set real_robot_perception, or "
                 "turn real_robot_human_reset off to keep the captured scene")
+        if open_loop_episode and observe_at_boundaries:
+            raise ValueError(
+                "open-loop episodes ship the whole plan after the episode is "
+                "simulated, so there is no moment between two options at "
+                "which to look at the scene; turn "
+                "real_robot_observe_at_option_boundary off, or turn "
+                "real_robot_open_loop_episode off to keep the boundary looks")
         self._env = env
         self._robot = robot
         self._observe = observe_at_boundaries
+        self._open_loop = open_loop_episode
+        # Chunks held back for the end of the episode. Only ever non-empty
+        # under open-loop; the per-boundary path ships and forgets.
+        self._pending: List[List[Action]] = []
         self._settle_s = settle_s
         self._human_reset = human_reset
         self._buffer = OptionBoundaryBuffer()
@@ -392,6 +405,14 @@ class RealRobotExecutor:
         """
         del train_or_test, task_idx  # every episode homes the same way
         self._reset_pending = True
+        if self._pending:
+            # finish_execution did not run for the previous episode. Shipping
+            # these now would drive the arm through the last episode's plan
+            # against this episode's scene, so they are dropped instead.
+            logging.warning(
+                "real robot: dropping %d option(s) left over from an episode "
+                "that never finished executing", len(self._pending))
+            self._pending = []
         lost = self._buffer.discard()
         if lost:
             # The previous episode ended mid-option (step limit, or an
@@ -403,9 +424,20 @@ class RealRobotExecutor:
         reset_arm(self._robot, self._home_arm_joints(obs))
 
     def after_step(self, action: Action, obs: Observation) -> Observation:
-        """Buffer the action, and ship at an option boundary."""
+        """Buffer the action, and ship at an option boundary.
+
+        Under open-loop the completed chunk is held instead of shipped,
+        and ``obs`` comes back untouched. That is not a special case so
+        much as the same one: shipping with ``observe`` off returns no
+        observations, so the loop below never runs and this method
+        already returned ``obs`` unchanged. Deferring a call whose only
+        effect is on the arm cannot change what the rollout sees.
+        """
         chunk = self._buffer.add(action, obs)
         if chunk is None:
+            return obs
+        if self._open_loop:
+            self._pending.append(chunk)
             return obs
         observations = execute_chunks(self._robot, [chunk],
                                       self._env.gripper_joint_layout(),
@@ -419,6 +451,56 @@ class RealRobotExecutor:
         if isinstance(obs, State):
             note_external_state_change(action.get_option(), obs)
         return obs
+
+    def after_episode(self, completed: bool) -> None:
+        """Ship the episode's motion, or drop it if it never finished.
+
+        Only open-loop has anything outstanding; per-boundary shipping
+        has already happened by the time this runs.
+
+        A partial plan is dropped rather than shipped. The buffer holds
+        whole options, so what survives an abnormal end is a prefix --
+        half a bridge, or a transport with no place at the end of it --
+        and the arm would execute it with nobody having decided it was
+        a good idea. The information that it was partial exists only
+        here, so this is the last place that judgement can be made.
+        """
+        pending, self._pending = self._pending, []
+        lost_partial = self._buffer.discard()
+        if not pending:
+            return
+        if not completed:
+            logging.warning(
+                "real robot: dropping %d buffered option(s) unshipped -- the "
+                "episode did not run to completion, so what is buffered is a "
+                "partial plan", len(pending))
+            return
+        if lost_partial:
+            # A completed episode should not also have a half-option in
+            # hand; if it does, the chunks are still whole and shippable,
+            # but the discrepancy is worth a line in the log.
+            logging.warning(
+                "real robot: episode completed with %d action(s) mid-option; "
+                "shipping the %d whole option(s) and dropping those",
+                lost_partial, len(pending))
+        # One request for the whole episode: execute_chunks packs the list
+        # into a single StepRequest, and _split_actions restarts its gripper
+        # tracking per call, which RealRobot dedups session-wide.
+        started_monotonic_ns = time.monotonic_ns()
+        started_wall_ns = time.time_ns()
+        logging.info(
+            "real robot: shipping %d option(s) as one batch "
+            "(monotonic_ns=%d wall_ns=%d)", len(pending), started_monotonic_ns,
+            started_wall_ns)
+        execute_chunks(self._robot,
+                       pending,
+                       self._env.gripper_joint_layout(),
+                       observe=self._observe,
+                       settle_s=self._settle_s)
+        logging.info(
+            "real robot: batch done (monotonic_ns=%d wall_ns=%d, "
+            "elapsed %.3fs)", time.monotonic_ns(), time.time_ns(),
+            (time.monotonic_ns() - started_monotonic_ns) / 1e9)
 
     # -- helpers -----------------------------------------------------------
     def _home_arm_joints(self, obs: Observation) -> List[float]:
@@ -479,6 +561,7 @@ def attach_real_robot(env: BaseEnv,
         observe_at_boundaries=CFG.real_robot_observe_at_option_boundary,
         settle_s=CFG.real_robot_settle_s,
         divergence_atol=CFG.real_robot_divergence_atol,
-        human_reset=CFG.real_robot_human_reset)
+        human_reset=CFG.real_robot_human_reset,
+        open_loop_episode=CFG.real_robot_open_loop_episode)
     env.attach_executor(executor)
     return executor

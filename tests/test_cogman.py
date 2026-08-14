@@ -269,6 +269,10 @@ def test_run_episode_and_get_observations():
             """Goal never reached."""
             return False
 
+        def finish_execution(self, completed):
+            """Nothing is executing outside this mock, so nothing to end."""
+            del completed  # unused
+
     mock_env = _MockEnv()
     ones_policy = lambda _: Action(np.zeros(1, dtype=np.float32))
     approach = _MockApproach(ones_policy)
@@ -413,6 +417,10 @@ def test_run_episode_trajectory_certificate():
             """Record the call and return the configured verdict."""
             self.checked_with = (len(observations), len(actions))
             return self._ok, self._reason
+
+        def finish_execution(self, completed):
+            """Nothing is executing outside this mock, so nothing to end."""
+            del completed  # unused
 
     # Rejecting certificate => not solved, despite goal_reached() == True.
     rejecting_env = _CertifyingEnv(False, "robot knocked the target")
