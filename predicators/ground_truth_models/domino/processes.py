@@ -22,7 +22,6 @@ _DOMINO_GRASP_Z_OFFSET = 0.0825  # domino_height * 0.55
 # collision-aware Place goal; 0.58 clears the table and still settles to the
 # intended upright pose.
 _DOMINO_DROP_Z = 0.58
-_DOMINO_OFFSET_X = 0.045  # domino_depth * 3
 _DOMINO_OFFSET_Z = 0.0825  # domino_height * 0.55
 
 # How far each hand reaches below its tool frame, measured at home as the
@@ -51,6 +50,25 @@ def _hand_z_correction() -> float:
         CFG.pybullet_robot, fetch_reach)
 
 
+def _domino_depth() -> float:
+    """Thickness of the domino actually in play, in metres.
+
+    ``pybullet_domino_real`` sizes its component from
+    ``CFG.domino_real_domino_dims`` (L, W, thickness); every other
+    domino env takes the class ClassVar.
+    """
+    # pylint: disable=import-outside-toplevel  # local: avoid import cycle
+    from predicators.envs.pybullet_domino import PyBulletDominoEnv
+    if CFG.env == "pybullet_domino_real":
+        return float(CFG.domino_real_domino_dims[2])
+    return float(PyBulletDominoEnv.domino_depth)
+
+
+def _push_approach_distance() -> float:
+    """How far behind the block the gripper descends before pushing it."""
+    return 3.0 * _domino_depth()
+
+
 def _grasp_z_offset() -> float:
     """Pick grasp height, corrected for the hand in use."""
     return _DOMINO_GRASP_Z_OFFSET - _hand_z_correction()
@@ -74,8 +92,9 @@ def _push_sampler(state: State, goal: Set[GroundAtom],
     if not CFG.domino_use_skill_factories:
         return np.array([], dtype=np.float32)
     del state, goal, rng, objs
-    return np.array(
-        [_DOMINO_OFFSET_X, _push_contact_z_offset()], dtype=np.float32)
+    return np.array([_push_approach_distance(),
+                     _push_contact_z_offset()],
+                    dtype=np.float32)
 
 
 def _place_sampler(state: State, goal: Set[GroundAtom],
@@ -419,10 +438,11 @@ def _pick_option_sampler(state: State, subgoal_atoms: Set[GroundAtom],
 def _push_option_sampler(state: State, subgoal_atoms: Set[GroundAtom],
                          rng: np.random.Generator,
                          objects: Sequence[Object]) -> Array:
-    """Grid-free Push sampler: fixed approach distance / contact height."""
+    """Grid-free Push sampler: approach distance / contact height."""
     del state, subgoal_atoms, rng, objects
-    return np.array(
-        [_DOMINO_OFFSET_X, _push_contact_z_offset()], dtype=np.float32)
+    return np.array([_push_approach_distance(),
+                     _push_contact_z_offset()],
+                    dtype=np.float32)
 
 
 def _score_placement(state: State, subgoal_atoms: Set[GroundAtom],

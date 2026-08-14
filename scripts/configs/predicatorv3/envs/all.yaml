@@ -253,8 +253,12 @@ ENVS:
       online_learning_early_stopping_ignore_reward_bar: True
       # --- the real scene's physical setup ---
       pybullet_robot: "panda"
-      # REQUIRED, and only the Panda reads it. Needed to clamp the simulated domino.
-      pybullet_closed_fingers: 0.007
+      # REQUIRED, and only the Panda reads it. The closed fingers must reach
+      # the simulated domino's faces or the grasp is never detected: the
+      # domino is 0.015 m thick and the joint value is per-finger travel
+      # from the centerline, so the faces sit at 0.0075; 0.008 rests the
+      # fingers exactly there (detection tolerance is 0.0005).
+      pybullet_closed_fingers: 0.008
   # Real-world domino: Learning + exploration stay in sim on
   # the reconstructed real scene; testing moves to the real Franka inside the
   # env (test mode only). un-skipped by exp_domino_real.yaml. Flags are
@@ -303,7 +307,10 @@ ENVS:
       # purple=target, rest movable). Ignored if the scene carries 'role'.
       domino_real_start_id: 6
       domino_real_target_id: 5
-      pybullet_closed_fingers: 0.02  # clamp the 0.029m real domino
+      # Rest the closed fingers at the 0.029 m real domino's faces
+      # (0.029 / 2 = 0.0145 per finger, plus the 0.0005 grasp-detection
+      # tolerance).
+      pybullet_closed_fingers: 0.015
       real_robot_execute: False
   # heavy-block (immovable obstacle) domino tasks - MASS-only mismatch.
   domino_heavy:
@@ -363,7 +370,7 @@ ENVS:
     # Parked by default; exp_fan.yaml and oracle.yaml un-skip it.
     SKIP: True
     FLAGS:
-      max_initial_demos: 1
+      max_initial_demos: 0
       excluded_objects_in_state_str: "switch"
       terminate_on_goal_reached: True
       process_planning_heuristic_weight: 10.0

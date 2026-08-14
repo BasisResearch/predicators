@@ -1,7 +1,7 @@
-"""Ground-truth simulator program for pybullet_boil process dynamics.
+"""Ground-truth simulator program for pybullet_boil residual dynamics.
 
 Reproduces the custom step logic from pybullet_boil.py as composable
-process rules using plain numpy/float arithmetic.
+residual rules using plain numpy/float arithmetic.
 
 Parameter-dependent gates (alignment thresholds, capacity caps, fill
 height) are softened with sigmoid weights so the residual is
@@ -22,7 +22,7 @@ import numpy as np
 
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.utils import SOFT_EPS, Params, \
-    ProcessUpdate, objs_by_type, sigmoid
+    ResidualUpdate, objs_by_type, sigmoid
 from predicators.ground_truth_models import GroundTruthSimulatorFactory
 from predicators.settings import CFG
 from predicators.structs import Object, State
@@ -42,11 +42,11 @@ BURNER_ALIGN_THRESHOLD = 0.05
 FAUCET_X_LEN = 0.15
 _WATER_HEIGHT_TO_LEVEL_RATIO = 10
 
-# ── Process rules ────────────────────────────────────────────────
+# ── Residual rules ────────────────────────────────────────────────
 
 
-def _water_filling(state: State, updates: ProcessUpdate,
-                   params: Params) -> ProcessUpdate:
+def _water_filling(state: State, updates: ResidualUpdate,
+                   params: Params) -> ResidualUpdate:
     """Faucet on + jug aligned → fill jug; otherwise spill.
 
     Alignment and capacity gates are soft (sigmoid-weighted) so the
@@ -97,8 +97,8 @@ def _water_filling(state: State, updates: ProcessUpdate,
     return updates
 
 
-def _heating(state: State, updates: ProcessUpdate,
-             params: Params) -> ProcessUpdate:
+def _heating(state: State, updates: ResidualUpdate,
+             params: Params) -> ResidualUpdate:
     """Burner on + jug with water aligned → heat jug.
 
     Alignment gate is soft so the residual is differentiable in
@@ -132,8 +132,8 @@ def _heating(state: State, updates: ProcessUpdate,
     return updates
 
 
-def _happiness(state: State, updates: ProcessUpdate,
-               params: Params) -> ProcessUpdate:
+def _happiness(state: State, updates: ResidualUpdate,
+               params: Params) -> ResidualUpdate:
     """Jug filled + boiled + no spill + burner off → human happy.
 
     The water-filled gate is soft on ``water_filled_height`` so the
@@ -202,11 +202,11 @@ def _build_param_specs() -> List[ParamSpec]:
 # CFG-dependent defaults are evaluated when the loader pulls the value,
 # after CFG has been finalized.
 
-PROCESS_RULES = [_water_filling, _heating, _happiness]
+RESIDUAL_RULES = [_water_filling, _heating, _happiness]
 
 PARAM_SPECS = _build_param_specs
 
-PROCESS_FEATURES: Dict[str, List[str]] = {
+RESIDUAL_FEATURES: Dict[str, List[str]] = {
     "jug": ["water_volume", "heat_level"],
     "faucet": ["spilled_level"],
     "human": ["happiness_level"],
@@ -216,12 +216,13 @@ PROCESS_FEATURES: Dict[str, List[str]] = {
 
 
 class PyBulletBoilGroundTruthSimulatorFactory(GroundTruthSimulatorFactory):
-    """GT process-dynamics simulator for pybullet_boil.
+    """GT residual-dynamics simulator for pybullet_boil.
 
-    The actual simulator components (``PROCESS_RULES``, ``PARAM_SPECS``,
-    ``PROCESS_FEATURES``) live as module globals above; this class only
-    pins the env-name binding so ``get_gt_simulator`` can locate the
-    right module via the factory registry.
+    The actual simulator components (``RESIDUAL_RULES``,
+    ``PARAM_SPECS``, ``RESIDUAL_FEATURES``) live as module globals
+    above; this class only pins the env-name binding so
+    ``get_gt_simulator`` can locate the right module via the factory
+    registry.
     """
 
     @classmethod

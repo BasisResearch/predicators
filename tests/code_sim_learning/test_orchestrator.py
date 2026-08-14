@@ -18,7 +18,7 @@ from predicators.code_sim_learning.rollout_env import num_rollouts_run
 from predicators.structs import Action, Object, State, Type
 
 _DOMINO_TYPE = Type("domino", ["x"])
-_PROCESS_FEATURES = {"domino": ["x"]}
+_RESIDUAL_FEATURES = {"domino": ["x"]}
 _DOMINO = Object("d0", _DOMINO_TYPE)
 
 
@@ -76,7 +76,7 @@ def test_run_rollout_sysid_fit_cache_and_report_isolation():
     fit_cache = {}
 
     outcome = run_rollout_sysid(env, [traj], [spec],
-                                _PROCESS_FEATURES,
+                                _RESIDUAL_FEATURES,
                                 anchors=anchors,
                                 rms_cache={},
                                 fit_cache=fit_cache,
@@ -91,7 +91,7 @@ def test_run_rollout_sysid_fit_cache_and_report_isolation():
     # Identical call: zero new rollouts, same applied values.
     n_before = num_rollouts_run()
     outcome2 = run_rollout_sysid(env, [traj], [spec],
-                                 _PROCESS_FEATURES,
+                                 _RESIDUAL_FEATURES,
                                  anchors=anchors,
                                  rms_cache={},
                                  fit_cache=fit_cache,
@@ -111,7 +111,7 @@ def test_run_rollout_sysid_fit_cache_and_report_isolation():
         report["gain"]["note"] = "test demotion"
 
     outcome3 = run_rollout_sysid(env, [traj], [spec],
-                                 _PROCESS_FEATURES,
+                                 _RESIDUAL_FEATURES,
                                  anchors=anchors,
                                  rms_cache={},
                                  fit_cache=fit_cache,
@@ -124,7 +124,7 @@ def test_run_rollout_sysid_fit_cache_and_report_isolation():
 
     # A different artifact key recomputes.
     outcome4 = run_rollout_sysid(env, [traj], [spec],
-                                 _PROCESS_FEATURES,
+                                 _RESIDUAL_FEATURES,
                                  anchors=anchors,
                                  rms_cache={},
                                  fit_cache=fit_cache,

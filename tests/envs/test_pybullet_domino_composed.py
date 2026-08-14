@@ -230,7 +230,7 @@ def test_counterfactual_cascade_probe() -> None:
     assert "reaches the goal at none of" in detail
 
     # Combined substrate: with a probe_process_model_factory stamped (a
-    # belief env whose approach learned process rules), the same broken
+    # belief env whose approach learned residual rules), the same broken
     # scene certifies when the rules model the propagation the base sim
     # lacks - and the detail carries the load-bearing diagnostic. The
     # real env never stamps a factory, so clearing it restores the
@@ -257,7 +257,7 @@ def test_counterfactual_cascade_probe() -> None:
     env.probe_process_model_factory = make_stepper
     ok, detail = env.run_counterfactual_cascade_probe(broken, greens, goal)
     assert ok, detail
-    assert "process rules riding on the base sim" in detail
+    assert "residual rules riding on the base sim" in detail
     assert "load-bearing" in detail
 
     # Physically no-op rules must NOT be flagged load-bearing: the

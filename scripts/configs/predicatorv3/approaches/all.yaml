@@ -22,39 +22,16 @@ APPROACHES:
   # OURS
   # ======================================================================
   # Ours: partially observable, no GT; learn predicates, hybrid sim, and
-  # params (LLM proposes initial params).
-  agent_po_predicate_invention_al:
-    NAME: "agent_po_sim_predicate_invention"
-    SKIP: True
-    FLAGS:
-      demonstrator: "oracle_process_planning"
-      explorer: "agent_bilevel"
-      terminate_on_goal_reached_and_option_terminated: True
-      agent_sdk_use_local_sandbox: True
-      option_model_terminate_on_repeat: False
-      agent_sim_learn_kept_predicates_names: ["Holding"]
-      partially_observable: True
-      agent_explorer_info_seeking: True
-      execution_monitor: "subgoal_annotations"
-      agent_bilevel_max_execution_replans: 2
-      agent_bilevel_use_llm_initial_params: True # LLM proposes params
-      agent_sdk_max_agent_turns_per_iteration: 200
-      agent_sdk_image_max_px: 900
-      agent_planner_use_explore_python: True
-      agent_solve_max_attempts: 5
-      agent_solve_attempt_wall_clock: 2700
-      agent_solve_fresh_context: True
-      agent_solve_use_journal: True
-  # OURS + physics-margin capture gate: identical to
-  # agent_po_predicate_invention_al except captures must also survive
-  # +-1-posterior-sigma perturbations of the identified physical params
-  # (sigma = the sysID fit's reported width, floored by
+  # params (LLM proposes initial params). Includes the physics-margin
+  # capture gate: captures must also survive +-1-posterior-sigma
+  # perturbations of the identified physical params (sigma = the sysID
+  # fit's reported width, floored by
   # code_sim_learning_rollout_min_posterior_width). Motivated by
   # run_20260723_091108 seed1: a capture validated 8/8 at fitted
   # lateral_friction 0.5319 failed deterministically at true 0.5 - the
   # execution-validation repeats cannot see zero margin to parameter
-  # error. Compare against the base arm to measure what the gate adds.
-  agent_po_predicate_invention_al_margin:
+  # error.
+  agent_po_predicate_invention_al:
     NAME: "agent_po_sim_predicate_invention"
     SKIP: True
     FLAGS:

@@ -87,7 +87,7 @@ def test_fit_params_can_skip_training_with_cfg():
         simulator_fn=lambda _s, _a, _p: {},
         transitions=[],
         param_specs=param_specs,
-        process_features={},
+        residual_features={},
     )
 
     assert result.point_estimate == {"rate": 2.5, "threshold": 0.7}
@@ -121,12 +121,12 @@ def test_fit_params_threads_laplace_bundle_when_info_seeking():
         "code_sim_learning_num_mcmc_steps": 0,
         "agent_explorer_info_seeking": True,
     })
-    simulator_fn, transitions, process_features = _linear_transitions()
+    simulator_fn, transitions, residual_features = _linear_transitions()
     result = fit_params(
         simulator_fn=simulator_fn,
         transitions=transitions,
         param_specs=[ParamSpec("k", 1.0, lo=0.0, hi=10.0)],
-        process_features=process_features,
+        residual_features=residual_features,
         noise_sigma=0.05,
     )
     # LM recovers the true slope (3.0) as the point estimate, not init (1.0).
@@ -146,12 +146,12 @@ def test_fit_params_no_bundle_when_lm_fully_disabled():
         "code_sim_learning_log_hessian_identifiability": False,
         "agent_explorer_info_seeking": False,
     })
-    simulator_fn, transitions, process_features = _linear_transitions()
+    simulator_fn, transitions, residual_features = _linear_transitions()
     result = fit_params(
         simulator_fn=simulator_fn,
         transitions=transitions,
         param_specs=[ParamSpec("k", 1.0, lo=0.0, hi=10.0)],
-        process_features=process_features,
+        residual_features=residual_features,
     )
     # No LM ran: point estimate stays at init and no bundle is attached.
     assert result.point_estimate["k"] == pytest.approx(1.0)
@@ -165,12 +165,12 @@ def test_fit_params_bundle_from_warm_start_lm():
         "code_sim_learning_warm_start_with_lm": True,
         "agent_explorer_info_seeking": False,
     })
-    simulator_fn, transitions, process_features = _linear_transitions()
+    simulator_fn, transitions, residual_features = _linear_transitions()
     result = fit_params(
         simulator_fn=simulator_fn,
         transitions=transitions,
         param_specs=[ParamSpec("k", 1.0, lo=0.0, hi=10.0)],
-        process_features=process_features,
+        residual_features=residual_features,
         noise_sigma=0.05,
     )
     assert result.point_estimate["k"] == pytest.approx(3.0, abs=1e-3)
@@ -254,7 +254,7 @@ def test_fit_params_recurrent_threads_laplace_bundle_at_mcmc0():
         trajectories=trajs,
         param_specs=[ParamSpec("rate", 0.35, lo=0.01, hi=2.0)],
         latent_init=latent_init,
-        process_features=feats,
+        residual_features=feats,
         noise_sigma=0.05,
     )
     # LM MAP (not init) is the point estimate, and the Laplace bundle is set.
@@ -279,7 +279,7 @@ def test_fit_params_recurrent_no_bundle_when_lm_fully_disabled():
         trajectories=trajs,
         param_specs=[ParamSpec("rate", 0.35, lo=0.01, hi=2.0)],
         latent_init=latent_init,
-        process_features=feats,
+        residual_features=feats,
     )
     assert result.point_estimate["rate"] == pytest.approx(0.35)
     assert result.jacobian is None

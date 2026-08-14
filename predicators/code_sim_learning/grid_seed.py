@@ -169,7 +169,7 @@ def _grid_seed_physical_specs(
     base_env: Any,
     trajectories: List[RolloutTrajectory],
     physical_specs: Sequence[ParamSpec],
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     rules: Sequence[Any],
     rule_specs: Sequence[ParamSpec],
     latent_init: Any,
@@ -240,7 +240,7 @@ def _grid_seed_physical_specs(
         key = tuple(trial[n] for n in names)
         if key not in memo:
             memo[key] = compute_rollout_sse(base_env, trajectories, trial,
-                                            process_features, physical_names,
+                                            residual_features, physical_names,
                                             rules, latent_init, scaling)
         return memo[key]
 
@@ -320,7 +320,7 @@ def min_explainable_rms(
     base_env: Any,
     trajectories: List[RolloutTrajectory],
     physical_specs: Sequence[ParamSpec],
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     rules: Sequence[Any] = (),
     rule_specs: Sequence[ParamSpec] = (),
     latent_init: Any = None,
@@ -354,7 +354,7 @@ def min_explainable_rms(
     best, _ = min_explainable_fits(base_env,
                                    trajectories,
                                    physical_specs,
-                                   process_features,
+                                   residual_features,
                                    rules=rules,
                                    rule_specs=rule_specs,
                                    latent_init=latent_init,
@@ -369,7 +369,7 @@ def min_explainable_fits(
     base_env: Any,
     trajectories: List[RolloutTrajectory],
     physical_specs: Sequence[ParamSpec],
-    process_features: Dict[str, List[str]],
+    residual_features: Dict[str, List[str]],
     rules: Sequence[Any] = (),
     rule_specs: Sequence[ParamSpec] = (),
     latent_init: Any = None,
@@ -414,7 +414,7 @@ def min_explainable_fits(
     } for _ in trajectories]
     for params in candidates:
         rms = per_trajectory_rms(base_env, trajectories, params,
-                                 process_features, physical_names, rules,
+                                 residual_features, physical_names, rules,
                                  latent_init, scaling)
         for i, r in enumerate(rms):
             if r < best[i]:

@@ -626,11 +626,12 @@ class BeliefProbe:
                   path: Optional[str] = None,
                   rollout: bool = False,
                   sweep_num_points: int = 6,
-                  sweep_params: Optional[List[str]] = None) -> str:
+                  sweep_params: Optional[Union[str, List[str]]] = None,
+                  phys_params: Optional[Dict[str, float]] = None) -> str:
         """Per-feature residual report for the current simulator rules.
 
-        Synthesis sessions only. Loads PROCESS_RULES fresh from
-        ``simulator.py`` and reports, per feature in PROCESS_FEATURES,
+        Synthesis sessions only. Loads RESIDUAL_RULES fresh from
+        ``simulator.py`` and reports, per feature in RESIDUAL_FEATURES,
         mismatch counts, mean/max abs error, improvement over the
         no-rule baseline (negative = the rules hurt), and the worst-N
         example transitions - the fast inner loop for finding where the
@@ -638,17 +639,29 @@ class BeliefProbe:
         ``fit_params=True`` (MCMC-fits first; diagnostic only, nothing
         published). Tolerance: ``|pred - obs| > rel_tol * |obs| +
         abs_tol``. Snapshots the simulator file and tags the report
-        ``[cycle_XXX_vers_YYY]``.
+        ``[cycle_XXX_vers_YYY]``. ``path`` scores a DIFFERENT simulator
+        file than the canonical one - use it to compare rule-set
+        candidates side by side.
 
         ``rollout=True`` switches to the OPEN-LOOP report: free-running
         replay of each recorded trajectory (errors compound, which the
-        teacher-forced default structurally cannot see) plus a sweep of
-        each env-registry physical parameter across its plausible range
-        (``sweep_num_points`` candidates each; ``sweep_params`` narrows
-        which). Slow - one fresh-env rollout per candidate per motion
-        segment - but the only residual view that can implicate or
-        exonerate a physical parameter; consult it before deciding the
-        ``PHYSICAL_PARAMS`` declaration either way.
+        teacher-forced default structurally cannot see). It is the only
+        residual view that can implicate or exonerate a physical
+        parameter; consult it before deciding the ``PHYSICAL_PARAMS``
+        declaration either way. Two mutually exclusive opt-ins probe
+        the parameters themselves:
+
+        * ``sweep_params`` - a list of env-registry parameter names, or
+          ``"all"`` - sweeps each named parameter alone across its
+          plausible range (``sweep_num_points`` candidates each) and
+          reports whether the data is explained materially better at
+          another value. Slow: one fresh-env rollout per candidate per
+          motion segment, so name the suspects (or pass ``"all"`` once
+          before the declaration decision) rather than sweeping in a
+          loop.
+        * ``phys_params`` - ``{name: value}`` - scores the data at ONE
+          hypothesized point and reports the SSE ratio vs the baseline;
+          the cheap composable primitive for your own targeted sweeps.
         """
         ctx = self._ctx
         _check_time_budget(ctx)
@@ -666,7 +679,8 @@ class BeliefProbe:
                         path=path,
                         rollout=rollout,
                         sweep_num_points=sweep_num_points,
-                        sweep_params=sweep_params)
+                        sweep_params=sweep_params,
+                        phys_params=phys_params)
 
     def state(
         self,
