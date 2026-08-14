@@ -31,6 +31,8 @@ from predicators.ground_truth_models.skill_factories.wait import \
     note_external_state_change
 from predicators.pybullet_helpers.real_robot_bridge import execute_chunks, \
     make_real_robot, reset_arm, reset_env
+from predicators.pybullet_helpers.real_robot_recorder import episode_stamp, \
+    make_episode_recorder
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, Observation, State
 
@@ -244,7 +246,8 @@ class RealRobotExecutor:
                  settle_s: float = 0.0,
                  divergence_atol: float = 0.02,
                  human_reset: bool = True,
-                 open_loop_episode: bool = False) -> None:
+                 open_loop_episode: bool = False,
+                 recorder: Any = None) -> None:
         missing = sorted(name for name in _REQUIRED_HOOKS
                          if not callable(getattr(env, name, None)))
         if missing:
@@ -278,6 +281,18 @@ class RealRobotExecutor:
         # Chunks held back for the end of the episode. Only ever non-empty
         # under open-loop; the per-boundary path ships and forgets.
         self._pending: List[List[Action]] = []
+        # Records each episode to an SVO take for offline pose estimation.
+        # None when the run is not recording. Opened here rather than at the
+        # first episode: a learning cycle is many episodes, and per-episode
+        # camera init and warmup would otherwise be paid every time.
+        self._recorder = recorder
+        if self._recorder is not None:
+            self._recorder.open()
+        # Whether a take is currently open, so an episode that ends without
+        # ever having started one does not try to stop it.
+        self._recording_episode = False
+        # Episodes begun this run, used to name takes.
+        self._episode_num = 0
         self._settle_s = settle_s
         self._human_reset = human_reset
         self._buffer = OptionBoundaryBuffer()
@@ -403,7 +418,6 @@ class RealRobotExecutor:
         freshly arranged scene. Marking it here rather than at the end
         of an episode is what makes it exactly one prompt per episode.
         """
-        del train_or_test, task_idx  # every episode homes the same way
         self._reset_pending = True
         if self._pending:
             # finish_execution did not run for the previous episode. Shipping
@@ -422,6 +436,30 @@ class RealRobotExecutor:
                 "real robot: dropping %d buffered action(s) from an episode "
                 "that ended mid-option; they were never shipped", lost)
         reset_arm(self._robot, self._home_arm_joints(obs))
+        self._start_recording(train_or_test, task_idx)
+
+    def _start_recording(self, train_or_test: str, task_idx: int) -> None:
+        """Begin this episode's take, after the arm is home.
+
+        After the homing rather than before it: the arm's trip to home
+        is not part of the episode being measured, and the take is the
+        input to pose estimation rather than an archive of the session.
+        A take left open by an episode that never finished is stopped
+        first, so this episode does not append itself to the last one's
+        recording.
+        """
+        if self._recorder is None:
+            return
+        if self._recording_episode:
+            logging.warning(
+                "real robot: a take was still open at the start of an "
+                "episode; closing it before starting this one")
+            self._recorder.stop_episode()
+            self._recording_episode = False
+        self._episode_num += 1
+        self._recorder.start_episode(
+            episode_stamp(train_or_test, task_idx, self._episode_num))
+        self._recording_episode = True
 
     def after_step(self, action: Action, obs: Observation) -> Observation:
         """Buffer the action, and ship at an option boundary.
@@ -464,7 +502,19 @@ class RealRobotExecutor:
         and the arm would execute it with nobody having decided it was
         a good idea. The information that it was partial exists only
         here, so this is the last place that judgement can be made.
+
+        The recording is stopped either way, in a ``finally``: shipping
+        must not happen on an abnormal end, but a take left open runs
+        until the disk fills. The two have opposite defaults, which is
+        why one is conditional and the other is not.
         """
+        try:
+            self._ship_episode(completed)
+        finally:
+            self._stop_recording()
+
+    def _ship_episode(self, completed: bool) -> None:
+        """Send the episode's buffered motion to the arm, or drop it."""
         pending, self._pending = self._pending, []
         lost_partial = self._buffer.discard()
         if not pending:
@@ -501,6 +551,13 @@ class RealRobotExecutor:
             "real robot: batch done (monotonic_ns=%d wall_ns=%d, "
             "elapsed %.3fs)", time.monotonic_ns(), time.time_ns(),
             (time.monotonic_ns() - started_monotonic_ns) / 1e9)
+
+    def _stop_recording(self) -> None:
+        """End this episode's take, if one is open."""
+        if self._recorder is None or not self._recording_episode:
+            return
+        self._recording_episode = False
+        self._recorder.stop_episode()
 
     # -- helpers -----------------------------------------------------------
     def _home_arm_joints(self, obs: Observation) -> List[float]:
@@ -548,6 +605,15 @@ def attach_real_robot(env: BaseEnv,
     """
     if not CFG.real_robot_execute:
         return None
+    # A contradiction in the config alone, so it is reported before anything
+    # about the env or the hardware is examined.
+    if CFG.real_robot_record_episodes and CFG.real_robot_perception == "zed":
+        raise ValueError(
+            "real_robot_record_episodes and a live \"zed\" perception both "
+            "want to own the same cameras, and a ZED admits one owner. "
+            "Recording feeds the offline markerless pipeline, which does not "
+            "need a live look: set real_robot_perception to \"scene_file\" "
+            "(or \"none\"), or turn the recording off.")
     if not isinstance(env, PyBulletEnv):
         raise TypeError(
             f"real_robot_execute needs a PyBullet-backed env to act as the "
@@ -555,6 +621,8 @@ def attach_real_robot(env: BaseEnv,
             "turns an option into the joint trajectory the arm executes.")
     if robot is None:
         robot = make_real_robot()
+    recorder = (make_episode_recorder()
+                if CFG.real_robot_record_episodes else None)
     executor = RealRobotExecutor(
         env,
         robot,
@@ -562,6 +630,7 @@ def attach_real_robot(env: BaseEnv,
         settle_s=CFG.real_robot_settle_s,
         divergence_atol=CFG.real_robot_divergence_atol,
         human_reset=CFG.real_robot_human_reset,
-        open_loop_episode=CFG.real_robot_open_loop_episode)
+        open_loop_episode=CFG.real_robot_open_loop_episode,
+        recorder=recorder)
     env.attach_executor(executor)
     return executor

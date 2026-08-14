@@ -26,6 +26,8 @@ from predicators.pybullet_helpers.real_robot_bridge import GripperJointLayout
 from predicators.pybullet_helpers.real_robot_executor import \
     OptionBoundaryBuffer, RealRobotExecutor, _dump_look, \
     _per_object_divergence, attach_real_robot
+from predicators.pybullet_helpers.real_robot_recorder import \
+    EpisodeRecorder, episode_stamp
 from predicators.structs import Action, Object, ParameterizedOption, State, \
     Type
 
@@ -220,6 +222,29 @@ def test_executor_has_no_module_level_babyrobot_import():
         for name in names:
             assert not name.startswith("babyrobot"), \
                 f"babyrobot imported at module level: {name}"
+
+
+def test_recorder_has_no_module_level_submodule_import():
+    """Same contract for the recorder, and it needs its own test: the executor
+    imports this module at module level, so a top-level import here would break
+    a checkout without the submodule just as surely -- and the ZED recorder
+    lives under ``pose_estimation``, not ``babyrobot``, so the name to look for
+    is different."""
+    source = inspect.getsourcefile(EpisodeRecorder)
+    assert source is not None
+    with open(source, encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    private = ("babyrobot", "pose_estimation")
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            names = [a.name for a in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            names = [node.module or ""]
+        else:
+            continue
+        for name in names:
+            assert not name.startswith(private), \
+                f"private submodule imported at module level: {name}"
 
 
 # -- the buffer, on its own --------------------------------------------------
@@ -711,6 +736,236 @@ def test_no_cameras_means_nothing_to_be_stale_about(monkeypatch):
     assert ex.tasks_for("test") is None
 
 
+# -- episode recording -------------------------------------------------------
+class _StubSession:
+    """Stands in for babyrobot's ZedRecorderSession.
+
+    Records the lifecycle calls, so a test can assert the cameras are
+    opened once for the run and a take is started and stopped per
+    episode, with no SDK anywhere near it.
+    """
+
+    def __init__(self, errors=None, stop_raises=False):
+        self.opens = 0
+        self.closes = 0
+        self.started = []
+        self.stopped = []
+        self.recording = False
+        self._errors = errors or []
+        self._stop_raises = stop_raises
+
+    def open(self):
+        """Open the cameras."""
+        self.opens += 1
+
+    def start_take(self, stamp=None, max_frames=None):
+        """Begin a take, returning its directory."""
+        self.started.append((stamp, max_frames))
+        self.recording = True
+        return "take_" + str(stamp)
+
+    def stop_take(self, export_mp4=False, export_depth=False):
+        """End a take, returning its meta.json contents."""
+        self.stopped.append({"mp4": export_mp4, "depth": export_depth})
+        self.recording = False
+        if self._stop_raises:
+            raise RuntimeError("grab thread for ZED 32294776 failed")
+        return {
+            "take_dir": "take_" + str(self.started[-1][0]),
+            "errors": list(self._errors),
+            "timestamp_clock": "SDK_DEFAULT",
+            "sdk_version": "3.8.2",
+        }
+
+    def close(self):
+        """Release the cameras."""
+        self.closes += 1
+
+
+def _recording_executor(session, **kwargs):
+    """An executor wired to a recorder over ``session``."""
+    return _executor(_StubEnv(),
+                     observe_at_boundaries=False,
+                     human_reset=False,
+                     recorder=EpisodeRecorder(session),
+                     **kwargs)
+
+
+@pytest.mark.usefixtures("recorder")
+def test_cameras_open_once_for_the_run_not_once_per_episode():
+    """A learning cycle is many episodes, and per-episode camera init and
+    warmup would otherwise be paid every time."""
+    session = _StubSession()
+    ex = _recording_executor(session)
+
+    for _ in range(3):
+        ex.after_reset("train", 0, _state(0.0))
+        ex.after_episode(True)
+
+    assert session.opens == 1
+    assert len(session.started) == 3
+    assert len(session.stopped) == 3
+
+
+def test_a_take_is_stopped_even_when_nothing_ships(recorder):
+    """Shipping must NOT happen on an abnormal end, but the recording must
+    still stop -- a take left open runs until the disk fills. The two have
+    opposite defaults, which is why one is conditional and the other is
+    not."""
+    session = _StubSession()
+    ex = _recording_executor(session, open_loop_episode=True)
+    ex.after_reset("train", 0, _state(0.0))
+    _run_episode(ex, ["Pick", "Place"], recorder, completed=False)
+
+    assert recorder.shipped == [], "an incomplete episode ships nothing"
+    assert len(session.stopped) == 1, "but its take is still stopped"
+    assert session.recording is False
+
+
+@pytest.mark.usefixtures("recorder")
+def test_a_take_is_stopped_even_when_shipping_raises(monkeypatch):
+    """Recording teardown belongs in a finally: the arm failing is not a
+    reason to leave a camera recording."""
+    session = _StubSession()
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("arm refused the batch")
+
+    monkeypatch.setattr(
+        "predicators.pybullet_helpers.real_robot_executor.execute_chunks",
+        _boom)
+    ex = _recording_executor(session, open_loop_episode=True)
+    ex.after_reset("train", 0, _state(0.0))
+    obs = _state(0.0)
+    option = _option("Pick")
+    ex.after_step(_act(option, terminal=False), obs)
+    ex.after_step(_act(option, terminal=True), obs)
+
+    with pytest.raises(RuntimeError, match="arm refused"):
+        ex.after_episode(True)
+
+    assert len(session.stopped) == 1
+    assert session.recording is False
+
+
+@pytest.mark.usefixtures("recorder")
+def test_a_take_reporting_camera_errors_is_marked_unusable():
+    """A camera that dropped out mid-episode yields a short track that looks
+    perfectly well formed, so the episode is marked rather than trusted."""
+    session = _StubSession(errors=["ZED 30264679 stopped grabbing"])
+    rec = EpisodeRecorder(session)
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   human_reset=False,
+                   recorder=rec)
+
+    ex.after_reset("train", 0, _state(0.0))
+    ex.after_episode(True)
+
+    assert rec.takes == [("take_" + session.started[0][0], False)]
+
+
+@pytest.mark.usefixtures("recorder")
+def test_a_clean_take_is_marked_usable():
+    """The other half of the same contract."""
+    session = _StubSession()
+    rec = EpisodeRecorder(session)
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   human_reset=False,
+                   recorder=rec)
+
+    ex.after_reset("train", 0, _state(0.0))
+    ex.after_episode(True)
+
+    take_dir, usable = rec.takes[0]
+    assert usable is True
+    assert take_dir == rec.last_take_dir
+
+
+@pytest.mark.usefixtures("recorder")
+def test_a_failed_stop_does_not_take_the_run_down_with_it():
+    """By the time a take is stopped the arm has already moved, so a
+    recording problem must not destroy the run around it."""
+    session = _StubSession(stop_raises=True)
+    rec = EpisodeRecorder(session)
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   human_reset=False,
+                   recorder=rec)
+    ex.after_reset("train", 0, _state(0.0))
+
+    ex.after_episode(True)  # must not raise
+
+    assert rec.takes == [("<failed>", False)]
+
+
+@pytest.mark.usefixtures("recorder")
+def test_exports_are_off_during_a_run():
+    """stop_take can export depth inline, but that is the expensive offline
+    work: doing it here would serialise post-processing into the episode loop
+    and undo open-loop execution."""
+    session = _StubSession()
+    ex = _recording_executor(session)
+    ex.after_reset("train", 0, _state(0.0))
+    ex.after_episode(True)
+
+    assert session.stopped == [{"mp4": False, "depth": False}]
+
+
+@pytest.mark.usefixtures("recorder")
+def test_a_take_left_open_is_closed_before_the_next_episode():
+    """An episode that never finished must not have the next one appended to
+    its recording."""
+    session = _StubSession()
+    ex = _recording_executor(session)
+
+    ex.after_reset("train", 0, _state(0.0))
+    # No after_episode: the episode ended some other way.
+    ex.after_reset("train", 0, _state(0.0))
+
+    assert len(session.stopped) == 1, "the orphaned take was closed"
+    assert len(session.started) == 2
+
+
+def test_recording_is_refused_alongside_a_live_zed_perception():
+    """Both want the same cameras, and a ZED admits one owner."""
+    utils.reset_config({
+        "real_robot_execute": True,
+        "real_robot_record_episodes": True,
+        "real_robot_perception": "zed",
+    })
+    with pytest.raises(ValueError, match="one owner"):
+        attach_real_robot(cast(Any, _StubEnv()))
+
+
+def test_take_names_carry_the_episode_they_came_from():
+    """A learning cycle revisits the same task index many times, so the stamp
+    has to distinguish episodes -- and sort chronologically."""
+    first = episode_stamp("train", 0, 1)
+    second = episode_stamp("train", 0, 2)
+
+    assert first.endswith("_train0_ep001")
+    assert second.endswith("_train0_ep002")
+    assert first < second
+
+
+def test_the_recorder_closes_an_in_flight_take():
+    """close() is registered with atexit, and a session left recording would
+    keep writing until the disk filled."""
+    session = _StubSession()
+    rec = EpisodeRecorder(session)
+    rec.open()
+    rec.start_episode("stamp")
+
+    rec.close()
+
+    assert session.closes == 1
+    # Idempotent: atexit may fire after an explicit close.
+    rec.close()
+    assert session.closes == 1
+
+
 # -- open-loop episodes ------------------------------------------------------
 def _run_episode(ex, options, recorder, completed=True):
     """Drive ``ex`` through whole options, then end the episode.
@@ -761,7 +1016,8 @@ def test_open_loop_preserves_option_order(recorder):
     assert shipped == ["Pick", "Place", "Push"]
 
 
-def test_open_loop_leaves_the_twin_trajectory_bit_identical(recorder):
+@pytest.mark.usefixtures("recorder")
+def test_open_loop_leaves_the_twin_trajectory_bit_identical():
     """The whole safety argument for deferring: with the boundary look off,
     shipping is a pure write-only side effect, so *when* it happens cannot
     change what the rollout sees.
