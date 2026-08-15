@@ -58,16 +58,16 @@ _COS45 = float(np.cos(np.pi / 4))
 
 
 def _rmat(state: State, blk: Object) -> np.ndarray:
-    """World-from-local rotation, R = Rz(rot) @ Ry(pitch) @ Rx(roll)."""
+    """World-from-local rotation, R = Rz(yaw) @ Ry(pitch) @ Rx(roll)."""
     cl = float(np.cos(state.get(blk, "roll")))
     sl = float(np.sin(state.get(blk, "roll")))
     cp = float(np.cos(state.get(blk, "pitch")))
     sp = float(np.sin(state.get(blk, "pitch")))
-    cr = float(np.cos(state.get(blk, "rot")))
-    sr = float(np.sin(state.get(blk, "rot")))
+    cy = float(np.cos(state.get(blk, "yaw")))
+    sy = float(np.sin(state.get(blk, "yaw")))
     rx = np.array([[1.0, 0.0, 0.0], [0.0, cl, -sl], [0.0, sl, cl]])
     ry = np.array([[cp, 0.0, sp], [0.0, 1.0, 0.0], [-sp, 0.0, cp]])
-    rz = np.array([[cr, -sr, 0.0], [sr, cr, 0.0], [0.0, 0.0, 1.0]])
+    rz = np.array([[cy, -sy, 0.0], [sy, cy, 0.0], [0.0, 0.0, 1.0]])
     return rz @ ry @ rx
 
 

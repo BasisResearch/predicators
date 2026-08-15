@@ -74,7 +74,7 @@ def _glue_end_b_sampler(state: State, goal: Set[GroundAtom],
     # pick's IK residual.
     blk = objs[2]
     dab = _ENV._face_dab_point(state, blk, "end_b")  # pylint: disable=protected-access
-    yaw = state.get(blk, "rot")
+    yaw = state.get(blk, "yaw")
     x, y = dab[0], dab[1]
     z = dab[2] + _ENV.bottle_half_extents[2] + rng.uniform(0.0, 0.006)
     return np.array([

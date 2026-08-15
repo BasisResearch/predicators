@@ -49,7 +49,7 @@ def _side_by_side_state(env: PyBulletBridgeEnv):
         state.set(span, "x", 0.65 + i * (2 * hx + 0.002))
         state.set(span, "y", 1.30)
         state.set(span, "z", z)
-        state.set(span, "rot", 0.0)
+        state.set(span, "yaw", 0.0)
     return state, span0, span1
 
 

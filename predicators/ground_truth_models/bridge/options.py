@@ -92,14 +92,14 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
             del params, cfg
             _, blk = objects
             half = cls.env_cls._world_half_extents(state, blk)  # pylint: disable=protected-access
-            # Grasp near the top of the block. At wrist yaw = block rot
+            # Grasp near the top of the block. At wrist yaw = block yaw
             # the fingers straddle the 5 cm width for either orientation
             # (a quarter-turn on a lying block would straddle its 10 cm
             # length, wider than the ~8 cm finger opening, so the
             # fingers press the top face and shove the block into the
             # table instead of wrapping it).
             return (state.get(blk, "x"), state.get(blk, "y"),
-                    state.get(blk, "z") + half[2], state.get(blk, "rot"))
+                    state.get(blk, "z") + half[2], state.get(blk, "yaw"))
 
         PickBlock = create_pick_skill(
             name="PickBlock",

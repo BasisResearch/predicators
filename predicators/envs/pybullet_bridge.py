@@ -140,7 +140,7 @@ class PyBulletBridgeEnv(PyBulletEnv):
     # spans are the SAME block at different orientations. A leg is the
     # box stood on end: pitch = -pi/2 (local +x up, so its world-top
     # face is its local ``end_b`` face). Orientation features are
-    # (pitch, rot); raw Euler read-backs at pitch = +-pi/2 hit the
+    # (pitch, yaw); raw Euler read-backs at pitch = +-pi/2 hit the
     # gimbal singularity, so the env canonicalizes block orientations
     # from the quaternion (see _canonical_block_orientation).
     block_half_extents: ClassVar[Tuple[float, float,
@@ -156,12 +156,12 @@ class PyBulletBridgeEnv(PyBulletEnv):
     # lists and initialize_pybullet's body creation both read these.
     n_legs: ClassVar[int] = 2
     n_spans: ClassVar[int] = 3
-    # Blocks carry a full free-SO(3) orientation as (roll, pitch, rot);
+    # Blocks carry a full free-SO(3) orientation as (roll, pitch, yaw);
     # register the triple so reconstruction diffs compare it as one
     # rotation (geodesic angle) instead of axis-by-axis, which is
     # spuriously large at the gimbal pole (standing blocks).
     _ORIENTATION_EULER_TRIPLES: ClassVar[Tuple[Tuple[str, str, str], ...]] = \
-        PyBulletEnv._ORIENTATION_EULER_TRIPLES + (("roll", "pitch", "rot"), )
+        PyBulletEnv._ORIENTATION_EULER_TRIPLES + (("roll", "pitch", "yaw"), )
     block_mass: ClassVar[float] = 0.1
     bottle_half_extents: ClassVar[Tuple[float, float,
                                         float]] = (0.012, 0.012, 0.03)
@@ -301,19 +301,19 @@ class PyBulletBridgeEnv(PyBulletEnv):
     # agent must postulate attachment as a latent relation from
     # co-motion. All stay Python attributes (the internal source of
     # truth) so they always drive the dynamics.
-    # Pose is the FULL 6D (x, y, z, roll, pitch, rot): orientation =
-    # Rz(rot) @ Ry(pitch) @ Rx(roll), so pitch = elevation of the
+    # Pose is the FULL 6D (x, y, z, roll, pitch, yaw): orientation =
+    # Rz(yaw) @ Ry(pitch) @ Rx(roll), so pitch = elevation of the
     # block's long axis (0 = lying flat, -pi/2 = standing with local +x
-    # up, the leg pose), rot = azimuth, roll = spin about the long
+    # up, the leg pose), yaw = azimuth, roll = spin about the long
     # axis. Any physical orientation is representable -- nothing is
     # silently erased at state syncs. Features are CANONICALIZED from
     # the quaternion on read (see _canonical_block_orientation): within
-    # ~1 deg of the gimbal pole the roll/rot split is numerically
+    # ~1 deg of the gimbal pole the roll/yaw split is numerically
     # degenerate, so roll folds to 0 there; reconstruction checks
     # compare the triple as a geodesic rotation (gimbal-safe), not
     # axis-by-axis.
     _block_features_common = [
-        "x", "y", "z", "roll", "pitch", "rot", "is_held", "glue_top",
+        "x", "y", "z", "roll", "pitch", "yaw", "is_held", "glue_top",
         "glue_end_a", "glue_end_b"
     ]
     # attached_* (partner block index, -1 = none) are observable ONLY
@@ -336,11 +336,11 @@ class PyBulletBridgeEnv(PyBulletEnv):
                        ["cure_top", "cure_end_a", "cure_end_b"] +
                        _block_features_attached + _block_features_tail,
                        sim_features=_block_sim_features,
-                       angular_features=["roll", "pitch", "rot"])
+                       angular_features=["roll", "pitch", "yaw"])
     _block_type_po = Type("block",
                           _block_features_common + _block_features_tail,
                           sim_features=_block_sim_features,
-                          angular_features=["roll", "pitch", "rot"])
+                          angular_features=["roll", "pitch", "yaw"])
     _bottle_type = Type("bottle", ["x", "y", "z", "rot", "is_held"],
                         sim_features=["id"],
                         angular_features=["rot"])
@@ -615,52 +615,52 @@ class PyBulletBridgeEnv(PyBulletEnv):
 
     @staticmethod
     def _block_rotation(state: State, blk: Object) -> np.ndarray:
-        """World-from-local rotation matrix from the (roll, pitch, rot)
+        """World-from-local rotation matrix from the (roll, pitch, yaw)
         pose."""
         quat = p.getQuaternionFromEuler([
             state.get(blk, "roll"),
             state.get(blk, "pitch"),
-            state.get(blk, "rot")
+            state.get(blk, "yaw")
         ])
         return np.array(p.getMatrixFromQuaternion(quat)).reshape(3, 3)
 
     # Within this angular distance of the gimbal pole (|pitch| = pi/2)
-    # the roll/rot Euler split is numerically degenerate; canonical
-    # reads fold roll into rot there so a resting standing block's
+    # the roll/yaw Euler split is numerically degenerate; canonical
+    # reads fold roll into yaw there so a resting standing block's
     # features stay stable across snapshots.
     _GIMBAL_FOLD_BAND: ClassVar[float] = 0.02
 
     @classmethod
     def _canonical_block_orientation(
             cls, orn: Sequence[float]) -> Tuple[float, float, float]:
-        """(roll, pitch, rot) from a quaternion -- the FULL orientation.
+        """(roll, pitch, yaw) from a quaternion -- the FULL orientation.
 
         Away from the gimbal pole this is PyBullet's exact Euler
-        extraction. Within ~1 deg of the pole the roll/rot split is
+        extraction. Within ~1 deg of the pole the roll/yaw split is
         degenerate (only their combination is meaningful), so roll is
-        folded to 0 and its contribution transferred into rot -- the
+        folded to 0 and its contribution transferred into yaw -- the
         represented orientation changes by at most the pole distance.
         """
-        roll, pitch, rot = p.getEulerFromQuaternion(list(orn))
+        roll, pitch, yaw = p.getEulerFromQuaternion(list(orn))
         if abs(abs(pitch) - np.pi / 2) < cls._GIMBAL_FOLD_BAND:
-            # At the pole R = Rz(rot -+ roll) @ Ry(+-pi/2); fold roll.
+            # At the pole R = Rz(yaw -+ roll) @ Ry(+-pi/2); fold roll.
             if pitch < 0:  # pitch -> -pi/2
-                rot = float((rot + roll + np.pi) % (2 * np.pi) - np.pi)
+                yaw = float((yaw + roll + np.pi) % (2 * np.pi) - np.pi)
             else:  # pitch -> +pi/2
-                rot = float((rot - roll + np.pi) % (2 * np.pi) - np.pi)
+                yaw = float((yaw - roll + np.pi) % (2 * np.pi) - np.pi)
             roll = 0.0
-        return float(roll), float(pitch), float(rot)
+        return float(roll), float(pitch), float(yaw)
 
     @classmethod
     def _ideal_block_orientation(
             cls, orn: Sequence[float]) -> Tuple[float, float, float, float]:
         """The nearest axis-aligned rest orientation: canonical roll and
-        pitch snapped to the closest multiple of pi/2, rot kept free."""
-        roll, pitch, rot = cls._canonical_block_orientation(orn)
+        pitch snapped to the closest multiple of pi/2, yaw kept free."""
+        roll, pitch, yaw = cls._canonical_block_orientation(orn)
         half_pi = np.pi / 2
         roll = round(roll / half_pi) * half_pi
         pitch = round(pitch / half_pi) * half_pi
-        return p.getQuaternionFromEuler([roll, pitch, rot])
+        return p.getQuaternionFromEuler([roll, pitch, yaw])
 
     @staticmethod
     def _attached_value(state: State, blk: Object, slot: str) -> float:
@@ -749,30 +749,13 @@ class PyBulletBridgeEnv(PyBulletEnv):
     def _is_block(self, obj: Object) -> bool:
         return obj.type in (self._block_type, self._block_type_po)
 
-    def _reset_single_object(self, obj: Object, state: State) -> None:
-        # Blocks carry a (pitch, rot) orientation; the base class's
-        # generic path would take the "rot" branch and drop pitch, so
-        # rebuild the full orientation here.
-        if self._is_block(obj) and obj.id is not None:
-            orn = p.getQuaternionFromEuler([
-                state.get(obj, "roll"),
-                state.get(obj, "pitch"),
-                state.get(obj, "rot")
-            ])
-            update_object(obj.id, (state.get(obj, "x"), state.get(
-                obj, "y"), state.get(obj, "z")),
-                          orn,
-                          physics_client_id=self._physics_client_id)
-            return
-        super()._reset_single_object(obj, state)
-
     def _object_pose_matches_state(self,
                                    obj: Object,
                                    state: State,
                                    atol: float = 1e-3) -> bool:
         # Blocks: compare the orientation GEODESICALLY (the angle
         # between the state's rotation and the live one), never
-        # axis-by-axis -- near the gimbal pole the roll/rot split of
+        # axis-by-axis -- near the gimbal pole the roll/yaw split of
         # the same physical orientation can differ arbitrarily between
         # two valid Euler decompositions.
         if not self._is_block(obj):
@@ -787,7 +770,7 @@ class PyBulletBridgeEnv(PyBulletEnv):
         state_orn = p.getQuaternionFromEuler([
             state.get(obj, "roll"),
             state.get(obj, "pitch"),
-            state.get(obj, "rot")
+            state.get(obj, "yaw")
         ])
         diff = p.getDifferenceQuaternion(list(orn), list(state_orn))
         angle = 2.0 * float(np.arccos(np.clip(abs(diff[3]), -1.0, 1.0)))
@@ -804,7 +787,7 @@ class PyBulletBridgeEnv(PyBulletEnv):
         state (and the weld sync can rebuild constraints from it).
         """
         state = super()._get_state(_render_obs)
-        # Canonical (pitch, rot) for every block: the base class reads
+        # Canonical (pitch, yaw) for every block: the base class reads
         # raw Euler angles, which are degenerate for standing blocks
         # (pitch = +-pi/2), so recompute both from the quaternion.
         for blk in state.get_objects(self._block_type):
@@ -812,10 +795,10 @@ class PyBulletBridgeEnv(PyBulletEnv):
                 continue
             orn = p.getBasePositionAndOrientation(
                 blk.id, physicsClientId=self._physics_client_id)[1]
-            roll, pitch, rot = self._canonical_block_orientation(orn)
+            roll, pitch, yaw = self._canonical_block_orientation(orn)
             state.set(blk, "roll", roll)
             state.set(blk, "pitch", pitch)
-            state.set(blk, "rot", rot)
+            state.set(blk, "yaw", yaw)
         if CFG.partially_observable:
             state.privileged = {
                 blk.name: {
@@ -894,7 +877,7 @@ class PyBulletBridgeEnv(PyBulletEnv):
 
         The relative transform is SNAPPED before freezing: each block's
         orientation is idealized to the nearest axis-aligned rest pose
-        (roll/pitch to multiples of pi/2, rot free), and when
+        (roll/pitch to multiples of pi/2, yaw free), and when
         ``ideal_dz`` is given (the joint's nominal vertical offset,
         known from the attachment slot) the WORLD z-offset is set to
         it. An unsnapped weld freezes a millimeter-level inconsistency
@@ -1222,7 +1205,7 @@ class PyBulletBridgeEnv(PyBulletEnv):
                               orientation=p.getQuaternionFromEuler([
                                   state.get(blk, "roll"),
                                   state.get(blk, "pitch"),
-                                  state.get(blk, "rot")
+                                  state.get(blk, "yaw")
                               ]),
                               physics_client_id=self._physics_client_id)
 
@@ -1463,7 +1446,7 @@ class PyBulletBridgeEnv(PyBulletEnv):
                     0.0,
                     "pitch":
                     -np.pi / 2 if is_leg else 0.0,
-                    "rot":
+                    "yaw":
                     0.0,
                     "is_held":
                     0.0,

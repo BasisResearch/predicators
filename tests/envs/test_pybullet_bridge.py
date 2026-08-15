@@ -131,7 +131,7 @@ def test_seat_weld_holds_pose(env_and_task):
     s.set(span, "z",
           s.get(leg, "z") + env.leg_half_extents[2] +
           env.span_half_extents[2])
-    for feat in ("roll", "pitch", "rot"):
+    for feat in ("roll", "pitch", "yaw"):
         s.set(span, feat, 0.0)
     s.set(leg, "glue_end_b", 1.0)
     for i, blk in enumerate(blocks):
