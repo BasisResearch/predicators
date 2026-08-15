@@ -35,8 +35,8 @@ Required overrides in subclasses:
 
 import abc
 import logging
-from typing import Any, ClassVar, Dict, List, Optional, Protocol, Sequence, \
-    Set, Tuple, Type, cast
+from typing import Any, ClassVar, Dict, FrozenSet, List, Optional, Protocol, \
+    Sequence, Set, Tuple, Type, cast
 
 import matplotlib
 import numpy as np
@@ -46,7 +46,7 @@ from PIL import Image
 
 from predicators import utils
 from predicators.code_sim_learning.commands import ApplyForce, ApplyTorque, \
-    PhysicsCommand, SetVelocity
+    Attach, PhysicsCommand, SetVelocity
 from predicators.envs import BaseEnv
 from predicators.pybullet_helpers import retry_pybullet_call, studio_visuals
 from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
@@ -113,6 +113,10 @@ class PyBulletEnv(BaseEnv):
     # terminated.
     grasp_tol: ClassVar[float] = 5e-2  # for large objects
     grasp_tol_small: ClassVar[float] = 5e-4  # for small objects
+    # Strength of welds created by residual Attach commands. PyBullet's
+    # default (500) sags under cantilevered load; matches the bridge
+    # env's feature-driven weld_max_force.
+    residual_attach_max_force: ClassVar[float] = 10000.0
     _finger_action_tol: ClassVar[float] = 1e-4
     open_fingers: ClassVar[float] = 0.04
     closed_fingers: ClassVar[float] = 0.01
@@ -286,6 +290,10 @@ class PyBulletEnv(BaseEnv):
         # Residual physics commands awaiting the next action's substeps;
         # see queue_residual_commands for the contract.
         self._pending_residual_commands: List[PhysicsCommand] = []
+        # Welds created by Attach commands, keyed by the unordered
+        # object-name pair. Reconciled against the pending commands once
+        # per action (re-emit-to-persist), cleared at episode reset.
+        self._cmd_weld_constraints: Dict[FrozenSet[str], int] = {}
 
         # Set up all the static PyBullet content.
         self._physics_client_id, self._pybullet_robot, pybullet_bodies = \
@@ -628,9 +636,8 @@ class PyBulletEnv(BaseEnv):
               task_idx: int,
               render: bool = False) -> Observation:
         state = super().reset(train_or_test, task_idx)
-        # Episode boundary: any residual commands queued for a step that
-        # never ran belong to the abandoned rollout.
-        self._pending_residual_commands = []
+        # Episode boundary: _set_state clears any residual commands and
+        # commanded welds left over from the abandoned rollout.
         self._set_state(state)
         observation = self.get_observation(render=render)
         if self._executor is not None:
@@ -737,6 +744,10 @@ class PyBulletEnv(BaseEnv):
         # Step the simulation here before adding or removing constraints
         # because detect_held_object() should use the updated state.
         if CFG.pybullet_control_mode != "reset":
+            # Attachments are constraints, not per-substep actuation:
+            # reconcile once per action (create newly commanded welds,
+            # remove ones whose command was not re-emitted).
+            self._reconcile_commanded_attachments()
             for _ in range(CFG.pybullet_sim_steps_per_action):
                 # Residual physics commands act during this one action
                 # (applyExternalForce is cleared by each stepSimulation,
@@ -799,12 +810,94 @@ class PyBulletEnv(BaseEnv):
         """
         self._pending_residual_commands = list(commands)
 
+    def _residual_command_body_ids(self) -> Dict[str, int]:
+        """Object name -> body id, for resolving residual commands.
+
+        Resolved against ``self._objects`` (the set the current state
+        carries), so command emitters built from another env instance's
+        ``State`` still drive this env.
+        """
+        ids_by_name: Dict[str, int] = {}
+        for obj in self._objects:
+            obj_id = getattr(obj, "id", None)
+            if obj_id is not None and obj_id >= 0:
+                ids_by_name[obj.name] = obj_id
+        return ids_by_name
+
+    def _reconcile_commanded_attachments(self) -> None:
+        """Sync command-created welds to this action's Attach commands.
+
+        Called once per action, before the physics substeps. Re-emit-to-
+        persist, like every residual command: a pair commanded this
+        action keeps (or gains) its JOINT_FIXED weld, frozen at the
+        pair's current relative pose; a pair no longer commanded loses
+        it. Runs even with an empty queue so stale welds from a rule
+        that stopped emitting (or a planner backtrack that dropped the
+        pending commands) are removed. Fails soft on unresolvable
+        object names, mirroring :meth:`_apply_pending_residual_commands`.
+        """
+        desired: Dict[FrozenSet[str], Attach] = {
+            frozenset((cmd.obj_a_name, cmd.obj_b_name)): cmd
+            for cmd in self._pending_residual_commands
+            if isinstance(cmd, Attach)
+        }
+        for key in list(self._cmd_weld_constraints):
+            if key not in desired:
+                p.removeConstraint(self._cmd_weld_constraints.pop(key),
+                                   physicsClientId=self._physics_client_id)
+        if not desired:
+            return
+        ids_by_name = self._residual_command_body_ids()
+        for key, cmd in desired.items():
+            if key in self._cmd_weld_constraints:
+                continue
+            body_a = ids_by_name.get(cmd.obj_a_name)
+            body_b = ids_by_name.get(cmd.obj_b_name)
+            if body_a is None or body_b is None:
+                logging.warning(
+                    "Attach command targets unknown or bodiless object "
+                    "pair ('%s', '%s'); skipping.", cmd.obj_a_name,
+                    cmd.obj_b_name)
+                continue
+            pos_a, orn_a = p.getBasePositionAndOrientation(
+                body_a, physicsClientId=self._physics_client_id)
+            pos_b, orn_b = p.getBasePositionAndOrientation(
+                body_b, physicsClientId=self._physics_client_id)
+            inv_pos, inv_orn = p.invertTransform(pos_a, orn_a)
+            rel_pos, rel_orn = p.multiplyTransforms(inv_pos, inv_orn, pos_b,
+                                                    orn_b)
+            cid = p.createConstraint(parentBodyUniqueId=body_a,
+                                     parentLinkIndex=-1,
+                                     childBodyUniqueId=body_b,
+                                     childLinkIndex=-1,
+                                     jointType=p.JOINT_FIXED,
+                                     jointAxis=[0, 0, 0],
+                                     parentFramePosition=rel_pos,
+                                     parentFrameOrientation=rel_orn,
+                                     childFramePosition=[0, 0, 0],
+                                     childFrameOrientation=[0, 0, 0, 1],
+                                     physicsClientId=self._physics_client_id)
+            # PyBullet's default maxForce (500) sags under cantilevered
+            # load (see the bridge env's weld_max_force).
+            p.changeConstraint(cid,
+                               maxForce=self.residual_attach_max_force,
+                               physicsClientId=self._physics_client_id)
+            self._cmd_weld_constraints[key] = cid
+
+    def _clear_commanded_attachments(self) -> None:
+        """Remove every command-created weld (episode boundary)."""
+        for cid in self._cmd_weld_constraints.values():
+            p.removeConstraint(cid, physicsClientId=self._physics_client_id)
+        self._cmd_weld_constraints.clear()
+
     def _apply_pending_residual_commands(self) -> None:
         """Execute the queued commands against the live PyBullet world.
 
         Called before every physics substep, so force/torque commands
-        act as continuous actuation across the whole action. Objects
-        are resolved by NAME against ``self._objects`` (the set the
+        act as continuous actuation across the whole action (Attach
+        commands are handled once per action by
+        :meth:`_reconcile_commanded_attachments` instead). Objects are
+        resolved by NAME against ``self._objects`` (the set the
         current state carries), so command emitters built from another
         env instance's ``State`` still drive this env. Fails soft on
         unknown names or bodiless objects - agent-written rules may
@@ -813,12 +906,10 @@ class PyBulletEnv(BaseEnv):
         """
         if not self._pending_residual_commands:
             return
-        ids_by_name: Dict[str, int] = {}
-        for obj in self._objects:
-            obj_id = getattr(obj, "id", None)
-            if obj_id is not None and obj_id >= 0:
-                ids_by_name[obj.name] = obj_id
+        ids_by_name = self._residual_command_body_ids()
         for cmd in self._pending_residual_commands:
+            if isinstance(cmd, Attach):
+                continue
             body_id = ids_by_name.get(cmd.obj_name)
             if body_id is None:
                 logging.warning(
@@ -956,6 +1047,20 @@ class PyBulletEnv(BaseEnv):
         - simulate(): option-model / bilevel-planning rollouts
         - external callers (skill factories, agent tools, tests)
         """
+        # A state override is a lifecycle boundary for the physics-
+        # command channel: pending commands were computed for whatever
+        # state the env held before, and a commanded weld's frozen
+        # relative frame was captured at the OLD poses -- keeping it
+        # across a teleport makes the solver yank the pair back toward
+        # the stale frame at maxForce on the next step. Sequential
+        # rollouts never reach here (simulate() skips _set_state when
+        # the state already matches), and every queue site queues
+        # after its _set_state, so nothing legitimate is lost; welds a
+        # rule still wants are re-emitted and re-frozen at the
+        # restored poses.
+        self._pending_residual_commands = []
+        self._clear_commanded_attachments()
+
         # Cohort change or the very first call forces a full reset:
         # per-component compares assume the same set of bodies.
         full_reset = (self._current_observation is None
