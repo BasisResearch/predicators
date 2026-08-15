@@ -246,8 +246,10 @@ class GlobalSettings:
     pybullet_birrt_contact_margin = -0.001
     # During a lift after grasping, the held object can start in shallow
     # penetration from grasp settling. Allow escaping these initial contacts
-    # only up to this depth; deeper penetration remains a collision.
-    pybullet_birrt_shallow_held_contact_margin = -0.003
+    # only up to this depth; deeper penetration remains a collision. 6mm
+    # covers a tall block grasped mid-rock (a ~7 degree tilt frozen into the
+    # grasp puts a 10cm block's corner ~4-5mm below its resting plane).
+    pybullet_birrt_shallow_held_contact_margin = -0.006
     # Required separation (metres) from "bystander" bodies during BiRRT -
     # bodies the plan neither starts nor deliberately ends in proximity of.
     # The hard contact margin above tolerates ~1mm of penetration (needed
@@ -815,13 +817,6 @@ class GlobalSettings:
     # at the home x (diagonal approach) which leaves room for sideways switch
     # push-throughs.
     boil_mobile_base_align_x = True
-
-    # bridge env
-    # Task sizes: "simple" = 4 blocks (1-block legs, 2-block span, 3 glue
-    # joints); "full" = 7 blocks (2-block leg stacks, 3-block span, 6
-    # glue joints). One spec is drawn per task from these lists.
-    bridge_task_spec_train = ["simple"]
-    bridge_task_spec_test = ["simple"]
 
     # parameters for random options approach
     random_options_max_tries = 100
