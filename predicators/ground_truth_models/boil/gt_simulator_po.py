@@ -10,7 +10,7 @@ the same monotone ramp the environment uses.
 Differences from the fully-observable ``gt_simulator.py``:
 
 * ``_heating`` uses the recurrent 5-arg signature
-  ``rule(state, latent, history, updates, params)``. It carries the
+  ``rule(observation, latent, history, updates, params)``. It carries the
   hidden per-jug heat in ``latent["heat"]`` (a ``{jug_name: heat}`` dict
   threaded across steps by ``compute_sse_recurrent``) and writes only the
   *observable* ``bubbling_level`` via
@@ -70,7 +70,7 @@ BUBBLING_RAMP = 1.0 / (1.0 - BUBBLING_ONSET)  # ≈ 6.667
 # ── Residual rules ────────────────────────────────────────────────
 
 
-def _water_filling(state: State, updates: ResidualUpdate,
+def _water_filling(observation: State, updates: ResidualUpdate,
                    params: Params) -> ResidualUpdate:
     """Faucet on + nearest non-held jug aligned and under capacity → fill.
 
@@ -80,14 +80,14 @@ def _water_filling(state: State, updates: ResidualUpdate,
     differentiability the FO module's soft gates provided is
     unnecessary.
     """
-    objs = objs_by_type(state)
+    objs = objs_by_type(observation)
     for faucet in objs.get("faucet", []):
-        if state.get(faucet, "is_on") <= 0.5:
+        if observation.get(faucet, "is_on") <= 0.5:
             continue
 
-        fx = float(state.get(faucet, "x"))
-        fy = float(state.get(faucet, "y"))
-        frot = float(state.get(faucet, "rot"))
+        fx = float(observation.get(faucet, "x"))
+        fy = float(observation.get(faucet, "y"))
+        frot = float(observation.get(faucet, "rot"))
         out_x = fx + params["faucet_x_len"] * np.cos(frot)
         out_y = fy - params["faucet_x_len"] * np.sin(frot)
 
@@ -95,17 +95,17 @@ def _water_filling(state: State, updates: ResidualUpdate,
         # "first aligned wins" semantics for single-jug tasks).
         best_jug, best_dist = None, float("inf")
         for jug in objs.get("jug", []):
-            if state.get(jug, "is_held") > 0.5:
+            if observation.get(jug, "is_held") > 0.5:
                 continue
-            jx = float(state.get(jug, "x"))
-            jy = float(state.get(jug, "y"))
+            jx = float(observation.get(jug, "x"))
+            jy = float(observation.get(jug, "y"))
             d = float(np.hypot(out_x - jx, out_y - jy))
             if d < best_dist:
                 best_jug, best_dist = jug, d
 
         if best_jug is None or best_dist >= params["faucet_align_threshold"]:
             continue
-        water = float(state.get(best_jug, "water_volume"))
+        water = float(observation.get(best_jug, "water_volume"))
         new_water = min(params["max_jug_water_capacity"],
                         water + params["water_fill_speed"])
         updates.setdefault(best_jug, {})["water_volume"] = new_water
@@ -114,7 +114,7 @@ def _water_filling(state: State, updates: ResidualUpdate,
 
 
 def _heating(  # pylint: disable=unused-argument
-        state: State, latent: Dict[str, Any], history: History,
+        observation: State, latent: Dict[str, Any], history: History,
         updates: ResidualUpdate, params: Params) -> ResidualUpdate:
     """Burner on + jug with water aligned → accumulate hidden heat, surfaced
     through the observable ``bubbling_level``.
@@ -135,22 +135,22 @@ def _heating(  # pylint: disable=unused-argument
     phase offset out of the ~34 steps to boil.)
     """
     heats: Dict[str, float] = latent.setdefault("heat", {})
-    objs = objs_by_type(state)
+    objs = objs_by_type(observation)
     burners = objs.get("burner", [])
 
     for jug in objs.get("jug", []):
         heat = float(heats.get(jug.name, 0.0))
         # Heat accumulates only while the jug (with water, not held) sits
         # on a turned-on, aligned burner.
-        if (state.get(jug, "is_held") <= 0.5
-                and state.get(jug, "water_volume") > 0.0):
-            jx = float(state.get(jug, "x"))
-            jy = float(state.get(jug, "y"))
+        if (observation.get(jug, "is_held") <= 0.5
+                and observation.get(jug, "water_volume") > 0.0):
+            jx = float(observation.get(jug, "x"))
+            jy = float(observation.get(jug, "y"))
             for burner in burners:
-                if state.get(burner, "is_on") <= 0.5:
+                if observation.get(burner, "is_on") <= 0.5:
                     continue
-                bx = float(state.get(burner, "x"))
-                by = float(state.get(burner, "y"))
+                bx = float(observation.get(burner, "x"))
+                by = float(observation.get(burner, "y"))
                 if float(np.hypot(bx - jx, by - jy)) < \
                         params["burner_align_threshold"]:
                     heat = min(1.0, heat + params["heating_speed"])

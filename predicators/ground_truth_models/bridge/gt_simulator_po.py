@@ -164,7 +164,7 @@ def _find_mate(state: State, blocks: List[Object], blk: Object, face: str,
     return None
 
 
-def _gluing(state: State, latent: Dict[str, Any], history: History,
+def _gluing(observation: State, latent: Dict[str, Any], history: History,
             updates: ResidualUpdate, params: Params) -> ResidualUpdate:
     """Recurrent hidden-counter rule: wet faces near the held bottle's tip;
     tick a hidden per-joint counter while a wet face is in aligned resting
@@ -173,7 +173,7 @@ def _gluing(state: State, latent: Dict[str, Any], history: History,
     del history
     cures: Dict[str, float] = latent.setdefault("cure", {})
     attached: Dict[str, str] = latent.setdefault("attached", {})
-    objs = objs_by_type(state)
+    objs = objs_by_type(observation)
     blocks = objs.get("block", [])
     bottles = objs.get("bottle", [])
 
@@ -181,17 +181,17 @@ def _gluing(state: State, latent: Dict[str, Any], history: History,
     glue_next: Dict[Any, Dict[str, float]] = {}
     for blk in blocks:
         glue_next[blk] = {
-            face: float(state.get(blk, f"glue_{face}"))
+            face: float(observation.get(blk, f"glue_{face}"))
             for face in GLUE_FACES
         }
 
     # 1. Glue application: nearest unattached dry face within radius.
-    held = [b for b in bottles if state.get(b, "is_held") > 0.5]
+    held = [b for b in bottles if observation.get(b, "is_held") > 0.5]
     if held:
         tip = np.array([
-            float(state.get(held[0], "x")),
-            float(state.get(held[0], "y")),
-            float(state.get(held[0], "z")) - BOTTLE_HALF_H
+            float(observation.get(held[0], "x")),
+            float(observation.get(held[0], "y")),
+            float(observation.get(held[0], "z")) - BOTTLE_HALF_H
         ])
         best, best_d = None, float(params["apply_glue_radius"])
         for blk in blocks:
@@ -200,8 +200,8 @@ def _gluing(state: State, latent: Dict[str, Any], history: History,
                         f"{blk.name}|{face}" in attached:
                     continue
                 d = float(
-                    np.linalg.norm(tip -
-                                   np.array(_dab_point(state, blk, face))))
+                    np.linalg.norm(
+                        tip - np.array(_dab_point(observation, blk, face))))
                 if d < best_d:
                     best, best_d = (blk, face), d
         if best is not None:
@@ -218,14 +218,14 @@ def _gluing(state: State, latent: Dict[str, Any], history: History,
             if glue_next[blk][face] <= 0.5:
                 cures.pop(key, None)
                 continue
-            mate = _find_mate(state, blocks, blk, face, params)
+            mate = _find_mate(observation, blocks, blk, face, params)
             if mate is None:
                 cures[key] = 0.0
                 continue
             prog = cures.get(key, 0.0) + 1.0
             cures[key] = prog
             if prog >= params["cure_threshold"]:
-                mate_slot = _mate_slot_for(state, blk, face, mate)
+                mate_slot = _mate_slot_for(observation, blk, face, mate)
                 if f"{mate.name}|{mate_slot}" in attached:
                     continue
                 attached[key] = mate.name
@@ -240,7 +240,7 @@ def _gluing(state: State, latent: Dict[str, Any], history: History,
     return updates
 
 
-def _welding(state: State, latent: Dict[str, Any], history: History,
+def _welding(observation: State, latent: Dict[str, Any], history: History,
              updates: ResidualUpdate, params: Params,
              cmds: CommandBuffer) -> ResidualUpdate:
     """Re-emit the rigid weld for every latent attachment.
@@ -250,7 +250,7 @@ def _welding(state: State, latent: Dict[str, Any], history: History,
     contract. This is the latch's ONLY observable footprint in PO
     mode.
     """
-    del state, history, params
+    del observation, history, params
     attached: Dict[str, str] = latent.setdefault("attached", {})
     emitted = set()
     for key, partner in attached.items():

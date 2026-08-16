@@ -85,6 +85,26 @@ def objs_by_type(state: State) -> Dict[str, List[Object]]:
     return groups
 
 
+def observation_view(state: State) -> State:
+    """The agent-visible projection of *state*: `data` + `latent` only.
+
+    Residual rules are (potentially agent-synthesized) code modelling
+    the world from observations, so they must never see the env-only
+    channels: `privileged` (the ground-truth hidden block whose
+    inference is the whole learning problem) or `simulator_state`
+    (opaque engine bookkeeping). This returns a shallow view sharing
+    `data` and `latent` with both env-only fields dropped - or *state*
+    itself when there is nothing to drop, so fully-observable paths
+    keep object identity. Rule entry points (:func:`apply_rules`,
+    :func:`apply_rules_with_latent`) apply it to their first argument;
+    ``History`` builders must apply it at append time (re-wrapping the
+    whole history per step would be quadratic).
+    """
+    if state.privileged is None and state.simulator_state is None:
+        return state
+    return State(state.data, latent=state.latent)
+
+
 # ── Primitives ────────────────────────────────────────────────────
 
 
@@ -103,7 +123,10 @@ def apply_rules(state: State,
     their commands are discarded - callers that can execute commands
     must pass their own buffer and hand its contents to the env. Values
     are normalised to plain floats (rules may return numpy scalars).
+    Rules receive the :func:`observation_view` of *state*, never the
+    env-only `privileged` / `simulator_state` channels.
     """
+    state = observation_view(state)
     buf = cmds if cmds is not None else CommandBuffer()
     updates: ResidualUpdate = {}
     for rule in rules:
@@ -121,11 +144,16 @@ def apply_rules(state: State,
 # ── Recurrent rule support (latent + history) ─────────────────────
 
 # Read-only history prefix handed to recurrent rules:
-# [(state_0, action_0), (state_1, action_1), ..., (state_t, action_t)]
+# [(obs_0, action_0), (obs_1, action_1), ..., (obs_t, action_t)]
 # Most recent last. The first entry's action is ``None``. Typed as
 # ``Sequence`` (covariant) so callers can pass a stricter
 # ``List[Tuple[State, Action]]`` without an invariance complaint —
-# rules treat history as read-only.
+# rules treat history as read-only. Entries MUST be appended as
+# ``observation_view(state)``: history reaches (agent-synthesized)
+# rules, so the env-only ``privileged`` / ``simulator_state`` channels
+# must be stripped at append time (the entry points strip only their
+# first argument — re-wrapping the whole history per call would be
+# quadratic in trajectory length).
 History = Sequence[Tuple[State, Optional[Action]]]
 
 
@@ -193,7 +221,7 @@ def has_latent_rules(rules: Iterable[Callable]) -> bool:
 
 
 def apply_rules_with_latent(
-    state: State,
+    observation: State,
     latent: Dict[str, Any],
     history: History,
     rules: List,
@@ -203,13 +231,18 @@ def apply_rules_with_latent(
     """Apply rules with a ``latent`` state-feature block and read-only
     ``history``.
 
-    Each rule is either:
+    The first argument is the *observation*: under partial observability
+    it is the state minus the hidden features, and rules receive its
+    :func:`observation_view` (no ``privileged`` / ``simulator_state``),
+    so ``latent`` is their only carrier of hidden state. Each rule is
+    either:
 
-    * **Legacy 3-arg**: ``rule(state, updates, params) -> updates``.
-      Called without latent/history; latent and history are ignored.
-    * **Recurrent 5-arg**: ``rule(state, latent, history, updates,
-      params) -> updates``. ``latent`` is mutated in place — the
-      same dict object passed in by the caller is threaded across
+    * **Legacy 3-arg**: ``rule(observation, updates, params) ->
+      updates``. Called without latent/history; latent and history are
+      ignored.
+    * **Recurrent 5-arg**: ``rule(observation, latent, history,
+      updates, params) -> updates``. ``latent`` is mutated in place —
+      the same dict object passed in by the caller is threaded across
       steps.
 
     Either form may additionally declare a trailing ``cmds`` parameter
@@ -221,14 +254,16 @@ def apply_rules_with_latent(
     normalised to plain floats. The returned update dict has the
     same shape as ``apply_rules``'s output.
     """
+    observation = observation_view(observation)
     buf = cmds if cmds is not None else CommandBuffer()
     updates: ResidualUpdate = {}
     for rule in rules:
         extra = {"cmds": buf} if _rule_accepts_cmds(rule) else {}
         if _rule_accepts_latent(rule):
-            updates = rule(state, latent, history, updates, params, **extra)
+            updates = rule(observation, latent, history, updates, params,
+                           **extra)
         else:
-            updates = rule(state, updates, params, **extra)
+            updates = rule(observation, updates, params, **extra)
     return {
         obj: {feat: float(val)
               for feat, val in feat_dict.items()}
@@ -322,9 +357,10 @@ def rollout_predictions(
         history: List[Tuple[State, Optional[Action]]] = []
         for base_state, action, s_next_obs in group:
             if latent_mode:
-                history.append((base_state, action))
-                updates = apply_rules_with_latent(base_state, latent, history,
-                                                  rules, params)
+                obs = observation_view(base_state)
+                history.append((obs, action))
+                updates = apply_rules_with_latent(obs, latent, history, rules,
+                                                  params)
             else:
                 updates = apply_rules(base_state, rules, params)
             s_pred = (merge_updates(base_state, updates)

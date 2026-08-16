@@ -6,9 +6,11 @@ causally-important features are hidden from the agent-visible observation
 ``CFG.partially_observable`` is True). The synthesizing Claude agent now:
 
 * writes rules with a 5-arg signature
-  ``rule(state, latent, history, updates, params)`` so they can carry a
-  ``latent`` state dict across steps and/or read the prior observation
-  history;
+  ``rule(observation, latent, history, updates, params)`` so they can
+  carry a ``latent`` state dict across steps and/or read the prior
+  observation history (the first argument is named ``observation``
+  rather than ``state``: under partial observability it is exactly the
+  state minus the hidden features);
 * optionally declares ``LATENT_INIT`` (a dict, or zero-arg callable
   returning one) giving the initial latent block;
 * invents predicates that may be observation-only OR latent-aware
@@ -84,7 +86,8 @@ class AgentPOSimPredicateInventionApproach(AgentSimPredicateInventionApproach):
 
     def _residual_rule_signature(self) -> str:
         # Keep the geometric-gate worked example on the same 5-arg shape.
-        return "def residual_rule(state, latent, history, updates, params):"
+        return ("def residual_rule(observation, latent, history, updates, "
+                "params):")
 
     def _extra_synthesis_system_prompt(self) -> str:
         base = super()._extra_synthesis_system_prompt()
@@ -104,11 +107,14 @@ recurrent 5-arg signature below — the 2nd parameter MUST be named
 latent block / read-only history only into rules that declare it):
 
 ```python
-def rule(state, latent, history, updates, params):
-    # state:   the current env State (observable features only)
+def rule(observation, latent, history, updates, params):
+    # observation: the current observation (a State holding the
+    #          observable features ONLY — hidden quantities appear
+    #          under no name; infer them into `latent`)
     # latent:  Dict[str, Any], mutated in place — the hidden dims you
     #          infer, threaded across steps (see "Recurrent rules" below)
-    # history: List[Tuple[State, Optional[Action]]], read-only; newest last
+    # history: List[Tuple[State, Optional[Action]]] of past
+    #          observations, read-only; newest last
     # updates: Dict[Object, Dict[str, float]] accumulated from prior rules
     # params:  Dict[str, float], one entry per ParamSpec
     #
@@ -141,18 +147,20 @@ quantity surfaced only through a derived observable that ramps once the
 latent crosses a threshold.
 
 Model the hidden state explicitly: each ``State`` you predict is one
-sample of an *augmented* state — observable features in ``state.data``
-plus the latent dimensions you infer in ``state.latent`` (a free-form
-dict like ``{"level": 0.73}`` or ``{"count": 22}``). Write rules with
-the recurrent 5-arg signature so they can read and advance that latent:
+sample of an *augmented* state — the observable features plus the
+latent dimensions you infer (a free-form dict like ``{"level": 0.73}``
+or ``{"count": 22}``). Write rules with the recurrent 5-arg signature
+so they can read and advance that latent:
 
 ```python
-def my_rule(state, latent, history, updates, params):
-    # state    : current observation State (no hidden features)
+def my_rule(observation, latent, history, updates, params):
+    # observation : current observation (a State with the observable
+    #            features only — no hidden features)
     # latent   : Dict[str, Any], mutated in place — the latent state
     #            dims you track, threaded across steps
-    # history  : List[Tuple[State, Optional[Action]]], read-only;
-    #            most recent last; first action is None
+    # history  : List[Tuple[State, Optional[Action]]] of past
+    #            observations, read-only; most recent last; first
+    #            action is None
     # updates  : ResidualUpdate dict, also mutated in place
     # params   : Dict[str, float] (fitted scalars)
     ...
@@ -175,11 +183,12 @@ simply ignores its `latent`/`history` arguments.
 
 ### Structure the latent like the state (per-object)
 
-The augmented state is the observable features in ``state.data`` *plus*
-the latent dims you infer: a jug's hidden ``heat`` is just another
-feature of that jug that happens to be unobserved. So **shape the latent
-like ``data`` — object first, then feature**: ``latent[jug.name]["heat"]``
-should read in parallel with ``state.get(jug, "water_volume")``. The
+The augmented state is the observable features in ``observation.data``
+*plus* the latent dims you infer: a jug's hidden ``heat`` is just
+another feature of that jug that happens to be unobserved. So **shape
+the latent like ``data`` — object first, then feature**:
+``latent[jug.name]["heat"]`` should read in parallel with
+``observation.get(jug, "water_volume")``. The
 hidden quantities almost always belong to *individual* objects (each jug
 its own heat, each faucet its own spill buffer), and with several
 same-type objects a flat ``{"heat": 0.0}`` collapses them into one shared
@@ -189,12 +198,12 @@ object rather than indexing ``[0]``.
 ```python
 LATENT_INIT = {}          # {jug_name: {"heat": value}}, filled lazily
 
-def heat_rule(state, latent, history, updates, params):
-    jugs = [o for o in state.data if o.type.name == "jug"]
+def heat_rule(observation, latent, history, updates, params):
+    jugs = [o for o in observation.data if o.type.name == "jug"]
     for jug in jugs:
         jl = latent.setdefault(jug.name, {})    # this jug's hidden dims
         h = jl.get("heat", 0.0)
-        if on_active_burner(state, jug, params):
+        if on_active_burner(observation, jug, params):
             h += 1.0
         jl["heat"] = h
         updates.setdefault(jug, {})["bubbling_level"] = readout(h, params)
@@ -229,9 +238,9 @@ shape as a delayed discrete event:
 PARAM_SPECS = [ParamSpec("delay", init_value=33, lo=1, hi=200)]
 LATENT_INIT = {"count": 0}
 
-def count_rule(state, latent, history, updates, params):
-    active = is_widget_at_fixture(state)  # observable check
-    fixture_on = state.get(fixture, "is_on") > 0.5
+def count_rule(observation, latent, history, updates, params):
+    active = is_widget_at_fixture(observation)  # observable check
+    fixture_on = observation.get(fixture, "is_on") > 0.5
     if active and fixture_on:
         latent["count"] += 1
     else:
@@ -250,9 +259,9 @@ smoothly with the latent before the symbolic "done" point.
 PARAM_SPECS = [ParamSpec("rate", init_value=0.03, lo=0.0, hi=0.1)]
 LATENT_INIT = {"level": 0.0}
 
-def level_rule(state, latent, history, updates, params):
-    active = is_widget_at_fixture(state)
-    fixture_on = state.get(fixture, "is_on") > 0.5
+def level_rule(observation, latent, history, updates, params):
+    active = is_widget_at_fixture(observation)
+    fixture_on = observation.get(fixture, "is_on") > 0.5
     if active and fixture_on:
         latent["level"] += params["rate"]
     lvl = latent["level"]

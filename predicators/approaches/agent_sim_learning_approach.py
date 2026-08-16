@@ -64,8 +64,8 @@ from predicators.code_sim_learning.trajectory_prep import \
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, apply_rules_with_latent, has_latent_rules, \
     has_physics_rules, init_latent, iter_feature_residuals, merge_updates, \
-    read_latent_init, read_physical_param_specs, read_simulator_components, \
-    stamp_physical_spec_scales
+    observation_view, read_latent_init, read_physical_param_specs, \
+    read_simulator_components, stamp_physical_spec_scales
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_simulator
 from predicators.option_model import _OptionModelBase, _OracleOptionModel
@@ -2549,11 +2549,11 @@ re-score.{probe_note}"""
         out: List[Optional[Dict[str, Any]]] = [dict(latent)]
         history: List[Tuple[State, Optional[Action]]] = []
         for i in range(len(traj.actions)):
-            state = traj.states[i]
+            obs = observation_view(traj.states[i])
             action = traj.actions[i]
-            history.append((state, action))
+            history.append((obs, action))
             try:
-                apply_rules_with_latent(state, latent, history, rules, params)
+                apply_rules_with_latent(obs, latent, history, rules, params)
             except Exception:  # pylint: disable=broad-except
                 # If a rule crashes, fall back to None for the remaining
                 # steps so predicate evaluation continues.
@@ -2615,10 +2615,10 @@ re-score.{probe_note}"""
                 base_state, state)
             # Single-step history window; rules needing longer context
             # must accumulate it in ``latent``.
-            history: List[Tuple[State,
-                                Optional[Action]]] = [(base_state, action)]
+            obs = observation_view(base_state)
+            history: List[Tuple[State, Optional[Action]]] = [(obs, action)]
             cmds = CommandBuffer()
-            updates = apply_rules_with_latent(base_state,
+            updates = apply_rules_with_latent(obs,
                                               latent,
                                               history,
                                               rules,
@@ -3214,9 +3214,10 @@ files to see exactly which rules and predicates produced each failed plan.
                 latent = init_latent(latent_init, params)
 
                 def step(state: State, action: Action) -> State:
+                    obs = observation_view(state)
                     history: List[Tuple[State,
-                                        Optional[Action]]] = [(state, action)]
-                    updates = apply_rules_with_latent(state, latent, history,
+                                        Optional[Action]]] = [(obs, action)]
+                    updates = apply_rules_with_latent(obs, latent, history,
                                                       rules, params)
                     return merge_updates(state, updates) if updates else state
 
