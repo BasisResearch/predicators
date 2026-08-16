@@ -985,6 +985,46 @@ class PyBulletBridgeEnv(PyBulletEnv):
             if key not in self._weld_constraints:
                 self._create_weld(body_a, body_b, ideal_dz=ideal_dz)
 
+    def get_welded_partner_transforms(
+        self, body_id: int
+    ) -> Dict[int, Tuple[Tuple[float, ...], Tuple[float, ...]]]:
+        """Ideal ``(position, orientation)`` of every transitively welded
+        partner RELATIVE to ``body_id``, chained from the weld constraints'
+        snapped frames.
+
+        Consumed by the skill-factory motion planner to pose welded
+        partners of the held object. The constraint frames are the
+        settled geometry the physical assembly returns to; live partner
+        poses instead snapshot whatever pendulum transient the carried
+        assembly is mid-swing through (an outer span was captured 19 mm
+        low right after a lift), which poisons every collision check
+        that reuses the capture.
+        """
+        out: Dict[int, Tuple[Tuple[float, ...], Tuple[float, ...]]] = {}
+        identity = ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+        frontier: List[int] = [body_id]
+        transforms = {body_id: identity}
+        while frontier:
+            current = frontier.pop()
+            for key, cid in self._weld_constraints.items():
+                if current not in key:
+                    continue
+                (other, ) = key - {current}
+                if other in transforms:
+                    continue
+                info = p.getConstraintInfo(
+                    cid, physicsClientId=self._physics_client_id)
+                parent_id, rel = info[0], (info[6], info[8])
+                step_tf = rel if current == parent_id else \
+                    p.invertTransform(rel[0], rel[1])
+                base = transforms[current]
+                tf = p.multiplyTransforms(base[0], base[1], step_tf[0],
+                                          step_tf[1])
+                transforms[other] = tf
+                out[other] = tf
+                frontier.append(other)
+        return out
+
     def get_welded_partner_ids(self, body_id: int) -> Set[int]:
         """All body ids rigidly welded (transitively) to ``body_id``.
 

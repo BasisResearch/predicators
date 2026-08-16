@@ -985,8 +985,13 @@ class PhaseSkill:
         #     make every transport plan collide immediately. Remove them from
         #     the obstacle set and instead hand them to the motion planner as
         #     rigid attachments of the held object (posed with the arm and
-        #     collision-checked like the held object itself), capturing their
-        #     end-effector-relative transforms from the just-reset simulator.
+        #     collision-checked like the held object itself). Their
+        #     end-effector-relative transforms chain the held object's grasp
+        #     transform with the welds' IDEAL relative frames -- live partner
+        #     poses would snapshot whatever pendulum transient the carried
+        #     assembly is mid-swing through (an outer span was captured
+        #     19 mm low right after a lift, failing a descend goal the
+        #     settled assembly clears).
         held_attachments: Dict[int, Any] = {}
         if held_object is not None:
             get_welded = getattr(sim, "get_welded_partner_ids", None)
@@ -995,20 +1000,38 @@ class PhaseSkill:
                 collision_bodies -= welded_ids
                 if welded_ids:
                     client = sim._physics_client_id  # pylint: disable=protected-access
-                    planning_robot = sim._pybullet_robot  # pylint: disable=protected-access
-                    planning_robot.set_joints(pb_state.joint_positions)
-                    world_to_base_link = get_link_state(
-                        planning_robot.robot_id,
-                        planning_robot.end_effector_id,
-                        physics_client_id=client).com_pose
-                    base_link_to_world = p.invertTransform(
-                        world_to_base_link[0], world_to_base_link[1])
-                    for welded_id in welded_ids:
-                        world_to_obj = p.getBasePositionAndOrientation(
-                            welded_id, physicsClientId=client)
-                        held_attachments[welded_id] = p.multiplyTransforms(
-                            base_link_to_world[0], base_link_to_world[1],
-                            world_to_obj[0], world_to_obj[1])
+                    held_to_base_link = sim._held_obj_to_base_link  # pylint: disable=protected-access
+                    get_transforms = getattr(sim,
+                                             "get_welded_partner_transforms",
+                                             None)
+                    if get_transforms is not None and \
+                            held_to_base_link is not None:
+                        base_link_to_held = p.invertTransform(
+                            held_to_base_link[0], held_to_base_link[1])
+                        held_to_partners = get_transforms(held_object)
+                        for welded_id, held_to_obj in held_to_partners.items():
+                            held_attachments[welded_id] = p.multiplyTransforms(
+                                base_link_to_held[0], base_link_to_held[1],
+                                held_to_obj[0], held_to_obj[1])
+                    else:
+                        # Fallback for envs without ideal weld frames:
+                        # live-pose capture relative to the end effector.
+                        planning_robot = sim._pybullet_robot  # pylint: disable=protected-access
+                        planning_robot.set_joints(pb_state.joint_positions)
+                        world_to_base_link = get_link_state(
+                            planning_robot.robot_id,
+                            planning_robot.end_effector_id,
+                            physics_client_id=client).com_pose
+                        base_link_to_world = p.invertTransform(
+                            world_to_base_link[0], world_to_base_link[1])
+                        for welded_id in welded_ids:
+                            world_to_obj = p.getBasePositionAndOrientation(
+                                welded_id, physicsClientId=client)
+                            held_attachments[welded_id] = \
+                                p.multiplyTransforms(
+                                    base_link_to_world[0],
+                                    base_link_to_world[1], world_to_obj[0],
+                                    world_to_obj[1])
 
         # 4b. Add tables if present.
         if hasattr(sim, '_table_ids'):

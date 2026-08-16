@@ -92,6 +92,13 @@ def test_glue_cure_weld_lifecycle(env_and_task):
     assert env._Attached_holds(final, [leg1, leg0])
     assert not env._Loose_holds(final, [leg0])
     assert env.get_welded_partner_ids(leg0.id) == {leg1.id}
+    # The ideal partner transform comes from the weld's SNAPPED frame:
+    # leg1 stacked on standing leg0 sits one block-length up (0.1 m),
+    # independent of any pendulum transient in the live poses.
+    transforms = env.get_welded_partner_transforms(leg0.id)
+    assert set(transforms) == {leg1.id}
+    rel_pos, _ = transforms[leg1.id]
+    assert abs(np.linalg.norm(rel_pos) - 2 * env.leg_half_extents[2]) < 0.02
 
     # 3. Fresh reset removes the weld and restores default features.
     env._set_state(task.init)

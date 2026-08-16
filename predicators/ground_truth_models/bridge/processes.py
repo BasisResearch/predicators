@@ -154,7 +154,12 @@ def _seat_span_sampler(state: State, goal: Set[GroundAtom],
     # blew past the release_z bound, and crash-dropped the assembly).
     # mid's center = leg top + span half-thickness + ~1.2 cm drop
     # clearance for the rigid assembly to self-level. A 2 cm drop let
-    # an offset end strike the far leg hard enough to topple it.
+    # an offset end free-fall onto the far leg hard enough to topple
+    # it, so keep the drop minimal. (The descend's collision check
+    # poses the welded partners from the welds' IDEAL frames, so the
+    # carried row's pendulum transients -- up to ~2 cm at an outer
+    # span right after a lift -- cannot fail the goal check; the
+    # settled row is what lands.)
     release_z = _TABLE + _LEG_H + _ENV.span_half_extents[2] + 0.012
     return np.array([x, y, release_z, 0.0], dtype=np.float32)
 

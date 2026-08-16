@@ -37,7 +37,16 @@ def _oracle_bridge_config() -> dict:
         # --- env: bridge from envs/all.yaml ---
         "env": "pybullet_bridge",
         "horizon": 3000,
-        "pybullet_birrt_path_subsample_ratio": 2,
+        # Execute every planned waypoint: subsampled execution cuts
+        # corners the plan cleared, and a carried span grazing a
+        # standing 2:1 leg by a fraction of a mm topples it.
+        "pybullet_birrt_path_subsample_ratio": 1,
+        # The packed staging grid leaves ~1-2 cm clearances that
+        # stochastically dip into 2-3 mm grazes (e.g. a welded row's
+        # frozen offsets against a seat leg at the descend goal); the
+        # default 1 mm margin turns those into unrecoverable BiRRT
+        # start/goal rejections.
+        "pybullet_birrt_contact_margin": -0.005,
         # Each Wait ends on the FIRST atom change, so a plan waiting on
         # several concurrent cures can need a cheap replan for the tail
         # (which reduces to "Wait until the remaining joint cures").
