@@ -249,4 +249,13 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
                             env_cls.robot_init_z),
             transport_z=env_cls.transport_z,
             simulator=simulator,
+            # The carried block lags the end effector's mid-path swings
+            # by up to centimetres, and the standing legs (2:1 aspect)
+            # topple from a fraction-of-a-mm graze, so plans must keep
+            # a real berth between the carried block and bodies the
+            # path only passes by. Bodies within this clearance of the
+            # held object at a path ENDPOINT (butt-joint neighbors,
+            # seat legs, glue targets) are exempted by the planner, so
+            # deliberately tight placements stay plannable.
+            held_bystander_clearance=0.01,
         )
