@@ -24,6 +24,7 @@ from predicators.pybullet_helpers.geometry import Pose
 from predicators.pybullet_helpers.inverse_kinematics import \
     InverseKinematicsError
 from predicators.pybullet_helpers.joint import JointPositions
+from predicators.pybullet_helpers.link import get_link_state
 from predicators.pybullet_helpers.motion_planning import run_motion_planning
 from predicators.pybullet_helpers.robots.single_arm import \
     SingleArmPyBulletRobot
@@ -928,13 +929,17 @@ class PhaseSkill:
 
     def _sim_collision_context(
         self, pb_state: utils.PyBulletState
-    ) -> Tuple[utils.PyBulletState, set, Dict[int, str], Optional[int]]:
+    ) -> Tuple[utils.PyBulletState, set, Dict[int, str], Optional[int], Dict[
+            int, Any]]:
         """Remap ``pb_state`` onto the planning simulator and collect its
         collision bodies.
 
         Resets the simulator to the remapped state as a side effect.
         Returns ``(remapped_state, collision_bodies, body_names,
-        held_object)``. Requires ``self._config.simulator``.
+        held_object, held_attachments)``, where ``held_attachments``
+        maps each body weld-attached to the held object to its end-
+        effector-relative transform (see ``run_motion_planning``).
+        Requires ``self._config.simulator``.
         """
         sim = self._config.simulator
         assert sim is not None
@@ -974,15 +979,36 @@ class PhaseSkill:
                 continue
             collision_bodies.add(sim_obj.id)
 
-        # 4a. Exclude bodies weld-attached to the held object (e.g. a glued
-        #     assembly transported as a rigid unit, see pybullet_bridge).
-        #     They travel with the grasped body, so treating them as static
-        #     obstacles would make every transport plan collide immediately.
-        #     Conservative approximation: welded partners sweep unchecked.
+        # 4a. Bodies weld-attached to the held object (e.g. a glued assembly
+        #     transported as a rigid unit, see pybullet_bridge) travel with
+        #     the grasped body, so treating them as static obstacles would
+        #     make every transport plan collide immediately. Remove them from
+        #     the obstacle set and instead hand them to the motion planner as
+        #     rigid attachments of the held object (posed with the arm and
+        #     collision-checked like the held object itself), capturing their
+        #     end-effector-relative transforms from the just-reset simulator.
+        held_attachments: Dict[int, Any] = {}
         if held_object is not None:
             get_welded = getattr(sim, "get_welded_partner_ids", None)
             if get_welded is not None:
-                collision_bodies -= set(get_welded(held_object))
+                welded_ids = set(get_welded(held_object))
+                collision_bodies -= welded_ids
+                if welded_ids:
+                    client = sim._physics_client_id  # pylint: disable=protected-access
+                    planning_robot = sim._pybullet_robot  # pylint: disable=protected-access
+                    planning_robot.set_joints(pb_state.joint_positions)
+                    world_to_base_link = get_link_state(
+                        planning_robot.robot_id,
+                        planning_robot.end_effector_id,
+                        physics_client_id=client).com_pose
+                    base_link_to_world = p.invertTransform(
+                        world_to_base_link[0], world_to_base_link[1])
+                    for welded_id in welded_ids:
+                        world_to_obj = p.getBasePositionAndOrientation(
+                            welded_id, physicsClientId=client)
+                        held_attachments[welded_id] = p.multiplyTransforms(
+                            base_link_to_world[0], base_link_to_world[1],
+                            world_to_obj[0], world_to_obj[1])
 
         # 4b. Add tables if present.
         if hasattr(sim, '_table_ids'):
@@ -998,7 +1024,8 @@ class PhaseSkill:
         #     blocks in Grow that aren't tracked as state Objects).
         collision_bodies.update(sim.get_extra_collision_ids())
 
-        return remapped_state, collision_bodies, body_names, held_object
+        return remapped_state, collision_bodies, body_names, held_object, \
+            held_attachments
 
     def _stall_contact_report(self, pb_state: utils.PyBulletState) -> str:
         """Name the bodies the robot is touching when incremental IK stalls.
@@ -1014,7 +1041,7 @@ class PhaseSkill:
             return ""
         try:
             sim = self._config.simulator
-            _, collision_bodies, body_names, held_object = \
+            _, collision_bodies, body_names, held_object, held_attachments = \
                 self._sim_collision_context(pb_state)
             planning_robot = sim._pybullet_robot  # pylint: disable=protected-access
             planning_robot.set_joints(pb_state.joint_positions)
@@ -1028,11 +1055,16 @@ class PhaseSkill:
             # needs the blocker named.
             margin = max(CFG.pybullet_birrt_contact_margin,
                          CFG.pybullet_birrt_bystander_clearance)
+            probes = [(planning_robot.robot_id, "robot"),
+                      (held_object, "held object")]
+            probes.extend(
+                (attached_id,
+                 f"welded {body_names.get(attached_id, attached_id)}")
+                for attached_id in held_attachments)
             touching = []
             for body in sorted(collision_bodies):
                 label = body_names.get(body, f"body {body}")
-                for probe, probe_label in ((planning_robot.robot_id, "robot"),
-                                           (held_object, "held object")):
+                for probe, probe_label in probes:
                     if probe is None:
                         continue
                     contacts = p.getContactPoints(probe,
@@ -1066,8 +1098,8 @@ class PhaseSkill:
         del objects  # Unused; kept for a uniform planner signature.
         sim = self._config.simulator
         assert sim is not None
-        remapped_state, collision_bodies, body_names, held_object = \
-            self._sim_collision_context(pb_state)
+        remapped_state, collision_bodies, body_names, held_object, \
+            held_attachments = self._sim_collision_context(pb_state)
 
         # 5. IK + motion planning on simulator's robot
         planning_robot = sim._pybullet_robot  # pylint: disable=protected-access
@@ -1118,6 +1150,7 @@ class PhaseSkill:
             physics_client_id=sim._physics_client_id,  # pylint: disable=protected-access
             held_object=held_object,
             base_link_to_held_obj=base_link_to_held_obj,
+            held_attachments=held_attachments,
             allow_shallow_held_object_contacts=(
                 phase.allow_shallow_held_object_contacts
                 if phase is not None else False),
@@ -1153,6 +1186,7 @@ class PhaseSkill:
                     physics_client_id=sim._physics_client_id,  # pylint: disable=protected-access
                     held_object=held_object,
                     base_link_to_held_obj=base_link_to_held_obj,
+                    held_attachments=held_attachments,
                     allow_shallow_held_object_contacts=(
                         phase.allow_shallow_held_object_contacts
                         if phase is not None else False),
@@ -1174,7 +1208,8 @@ class PhaseSkill:
                 base_link_to_held_obj,
                 phase_name,
                 body_names=body_names,
-                goal_finger_joint=goal_finger_joint)
+                goal_finger_joint=goal_finger_joint,
+                held_attachments=held_attachments)
 
         return traj
 
@@ -1256,6 +1291,7 @@ class PhaseSkill:
         phase_name: str,
         body_names: Optional[Dict[int, str]] = None,
         goal_finger_joint: Optional[float] = None,
+        held_attachments: Optional[Dict[int, Any]] = None,
     ) -> List[str]:
         """Log which collision bodies cause start/goal collisions.
 
@@ -1264,8 +1300,6 @@ class PhaseSkill:
         is the only channel through which it learns WHICH object blocked
         the motion plan (and hence how to adjust its target pose).
         """
-        from predicators.pybullet_helpers.link import \
-            get_link_state  # pylint: disable=import-outside-toplevel
         diagnostics: List[str] = []
 
         def _body_label(body: int) -> str:
@@ -1279,21 +1313,31 @@ class PhaseSkill:
                 pass
             return f"body {body} ({body_name})"
 
+        held_assembly: List[Tuple[int, Any, str]] = []
+        if held_object is not None and base_link_to_held_obj is not None:
+            held_assembly.append(
+                (held_object, base_link_to_held_obj, "held object"))
+            held_assembly.extend(
+                (attached_id, transform,
+                 f"welded {(body_names or {}).get(attached_id, attached_id)}")
+                for attached_id, transform in (held_attachments or {}).items())
+
         def _check(joints: JointPositions, label: str) -> None:
             planning_robot.set_joints(joints)
-            if held_object is not None and base_link_to_held_obj is not None:
+            if held_assembly:
                 wt_bl = get_link_state(
                     planning_robot.robot_id,
                     planning_robot.end_effector_id,
                     physics_client_id=physics_client_id).com_pose
-                wt_ho = p.multiplyTransforms(wt_bl[0], wt_bl[1],
-                                             base_link_to_held_obj[0],
-                                             base_link_to_held_obj[1])
-                p.resetBasePositionAndOrientation(
-                    held_object,
-                    wt_ho[0],
-                    wt_ho[1],
-                    physicsClientId=physics_client_id)
+                for assembly_body, base_link_to_obj, _ in held_assembly:
+                    wt_obj = p.multiplyTransforms(wt_bl[0], wt_bl[1],
+                                                  base_link_to_obj[0],
+                                                  base_link_to_obj[1])
+                    p.resetBasePositionAndOrientation(
+                        assembly_body,
+                        wt_obj[0],
+                        wt_obj[1],
+                        physicsClientId=physics_client_id)
             p.performCollisionDetection(physicsClientId=physics_client_id)
             # Report against the wider of the two thresholds so that
             # bystander-clearance failures (positive separations) are
@@ -1310,14 +1354,14 @@ class PhaseSkill:
                     diagnostics.append(
                         f"{label}: robot within {min_dist:.4f} m of "
                         f"{_body_label(body)}")
-                if held_object is not None:
+                for assembly_body, _, assembly_label in held_assembly:
                     contacts = p.getContactPoints(
-                        held_object, body, physicsClientId=physics_client_id)
+                        assembly_body, body, physicsClientId=physics_client_id)
                     if any(c[8] < margin for c in contacts):
                         min_dist = min(c[8] for c in contacts)
                         diagnostics.append(
-                            f"{label}: held object within {min_dist:.4f} m "
-                            f"of {_body_label(body)}")
+                            f"{label}: {assembly_label} within "
+                            f"{min_dist:.4f} m of {_body_label(body)}")
 
         _check(start_joints, "START")
         _check(goal_joints, "GOAL")

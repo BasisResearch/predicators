@@ -188,6 +188,104 @@ def test_bystander_clearance(physics_client_id):
     p.removeBody(block_id, physicsClientId=physics_client_id)
 
 
+def test_held_attachments(physics_client_id):
+    """Bodies rigidly attached to the held object are collision-checked.
+
+    A goal that keeps the held object itself clear of an obstacle but
+    sweeps a welded attachment into it must be rejected; the same goal
+    without the attachment plans fine.
+    """
+    utils.reset_config({})
+    ee_home_position = (1.35, 0.75, 0.75)
+    ee_orn = p.getQuaternionFromEuler([0.0, np.pi / 2, -np.pi])
+    ee_home_pose = Pose(ee_home_position, ee_orn)
+    robot = create_single_arm_pybullet_robot("fetch", physics_client_id,
+                                             ee_home_pose)
+    robot_init_state = tuple(ee_home_position) + tuple(
+        ee_orn, ) + (robot.open_fingers, )
+    robot.reset_state(robot_init_state)
+    joint_initial = robot.get_joints()
+    block_kwargs = {
+        "color": (0.0, 0.0, 1.0, 1.0),
+        "half_extents": (0.03, 0.03, 0.03),
+        # Nonzero mass: Bullet generates no contacts between two static
+        # bodies, and the obstacle below is static.
+        "mass": 0.1,
+        "friction": 1,
+        "orientation": [0., 0., 0., 1.],
+        "physics_client_id": physics_client_id,
+    }
+    # The held object hangs 10 cm under the end effector; a welded
+    # partner sits 15 cm to its +y side (like a row member).
+    held_id = create_pybullet_block(**block_kwargs)
+    held_position = np.add(ee_home_position, (0.0, 0.0, -0.1))
+    p.resetBasePositionAndOrientation(held_id,
+                                      held_position, [0., 0., 0., 1.],
+                                      physicsClientId=physics_client_id)
+    attached_id = create_pybullet_block(**block_kwargs)
+    attached_position = np.add(held_position, (0.0, 0.15, 0.0))
+    p.resetBasePositionAndOrientation(attached_id,
+                                      attached_position, [0., 0., 0., 1.],
+                                      physicsClientId=physics_client_id)
+    world_to_base_link = get_link_state(
+        robot.robot_id,
+        robot.end_effector_id,
+        physics_client_id=physics_client_id).com_pose
+    base_link_to_world = p.invertTransform(world_to_base_link[0],
+                                           world_to_base_link[1])
+    base_link_to_held = p.multiplyTransforms(base_link_to_world[0],
+                                             base_link_to_world[1],
+                                             held_position, [0., 0., 0., 1.])
+    base_link_to_attached = p.multiplyTransforms(base_link_to_world[0],
+                                                 base_link_to_world[1],
+                                                 attached_position,
+                                                 [0., 0., 0., 1.])
+    # Static obstacle exactly where the ATTACHED body ends up after the
+    # planned 10 cm descent; the held object and the robot stay clear.
+    obstacle_id = create_pybullet_block(color=(1.0, 0.0, 0.0, 1.0),
+                                        half_extents=(0.05, 0.05, 0.05),
+                                        mass=0,
+                                        friction=1,
+                                        orientation=[0., 0., 0., 1.],
+                                        physics_client_id=physics_client_id)
+    p.resetBasePositionAndOrientation(obstacle_id,
+                                      np.add(attached_position,
+                                             (0.0, 0.0, -0.1)),
+                                      [0., 0., 0., 1.],
+                                      physicsClientId=physics_client_id)
+    ee_target = Pose(tuple(np.add(ee_home_position, (0.0, 0.0, -0.1))), ee_orn)
+    joint_target = robot.inverse_kinematics(ee_target, validate=True)
+    # With the attachment checked, the goal sweeps it into the obstacle.
+    path = run_motion_planning(
+        robot,
+        joint_initial,
+        joint_target,
+        collision_bodies={obstacle_id},
+        seed=123,
+        physics_client_id=physics_client_id,
+        held_object=held_id,
+        base_link_to_held_obj=base_link_to_held,
+        held_attachments={attached_id: base_link_to_attached})
+    assert path is None
+    # Without the attachment, the same goal plans fine.
+    path = None
+    for seed in [123, 456, 789]:
+        robot.set_joints(joint_initial)
+        path = run_motion_planning(robot,
+                                   joint_initial,
+                                   joint_target,
+                                   collision_bodies={obstacle_id},
+                                   seed=seed,
+                                   physics_client_id=physics_client_id,
+                                   held_object=held_id,
+                                   base_link_to_held_obj=base_link_to_held)
+        if path is not None:
+            break
+    assert path is not None
+    for body in (held_id, attached_id, obstacle_id):
+        p.removeBody(body, physicsClientId=physics_client_id)
+
+
 def test_move_to_shelf():
     """Test for Panda robot moving to put a held block into a shelf.
 
