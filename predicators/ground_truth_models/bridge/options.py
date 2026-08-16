@@ -47,10 +47,20 @@ _BRIDGE_PLACE_PARAMS = [
 # object goes regardless of grasp depth or the pick's IK residual. The
 # glue samplers use this to land the held bottle's tip on a face dab
 # point (tip = center minus the bottle half-height).
+#
+# The x bounds extend one span half-length past the block workspace: a
+# block STAGED near the workspace edge has its end-face dab point up to
+# span_half_x outside it, and clamping the glue target to the block
+# workspace silently parked the bottle tip 2.5 cm short of the dab --
+# outside the 2 cm wetting radius, so the face never wet and the joint
+# never cured. With the wider box a genuinely unreachable dab fails IK
+# loudly (and triggers a replan) instead of "succeeding" without glue.
 _BRIDGE_MOVE_TO_PARAMS = [
     ("target_x (world x position for the held object, or the EE if "
-     "empty-handed)", PyBulletBridgeEnv.workspace_x_lo,
-     PyBulletBridgeEnv.workspace_x_hi),
+     "empty-handed)",
+     PyBulletBridgeEnv.workspace_x_lo - PyBulletBridgeEnv.span_half_extents[0],
+     PyBulletBridgeEnv.workspace_x_hi +
+     PyBulletBridgeEnv.span_half_extents[0]),
     ("target_y (world y position for the held object, or the EE if "
      "empty-handed)", 1.1, 1.6),
     ("target_z (world z height for the held object, or the EE if "

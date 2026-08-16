@@ -40,8 +40,6 @@ _TABLE = _ENV.table_height
 # joints freeze landing error into the weld; 8 mm still clears the
 # BiRRT contact margin with room for mm-level execution error.
 _DROP = 0.008
-_LEG_CENTER = _TABLE + _ENV.leg_half_extents[2] + _DROP  # on table: 0.458
-_SPAN_CENTER = _TABLE + _ENV.span_half_extents[2] + _DROP  # on table: 0.433
 
 
 def _pick_sampler(state: State, goal: Set[GroundAtom],
@@ -92,7 +90,12 @@ def _place_leg_at_site_sampler(state: State, goal: Set[GroundAtom],
     site = objs[2]
     x = state.get(site, "x") + rng.uniform(-0.003, 0.003)
     y = state.get(site, "y") + rng.uniform(-0.003, 0.003)
-    z = _LEG_CENTER + rng.uniform(0.0, 0.005)
+    # Half the generic drop: a standing leg is a 2:1 block, and an
+    # 8-13 mm drop can land it rocking near its tipping balance -- one
+    # observed leg leaned ~0.6 deg at release and slowly toppled ~30
+    # steps later with nothing touching it. 4-6 mm sheds most of the
+    # landing energy while still clearing the BiRRT contact margin.
+    z = _TABLE + _ENV.leg_half_extents[2] + 0.004 + rng.uniform(0.0, 0.002)
     return np.array([x, y, z, 0.0], dtype=np.float32)
 
 
@@ -102,15 +105,21 @@ def _place_next_to_sampler(state: State, goal: Set[GroundAtom],
     del goal
     # objs = [robot, right, left]: butt the held block against the left
     # block's end_b (+x) face, with a small nominal gap so the landing
-    # does not shove the (wet-glued) left block out of alignment.
+    # does not shove the (wet-glued) left block out of alignment. Keep
+    # the jitter tight and two-sided: the cure gate's projection window
+    # reaches only ~1 cm past the nominal gap, and the params are frozen
+    # at planning time, so the left block's OWN landing error stacks on
+    # top of whatever outward bias the sampler adds (a one-sided
+    # +0-4 mm jitter left a joint outside the window that then never
+    # cured).
     left = objs[2]
     x = state.get(left, "x") + _SPAN_LEN + _ENV.lateral_place_gap + \
-        rng.uniform(0.0, 0.004)
+        rng.uniform(-0.001, 0.001)
     y = state.get(left, "y") + rng.uniform(-0.003, 0.003)
     # Gentler landing than the generic places: any landing shift here
     # is FROZEN into the weld and transfers to the far seat joint, so
-    # minimize the drop (span center 5-9 mm above resting height).
-    z = _TABLE + _ENV.span_half_extents[2] + 0.005 + rng.uniform(0.0, 0.004)
+    # minimize the drop (span center 4-6 mm above resting height).
+    z = _TABLE + _ENV.span_half_extents[2] + 0.004 + rng.uniform(0.0, 0.002)
     return np.array([x, y, z, 0.0], dtype=np.float32)
 
 
@@ -120,15 +129,24 @@ def _seat_span_sampler(state: State, goal: Set[GroundAtom],
     del goal
     # objs = [robot, spanA, mid, spanB, legL, legR, siteL, siteR]. The
     # welded row hangs from its grasped MIDDLE span (see PickRow), so
-    # seating is symmetric: land mid's center on the midpoint of the
-    # two leg tops and both outer spans arrive over their legs by the
-    # rigid geometry. (An end grasp put a 20 cm cantilever on the grasp
-    # constraint; its torsion yawed the far tip ~2-3 cm, enough to
-    # strike the far leg's edge on the way down and topple it.)
+    # seating is near-symmetric: land mid's center on the midpoint of
+    # the two leg tops and both outer spans arrive over their legs by
+    # the rigid geometry. (An end grasp put a 20 cm cantilever on the
+    # grasp constraint; its torsion yawed the far tip ~2-3 cm, enough
+    # to strike the far leg's edge on the way down and topple it.)
+    # Placement errors frozen into the welds make the row slightly
+    # asymmetric about mid, so center the ROW -- the midpoint of the
+    # outer spans' actual centers -- over the legs, not mid itself;
+    # otherwise the whole frozen offset lands on one seat joint.
+    span_a, mid, span_b = objs[1], objs[2], objs[3]
+    row_dx = (state.get(span_a, "x") + state.get(span_b, "x")) / 2 - \
+        state.get(mid, "x")
+    row_dy = (state.get(span_a, "y") + state.get(span_b, "y")) / 2 - \
+        state.get(mid, "y")
     leg_l, leg_r = objs[4], objs[5]
-    x = (state.get(leg_l, "x") + state.get(leg_r, "x")) / 2 + \
+    x = (state.get(leg_l, "x") + state.get(leg_r, "x")) / 2 - row_dx + \
         rng.uniform(-0.003, 0.003)
-    y = (state.get(leg_l, "y") + state.get(leg_r, "y")) / 2 + \
+    y = (state.get(leg_l, "y") + state.get(leg_r, "y")) / 2 - row_dy + \
         rng.uniform(-0.003, 0.003)
     # Release height from STATIC task geometry only. Samplers run at
     # planning time on predicted states, so live robot-relative reads
