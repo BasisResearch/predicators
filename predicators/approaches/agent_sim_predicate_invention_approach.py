@@ -165,13 +165,13 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
 Important: this approach has stripped the env's symbolic predicates down \
 to the "## Available Predicates" allowlist above (just `Holding` by \
 default). You must invent everything else used as a subgoal in plan \
-sketches — placements (object-at-target relations), device states \
+sketches - placements (object-at-target relations), device states \
 (on / off), and process completions (a rule-driven feature reaching a \
-target value) — by writing them to `{path}` as `LEARNED_PREDICATES`. \
+target value) - by writing them to `{path}` as `LEARNED_PREDICATES`. \
 See the system prompt section "Predicate Invention" for the file format.
 
 {goal_block}\
-Goal achievement is checked externally — the env owns the goal \
+Goal achievement is checked externally - the env owns the goal \
 definition. You do **not** need to invent goal predicates or match any \
 env predicate names. To check whether a state satisfies the goal, call \
 the black-box goal-atom check `is_goal_state(state, task_idx)` \
@@ -198,8 +198,8 @@ names. Any predicate you reference in a sketch must exist in \
 `predicates.py` first.""" + self._chained_extra_message(extra_paths)
 
     def _chained_extra_message(self, extra_paths: Dict[str, str]) -> str:
-        """The base class's extra message (the partial-observability note
-        under ``CFG.partially_observable``), separated for appending."""
+        """The base class's extra message (the partial-observability note under
+        ``CFG.partially_observable``), separated for appending."""
         base = super()._extra_synthesis_message(extra_paths)
         return "\n\n" + base if base else ""
 
@@ -381,12 +381,12 @@ LEARNED_PREDICATES: List[Predicate]
 
 The exec namespace pre-injects `Predicate`, `np`, and a `<typename>_type` \
 binding for each env type (e.g. `widget_type`, `fixture_type`). The names \
-below are illustrative — use whatever types, features, and parameter names \
+below are illustrative - use whatever types, features, and parameter names \
 your prompt digests and the trajectory data actually report for your task.
 
 ```python
 # Placement: object xy within a learned distance of the fixture's
-# *functional point* — NOT its recorded origin. `fixture.x, fixture.y`
+# *functional point* - NOT its recorded origin. `fixture.x, fixture.y`
 # is usually the body base; the point the predicate should fire at
 # (a contact surface, an outlet, an opening) is offset from it, and
 # that offset lives in the fixture's LOCAL frame, so it rotates with
@@ -422,9 +422,9 @@ LEARNED_PREDICATES = [
 A pre-injected `params` view is in scope; it always reads the **current \
 fitted values** of every `ParamSpec` declared in `simulator.py`. Whenever \
 MCMC re-fits, predicates picking up `params["name"]` see the new values \
-automatically. To share parameters between a rule and a predicate — a \
+automatically. To share parameters between a rule and a predicate - a \
 distance threshold, and the local-frame anchor offset (`*_local_dx`, \
-`*_local_dy`) it is measured from — declare them once in `PARAM_SPECS` \
+`*_local_dy`) it is measured from - declare them once in `PARAM_SPECS` \
 and reference `params["name"]` from both. This is the recommended \
 pattern whenever a single physical gate drives both residual dynamics \
 (the rule's "fire" condition) and a control-relevant predicate (the \
@@ -433,11 +433,11 @@ offset an SSE signal from the rule's step data, which a predicate-only \
 parameter would lack (see next caveat).
 
 Caveat: a parameter used only by predicates (not by any rule) has no SSE \
-signal — it stays at `init_value`. Pick good initial values for those.
+signal - it stays at `init_value`. Pick good initial values for those.
 
 What you'll need (typical pattern):
 - Placement predicates (object at a target location) for any open-ended \
-option like Place — refinement needs these or it picks an arbitrary location.
+option like Place - refinement needs these or it picks an arbitrary location.
 - Device-state predicates (on/off) for any toggle option.
 - Process-completion predicates over the features your rules drive, so \
 Wait steps know when to terminate. Keep classifier thresholds consistent \
@@ -449,12 +449,12 @@ sketch step can carry a subgoal annotation. Annotations are checked \
 against the real state during execution to detect and replan diverged \
 steps; a step with no annotatable effect is unmonitored. While drafting \
 sketches, a step you cannot annotate with any invented predicate is a \
-missing predicate — invent it.
+missing predicate - invent it.
 
 Verifying classifiers against the scene and data (applies to all predicates):
 
 A classifier picks features and parameter values; both can be wrong. Do \
-not pick either from intuition — verify before committing. CLAUDE.md \
+not pick either from intuition - verify before committing. CLAUDE.md \
 contains the full threshold-fitting protocol (bucket steps by downstream \
 effect, check for a knife-edge gap, visualize, then refit); follow it \
 whenever you fit a numeric cutoff. The two workbenches you'll lean on:
@@ -465,21 +465,21 @@ often doesn't coincide with the feature that matters (a body center vs. \
 an outlet on its side, a joint base vs. an end-effector tip, a container \
 origin vs. its opening, a switch housing vs. its handle). On one \
 __SCENE_RENDER_REF__ render, overlay the recorded object origin and the \
-positions where the gated effect did vs. did not fire — the gap between \
+positions where the gated effect did vs. did not fire - the gap between \
 the origin and the effect-firing cluster, expressed in the fixture's \
 local frame, is the anchor offset the predicate needs. Confirm what's \
 actually where before encoding a threshold.
 - `run_python` (numerical workbench): iterate trajectory states and \
 compute the candidate classifier (or its underlying numeric expression) \
 at each step. The right parameter values cleanly separate the steps \
-where a downstream effect actually happens — the relevant rule feature \
-advances, the goal-relevant quantity changes — from the steps where it \
+where a downstream effect actually happens - the relevant rule feature \
+advances, the goal-relevant quantity changes - from the steps where it \
 doesn't. Sweep candidates against that signal and pick by separation. \
 This applies to every kind of predicate: placement thresholds, \
 process-completion cutoffs, on/off comparison points, etc. The two \
 buckets must separate by a clear margin; if they overlap or separate \
 only by a knife-edge gap (~5% of the value range or narrower), the \
-candidate quantity references the wrong point — a threshold flush \
+candidate quantity references the wrong point - a threshold flush \
 against the data boundary is a rejected fit. Do not widen the threshold \
 to absorb the gap: add a learned, rotation-aware anchor offset (shared \
 with the gating rule) and re-bucket. Visualize before fitting.
@@ -489,7 +489,7 @@ monotonicity, coverage across all available trajectories). On goal-reaching \
 trajectories (`reached_goal=True` in `describe_trajectory`) a milestone \
 predicate should flip False→True exactly once and stay true; on failed \
 interaction trajectories (`reached_goal=False`) the same predicate may \
-fire but the rest of the trajectory won't show goal completion — useful \
+fire but the rest of the trajectory won't show goal completion - useful \
 signal for spotting an over-loose threshold (predicate fires, downstream \
 physics doesn't follow). A placement predicate should be true exactly \
 when an object is at its intended location and false otherwise.
@@ -498,7 +498,7 @@ when an object is at its intended location and false otherwise.
 set used by `sim.refine`. Call it after every edit to \
 `predicates.py` before re-running plan refinement.
 
-Predicates persist across online cycles — the file is preserved between \
+Predicates persist across online cycles - the file is preserved between \
 synthesis sessions. Edit it freely; every successful Write/Edit (and a \
 final post-session check) is snapshotted to \
 `predicates_versions/cycle_XXX_vers_YYY_predicates.py`. Each online cycle \
@@ -516,7 +516,7 @@ _RECURRENT_PREDICATE_SECTION = """\
 ### Predicate signature
 
 Classifiers may stay observation-only or take an optional ``latent``
-kwarg. The latent block is available at refinement time too — the
+kwarg. The latent block is available at refinement time too - the
 planner threads it through ``state.latent`` across search nodes, and
 ``Predicate.holds`` auto-routes it into classifiers that opted in. Be
 defensive: at the very first step ``state.latent`` may still be ``{}``

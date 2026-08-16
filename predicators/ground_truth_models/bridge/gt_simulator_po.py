@@ -76,8 +76,8 @@ def _stands(state: State, blk: Object) -> bool:
 
 
 def _half(state: State, blk: Object) -> Tuple[float, float, float]:
-    """World-axis-aligned half extents at the block's orientation
-    family (standing swaps the long axis into z)."""
+    """World-axis-aligned half extents at the block's orientation family
+    (standing swaps the long axis into z)."""
     if _stands(state, blk):
         return (BLOCK_HALF[2], BLOCK_HALF[1], BLOCK_HALF[0])
     return BLOCK_HALF
@@ -92,8 +92,8 @@ def _face_dir(state: State, blk: Object,
 
 def _dab_point(state: State, blk: Object,
                face: str) -> Tuple[float, float, float]:
-    """Mirror of the env's dab geometry: above the center of an upward
-    face, above the top edge of a vertical face."""
+    """Mirror of the env's dab geometry: above the center of an upward face,
+    above the top edge of a vertical face."""
     axis, sign = FACE_AXES[face]
     rmat = _rmat(state, blk)
     pos = np.array([float(state.get(blk, f)) for f in ("x", "y", "z")])
@@ -168,8 +168,10 @@ def _gluing(observation: State, latent: Dict[str, Any], history: History,
             updates: ResidualUpdate, params: Params) -> ResidualUpdate:
     """Recurrent hidden-counter rule: wet faces near the held bottle's tip;
     tick a hidden per-joint counter while a wet face is in aligned resting
-    contact; the latch writes ``latent["attached"]``. Only the wet-glue
-    flags are emitted as features."""
+    contact; the latch writes ``latent["attached"]``.
+
+    Only the wet-glue flags are emitted as features.
+    """
     del history
     cures: Dict[str, float] = latent.setdefault("cure", {})
     attached: Dict[str, str] = latent.setdefault("attached", {})
@@ -247,8 +249,7 @@ def _welding(observation: State, latent: Dict[str, Any], history: History,
 
     Runs after ``_gluing``, so a joint welds on the very step it
     latches; re-emitted every step per the persistent-process command
-    contract. This is the latch's ONLY observable footprint in PO
-    mode.
+    contract. This is the latch's ONLY observable footprint in PO mode.
     """
     del observation, history, params
     attached: Dict[str, str] = latent.setdefault("attached", {})

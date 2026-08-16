@@ -246,8 +246,8 @@ class State:
     """Low-level world state.
 
     Separates the agent's observation (`data`) from two optional hidden
-    blocks — the agent's belief (`latent`) and the environment's ground
-    truth (`privileged`) — plus opaque simulator bookkeeping
+    blocks - the agent's belief (`latent`) and the environment's ground
+    truth (`privileged`) - plus opaque simulator bookkeeping
     (`simulator_state`). Only `data` defines state identity (`__hash__`
     and `allclose` ignore the other three).
     """
@@ -268,7 +268,7 @@ class State:
     latent: Optional[Dict[str, Any]] = None
     # The environment's *true* hidden state that the partially-observable
     # observation omits; None under full observability, where those
-    # features live in `data` instead. The truth to `latent`'s belief —
+    # features live in `data` instead. The truth to `latent`'s belief -
     # env-only, never surfaced through any `data`/`feature_names` channel
     # (inspect tools, dict_str, abstraction). Deep-copied by `copy()`.
     privileged: Optional[Dict[str, Any]] = None
@@ -532,10 +532,10 @@ class Predicate:
         state-feature block, threaded by the sim-learning approaches
         when the learned rules are recurrent (see
         `agent_sim_predicate_invention` under
-        `CFG.partially_observable`). When the caller does not
-        pass `latent` explicitly, the block attached to `state.latent`
-        is used (so callers like `utils.abstract` do not need to know
-        about the recurrent extension). Classifiers that don't accept a
+        `CFG.partially_observable`). When the caller does not pass
+        `latent` explicitly, the block attached to `state.latent` is
+        used (so callers like `utils.abstract` do not need to know about
+        the recurrent extension). Classifiers that don't accept a
         `latent` kwarg are called with the legacy `(state, objects)`
         signature for backwards compatibility.
         """

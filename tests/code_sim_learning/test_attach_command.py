@@ -1,5 +1,5 @@
-"""Tests for the residual ``Attach`` physics command and the base-sim
-hidden-weld gate.
+"""Tests for the residual ``Attach`` physics command and the base-sim hidden-
+weld gate.
 
 Three contracts:
 
@@ -98,8 +98,7 @@ def test_attach_command_welds_and_expires():
 
 
 def test_base_sim_does_not_materialize_feature_welds():
-    """skip_residual_dynamics gates _sync_welds_to_state; full env keeps
-    it."""
+    """skip_residual_dynamics gates _sync_welds_to_state; full env keeps it."""
     for skip, expect_welds in ((True, 0), (False, 1)):
         env = _make_env(skip_residual_dynamics=skip)
         state, span0, span1 = _side_by_side_state(env)

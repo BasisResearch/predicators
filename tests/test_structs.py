@@ -203,13 +203,12 @@ obj9                11       12       13
 
 
 def test_state_latent():
-    """Tests for State.latent — the latent state-feature block threaded
-    by the sim-learning approaches when the learned rules are
-    recurrent."""
+    """Tests for State.latent - the latent state-feature block threaded by the
+    sim-learning approaches when the learned rules are recurrent."""
     t = Type("t", ["x"])
     o = t("o")
     s = State({o: np.array([1.0])})
-    # Defaults to None — fully-observed code never touches it.
+    # Defaults to None - fully-observed code never touches it.
     assert s.latent is None
     # Mutating the dict is the standard pattern for recurrent rules.
     s.latent = {"heat": 0.5, "streak": 3}
@@ -220,7 +219,7 @@ def test_state_latent():
     s_copy.latent["heat"] = 0.9
     s_copy.latent["streak"] = 10
     assert s.latent == {"heat": 0.5, "streak": 3}
-    # The latent is *not* part of hash or allclose — two states identical
+    # The latent is *not* part of hash or allclose - two states identical
     # in observable features but with different latents still hash-equal
     # and compare-equal (search-node identity for fully-observed code is
     # preserved). Backtracking restores the latent via `traj[cur_idx]`

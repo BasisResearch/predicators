@@ -142,8 +142,8 @@ def _seat_span_sampler(state: State, goal: Set[GroundAtom],
 
 
 def _footprint_radius(state: State, obj: Object) -> float:
-    """Conservative horizontal footprint radius from the LIVE geometry
-    (a toppled leg is span-sized; never dispatch on the name role)."""
+    """Conservative horizontal footprint radius from the LIVE geometry (a
+    toppled leg is span-sized; never dispatch on the name role)."""
     if obj.type.name == "bottle":
         return float(np.hypot(*_ENV.bottle_half_extents[:2]))
     half = _ENV._world_half_extents(state, obj)  # pylint: disable=protected-access

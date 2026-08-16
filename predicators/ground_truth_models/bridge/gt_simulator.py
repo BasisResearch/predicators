@@ -77,8 +77,8 @@ def _stands(state: State, blk: Object) -> bool:
 
 
 def _half(state: State, blk: Object) -> Tuple[float, float, float]:
-    """World-axis-aligned half extents at the block's orientation
-    family (standing swaps the long axis into z)."""
+    """World-axis-aligned half extents at the block's orientation family
+    (standing swaps the long axis into z)."""
     if _stands(state, blk):
         return (BLOCK_HALF[2], BLOCK_HALF[1], BLOCK_HALF[0])
     return BLOCK_HALF
@@ -93,8 +93,8 @@ def _face_dir(state: State, blk: Object,
 
 def _dab_point(state: State, blk: Object,
                face: str) -> Tuple[float, float, float]:
-    """Mirror of the env's dab geometry: above the center of an upward
-    face, above the top edge of a vertical face."""
+    """Mirror of the env's dab geometry: above the center of an upward face,
+    above the top edge of a vertical face."""
     axis, sign = FACE_AXES[face]
     rmat = _rmat(state, blk)
     pos = np.array([float(state.get(blk, f)) for f in ("x", "y", "z")])
@@ -280,13 +280,12 @@ def _welding(state: State, updates: ResidualUpdate, params: Params,
              cmds: CommandBuffer) -> ResidualUpdate:
     """Re-emit the rigid weld for every latched attachment.
 
-    The base sim deliberately does NOT know that ``attached_*``
-    features mean a weld (its feature-to-constraint sync is gated off
-    in base-sim mode), so the kinematic consequence of the latch is
-    this rule's job: emit the ``Attach`` physics command for each
-    latched pair, every step, per the re-emit-to-persist command
-    contract. Runs after ``_curing`` so a joint welds on the very step
-    it latches.
+    The base sim deliberately does NOT know that ``attached_*`` features
+    mean a weld (its feature-to-constraint sync is gated off in base-sim
+    mode), so the kinematic consequence of the latch is this rule's job:
+    emit the ``Attach`` physics command for each latched pair, every
+    step, per the re-emit-to-persist command contract. Runs after
+    ``_curing`` so a joint welds on the very step it latches.
     """
     del params
     blocks = objs_by_type(state).get("block", [])

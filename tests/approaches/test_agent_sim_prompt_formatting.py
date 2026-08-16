@@ -57,7 +57,7 @@ def test_trajectory_listing_empty(approach_cls):
 
 
 def test_trajectory_listing_demo_has_no_provenance_tail(approach_cls):
-    """Demo trajectories never carry provenance — even if the tags are set, the
+    """Demo trajectories never carry provenance - even if the tags are set, the
     listing should still render them as plain demos for consistency with the
     offline-data semantics."""
     trajs = [_mk_traj(is_demo=True, task_idx=0)]
@@ -117,8 +117,11 @@ def test_trajectory_listing_env_reward(approach_cls):
 
 
 def test_trajectory_listing_partial_provenance(approach_cls):
-    """A trajectory with only ``source_simulator_version`` set should list only
-    the sim tag — no stray ``, `` from a missing pair."""
+    """A trajectory with only ``source_simulator_version`` set should list
+    only.
+
+    the sim tag - no stray ``, `` from a missing pair.
+    """
     trajs = [_mk_traj(is_demo=False, task_idx=1, sim_v="cycle_001_vers_007")]
     out = approach_cls._format_trajectory_listing(trajs)
     line = [l for l in out.splitlines() if l.startswith("  [0]")][0]
@@ -251,14 +254,14 @@ def test_fo_prompt_uses_three_arg_signature(approach_cls):
 
 
 def test_po_prompt_uses_five_arg_signature_only():
-    """Under CFG.partially_observable every sim-learning prompt advertises
-    only the recurrent 5-arg signature.
+    """Under CFG.partially_observable every sim-learning prompt advertises only
+    the recurrent 5-arg signature.
 
     The 3-arg form sitting beside the PO guidance is exactly what led
     the agent to write a 3-arg rule the recurrent engine rejects, so the
     PO prompt must not show it as canonical. The prompt is flag-driven
-    (there is no separate PO approach class), so both the plain
-    sim-learning arm and the predicate-invention arm are covered.
+    (there is no separate PO approach class), so both the plain sim-
+    learning arm and the predicate-invention arm are covered.
     """
     import re
 

@@ -655,8 +655,8 @@ class PyBulletBridgeEnv(PyBulletEnv):
     @classmethod
     def _ideal_block_orientation(
             cls, orn: Sequence[float]) -> Tuple[float, float, float, float]:
-        """The nearest axis-aligned rest orientation: canonical roll and
-        pitch snapped to the closest multiple of pi/2, yaw kept free."""
+        """The nearest axis-aligned rest orientation: canonical roll and pitch
+        snapped to the closest multiple of pi/2, yaw kept free."""
         roll, pitch, yaw = cls._canonical_block_orientation(orn)
         half_pi = np.pi / 2
         roll = round(roll / half_pi) * half_pi
@@ -665,12 +665,12 @@ class PyBulletBridgeEnv(PyBulletEnv):
 
     @staticmethod
     def _attached_value(state: State, blk: Object, slot: str) -> float:
-        """``attached_<slot>`` from the state, falling back to the
-        privileged channel when the feature is hidden (PO mode).
+        """``attached_<slot>`` from the state, falling back to the privileged
+        channel when the feature is hidden (PO mode).
 
         Env-side classifiers (goal checking, Loose/Attached gates) are
-        ground truth and may read privileged state; the agent never
-        sees it.
+        ground truth and may read privileged state; the agent never sees
+        it.
         """
         feat = f"attached_{slot}"
         if feat in blk.type.feature_names:
@@ -1057,10 +1057,10 @@ class PyBulletBridgeEnv(PyBulletEnv):
         """The unique block currently in aligned resting contact with ``blk``'s
         ``face``, or None.
 
-        Vertical faces mirror the NextToEnd classifier; upward faces
-        use the generic resting-contact check (which subsumes the
-        OnBlock and SeatedOn classifiers and also covers a LYING
-        block's wet top -- faces are physics, not task roles).
+        Vertical faces mirror the NextToEnd classifier; upward faces use
+        the generic resting-contact check (which subsumes the OnBlock
+        and SeatedOn classifiers and also covers a LYING block's wet top
+        -- faces are physics, not task roles).
         """
         n = self._face_world_dir(state, blk, face)
         for other in state.get_objects(self._block_type):
@@ -1078,15 +1078,14 @@ class PyBulletBridgeEnv(PyBulletEnv):
             # Downward faces have no reachable mate.
         return None
 
-    def _rests_on_top(self, state: State, other: Object,
-                      blk: Object) -> bool:
+    def _rests_on_top(self, state: State, other: Object, blk: Object) -> bool:
         """``other`` rests on ``blk``'s upward face (neither held).
 
-        Generic over both blocks' orientations: a standing mate is
-        gated by the circular stack alignment, a lying mate by the
-        seat windows -- reducing exactly to OnBlock (leg stack) and
-        SeatedOn (span seat) in those geometries, and extending the
-        same physics to a lying block's top.
+        Generic over both blocks' orientations: a standing mate is gated
+        by the circular stack alignment, a lying mate by the seat
+        windows -- reducing exactly to OnBlock (leg stack) and SeatedOn
+        (span seat) in those geometries, and extending the same physics
+        to a lying block's top.
         """
         if self._Holding_holds(state, [self._robot, other]) or \
                 self._Holding_holds(state, [self._robot, blk]):
@@ -1100,8 +1099,7 @@ class PyBulletBridgeEnv(PyBulletEnv):
         dy = state.get(other, "y") - state.get(blk, "y")
         if self._stands(state, other):
             return bool(np.hypot(dx, dy) < self.stack_align_tol)
-        return bool(abs(dx) < self.seat_x_window
-                    and abs(dy) < self.seat_y_tol)
+        return bool(abs(dx) < self.seat_x_window and abs(dy) < self.seat_y_tol)
 
     def _end_adjacent(self, state: State, blk: Object, face: str,
                       other: Object) -> bool:
@@ -1627,9 +1625,8 @@ class PyBulletBridgeEnv(PyBulletEnv):
             # Never use a layout that violates the grasp-clearance
             # constraints -- overlapping spawns settle into an
             # unplanned layout and fail far from the cause.
-            raise RuntimeError(
-                "No valid staging assignment after 200 draws; "
-                "grid constants no longer admit one.")
+            raise RuntimeError("No valid staging assignment after 200 draws; "
+                               "grid constants no longer admit one.")
         stage_xy: Dict[Object, Tuple[float, float]] = {spans[0]: span0_xy}
         for obj, slot_i in zip(rest, chosen):
             stage_xy[obj] = slots[int(slot_i)]

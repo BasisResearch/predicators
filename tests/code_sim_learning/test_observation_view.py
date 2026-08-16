@@ -1,5 +1,5 @@
-"""Tests for the observation-view contract: residual rules never see the
-env-only ``privileged`` / ``simulator_state`` channels of a ``State``.
+"""Tests for the observation-view contract: residual rules never see the env-
+only ``privileged`` / ``simulator_state`` channels of a ``State``.
 
 The strip happens at the rule entry points (first argument) and at every
 ``History`` append site; the caller's own state must keep both fields,
