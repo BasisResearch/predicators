@@ -802,19 +802,23 @@ class PyBulletBridgeEnv(PyBulletEnv):
             state.set(blk, "yaw", yaw)
         if CFG.partially_observable:
             state.privileged = {
-                blk.name: {
-                    **{
-                        f"cure_{face}": self._attr(blk, f"cure_{face}", 0.0)
-                        for face in GLUE_FACES
-                    },
-                    **{
-                        f"attached_{slot}": self._attr(blk, f"attached_{slot}", -1.0)
-                        for slot in ATTACH_SLOTS
-                    },
-                }
+                blk.name: self._hidden_block_features(blk)
                 for blk in state.get_objects(self._block_type)
             }
         return state
+
+    def _hidden_block_features(self, blk: Object) -> Dict[str, float]:
+        """One block's true ``cure_*``/``attached_*`` values, for the
+        ``state.privileged`` snapshot in partially-observable mode."""
+        feats = {
+            f"cure_{face}": self._attr(blk, f"cure_{face}", 0.0)
+            for face in GLUE_FACES
+        }
+        feats.update({
+            f"attached_{slot}": self._attr(blk, f"attached_{slot}", -1.0)
+            for slot in ATTACH_SLOTS
+        })
+        return feats
 
     def _set_domain_specific_state(self, state: State) -> None:
         # Restore each block's internal glue / cure / attachment state.
@@ -955,8 +959,11 @@ class PyBulletBridgeEnv(PyBulletEnv):
                 actual_dz = state.get(partner, "z") - state.get(blk, "z")
                 stack_dz = self._world_half_extents(state, blk)[2] + \
                     self._world_half_extents(state, partner)[2]
-                dz = min((0.0, stack_dz, -stack_dz),
-                         key=lambda ideal, ref=actual_dz: abs(ref - ideal))
+
+                def _gap(ideal: float, ref: float = actual_dz) -> float:
+                    return abs(ref - ideal)
+
+                dz = min((0.0, stack_dz, -stack_dz), key=_gap)
                 pairs[key] = (blk.id, partner.id, dz)
         return pairs
 
