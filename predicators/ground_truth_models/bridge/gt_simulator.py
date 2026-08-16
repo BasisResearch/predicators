@@ -30,8 +30,8 @@ import numpy as np
 
 from predicators.code_sim_learning.commands import CommandBuffer
 from predicators.code_sim_learning.fit_space import ParamSpec
-from predicators.code_sim_learning.utils import SOFT_EPS, Params, \
-    ResidualUpdate, objs_by_type, sigmoid
+from predicators.code_sim_learning.utils import Params, ResidualUpdate, \
+    objs_by_type, sigmoid
 from predicators.ground_truth_models import GroundTruthSimulatorFactory
 from predicators.settings import CFG
 from predicators.structs import Object, State
@@ -51,6 +51,17 @@ DAB_MARGIN = 0.005
 BLOCK_HALF = (0.05, 0.025, 0.025)
 GLUE_FACES = ("top", "end_a", "end_b")
 ATTACH_SLOTS = ("top", "bottom", "end_a", "end_b")
+# Sigmoid sharpness for the mm-scale alignment gates below. The shared
+# ``SOFT_EPS`` (0.02, sized for 5-15 cm thresholds) is 2-20x the gate
+# windows here, which capped a PERFECT butt joint's weight at ~0.33 and
+# a perfect seat at ~0.77 -- and since ``prog = w * (cure + 1)``
+# fixed-points at ``w / (1 - w)``, curing could NEVER reach the latch
+# threshold (25) for any geometry. At 1 mm an in-window joint saturates
+# to w ~= 1 (latching in ~cure_threshold steps, matching the env's hard
+# counter) while the boundary keeps a +-4 mm differentiable band for
+# the fitting Jacobian; the sim's effective window is ~3 mm inside the
+# env's hard window -- conservative, never the reverse.
+GATE_EPS = 0.001
 # Local (normal axis, sign) per face / attachment slot.
 FACE_AXES = {"top": (2, 1.0), "end_a": (0, -1.0), "end_b": (0, 1.0)}
 SLOT_AXES = {**FACE_AXES, "bottom": (2, -1.0)}
@@ -126,10 +137,10 @@ def _top_mate_weight(state: State, other: Object, blk: Object,
     if _stands(state, other):
         # Leg on leg: circular xy alignment.
         return sigmoid(
-            (params["stack_align_tol"] - float(np.hypot(dx, dy))) / SOFT_EPS)
+            (params["stack_align_tol"] - float(np.hypot(dx, dy))) / GATE_EPS)
     # Span seated on leg: the leg under the span's footprint.
-    x_w = sigmoid((params["seat_x_window"] - abs(dx)) / SOFT_EPS)
-    y_w = sigmoid((SEAT_Y_TOL - abs(dy)) / SOFT_EPS)
+    x_w = sigmoid((params["seat_x_window"] - abs(dx)) / GATE_EPS)
+    y_w = sigmoid((SEAT_Y_TOL - abs(dy)) / GATE_EPS)
     return x_w * y_w
 
 
@@ -147,9 +158,9 @@ def _end_mate_weight(state: State, blk: Object, face: str, other: Object,
     proj = dx * dx_dir + dy * dy_dir
     perp = abs(-dx * dy_dir + dy * dx_dir)
     ext = BLOCK_HALF[FACE_AXES[face][0]] + _half(state, other)[0]
-    proj_w = sigmoid((0.012 - (proj - ext)) / SOFT_EPS) * \
-        sigmoid(((proj - ext) + 0.01) / SOFT_EPS)
-    perp_w = sigmoid((params["lateral_perp_tol"] - perp) / SOFT_EPS)
+    proj_w = sigmoid((0.012 - (proj - ext)) / GATE_EPS) * \
+        sigmoid(((proj - ext) + 0.01) / GATE_EPS)
+    perp_w = sigmoid((params["lateral_perp_tol"] - perp) / GATE_EPS)
     return proj_w * perp_w
 
 
