@@ -246,30 +246,50 @@ def test_fo_prompt_uses_three_arg_signature(approach_cls):
     prompt = _render_prompt(approach_cls)
     assert "def rule(state, updates, params):" in prompt
     assert "def residual_rule(state, updates, params):" in prompt
-    assert "def rule(state, latent, history, updates, params):" not in prompt
+    assert ("def rule(observation, latent, history, updates, params):"
+            not in prompt)
 
 
 def test_po_prompt_uses_five_arg_signature_only():
-    """The PO prompt advertises only the recurrent 5-arg signature.
+    """Under CFG.partially_observable every sim-learning prompt advertises
+    only the recurrent 5-arg signature.
 
     The 3-arg form sitting beside the PO guidance is exactly what led
     the agent to write a 3-arg rule the recurrent engine rejects, so the
-    PO prompt must not show it as canonical.
+    PO prompt must not show it as canonical. The prompt is flag-driven
+    (there is no separate PO approach class), so both the plain
+    sim-learning arm and the predicate-invention arm are covered.
     """
-    from predicators.approaches import \
-        agent_po_sim_predicate_invention_approach as po_mod
-    prompt = _render_prompt(po_mod.AgentPOSimPredicateInventionApproach)
-    assert "def rule(state, latent, history, updates, params):" in prompt
-    assert ("def residual_rule(state, latent, history, updates, params):"
-            in prompt)
-    # The 3-arg canonical forms must be gone.
-    assert "def rule(state, updates, params):" not in prompt
-    assert "def residual_rule(state, updates, params):" not in prompt
-    # Recurrent guidance is injected exactly once (single extra marker).
     import re
-    headers = re.findall(r"(?m)^## Recurrent rules \(partial observability\)$",
-                         prompt)
-    assert len(headers) == 1
+
+    from predicators.approaches.agent_sim_learning_approach import \
+        AgentSimLearningApproach
+    from predicators.approaches.agent_sim_predicate_invention_approach import \
+        AgentSimPredicateInventionApproach
+    from predicators.settings import CFG
+    old_flag = CFG.partially_observable
+    CFG.partially_observable = True
+    try:
+        for cls in (AgentSimLearningApproach,
+                    AgentSimPredicateInventionApproach):
+            prompt = _render_prompt(cls)
+            assert ("def rule(observation, latent, history, updates, params):"
+                    in prompt)
+            assert ("def residual_rule(observation, latent, history, "
+                    "updates, params):" in prompt)
+            # The 3-arg canonical forms must be gone.
+            assert "def rule(state, updates, params):" not in prompt
+            assert "def residual_rule(state, updates, params):" not in prompt
+            # Recurrent guidance is injected exactly once.
+            headers = re.findall(
+                r"(?m)^## Recurrent rules \(partial observability\)$", prompt)
+            assert len(headers) == 1, cls
+            # The predicate-side latent guidance is invention-only.
+            has_pred_section = "### Predicate signature" in prompt
+            assert has_pred_section == (
+                cls is AgentSimPredicateInventionApproach), cls
+    finally:
+        CFG.partially_observable = old_flag
 
 
 # ── _make_evaluate_trajectory_fn / _format_objective_block ──────────

@@ -203,8 +203,9 @@ obj9                11       12       13
 
 
 def test_state_latent():
-    """Tests for State.latent — the latent state-feature block used by
-    agent_po_sim_predicate_invention."""
+    """Tests for State.latent — the latent state-feature block threaded
+    by the sim-learning approaches when the learned rules are
+    recurrent."""
     t = Type("t", ["x"])
     o = t("o")
     s = State({o: np.array([1.0])})

@@ -31,8 +31,12 @@ APPROACHES:
   # lateral_friction 0.5319 failed deterministically at true 0.5 - the
   # execution-validation repeats cannot see zero margin to parameter
   # error.
+  # The PO behavior comes from the partially_observable flag below (it
+  # switches the synthesis prompt to the recurrent 5-arg rule form and
+  # the env / GT-simulator dispatch to their PO variants); there is no
+  # separate PO approach class.
   agent_po_predicate_invention_al:
-    NAME: "agent_po_sim_predicate_invention"
+    NAME: "agent_sim_predicate_invention"
     SKIP: True
     FLAGS:
       demonstrator: "oracle_process_planning"

@@ -3246,9 +3246,9 @@ def abstract(state: State,
     atoms), using the given set of predicates.
 
     Duplicate arguments in predicates are allowed. Latent-aware
-    classifiers (`agent_po_sim_predicate_invention`) read their latent
-    from `state.latent` via `Predicate.holds` — abstract itself does
-    nothing extra to support them.
+    classifiers (invented under `CFG.partially_observable`) read their
+    latent from `state.latent` via `Predicate.holds` — abstract itself
+    does nothing extra to support them.
     """
     # Start by pulling out all VLM predicates.
     vlm_preds = set(pred for pred in preds if isinstance(pred, VLMPredicate))

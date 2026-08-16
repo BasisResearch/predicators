@@ -76,12 +76,16 @@ from predicators.structs import Action, Dataset, DerivedPredicate, \
 
 logger = logging.getLogger(__name__)
 
-# Canonical "### Rule signature" block for the synthesis system prompt
-# (fully-observable / legacy 3-arg). Spliced in at the
-# ``__RULE_SIGNATURE_SECTION__`` placeholder by
-# ``_build_synthesis_system_prompt``; the partial-observability subclass
-# overrides ``_rule_signature_section`` to swap in the recurrent 5-arg
-# form so its prompt never shows the 3-arg signature as canonical.
+# Canonical "### Rule signature" blocks for the synthesis system prompt,
+# spliced in at the ``__RULE_SIGNATURE_SECTION__`` placeholder by
+# ``_build_synthesis_system_prompt``. Which one renders is decided by
+# ``CFG.partially_observable`` (see ``_rule_signature_section``): the
+# same flag that swaps the env's observation and the GT simulator
+# module, so the prompt can never disagree with the world's
+# observability regime. Under the flag the prompt never shows the 3-arg
+# form as canonical - the 3-arg form sitting beside the PO guidance
+# previously led the agent to write a 3-arg rule the recurrent engine
+# rejects.
 _FO_RULE_SIGNATURE_SECTION = '''\
 ### Rule signature
 
@@ -96,6 +100,223 @@ def rule(state, updates, params):
     # Return the same dict.
     ...
 ```'''
+
+_PO_RULE_SIGNATURE_SECTION = '''\
+### Rule signature
+
+This is a **partial-observability** task. Write every rule with the
+recurrent 5-arg signature below — the 2nd parameter MUST be named
+`latent` (the engine inspects each rule's signature and threads the
+latent block / read-only history only into rules that declare it):
+
+```python
+def rule(observation, latent, history, updates, params):
+    # observation: the current observation (a State holding the
+    #          observable features ONLY — hidden quantities appear
+    #          under no name; infer them into `latent`)
+    # latent:  Dict[str, Any], mutated in place — the hidden dims you
+    #          infer, threaded across steps (see "Recurrent rules" below)
+    # history: List[Tuple[State, Optional[Action]]] of past
+    #          observations, read-only; newest last
+    # updates: Dict[Object, Dict[str, float]] accumulated from prior rules
+    # params:  Dict[str, float], one entry per ParamSpec
+    #
+    # Accumulate, don't replace:
+    #     updates.setdefault(obj, {})[feat] = new_value
+    # Return the same dict.
+    ...
+```
+
+A rule that needs no hidden state can ignore its `latent`/`history`
+args, but keep the 5-arg shape so the tools and the fitting engine call
+every rule the same way. See "## Recurrent rules (partial observability)"
+below for `LATENT_INIT` and the two latent-modelling patterns.'''
+
+# Simulator-side latent tutorial appended to the synthesis system prompt
+# under ``CFG.partially_observable`` (see
+# ``_extra_synthesis_system_prompt``). Predicate-invention arms append
+# their predicate-side counterpart after this
+# (``agent_sim_predicate_invention_approach._RECURRENT_PREDICATE_SECTION``).
+_RECURRENT_PROMPT_SECTION = """\
+## Recurrent rules (partial observability)
+
+This approach handles partial observability: the observation may omit
+causally-important quantities — there may be several, one, or none.
+Anything omitted is *absent entirely* from the state (it appears under
+no name, not even as a NaN placeholder), so you cannot read it and
+must *infer* its existence and dynamics from how the observable
+features evolve. Inspect the trajectories first to judge how many
+latents (if any) you need: a feature that drifts or ramps with no
+visible observed driver is likely downstream of an accumulating
+latent; if every observable is already explained by other observed
+quantities, you need no latent at all — keep the 5-arg signature and
+simply leave `latent` untouched. One common case: a hidden continuous
+quantity surfaced only through a derived observable that ramps once the
+latent crosses a threshold.
+
+Model the hidden state explicitly: each ``State`` you predict is one
+sample of an *augmented* state — the observable features plus the
+latent dimensions you infer (a free-form dict like ``{"level": 0.73}``
+or ``{"count": 22}``). Write rules with the recurrent 5-arg signature
+so they can read and advance that latent:
+
+```python
+def my_rule(observation, latent, history, updates, params):
+    # observation : current observation (a State with the observable
+    #            features only — no hidden features)
+    # latent   : Dict[str, Any], mutated in place — the latent state
+    #            dims you track, threaded across steps
+    # history  : List[Tuple[State, Optional[Action]]] of past
+    #            observations, read-only; most recent last; first
+    #            action is None
+    # updates  : ResidualUpdate dict, also mutated in place
+    # params   : Dict[str, float] (fitted scalars)
+    ...
+    return updates
+```
+
+The 2nd parameter MUST be named ``latent`` — the engine inspects each
+rule's signature and only threads the latent block into rules that
+declare it. Declare the initial latent block:
+
+```python
+LATENT_INIT = {"level": 0.0, "count": 0}
+# OR a zero-arg callable returning such a dict.
+# Use ParamSpec("name", ...) values to make an init value learnable.
+```
+
+Every rule uses this 5-arg signature, so the tools and the fitting
+engine call them all the same way. A rule that needs no hidden state
+simply ignores its `latent`/`history` arguments.
+
+### Structure the latent like the state (per-object)
+
+The augmented state is the observable features in ``observation.data``
+*plus* the latent dims you infer: a jug's hidden ``heat`` is just
+another feature of that jug that happens to be unobserved. So **shape
+the latent like ``data`` — object first, then feature**:
+``latent[jug.name]["heat"]`` should read in parallel with
+``observation.get(jug, "water_volume")``. The
+hidden quantities almost always belong to *individual* objects (each jug
+its own heat, each faucet its own spill buffer), and with several
+same-type objects a flat ``{"heat": 0.0}`` collapses them into one shared
+accumulator, which is wrong — exactly as your rules must loop over every
+object rather than indexing ``[0]``.
+
+```python
+LATENT_INIT = {}          # {jug_name: {"heat": value}}, filled lazily
+
+def heat_rule(observation, latent, history, updates, params):
+    jugs = [o for o in observation.data if o.type.name == "jug"]
+    for jug in jugs:
+        jl = latent.setdefault(jug.name, {})    # this jug's hidden dims
+        h = jl.get("heat", 0.0)
+        if on_active_burner(observation, jug, params):
+            h += 1.0
+        jl["heat"] = h
+        updates.setdefault(jug, {})["bubbling_level"] = readout(h, params)
+    return updates
+```
+
+Two deliberate differences from ``data``, though — the latent is **not**
+a typed feature array, and must not be made into one: (1) key by the
+stable string ``obj.name``, not the live ``Object`` (``data`` keys by
+``Object``, but the latent is deep-copied / reconstructed at every search
+node, so a live key risks identity mismatch); (2) keep it a free-form
+JSON-like nest of dicts / numbers with no registered schema — the agent
+invents these dims, and the engine threads and deep-copies whatever
+structure you put here. A genuinely global hidden quantity (a world
+clock, ambient temperature) stays a top-level scalar rather than being
+forced under an object. (Top-level scalar latent entries may be
+``ParamSpec``s to make their initial value learnable; seed each
+per-object slot lazily from such a shared init.)
+
+The type, feature, latent, and parameter names in the examples below
+(`widget`, `fixture`, `progress`, `level`, ...) are illustrative — use
+whatever your prompt digests and the trajectory data actually report
+for your task.
+
+### Two synthesis patterns (agent picks per latent)
+
+**Pattern A — Counter + threshold.** Carry a step counter; flip the
+observable when it crosses a learnable threshold. Same statistical
+shape as a delayed discrete event:
+
+```python
+PARAM_SPECS = [ParamSpec("delay", init_value=33, lo=1, hi=200)]
+LATENT_INIT = {"count": 0}
+
+def count_rule(observation, latent, history, updates, params):
+    active = is_widget_at_fixture(observation)  # observable check
+    fixture_on = observation.get(fixture, "is_on") > 0.5
+    if active and fixture_on:
+        latent["count"] += 1
+    else:
+        latent["count"] = 0
+    fired = latent["count"] >= params["delay"]
+    updates[widget]["progress"] = 1.0 if fired else 0.0
+    return updates
+```
+
+**Pattern B — Physical latent + readout.** Carry an estimate of the
+unobserved quantity; map it through a (typically monotone) function to
+predict the observable. Higher resolution: the observable co-varies
+smoothly with the latent before the symbolic "done" point.
+
+```python
+PARAM_SPECS = [ParamSpec("rate", init_value=0.03, lo=0.0, hi=0.1)]
+LATENT_INIT = {"level": 0.0}
+
+def level_rule(observation, latent, history, updates, params):
+    active = is_widget_at_fixture(observation)
+    fixture_on = observation.get(fixture, "is_on") > 0.5
+    if active and fixture_on:
+        latent["level"] += params["rate"]
+    lvl = latent["level"]
+    # monotone readout: ramps from 0 once `lvl` passes an onset (~0.85)
+    updates[widget]["progress"] = max(0.0, min(1.0, (lvl - 0.85) / 0.15))
+    return updates
+```
+
+**How to choose.** Look at the derived observable in the inspect
+tools:
+- Smooth ramp across many steps ⇒ Pattern B (partial-progress
+  signal; rate identifiable from a single trajectory by slope-fit).
+- Clean discrete flip at a variable tick ⇒ Pattern A may suffice
+  (one learnable threshold, calibrated from the empirical
+  flip-time distribution across trajectories).
+- Mixing is fine: different rules / different latents can use
+  different patterns within the same simulator.
+
+### Keep carried state in `latent`, not in your emitted observables
+
+Anything your rule must remember across steps — a counter, an accumulated
+level, an irreversible "done" flag — belongs in `latent`. Treat the
+observables you write to `updates` as **outputs only**: recompute them
+from `latent` (and base-owned inputs) each step; never read one of your
+own emitted features back in as state. The planner resets and replays
+states during refinement, and only `latent` is guaranteed to be threaded
+across those jumps — an emitted observable may not survive a reset, so a
+rule that latches on its own output can pass a step-by-step rollout yet
+break at refinement time. Patterns A and B above already follow this: the
+observable is a fresh readout of `latent`. (Reading features the base sim
+owns — positions, `is_on`, `is_held` — is fine; those are restored
+faithfully.)
+"""
+
+# Short partial-observability note appended to the agent's first
+# synthesis message under ``CFG.partially_observable`` (see
+# ``_extra_synthesis_message``).
+_RECURRENT_MESSAGE_SECTION = """\
+## Partial observability
+
+Some causally-important quantities may be absent from the agent-visible
+observation entirely (under no name, not even as NaN) — possibly
+several, possibly none. Inspect the trajectories first to judge whether
+any hidden process is at work and which observable features are your
+window into it; then, if any latents are needed, choose Pattern A or
+Pattern B (or mix) to model the underlying dynamics in `latent`.
+"""
 
 # Synthesis system prompt, rendered by
 # ``AgentSimLearningApproach._build_synthesis_system_prompt``: the
@@ -780,13 +1001,24 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         return []
 
     def _extra_synthesis_message(self, extra_paths: Dict[str, str]) -> str:
-        """Return text to append to the agent's first synthesis message."""
+        """Return text to append to the agent's first synthesis message.
+
+        Under ``CFG.partially_observable`` this is the short
+        partial-observability note; subclasses that override MUST chain
+        via ``super()`` so the note survives.
+        """
         del extra_paths
-        return ""
+        return _RECURRENT_MESSAGE_SECTION if CFG.partially_observable else ""
 
     def _extra_synthesis_system_prompt(self) -> str:
-        """Return text to append to the synthesis system prompt."""
-        return ""
+        """Return text to append to the synthesis system prompt.
+
+        Under ``CFG.partially_observable`` this is the simulator-side
+        recurrent-rules tutorial (``LATENT_INIT``, latent shaping,
+        Patterns A/B); subclasses that override MUST chain via
+        ``super()`` so the tutorial survives.
+        """
+        return _RECURRENT_PROMPT_SECTION if CFG.partially_observable else ""
 
     def _post_synthesis_loading(
         self,
@@ -3240,12 +3472,10 @@ files to see exactly which rules and predicates produced each failed plan.
         """Render the synthesis system prompt from the module template.
 
         Substitutes the placeholders that vary per instance: the
-        rule-signature blocks (the partial-observability subclass
-        overrides the two signature hooks so its prompt presents only
-        the recurrent 5-arg form as canonical - the 3-arg form sitting
-        beside the PO guidance previously led the agent to write a
-        3-arg rule the recurrent engine rejects), the optional
-        PHYSICAL_PARAMS section (env parameter menu), the
+        rule-signature blocks (flag-gated on
+        ``CFG.partially_observable`` - under the flag the prompt
+        presents only the recurrent 5-arg form as canonical), the
+        optional PHYSICAL_PARAMS section (env parameter menu), the
         scene-visualization hint (tool surface), and the subclass extra
         section.
         """
@@ -3385,11 +3615,15 @@ files to see exactly which rules and predicates produced each failed plan.
     def _rule_signature_section(self) -> str:
         """Markdown for the '### Rule signature' block.
 
-        Fully-observable default: the legacy 3-arg signature. The
-        partial-observability subclass overrides this with the recurrent
-        5-arg signature so its prompt never advertises the 3-arg form as
-        canonical.
+        Decided by ``CFG.partially_observable`` — the same flag that
+        swaps the env's observation and the GT simulator module, so
+        prompt and world can never disagree. Fully observable: the
+        legacy 3-arg signature. Partially observable: the recurrent
+        5-arg signature only, so the prompt never advertises the 3-arg
+        form as canonical.
         """
+        if CFG.partially_observable:
+            return _PO_RULE_SIGNATURE_SECTION
         return _FO_RULE_SIGNATURE_SECTION
 
     def _residual_rule_signature(self) -> str:
@@ -3399,4 +3633,7 @@ files to see exactly which rules and predicates produced each failed plan.
         :meth:`_rule_signature_section` so the worked example doesn't
         contradict the canonical signature.
         """
+        if CFG.partially_observable:
+            return ("def residual_rule(observation, latent, history, "
+                    "updates, params):")
         return "def residual_rule(state, updates, params):"

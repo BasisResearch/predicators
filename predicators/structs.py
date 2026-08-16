@@ -529,9 +529,10 @@ class Predicate:
         """Public method for calling the classifier.
 
         Performs type checking first. `latent` is the sample's latent
-        state-feature block, threaded by approaches that learn over
-        partially-observable envs (see
-        `agent_po_sim_predicate_invention`). When the caller does not
+        state-feature block, threaded by the sim-learning approaches
+        when the learned rules are recurrent (see
+        `agent_sim_predicate_invention` under
+        `CFG.partially_observable`). When the caller does not
         pass `latent` explicitly, the block attached to `state.latent`
         is used (so callers like `utils.abstract` do not need to know
         about the recurrent extension). Classifiers that don't accept a

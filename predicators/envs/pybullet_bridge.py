@@ -1,8 +1,9 @@
 """A PyBullet environment where the robot builds an "n"-shaped bridge by gluing
 rectangular blocks with a pickable glue bottle.
 
-Motivating the partial-observability + slow-process story of
-``AgentPOSimPredicateInventionApproach`` with a hidden process whose
+Motivating the partial-observability + slow-process story of the
+sim-learning arms (``agent_sim_predicate_invention`` under
+``CFG.partially_observable``) with a hidden process whose
 consequence is *kinematic* rather than a feature readout: once a glue
 joint cures, the two blocks are welded into one rigid assembly (a
 body-to-body ``JOINT_FIXED`` constraint), so picking any block of the

@@ -111,9 +111,10 @@ class GlobalSettings:
     # Cross-cutting partial-observability flag. When True, envs that
     # support it hide selected latent features in `get_observation()`
     # (e.g. pybullet_boil hides `heat_level` and exposes a derived
-    # `bubbling_level` instead). Used by approaches such as
-    # agent_po_sim_predicate_invention. Each env decides which
-    # of its features count as latent.
+    # `bubbling_level` instead), the GT simulator factories dispatch to
+    # their `gt_simulator_po` variants, and the sim-learning approaches
+    # switch their synthesis prompt to the recurrent 5-arg rule form.
+    # Each env decides which of its features count as latent.
     partially_observable = False
     # cover_multistep_options env parameters
     cover_multistep_action_limits = [-np.inf, np.inf]

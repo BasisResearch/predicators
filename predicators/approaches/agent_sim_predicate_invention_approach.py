@@ -14,11 +14,26 @@ preserved at the sandbox root, and every version evaluated during
 synthesis (plus a final snapshot of post-eval edits) is saved to
 ``predicates_versions/`` as ``cycle_XXX_vers_YYY_predicates.py``.
 
-Example command::
+Partial observability is not a separate approach: like every
+sim-learning arm, the synthesis prompt follows
+``CFG.partially_observable`` (see ``AgentSimLearningApproach``) - under
+the flag the agent is taught the recurrent 5-arg rule signature
+``rule(observation, latent, history, updates, params)`` and
+``LATENT_INIT``, and this module appends the predicate-side latent
+guidance (classifiers may take an optional ``latent`` kwarg,
+auto-routed by ``Predicate.holds``). The latent *mechanics* (recurrent
+MCMC fitting, the latent-threaded combined simulator riding
+``State.latent`` so backtracking restores it per search node,
+``LATENT_INIT`` loading and initial-latent seeding) live in
+``AgentSimLearningApproach`` and activate automatically whenever the
+loaded rules use the 5-arg signature, independent of the flag.
+
+Example command (partially observable)::
 
     python predicators/main.py --env pybullet_boil \
         --approach agent_sim_predicate_invention --seed 0 \
         --num_train_tasks 10 --num_test_tasks 5 \
+        --partially_observable True \
         --num_online_learning_cycles 2 --explorer agent_plan
 """
 
@@ -180,7 +195,13 @@ Workflow: edit `predicates.py`, call `evaluate_predicate_quality` \
 (fast, also reloads predicates into the live set), then run \
 `sim.refine` / `sim.run` with sketches that reference your invented \
 names. Any predicate you reference in a sketch must exist in \
-`predicates.py` first."""
+`predicates.py` first.""" + self._chained_extra_message(extra_paths)
+
+    def _chained_extra_message(self, extra_paths: Dict[str, str]) -> str:
+        """The base class's extra message (the partial-observability note
+        under ``CFG.partially_observable``), separated for appending."""
+        base = super()._extra_synthesis_message(extra_paths)
+        return "\n\n" + base if base else ""
 
     def _format_goal_nl_block(self) -> str:
         """Render the deduped natural-language goals for the train tasks.
@@ -209,10 +230,20 @@ names. Any predicate you reference in a sketch must exist in \
                      "states, `sim.render(label, annotations=[...])` "
                      "to render with overlays")
         render_ref = "`sim.render`"
-        return _PREDICATE_PROMPT_SECTION.replace("__SCENE_WORKBENCH__",
-                                                 workbench).replace(
-                                                     "__SCENE_RENDER_REF__",
-                                                     render_ref)
+        section = _PREDICATE_PROMPT_SECTION.replace("__SCENE_WORKBENCH__",
+                                                    workbench).replace(
+                                                        "__SCENE_RENDER_REF__",
+                                                        render_ref)
+        # Chain the base class's extra (the recurrent-rules tutorial
+        # under CFG.partially_observable), then the predicate-side
+        # latent guidance that belongs to invention arms only.
+        parts = [section]
+        base = super()._extra_synthesis_system_prompt()
+        if base:
+            parts.append(base)
+        if CFG.partially_observable:
+            parts.append(_RECURRENT_PREDICATE_SECTION)
+        return "\n\n".join(parts)
 
     def _post_synthesis_loading(
         self,
@@ -474,4 +505,49 @@ final post-session check) is snapshotted to \
 re-runs synthesis with the full trajectory history (offline demos + every \
 interaction trajectory collected so far), so failed past attempts remain \
 visible for the agent to learn from.
+"""
+
+# Predicate-side latent guidance appended (after the base class's
+# simulator-side recurrent tutorial) under ``CFG.partially_observable``.
+# Invention-only: it teaches the optional ``latent`` classifier kwarg
+# and the latent materialisation in ``evaluate_predicate_quality``,
+# which non-invention arms have no use for.
+_RECURRENT_PREDICATE_SECTION = """\
+### Predicate signature
+
+Classifiers may stay observation-only or take an optional ``latent``
+kwarg. The latent block is available at refinement time too — the
+planner threads it through ``state.latent`` across search nodes, and
+``Predicate.holds`` auto-routes it into classifiers that opted in. Be
+defensive: at the very first step ``state.latent`` may still be ``{}``
+if the agent's ``LATENT_INIT`` is empty, and during predicate-quality
+scoring on *raw env* trajectories ``latent`` will be the block
+materialised by the agent's rules (so still meaningful, but only as
+accurate as the rules themselves).
+
+```python
+# Observation-only (robust to bad rule chains; preferred when the
+# observable carries enough signal):
+Predicate("ProcessDone", [widget_type],
+          lambda s, objs, latent=None:
+              s.get(objs[0], "progress") > 0.5)
+
+# Latent-aware (inherits simulator correctness; defend against
+# missing keys at step 0):
+Predicate("ProcessDone", [widget_type],
+          lambda s, objs, latent=None:
+              (latent or {}).get("level", 0.0) >= params["done_thresh"])
+```
+
+The kwarg MUST be named exactly ``latent`` for the auto-routing to
+fire. Trade-off: latent-aware predicates inherit the simulator's
+correctness; observation-only predicates are robust to bad rules
+but only work when the observable carries enough signal.
+
+### Diagnostics
+
+`evaluate_predicate_quality` rolls each trajectory through your
+simulator to materialise the latent before scoring classifiers, so
+latent-aware predicates get a real block there. Use the eval
+report to localise failures (bad rule chain vs. bad threshold).
 """
