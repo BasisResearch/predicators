@@ -60,7 +60,15 @@ def test_glue_cure_weld_lifecycle(env_and_task):
     s.set(env._robot, "z", dab[2] + 2 * env.bottle_half_extents[2] + 0.005)
     s.set(env._robot, "fingers", env.closed_fingers)
     env._set_state(s)
+    # Wetting takes a SUSTAINED dwell: one in-range step only advances
+    # the streak (partial <= 0.5 reads as dry), the wet_streak_steps-th
+    # consecutive step latches the face wet. A one-step drive-by can
+    # never glue.
     env.step(_hold_action(env))
+    partial = env._get_state().get(leg0, "glue_end_b")
+    assert 0.0 < partial <= 0.5
+    for _ in range(env.wet_streak_steps - 1):
+        env.step(_hold_action(env))
     s2 = env._get_state()
     assert s2.get(leg0, "glue_end_b") > 0.5
 
@@ -113,6 +121,54 @@ def test_glue_cure_weld_lifecycle(env_and_task):
     assert len(env._weld_constraints) == 1
 
 
+def test_drive_by_graze_never_wets(env_and_task):
+    """An interrupted dwell must NOT wet a face: the wet streak resets the
+    moment the tip leaves the radius.
+
+    Regression: wetting used to be instantaneous, so a one-step
+    crossing of the apply radius (e.g. a bottle retreat clipping the
+    sphere on its way up) could wet a face -- a step-phasing coin flip
+    that let marginal glue targets validate in the sandbox and then
+    miss in the real rollout.
+    """
+    env, task = env_and_task
+    env._set_state(task.init)
+    state = env._get_state()
+    leg0 = next(b for b in state.get_objects(env._block_type)
+                if b.name == "leg0")
+
+    def _tip_at_dab(s):
+        dab = env._face_dab_point(s, leg0, "end_b")
+        s.set(env._bottle, "x", dab[0])
+        s.set(env._bottle, "y", dab[1])
+        s.set(env._bottle, "z", dab[2] + env.bottle_half_extents[2])
+        s.set(env._bottle, "is_held", 1.0)
+        s.set(env._robot, "x", dab[0])
+        s.set(env._robot, "y", dab[1])
+        s.set(env._robot, "z", dab[2] + 2 * env.bottle_half_extents[2] + 0.005)
+        s.set(env._robot, "fingers", env.closed_fingers)
+        return s
+
+    # Two in-range steps: a partial streak, still dry.
+    env._set_state(_tip_at_dab(state.copy()))
+    env.step(_hold_action(env))
+    env.step(_hold_action(env))
+    s = env._get_state()
+    assert 0.0 < s.get(leg0, "glue_end_b") <= 0.5
+    # Leave the radius for one step: the streak resets to zero.
+    s.set(env._bottle, "z", s.get(env._bottle, "z") + 0.1)
+    s.set(env._robot, "z", s.get(env._robot, "z") + 0.1)
+    env._set_state(s)
+    env.step(_hold_action(env))
+    s = env._get_state()
+    assert s.get(leg0, "glue_end_b") == 0.0
+    # A fresh sustained dwell still wets.
+    env._set_state(_tip_at_dab(s))
+    for _ in range(env.wet_streak_steps):
+        env.step(_hold_action(env))
+    assert env._get_state().get(leg0, "glue_end_b") > 0.5
+
+
 def test_place_settles_to_contact():
     """Place must release at first contact instead of free-falling.
 
@@ -122,8 +178,8 @@ def test_place_settles_to_contact():
     failure modes: the old open-loop drop bounced and slid (mm-scale
     scatter that flipped this domain's tight tolerances), and an early
     settle implementation took the whole stroke in one IK step whose
-    wrist-flipped branch batted the released block across the table
-    (~9 cm slide, 0.16 rad spin).
+    wrist-flipped branch batted the released block across the table (~9
+    cm slide, 0.16 rad spin).
     """
     utils.reset_config({
         "env": "pybullet_bridge",

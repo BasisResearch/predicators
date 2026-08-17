@@ -274,6 +274,7 @@ _RELEASE_OPEN_STEP = 0.01
 _RELEASE_CLEAR_SLACK = 0.008
 _RELEASE_CHECK_BUFFER = _RELEASE_OPEN_STEP + _RELEASE_CLEAR_SLACK + 0.002
 _IK_STALL_BEST_KEY = "ik_stall_best_{}"  # best EE-to-target distance seen
+_DWELL_COUNT_KEY = "dwell_count_{}"  # post-terminal hold steps taken
 _IK_STALL_COUNT_KEY = "ik_stall_count_{}"  # steps since last improvement
 
 
@@ -338,6 +339,16 @@ class Phase:
     # open, the target moves further out, and the phase never terminates
     # short of fully open.
     anchor_finger_target: bool = False
+    # Hold at the reached target for this many extra policy steps after
+    # the phase's terminal condition first holds, before advancing to
+    # the next phase (the policy keeps commanding the same target,
+    # which is a hold). Use for "move there and DWELL" semantics --
+    # e.g. a glue application that requires sustained tip proximity
+    # rather than a drive-by crossing. Only delays PHASE advancement:
+    # a dwell on the FINAL phase does not delay the option's overall
+    # terminal (the counter lives in the policy, which stops running
+    # once the option is terminal).
+    dwell_steps: int = 0
     # Gentle-stroke mode for incremental-IK phases that deliberately seek
     # contact (e.g. a place's settle-to-contact). When set, this overrides
     # the EE step clamp (meters per step; default config.max_vel_norm), and
@@ -421,8 +432,20 @@ class PhaseSkill:
         phase_idx = memory["phase_idx"]
         phase = self._phases[phase_idx]
 
-        # Check if current phase is terminal → advance.
+        # Check if current phase is terminal → advance. A phase with
+        # dwell_steps holds at its reached target for that many extra
+        # policy steps before advancing (the policy keeps commanding the
+        # same phase target, which is a hold). The counter lives here,
+        # in the once-per-step policy, NOT in _phase_is_terminal --
+        # terminal checks can run several times per step (policy +
+        # monitors) and would over-count.
         if self._phase_is_terminal(phase, state, memory, objects, params):
+            dwell_key = _DWELL_COUNT_KEY.format(id(phase))
+            dwelled = memory.get(dwell_key, 0)
+            if dwelled < phase.dwell_steps:
+                memory[dwell_key] = dwelled + 1
+                return self._execute_phase(phase, state, memory, objects,
+                                           params)
             phase_idx += 1
             memory["phase_idx"] = phase_idx
             if phase_idx >= len(self._phases):
@@ -433,6 +456,11 @@ class PhaseSkill:
             logging.debug("[%s] Advanced to phase %d: %s", self._name,
                           phase_idx, phase.name)
 
+        return self._execute_phase(phase, state, memory, objects, params)
+
+    def _execute_phase(self, phase: Phase, state: State, memory: Dict,
+                       objects: Sequence[Object], params: Array) -> Action:
+        """Dispatch one policy step of ``phase`` by its action type."""
         if phase.action_type == PhaseAction.MOVE_TO_POSE:
             return self._execute_move(phase, state, memory, objects, params)
         assert phase.action_type == PhaseAction.CHANGE_FINGERS

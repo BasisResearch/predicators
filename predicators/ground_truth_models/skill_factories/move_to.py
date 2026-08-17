@@ -50,6 +50,7 @@ def create_move_to_skill(
     retreat: bool = False,
     validate_ik: bool = False,
     base_mode: Optional[str] = None,
+    dwell_steps: int = 0,
 ) -> ParameterizedOption:
     """Create a move-to-pose skill.
 
@@ -79,6 +80,10 @@ def create_move_to_skill(
         retreat: Append the transport-height retreat phase.
         validate_ik: Gate the Move phase's target through validated IK.
         base_mode: Optional ``PhaseSkill`` base mode (e.g. ``"home"``).
+        dwell_steps: Hold at the reached target for this many extra
+            steps before retreating (see ``Phase.dwell_steps``) --
+            "move there and DWELL" semantics, e.g. for sustained-
+            proximity glue application.
 
     Returns:
         A ``ParameterizedOption`` implementing the move-to-pose skill.
@@ -97,8 +102,10 @@ def create_move_to_skill(
     if use_move_above:
         phases.append(make_move_to_phase("MoveAbove", _above_pose))
     phases.append(
-        make_move_to_phase("Move", get_target_pose_fn,
-                           validate_ik=validate_ik))
+        make_move_to_phase("Move",
+                           get_target_pose_fn,
+                           validate_ik=validate_ik,
+                           dwell_steps=dwell_steps))
     if retreat:
         phases.append(
             make_move_to_phase("Retreat",
@@ -147,6 +154,7 @@ def make_move_to_phase(
     terminal_fn: Optional[Callable[
         [State, Sequence[Object], Array, SkillConfig], bool]] = None,
     max_step_norm: Optional[float] = None,
+    dwell_steps: int = 0,
 ) -> Phase:
     """Create a MOVE_TO_POSE phase for use in a ``PhaseSkill``.
 
@@ -175,6 +183,10 @@ def make_move_to_phase(
             the ``Phase`` (see ``Phase.max_step_norm``): small EE steps
             plus a joint-jump guard and the stall abort, for
             incremental-IK phases that deliberately seek contact.
+        dwell_steps: Hold at the reached target for this many extra
+            policy steps before advancing (see ``Phase.dwell_steps``),
+            for "move there and DWELL" semantics such as sustained-
+            proximity glue application.
 
     Returns:
         A ``Phase`` that can be included in a ``PhaseSkill``.
@@ -238,4 +250,5 @@ def make_move_to_phase(
         check_release_clearance=check_release_clearance,
         use_motion_planning=plan_motion,
         max_step_norm=max_step_norm,
+        dwell_steps=dwell_steps,
     )
