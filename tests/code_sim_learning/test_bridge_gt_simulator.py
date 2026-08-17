@@ -68,6 +68,43 @@ def _roll_until_latched(state, rules, params, blk, slot, max_steps):
     return None, state
 
 
+_BOTTLE_TYPE = Type("bottle", ["x", "y", "z", "rot", "is_held"])
+
+
+def test_sustained_wetting_matches_env():
+    """The sim's glue rule requires the same sustained dwell as the env: a tip
+    parked at a dab wets on the WET_STREAK_STEPS-th consecutive step, and an
+    interrupted streak resets -- so a drive-by crossing of the apply radius can
+    never wet a face in the sandbox either."""
+    from predicators.ground_truth_models.bridge.gt_simulator import \
+        WET_STREAK_STEPS  # pylint: disable=import-outside-toplevel
+    rules, params = _bridge_sim()
+    span0, span0_feats = _make_block("span0", 0.6, 1.2,
+                                     _TABLE_Z + _SPAN_HALF[2])
+    bottle = Object("bottle", _BOTTLE_TYPE)
+    # Held bottle with its tip at span0's end_b dab (above the face's
+    # top edge: z + half_z + dab margin, tip = center - half height).
+    dab_z = _TABLE_Z + 2 * _SPAN_HALF[2] + 0.005
+    bottle_feats = np.array([0.6 + _SPAN_HALF[0], 1.2, dab_z + 0.03, 0.0, 1.0],
+                            dtype=np.float32)
+    state = State({span0: span0_feats, bottle: bottle_feats})
+
+    for step in range(WET_STREAK_STEPS):
+        wet = state.get(span0, "glue_end_b")
+        assert wet <= 0.5, f"wet after only {step} steps"
+        state = merge_updates(state, apply_rules(state, rules, params))
+    assert state.get(span0, "glue_end_b") > 0.5
+
+    # Interrupted streak: two in-range steps, one out-of-range, resets.
+    state = State({span0: span0_feats.copy(), bottle: bottle_feats.copy()})
+    for _ in range(WET_STREAK_STEPS - 1):
+        state = merge_updates(state, apply_rules(state, rules, params))
+    assert 0.0 < state.get(span0, "glue_end_b") <= 0.5
+    state.set(bottle, "z", dab_z + 0.2)
+    state = merge_updates(state, apply_rules(state, rules, params))
+    assert state.get(span0, "glue_end_b") == 0.0
+
+
 def test_bridge_gt_simulator_loads():
     """The factory registry resolves pybullet_bridge to the FO simulator."""
     rules, params = _bridge_sim()

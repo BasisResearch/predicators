@@ -201,6 +201,18 @@ class PyBulletBridgeEnv(PyBulletEnv):
     # Only the single nearest in-range face is wetted per step, so
     # neighboring dab points (>= 2.5 cm apart) don't double-wet.
     apply_glue_radius: ClassVar[float] = 0.02
+    # Consecutive in-range steps required to wet a face. Wetting used
+    # to be instantaneous, so a one-step drive-by crossing of the
+    # radius (e.g. a bottle retreat clipping the sphere on its way up)
+    # could wet a face -- a step-phasing coin flip that let marginal
+    # glue targets validate in the sandbox and then miss for real.
+    # Requiring a sustained dwell makes grazes fail deterministically
+    # everywhere. The streak rides IN the glue_* feature as partials of
+    # _WET_PARTIAL per step (kept <= 0.5 so every "is wet" reader --
+    # classifiers, cure gate, patch visuals -- still sees a dry face),
+    # so it round-trips through _set_state like any other feature.
+    wet_streak_steps: ClassVar[int] = 3
+    _WET_PARTIAL: ClassVar[float] = 0.2
     # Dab points hover this far off the face surface.
     dab_margin: ClassVar[float] = 0.005
     # Stacking tolerances for the top-face cure detector (leg-on-leg).
@@ -313,9 +325,13 @@ class PyBulletBridgeEnv(PyBulletEnv):
     # degenerate, so roll folds to 0 there; reconstruction checks
     # compare the triple as a geodesic rotation (gimbal-safe), not
     # axis-by-axis.
+    # half_x/y/z are the block's BODY-FRAME half extents (constant;
+    # local x is the long axis). Observable geometry: an agent needs
+    # them to compute face centers, dab points, and touch spacings
+    # without probing the physics for block dimensions.
     _block_features_common = [
-        "x", "y", "z", "roll", "pitch", "yaw", "is_held", "glue_top",
-        "glue_end_a", "glue_end_b"
+        "x", "y", "z", "roll", "pitch", "yaw", "half_x", "half_y", "half_z",
+        "is_held", "glue_top", "glue_end_a", "glue_end_b"
     ]
     # attached_* (partner block index, -1 = none) are observable ONLY
     # in FO mode: no real perception system emits "attached to block
@@ -765,6 +781,12 @@ class PyBulletBridgeEnv(PyBulletEnv):
                 return self._attr(obj, feature, 0.0)
             if feature.startswith("attached_"):
                 return self._attr(obj, feature, -1.0)
+            if feature == "half_x":
+                return self.block_half_extents[0]
+            if feature == "half_y":
+                return self.block_half_extents[1]
+            if feature == "half_z":
+                return self.block_half_extents[2]
         raise ValueError(f"Unknown feature {feature} for object {obj}.")
 
     def _is_block(self, obj: Object) -> bool:
@@ -1079,11 +1101,12 @@ class PyBulletBridgeEnv(PyBulletEnv):
         state = self._get_state()
         blocks = state.get_objects(self._block_type)
 
-        # 1. Glue application: wet the single nearest in-range face.
+        # 1. Glue application: sustained proximity wets the single
+        #    nearest in-range face (see wet_streak_steps).
+        best: Optional[Tuple[Object, str]] = None
         if state.get(self._bottle, "is_held") > 0.5:
             tip = (state.get(self._bottle, "x"), state.get(self._bottle, "y"),
                    state.get(self._bottle, "z") - self.bottle_half_extents[2])
-            best: Optional[Tuple[Object, str]] = None
             best_dist = self.apply_glue_radius
             for blk in blocks:
                 for face in GLUE_FACES:
@@ -1096,9 +1119,18 @@ class PyBulletBridgeEnv(PyBulletEnv):
                     if dist < best_dist:
                         best = (blk, face)
                         best_dist = dist
-            if best is not None:
-                blk, face = best
-                self._set_attr(blk, f"glue_{face}", 1.0)
+        for blk in blocks:
+            for face in GLUE_FACES:
+                prev = self._attr(blk, f"glue_{face}", 0.0)
+                if best == (blk, face):
+                    streak = int(round(prev / self._WET_PARTIAL)) + 1
+                    self._set_attr(
+                        blk, f"glue_{face}",
+                        1.0 if streak >= self.wet_streak_steps else streak *
+                        self._WET_PARTIAL)
+                elif 0.0 < prev <= 0.5:
+                    # Not the in-range face this step: the streak breaks.
+                    self._set_attr(blk, f"glue_{face}", 0.0)
 
         # 2. Curing: wet faces in aligned resting contact tick; at the
         #    threshold the joint latches irreversibly and welds.
@@ -1516,6 +1548,12 @@ class PyBulletBridgeEnv(PyBulletEnv):
                     -np.pi / 2 if is_leg else 0.0,
                     "yaw":
                     0.0,
+                    "half_x":
+                    self.block_half_extents[0],
+                    "half_y":
+                    self.block_half_extents[1],
+                    "half_z":
+                    self.block_half_extents[2],
                     "is_held":
                     0.0,
                     "r":

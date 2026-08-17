@@ -39,6 +39,11 @@ from predicators.structs import Object, State
 
 CURE_THRESHOLD = 25.0
 APPLY_GLUE_RADIUS = 0.02
+# Consecutive in-range steps to wet a face; the streak rides in the
+# glue_* observable as WET_PARTIAL per step (<= 0.5 = still dry). A
+# one-step drive-by crossing of the radius never wets a face.
+WET_STREAK_STEPS = 3
+WET_PARTIAL = 0.2
 STACK_ALIGN_TOL = 0.025
 LATERAL_PERP_TOL = 0.03
 SEAT_X_WINDOW = 0.045
@@ -187,15 +192,18 @@ def _gluing(observation: State, latent: Dict[str, Any], history: History,
             for face in GLUE_FACES
         }
 
-    # 1. Glue application: nearest unattached dry face within radius.
+    # 1. Glue application: sustained proximity wets the nearest
+    #    unattached dry face (streak rides in the glue_* observable as
+    #    WET_PARTIAL steps, matching the env; see gt_simulator).
     held = [b for b in bottles if observation.get(b, "is_held") > 0.5]
+    best = None
     if held:
         tip = np.array([
             float(observation.get(held[0], "x")),
             float(observation.get(held[0], "y")),
             float(observation.get(held[0], "z")) - BOTTLE_HALF_H
         ])
-        best, best_d = None, float(params["apply_glue_radius"])
+        best_d = float(params["apply_glue_radius"])
         for blk in blocks:
             for face in GLUE_FACES:
                 if glue_next[blk][face] > 0.5 or \
@@ -206,8 +214,15 @@ def _gluing(observation: State, latent: Dict[str, Any], history: History,
                         tip - np.array(_dab_point(observation, blk, face))))
                 if d < best_d:
                     best, best_d = (blk, face), d
-        if best is not None:
-            glue_next[best[0]][best[1]] = 1.0
+    for blk in blocks:
+        for face in GLUE_FACES:
+            prev = glue_next[blk][face]
+            if best == (blk, face):
+                streak = int(round(prev / WET_PARTIAL)) + 1
+                glue_next[blk][face] = 1.0 \
+                    if streak >= WET_STREAK_STEPS else streak * WET_PARTIAL
+            elif 0.0 < prev <= 0.5:
+                glue_next[blk][face] = 0.0  # streak broken
 
     # 2. Curing: hidden counters keyed by the wet face; the latch
     # writes the latent attachment relation, never a feature.

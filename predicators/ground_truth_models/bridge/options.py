@@ -50,7 +50,11 @@ _BRIDGE_PLACE_PARAMS = [
 # EE-to-held offset, so the sampled target is exactly where the held
 # object goes regardless of grasp depth or the pick's IK residual. The
 # glue samplers use this to land the held bottle's tip on a face dab
-# point (tip = center minus the bottle half-height).
+# point (tip = center minus the bottle half-height). Wetting requires
+# the tip within apply_glue_radius of the dab for wet_streak_steps
+# CONSECUTIVE steps -- the skill dwells at the reached target to
+# provide them, so glue targets must put the tip AT the dab; a
+# trajectory that merely passes through the radius never wets.
 #
 # The x bounds extend one span half-length past the block workspace: a
 # block STAGED near the workspace edge has its end-face dab point up to
@@ -239,6 +243,14 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
             retreat=True,
             validate_ik=True,
             base_mode="home",
+            # Hold at the reached target before retreating: wetting a
+            # glue face needs the tip inside the apply radius for
+            # wet_streak_steps CONSECUTIVE steps (a drive-by crossing
+            # never wets, by design), and without a dwell the approach
+            # spends as little as one step in range before the retreat
+            # exits the radius. +1 covers the approach/retreat edge
+            # steps.
+            dwell_steps=cls.env_cls.wet_streak_steps + 1,
         )
 
         return {

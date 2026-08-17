@@ -39,6 +39,14 @@ from predicators.structs import Object, State
 # Physical defaults matching pybullet_bridge.py.
 CURE_THRESHOLD = 25.0
 APPLY_GLUE_RADIUS = 0.02
+# Consecutive in-range steps required to wet a face (must match the
+# env). The streak rides in the glue_* feature as partials of
+# WET_PARTIAL per step, kept <= 0.5 so every "is wet" reader still
+# sees a dry face until the streak completes. A one-step drive-by
+# crossing of the radius therefore never wets a face -- gluing takes a
+# deliberate dwell at the dab.
+WET_STREAK_STEPS = 3
+WET_PARTIAL = 0.2
 STACK_ALIGN_TOL = 0.025
 LATERAL_PERP_TOL = 0.03
 SEAT_X_WINDOW = 0.045
@@ -207,38 +215,48 @@ def _block_index(blocks: List[Object]) -> Dict[str, int]:
 
 def _glue_application(state: State, updates: ResidualUpdate,
                       params: Params) -> ResidualUpdate:
-    """Wet the single nearest face within the bottle tip's radius."""
+    """Advance the wet streak of the single nearest in-range face.
+
+    Wet faces (glue > 0.5) stay wet; the nearest in-range dry face gains
+    WET_PARTIAL of streak per step and latches to 1.0 on the
+    WET_STREAK_STEPS-th consecutive step; every other partial streak
+    resets to 0.
+    """
     objs = objs_by_type(state)
     blocks = objs.get("block", [])
     bottles = objs.get("bottle", [])
-    # Carry existing glue by default.
-    for blk in blocks:
-        for face in GLUE_FACES:
-            updates.setdefault(blk, {})[f"glue_{face}"] = float(
-                state.get(blk, f"glue_{face}"))
     held = [b for b in bottles if state.get(b, "is_held") > 0.5]
-    if not held:
-        return updates
-    bottle = held[0]
-    tip = np.array([
-        float(state.get(bottle, "x")),
-        float(state.get(bottle, "y")),
-        float(state.get(bottle, "z")) - BOTTLE_HALF_H
-    ])
     best, best_d = None, float(params["apply_glue_radius"])
+    if held:
+        bottle = held[0]
+        tip = np.array([
+            float(state.get(bottle, "x")),
+            float(state.get(bottle, "y")),
+            float(state.get(bottle, "z")) - BOTTLE_HALF_H
+        ])
+        for blk in blocks:
+            for face in GLUE_FACES:
+                if state.get(blk, f"glue_{face}") > 0.5:
+                    continue
+                if state.get(blk, f"attached_{face}") >= 0:
+                    continue
+                d = float(
+                    np.linalg.norm(tip -
+                                   np.array(_dab_point(state, blk, face))))
+                if d < best_d:
+                    best, best_d = (blk, face), d
     for blk in blocks:
         for face in GLUE_FACES:
-            if state.get(blk, f"glue_{face}") > 0.5:
-                continue
-            if state.get(blk, f"attached_{face}") >= 0:
-                continue
-            d = float(
-                np.linalg.norm(tip - np.array(_dab_point(state, blk, face))))
-            if d < best_d:
-                best, best_d = (blk, face), d
-    if best is not None:
-        blk, face = best
-        updates.setdefault(blk, {})[f"glue_{face}"] = 1.0
+            prev = float(state.get(blk, f"glue_{face}"))
+            if best == (blk, face):
+                streak = int(round(prev / WET_PARTIAL)) + 1
+                nxt = 1.0 if streak >= WET_STREAK_STEPS \
+                    else streak * WET_PARTIAL
+            elif 0.0 < prev <= 0.5:
+                nxt = 0.0  # streak broken
+            else:
+                nxt = prev
+            updates.setdefault(blk, {})[f"glue_{face}"] = nxt
     return updates
 
 
