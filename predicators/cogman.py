@@ -297,7 +297,14 @@ def run_episode_and_get_observations(
                    any(issubclass(type(e), c) for c in exceptions_to_break_on):
                     if monitor_observed:
                         exception_raised_in_step = True
-                    episode_completed = False
+                    # Running out of options is how a plan ENDS. It arrives as
+                    # the same OptionExecutionFailure an actual failure does,
+                    # so without the flag every completed plan would be
+                    # reported as an aborted episode -- and an executor that
+                    # defers its work to the end of a COMPLETED episode would
+                    # then discard every one.
+                    if not getattr(e, "info", {}).get("plan_exhausted"):
+                        episode_completed = False
                     logging.debug(
                         f"[CogMan] loop break: exception in break_on set: {e}")
                     break

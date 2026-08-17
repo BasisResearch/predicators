@@ -1010,7 +1010,11 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
             del state  # unused
             if not queue:
                 logging.info("Option plan exhausted after %d options.", total)
-                raise utils.OptionExecutionFailure("Option plan exhausted!")
+                # See the twin of this raise in utils.option_plan_to_policy:
+                # a finished plan and a failed option arrive as the same
+                # exception type, so the normal terminus is flagged.
+                raise utils.OptionExecutionFailure(
+                    "Option plan exhausted!", info={"plan_exhausted": True})
             option = queue.pop(0)
             num_done = total - len(queue)
             if status is not None:
