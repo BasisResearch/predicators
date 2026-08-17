@@ -113,6 +113,47 @@ def test_glue_cure_weld_lifecycle(env_and_task):
     assert len(env._weld_constraints) == 1
 
 
+def test_sim_data_isolated_between_env_instances(env_and_task):
+    """Glue/cure/attached written by one env instance must never leak into
+    another env instance through shared State Object instances.
+
+    Regression: those features live in ``Object.sim_data`` (stored on
+    the instance), and states routinely cross env instances carrying
+    the source env's objects (option-model resets, refinement
+    rollouts). ``_set_domain_specific_state`` used to write through the
+    incoming instances, so a sim rollout's glue/cure values bled into
+    the real env's next observation (observed as impossible soft-cure
+    floats in a real env's post-mortem state dump).
+    """
+    env, task = env_and_task
+    env._set_state(task.init)
+    src_state = env._get_state()
+    leg0 = next(b for b in src_state.get_objects(env._block_type)
+                if b.name == "leg0")
+    assert src_state.get(leg0, "glue_end_b") == 0.0
+
+    from predicators.envs.pybullet_bridge import \
+        PyBulletBridgeEnv  # pylint: disable=import-outside-toplevel
+    other = PyBulletBridgeEnv(use_gui=False)
+    try:
+        glued = src_state.copy()
+        glued.set(leg0, "glue_end_b", 1.0)
+        glued.set(leg0, "cure_end_b", 3.0)
+        # The other env must import the features into its OWN blocks...
+        other._set_state(glued)
+        other_state = other._get_state()
+        assert other_state.get(leg0, "glue_end_b") == 1.0
+        assert other_state.get(leg0, "cure_end_b") == 3.0
+        # ...without touching this env's blocks (src_state's Object
+        # instances belong to ``env``).
+        fresh = env._get_state()
+        assert fresh.get(leg0, "glue_end_b") == 0.0
+        assert fresh.get(leg0, "cure_end_b") == 0.0
+    finally:
+        import pybullet as p  # pylint: disable=import-outside-toplevel
+        p.disconnect(other._physics_client_id)
+
+
 def test_seat_weld_holds_pose(env_and_task):
     """A cured seat joint (lying span welded onto a STANDING leg's top) must
     hold the assembly rigidly at the seated pose.
