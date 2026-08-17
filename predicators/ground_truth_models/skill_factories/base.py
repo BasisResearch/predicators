@@ -278,6 +278,8 @@ _DWELL_COUNT_KEY = "dwell_count_{}"  # post-terminal hold steps taken
 _STROKE_BEST_KEY = "stroke_best_{}"  # gentle stroke: best EE distance
 _STROKE_NOPROG_KEY = "stroke_noprog_{}"  # gentle stroke: no-progress steps
 _IK_STALL_COUNT_KEY = "ik_stall_count_{}"  # steps since last improvement
+_AIM_OFFSET_KEY = "aim_offset"  # option-scoped learned xy aim (meters)
+_PHASE_RETRY_KEY = "phase_retries_{}"  # verified-advance retries used
 
 
 @dataclass
@@ -368,6 +370,23 @@ class Phase:
     #   - a final-phase stroke keeps the incremental-IK stall abort
     #     (see _check_ik_stall) as its escape instead.
     max_step_norm: Optional[float] = None
+    # Verified advancement: when set, this phase only advances (on its
+    # terminal condition OR a gentle stroke's give-up) if verify_fn
+    # returns True on the current state. When it returns False and
+    # retry budget remains, the skill REWINDS to the phase named
+    # retry_to_phase (clearing the rewound phases' cached trajectories
+    # and counters, but keeping any learned stroke bias) and re-runs
+    # from there. Use for outcome-critical phases whose success the
+    # terminal condition alone cannot certify -- e.g. a place's
+    # settle-to-contact terminates on FIRST contact, which under a
+    # plant-sag deflection can happen centimeters from the commanded
+    # spot; verifying the held object's xy before release converts
+    # that into a lift-and-re-descend. After max_retries unverified
+    # attempts the phase advances anyway (best-effort).
+    verify_fn: Optional[Callable[[State, Sequence[Object], Array, SkillConfig],
+                                 bool]] = None
+    retry_to_phase: Optional[str] = None
+    max_retries: int = 0
 
 
 class PhaseSkill:
@@ -452,6 +471,10 @@ class PhaseSkill:
                 memory[dwell_key] = dwelled + 1
                 return self._execute_phase(phase, state, memory, objects,
                                            params)
+            retry_action = self._maybe_retry_phase(phase, state, memory,
+                                                   objects, params)
+            if retry_action is not None:
+                return retry_action
             phase_idx += 1
             memory["phase_idx"] = phase_idx
             if phase_idx >= len(self._phases):
@@ -522,7 +545,8 @@ class PhaseSkill:
         if phase.use_motion_planning:
             return self._birrt_phase_is_terminal(phase, state, memory, objects,
                                                  params)
-        return self._ik_phase_is_terminal(phase, state, objects, params)
+        return self._ik_phase_is_terminal(phase, state, memory, objects,
+                                          params)
 
     def _birrt_phase_is_terminal(self, phase: Phase, state: State,
                                  memory: Dict, objects: Sequence[Object],
@@ -545,7 +569,8 @@ class PhaseSkill:
         traj = memory[traj_key]
         if traj is None:
             # BiRRT failed; use distance-based terminal (IK fallback mode).
-            return self._ik_phase_is_terminal(phase, state, objects, params)
+            return self._ik_phase_is_terminal(phase, state, memory, objects,
+                                              params)
 
         # All waypoints consumed — fall back to position-based terminal so
         # the phase doesn't end until the robot has actually converged to the
@@ -553,19 +578,44 @@ class PhaseSkill:
         # and IK inaccuracy means the final waypoint may not exactly match
         # the target Cartesian pose).
         if memory[step_key] >= len(traj):
-            return self._ik_phase_is_terminal(phase, state, objects, params)
+            return self._ik_phase_is_terminal(phase, state, memory, objects,
+                                              params)
         return False
 
-    def _ik_phase_is_terminal(self, phase: Phase, state: State,
+    def _ik_phase_is_terminal(self, phase: Phase, state: State, memory: Dict,
                               objects: Sequence[Object],
                               params: Array) -> bool:
         """Distance-based terminal for incremental IK phases."""
-        current_pose, target_pose, _ = phase.target_fn(state, objects, params,
-                                                       self._config)
+        current_pose, target_pose, _ = self._phase_targets(
+            phase, state, memory, objects, params)
         squared_dist = np.sum(
             np.square(np.subtract(current_pose.position,
                                   target_pose.position)))
         return bool(squared_dist < self._config.move_to_pose_tol)
+
+    def _phase_targets(self, phase: Phase, state: State, memory: Dict,
+                       objects: Sequence[Object],
+                       params: Array) -> Tuple[Pose, Pose, str]:
+        """``phase.target_fn`` with the option's learned aim offset applied to
+        the target xy.
+
+        The offset (see the aim learning in ``_maybe_retry_phase``) re-
+        aims EVERY move target of the option upstream of a measured
+        repeatable plant drift, so the approach phases arrive pre-
+        compensated and the final contact stroke descends nearly
+        vertically instead of having to outrun the sag laterally (a 3
+        mm-clamped stroke cannot: its lateral command component tops out
+        below the ~2 mm/step sag).
+        """
+        current_pose, target_pose, finger_status = phase.target_fn(
+            state, objects, params, self._config)
+        aim = memory.get(_AIM_OFFSET_KEY)
+        if aim is not None:
+            target_pose = Pose(
+                (target_pose.position[0] + aim[0],
+                 target_pose.position[1] + aim[1], target_pose.position[2]),
+                target_pose.orientation)
+        return current_pose, target_pose, finger_status
 
     def _check_ik_stall(self, phase: Phase, state: State, memory: Dict,
                         objects: Sequence[Object], params: Array) -> None:
@@ -578,8 +628,8 @@ class PhaseSkill:
         can otherwise never fire, leaving the arm thrashing until the
         episode horizon).
         """
-        current_pose, target_pose, _ = phase.target_fn(state, objects, params,
-                                                       self._config)
+        current_pose, target_pose, _ = self._phase_targets(
+            phase, state, memory, objects, params)
         dist = float(
             np.linalg.norm(
                 np.subtract(current_pose.position, target_pose.position)))
@@ -604,6 +654,107 @@ class PhaseSkill:
                 f"{_fmt_option_params(params)}); aborting option."
                 f"{contact_report}")
 
+    def _maybe_retry_phase(self,
+                           phase: Phase,
+                           state: State,
+                           memory: Dict,
+                           objects: Sequence[Object],
+                           params: Array,
+                           learn_aim: bool = True) -> Optional[Action]:
+        """Verified advancement (see ``Phase.verify_fn``): when the finishing
+        phase fails its verification and retry budget remains, rewind to
+        ``phase.retry_to_phase`` and return that phase's next action; otherwise
+        return None (advance normally).
+
+        With ``learn_aim`` (a gentle stroke's terminal-time rewind), the
+        stroke's xy error to its own target is folded into a per-phase
+        AIM OFFSET before rewinding: the retried stroke steps toward
+        ``target + aim``, so a repeatable plant drift (gravity+payload
+        sag walks a bridge settle stroke ~15 mm toward the robot base,
+        repeatable to ~1 mm) is cancelled FEEDFORWARD. Aiming upstream
+        of the sag keeps the servo unstrained -- an earlier attempt at
+        per-step anti-bias servoing held the stroke on target but stored
+        ~8 mm of command strain, and the arm's relaxation snap at the
+        instant the grasp constraint dropped dragged the released object
+        ~5 mm through the still-close finger pads. Give-up rewinds
+        (blocked strokes) pass ``learn_aim=False``: their error vector
+        measures the obstruction, not the sag.
+        """
+        if phase.verify_fn is None:
+            return None
+        if phase.verify_fn(state, objects, params, self._config):
+            return None
+        retry_key = _PHASE_RETRY_KEY.format(id(phase))
+        used = memory.get(retry_key, 0)
+        if used >= phase.max_retries:
+            logging.debug(
+                "[%s/%s] verification failed after %d retries; "
+                "advancing best-effort.", self._name, phase.name, used)
+            return None
+        memory[retry_key] = used + 1
+        if learn_aim and phase.max_step_norm is not None:
+            # Error measured against the TRUE (unaimed) target: the aim
+            # update law is aim -= (current - true_target), which
+            # accumulates correctly across retries.
+            current_pose, target_pose, _ = phase.target_fn(
+                state, objects, params, self._config)
+            aim = np.array(memory.get(_AIM_OFFSET_KEY, (0.0, 0.0)),
+                           dtype=np.float64)
+            err_xy = np.subtract(current_pose.position[:2],
+                                 target_pose.position[:2])
+            aim = aim - err_xy
+            aim_norm = float(np.linalg.norm(aim))
+            if aim_norm > self._stroke_aim_max:
+                aim = aim * (self._stroke_aim_max / aim_norm)
+            memory[_AIM_OFFSET_KEY] = (float(aim[0]), float(aim[1]))
+            logging.debug(
+                "[%s/%s] landing error (%.1f, %.1f) mm; retry aim "
+                "offset (%.1f, %.1f) mm.", self._name, phase.name,
+                err_xy[0] * 1000, err_xy[1] * 1000, aim[0] * 1000,
+                aim[1] * 1000)
+        assert phase.retry_to_phase is not None
+        target_idx = next(i for i, ph in enumerate(self._phases)
+                          if ph.name == phase.retry_to_phase)
+        cur_idx = memory["phase_idx"]
+        assert target_idx <= cur_idx
+        for ph in self._phases[target_idx:cur_idx + 1]:
+            self._clear_phase_memory(ph, memory)
+        memory["phase_idx"] = target_idx
+        logging.debug(
+            "[%s/%s] verification failed; rewinding to phase "
+            "%d: %s (retry %d/%d).", self._name, phase.name, target_idx,
+            phase.retry_to_phase, used + 1, phase.max_retries)
+        try:
+            return self._execute_phase(self._phases[target_idx], state, memory,
+                                       objects, params)
+        except utils.OptionExecutionFailure as e:
+            # The rewound phase could not even start (e.g. the re-aimed
+            # descend goal of a deliberately flush placement now models
+            # in collision). A retry is opportunistic: degrade to the
+            # unverified advance (release where the stroke ended, the
+            # pre-verification behavior) instead of aborting the option.
+            logging.debug(
+                "[%s/%s] retry rewind failed (%s); advancing "
+                "best-effort.", self._name, phase.name, e)
+            memory["phase_idx"] = cur_idx
+            return None
+
+    def _clear_phase_memory(self, phase: Phase, memory: Dict) -> None:
+        """Drop a phase's cached trajectory and progress counters so a rewound
+        phase re-plans and re-tracks from scratch.
+
+        Deliberately KEEPS the option's aim offset (_AIM_OFFSET_KEY,
+        option-scoped): it is the learned plant drift, and re-aiming
+        the whole approach by it is exactly what makes a retried place
+        land on target.
+        """
+        pid = id(phase)
+        for key_fmt in (_BIRRT_TRAJ_KEY, _BIRRT_STEP_KEY, _BIRRT_FINGER_KEY,
+                        _BIRRT_HOLD_KEY, _FINGER_TARGET_KEY, _DWELL_COUNT_KEY,
+                        _STROKE_BEST_KEY, _STROKE_NOPROG_KEY,
+                        _IK_STALL_BEST_KEY, _IK_STALL_COUNT_KEY):
+            memory.pop(key_fmt.format(pid), None)
+
     # ------------------------------------------------------------------
     # Phase execution
     # ------------------------------------------------------------------
@@ -626,7 +777,7 @@ class PhaseSkill:
         if phase.max_step_norm is not None:
             return self._execute_gentle_stroke(phase, state, memory, objects,
                                                params)
-        return self._execute_move_ik(phase, state, objects, params)
+        return self._execute_move_ik(phase, state, memory, objects, params)
 
     def _execute_gentle_stroke(self, phase: Phase, state: State, memory: Dict,
                                objects: Sequence[Object],
@@ -655,8 +806,8 @@ class PhaseSkill:
         if phase_idx >= len(self._phases) - 1:
             self._check_ik_stall(phase, state, memory, objects, params)
         else:
-            current_pose, target_pose, _ = phase.target_fn(
-                state, objects, params, self._config)
+            current_pose, target_pose, _ = self._phase_targets(
+                phase, state, memory, objects, params)
             dist = float(
                 np.linalg.norm(
                     np.subtract(current_pose.position, target_pose.position)))
@@ -669,6 +820,20 @@ class PhaseSkill:
             else:
                 memory[count_key] = memory.get(count_key, 0) + 1
                 if memory[count_key] >= self._gentle_stroke_giveup_steps:
+                    # A blocked stroke is exactly what verified
+                    # advancement exists for: prefer a rewind (lift and
+                    # re-approach) over advancing from wherever it got
+                    # stuck, while retry budget remains. No aim
+                    # learning here: a blocked stroke's error measures
+                    # the obstruction, not the plant's sag.
+                    retry_action = self._maybe_retry_phase(phase,
+                                                           state,
+                                                           memory,
+                                                           objects,
+                                                           params,
+                                                           learn_aim=False)
+                    if retry_action is not None:
+                        return retry_action
                     memory["phase_idx"] = phase_idx + 1
                     nxt = self._phases[phase_idx + 1]
                     logging.debug(
@@ -679,7 +844,7 @@ class PhaseSkill:
                         nxt.name)
                     return self._execute_phase(nxt, state, memory, objects,
                                                params)
-        action = self._execute_move_ik(phase, state, objects, params)
+        action = self._execute_move_ik(phase, state, memory, objects, params)
         pb_state = cast(utils.PyBulletState, state)
         robot = self._config.robot
         finger_idxs = (robot.left_finger_joint_idx,
@@ -751,8 +916,8 @@ class PhaseSkill:
             # singularity and makes the push wander off target.
             target_bx, target_by = home_xy
         else:
-            _, target_pose, _ = phase.target_fn(state, objects, params,
-                                                self._config)
+            _, target_pose, _ = self._phase_targets(phase, state, memory,
+                                                    objects, params)
             home_x = home_xy[0] if home_xy is not None else (
                 self._config.robot_home_pos[0]
                 if self._config.robot_home_pos is not None else float(cur_x))
@@ -847,8 +1012,8 @@ class PhaseSkill:
 
         if traj_key not in memory:
             # --- First call: plan the trajectory. ---
-            _, target_pose, finger_status = phase.target_fn(
-                state, objects, params, self._config)
+            _, target_pose, finger_status = self._phase_targets(
+                phase, state, memory, objects, params)
             memory[finger_key] = finger_status
 
             self._last_plan_diagnostics = []
@@ -916,7 +1081,7 @@ class PhaseSkill:
         if traj is None:
             # BiRRT failed — fall back to incremental IK.
             self._check_ik_stall(phase, state, memory, objects, params)
-            return self._execute_move_ik(phase, state, objects, params)
+            return self._execute_move_ik(phase, state, memory, objects, params)
 
         # --- Pop next waypoint from cached trajectory. ---
         step = memory[step_key]
@@ -926,7 +1091,7 @@ class PhaseSkill:
             # to the exact target pose (BiRRT's IK solution may be slightly
             # off from the target Cartesian pose).
             self._check_ik_stall(phase, state, memory, objects, params)
-            return self._execute_move_ik(phase, state, objects, params)
+            return self._execute_move_ik(phase, state, memory, objects, params)
 
         finger_idx_l = robot.left_finger_joint_idx
         finger_idx_r = robot.right_finger_joint_idx
@@ -1537,15 +1702,18 @@ class PhaseSkill:
     # gives up and advances to the next phase (see
     # _execute_gentle_stroke).
     _gentle_stroke_giveup_steps: ClassVar[int] = 8
+    # Safety clamp on the learned aim offset (meters); see
+    # _maybe_retry_phase's aim learning and _phase_targets.
+    _stroke_aim_max: ClassVar[float] = 0.03
 
-    def _execute_move_ik(self, phase: Phase, state: State,
+    def _execute_move_ik(self, phase: Phase, state: State, memory: Dict,
                          objects: Sequence[Object], params: Array) -> Action:
         """Execute a MOVE_TO_POSE phase using incremental IK delta-stepping."""
         pb_state = cast(utils.PyBulletState, state)
         robot = self._config.robot
         robot.set_joints(pb_state.joint_positions)
-        current_pose, target_pose, finger_status = phase.target_fn(
-            state, objects, params, self._config)
+        current_pose, target_pose, finger_status = self._phase_targets(
+            phase, state, memory, objects, params)
         try:
             action = self._move_ik_action(phase, pb_state, current_pose,
                                           target_pose, finger_status)
