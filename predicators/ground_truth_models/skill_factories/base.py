@@ -338,6 +338,19 @@ class Phase:
     # open, the target moves further out, and the phase never terminates
     # short of fully open.
     anchor_finger_target: bool = False
+    # Gentle-stroke mode for incremental-IK phases that deliberately seek
+    # contact (e.g. a place's settle-to-contact). When set, this overrides
+    # the EE step clamp (meters per step; default config.max_vel_norm), and
+    # additionally arms two safety rails in _execute_move_ik/_execute_move:
+    #   - a joint-jump guard: a mm-scale EE step never legitimately needs a
+    #     multi-radian joint move, but single-shot IK (the panda path) can
+    #     return a wrist-flipped branch near contact; executing that action
+    #     drags the held object through the scene, so the step is replaced
+    #     by a hold-position action instead;
+    #   - the incremental-IK stall abort (see _check_ik_stall), so a stroke
+    #     pinned by the guard or blocked short of its target fails the
+    #     option cleanly rather than pressing forever.
+    max_step_norm: Optional[float] = None
 
 
 class PhaseSkill:
@@ -576,6 +589,11 @@ class PhaseSkill:
         if phase.use_motion_planning:
             return self._execute_move_birrt(phase, state, memory, objects,
                                             params)
+        if phase.max_step_norm is not None:
+            # Gentle strokes get the stall abort: a stroke pinned by the
+            # joint-jump guard (or blocked short of its target) must fail
+            # the option instead of holding position forever.
+            self._check_ik_stall(phase, state, memory, objects, params)
         return self._execute_move_ik(phase, state, objects, params)
 
     # Mobile-base positioning. Before the first reach of an option, drive the
@@ -1402,6 +1420,10 @@ class PhaseSkill:
             logging.error("[%s/%s] %s", self._name, phase_name, diag)
         return diagnostics
 
+    # Gentle strokes (Phase.max_step_norm): any single arm joint asked to
+    # move further than this in one step is a branch flip, not tracking.
+    _ik_joint_jump_max: ClassVar[float] = 0.5  # radians
+
     def _execute_move_ik(self, phase: Phase, state: State,
                          objects: Sequence[Object], params: Array) -> Action:
         """Execute a MOVE_TO_POSE phase using incremental IK delta-stepping."""
@@ -1411,21 +1433,8 @@ class PhaseSkill:
         current_pose, target_pose, finger_status = phase.target_fn(
             state, objects, params, self._config)
         try:
-            return get_move_end_effector_to_pose_action(
-                robot=robot,
-                current_joint_positions=pb_state.joint_positions,
-                current_pose=current_pose,
-                target_pose=target_pose,
-                finger_status=finger_status,
-                max_vel_norm=self._config.max_vel_norm,
-                finger_action_nudge_magnitude=(
-                    self._config.finger_action_nudge_magnitude),
-                validate=self._config.ik_validate,
-                # Base positioning is handled once per option by
-                # _maybe_drive_base; keep incremental IK arm-only so the base
-                # doesn't drift during contact phases (e.g. a switch push).
-                move_base=False,
-            )
+            action = self._move_ik_action(phase, pb_state, current_pose,
+                                          target_pose, finger_status)
         except utils.OptionExecutionFailure as e:
             cur = current_pose.position
             tgt = target_pose.position
@@ -1434,6 +1443,49 @@ class PhaseSkill:
                 f"current=({cur[0]:.3f}, {cur[1]:.3f}, {cur[2]:.3f}), "
                 f"target=({tgt[0]:.3f}, {tgt[1]:.3f}, {tgt[2]:.3f}), "
                 f"params={params.tolist()}") from e
+        if phase.max_step_norm is not None:
+            finger_idxs = (robot.left_finger_joint_idx,
+                           robot.right_finger_joint_idx)
+            arm_delta = max(
+                abs(float(a) - float(c)) for i, (
+                    a,
+                    c) in enumerate(zip(action.arr, pb_state.joint_positions))
+                if i not in finger_idxs)
+            if arm_delta > self._ik_joint_jump_max:
+                # IK returned a different branch (e.g. a wrist flip).
+                # Hold position this step; a persistent flip is caught
+                # by the stall abort armed in _execute_move.
+                logging.debug(
+                    "[%s/%s] IK joint jump %.2f rad suppressed; holding.",
+                    self._name, phase.name, arm_delta)
+                fingers = pb_state.joint_positions[robot.left_finger_joint_idx]
+                return get_change_fingers_action(robot,
+                                                 pb_state.joint_positions,
+                                                 fingers, fingers,
+                                                 self._config.max_vel_norm)
+        return action
+
+    def _move_ik_action(self, phase: Phase, pb_state: utils.PyBulletState,
+                        current_pose: Pose, target_pose: Pose,
+                        finger_status: str) -> Action:
+        """One incremental-IK step toward the phase target."""
+        robot = self._config.robot
+        return get_move_end_effector_to_pose_action(
+            robot=robot,
+            current_joint_positions=pb_state.joint_positions,
+            current_pose=current_pose,
+            target_pose=target_pose,
+            finger_status=finger_status,
+            max_vel_norm=(phase.max_step_norm if phase.max_step_norm
+                          is not None else self._config.max_vel_norm),
+            finger_action_nudge_magnitude=(
+                self._config.finger_action_nudge_magnitude),
+            validate=self._config.ik_validate,
+            # Base positioning is handled once per option by
+            # _maybe_drive_base; keep incremental IK arm-only so the base
+            # doesn't drift during contact phases (e.g. a switch push).
+            move_base=False,
+        )
 
     def _execute_fingers(self, phase: Phase, state: State, memory: Dict,
                          objects: Sequence[Object], params: Array) -> Action:

@@ -30,8 +30,12 @@ from predicators.structs import Array, Object, ParameterizedOption, \
 # Place params: canonical (x, y, release_z, yaw) order. All three
 # position params are HELD-OBJECT coordinates (live-compensated, see
 # compensate_held_offset / compensate_held_z below): release_z is the
-# held object's CENTER height at release -- a span dropped on the
-# table releases at ~0.435, a span seated on the leg tops at ~0.545.
+# held object's CENTER height at the END OF THE DESCENT -- the skill
+# then settles to first contact before releasing (see
+# settle_to_contact_depth below), so release_z only needs to clear the
+# scene; the block touches down with essentially no free fall. A span
+# descends over the table to ~0.428, a span seated on the leg tops to
+# ~0.545.
 _BRIDGE_PLACE_PARAMS = [
     ("target_x (world x position for the held object)",
      PyBulletBridgeEnv.workspace_x_lo, PyBulletBridgeEnv.workspace_x_hi),
@@ -150,6 +154,11 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
             get_target_pose_fn=_get_bottle_grasp_pose,
             approach_open=True,
             anchor_lift=True,
+            # The default 1 cm lift is within the move-to acceptance
+            # radius, so the pick can end with the bottle still at
+            # table height; grasp-constraint droop then models it in
+            # table contact at the next option's planning start.
+            lift_dz=0.03,
         )
 
         # -- Place (generic; geometry via params) ---------------------------
@@ -172,6 +181,15 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
             # forever).
             compensate_held_offset=True,
             compensate_held_z=True,
+            # Guarded release: after the (collision-checked) descent to
+            # release_z, settle straight down to FIRST contact of the
+            # held assembly before opening. Drop-settle scatter is what
+            # flips this domain's tight tolerances (a butt joint's cure
+            # window, a 2:1 leg's sub-mm topple threshold, the seat's
+            # chaotic landing). 3 cm covers the largest sampler descend
+            # clearance (the seat's 20 mm) with margin; table places
+            # settle only their 2-3 mm.
+            settle_to_contact_depth=0.03,
         )
 
         # -- MoveTo (generic move-through-pose) ------------------------------
