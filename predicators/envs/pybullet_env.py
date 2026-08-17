@@ -74,7 +74,7 @@ class ActionExecutor(Protocol):
     """Drives real hardware from a simulated env's rollout.
 
     The port an env exposes for "something outside is executing what I
-    just simulated". Declared here, next to the three calls, and
+    just simulated". Declared here, next to the four calls, and
     implemented elsewhere -- ``pybullet_helpers.real_robot_executor`` --
     so this module never imports anything that knows about a robot.
 
@@ -100,6 +100,18 @@ class ActionExecutor(Protocol):
         Returns the observation the caller should see, which may differ
         from ``obs``: an executor that looked at the real world and
         corrected the simulated twin returns the corrected reading.
+        """
+
+    def after_episode(self, completed: bool) -> None:
+        """The episode is over; nothing more will be simulated.
+
+        ``completed`` is False when the episode ended abnormally (an
+        exception, or the step limit reached mid-option), which is the
+        difference between "this plan ran to its end" and "this is
+        however far it got". An executor holding deferred work decides
+        on that flag whether to do it or drop it.
+
+        Called exactly once per episode, on every exit path.
         """
 
 
@@ -676,6 +688,16 @@ class PyBulletEnv(BaseEnv):
         if self._executor is not None:
             observation = self._executor.after_step(action, observation)
         return observation
+
+    def finish_execution(self, completed: bool) -> None:
+        """Tell an attached executor the episode is over.
+
+        The counterpart to ``step``'s executor hook: an executor that
+        deferred work until it knew the episode's shape has no other
+        moment to act on it, because nothing calls it again.
+        """
+        if self._executor is not None:
+            self._executor.after_episode(completed)
 
     def _step_once(self,
                    action: Action,

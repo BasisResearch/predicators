@@ -9,6 +9,11 @@ includes:
 FLAGS:
   num_online_learning_cycles: 2
   wait_option_max_steps: 200
+  # One exploration episode per cycle. common.yaml asks for 2, but the
+  # explorer replays the same fixed plan every time, so the second episode
+  # costs a full run of the hardware (and a human scene reset) to collect a
+  # near-duplicate of the first.
+  online_nsrt_learning_requests_per_cycle: 1
 NUM_SEEDS: 1
 # Agent-only env overrides: deep-merged on top of envs/all.yaml. These
 # excluded_predicates are dropped for "ours" runs (matches exp_domino.yaml;
@@ -18,14 +23,69 @@ ENVS:
     SKIP: False
     FLAGS:
       excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
-      domino_real_scene: "/home/amberli/babyrobot/BabyRobotPredicator/scenes/domino_straight.json"
       real_robot_execute: True
+      # LIVE: the arm moves and the cameras look. Learning a friction from
+      # real observations needs a real cascade to observe, so neither half
+      # can be faked -- a dry arm leaves the scene untouched and a blind run
+      # has nothing to report. (For the no-motion rung instead, set
+      # real_robot_dry True with perception "none" and the two flags below
+      # False; "none" with the look on raises at executor construction.)
+      real_robot_dry: False
+      real_robot_perception: "zed"
+      real_robot_observe_at_option_boundary: True
+      # Rebuild the task from a live look each episode. That is the thing
+      # under test here -- whether perception is good enough to learn from --
+      # and it also keeps _refuse_stale_task happy, which otherwise refuses
+      # the captured scene while the cameras are live.
+      #
+      # The person must restore the layout between episodes. Pick and Push
+      # follow the perceived poses, so they adapt on their own; only the
+      # Place drop point is absolute world coordinates, so a rebuild that is
+      # a couple of centimetres off will still bridge, but a rearranged
+      # scene will not.
+      real_robot_human_reset: True
       real_robot_divergence_atol: 0.02
+      # No learning for now, just hybrid sim.
+      # agent_sim_learn_oracle_sim_program: True
+      # agent_sim_learn_oracle_sim_params: True
+      # -- the mismatch ------------------------------------------------------
+      # Applied only to sims built with skip_process_dynamics=True (the
+      # approach's base env and option models), so the twin keeps the
+      # settings.py default 0.5 and goes on modelling the real table.
+      domino_planning_friction: 0.1
+      domino_real_scene: "/home/amberli/babyrobot/BabyRobotPredicator/scenes/domino_straight.json"
       # A run this long should leave evidence: one JSON per look, recording
       # what the cameras saw beside what the twin predicted.
-      real_robot_observation_dump_dir: "logs/stage6_looks"
+      real_robot_observation_dump_dir: "logs/friction_0.1"
+      # -- learning the friction, rather than being told it ------------------
+      # envs/all.yaml:295 pins this to 0, which per its own comment means
+      # "skip MCMC and use initial parameter values directly" -- i.e. the
+      # belief never moves. 300 because emcee's burn-in is 200 and eats the
+      # budget first; the flag's comment says keep it >= ~250.
+      code_sim_learning_num_mcmc_steps: 250
 APPROACHES:
+  agent_oracle_hybrid_sim:
+    SKIP: True
   agent_po_predicate_invention_al_margin:
     SKIP: False
     FLAGS:
+      # Replay one fixed plan every episode instead of planning. What is
+      # being tested is whether perception feeds the learner well enough to
+      # move the friction belief, so the exploration half should be a
+      # constant: a run that goes wrong is then the loop's fault and not the
+      # planner's, and every episode is directly comparable to the last.
+      # (explorer is only ever set in approaches/all.yaml, never in
+      # envs/all.yaml, so this override is not shadowed by the env block.)
+      explorer: "fixed_plan"
+      fixed_plan_explorer_path: "scripts/plan_sketches/domino_straight_bridge2_scene_roles.txt"
+      # The agent's own plan-testing simulator is built with
+      # skip_process_dynamics=agent_planner_use_base_simulator, and only a
+      # skip_process_dynamics=True env picks up domino_planning_friction.
+      # Left False (the default) the agent tests its plans against the TRUE
+      # friction -- its belief is not mismatched at all, and there is
+      # nothing for the sysID to discover. True is what makes the agent
+      # actually believe 0.1.
+      agent_planner_use_base_simulator: True
+      # The pre-loop test is a second full episode on the hardware before
+      # anything is learned; the experiment is about the cycle.
       skip_initial_test: True

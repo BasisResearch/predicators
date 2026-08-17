@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from typing import Any, Dict, List, Optional, Protocol, Tuple, cast
 
 import numpy as np
@@ -30,6 +31,10 @@ from predicators.ground_truth_models.skill_factories.wait import \
     note_external_state_change
 from predicators.pybullet_helpers.real_robot_bridge import execute_chunks, \
     make_real_robot, reset_arm, reset_env
+from predicators.pybullet_helpers.real_robot_recorder import episode_stamp, \
+    make_episode_recorder
+from predicators.pybullet_helpers.real_robot_snapshot import \
+    MarkerlessSnapshotPerception
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, Observation, State
 
@@ -242,7 +247,9 @@ class RealRobotExecutor:
                  observe_at_boundaries: bool = True,
                  settle_s: float = 0.0,
                  divergence_atol: float = 0.02,
-                 human_reset: bool = True) -> None:
+                 human_reset: bool = True,
+                 open_loop_episode: bool = False,
+                 recorder: Any = None) -> None:
         missing = sorted(name for name in _REQUIRED_HOOKS
                          if not callable(getattr(env, name, None)))
         if missing:
@@ -262,9 +269,32 @@ class RealRobotExecutor:
                 "human resets rebuild each episode's task from the scene, so "
                 "the robot needs perception; set real_robot_perception, or "
                 "turn real_robot_human_reset off to keep the captured scene")
+        if open_loop_episode and observe_at_boundaries:
+            raise ValueError(
+                "open-loop episodes ship the whole plan after the episode is "
+                "simulated, so there is no moment between two options at "
+                "which to look at the scene; turn "
+                "real_robot_observe_at_option_boundary off, or turn "
+                "real_robot_open_loop_episode off to keep the boundary looks")
         self._env = env
         self._robot = robot
         self._observe = observe_at_boundaries
+        self._open_loop = open_loop_episode
+        # Chunks held back for the end of the episode. Only ever non-empty
+        # under open-loop; the per-boundary path ships and forgets.
+        self._pending: List[List[Action]] = []
+        # Records each episode to an SVO take for offline pose estimation.
+        # None when the run is not recording. Opened here rather than at the
+        # first episode: a learning cycle is many episodes, and per-episode
+        # camera init and warmup would otherwise be paid every time.
+        self._recorder = recorder
+        if self._recorder is not None:
+            self._recorder.open()
+        # Whether a take is currently open, so an episode that ends without
+        # ever having started one does not try to stop it.
+        self._recording_episode = False
+        # Episodes begun this run, used to name takes.
+        self._episode_num = 0
         self._settle_s = settle_s
         self._human_reset = human_reset
         self._buffer = OptionBoundaryBuffer()
@@ -390,8 +420,15 @@ class RealRobotExecutor:
         freshly arranged scene. Marking it here rather than at the end
         of an episode is what makes it exactly one prompt per episode.
         """
-        del train_or_test, task_idx  # every episode homes the same way
         self._reset_pending = True
+        if self._pending:
+            # finish_execution did not run for the previous episode. Shipping
+            # these now would drive the arm through the last episode's plan
+            # against this episode's scene, so they are dropped instead.
+            logging.warning(
+                "real robot: dropping %d option(s) left over from an episode "
+                "that never finished executing", len(self._pending))
+            self._pending = []
         lost = self._buffer.discard()
         if lost:
             # The previous episode ended mid-option (step limit, or an
@@ -401,11 +438,46 @@ class RealRobotExecutor:
                 "real robot: dropping %d buffered action(s) from an episode "
                 "that ended mid-option; they were never shipped", lost)
         reset_arm(self._robot, self._home_arm_joints(obs))
+        self._start_recording(train_or_test, task_idx)
+
+    def _start_recording(self, train_or_test: str, task_idx: int) -> None:
+        """Begin this episode's take, after the arm is home.
+
+        After the homing rather than before it: the arm's trip to home
+        is not part of the episode being measured, and the take is the
+        input to pose estimation rather than an archive of the session.
+        A take left open by an episode that never finished is stopped
+        first, so this episode does not append itself to the last one's
+        recording.
+        """
+        if self._recorder is None:
+            return
+        if self._recording_episode:
+            logging.warning(
+                "real robot: a take was still open at the start of an "
+                "episode; closing it before starting this one")
+            self._recorder.stop_episode()
+            self._recording_episode = False
+        self._episode_num += 1
+        self._recorder.start_episode(
+            episode_stamp(train_or_test, task_idx, self._episode_num))
+        self._recording_episode = True
 
     def after_step(self, action: Action, obs: Observation) -> Observation:
-        """Buffer the action, and ship at an option boundary."""
+        """Buffer the action, and ship at an option boundary.
+
+        Under open-loop the completed chunk is held instead of shipped,
+        and ``obs`` comes back untouched. That is not a special case so
+        much as the same one: shipping with ``observe`` off returns no
+        observations, so the loop below never runs and this method
+        already returned ``obs`` unchanged. Deferring a call whose only
+        effect is on the arm cannot change what the rollout sees.
+        """
         chunk = self._buffer.add(action, obs)
         if chunk is None:
+            return obs
+        if self._open_loop:
+            self._pending.append(chunk)
             return obs
         observations = execute_chunks(self._robot, [chunk],
                                       self._env.gripper_joint_layout(),
@@ -419,6 +491,75 @@ class RealRobotExecutor:
         if isinstance(obs, State):
             note_external_state_change(action.get_option(), obs)
         return obs
+
+    def after_episode(self, completed: bool) -> None:
+        """Ship the episode's motion, or drop it if it never finished.
+
+        Only open-loop has anything outstanding; per-boundary shipping
+        has already happened by the time this runs.
+
+        A partial plan is dropped rather than shipped. The buffer holds
+        whole options, so what survives an abnormal end is a prefix --
+        half a bridge, or a transport with no place at the end of it --
+        and the arm would execute it with nobody having decided it was
+        a good idea. The information that it was partial exists only
+        here, so this is the last place that judgement can be made.
+
+        The recording is stopped either way, in a ``finally``: shipping
+        must not happen on an abnormal end, but a take left open runs
+        until the disk fills. The two have opposite defaults, which is
+        why one is conditional and the other is not.
+        """
+        try:
+            self._ship_episode(completed)
+        finally:
+            self._stop_recording()
+
+    def _ship_episode(self, completed: bool) -> None:
+        """Send the episode's buffered motion to the arm, or drop it."""
+        pending, self._pending = self._pending, []
+        lost_partial = self._buffer.discard()
+        if not pending:
+            return
+        if not completed:
+            logging.warning(
+                "real robot: dropping %d buffered option(s) unshipped -- the "
+                "episode did not run to completion, so what is buffered is a "
+                "partial plan", len(pending))
+            return
+        if lost_partial:
+            # A completed episode should not also have a half-option in
+            # hand; if it does, the chunks are still whole and shippable,
+            # but the discrepancy is worth a line in the log.
+            logging.warning(
+                "real robot: episode completed with %d action(s) mid-option; "
+                "shipping the %d whole option(s) and dropping those",
+                lost_partial, len(pending))
+        # One request for the whole episode: execute_chunks packs the list
+        # into a single StepRequest, and _split_actions restarts its gripper
+        # tracking per call, which RealRobot dedups session-wide.
+        started_monotonic_ns = time.monotonic_ns()
+        started_wall_ns = time.time_ns()
+        logging.info(
+            "real robot: shipping %d option(s) as one batch "
+            "(monotonic_ns=%d wall_ns=%d)", len(pending), started_monotonic_ns,
+            started_wall_ns)
+        execute_chunks(self._robot,
+                       pending,
+                       self._env.gripper_joint_layout(),
+                       observe=self._observe,
+                       settle_s=self._settle_s)
+        logging.info(
+            "real robot: batch done (monotonic_ns=%d wall_ns=%d, "
+            "elapsed %.3fs)", time.monotonic_ns(), time.time_ns(),
+            (time.monotonic_ns() - started_monotonic_ns) / 1e9)
+
+    def _stop_recording(self) -> None:
+        """End this episode's take, if one is open."""
+        if self._recorder is None or not self._recording_episode:
+            return
+        self._recording_episode = False
+        self._recorder.stop_episode()
 
     # -- helpers -----------------------------------------------------------
     def _home_arm_joints(self, obs: Observation) -> List[float]:
@@ -457,6 +598,25 @@ def _max_position_divergence(predicted: State,
     return worst
 
 
+def _snapshot_perception(recorder: Any) -> MarkerlessSnapshotPerception:
+    """The scene look that a snapshot rebuild uses instead of a live one."""
+    serials = recorder.serials
+    serial = CFG.real_robot_snapshot_camera or (serials[0] if serials else "")
+    if not serial:
+        raise ValueError(
+            "real_robot_snapshot_rebuild needs a camera to fit the scene "
+            "from, and the recorder reported no serials; set "
+            "real_robot_snapshot_camera.")
+    if serials and serial not in serials:
+        raise ValueError(
+            f"real_robot_snapshot_camera {serial!r} is not one of the "
+            f"recorder's cameras {serials}; the scene is fitted from a take "
+            "that session records, so it has to be one of them.")
+    return MarkerlessSnapshotPerception(recorder,
+                                        serial=serial,
+                                        frames=CFG.real_robot_snapshot_frames)
+
+
 def attach_real_robot(env: BaseEnv,
                       robot: Any = None) -> Optional[RealRobotExecutor]:
     """Attach a real-robot executor to ``env`` when the config asks for it.
@@ -466,19 +626,44 @@ def attach_real_robot(env: BaseEnv,
     """
     if not CFG.real_robot_execute:
         return None
+    # A contradiction in the config alone, so it is reported before anything
+    # about the env or the hardware is examined.
+    if CFG.real_robot_record_episodes and CFG.real_robot_perception == "zed":
+        raise ValueError(
+            "real_robot_record_episodes and a live \"zed\" perception both "
+            "want to own the same cameras, and a ZED admits one owner. "
+            "Recording feeds the offline markerless pipeline, which does not "
+            "need a live look: set real_robot_perception to \"scene_file\" "
+            "(or \"none\"), or turn real_robot_snapshot_rebuild on to rebuild "
+            "each episode's task from a short take on the recorder's own "
+            "session instead.")
+    if CFG.real_robot_snapshot_rebuild and not CFG.real_robot_record_episodes:
+        raise ValueError(
+            "real_robot_snapshot_rebuild takes its snapshot on the episode "
+            "recorder's open session, so it needs "
+            "real_robot_record_episodes. Opening cameras of its own is the "
+            "collision this design exists to avoid.")
     if not isinstance(env, PyBulletEnv):
         raise TypeError(
             f"real_robot_execute needs a PyBullet-backed env to act as the "
             f"twin, but {CFG.env} is a {type(env).__name__}. The twin is what "
             "turns an option into the joint trajectory the arm executes.")
+    # The recorder is built BEFORE the robot: under snapshot rebuild the
+    # robot's perception is a look served by the recorder's session, so the
+    # session has to exist to be handed over.
+    recorder = (make_episode_recorder()
+                if CFG.real_robot_record_episodes else None)
     if robot is None:
-        robot = make_real_robot()
+        robot = make_real_robot(perception=_snapshot_perception(recorder)
+                                if CFG.real_robot_snapshot_rebuild else None)
     executor = RealRobotExecutor(
         env,
         robot,
         observe_at_boundaries=CFG.real_robot_observe_at_option_boundary,
         settle_s=CFG.real_robot_settle_s,
         divergence_atol=CFG.real_robot_divergence_atol,
-        human_reset=CFG.real_robot_human_reset)
+        human_reset=CFG.real_robot_human_reset,
+        open_loop_episode=CFG.real_robot_open_loop_episode,
+        recorder=recorder)
     env.attach_executor(executor)
     return executor

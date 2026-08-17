@@ -456,3 +456,65 @@ def test_make_real_robot_dry_constructs_an_armless_robot():
         assert robot.has_perception is False
     finally:
         robot.close()
+
+
+def test_zed_recorder_session_matches_what_the_recorder_calls():
+    """Pin ``EpisodeRecorder``'s stub against the real class.
+
+    The recorder's own tests drive a stub session, which is what keeps
+    them hardware-free -- and is also how a stub silently drifts from
+    the thing it stands for. This one asserts the four calls exist with
+    the keywords the recorder passes, so a rename upstream fails here
+    rather than on the bench. Skips without the submodule, like the
+    other contract tests in this file.
+    """
+    import inspect
+
+    pytest.importorskip("pose_estimation.record_zed_video")
+    from pose_estimation.record_zed_video import ZedRecorderSession
+
+    init = inspect.signature(ZedRecorderSession.__init__).parameters
+    for name in ("serials", "resolution", "fps", "out_dir"):
+        assert name in init, f"ZedRecorderSession lost the {name!r} argument"
+
+    start = inspect.signature(ZedRecorderSession.start_take).parameters
+    for name in ("stamp", "max_frames"):
+        assert name in start, f"start_take lost the {name!r} argument"
+
+    stop = inspect.signature(ZedRecorderSession.stop_take).parameters
+    for name in ("export_mp4", "export_depth"):
+        assert name in stop, f"stop_take lost the {name!r} argument"
+
+    for name in ("open", "close"):
+        assert callable(getattr(ZedRecorderSession, name, None)), \
+            f"ZedRecorderSession lost {name}()"
+
+
+def test_markerless_staging_matches_what_the_snapshot_rebuild_calls():
+    """Pin the snapshot rebuild's use of the markerless staging.
+
+    ``_default_runner`` calls ``run_stages`` with a
+    ``MarkerlessCapture`` and resolves prompt boxes itself, because
+    ``run_stages`` reads ``boxes`` and not ``boxes_json`` -- a
+    distinction worth a test, since getting it wrong would silently fall
+    back to the drag window on every episode instead of failing.
+    """
+    import inspect
+
+    pytest.importorskip("babyrobot.scene.capture_markerless")
+    from babyrobot.scene.capture_markerless import MarkerlessCapture, \
+        load_boxes, resolve_python, run_stages
+
+    stages = inspect.signature(run_stages).parameters
+    assert list(stages) == ["python", "svo", "bundle", "config"]
+    assert callable(resolve_python)
+    assert callable(load_boxes)
+
+    fields = MarkerlessCapture.__dataclass_fields__
+    for name in ("camera", "boxes", "frames", "resolution", "table_z",
+                 "z_mode", "viz"):
+        assert name in fields, f"MarkerlessCapture lost {name!r}"
+    # The reason the runner resolves the file itself.
+    source = inspect.getsource(run_stages)
+    assert "config.boxes" in source
+    assert "config.boxes_json" not in source

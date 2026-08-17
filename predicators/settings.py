@@ -580,6 +580,61 @@ class GlobalSettings:
     # was seen. This is the point of running on real hardware -- the learner
     # sees perceived transitions rather than the simulator's guesses.
     real_robot_observe_at_option_boundary = True
+    # Ship the whole episode's motion in one batch once it has all been
+    # simulated, instead of one option at a time as each is simulated. The arm
+    # then runs the plan as one contiguous motion rather than idling through
+    # the next option's motion planning. Mutually exclusive with
+    # real_robot_observe_at_option_boundary: a boundary look has to happen
+    # between the two options it separates, and here there is no such moment.
+    # Off by default -- batching removes every natural stopping point, so a
+    # bad plan runs to its end with the e-stop as the only intervention.
+    real_robot_open_loop_episode = False
+    # Record each episode's execution to an SVO take, for offline pose
+    # estimation. Nothing is estimated during the run: the markerless pipeline
+    # runs at roughly 3x real time, so a take is post-processed after the
+    # episode that produced it. Mutually exclusive with a live "zed"
+    # perception, which owns the same cameras.
+    real_robot_record_episodes = False
+    # Where takes are written; one directory per episode. Empty means
+    # logs/zed_takes.
+    real_robot_recording_dir = ""
+    # HD720 is the resolution the markerless pipeline was measured on.
+    real_robot_recording_resolution = "HD720"
+    # 60, not 30: a real cascade's topple onsets came 6, 4 and 2 frames apart
+    # at 30 fps, and those inter-domino intervals are what the friction fit is
+    # scored on -- at 30 fps a one-frame detection error is half the shortest
+    # interval. HD720 runs at 60, so the resolution is already paid for.
+    real_robot_recording_fps = 60
+    # Stop a take after this many frames per camera; 0 is unbounded. A guard
+    # against a take nothing stops, not a disk-budget knob -- bundles are
+    # ~48 MB now that depth is no longer stored.
+    real_robot_recording_max_frames = 0
+    # Rebuild each episode's task from a short markerless take instead of a
+    # live look. The live "zed" perception is the MARKER pipeline, and the
+    # markers are not resolvable at this camera distance, so this is how a
+    # per-episode scene rebuild is served on this bench. Needs
+    # real_robot_record_episodes: the snapshot is a second short take on the
+    # recorder's already-open session, which is what keeps it from fighting the
+    # episode recording for the cameras.
+    real_robot_snapshot_rebuild = False
+    # An earlier run's boxes.json, replayed as stage 2's prompt boxes. Empty
+    # opens the drag window and waits for a human EVERY episode, which no
+    # learning loop can sit through -- so this is what makes the rebuild
+    # unattended.
+    real_robot_snapshot_boxes_json = ""
+    # Frames the snapshot exports. More than one is worth having: the fit seeds
+    # each frame from the previous one.
+    real_robot_snapshot_frames = 5
+    # "contact" (z from the table) is right for a scene rebuild, where a human
+    # has just arranged every domino upright on the table. "free" is for a
+    # cascade, where dominoes come to rest on each other.
+    real_robot_snapshot_z_mode = "contact"
+    # Write the stage-2 box and stage-3 mask overlays. They are what show
+    # whether a particular capture is trustworthy.
+    real_robot_snapshot_viz = True
+    # ZED serial the scene is fitted from. Markerless is single-camera (the
+    # second's cloud is not fused). Empty uses the recorder's first serial.
+    real_robot_snapshot_camera = ""
     # Dwell before a capture, so the dominoes come to rest after the motion.
     real_robot_settle_s = 0.5
     # How far (metres) the scene may be from where the twin predicted before

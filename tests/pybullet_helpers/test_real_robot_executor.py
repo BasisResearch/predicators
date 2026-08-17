@@ -26,6 +26,10 @@ from predicators.pybullet_helpers.real_robot_bridge import GripperJointLayout
 from predicators.pybullet_helpers.real_robot_executor import \
     OptionBoundaryBuffer, RealRobotExecutor, _dump_look, \
     _per_object_divergence, attach_real_robot
+from predicators.pybullet_helpers.real_robot_recorder import EpisodeRecorder, \
+    episode_stamp
+from predicators.pybullet_helpers.real_robot_snapshot import \
+    MarkerlessSnapshotPerception
 from predicators.structs import Action, Object, ParameterizedOption, State, \
     Type
 
@@ -220,6 +224,29 @@ def test_executor_has_no_module_level_babyrobot_import():
         for name in names:
             assert not name.startswith("babyrobot"), \
                 f"babyrobot imported at module level: {name}"
+
+
+def test_recorder_has_no_module_level_submodule_import():
+    """Same contract for the recorder, and it needs its own test: the executor
+    imports this module at module level, so a top-level import here would break
+    a checkout without the submodule just as surely -- and the ZED recorder
+    lives under ``pose_estimation``, not ``babyrobot``, so the name to look for
+    is different."""
+    source = inspect.getsourcefile(EpisodeRecorder)
+    assert source is not None
+    with open(source, encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    private = ("babyrobot", "pose_estimation")
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            names = [a.name for a in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            names = [node.module or ""]
+        else:
+            continue
+        for name in names:
+            assert not name.startswith(private), \
+                f"private submodule imported at module level: {name}"
 
 
 # -- the buffer, on its own --------------------------------------------------
@@ -709,3 +736,597 @@ def test_no_cameras_means_nothing_to_be_stale_about(monkeypatch):
     ex = _executor(_StubEnv(), human_reset=False)
 
     assert ex.tasks_for("test") is None
+
+
+# -- episode recording -------------------------------------------------------
+class _StubSession:
+    """Stands in for babyrobot's ZedRecorderSession.
+
+    Records the lifecycle calls, so a test can assert the cameras are
+    opened once for the run and a take is started and stopped per
+    episode, with no SDK anywhere near it.
+    """
+
+    def __init__(self, errors=None, stop_raises=False):
+        self.opens = 0
+        self.closes = 0
+        self.started = []
+        self.stopped = []
+        self.recording = False
+        self._errors = errors or []
+        self._stop_raises = stop_raises
+
+    def open(self):
+        """Open the cameras."""
+        self.opens += 1
+
+    def start_take(self, stamp=None, max_frames=None):
+        """Begin a take, returning its directory.
+
+        Refuses a second concurrent take, as the real session does --
+        that refusal is the collision a snapshot has to be sequenced
+        around, so the stub has to be able to express it.
+        """
+        if self.recording:
+            raise RuntimeError("already recording; call stop_take() first")
+        self.started.append((stamp, max_frames))
+        self.recording = True
+        return "take_" + str(stamp)
+
+    def stop_take(self, export_mp4=False, export_depth=False):
+        """End a take, returning its meta.json contents."""
+        self.stopped.append({"mp4": export_mp4, "depth": export_depth})
+        self.recording = False
+        if self._stop_raises:
+            raise RuntimeError("grab thread for ZED 32294776 failed")
+        return {
+            "take_dir": "take_" + str(self.started[-1][0]),
+            "errors": list(self._errors),
+            "timestamp_clock": "SDK_DEFAULT",
+            "sdk_version": "3.8.2",
+            "svo_ext": ".svo2",
+        }
+
+    def close(self):
+        """Release the cameras."""
+        self.closes += 1
+
+
+def _recording_executor(session, **kwargs):
+    """An executor wired to a recorder over ``session``."""
+    return _executor(_StubEnv(),
+                     observe_at_boundaries=False,
+                     human_reset=False,
+                     recorder=EpisodeRecorder(session),
+                     **kwargs)
+
+
+@pytest.mark.usefixtures("recorder")
+def test_cameras_open_once_for_the_run_not_once_per_episode():
+    """A learning cycle is many episodes, and per-episode camera init and
+    warmup would otherwise be paid every time."""
+    session = _StubSession()
+    ex = _recording_executor(session)
+
+    for _ in range(3):
+        ex.after_reset("train", 0, _state(0.0))
+        ex.after_episode(True)
+
+    assert session.opens == 1
+    assert len(session.started) == 3
+    assert len(session.stopped) == 3
+
+
+def test_a_take_is_stopped_even_when_nothing_ships(recorder):
+    """Shipping must NOT happen on an abnormal end, but the recording must
+    still stop -- a take left open runs until the disk fills.
+
+    The two have opposite defaults, which is why one is conditional and
+    the other is not.
+    """
+    session = _StubSession()
+    ex = _recording_executor(session, open_loop_episode=True)
+    ex.after_reset("train", 0, _state(0.0))
+    _run_episode(ex, ["Pick", "Place"], recorder, completed=False)
+
+    assert recorder.shipped == [], "an incomplete episode ships nothing"
+    assert len(session.stopped) == 1, "but its take is still stopped"
+    assert session.recording is False
+
+
+@pytest.mark.usefixtures("recorder")
+def test_a_take_is_stopped_even_when_shipping_raises(monkeypatch):
+    """Recording teardown belongs in a finally: the arm failing is not a reason
+    to leave a camera recording."""
+    session = _StubSession()
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("arm refused the batch")
+
+    monkeypatch.setattr(
+        "predicators.pybullet_helpers.real_robot_executor.execute_chunks",
+        _boom)
+    ex = _recording_executor(session, open_loop_episode=True)
+    ex.after_reset("train", 0, _state(0.0))
+    obs = _state(0.0)
+    option = _option("Pick")
+    ex.after_step(_act(option, terminal=False), obs)
+    ex.after_step(_act(option, terminal=True), obs)
+
+    with pytest.raises(RuntimeError, match="arm refused"):
+        ex.after_episode(True)
+
+    assert len(session.stopped) == 1
+    assert session.recording is False
+
+
+@pytest.mark.usefixtures("recorder")
+def test_a_take_reporting_camera_errors_is_marked_unusable():
+    """A camera that dropped out mid-episode yields a short track that looks
+    perfectly well formed, so the episode is marked rather than trusted."""
+    session = _StubSession(errors=["ZED 30264679 stopped grabbing"])
+    rec = EpisodeRecorder(session)
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   human_reset=False,
+                   recorder=rec)
+
+    ex.after_reset("train", 0, _state(0.0))
+    ex.after_episode(True)
+
+    assert rec.takes == [("take_" + session.started[0][0], False)]
+
+
+@pytest.mark.usefixtures("recorder")
+def test_a_clean_take_is_marked_usable():
+    """The other half of the same contract."""
+    session = _StubSession()
+    rec = EpisodeRecorder(session)
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   human_reset=False,
+                   recorder=rec)
+
+    ex.after_reset("train", 0, _state(0.0))
+    ex.after_episode(True)
+
+    take_dir, usable = rec.takes[0]
+    assert usable is True
+    assert take_dir == rec.last_take_dir
+
+
+@pytest.mark.usefixtures("recorder")
+def test_a_failed_stop_does_not_take_the_run_down_with_it():
+    """By the time a take is stopped the arm has already moved, so a recording
+    problem must not destroy the run around it."""
+    session = _StubSession(stop_raises=True)
+    rec = EpisodeRecorder(session)
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   human_reset=False,
+                   recorder=rec)
+    ex.after_reset("train", 0, _state(0.0))
+
+    ex.after_episode(True)  # must not raise
+
+    assert rec.takes == [("<failed>", False)]
+
+
+@pytest.mark.usefixtures("recorder")
+def test_exports_are_off_during_a_run():
+    """stop_take can export depth inline, but that is the expensive offline
+    work: doing it here would serialise post-processing into the episode loop
+    and undo open-loop execution."""
+    session = _StubSession()
+    ex = _recording_executor(session)
+    ex.after_reset("train", 0, _state(0.0))
+    ex.after_episode(True)
+
+    assert session.stopped == [{"mp4": False, "depth": False}]
+
+
+@pytest.mark.usefixtures("recorder")
+def test_a_take_left_open_is_closed_before_the_next_episode():
+    """An episode that never finished must not have the next one appended to
+    its recording."""
+    session = _StubSession()
+    ex = _recording_executor(session)
+
+    ex.after_reset("train", 0, _state(0.0))
+    # No after_episode: the episode ended some other way.
+    ex.after_reset("train", 0, _state(0.0))
+
+    assert len(session.stopped) == 1, "the orphaned take was closed"
+    assert len(session.started) == 2
+
+
+def test_recording_is_refused_alongside_a_live_zed_perception():
+    """Both want the same cameras, and a ZED admits one owner."""
+    utils.reset_config({
+        "real_robot_execute": True,
+        "real_robot_record_episodes": True,
+        "real_robot_perception": "zed",
+    })
+    with pytest.raises(ValueError, match="one owner"):
+        attach_real_robot(cast(Any, _StubEnv()))
+
+
+def test_take_names_carry_the_episode_they_came_from():
+    """A learning cycle revisits the same task index many times, so the stamp
+    has to distinguish episodes -- and sort chronologically."""
+    first = episode_stamp("train", 0, 1)
+    second = episode_stamp("train", 0, 2)
+
+    assert first.endswith("_train0_ep001")
+    assert second.endswith("_train0_ep002")
+    assert first < second
+
+
+def test_the_recorder_closes_an_in_flight_take():
+    """close() is registered with atexit, and a session left recording would
+    keep writing until the disk filled."""
+    session = _StubSession()
+    rec = EpisodeRecorder(session)
+    rec.open()
+    rec.start_episode("stamp")
+
+    rec.close()
+
+    assert session.closes == 1
+    # Idempotent: atexit may fire after an explicit close.
+    rec.close()
+    assert session.closes == 1
+
+
+# -- snapshot scene rebuild --------------------------------------------------
+def _snapshot_perception(recorder, tmp_path, serial="32294776", scene=None):
+    """A snapshot perception whose pipeline and loader are stubbed out."""
+
+    def _runner(svo, bundle, cam):
+        """Stand in for markerless stages 1-4."""
+        del bundle, cam
+        return svo + ".dominoes.json"
+
+    return MarkerlessSnapshotPerception(recorder,
+                                        serial=serial,
+                                        runner=_runner,
+                                        scene_loader=lambda p: scene or
+                                        ("scene", p),
+                                        work_dir=str(tmp_path),
+                                        frames=3)
+
+
+def _touch_svo(tmp_path, take_dir, serial="32294776", ext=".svo2"):
+    """Create the recording a take is expected to contain."""
+    directory = tmp_path / take_dir
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"zed_{serial}{ext}").write_text("", encoding="utf-8")
+    return str(directory)
+
+
+class _SnapshottingRecorder:
+    """A recorder whose snapshot() writes a take dir on disk."""
+
+    def __init__(self, tmp_path, serial="32294776", ext=".svo2"):
+        self._tmp_path = tmp_path
+        self._serial = serial
+        self._ext = ext
+        self.calls = 0
+        self.serials = [serial, "30264679"]
+
+    def snapshot(self, frames=5):
+        """Record a short take; return its directory and meta."""
+        del frames  # the stub writes one file regardless
+        self.calls += 1
+        take = _touch_svo(self._tmp_path,
+                          f"snap{self.calls}",
+                          serial=self._serial,
+                          ext=self._ext)
+        return take, {"svo_ext": self._ext}
+
+
+def test_a_snapshot_is_a_second_take_on_the_same_open_session():
+    """The whole design: a ZED admits one owner, so the scene look does not
+    open cameras -- it takes a short take on the session already holding
+    them."""
+    session = _StubSession()
+    rec = EpisodeRecorder(session)
+    rec.open()
+
+    take_dir, meta = rec.snapshot(frames=3)
+
+    assert session.opens == 1, "a snapshot must not open cameras of its own"
+    assert take_dir.startswith("take_")
+    assert meta["svo_ext"] == ".svo2"
+    assert session.recording is False, "the snapshot take is closed again"
+    assert session.started[0][1] == 3, "max_frames bounds the snapshot"
+
+
+def test_a_snapshot_is_not_recorded_as_an_episode_track():
+    """``takes`` is what the fit consumes.
+
+    A snapshot is an input to a task, not a record of an execution, and
+    must not be mistaken for one.
+    """
+    session = _StubSession()
+    rec = EpisodeRecorder(session)
+    rec.open()
+    rec.snapshot()
+
+    assert not rec.takes
+    assert len(rec.snapshots) == 1
+
+
+@pytest.mark.usefixtures("recorder")
+def test_a_snapshot_and_an_episode_take_do_not_overlap():
+    """Sequenced, not concurrent: the real session refuses a second take, so
+    the snapshot has to happen while no episode take is running."""
+    session = _StubSession()
+    rec = EpisodeRecorder(session)
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   human_reset=False,
+                   recorder=rec)
+
+    rec.snapshot()  # between episodes
+    ex.after_reset("train", 0, _state(0.0))  # episode take opens
+    ex.after_episode(True)  # and closes
+    rec.snapshot()  # between episodes again
+
+    # Three takes, none refused: snapshot, episode, snapshot.
+    assert len(session.started) == 3
+    stamps = [stamp for stamp, _ in session.started]
+    assert len(set(stamps)) == 3, \
+        "take directories must be distinct, even within one second"
+
+
+def test_snapshot_perception_owns_no_cameras():
+    """open/close are no-ops by design; taking cameras here is the collision
+    being avoided."""
+    perception = MarkerlessSnapshotPerception(object(), serial="32294776")
+
+    perception.open()
+    perception.close()
+
+    assert perception.has_perception is True
+
+
+def test_observing_fits_the_snapshot_and_returns_the_scene(tmp_path):
+    """The look a scene reset asks for: record, fit, read the scene JSON."""
+    rec = _SnapshottingRecorder(tmp_path)
+    perception = _snapshot_perception(rec, tmp_path)
+
+    observation = perception.observe(settle_s=0.0)
+
+    assert rec.calls == 1
+    kind, path = observation
+    assert kind == "scene"
+    assert path.endswith(".dominoes.json")
+    assert perception.scenes == [path]
+
+
+def test_each_reset_fits_its_own_snapshot(tmp_path):
+    """A scene rebuild is per episode, so a second look must not return the
+    first one's fit."""
+    rec = _SnapshottingRecorder(tmp_path)
+    perception = _snapshot_perception(rec, tmp_path)
+
+    first = perception.observe()
+    second = perception.observe()
+
+    assert first != second
+    assert rec.calls == 2
+
+
+def test_a_snapshot_missing_the_chosen_camera_says_so(tmp_path):
+    """Fitting is single-camera, so the serial has to be one the recorder
+    actually records."""
+    rec = _SnapshottingRecorder(tmp_path, serial="30264679")
+    perception = _snapshot_perception(rec, tmp_path, serial="32294776")
+
+    with pytest.raises(FileNotFoundError, match="32294776"):
+        perception.observe()
+
+
+def test_the_svo_extension_comes_from_the_take(tmp_path):
+    """SVO_EXT depends on the SDK major version, so it is read from the take's
+    own meta rather than assumed."""
+    rec = _SnapshottingRecorder(tmp_path, ext=".svo")
+    perception = _snapshot_perception(rec, tmp_path)
+
+    observation = perception.observe()
+
+    assert observation[1].endswith(".svo.dominoes.json")
+
+
+def test_snapshot_rebuild_needs_the_recorder():
+    """It takes its snapshot on the recorder's session; without one it would
+    have to open cameras, which is the collision being avoided."""
+    utils.reset_config({
+        "real_robot_execute": True,
+        "real_robot_snapshot_rebuild": True,
+        "real_robot_record_episodes": False,
+    })
+    with pytest.raises(ValueError, match="real_robot_record_episodes"):
+        attach_real_robot(cast(Any, _StubEnv()))
+
+
+# -- open-loop episodes ------------------------------------------------------
+def _run_episode(ex, options, recorder, completed=True):
+    """Drive ``ex`` through whole options, then end the episode.
+
+    Each option contributes two actions, the second terminal, so a chunk
+    is two actions long and the option count is recoverable from the
+    shipped chunks.
+    """
+    obs = _state(0.0)
+    for name in options:
+        option = _option(name)
+        ex.after_step(_act(option, terminal=False), obs)
+        ex.after_step(_act(option, terminal=True), obs)
+    ex.after_episode(completed)
+    return recorder
+
+
+def test_open_loop_ships_once_per_episode_not_once_per_option(recorder):
+    """The point of the flag: one request for the whole episode.
+
+    Per-boundary shipping calls execute_chunks once per option; open-
+    loop calls it once, with every option's chunk in order.
+    """
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   open_loop_episode=True)
+
+    _run_episode(ex, ["Pick", "Place", "Push"], recorder)
+
+    assert len(recorder.shipped) == 1, \
+        "open-loop must ship the episode in a single execute_chunks call"
+    (batch, ) = recorder.shipped
+    assert len(batch) == 3, "every option's chunk must be in the batch"
+    assert all(len(chunk) == 2 for chunk in batch)
+
+
+def test_open_loop_preserves_option_order(recorder):
+    """A batch is a plan, so the arm must run it in the order it was
+    simulated."""
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   open_loop_episode=True)
+
+    _run_episode(ex, ["Pick", "Place", "Push"], recorder)
+
+    (batch, ) = recorder.shipped
+    shipped = [chunk[0].get_option().name for chunk in batch]
+    assert shipped == ["Pick", "Place", "Push"]
+
+
+@pytest.mark.usefixtures("recorder")
+def test_open_loop_leaves_the_twin_trajectory_bit_identical():
+    """The whole safety argument for deferring: with the boundary look off,
+    shipping is a pure write-only side effect, so *when* it happens cannot
+    change what the rollout sees.
+
+    Same actions through both paths; the observations handed back must
+    match exactly, not approximately.
+    """
+    options = ["Pick", "Place", "Push"]
+
+    per_boundary = _executor(_StubEnv(), observe_at_boundaries=False)
+    open_loop = _executor(_StubEnv(),
+                          observe_at_boundaries=False,
+                          open_loop_episode=True)
+
+    def _observed(ex):
+        # A distinct observation per step, so a path that hands back
+        # anything other than the one it was given is visible. With a
+        # constant obs this assertion would hold for the wrong reasons.
+        seen = []
+        for i, name in enumerate(options):
+            option = _option(name)
+            seen.append(
+                ex.after_step(_act(option, terminal=False),
+                              _state(2.0 * i + 1.0)))
+            seen.append(
+                ex.after_step(_act(option, terminal=True),
+                              _state(2.0 * i + 2.0)))
+        ex.after_episode(True)
+        return seen
+
+    eager = _observed(per_boundary)
+    deferred = _observed(open_loop)
+
+    assert len(eager) == len(deferred)
+    for a, b in zip(eager, deferred):
+        assert a is b or a.allclose(b), \
+            "deferring the ship changed what the rollout observed"
+
+
+def test_open_loop_discards_an_episode_that_did_not_complete(recorder):
+    """A prefix of a plan is not a plan.
+
+    Half a bridge, or a transport with no place at the end of it, would
+    be executed by an arm with nobody having decided it was a good idea.
+    """
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   open_loop_episode=True)
+
+    _run_episode(ex, ["Pick", "Place"], recorder, completed=False)
+
+    assert recorder.shipped == [], \
+        "an incomplete episode must ship nothing at all"
+
+
+def test_open_loop_drops_a_half_option_but_ships_the_whole_ones(recorder):
+    """The buffer holds whole options, so a trailing partial one is not
+    shippable -- but the options that did finish still are."""
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   open_loop_episode=True)
+    obs = _state(0.0)
+
+    finished = _option("Pick")
+    ex.after_step(_act(finished, terminal=False), obs)
+    ex.after_step(_act(finished, terminal=True), obs)
+    # A second option that never reaches its boundary.
+    ex.after_step(_act(_option("Place"), terminal=False), obs)
+    ex.after_episode(True)
+
+    (batch, ) = recorder.shipped
+    assert len(batch) == 1
+    assert batch[0][0].get_option().name == "Pick"
+
+
+def test_open_loop_does_not_leak_across_episodes(recorder):
+    """If finish_execution never runs, the next episode must not inherit the
+    last one's motion -- it would be driven against a rearranged scene."""
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   open_loop_episode=True,
+                   human_reset=False)
+    obs = _state(0.0)
+    stale = _option("Pick")
+    ex.after_step(_act(stale, terminal=False), obs)
+    ex.after_step(_act(stale, terminal=True), obs)
+
+    # No after_episode: the episode ended some other way.
+    ex.after_reset("train", 0, _state(0.0))
+    _run_episode(ex, ["Push"], recorder)
+
+    (batch, ) = recorder.shipped
+    assert len(batch) == 1, "stale options must not ride along"
+    assert batch[0][0].get_option().name == "Push"
+
+
+def test_per_boundary_path_is_unchanged_by_the_flag(recorder):
+    """Off by default: the existing behaviour must be exactly what it was."""
+    ex = _executor(_StubEnv(), observe_at_boundaries=False)
+
+    _run_episode(ex, ["Pick", "Place", "Push"], recorder)
+
+    assert len(recorder.shipped) == 3, \
+        "per-boundary shipping still ships each option as it is simulated"
+
+
+def test_open_loop_and_boundary_looks_are_mutually_exclusive():
+    """A boundary look has to happen between the two options it separates, and
+    open-loop leaves no such moment.
+
+    Refuse rather than silently drop whichever was asked for second.
+    """
+    with pytest.raises(ValueError, match="no moment between two options"):
+        _executor(_StubEnv(),
+                  observe_at_boundaries=True,
+                  open_loop_episode=True)
+
+
+def test_after_episode_is_a_no_op_for_the_per_boundary_path(recorder):
+    """Nothing is outstanding when every option shipped as it was simulated."""
+    ex = _executor(_StubEnv(), observe_at_boundaries=False)
+    _run_episode(ex, ["Pick"], recorder)
+    before = len(recorder.shipped)
+
+    ex.after_episode(True)
+
+    assert len(recorder.shipped) == before
