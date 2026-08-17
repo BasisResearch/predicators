@@ -128,6 +128,26 @@ def _as_env(env: _StubEnv) -> PyBulletEnv:
     return cast(PyBulletEnv, env)
 
 
+@pytest.fixture(autouse=True)
+def _never_write_into_the_repo(tmp_path, monkeypatch):
+    """Run every test in this module from a scratch directory.
+
+    ``EpisodeRecorder``'s default track directory is the relative
+    ``logs/zed_tracks``, and it rewrites ``tracks.json`` there whenever a
+    take closes. A test that forgets ``track_dir`` therefore writes into
+    the repository -- and if a real run is in flight, over ITS manifest,
+    with stub paths that point at takes which never existed. That
+    happened: the suite clobbered run_20260817_171402's manifest while
+    it was waiting for post-processing, and the fit fell back to
+    per-step scoring having been pointed at a take named by a stub.
+
+    Isolating the working directory fixes every present and future test
+    at once, which passing ``track_dir`` one call site at a time does
+    not.
+    """
+    monkeypatch.chdir(tmp_path)
+
+
 @pytest.fixture(name="recorder")
 def recorder_fixture(monkeypatch):
     """Replace the two bridge helpers with recorders.
