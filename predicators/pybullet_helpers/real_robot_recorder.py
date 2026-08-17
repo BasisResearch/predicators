@@ -69,7 +69,16 @@ class EpisodeRecorder:
         # Every take this run has produced, newest last: (take_dir, usable).
         # The fit needs to know which episodes have a trustworthy track.
         self.takes: List[Tuple[str, bool]] = []
+        # Scene snapshots taken between episodes, newest last. Separate from
+        # ``takes``: a snapshot is an input to a task, not a record of an
+        # execution, and the fit must not mistake one for the other.
+        self.snapshots: List[str] = []
         self._closed = False
+
+    @property
+    def serials(self) -> List[str]:
+        """The ZED serials this session holds open."""
+        return [str(s) for s in getattr(self._session, "serials", [])]
 
     @property
     def last_take_dir(self) -> Optional[str]:
@@ -132,6 +141,30 @@ class EpisodeRecorder:
                          meta.get("sdk_version"))
         self.takes.append((take_dir, usable))
         return meta
+
+    def snapshot(self,
+                 frames: int = 5) -> Tuple[str, Optional[Dict[str, Any]]]:
+        """Record a few frames of the scene as it stands; return (dir, meta).
+
+        A second, short take on the *already-open* session, which is the
+        whole point: a ZED admits one owner, so a scene look that opened
+        its own cameras would collide with the episode recording. Taken
+        between episodes, while no episode take is running.
+
+        Kept out of ``takes``: those are the episode tracks the fit
+        consumes, and a snapshot is an input to a task rather than a
+        record of an execution.
+        """
+        # The counter, not just the clock: start_take makes the directory with
+        # exist_ok, so two snapshots in the same second would silently write
+        # into one directory and the second would inherit the first's frames.
+        now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        stamp = f"{now}_snap{len(self.snapshots) + 1:03d}"
+        take_dir = self._session.start_take(stamp=stamp, max_frames=frames)
+        meta = self._session.stop_take(export_mp4=False, export_depth=False)
+        self.snapshots.append(str(take_dir))
+        logging.info("real robot: scene snapshot recorded to %s", take_dir)
+        return str(take_dir), meta
 
     def close(self) -> None:
         """Release the cameras, stopping an in-flight take first.

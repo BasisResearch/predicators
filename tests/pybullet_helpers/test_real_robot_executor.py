@@ -28,6 +28,8 @@ from predicators.pybullet_helpers.real_robot_executor import \
     _per_object_divergence, attach_real_robot
 from predicators.pybullet_helpers.real_robot_recorder import \
     EpisodeRecorder, episode_stamp
+from predicators.pybullet_helpers.real_robot_snapshot import \
+    MarkerlessSnapshotPerception
 from predicators.structs import Action, Object, ParameterizedOption, State, \
     Type
 
@@ -759,7 +761,14 @@ class _StubSession:
         self.opens += 1
 
     def start_take(self, stamp=None, max_frames=None):
-        """Begin a take, returning its directory."""
+        """Begin a take, returning its directory.
+
+        Refuses a second concurrent take, as the real session does --
+        that refusal is the collision a snapshot has to be sequenced
+        around, so the stub has to be able to express it.
+        """
+        if self.recording:
+            raise RuntimeError("already recording; call stop_take() first")
         self.started.append((stamp, max_frames))
         self.recording = True
         return "take_" + str(stamp)
@@ -775,6 +784,7 @@ class _StubSession:
             "errors": list(self._errors),
             "timestamp_clock": "SDK_DEFAULT",
             "sdk_version": "3.8.2",
+            "svo_ext": ".svo2",
         }
 
     def close(self):
@@ -964,6 +974,176 @@ def test_the_recorder_closes_an_in_flight_take():
     # Idempotent: atexit may fire after an explicit close.
     rec.close()
     assert session.closes == 1
+
+
+# -- snapshot scene rebuild --------------------------------------------------
+def _snapshot_perception(recorder, tmp_path, serial="32294776", scene=None):
+    """A snapshot perception whose pipeline and loader are stubbed out."""
+
+    def _runner(svo, bundle, cam):
+        """Stand in for markerless stages 1-4."""
+        del bundle, cam
+        return svo + ".dominoes.json"
+
+    return MarkerlessSnapshotPerception(recorder,
+                                        serial=serial,
+                                        runner=_runner,
+                                        scene_loader=lambda p: scene or
+                                        ("scene", p),
+                                        work_dir=str(tmp_path),
+                                        frames=3)
+
+
+def _touch_svo(tmp_path, take_dir, serial="32294776", ext=".svo2"):
+    """Create the recording a take is expected to contain."""
+    directory = tmp_path / take_dir
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"zed_{serial}{ext}").write_text("", encoding="utf-8")
+    return str(directory)
+
+
+class _SnapshottingRecorder:
+    """A recorder whose snapshot() writes a take dir on disk."""
+
+    def __init__(self, tmp_path, serial="32294776", ext=".svo2"):
+        self._tmp_path = tmp_path
+        self._serial = serial
+        self._ext = ext
+        self.calls = 0
+        self.serials = [serial, "30264679"]
+
+    def snapshot(self, frames=5):
+        """Record a short take; return its directory and meta."""
+        del frames  # the stub writes one file regardless
+        self.calls += 1
+        take = _touch_svo(self._tmp_path,
+                          f"snap{self.calls}",
+                          serial=self._serial,
+                          ext=self._ext)
+        return take, {"svo_ext": self._ext}
+
+
+def test_a_snapshot_is_a_second_take_on_the_same_open_session():
+    """The whole design: a ZED admits one owner, so the scene look does not
+    open cameras -- it takes a short take on the session already holding
+    them."""
+    session = _StubSession()
+    rec = EpisodeRecorder(session)
+    rec.open()
+
+    take_dir, meta = rec.snapshot(frames=3)
+
+    assert session.opens == 1, "a snapshot must not open cameras of its own"
+    assert take_dir.startswith("take_")
+    assert meta["svo_ext"] == ".svo2"
+    assert session.recording is False, "the snapshot take is closed again"
+    assert session.started[0][1] == 3, "max_frames bounds the snapshot"
+
+
+def test_a_snapshot_is_not_recorded_as_an_episode_track():
+    """``takes`` is what the fit consumes. A snapshot is an input to a task,
+    not a record of an execution, and must not be mistaken for one."""
+    session = _StubSession()
+    rec = EpisodeRecorder(session)
+    rec.open()
+    rec.snapshot()
+
+    assert not rec.takes
+    assert len(rec.snapshots) == 1
+
+
+@pytest.mark.usefixtures("recorder")
+def test_a_snapshot_and_an_episode_take_do_not_overlap():
+    """Sequenced, not concurrent: the real session refuses a second take, so
+    the snapshot has to happen while no episode take is running."""
+    session = _StubSession()
+    rec = EpisodeRecorder(session)
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   human_reset=False,
+                   recorder=rec)
+
+    rec.snapshot()  # between episodes
+    ex.after_reset("train", 0, _state(0.0))  # episode take opens
+    ex.after_episode(True)  # and closes
+    rec.snapshot()  # between episodes again
+
+    # Three takes, none refused: snapshot, episode, snapshot.
+    assert len(session.started) == 3
+    stamps = [stamp for stamp, _ in session.started]
+    assert len(set(stamps)) == 3, \
+        "take directories must be distinct, even within one second"
+
+
+def test_snapshot_perception_owns_no_cameras():
+    """open/close are no-ops by design; taking cameras here is the collision
+    being avoided."""
+    perception = MarkerlessSnapshotPerception(object(), serial="32294776")
+
+    perception.open()
+    perception.close()
+
+    assert perception.has_perception is True
+
+
+def test_observing_fits_the_snapshot_and_returns_the_scene(tmp_path):
+    """The look a scene reset asks for: record, fit, read the scene JSON."""
+    rec = _SnapshottingRecorder(tmp_path)
+    perception = _snapshot_perception(rec, tmp_path)
+
+    observation = perception.observe(settle_s=0.0)
+
+    assert rec.calls == 1
+    kind, path = observation
+    assert kind == "scene"
+    assert path.endswith(".dominoes.json")
+    assert perception.scenes == [path]
+
+
+def test_each_reset_fits_its_own_snapshot(tmp_path):
+    """A scene rebuild is per episode, so a second look must not return the
+    first one's fit."""
+    rec = _SnapshottingRecorder(tmp_path)
+    perception = _snapshot_perception(rec, tmp_path)
+
+    first = perception.observe()
+    second = perception.observe()
+
+    assert first != second
+    assert rec.calls == 2
+
+
+def test_a_snapshot_missing_the_chosen_camera_says_so(tmp_path):
+    """Fitting is single-camera, so the serial has to be one the recorder
+    actually records."""
+    rec = _SnapshottingRecorder(tmp_path, serial="30264679")
+    perception = _snapshot_perception(rec, tmp_path, serial="32294776")
+
+    with pytest.raises(FileNotFoundError, match="32294776"):
+        perception.observe()
+
+
+def test_the_svo_extension_comes_from_the_take(tmp_path):
+    """SVO_EXT depends on the SDK major version, so it is read from the take's
+    own meta rather than assumed."""
+    rec = _SnapshottingRecorder(tmp_path, ext=".svo")
+    perception = _snapshot_perception(rec, tmp_path)
+
+    observation = perception.observe()
+
+    assert observation[1].endswith(".svo.dominoes.json")
+
+
+def test_snapshot_rebuild_needs_the_recorder():
+    """It takes its snapshot on the recorder's session; without one it would
+    have to open cameras, which is the collision being avoided."""
+    utils.reset_config({
+        "real_robot_execute": True,
+        "real_robot_snapshot_rebuild": True,
+        "real_robot_record_episodes": False,
+    })
+    with pytest.raises(ValueError, match="real_robot_record_episodes"):
+        attach_real_robot(cast(Any, _StubEnv()))
 
 
 # -- open-loop episodes ------------------------------------------------------
