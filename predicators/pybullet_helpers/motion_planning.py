@@ -27,6 +27,7 @@ def run_motion_planning(
     base_link_to_held_obj: Optional[NDArray] = None,
     held_attachments: Optional[Dict[int, Any]] = None,
     allow_shallow_held_object_contacts: bool = False,
+    unbounded_shallow_bodies: Optional[Collection[int]] = None,
     goal_finger_joint: Optional[float] = None,
     held_bystander_clearance: Optional[float] = None,
 ) -> Optional[Sequence[JointPositions]]:
@@ -55,6 +56,17 @@ def run_motion_planning(
     ``held_bystander_clearance`` overrides
     ``CFG.pybullet_birrt_held_bystander_clearance`` (the wider berth the
     held object keeps from bodies the path never intends to approach).
+
+    ``unbounded_shallow_bodies`` (used with
+    ``allow_shallow_held_object_contacts``): bodies -- static supports
+    like tables -- whose START-state contacts with the held assembly
+    are allowed at ANY depth, not just down to the shallow margin. A
+    lift-off phase legitimately begins with the held assembly resting
+    on its support, and planning-time modeling artifacts can show that
+    resting contact tens of mm deep (a welded row's outer span was
+    once modeled 21 mm into the table it sat on); escaping away from a
+    static support is always safe, whereas deep start penetration into
+    a movable body still signals genuine trouble and keeps the margin.
 
     Note that this function changes the state of the robot.
     """
@@ -109,7 +121,14 @@ def run_motion_planning(
     shallow_margin = CFG.pybullet_birrt_shallow_held_contact_margin
     bystander_clearance = CFG.pybullet_birrt_bystander_clearance
 
-    allowed_shallow_held_collision_bodies = set()
+    # Body id -> the penetration depth the held assembly may keep
+    # against it along the path (an escape allowance for contacts the
+    # start config already has). Normal shallow-contact bodies get the
+    # shallow margin; unbounded bodies (static supports) get whatever
+    # depth the start shows, minus a little slack -- the start is
+    # escapable at any modeled depth, but the path can never go DEEPER
+    # than it began.
+    allowed_shallow_held_margins: Dict[int, float] = {}
     if allow_shallow_held_object_contacts and held_assembly:
         _set_state(initial_positions)
         p.performCollisionDetection(physicsClientId=physics_client_id)
@@ -120,8 +139,15 @@ def run_motion_planning(
                     assembly_body, body, physicsClientId=physics_client_id)
                 penetrating.extend(c[8] for c in contacts
                                    if c[8] < hard_margin)
-            if penetrating and min(penetrating) >= shallow_margin:
-                allowed_shallow_held_collision_bodies.add(body)
+            if not penetrating:
+                continue
+            start_depth = min(penetrating)
+            if unbounded_shallow_bodies is not None and \
+                    body in unbounded_shallow_bodies:
+                allowed_shallow_held_margins[body] = min(
+                    shallow_margin, start_depth - 0.003)
+            elif start_depth >= shallow_margin:
+                allowed_shallow_held_margins[body] = shallow_margin
 
     # Bodies the robot or held object starts or deliberately ends within
     # the clearance of are intended contact partners (support surfaces,
@@ -226,8 +252,9 @@ def run_motion_planning(
                         assembly_body, body,
                         physicsClientId=physics_client_id)
                 contact_distances = [c[8] for c in contacts]
-                if body in allowed_shallow_held_collision_bodies:
-                    if any(d < shallow_margin for d in contact_distances):
+                escape_margin = allowed_shallow_held_margins.get(body)
+                if escape_margin is not None:
+                    if any(d < escape_margin for d in contact_distances):
                         return True
                     continue
                 if any(d < held_margin for d in contact_distances):
