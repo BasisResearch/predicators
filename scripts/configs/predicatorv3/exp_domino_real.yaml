@@ -56,6 +56,20 @@ ENVS:
       real_robot_human_reset: False
       real_robot_record_episodes: True
       real_robot_process_takes: True
+      # Fit the poses from 30264679. Markerless is single-camera and the two
+      # are not interchangeable: on hand-measured ground truth this one is 6x
+      # better on orientation (1.03 deg median against 6.29), which is what
+      # the topple onsets are read off. The other tracks more frames (99.9%
+      # against 82%), so revisit if coverage turns out to matter more.
+      real_robot_track_camera: "30264679"
+      # Trim the still lead-in before SAM-2 sees it. The take starts at the
+      # reset and the twin then simulates every option with the arm parked:
+      # on run_20260817_162250 that was 152 s of a static scene out of 420 s
+      # recorded, ~6.5k of 18.1k frames. Needs BabyRobotPredicator's
+      # --trim-motion; an older driver ignores the request rather than
+      # failing, and test_the_driver_honours_the_trim_request_once_it_can
+      # says which of the two you have.
+      real_robot_trim_still_frames: True
       # Stage 2 needs one box per domino. Draw them once at the start of the
       # run, in a drag window, while a human is still at the bench -- rather
       # than producing a boxes.json out of band beforehand, or having a window
@@ -63,7 +77,12 @@ ENVS:
       # one arrangement, so the boxes drawn on the scene as it stands are the
       # right ones for every take. Needs a display (X forwarding over SSH).
       # Set real_robot_snapshot_boxes_json to an earlier run's boxes.json
-      # instead to skip the window entirely.
+      # instead to skip the window entirely. The 2026-08-17 capture shipped
+      # one, drawn on this very arrangement -- scenes/
+      # domino_row_20260817_markerless/boxes.json, four boxes at 1280x720 on
+      # camera 30264679 -- so it is reusable only if the run records on the
+      # same camera at the same resolution. Check before trusting it: boxes
+      # from another camera land on empty table and stage 2 fits nothing.
       real_robot_pick_boxes_at_start: True
       real_robot_snapshot_boxes_json: ""
       real_robot_divergence_atol: 0.02
@@ -75,7 +94,19 @@ ENVS:
       # approach's base env and option models), so the twin keeps the
       # settings.py default 0.5 and goes on modelling the real table.
       domino_planning_friction: 0.1
-      domino_real_scene: "/home/amberli/babyrobot/BabyRobotPredicator/scenes/domino_straight.json"
+      # -- the scene, and the roles it does not carry -------------------------
+      # The 2026-08-17 capture: four dominoes, all standing, on an arc rather
+      # than a row. Its records are in id order, so capture id N lands in slot
+      # N and is named domino_N.
+      domino_real_scene: "/home/amberli/babyrobot/BabyRobotPredicator/scenes/domino_row_20260817.json"
+      # This capture has no per-domino 'role' field, so the env reads the roles
+      # off these ids -- green (the one Push acts on) is capture id 3, purple
+      # (the goal) is capture id 0, and ids 1 and 2 are the movables the plan
+      # bridges with. envs/all.yaml's 6 / 5 are domino_straight.json's ids and
+      # appear nowhere in this scene; left in place the task has no target at
+      # all and _task_from_perceived asserts on it.
+      domino_real_start_id: 3
+      domino_real_target_id: 0
       # -- learning the friction from the recording --------------------------
       # Score the free-running rollout against the markerless pose track
       # instead of against every recorded state. Under open-loop nothing
@@ -99,7 +130,7 @@ ENVS:
 APPROACHES:
   agent_oracle_hybrid_sim:
     SKIP: True
-  agent_po_predicate_invention_al_margin:
+  agent_po_predicate_invention_al:
     SKIP: False
     FLAGS:
       # Replay one fixed plan every episode instead of planning. What is
@@ -110,7 +141,13 @@ APPROACHES:
       # (explorer is only ever set in approaches/all.yaml, never in
       # envs/all.yaml, so this override is not shadowed by the env block.)
       explorer: "fixed_plan"
-      fixed_plan_explorer_path: "scripts/plan_sketches/domino_straight_bridge2_scene_roles.txt"
+      # Matched to domino_real_scene above: the plan names specific objects and
+      # specific world coordinates, so the two move together or the replay
+      # places dominoes into empty table. The sketch's header carries the
+      # geometry it was derived from. One alternate for this same scene sits
+      # beside it -- _release055, the same plan with the placement drop cut
+      # from 29 mm to 9 mm, for if the real placements bounce or land tilted.
+      fixed_plan_explorer_path: "scripts/plan_sketches/domino_row_20260817_bridge2.txt"
       # The agent's own plan-testing simulator is built with
       # skip_process_dynamics=agent_planner_use_base_simulator, and only a
       # skip_process_dynamics=True env picks up domino_planning_friction.
