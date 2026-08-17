@@ -194,6 +194,15 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
             # clearance (the seat's 20 mm) with margin; table places
             # settle only their 2-3 mm.
             settle_to_contact_depth=0.03,
+            # Verified release: the settle stroke ends at FIRST contact,
+            # and plant sag (position control under gravity + payload)
+            # was measured walking that contact point ~15 mm toward the
+            # robot base -- a systematic landing bias the cure gates
+            # tolerate but that bends every butt row. Before opening,
+            # require the held block within 4 mm of the commanded xy;
+            # otherwise lift back to release_z and re-descend, aiming
+            # upstream of the measured (repeatable) drift.
+            verify_xy_tol=0.004,
         )
 
         # -- MoveTo (generic move-through-pose) ------------------------------

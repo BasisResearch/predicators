@@ -155,6 +155,10 @@ def make_move_to_phase(
         [State, Sequence[Object], Array, SkillConfig], bool]] = None,
     max_step_norm: Optional[float] = None,
     dwell_steps: int = 0,
+    verify_fn: Optional[Callable[[State, Sequence[Object], Array, SkillConfig],
+                                 bool]] = None,
+    retry_to_phase: Optional[str] = None,
+    max_retries: int = 0,
 ) -> Phase:
     """Create a MOVE_TO_POSE phase for use in a ``PhaseSkill``.
 
@@ -187,6 +191,13 @@ def make_move_to_phase(
             policy steps before advancing (see ``Phase.dwell_steps``),
             for "move there and DWELL" semantics such as sustained-
             proximity glue application.
+        verify_fn: Optional verified-advancement predicate forwarded to
+            the ``Phase`` (see ``Phase.verify_fn``): the phase only
+            advances when it returns True; otherwise the skill rewinds
+            to ``retry_to_phase`` up to ``max_retries`` times.
+        retry_to_phase: Name of the phase to rewind to on a failed
+            verification.
+        max_retries: Verification retry budget (see ``Phase``).
 
     Returns:
         A ``Phase`` that can be included in a ``PhaseSkill``.
@@ -251,4 +262,7 @@ def make_move_to_phase(
         use_motion_planning=plan_motion,
         max_step_norm=max_step_norm,
         dwell_steps=dwell_steps,
+        verify_fn=verify_fn,
+        retry_to_phase=retry_to_phase,
+        max_retries=max_retries,
     )

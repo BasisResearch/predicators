@@ -394,6 +394,10 @@ class PyBulletBridgeEnv(PyBulletEnv):
         # PyBullet constraint id. Must exist before super().__init__
         # (reset paths may call _set_domain_specific_state).
         self._weld_constraints: Dict[FrozenSet[int], int] = {}
+        # Per-weld creation arguments (parent, child, ideal_dz), kept so
+        # a resting weld can be re-anchored (see _relax_resting_welds).
+        self._weld_meta: Dict[FrozenSet[int], Tuple[int, int,
+                                                    Optional[float]]] = {}
         # Glue-patch visual bodies: block name -> face -> body id.
         self._glue_patch_ids: Dict[str, Dict[str, int]] = {}
 
@@ -959,6 +963,36 @@ class PyBulletBridgeEnv(PyBulletEnv):
                                           (0.0, 0.0, 0.0, 1.0))
         _, rel_orn = p.multiplyTransforms((0.0, 0.0, 0.0), inv_orn,
                                           (0.0, 0.0, 0.0), orn_b_ideal)
+        # Teleport the child onto the EXACT pose the constraint will
+        # enforce (parent's ACTUAL frame composed with the snapped
+        # relative transform) and zero both bodies' velocities, so the
+        # constraint starts with zero error. Without this, the solver
+        # spends every subsequent step pulling the pair toward the
+        # snapped frame while table contact resists, and the rectified
+        # micro-vibration SKATES the welded assembly across the table
+        # (measured 2-10 mm and up to 0.08 rad yaw per 200 idle steps;
+        # unwelded pairs move < 1 mm). The teleport is mm/mrad scale --
+        # exactly the snap distance.
+        child_pos, child_orn = p.multiplyTransforms(pos_a, orn_a, rel_pos,
+                                                    rel_orn)
+        p.resetBasePositionAndOrientation(
+            body_b,
+            child_pos,
+            child_orn,
+            physicsClientId=self._physics_client_id)
+        for body in (body_a, body_b):
+            p.resetBaseVelocity(body, (0.0, 0.0, 0.0), (0.0, 0.0, 0.0),
+                                physicsClientId=self._physics_client_id)
+        # Welded partners must not collide with each other: the box
+        # collision margin keeps the flush faces in permanent contact,
+        # and the contact solver fighting the weld is the other motor
+        # of the same skating creep. Re-enabled in _remove_weld.
+        p.setCollisionFilterPair(body_a,
+                                 body_b,
+                                 -1,
+                                 -1,
+                                 0,
+                                 physicsClientId=self._physics_client_id)
         cid = p.createConstraint(parentBodyUniqueId=body_a,
                                  parentLinkIndex=-1,
                                  childBodyUniqueId=body_b,
@@ -975,6 +1009,7 @@ class PyBulletBridgeEnv(PyBulletEnv):
                            maxForce=self.weld_max_force,
                            physicsClientId=self._physics_client_id)
         self._weld_constraints[key] = cid
+        self._weld_meta[key] = (body_a, body_b, ideal_dz)
 
     def _desired_weld_pairs(
             self,
@@ -1021,12 +1056,99 @@ class PyBulletBridgeEnv(PyBulletEnv):
         desired = self._desired_weld_pairs(state)
         for key in list(self._weld_constraints):
             if key not in desired:
-                p.removeConstraint(self._weld_constraints[key],
-                                   physicsClientId=self._physics_client_id)
-                del self._weld_constraints[key]
+                self._remove_weld(key)
         for key, (body_a, body_b, ideal_dz) in desired.items():
             if key not in self._weld_constraints:
                 self._create_weld(body_a, body_b, ideal_dz=ideal_dz)
+
+    # Quiescence gates for weld re-anchoring (see _relax_resting_welds):
+    # creep velocities are ~0.5 mm/s and ~4 mrad/s; real dynamics (drops,
+    # pushes, carried swings) are orders of magnitude above these.
+    weld_relax_max_lin_vel: ClassVar[float] = 0.02  # m/s
+    weld_relax_max_ang_vel: ClassVar[float] = 0.2  # rad/s
+
+    def _relax_resting_welds(self) -> None:
+        """Re-anchor every weld whose assembly is resting free.
+
+        A PyBullet JOINT_FIXED constraint between two table-resting
+        bodies is never quiescent: each body settles into its own
+        contact, the constraint accumulates sub-mm error, and the
+        correction impulses rectify (through friction) into a steady
+        skate -- measured 7-9 mm and up to 0.13 rad of yaw per 200 idle
+        steps, invariant to maxForce, erp, pair-collision filtering and
+        a zero-error anchor at creation, and present even for a welded
+        pair 5 cm apart. Unwelded pairs in the same layout move < 1 mm.
+
+        The fix breaks the error-accumulation loop: while every member
+        of a welded assembly is quiescent, not held, and not touched by
+        the robot, each weld is rebuilt at the current snapped relative
+        pose every step, so the solver never has an error to fight and
+        the assembly behaves like resting free bodies (which are
+        stable). Under load -- carried, pushed, mid-drop -- the gates
+        fail and the anchor holds, keeping the weld fully rigid exactly
+        when rigidity matters. The relative-geometry ratchet this
+        introduces is the free drift of resting bodies (sub-mm over
+        hundreds of steps), not the skate.
+        """
+        if not self._weld_constraints:
+            return
+        # Connected components over the weld graph.
+        adjacency: Dict[int, Set[int]] = {}
+        for key in self._weld_constraints:
+            body_a, body_b = tuple(key)
+            adjacency.setdefault(body_a, set()).add(body_b)
+            adjacency.setdefault(body_b, set()).add(body_a)
+        seen: Set[int] = set()
+        for root in list(adjacency):
+            if root in seen:
+                continue
+            component = {root}
+            frontier = [root]
+            while frontier:
+                for nxt in adjacency[frontier.pop()]:
+                    if nxt not in component:
+                        component.add(nxt)
+                        frontier.append(nxt)
+            seen |= component
+            if self._held_obj_id is not None and \
+                    self._held_obj_id in component:
+                continue
+            resting = True
+            for body in component:
+                lin, ang = p.getBaseVelocity(
+                    body, physicsClientId=self._physics_client_id)
+                if np.linalg.norm(lin) > self.weld_relax_max_lin_vel or \
+                        np.linalg.norm(ang) > self.weld_relax_max_ang_vel:
+                    resting = False
+                    break
+                if p.getContactPoints(self._pybullet_robot.robot_id,
+                                      body,
+                                      physicsClientId=self._physics_client_id):
+                    resting = False
+                    break
+            if not resting:
+                continue
+            for key in list(self._weld_constraints):
+                if not key <= component:
+                    continue
+                body_a, body_b, ideal_dz = self._weld_meta[key]
+                self._remove_weld(key)
+                self._create_weld(body_a, body_b, ideal_dz=ideal_dz)
+
+    def _remove_weld(self, key: FrozenSet[int]) -> None:
+        """Tear down one weld: remove the constraint and restore the pair's
+        collision (disabled at creation; the blocks are separate objects again
+        after a planner backtrack to a pre-weld state)."""
+        cid = self._weld_constraints.pop(key)
+        self._weld_meta.pop(key, None)
+        p.removeConstraint(cid, physicsClientId=self._physics_client_id)
+        body_a, body_b = tuple(key)
+        p.setCollisionFilterPair(body_a,
+                                 body_b,
+                                 -1,
+                                 -1,
+                                 1,
+                                 physicsClientId=self._physics_client_id)
 
     def get_welded_partner_transforms(
         self, body_id: int
@@ -1149,7 +1271,10 @@ class PyBulletBridgeEnv(PyBulletEnv):
                 if cure >= self.cure_threshold:
                     self._latch_joint(state, blk, face, mate)
 
-        # 3. Visuals.
+        # 3. Anti-creep: re-anchor welds whose assembly rests free.
+        self._relax_resting_welds()
+
+        # 4. Visuals.
         self._update_glue_patches(state)
 
     def _find_mate(self, state: State, blk: Object,

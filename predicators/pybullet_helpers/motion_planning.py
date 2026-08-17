@@ -185,7 +185,15 @@ def run_motion_planning(
                                           bystander_clearance,
                                           physicsClientId=physics_client_id):
                         contact_partners.add(body)
-                if not held_assembly or body in held_near_endpoint:
+                # Evaluate held proximity at BOTH endpoints, even for a
+                # body already seen near the other one: partner status
+                # (within the clearance) at EITHER endpoint must win.
+                # Skipping bodies already in held_near_endpoint once
+                # made a butt-joint neighbor 3.1 mm away at the start
+                # but 1.8 mm away at the (re-aimed) goal a permanent
+                # bystander, and its own goal proximity then rejected
+                # the plan.
+                if not held_assembly or body in contact_partners:
                     continue
                 held_dists: List[float] = []
                 for assembly_body, _ in held_assembly:

@@ -117,6 +117,8 @@ def create_place_skill(
     compensate_held_offset: bool = False,
     compensate_held_z: bool = False,
     settle_to_contact_depth: Optional[float] = None,
+    verify_xy_tol: Optional[float] = None,
+    verify_max_retries: int = 2,
 ) -> ParameterizedOption:
     """Create a multi-phase place skill that releases a held object.
 
@@ -190,6 +192,19 @@ def create_place_skill(
             drop. Note the release-clearance check still validates
             the finger-opening sweep at ``release_z``, an upper bound
             of the actual release pose.
+        verify_xy_tol: If set (requires ``settle_to_contact_depth``),
+            verify BEFORE releasing that the still-held object's xy is
+            within this many meters of the commanded ``(target_x,
+            target_y)``. On failure the skill rewinds to the descend
+            phase (lifting the held object back to ``release_z``) and
+            re-descends, up to ``verify_max_retries`` times. The settle
+            stroke releases at FIRST contact, and plant sag (position
+            control under gravity + payload) can walk that contact
+            point ~15 mm from the commanded spot; the rewind learns an
+            aim offset from the measured error, so the retried stroke
+            aims upstream of the (repeatable) sag and lands on target
+            with an unstrained servo.
+        verify_max_retries: Retry budget for the verification.
 
     Returns:
         A ``ParameterizedOption`` implementing the place skill.
@@ -363,22 +378,61 @@ def create_place_skill(
             "Descend" if use_move_above else "MoveToDrop",
             _drop_pose,
             "closed",
-            allow_shallow_held_object_contacts=not use_move_above,
+            # Without a move-above, this is the post-pick first move
+            # (see above). With a settle stroke, a failed verification
+            # rewinds HERE while the held object rests on its support
+            # (the stroke ended at contact); that start contact is
+            # escapable -- the first motion is back up to release_z.
+            allow_shallow_held_object_contacts=(not use_move_above
+                                                or settle_to_contact_depth
+                                                is not None),
             check_release_clearance=True))
     if settle_to_contact_depth is not None:
+
+        def _held_xy_on_target(
+            state: State,
+            objects: Sequence[Object],
+            params: Array,
+            cfg: SkillConfig,
+        ) -> bool:
+            # The held object itself (not the EE) must sit on the
+            # commanded (x, y) before we let go. Nothing held (already
+            # released, or the grasp broke) is unverifiable: pass.
+            del cfg  # unused
+            assert verify_xy_tol is not None
+            tx, ty = float(params[0]), float(params[1])
+            robot_obj = objects[0]
+            for obj in state:
+                if obj == robot_obj or \
+                        "is_held" not in obj.type.feature_names:
+                    continue
+                if state.get(obj, "is_held") > 0.5:
+                    err = float(
+                        np.hypot(
+                            state.get(obj, "x") - tx,
+                            state.get(obj, "y") - ty))
+                    return err <= verify_xy_tol
+            return True
+
         # Gentle stroke: 3 mm steps bound the post-contact overshoot
         # (contact is only observed at the next policy step) and arm
         # the joint-jump guard -- single-shot IK once answered a plain
         # 2 cm descent with a wrist-flipped branch, and the flipped
         # retreat then batted the released block across the table.
         phases.append(
-            make_move_to_phase("SettleToContact",
-                               _settle_pose,
-                               "closed",
-                               expect_contact=True,
-                               use_motion_planning=False,
-                               terminal_fn=_settled_or_at_depth,
-                               max_step_norm=0.003))
+            make_move_to_phase(
+                "SettleToContact",
+                _settle_pose,
+                "closed",
+                expect_contact=True,
+                use_motion_planning=False,
+                terminal_fn=_settled_or_at_depth,
+                max_step_norm=0.003,
+                verify_fn=(_held_xy_on_target
+                           if verify_xy_tol is not None else None),
+                retry_to_phase=("Descend" if use_move_above else "MoveToDrop"),
+                max_retries=(verify_max_retries
+                             if verify_xy_tol is not None else 0)))
     if partial_release:
         phases.extend([
             Phase(

@@ -220,10 +220,14 @@ def test_place_settles_to_contact():
         run_option(options["Place"], [env._robot],
                    [tx, ty, resting_z + 0.008, 0.0])
         # Landed at resting height (no residual drop), near the target,
-        # without spinning.
+        # without spinning. The 6 mm xy bound covers the verified
+        # release: plant sag walks an unverified settle stroke ~15 mm
+        # toward the robot base, and the verify-and-re-aim retry (see
+        # create_place_skill's verify_xy_tol) is what keeps landings
+        # within tolerance.
         assert abs(state.get(span1, "z") - resting_z) < 0.002
-        assert abs(state.get(span1, "x") - tx) < 0.01
-        assert abs(state.get(span1, "y") - ty) < 0.01
+        assert abs(state.get(span1, "x") - tx) < 0.006
+        assert abs(state.get(span1, "y") - ty) < 0.006
         assert abs(state.get(span1, "yaw")) < 0.03
     finally:
         import pybullet as p  # pylint: disable=import-outside-toplevel
@@ -320,3 +324,55 @@ def test_seat_weld_holds_pose(env_and_task):
             assert abs(final.get(obj, feat) - latched.get(obj, feat)) < 0.01
     assert abs(final.get(leg, "pitch") + np.pi / 2) < 0.05
     assert abs(final.get(span, "pitch")) < 0.05
+
+
+def test_welded_pair_does_not_creep(env_and_task):
+    """A freshly welded resting pair must stay put while the scene idles.
+
+    Regression: a PyBullet JOINT_FIXED constraint between two
+    table-resting bodies accumulates sub-mm error as each body settles
+    into its own contact, and the correction impulses rectify into a
+    steady skate -- 7-9 mm and up to 0.13 rad of yaw per 200 idle steps
+    (unwelded pairs move < 1.5 mm), enough to invalidate every
+    downstream open-loop placement parameter and bend every row. The
+    quiescent re-anchoring in _relax_resting_welds must hold the pair
+    still.
+    """
+    env, task = env_and_task
+    env._set_state(task.init)
+    state = env._get_state()
+    blocks = state.get_objects(env._block_type)
+    span0 = next(b for b in blocks if b.name == "span0")
+    span1 = next(b for b in blocks if b.name == "span1")
+
+    s = state.copy()
+    table_z = s.get(span0, "z")
+    for blk, x in ((span0, 0.45), (span1, 0.45 + 0.1 + 0.0001)):
+        s.set(blk, "x", x)
+        s.set(blk, "y", 1.14)
+        s.set(blk, "z", table_z)
+        for feat in ("roll", "pitch", "yaw"):
+            s.set(blk, feat, 0.0)
+    s.set(span0, "glue_end_b", 1.0)
+    for i, blk in enumerate(blocks):
+        if blk not in (span0, span1):
+            s.set(blk, "x", 2.0 + 0.2 * i)
+            s.set(blk, "y", 2.0)
+    env._set_state(s)
+
+    for _ in range(env.cure_threshold + 5):
+        env.step(_hold_action(env))
+    latched = env._get_state()
+    assert latched.get(span0, "attached_end_b") == \
+        float(env._block_index[span1.name])
+
+    for _ in range(200):
+        env.step(_hold_action(env))
+    final = env._get_state()
+    for obj in (span0, span1):
+        drift = np.hypot(
+            final.get(obj, "x") - latched.get(obj, "x"),
+            final.get(obj, "y") - latched.get(obj, "y"))
+        assert drift < 0.002, f"{obj.name} skated {drift * 1000:.1f} mm"
+        dyaw = abs(final.get(obj, "yaw") - latched.get(obj, "yaw"))
+        assert dyaw < 0.01, f"{obj.name} rotated {dyaw:.4f} rad"
