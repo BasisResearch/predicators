@@ -1432,7 +1432,7 @@ class PhaseSkill:
         validate_goal_ik = self._config.ik_validate or (phase is not None
                                                         and phase.validate_ik)
         try:
-            target_joints: JointPositions = self._solve_goal_ik(
+            goal_candidates = self._solve_goal_ik_candidates(
                 planning_robot, target_pose, pb_state.joint_positions,
                 validate_goal_ik)
         except InverseKinematicsError:
@@ -1442,6 +1442,7 @@ class PhaseSkill:
                 "(%.3f, %.3f, %.3f); falling back to incremental IK.",
                 self._name, phase_name, pos[0], pos[1], pos[2])
             return None
+        target_joints: JointPositions = goal_candidates[0]
         goal_finger_joint = None
         if phase is not None and phase.check_release_clearance:
             # Check the width the fingers actually reach at the drop pose:
@@ -1471,6 +1472,7 @@ class PhaseSkill:
             unbounded_shallow_bodies=self._sim_table_ids(sim),
             goal_finger_joint=goal_finger_joint,
             held_bystander_clearance=self._config.held_bystander_clearance,
+            goal_candidates=goal_candidates,
         )
 
         if traj is None and not validate_goal_ik:
@@ -1481,21 +1483,21 @@ class PhaseSkill:
             # in-limit branch whose goal configuration is collision-free.
             sim._set_state(remapped_state)  # pylint: disable=protected-access
             planning_robot.set_joints(pb_state.joint_positions)
-            validated_target_joints: Optional[JointPositions] = None
+            validated_candidates: Optional[List[JointPositions]] = None
             try:
-                validated_target_joints = self._solve_goal_ik(
+                validated_candidates = self._solve_goal_ik_candidates(
                     planning_robot,
                     target_pose,
                     pb_state.joint_positions,
                     validate=True)
             except InverseKinematicsError:
                 pass
-            if validated_target_joints is not None and \
-                    validated_target_joints != target_joints:
+            if validated_candidates is not None and \
+                    validated_candidates != goal_candidates:
                 traj = run_motion_planning(
                     robot=planning_robot,
                     initial_positions=pb_state.joint_positions,
-                    target_positions=validated_target_joints,
+                    target_positions=validated_candidates[0],
                     collision_bodies=collision_bodies,
                     seed=CFG.seed,
                     physics_client_id=sim._physics_client_id,  # pylint: disable=protected-access
@@ -1509,9 +1511,10 @@ class PhaseSkill:
                     goal_finger_joint=goal_finger_joint,
                     held_bystander_clearance=(
                         self._config.held_bystander_clearance),
+                    goal_candidates=validated_candidates,
                 )
                 if traj is not None:
-                    target_joints = validated_target_joints
+                    target_joints = validated_candidates[0]
 
         if traj is None and not expect_contact:
             self._last_plan_diagnostics = self._log_collision_diagnostics(
@@ -1529,10 +1532,11 @@ class PhaseSkill:
 
         return traj
 
-    def _solve_goal_ik(self, planning_robot: SingleArmPyBulletRobot,
-                       target_pose: Pose, current_joints: JointPositions,
-                       validate: bool) -> JointPositions:
-        """Goal-config IK that is accurate AFTER joint-limit clamping.
+    def _solve_goal_ik_candidates(self, planning_robot: SingleArmPyBulletRobot,
+                                  target_pose: Pose,
+                                  current_joints: JointPositions,
+                                  validate: bool) -> List[JointPositions]:
+        """All distinct pose-accurate goal configs, ordered by seed priority.
 
         PyBullet IK is a one-shot approximation with no accuracy
         guarantee (a far seed can miss by centimeters) and it ignores
@@ -1548,9 +1552,18 @@ class PhaseSkill:
         is False, the cheap unvalidated one-shot is tried first and the
         SAME seed escalates to validated (iterated) IK if it misses.
         Seeds: the current joints, the home configuration, then
-        deterministic random in-limit restarts. Raise
-        ``InverseKinematicsError`` when no attempt produces an
-        acceptable config.
+        deterministic random in-limit restarts.
+
+        ALL accepted candidates are returned (deduplicated, seed order
+        preserved, so the current-joints branch comes first): which arm
+        BRANCH a single solve lands on is seed-dependent, and branches
+        are pose-equivalent but not collision-equivalent -- one grasp
+        branch can sweep a link 6 cm through a neighboring block while
+        another clears it. ``run_motion_planning`` picks the first
+        collision-free candidate (see its ``goal_candidates``), turning
+        that per-seed coin flip into a deterministic choice. Raise
+        ``InverseKinematicsError`` when no seed produces an acceptable
+        config.
         """
         limits = list(
             zip(planning_robot.joint_lower_limits,
@@ -1567,6 +1580,7 @@ class PhaseSkill:
                     rng.uniform(cur - np.pi, cur + np.pi))
                 for (lo, hi), cur in zip(limits, current_joints)
             ])
+        candidates: List[JointPositions] = []
         best_err = float("inf")
         for seed in seeds:
             for attempt_validate in ((True, ) if validate else (False, True)):
@@ -1589,11 +1603,19 @@ class PhaseSkill:
                         np.square(
                             np.subtract(ee_position, target_pose.position))))
                 if err < self._config.move_to_pose_tol:
-                    return clamped
+                    if not any(
+                            max(abs(a - b)
+                                for a, b in zip(clamped, prior)) < 1e-3
+                            for prior in candidates):
+                        candidates.append(clamped)
+                    break
                 best_err = min(best_err, err)
-        raise InverseKinematicsError(
-            f"Goal IK missed the target pose from all {len(seeds)} seeds "
-            f"(best squared FK error after limit clamping {best_err:.6f}).")
+        if not candidates:
+            raise InverseKinematicsError(
+                f"Goal IK missed the target pose from all {len(seeds)} seeds "
+                f"(best squared FK error after limit clamping {best_err:.6f})."
+            )
+        return candidates
 
     def _log_collision_diagnostics(
         self,

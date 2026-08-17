@@ -1317,7 +1317,7 @@ class TestIkStallAbort:
 
 
 # ---------------------------------------------------------------------------
-# PhaseSkill._solve_goal_ik acceptance logic
+# PhaseSkill._solve_goal_ik_candidates acceptance logic
 # ---------------------------------------------------------------------------
 
 
@@ -1357,8 +1357,14 @@ class _FakeGoalIkRobot:
         return Pose((x, y, z - self._one_shot_error_m))
 
 
-class TestSolveGoalIk:
-    """Every accepted goal config must hit the pose under FK."""
+# Seed count inside _solve_goal_ik_candidates: current joints, home,
+# then the random restarts. Every seed is tried (branch collection).
+_GOAL_IK_NUM_SEEDS = 2 + PhaseSkill._goal_ik_num_restarts  # pylint: disable=protected-access
+
+
+class TestSolveGoalIkCandidates:
+    """Every accepted goal config must hit the pose under FK, and all distinct
+    pose-accurate branches are collected (deduplicated)."""
 
     def _make_skill(self, robot) -> PhaseSkill:
         config = _make_config(robot)
@@ -1385,12 +1391,14 @@ class TestSolveGoalIk:
         skill = self._make_skill(robot)
         target = Pose((0.77, 1.34, 0.55))
         fake = _FakeGoalIkRobot(target, one_shot_error_m=0.057)
-        result = skill._solve_goal_ik(  # pylint: disable=protected-access
+        result = skill._solve_goal_ik_candidates(  # pylint: disable=protected-access
             fake,
             target, [0.5] * 7,
             validate=False)
-        assert result == [0.1] * 7
-        assert fake.validated_calls == 1
+        # The validated branch is the only accurate one; every seed
+        # escalates to it and dedup collapses them to one candidate.
+        assert result == [[0.1] * 7]
+        assert fake.validated_calls == _GOAL_IK_NUM_SEEDS
 
     def test_accurate_one_shot_keeps_fast_path(self, robot_scene):
         """A one-shot within tolerance is accepted with no validated IK."""
@@ -1398,12 +1406,32 @@ class TestSolveGoalIk:
         skill = self._make_skill(robot)
         target = Pose((0.77, 1.34, 0.55))
         fake = _FakeGoalIkRobot(target, one_shot_error_m=0.002)
-        result = skill._solve_goal_ik(  # pylint: disable=protected-access
+        result = skill._solve_goal_ik_candidates(  # pylint: disable=protected-access
             fake,
             target, [0.5] * 7,
             validate=False)
-        assert result == [0.2] * 7
+        assert result == [[0.2] * 7]
         assert fake.validated_calls == 0
+
+    def test_distinct_branches_are_all_collected(self, robot_scene):
+        """Pose-equivalent but distinct arm branches must ALL be returned, in
+        seed order, so the motion planner can pick the first collision-free one
+        (branches are not collision-equivalent: one grasp branch swept a link 6
+        cm through a neighboring leg while another cleared it)."""
+        _, robot = robot_scene
+        skill = self._make_skill(robot)
+        target = Pose((0.77, 1.34, 0.55))
+        fake = _FakeGoalIkRobot(target, one_shot_error_m=0.0)
+        branches = [[0.1 * (i % 3)] * 7 for i in range(_GOAL_IK_NUM_SEEDS)]
+        fake.inverse_kinematics = (  # type: ignore
+            lambda *a, _it=iter(branches), **k: next(_it))
+        fake.forward_kinematics = (  # type: ignore
+            lambda joints: Pose(target.position))
+        result = skill._solve_goal_ik_candidates(  # pylint: disable=protected-access
+            fake,
+            target, [0.5] * 7,
+            validate=False)
+        assert result == [[0.0] * 7, [0.1] * 7, [0.2] * 7]
 
     def test_all_branches_inaccurate_raises(self, robot_scene):
         """When no branch hits the pose, goal IK raises instead of handing
@@ -1416,7 +1444,7 @@ class TestSolveGoalIk:
             (target.position[0], target.position[1], target.position[2] - 0.057
              ))
         with pytest.raises(InverseKinematicsError):
-            skill._solve_goal_ik(  # pylint: disable=protected-access
+            skill._solve_goal_ik_candidates(  # pylint: disable=protected-access
                 fake,
                 target, [0.5] * 7,
                 validate=False)

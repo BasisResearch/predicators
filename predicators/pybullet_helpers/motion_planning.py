@@ -30,6 +30,7 @@ def run_motion_planning(
     unbounded_shallow_bodies: Optional[Collection[int]] = None,
     goal_finger_joint: Optional[float] = None,
     held_bystander_clearance: Optional[float] = None,
+    goal_candidates: Optional[Sequence[JointPositions]] = None,
 ) -> Optional[Sequence[JointPositions]]:
     """Run BiRRT to find a collision-free sequence of joint positions.
 
@@ -56,6 +57,13 @@ def run_motion_planning(
     ``held_bystander_clearance`` overrides
     ``CFG.pybullet_birrt_held_bystander_clearance`` (the wider berth the
     held object keeps from bodies the path never intends to approach).
+
+    ``goal_candidates`` (optional) supplies pose-equivalent IK branches
+    for the goal; the first collision-free one replaces
+    ``target_positions`` as the planning goal. Branches reach the same
+    end-effector pose with different arm configurations, so goal-config
+    collision is a property of the BRANCH, not the pose -- selecting
+    among them here removes the per-IK-seed luck from goal acceptance.
 
     ``unbounded_shallow_bodies`` (used with
     ``allow_shallow_held_object_contacts``): bodies -- static supports
@@ -268,6 +276,33 @@ def run_motion_planning(
                 if any(d < held_margin for d in contact_distances):
                     return True
         return False
+
+    # Collision-aware goal selection: the caller may supply several
+    # pose-equivalent IK branches (see _solve_goal_ik_candidates). The
+    # branches reach the same end-effector pose but differ in arm
+    # configuration, and they are NOT collision-equivalent: one grasp
+    # branch can sweep a link ~6 cm through a neighboring block while
+    # another clears it. Which branch a single IK solve lands on is
+    # seed-dependent, so goal-config rejection used to be a per-seed
+    # coin flip (a validation repeat failed with the robot modeled
+    # 59 mm inside a standing leg at a grasp goal that other repeats
+    # planned fine). Take the first branch whose goal configuration
+    # (and fingers-open variant, when a release follows) is collision-
+    # free; when none passes, keep the primary target so the caller's
+    # failure diagnostics report its contacts.
+    if goal_candidates is not None:
+        for cand in goal_candidates:
+            cand_list = list(cand)
+            if _collision_fn(cand_list):
+                continue
+            if goal_finger_joint is not None:
+                cand_release = list(cand_list)
+                cand_release[robot.left_finger_joint_idx] = goal_finger_joint
+                cand_release[robot.right_finger_joint_idx] = goal_finger_joint
+                if _collision_fn(cand_release):
+                    continue
+            target_positions = cand_list
+            break
 
     if goal_finger_joint is not None:
         release_config = list(target_positions)
