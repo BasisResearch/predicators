@@ -7,7 +7,7 @@ import logging
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Dict, List, \
-    Optional, Sequence, Tuple, cast
+    Optional, Sequence, Set, Tuple, cast
 
 if TYPE_CHECKING:
     from predicators.envs.pybullet_env import PyBulletEnv
@@ -275,6 +275,8 @@ _RELEASE_CLEAR_SLACK = 0.008
 _RELEASE_CHECK_BUFFER = _RELEASE_OPEN_STEP + _RELEASE_CLEAR_SLACK + 0.002
 _IK_STALL_BEST_KEY = "ik_stall_best_{}"  # best EE-to-target distance seen
 _DWELL_COUNT_KEY = "dwell_count_{}"  # post-terminal hold steps taken
+_STROKE_BEST_KEY = "stroke_best_{}"  # gentle stroke: best EE distance
+_STROKE_NOPROG_KEY = "stroke_noprog_{}"  # gentle stroke: no-progress steps
 _IK_STALL_COUNT_KEY = "ik_stall_count_{}"  # steps since last improvement
 
 
@@ -352,15 +354,19 @@ class Phase:
     # Gentle-stroke mode for incremental-IK phases that deliberately seek
     # contact (e.g. a place's settle-to-contact). When set, this overrides
     # the EE step clamp (meters per step; default config.max_vel_norm), and
-    # additionally arms two safety rails in _execute_move_ik/_execute_move:
+    # additionally arms the rails in _execute_gentle_stroke:
     #   - a joint-jump guard: a mm-scale EE step never legitimately needs a
     #     multi-radian joint move, but single-shot IK (the panda path) can
     #     return a wrist-flipped branch near contact; executing that action
     #     drags the held object through the scene, so the step is replaced
     #     by a hold-position action instead;
-    #   - the incremental-IK stall abort (see _check_ik_stall), so a stroke
-    #     pinned by the guard or blocked short of its target fails the
-    #     option cleanly rather than pressing forever.
+    #   - give-up advance: after a run of no-progress steps (pinned by
+    #     the guard, blocked by a robot-side contact, or saturated at a
+    #     joint limit) the stroke gives up and advances to the next
+    #     phase (best-effort semantics: continuing from wherever it
+    #     reached beats aborting the option);
+    #   - a final-phase stroke keeps the incremental-IK stall abort
+    #     (see _check_ik_stall) as its escape instead.
     max_step_norm: Optional[float] = None
 
 
@@ -618,11 +624,80 @@ class PhaseSkill:
             return self._execute_move_birrt(phase, state, memory, objects,
                                             params)
         if phase.max_step_norm is not None:
-            # Gentle strokes get the stall abort: a stroke pinned by the
-            # joint-jump guard (or blocked short of its target) must fail
-            # the option instead of holding position forever.
-            self._check_ik_stall(phase, state, memory, objects, params)
+            return self._execute_gentle_stroke(phase, state, memory, objects,
+                                               params)
         return self._execute_move_ik(phase, state, objects, params)
+
+    def _execute_gentle_stroke(self, phase: Phase, state: State, memory: Dict,
+                               objects: Sequence[Object],
+                               params: Array) -> Action:
+        """One step of a gentle stroke (Phase.max_step_norm) with its rails.
+
+        The joint-jump guard never executes an IK branch flip (a mm-
+        scale EE step answered with a multi-radian joint move --
+        executing one once wrist-flipped the arm and batted a released
+        block across the table): the step is replaced by a hold.
+
+        Give-up advance: when the EE makes no progress toward the
+        stroke target for ``_gentle_stroke_giveup_steps`` consecutive
+        steps -- pinned by the guard, blocked by a contact on the ROBOT
+        itself (which a held-assembly contact terminal cannot see; a
+        settle once stalled 25 steps this way and aborted the option),
+        or saturated at a joint limit -- the stroke gives up and
+        ADVANCES to the next phase. Gentle strokes are best-effort
+        contact seeks below an already-validated pose, so continuing
+        (e.g. releasing) from wherever the stroke reached is strictly
+        better than aborting the option. A final-phase stroke has no
+        next phase to advance to, so it keeps the incremental-IK stall
+        abort as its escape instead.
+        """
+        phase_idx = memory["phase_idx"]
+        if phase_idx >= len(self._phases) - 1:
+            self._check_ik_stall(phase, state, memory, objects, params)
+        else:
+            current_pose, target_pose, _ = phase.target_fn(
+                state, objects, params, self._config)
+            dist = float(
+                np.linalg.norm(
+                    np.subtract(current_pose.position, target_pose.position)))
+            best_key = _STROKE_BEST_KEY.format(id(phase))
+            count_key = _STROKE_NOPROG_KEY.format(id(phase))
+            best = memory.get(best_key)
+            if best is None or dist < best - self._ik_stall_min_progress:
+                memory[best_key] = dist
+                memory[count_key] = 0
+            else:
+                memory[count_key] = memory.get(count_key, 0) + 1
+                if memory[count_key] >= self._gentle_stroke_giveup_steps:
+                    memory["phase_idx"] = phase_idx + 1
+                    nxt = self._phases[phase_idx + 1]
+                    logging.debug(
+                        "[%s/%s] stroke made no progress for %d steps "
+                        "(%.3f m short of the target); advancing to "
+                        "phase %d: %s", self._name, phase.name,
+                        self._gentle_stroke_giveup_steps, dist, phase_idx + 1,
+                        nxt.name)
+                    return self._execute_phase(nxt, state, memory, objects,
+                                               params)
+        action = self._execute_move_ik(phase, state, objects, params)
+        pb_state = cast(utils.PyBulletState, state)
+        robot = self._config.robot
+        finger_idxs = (robot.left_finger_joint_idx,
+                       robot.right_finger_joint_idx)
+        arm_delta = max(
+            abs(float(a) - float(c))
+            for i, (a,
+                    c) in enumerate(zip(action.arr, pb_state.joint_positions))
+            if i not in finger_idxs)
+        if arm_delta > self._ik_joint_jump_max:
+            logging.debug(
+                "[%s/%s] IK joint jump %.2f rad suppressed; "
+                "holding.", self._name, phase.name, arm_delta)
+            fingers = pb_state.joint_positions[robot.left_finger_joint_idx]
+            return get_change_fingers_action(robot, pb_state.joint_positions,
+                                             fingers, fingers,
+                                             self._config.max_vel_norm)
+        return action
 
     # Mobile-base positioning. Before the first reach of an option, drive the
     # (kinematic) base to park `base_standoff` in front of the reach target with
@@ -973,6 +1048,15 @@ class PhaseSkill:
             physics_client_id=robot.physics_client_id,
         )
 
+    @staticmethod
+    def _sim_table_ids(sim: Any) -> Set[int]:
+        """The sim env's static support (table) body ids, if any."""
+        if hasattr(sim, '_table_ids'):
+            return set(sim._table_ids)  # pylint: disable=protected-access
+        if hasattr(sim, '_table') and sim._table.id is not None:  # pylint: disable=protected-access
+            return {sim._table.id}  # pylint: disable=protected-access
+        return set()
+
     def _sim_collision_context(
         self, pb_state: utils.PyBulletState
     ) -> Tuple[utils.PyBulletState, set, Dict[int, str], Optional[int], Dict[
@@ -1080,11 +1164,7 @@ class PhaseSkill:
                                     world_to_obj[1])
 
         # 4b. Add tables if present.
-        if hasattr(sim, '_table_ids'):
-            for tid in sim._table_ids:  # pylint: disable=protected-access
-                collision_bodies.add(tid)
-        elif hasattr(sim, '_table') and sim._table.id is not None:  # pylint: disable=protected-access
-            collision_bodies.add(sim._table.id)  # pylint: disable=protected-access
+        collision_bodies.update(self._sim_table_ids(sim))
 
         # 4c. Add extra sim collision bodies (e.g. virtual buffer zones).
         collision_bodies.update(self._config.sim_extra_collision_bodies)
@@ -1223,6 +1303,7 @@ class PhaseSkill:
             allow_shallow_held_object_contacts=(
                 phase.allow_shallow_held_object_contacts
                 if phase is not None else False),
+            unbounded_shallow_bodies=self._sim_table_ids(sim),
             goal_finger_joint=goal_finger_joint,
             held_bystander_clearance=self._config.held_bystander_clearance,
         )
@@ -1259,6 +1340,7 @@ class PhaseSkill:
                     allow_shallow_held_object_contacts=(
                         phase.allow_shallow_held_object_contacts
                         if phase is not None else False),
+                    unbounded_shallow_bodies=self._sim_table_ids(sim),
                     goal_finger_joint=goal_finger_joint,
                     held_bystander_clearance=(
                         self._config.held_bystander_clearance),
@@ -1451,6 +1533,10 @@ class PhaseSkill:
     # Gentle strokes (Phase.max_step_norm): any single arm joint asked to
     # move further than this in one step is a branch flip, not tracking.
     _ik_joint_jump_max: ClassVar[float] = 0.5  # radians
+    # Consecutive no-progress steps before a non-final gentle stroke
+    # gives up and advances to the next phase (see
+    # _execute_gentle_stroke).
+    _gentle_stroke_giveup_steps: ClassVar[int] = 8
 
     def _execute_move_ik(self, phase: Phase, state: State,
                          objects: Sequence[Object], params: Array) -> Action:
@@ -1471,26 +1557,9 @@ class PhaseSkill:
                 f"current=({cur[0]:.3f}, {cur[1]:.3f}, {cur[2]:.3f}), "
                 f"target=({tgt[0]:.3f}, {tgt[1]:.3f}, {tgt[2]:.3f}), "
                 f"params={params.tolist()}") from e
-        if phase.max_step_norm is not None:
-            finger_idxs = (robot.left_finger_joint_idx,
-                           robot.right_finger_joint_idx)
-            arm_delta = max(
-                abs(float(a) - float(c)) for i, (
-                    a,
-                    c) in enumerate(zip(action.arr, pb_state.joint_positions))
-                if i not in finger_idxs)
-            if arm_delta > self._ik_joint_jump_max:
-                # IK returned a different branch (e.g. a wrist flip).
-                # Hold position this step; a persistent flip is caught
-                # by the stall abort armed in _execute_move.
-                logging.debug(
-                    "[%s/%s] IK joint jump %.2f rad suppressed; holding.",
-                    self._name, phase.name, arm_delta)
-                fingers = pb_state.joint_positions[robot.left_finger_joint_idx]
-                return get_change_fingers_action(robot,
-                                                 pb_state.joint_positions,
-                                                 fingers, fingers,
-                                                 self._config.max_vel_norm)
+        # NOTE: gentle strokes (Phase.max_step_norm) reach this through
+        # _execute_gentle_stroke, which layers the joint-jump guard and
+        # pin-advance on top of this pure IK step.
         return action
 
     def _move_ik_action(self, phase: Phase, pb_state: utils.PyBulletState,
