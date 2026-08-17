@@ -187,6 +187,39 @@ class EpisodeRecorder:
         except OSError as e:
             logging.error("could not write the track manifest: %s", e)
 
+    def ensure_boxes(self, picker: Any = None) -> Optional[str]:
+        """Draw this run's prompt boxes now, once, if none were given.
+
+        Called after the cameras are open and before any episode. The
+        alternative is a drag window opening in the middle of a learning
+        run, or a human producing boxes out of band beforehand -- and
+        since a fixed-plan replay trains and tests on one arrangement,
+        the boxes drawn here are the right ones for every take.
+
+        Returns the boxes file, or None if there was nothing to do or
+        it failed. A failure is not fatal here: it is reported, and the
+        takes are still recorded for processing by hand.
+        """
+        if self._processor is None:
+            return None
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.pybullet_helpers.track_pipeline import pick_boxes
+        picker = picker or pick_boxes
+        take_dir, meta = self.snapshot(frames=5)
+        serial = (self.serials or [""])[0]
+        ext = str((meta or {}).get("svo_ext", ".svo2"))
+        svo = os.path.join(take_dir, f"zed_{serial}{ext}")
+        bundle = os.path.join(self._track_dir, "boxes")
+        boxes = picker(svo, bundle, serial)
+        if not boxes:
+            logging.error(
+                "no prompt boxes for this run, so takes will be recorded but "
+                "not post-processed; draw them by hand and set "
+                "real_robot_snapshot_boxes_json")
+            return None
+        self._processor.set_boxes(boxes)
+        return str(boxes)
+
     def snapshot(self,
                  frames: int = 5) -> Tuple[str, Optional[Dict[str, Any]]]:
         """Record a few frames of the scene as it stands; return (dir, meta).

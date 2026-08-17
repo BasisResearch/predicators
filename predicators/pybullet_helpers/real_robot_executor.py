@@ -290,6 +290,12 @@ class RealRobotExecutor:
         self._recorder = recorder
         if self._recorder is not None:
             self._recorder.open()
+            if (CFG.real_robot_pick_boxes_at_start
+                    and not CFG.real_robot_snapshot_boxes_json):
+                # Before the first episode, while a human is still standing
+                # at the bench: one drag window for the whole run rather than
+                # one per take.
+                self._recorder.ensure_boxes()
         # Whether a take is currently open, so an episode that ends without
         # ever having started one does not try to stop it.
         self._recording_episode = False

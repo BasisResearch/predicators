@@ -641,6 +641,14 @@ class GlobalSettings:
     # launched when a take closes and joined at the end of the run, so it
     # overlaps the next episode's scene reset rather than the episode loop.
     real_robot_process_takes = False
+    # Draw the pipeline's prompt boxes once at the start of the run, in a
+    # drag window, instead of requiring real_robot_snapshot_boxes_json to have
+    # been produced beforehand. One human interaction per RUN rather than per
+    # take, which is what makes an otherwise-interactive pipeline usable in a
+    # learning loop -- and valid because a fixed-plan replay trains and tests
+    # on one arrangement. Needs a display; over SSH that means X forwarding.
+    # Ignored when boxes are supplied by file.
+    real_robot_pick_boxes_at_start = False
     # Where the per-episode bundles and the run manifest are written. Empty
     # means logs/zed_tracks.
     real_robot_track_dir = ""

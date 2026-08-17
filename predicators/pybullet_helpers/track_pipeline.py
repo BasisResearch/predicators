@@ -35,6 +35,8 @@ from predicators.settings import CFG
 MANIFEST_NAME = "tracks.json"
 # Stage 4's own output name, which is what the fit loads.
 TRACK_NAME = "dominoes_traj.json"
+# Each background job's stdout and stderr, beside the bundle it produces.
+LOG_NAME = "pipeline.log"
 
 
 class MarkerlessTrackProcessor:
@@ -92,14 +94,19 @@ class MarkerlessTrackProcessor:
             return None
         env["BOXES"] = boxes
         os.makedirs(bundle, exist_ok=True)
+        # Each job's own log. Without it a failed stage is a missing track and
+        # no reason -- the job is detached, so its output has nowhere else to
+        # go, and the run only notices minutes later when the fit finds
+        # nothing.
+        log_path = os.path.join(bundle, LOG_NAME)
         try:
-            job = self._launcher(argv, env)
+            job = self._launcher(argv, env, log_path)
         except OSError as e:
             logging.error("could not start the markerless pipeline on %s: %s",
                           svo, e)
             return None
-        logging.info("post-processing %s -> %s (in the background)", svo,
-                     os.path.join(bundle, TRACK_NAME))
+        logging.info("post-processing %s -> %s (in the background; log: %s)",
+                     svo, os.path.join(bundle, TRACK_NAME), log_path)
         self._jobs.append(job)
         return job
 
@@ -120,19 +127,107 @@ class MarkerlessTrackProcessor:
             except Exception as e:  # pylint: disable=broad-except
                 logging.error("waiting on a post-processing job failed: %s", e)
                 continue
+            finally:
+                handle = getattr(job, "predicators_log_handle", None)
+                if handle is not None:
+                    handle.close()
             if code not in (0, None):
                 logging.error(
                     "a markerless post-processing job exited %s; its track "
-                    "will be missing and that episode will be skipped", code)
+                    "will be missing and that episode will be skipped. What "
+                    "went wrong is in %s", code,
+                    getattr(job, "predicators_log_path", "its bundle's log"))
+
+    def set_boxes(self, boxes_json: str) -> None:
+        """Use these prompt boxes for every take from now on."""
+        self._boxes_json = boxes_json
 
 
-def _popen(argv: List[str], env: Dict[str, str]) -> Any:
-    """Start a detached pipeline process."""
-    return subprocess.Popen(  # pylint: disable=consider-using-with
-        argv,
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.STDOUT)
+def pick_boxes(svo: str, bundle: str, serial: str) -> Optional[str]:
+    """Draw the prompt boxes once, interactively, and return boxes.json.
+
+    Stages 1 and 2 over a snapshot of the scene as it stands at the
+    start of the run. Blocking and deliberately so: it opens a window
+    and waits for a human to drag one box per domino.
+
+    Once per RUN rather than once per episode, which is what makes an
+    otherwise-interactive pipeline usable in a learning loop. The
+    assumption is that the scene the boxes were drawn on is the scene
+    every episode starts from -- true for a fixed-plan replay, which
+    trains and tests on one arrangement. It is also self-checking: if
+    the layout moves far enough that a box no longer sits on its
+    domino, stage 3's frame-0 identity check aborts that take rather
+    than tracking the wrong thing.
+    """
+    python = _resolve_python()
+    stage1 = [
+        python,
+        os.path.join(_markerless_dir(), "svo_to_bundle.py"), "--svo", svo,
+        "--out", bundle, "--serial",
+        str(serial), "--max-frames", "5"
+    ]
+    stage2 = [
+        python,
+        os.path.join(_markerless_dir(), "init_boxes.py"), "--bundle", bundle,
+        "--source", "manual", "--viz"
+    ]
+    for argv, label in ((stage1, "stage 1 (snapshot -> bundle)"),
+                        (stage2, "stage 2 (DRAG ONE BOX PER DOMINO)")):
+        logging.info("boxes: %s", label)
+        try:
+            completed = subprocess.run(argv, check=False)
+        except OSError as e:
+            logging.error("could not run %s: %s", label, e)
+            return None
+        if completed.returncode != 0:
+            logging.error("%s exited %d; no boxes were produced", label,
+                          completed.returncode)
+            return None
+    boxes = os.path.join(bundle, "boxes.json")
+    if not os.path.exists(boxes):
+        logging.error("stage 2 finished but wrote no %s", boxes)
+        return None
+    logging.info("boxes: drawn once for this run -> %s", boxes)
+    return boxes
+
+
+def _markerless_dir() -> str:
+    """Where the markerless stage scripts live."""
+    return os.path.dirname(_default_script())
+
+
+def _resolve_python() -> str:
+    """The interpreter the stages need (pyzed and ultralytics together)."""
+    try:
+        # pylint: disable-next=import-outside-toplevel,import-error
+        from babyrobot.scene.capture_markerless import resolve_python
+        return str(resolve_python())
+    except ImportError:
+        return os.environ.get(
+            "MARKERLESS_PY",
+            os.environ.get(
+                "ROBOT_ML_PY",
+                os.path.expanduser("~/miniforge3/envs/robot-ml/bin/python")))
+
+
+def _popen(argv: List[str], env: Dict[str, str], log_path: str) -> Any:
+    """Start a detached pipeline process, logging to ``log_path``.
+
+    The handle is attached to the returned process rather than closed
+    here: the child writes to it for minutes after this returns, and
+    letting it be garbage-collected would close the descriptor out from
+    under a running stage.
+    """
+    # pylint: disable-next=consider-using-with
+    handle = open(log_path, "w", encoding="utf-8")
+    # pylint: disable-next=consider-using-with
+    job = subprocess.Popen(argv,
+                           env=env,
+                           stdout=handle,
+                           stderr=subprocess.STDOUT)
+    job.predicators_log_handle = handle  # type: ignore[attr-defined]
+    job.predicators_log_path = log_path  # type: ignore[attr-defined]
+    return job
 
 
 def _read_boxes(boxes_json: Optional[str]) -> Optional[str]:

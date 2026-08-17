@@ -968,7 +968,12 @@ class _StubProcessor:
     def __init__(self, started=True):
         self.launched = []
         self.waited = 0
+        self.boxes = None
         self._started = started
+
+    def set_boxes(self, boxes_json):
+        """Record the boxes this run will reuse."""
+        self.boxes = boxes_json
 
     def launch(self, svo, bundle, serial):
         """Record a launch; return a handle, or None if it could not start."""
@@ -1063,6 +1068,81 @@ def test_takes_are_left_alone_when_processing_is_off(tmp_path):
     manifest = json.loads(
         (tmp_path / "tracks.json").read_text(encoding="utf-8"))
     assert "processing" not in manifest["episodes"][0]
+
+
+def test_a_failing_pipeline_job_leaves_its_reason_in_a_log(tmp_path):
+    """The job is detached, so its output has nowhere else to go.
+
+    Without the log a failed stage is a missing track and no reason,
+    noticed minutes later when the fit finds nothing.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.pybullet_helpers.track_pipeline import LOG_NAME, \
+        MarkerlessTrackProcessor
+    boxes = tmp_path / "boxes.json"
+    boxes.write_text('{"boxes": [[1, 2, 3, 4]]}', encoding="utf-8")
+    script = tmp_path / "driver.sh"
+    script.write_text("#!/bin/sh\necho 'stage 3 exploded' >&2\nexit 3\n",
+                      encoding="utf-8")
+    script.chmod(0o755)
+    bundle = tmp_path / "bundle"
+    processor = MarkerlessTrackProcessor(script=str(script),
+                                         boxes_json=str(boxes))
+
+    job = processor.launch(str(tmp_path / "take.svo2"), str(bundle), "123")
+    assert job is not None
+    processor.wait_all(timeout=30)
+
+    log = (bundle / LOG_NAME).read_text(encoding="utf-8")
+    assert "stage 3 exploded" in log
+
+
+def test_boxes_are_drawn_once_for_the_run(tmp_path):
+    """One drag window per RUN, not per take.
+
+    That is what makes an otherwise-interactive pipeline usable in a
+    learning loop, and it is valid because a fixed-plan replay trains
+    and tests on one arrangement.
+    """
+    session = _StubSession()
+    processor = _StubProcessor()
+    rec = EpisodeRecorder(session,
+                          processor=processor,
+                          track_dir=str(tmp_path))
+    rec.open()
+    drawn = []
+
+    def _picker(svo, bundle, serial):
+        """Stand in for the drag window."""
+        drawn.append((svo, bundle, serial))
+        return str(tmp_path / "boxes.json")
+
+    rec.ensure_boxes(picker=_picker)
+    for i in range(3):
+        rec.start_episode(f"ep{i}")
+        rec.stop_episode()
+
+    assert len(drawn) == 1, "the window must open once, not once per episode"
+    assert processor.boxes == str(tmp_path / "boxes.json")
+    assert len(processor.launched) == 3
+
+
+def test_a_failed_box_draw_still_records_the_takes(tmp_path, caplog):
+    """Losing the boxes costs the post-processing, not the run: the takes are
+    on disk and can be processed by hand."""
+    processor = _StubProcessor()
+    rec = EpisodeRecorder(_StubSession(),
+                          processor=processor,
+                          track_dir=str(tmp_path))
+    rec.open()
+
+    with caplog.at_level("ERROR"):
+        assert rec.ensure_boxes(picker=lambda *_: None) is None
+
+    assert "recorded but" in caplog.text
+    rec.start_episode("ep")
+    rec.stop_episode()
+    assert len(processor.launched) == 1
 
 
 def test_the_recorder_closes_an_in_flight_take():
