@@ -635,6 +635,21 @@ class GlobalSettings:
     # ZED serial the scene is fitted from. Markerless is single-camera (the
     # second's cloud is not fused). Empty uses the recorder's first serial.
     real_robot_snapshot_camera = ""
+    # Run the markerless pipeline over each episode's take automatically, in
+    # the background, and write a manifest saying which track belongs to which
+    # episode. Off leaves the takes on disk for a human to process. The job is
+    # launched when a take closes and joined at the end of the run, so it
+    # overlaps the next episode's scene reset rather than the episode loop.
+    real_robot_process_takes = False
+    # Where the per-episode bundles and the run manifest are written. Empty
+    # means logs/zed_tracks.
+    real_robot_track_dir = ""
+    # z from the table, as for a scene capture. The scored quantity is when
+    # each domino STARTS to fall, and at that moment it is still standing on
+    # the table, so the mode that constrains z there is the right one. "free"
+    # fits z as a 5th parameter, which matters for the poses a cascade ends in
+    # -- dominoes at rest on each other -- and those are not scored.
+    real_robot_track_z_mode = "contact"
     # Dwell before a capture, so the dominoes come to rest after the motion.
     real_robot_settle_s = 0.5
     # How far (metres) the scene may be from where the twin predicted before
@@ -1824,6 +1839,53 @@ class GlobalSettings:
     # point by ~21x where per-step SSE manages ~1.25x. Each summary
     # residual enters the SSE with this factor squared.
     code_sim_learning_rollout_summary_weight = 5.0
+    # --- scoring against an external observation track (Step 3) --------------
+    # Score the free-running rollout against a markerless per-frame pose track
+    # instead of against every recorded state. Under open-loop execution the
+    # recorded states are the TWIN's own simulation -- correcting nothing --
+    # so a per-step SSE over them recovers the twin's friction by
+    # construction. The track is the only real evidence in the episode.
+    code_sim_learning_rollout_score_observed_only = False
+    # The track to score against: the trajectory JSON the markerless pipeline
+    # emits. Empty means none available, which is a fallback-and-warn rather
+    # than a silent zero (see the flag above).
+    code_sim_learning_rollout_track_path = ""
+    # Restrict the scored feature scope to these object types; empty keeps
+    # every type, which is what the global-fidelity report wants. ["domino"]
+    # for the friction experiment: the arm is commanded, so it reproduces at
+    # every friction and can only dilute -- and with it in scope the episode
+    # never rests, so rest-point segmentation can never cut.
+    code_sim_learning_rollout_scope_types: List[str] = []
+    # Features that cannot carry physics signal, dropped from the scored scope
+    # when scope_types is set. A colour channel does not move; a settle
+    # tolerance is not meaningful applied to a boolean.
+    code_sim_learning_rollout_nonkinematic_features: List[str] = [
+        "r", "g", "b", "is_held"
+    ]
+    # A fall is believed only once it rises this far above a domino's own
+    # first reading, and holds for onset_min_persist samples. Far above both
+    # measured spurious effects: gripper occlusion produced 29 deg and
+    # orientation drift 13 deg, so neither can manufacture a topple.
+    code_sim_learning_onset_confirm_deg = 45.0
+    # Having confirmed, the onset is backdated to where the angle last sat
+    # within this much of the domino's baseline.
+    code_sim_learning_onset_deg = 5.0
+    # Consecutive samples required at or past the confirmation angle. Mirrors
+    # cascade_certificate._TOPPLE_MIN_STEPS: one sample carries no
+    # information.
+    code_sim_learning_onset_min_persist = 3
+    # Object-name prefix mapped onto the track's integer domino ids.
+    code_sim_learning_track_object_prefix = "domino_"
+    # Frames per second assumed when a track carries no per-frame timestamps.
+    code_sim_learning_track_fallback_fps = 60.0
+    # How long a fit waits for the tracks its manifest promised. The online
+    # loop fits as soon as an episode ends, while post-processing is still
+    # running -- about 3x the length of the take. Not waiting means falling
+    # back to per-step scoring, which under open-loop scores the twin against
+    # itself, so the wait is what keeps the flag meaning what it says. This is
+    # the LEARNER waiting for its data, which is fine; open-loop exists to
+    # stop the ROBOT waiting. 0 disables.
+    code_sim_learning_track_wait_s = 900.0
     # Floor for the per-feature motion span used in residual
     # normalization, so a feature that never moves in the fit data does
     # not blow up its (noise) residuals. Units: the feature's own
