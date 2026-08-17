@@ -7,7 +7,12 @@ includes:
   - envs/all.yaml
   - approaches/all.yaml
 FLAGS:
-  num_online_learning_cycles: 2
+  # One cycle for the first integration run: the point is to get one episode
+  # all the way through record -> post-process -> fit. Raise it once that
+  # path is known to work; with human_reset off there is no prompt between
+  # episodes, so a multi-cycle run would start the second one on whatever the
+  # first left behind.
+  num_online_learning_cycles: 1
   wait_option_max_steps: 200
   # One exploration episode per cycle. common.yaml asks for 2, but the
   # explorer replays the same fixed plan every time, so the second episode
@@ -31,19 +36,36 @@ ENVS:
       # real_robot_dry True with perception "none" and the two flags below
       # False; "none" with the look on raises at executor construction.)
       real_robot_dry: False
-      real_robot_perception: "zed"
-      real_robot_observe_at_option_boundary: True
-      # Rebuild the task from a live look each episode. That is the thing
-      # under test here -- whether perception is good enough to learn from --
-      # and it also keeps _refuse_stale_task happy, which otherwise refuses
-      # the captured scene while the cameras are live.
-      #
-      # The person must restore the layout between episodes. Pick and Push
-      # follow the perceived poses, so they adapt on their own; only the
-      # Place drop point is absolute world coordinates, so a rebuild that is
-      # a couple of centimetres off will still bridge, but a rearranged
-      # scene will not.
-      real_robot_human_reset: True
+      # -- open-loop execution, recorded end to end --------------------------
+      # The whole episode's motion ships in one batch once it has been
+      # simulated, so the arm runs the plan as one contiguous stroke instead
+      # of idling through the next option's motion planning. Mutually
+      # exclusive with the boundary look, which is asserted at construction:
+      # a look has to happen BETWEEN two options and batching leaves no such
+      # moment.
+      real_robot_open_loop_episode: True
+      real_robot_observe_at_option_boundary: False
+      # The cameras record the whole execution; the poses come out of
+      # post-processing afterwards. NOT "zed": that is the marker pipeline,
+      # whose 20mm tags do not resolve at this camera distance (1 of ~7 on
+      # one camera, 0 on the other), and it would also fight the recorder
+      # for the cameras. "scene_file" replays the captured layout, which is
+      # what a fixed-plan replay wants -- the plan names specific objects and
+      # a rebuild could renumber them.
+      real_robot_perception: "scene_file"
+      real_robot_human_reset: False
+      real_robot_record_episodes: True
+      real_robot_process_takes: True
+      # Stage 2 needs one box per domino. Draw them once at the start of the
+      # run, in a drag window, while a human is still at the bench -- rather
+      # than producing a boxes.json out of band beforehand, or having a window
+      # open mid-run. Valid here because the fixed plan trains and tests on
+      # one arrangement, so the boxes drawn on the scene as it stands are the
+      # right ones for every take. Needs a display (X forwarding over SSH).
+      # Set real_robot_snapshot_boxes_json to an earlier run's boxes.json
+      # instead to skip the window entirely.
+      real_robot_pick_boxes_at_start: True
+      real_robot_snapshot_boxes_json: ""
       real_robot_divergence_atol: 0.02
       # No learning for now, just hybrid sim.
       # agent_sim_learn_oracle_sim_program: True
@@ -54,15 +76,26 @@ ENVS:
       # settings.py default 0.5 and goes on modelling the real table.
       domino_planning_friction: 0.1
       domino_real_scene: "/home/amberli/babyrobot/BabyRobotPredicator/scenes/domino_straight.json"
-      # A run this long should leave evidence: one JSON per look, recording
-      # what the cameras saw beside what the twin predicted.
-      real_robot_observation_dump_dir: "logs/friction_0.1"
-      # -- learning the friction, rather than being told it ------------------
-      # envs/all.yaml:295 pins this to 0, which per its own comment means
-      # "skip MCMC and use initial parameter values directly" -- i.e. the
-      # belief never moves. 300 because emcee's burn-in is 200 and eats the
-      # budget first; the flag's comment says keep it >= ~250.
-      code_sim_learning_num_mcmc_steps: 250
+      # -- learning the friction from the recording --------------------------
+      # Score the free-running rollout against the markerless pose track
+      # instead of against every recorded state. Under open-loop nothing
+      # corrects the twin, so those states ARE the twin's own simulation and
+      # scoring them recovers the twin's friction by construction -- the
+      # defect this experiment exists to fix. With this off, turning the two
+      # flags above on makes the fit worse, not better.
+      code_sim_learning_rollout_score_observed_only: True
+      # The run manifest the recorder writes, naming each episode's track.
+      code_sim_learning_rollout_track_path: "logs/zed_tracks/tracks.json"
+      # Drop the commanded arm and the non-kinematic features from the scored
+      # scope. The arm reproduces at every candidate friction so it can only
+      # dilute -- and with it in scope nothing in the episode ever rests, so
+      # rest-point segmentation can never cut.
+      code_sim_learning_rollout_scope_types: ["domino"]
+      # The fit blocks this long for tracks the manifest promised.
+      # Post-processing runs about 3x the length of a take, and the loop fits
+      # as soon as an episode ends; without the wait the fit finds nothing and
+      # falls back to the per-step scoring above.
+      code_sim_learning_track_wait_s: 900.0
 APPROACHES:
   agent_oracle_hybrid_sim:
     SKIP: True
