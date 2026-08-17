@@ -26,8 +26,8 @@ from predicators.pybullet_helpers.real_robot_bridge import GripperJointLayout
 from predicators.pybullet_helpers.real_robot_executor import \
     OptionBoundaryBuffer, RealRobotExecutor, _dump_look, \
     _per_object_divergence, attach_real_robot
-from predicators.pybullet_helpers.real_robot_recorder import \
-    EpisodeRecorder, episode_stamp
+from predicators.pybullet_helpers.real_robot_recorder import EpisodeRecorder, \
+    episode_stamp
 from predicators.pybullet_helpers.real_robot_snapshot import \
     MarkerlessSnapshotPerception
 from predicators.structs import Action, Object, ParameterizedOption, State, \
@@ -819,9 +819,11 @@ def test_cameras_open_once_for_the_run_not_once_per_episode():
 
 def test_a_take_is_stopped_even_when_nothing_ships(recorder):
     """Shipping must NOT happen on an abnormal end, but the recording must
-    still stop -- a take left open runs until the disk fills. The two have
-    opposite defaults, which is why one is conditional and the other is
-    not."""
+    still stop -- a take left open runs until the disk fills.
+
+    The two have opposite defaults, which is why one is conditional and
+    the other is not.
+    """
     session = _StubSession()
     ex = _recording_executor(session, open_loop_episode=True)
     ex.after_reset("train", 0, _state(0.0))
@@ -834,8 +836,8 @@ def test_a_take_is_stopped_even_when_nothing_ships(recorder):
 
 @pytest.mark.usefixtures("recorder")
 def test_a_take_is_stopped_even_when_shipping_raises(monkeypatch):
-    """Recording teardown belongs in a finally: the arm failing is not a
-    reason to leave a camera recording."""
+    """Recording teardown belongs in a finally: the arm failing is not a reason
+    to leave a camera recording."""
     session = _StubSession()
 
     def _boom(*args, **kwargs):
@@ -895,8 +897,8 @@ def test_a_clean_take_is_marked_usable():
 
 @pytest.mark.usefixtures("recorder")
 def test_a_failed_stop_does_not_take_the_run_down_with_it():
-    """By the time a take is stopped the arm has already moved, so a
-    recording problem must not destroy the run around it."""
+    """By the time a take is stopped the arm has already moved, so a recording
+    problem must not destroy the run around it."""
     session = _StubSession(stop_raises=True)
     rec = EpisodeRecorder(session)
     ex = _executor(_StubEnv(),
@@ -1041,8 +1043,11 @@ def test_a_snapshot_is_a_second_take_on_the_same_open_session():
 
 
 def test_a_snapshot_is_not_recorded_as_an_episode_track():
-    """``takes`` is what the fit consumes. A snapshot is an input to a task,
-    not a record of an execution, and must not be mistaken for one."""
+    """``takes`` is what the fit consumes.
+
+    A snapshot is an input to a task, not a record of an execution, and
+    must not be mistaken for one.
+    """
     session = _StubSession()
     rec = EpisodeRecorder(session)
     rec.open()
@@ -1166,8 +1171,8 @@ def _run_episode(ex, options, recorder, completed=True):
 def test_open_loop_ships_once_per_episode_not_once_per_option(recorder):
     """The point of the flag: one request for the whole episode.
 
-    Per-boundary shipping calls execute_chunks once per option; open-loop
-    calls it once, with every option's chunk in order.
+    Per-boundary shipping calls execute_chunks once per option; open-
+    loop calls it once, with every option's chunk in order.
     """
     ex = _executor(_StubEnv(),
                    observe_at_boundaries=False,
@@ -1305,9 +1310,11 @@ def test_per_boundary_path_is_unchanged_by_the_flag(recorder):
 
 
 def test_open_loop_and_boundary_looks_are_mutually_exclusive():
-    """A boundary look has to happen between the two options it separates,
-    and open-loop leaves no such moment. Refuse rather than silently drop
-    whichever was asked for second."""
+    """A boundary look has to happen between the two options it separates, and
+    open-loop leaves no such moment.
+
+    Refuse rather than silently drop whichever was asked for second.
+    """
     with pytest.raises(ValueError, match="no moment between two options"):
         _executor(_StubEnv(),
                   observe_at_boundaries=True,
@@ -1315,8 +1322,7 @@ def test_open_loop_and_boundary_looks_are_mutually_exclusive():
 
 
 def test_after_episode_is_a_no_op_for_the_per_boundary_path(recorder):
-    """Nothing is outstanding when every option shipped as it was
-    simulated."""
+    """Nothing is outstanding when every option shipped as it was simulated."""
     ex = _executor(_StubEnv(), observe_at_boundaries=False)
     _run_episode(ex, ["Pick"], recorder)
     before = len(recorder.shipped)

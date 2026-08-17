@@ -142,9 +142,9 @@ def _default_runner(svo: str, bundle: str, serial: str) -> str:
     """Run markerless stages 1-4 over ``svo``, returning the scene JSON.
 
     Delegates to the submodule's own staging rather than re-deriving the
-    argv for four scripts: it already resolves the interpreter the stages
-    need (they want pyzed and ultralytics together, which is not the env
-    running predicators) and reports a stage failure by name.
+    argv for four scripts: it already resolves the interpreter the
+    stages need (they want pyzed and ultralytics together, which is not
+    the env running predicators) and reports a stage failure by name.
     """
     # pylint: disable=import-outside-toplevel,import-error
     try:

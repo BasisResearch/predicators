@@ -462,11 +462,11 @@ def test_zed_recorder_session_matches_what_the_recorder_calls():
     """Pin ``EpisodeRecorder``'s stub against the real class.
 
     The recorder's own tests drive a stub session, which is what keeps
-    them hardware-free -- and is also how a stub silently drifts from the
-    thing it stands for. This one asserts the four calls exist with the
-    keywords the recorder passes, so a rename upstream fails here rather
-    than on the bench. Skips without the submodule, like the other
-    contract tests in this file.
+    them hardware-free -- and is also how a stub silently drifts from
+    the thing it stands for. This one asserts the four calls exist with
+    the keywords the recorder passes, so a rename upstream fails here
+    rather than on the bench. Skips without the submodule, like the
+    other contract tests in this file.
     """
     import inspect
 
@@ -493,11 +493,11 @@ def test_zed_recorder_session_matches_what_the_recorder_calls():
 def test_markerless_staging_matches_what_the_snapshot_rebuild_calls():
     """Pin the snapshot rebuild's use of the markerless staging.
 
-    ``_default_runner`` calls ``run_stages`` with a ``MarkerlessCapture``
-    and resolves prompt boxes itself, because ``run_stages`` reads
-    ``boxes`` and not ``boxes_json`` -- a distinction worth a test,
-    since getting it wrong would silently fall back to the drag window
-    on every episode instead of failing.
+    ``_default_runner`` calls ``run_stages`` with a
+    ``MarkerlessCapture`` and resolves prompt boxes itself, because
+    ``run_stages`` reads ``boxes`` and not ``boxes_json`` -- a
+    distinction worth a test, since getting it wrong would silently fall
+    back to the drag window on every episode instead of failing.
     """
     import inspect
 

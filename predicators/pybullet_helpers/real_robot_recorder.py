@@ -94,9 +94,9 @@ class EpisodeRecorder:
 
         Failures raise. Recording is the point of a run configured this
         way, so an episode that cannot record is an episode whose
-        hardware time and human scene reset would be spent for nothing --
-        better to say so before the arm moves than to discover it when
-        the track is missing.
+        hardware time and human scene reset would be spent for nothing
+        -- better to say so before the arm moves than to discover it
+        when the track is missing.
         """
         take_dir = self._session.start_take(stamp=stamp,
                                             max_frames=self._max_frames)
