@@ -488,3 +488,33 @@ def test_zed_recorder_session_matches_what_the_recorder_calls():
     for name in ("open", "close"):
         assert callable(getattr(ZedRecorderSession, name, None)), \
             f"ZedRecorderSession lost {name}()"
+
+
+def test_markerless_staging_matches_what_the_snapshot_rebuild_calls():
+    """Pin the snapshot rebuild's use of the markerless staging.
+
+    ``_default_runner`` calls ``run_stages`` with a ``MarkerlessCapture``
+    and resolves prompt boxes itself, because ``run_stages`` reads
+    ``boxes`` and not ``boxes_json`` -- a distinction worth a test,
+    since getting it wrong would silently fall back to the drag window
+    on every episode instead of failing.
+    """
+    import inspect
+
+    pytest.importorskip("babyrobot.scene.capture_markerless")
+    from babyrobot.scene.capture_markerless import MarkerlessCapture, \
+        load_boxes, resolve_python, run_stages
+
+    stages = inspect.signature(run_stages).parameters
+    assert list(stages) == ["python", "svo", "bundle", "config"]
+    assert callable(resolve_python)
+    assert callable(load_boxes)
+
+    fields = MarkerlessCapture.__dataclass_fields__
+    for name in ("camera", "boxes", "frames", "resolution", "table_z",
+                 "z_mode", "viz"):
+        assert name in fields, f"MarkerlessCapture lost {name!r}"
+    # The reason the runner resolves the file itself.
+    source = inspect.getsource(run_stages)
+    assert "config.boxes" in source
+    assert "config.boxes_json" not in source

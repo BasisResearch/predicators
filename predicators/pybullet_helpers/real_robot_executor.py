@@ -33,6 +33,8 @@ from predicators.pybullet_helpers.real_robot_bridge import execute_chunks, \
     make_real_robot, reset_arm, reset_env
 from predicators.pybullet_helpers.real_robot_recorder import episode_stamp, \
     make_episode_recorder
+from predicators.pybullet_helpers.real_robot_snapshot import \
+    MarkerlessSnapshotPerception
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, Observation, State
 
@@ -596,6 +598,25 @@ def _max_position_divergence(predicted: State,
     return worst
 
 
+def _snapshot_perception(recorder: Any) -> MarkerlessSnapshotPerception:
+    """The scene look that a snapshot rebuild uses instead of a live one."""
+    serials = recorder.serials
+    serial = CFG.real_robot_snapshot_camera or (serials[0] if serials else "")
+    if not serial:
+        raise ValueError(
+            "real_robot_snapshot_rebuild needs a camera to fit the scene "
+            "from, and the recorder reported no serials; set "
+            "real_robot_snapshot_camera.")
+    if serials and serial not in serials:
+        raise ValueError(
+            f"real_robot_snapshot_camera {serial!r} is not one of the "
+            f"recorder's cameras {serials}; the scene is fitted from a take "
+            "that session records, so it has to be one of them.")
+    return MarkerlessSnapshotPerception(recorder,
+                                        serial=serial,
+                                        frames=CFG.real_robot_snapshot_frames)
+
+
 def attach_real_robot(env: BaseEnv,
                       robot: Any = None) -> Optional[RealRobotExecutor]:
     """Attach a real-robot executor to ``env`` when the config asks for it.
@@ -613,16 +634,28 @@ def attach_real_robot(env: BaseEnv,
             "want to own the same cameras, and a ZED admits one owner. "
             "Recording feeds the offline markerless pipeline, which does not "
             "need a live look: set real_robot_perception to \"scene_file\" "
-            "(or \"none\"), or turn the recording off.")
+            "(or \"none\"), or turn real_robot_snapshot_rebuild on to rebuild "
+            "each episode's task from a short take on the recorder's own "
+            "session instead.")
+    if CFG.real_robot_snapshot_rebuild and not CFG.real_robot_record_episodes:
+        raise ValueError(
+            "real_robot_snapshot_rebuild takes its snapshot on the episode "
+            "recorder's open session, so it needs "
+            "real_robot_record_episodes. Opening cameras of its own is the "
+            "collision this design exists to avoid.")
     if not isinstance(env, PyBulletEnv):
         raise TypeError(
             f"real_robot_execute needs a PyBullet-backed env to act as the "
             f"twin, but {CFG.env} is a {type(env).__name__}. The twin is what "
             "turns an option into the joint trajectory the arm executes.")
-    if robot is None:
-        robot = make_real_robot()
+    # The recorder is built BEFORE the robot: under snapshot rebuild the
+    # robot's perception is a look served by the recorder's session, so the
+    # session has to exist to be handed over.
     recorder = (make_episode_recorder()
                 if CFG.real_robot_record_episodes else None)
+    if robot is None:
+        robot = make_real_robot(perception=_snapshot_perception(recorder)
+                                if CFG.real_robot_snapshot_rebuild else None)
     executor = RealRobotExecutor(
         env,
         robot,
