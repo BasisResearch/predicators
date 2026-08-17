@@ -585,12 +585,32 @@ class PyBulletBridgeEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Small helpers
     # -------------------------------------------------------------------------
-    @staticmethod
-    def _attr(blk: Object, name: str, default: float) -> float:
-        """Read a sim-feature attribute with an explicit None default (0.0 is a
-        meaningful value for attached_* -- block index 0)."""
-        val = getattr(blk, name)
+    def _own_block(self, blk: Object) -> Object:
+        """This env's canonical instance of ``blk``, matched by name.
+
+        Glue/cure/attached live in ``Object.sim_data``, which is stored
+        on the INSTANCE. States routinely cross env instances (option-
+        model resets, refinement rollouts, fresh test envs) carrying the
+        source env's Object instances, so reading or writing sim_data
+        through a state-derived block would silently share hidden glue
+        state between envs. Every sim_data access therefore resolves to
+        the env-owned instance first.
+        """
+        idx = self._block_index.get(blk.name)
+        return self._blocks[idx] if idx is not None else blk
+
+    def _attr(self, blk: Object, name: str, default: float) -> float:
+        """Read a sim-feature attribute off this env's own instance.
+
+        The None default is explicit because 0.0 is a meaningful value
+        for attached_* (block index 0).
+        """
+        val = getattr(self._own_block(blk), name)
         return float(val) if val is not None else default
+
+    def _set_attr(self, blk: Object, name: str, value: float) -> None:
+        """Write a sim-feature attribute onto this env's own instance."""
+        setattr(self._own_block(blk), name, value)
 
     @classmethod
     def _is_leg_shaped(cls, blk: Object) -> bool:
@@ -825,18 +845,19 @@ class PyBulletBridgeEnv(PyBulletEnv):
         blocks = state.get_objects(self._block_type)
         for blk in blocks:
             for face in GLUE_FACES:
-                setattr(blk, f"glue_{face}", state.get(blk, f"glue_{face}"))
+                self._set_attr(blk, f"glue_{face}",
+                               state.get(blk, f"glue_{face}"))
                 if f"cure_{face}" in blk.type.feature_names:
-                    setattr(blk, f"cure_{face}",
-                            state.get(blk, f"cure_{face}"))
+                    self._set_attr(blk, f"cure_{face}",
+                                   state.get(blk, f"cure_{face}"))
                 else:
                     priv = state.privileged or {}
-                    setattr(
+                    self._set_attr(
                         blk, f"cure_{face}",
                         float(priv.get(blk.name, {}).get(f"cure_{face}", 0.0)))
             for slot in ATTACH_SLOTS:
-                setattr(blk, f"attached_{slot}",
-                        self._attached_value(state, blk, slot))
+                self._set_attr(blk, f"attached_{slot}",
+                               self._attached_value(state, blk, slot))
             # Colors are task-assigned features; the base env never
             # writes them to PyBullet, so apply them here.
             if blk.id is not None:
@@ -1077,7 +1098,7 @@ class PyBulletBridgeEnv(PyBulletEnv):
                         best_dist = dist
             if best is not None:
                 blk, face = best
-                setattr(blk, f"glue_{face}", 1.0)
+                self._set_attr(blk, f"glue_{face}", 1.0)
 
         # 2. Curing: wet faces in aligned resting contact tick; at the
         #    threshold the joint latches irreversibly and welds.
@@ -1089,10 +1110,10 @@ class PyBulletBridgeEnv(PyBulletEnv):
                     continue
                 mate = self._find_mate(state, blk, face)
                 if mate is None:
-                    setattr(blk, f"cure_{face}", 0.0)
+                    self._set_attr(blk, f"cure_{face}", 0.0)
                     continue
                 cure = self._attr(blk, f"cure_{face}", 0.0) + 1.0
-                setattr(blk, f"cure_{face}", cure)
+                self._set_attr(blk, f"cure_{face}", cure)
                 if cure >= self.cure_threshold:
                     self._latch_joint(state, blk, face, mate)
 
@@ -1204,10 +1225,11 @@ class PyBulletBridgeEnv(PyBulletEnv):
             # than corrupt the attachment graph (cure stays at the
             # threshold, so this re-checks every step).
             return
-        setattr(blk, f"attached_{face}", float(self._block_index[mate.name]))
-        setattr(mate, f"attached_{mate_slot}",
-                float(self._block_index[blk.name]))
-        setattr(blk, f"glue_{face}", 0.0)
+        self._set_attr(blk, f"attached_{face}",
+                       float(self._block_index[mate.name]))
+        self._set_attr(mate, f"attached_{mate_slot}",
+                       float(self._block_index[blk.name]))
+        self._set_attr(blk, f"glue_{face}", 0.0)
         assert blk.id is not None and mate.id is not None
         if self._face_world_dir(state, blk, face)[2] > np.cos(np.pi / 4):
             # The mate rests on blk's upward face: a vertical joint.
