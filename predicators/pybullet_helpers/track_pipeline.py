@@ -54,11 +54,15 @@ class MarkerlessTrackProcessor:
                  boxes_json: Optional[str] = None,
                  z_mode: str = "contact",
                  max_frames: Optional[int] = None,
+                 trim: bool = True,
+                 trim_args: str = "",
                  launcher: Any = None) -> None:
         self._script = script or _default_script()
         self._boxes_json = boxes_json
         self._z_mode = z_mode
         self._max_frames = max_frames
+        self._trim = trim
+        self._trim_args = trim_args
         # Injectable so tests drive the whole lifecycle without a GPU: takes
         # (argv, env) and returns something with poll()/wait().
         self._launcher = launcher or _popen
@@ -85,6 +89,20 @@ class MarkerlessTrackProcessor:
         env["SERIAL"] = str(serial)
         if self._max_frames:
             env["MAX_FRAMES"] = str(self._max_frames)
+        if self._trim:
+            # Drop the still lead-in at stage 1, so SAM-2 never sees it. An
+            # episode take is bracketed by dead air of its own making: the
+            # recording starts at the reset and the twin then simulates every
+            # option with the arm parked, which on run_20260817_162250 was
+            # 152 s of a static scene out of a 420 s take. Both of the scan's
+            # failure modes keep frames rather than lose them, so this is
+            # safe to leave on.
+            #
+            # Ignored by a driver that predates the flag rather than being an
+            # error, which is what lets it be set before the submodule has it.
+            env["TRIM"] = "1"
+            if self._trim_args:
+                env["TRIM_ARGS"] = self._trim_args
         boxes = _read_boxes(self._boxes_json)
         if boxes is None:
             logging.error(
@@ -231,7 +249,16 @@ def _popen(argv: List[str], env: Dict[str, str], log_path: str) -> Any:
 
 
 def _read_boxes(boxes_json: Optional[str]) -> Optional[str]:
-    """The prompt boxes as the JSON string the driver's BOXES expects."""
+    """The prompt boxes as the JSON string the driver's BOXES expects.
+
+    ``init_boxes.py`` writes records -- ``{"id", "box", "label"}`` under
+    a ``boxes`` key -- while the ``BOXES`` env it reads back expects a
+    bare ``[[x0, y0, x1, y1], ...]``. Handing the records over unchanged
+    makes stage 2 iterate a dict and die on ``int('id')``, minutes into
+    a run, after the arm has already executed the episode. So the
+    coordinates are unwrapped here, in list order, which is the id order
+    the writer enumerates.
+    """
     if not boxes_json or not os.path.exists(boxes_json):
         return None
     try:
@@ -239,9 +266,17 @@ def _read_boxes(boxes_json: Optional[str]) -> Optional[str]:
             raw = json.load(f)
     except (OSError, ValueError):
         return None
-    boxes = raw.get("boxes") if isinstance(raw, dict) else raw
-    if not boxes:
+    records = raw.get("boxes") if isinstance(raw, dict) else raw
+    if not records:
         return None
+    boxes: List[List[int]] = []
+    for record in records:
+        coords = record.get("box") if isinstance(record, dict) else record
+        if not coords or len(list(coords)) != 4:
+            logging.error("%s has a box that is not [x0, y0, x1, y1]: %r",
+                          boxes_json, record)
+            return None
+        boxes.append([int(v) for v in coords])
     return json.dumps(boxes)
 
 
@@ -257,7 +292,9 @@ def make_track_processor() -> MarkerlessTrackProcessor:
     return MarkerlessTrackProcessor(
         boxes_json=CFG.real_robot_snapshot_boxes_json or None,
         z_mode=CFG.real_robot_track_z_mode,
-        max_frames=CFG.real_robot_recording_max_frames or None)
+        max_frames=CFG.real_robot_recording_max_frames or None,
+        trim=CFG.real_robot_trim_still_frames,
+        trim_args=CFG.real_robot_trim_args)
 
 
 def write_manifest(path: str, episodes: List[Dict[str, Any]]) -> None:

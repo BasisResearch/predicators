@@ -658,6 +658,27 @@ class GlobalSettings:
     # fits z as a 5th parameter, which matters for the poses a cascade ends in
     # -- dominoes at rest on each other -- and those are not scored.
     real_robot_track_z_mode = "contact"
+    # ZED serial the poses are fitted from. Markerless is single-camera -- the
+    # second's cloud is not fused -- and the two are NOT interchangeable: on
+    # hand-measured ground truth 30264679 is 6x better on orientation (1.03 deg
+    # median against 6.29) while 32294776 tracks 99.9% of frames against 82%.
+    # Empty takes the session's first serial, which is arbitrary rather than
+    # considered.
+    real_robot_track_camera = "30264679"
+    # Drop the still lead-in and tail at stage 1, so SAM-2 never sees frames
+    # where nothing happens. An episode take makes its own dead air: recording
+    # starts at the reset and the twin then simulates every option with the arm
+    # parked. Measured on run_20260817_162250 -- 420 s recorded, 268 s of arm
+    # motion, so 152 s (36%, ~6.5k frames) was a static scene. Both of the
+    # scan's failure modes keep frames rather than lose them.
+    #
+    # Needs BabyRobotPredicator's --trim-motion; a driver that predates it
+    # ignores the request rather than failing, so this is safe to leave on
+    # before the submodule has it.
+    real_robot_trim_still_frames = True
+    # Extra --trim-* flags for tuning the scan. Empty uses its own defaults;
+    # check a window with `svo_to_bundle.py --trim-dry-run` before pinning one.
+    real_robot_trim_args = ""
     # Dwell before a capture, so the dominoes come to rest after the motion.
     real_robot_settle_s = 0.5
     # How far (metres) the scene may be from where the twin predicted before

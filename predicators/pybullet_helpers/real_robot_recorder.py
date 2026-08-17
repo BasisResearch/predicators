@@ -58,7 +58,8 @@ class EpisodeRecorder:
                  export_mp4: bool = False,
                  export_depth: bool = False,
                  processor: Any = None,
-                 track_dir: Optional[str] = None) -> None:
+                 track_dir: Optional[str] = None,
+                 camera: Optional[str] = None) -> None:
         self._session = session
         self._max_frames = max_frames
         # Runs the markerless pipeline over each finished take, in the
@@ -66,6 +67,13 @@ class EpisodeRecorder:
         # process.
         self._processor = processor
         self._track_dir = track_dir or os.path.join("logs", "zed_tracks")
+        # Which camera the poses are fitted from. Markerless is
+        # single-camera -- the second's cloud is not fused -- and the two are
+        # not interchangeable: on measured ground truth one is 6x better on
+        # orientation (1.03 deg median against 6.29) while the other tracks
+        # 99.9% of frames against 82%. None takes the session's first serial,
+        # which is an arbitrary default rather than a considered one.
+        self._camera = str(camera) if camera else None
         # One entry per episode, in order, written to the manifest as each
         # take closes.
         self._episodes: List[Dict[str, Any]] = []
@@ -89,6 +97,25 @@ class EpisodeRecorder:
     def serials(self) -> List[str]:
         """The ZED serials this session holds open."""
         return [str(s) for s in getattr(self._session, "serials", [])]
+
+    @property
+    def fit_camera(self) -> str:
+        """The serial the poses are fitted from.
+
+        Raises when the configured camera is not one the session
+        records: a take has no recording for it, so every episode would
+        fail at post-processing with a missing file rather than here,
+        before the run has cost anything.
+        """
+        serials = self.serials
+        if self._camera is None:
+            return serials[0] if serials else ""
+        if serials and self._camera not in serials:
+            raise ValueError(
+                f"real_robot_track_camera {self._camera!r} is not one of the "
+                f"cameras this session records {serials}; the poses are "
+                "fitted from a take that session wrote.")
+        return self._camera
 
     @property
     def last_take_dir(self) -> Optional[str]:
@@ -165,7 +192,7 @@ class EpisodeRecorder:
         # pylint: disable-next=import-outside-toplevel
         from predicators.pybullet_helpers.track_pipeline import \
             MANIFEST_NAME, TRACK_NAME, write_manifest
-        serial = (self.serials or [""])[0]
+        serial = self.fit_camera
         ext = str(meta.get("svo_ext", ".svo2"))
         svo = os.path.join(take_dir, f"zed_{serial}{ext}")
         bundle = os.path.join(self._track_dir, os.path.basename(take_dir))
@@ -206,7 +233,7 @@ class EpisodeRecorder:
         from predicators.pybullet_helpers.track_pipeline import pick_boxes
         picker = picker or pick_boxes
         take_dir, meta = self.snapshot(frames=5)
-        serial = (self.serials or [""])[0]
+        serial = self.fit_camera
         ext = str((meta or {}).get("svo_ext", ".svo2"))
         svo = os.path.join(take_dir, f"zed_{serial}{ext}")
         bundle = os.path.join(self._track_dir, "boxes")
@@ -296,7 +323,8 @@ def make_episode_recorder(
     recorder = EpisodeRecorder(session,
                                max_frames=max_frames,
                                processor=processor,
-                               track_dir=CFG.real_robot_track_dir or None)
+                               track_dir=CFG.real_robot_track_dir or None,
+                               camera=CFG.real_robot_track_camera or None)
     atexit.register(recorder.close)
     return recorder
 

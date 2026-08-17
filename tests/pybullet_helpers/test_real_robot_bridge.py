@@ -542,3 +542,29 @@ def test_markerless_driver_takes_the_arguments_post_processing_passes():
         "run_markerless.sh's positional interface changed"
     for var in ("BOXES", "SERIAL", "MAX_FRAMES"):
         assert var in text, f"run_markerless.sh no longer reads {var}"
+
+
+def test_the_driver_honours_the_trim_request_once_it_can():
+    """TRIM=1 is set unconditionally, because a driver that predates.
+
+    --trim-motion ignores it rather than failing -- which is what lets it be
+    configured before the submodule has it.
+
+    The cost of that tolerance is that a silent no-op looks exactly like
+    a working one. This says which of the two is in front of us, so
+    "trimming is on" is never assumed.
+    """
+    import os
+
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.pybullet_helpers.track_pipeline import _default_script
+    script = _default_script()
+    if not os.path.exists(script):
+        pytest.skip("submodule not checked out")
+    with open(script, encoding="utf-8") as f:
+        text = f.read()
+    if "trim-motion" not in text:
+        pytest.skip(
+            "this submodule predates --trim-motion; TRIM is being set and "
+            "ignored, so takes are NOT being trimmed")
+    assert "TRIM" in text, "the driver has --trim-motion but reads no TRIM"
