@@ -962,6 +962,109 @@ def test_take_names_carry_the_episode_they_came_from():
     assert first < second
 
 
+class _StubProcessor:
+    """Stands in for the markerless pipeline, recording what was launched."""
+
+    def __init__(self, started=True):
+        self.launched = []
+        self.waited = 0
+        self._started = started
+
+    def launch(self, svo, bundle, serial):
+        """Record a launch; return a handle, or None if it could not start."""
+        self.launched.append((svo, bundle, serial))
+        return object() if self._started else None
+
+    def pending(self):
+        """Nothing is ever really running here."""
+        return 0
+
+    def wait_all(self, timeout=None):
+        """Record the join."""
+        del timeout
+        self.waited += 1
+
+
+def test_each_usable_take_is_post_processed(tmp_path):
+    """The bridge between recording and scoring: predicators runs the pipeline
+    itself rather than leaving takes for a human."""
+    session = _StubSession()
+    processor = _StubProcessor()
+    rec = EpisodeRecorder(session,
+                          processor=processor,
+                          track_dir=str(tmp_path))
+    rec.open()
+    rec.start_episode("ep1")
+    rec.stop_episode()
+
+    assert len(processor.launched) == 1
+    svo, bundle, _serial = processor.launched[0]
+    assert svo.endswith(".svo2")
+    assert str(tmp_path) in bundle
+
+
+def test_an_unusable_take_is_not_post_processed(tmp_path):
+    """A track fitted to a recording that lost a camera mid-episode is a well-
+    formed track of the wrong thing."""
+    session = _StubSession(errors=["ZED 30264679 stopped grabbing"])
+    processor = _StubProcessor()
+    rec = EpisodeRecorder(session,
+                          processor=processor,
+                          track_dir=str(tmp_path))
+    rec.open()
+    rec.start_episode("ep1")
+    rec.stop_episode()
+
+    assert not processor.launched
+
+
+def test_the_manifest_records_every_episode_in_order(tmp_path):
+    """Written as each take closes, so a run killed mid-way still leaves a
+    valid document -- and unusable episodes are recorded, not omitted."""
+    session = _StubSession()
+    rec = EpisodeRecorder(session,
+                          processor=_StubProcessor(),
+                          track_dir=str(tmp_path))
+    rec.open()
+    for i in range(2):
+        rec.start_episode(f"ep{i}")
+        rec.stop_episode()
+
+    manifest = json.loads(
+        (tmp_path / "tracks.json").read_text(encoding="utf-8"))
+
+    assert [e["episode"] for e in manifest["episodes"]] == [1, 2]
+    assert all(e["usable"] for e in manifest["episodes"])
+    assert all(e["track"].endswith("dominoes_traj.json")
+               for e in manifest["episodes"])
+
+
+def test_closing_waits_for_outstanding_post_processing(tmp_path):
+    """The jobs are detached so they overlap the next episode, but the run must
+    not exit while one is still writing a track."""
+    processor = _StubProcessor()
+    rec = EpisodeRecorder(_StubSession(),
+                          processor=processor,
+                          track_dir=str(tmp_path))
+    rec.open()
+
+    rec.close()
+
+    assert processor.waited == 1
+
+
+def test_takes_are_left_alone_when_processing_is_off(tmp_path):
+    """Off means recorded and left for a human, which is the default."""
+    rec = EpisodeRecorder(_StubSession(), track_dir=str(tmp_path))
+    rec.open()
+    rec.start_episode("ep1")
+    rec.stop_episode()
+
+    manifest = json.loads(
+        (tmp_path / "tracks.json").read_text(encoding="utf-8"))
+    assert "processing" not in manifest["episodes"][0]
+
+
 def test_the_recorder_closes_an_in_flight_take():
     """close() is registered with atexit, and a session left recording would
     keep writing until the disk filled."""

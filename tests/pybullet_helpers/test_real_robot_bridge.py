@@ -518,3 +518,27 @@ def test_markerless_staging_matches_what_the_snapshot_rebuild_calls():
     source = inspect.getsource(run_stages)
     assert "config.boxes" in source
     assert "config.boxes_json" not in source
+
+
+def test_markerless_driver_takes_the_arguments_post_processing_passes():
+    """Pin the batch driver's interface.
+
+    Automatic post-processing launches ``run_markerless.sh <svo> <out>
+    given`` with BOXES and SERIAL in the environment. That is a
+    positional shell contract with no type checker behind it, so a
+    rename upstream would otherwise surface as a background job that
+    fails silently and a track that never appears.
+    """
+    import os
+
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.pybullet_helpers.track_pipeline import _default_script
+    script = _default_script()
+    if not os.path.exists(script):
+        pytest.skip("submodule not checked out")
+    with open(script, encoding="utf-8") as f:
+        text = f.read()
+    assert "<svo> <outdir> [box-source]" in text, \
+        "run_markerless.sh's positional interface changed"
+    for var in ("BOXES", "SERIAL", "MAX_FRAMES"):
+        assert var in text, f"run_markerless.sh no longer reads {var}"

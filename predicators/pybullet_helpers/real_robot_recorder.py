@@ -56,9 +56,19 @@ class EpisodeRecorder:
                  session: Any,
                  max_frames: Optional[int] = None,
                  export_mp4: bool = False,
-                 export_depth: bool = False) -> None:
+                 export_depth: bool = False,
+                 processor: Any = None,
+                 track_dir: Optional[str] = None) -> None:
         self._session = session
         self._max_frames = max_frames
+        # Runs the markerless pipeline over each finished take, in the
+        # background. None means takes are recorded and left for a human to
+        # process.
+        self._processor = processor
+        self._track_dir = track_dir or os.path.join("logs", "zed_tracks")
+        # One entry per episode, in order, written to the manifest as each
+        # take closes.
+        self._episodes: List[Dict[str, Any]] = []
         # Exports are deliberately off during a run. ``stop_take`` can write
         # mp4s and depth inline, but that is the expensive offline work --
         # doing it here would serialise post-processing into the episode loop
@@ -140,7 +150,42 @@ class EpisodeRecorder:
                          take_dir, meta.get("timestamp_clock"),
                          meta.get("sdk_version"))
         self.takes.append((take_dir, usable))
+        self._post_process(take_dir, meta, usable)
         return meta
+
+    def _post_process(self, take_dir: str, meta: Dict[str, Any],
+                      usable: bool) -> None:
+        """Record this episode in the manifest and start its pipeline.
+
+        An unusable take is still recorded, marked so, and NOT
+        processed: a track fitted to a recording that lost a camera
+        mid-episode would be a well-formed track of the wrong thing,
+        which is worse than none.
+        """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.pybullet_helpers.track_pipeline import \
+            MANIFEST_NAME, TRACK_NAME, write_manifest
+        serial = (self.serials or [""])[0]
+        ext = str(meta.get("svo_ext", ".svo2"))
+        svo = os.path.join(take_dir, f"zed_{serial}{ext}")
+        bundle = os.path.join(self._track_dir, os.path.basename(take_dir))
+        entry: Dict[str, Any] = {
+            "episode": len(self._episodes) + 1,
+            "take_dir": take_dir,
+            "svo": svo,
+            "bundle": bundle,
+            "track": os.path.join(bundle, TRACK_NAME),
+            "usable": usable,
+        }
+        self._episodes.append(entry)
+        if usable and self._processor is not None:
+            started = self._processor.launch(svo, bundle, serial)
+            entry["processing"] = started is not None
+        try:
+            write_manifest(os.path.join(self._track_dir, MANIFEST_NAME),
+                           self._episodes)
+        except OSError as e:
+            logging.error("could not write the track manifest: %s", e)
 
     def snapshot(self,
                  frames: int = 5) -> Tuple[str, Optional[Dict[str, Any]]]:
@@ -179,6 +224,13 @@ class EpisodeRecorder:
             self._session.close()
         except Exception as e:  # pylint: disable=broad-except
             logging.error("real robot: closing the recorder failed: %s", e)
+        if self._processor is not None:
+            pending = self._processor.pending()
+            if pending:
+                logging.info(
+                    "waiting for %d markerless post-processing job(s); each "
+                    "runs about 3x the length of its take", pending)
+            self._processor.wait_all()
 
 
 def make_episode_recorder(
@@ -202,7 +254,16 @@ def make_episode_recorder(
         fps=CFG.real_robot_recording_fps,
         out_dir=out_dir)
     max_frames = CFG.real_robot_recording_max_frames or None
-    recorder = EpisodeRecorder(session, max_frames=max_frames)
+    processor = None
+    if CFG.real_robot_process_takes:
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.pybullet_helpers.track_pipeline import \
+            make_track_processor
+        processor = make_track_processor()
+    recorder = EpisodeRecorder(session,
+                               max_frames=max_frames,
+                               processor=processor,
+                               track_dir=CFG.real_robot_track_dir or None)
     atexit.register(recorder.close)
     return recorder
 
