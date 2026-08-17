@@ -35,9 +35,8 @@ Required overrides in subclasses:
 
 import abc
 import logging
-import time
-from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple, \
-    Type, cast
+from typing import Any, ClassVar, Dict, List, Optional, Protocol, Sequence, \
+    Set, Tuple, Type, cast
 
 import matplotlib
 import numpy as np
@@ -672,13 +671,6 @@ class PyBulletEnv(BaseEnv):
         that rollout and hand back a corrected observation.
         Subclasses override ``_domain_specific_step`` (not this method)
         to add post-base-sim dynamics (water filling, heating, etc.).
-
-        Stepping is otherwise unpaced: nothing here ties simulated time to
-        wall-clock time, so a GUI run redraws as fast as the CPU can step
-        and plays back many times faster than real time. ``pybullet_gui_
-        step_sleep`` adds a per-step delay so a GUI run is watchable; it
-        is 0 (unpaced, unchanged) by default and ignored without a GUI, so
-        it can never slow a headless run or a planner's option model.
         """
         observation = self._step_once(action, render_obs)
         if self._executor is not None:
@@ -695,8 +687,6 @@ class PyBulletEnv(BaseEnv):
         observation = self.get_observation(
             render=CFG.rgb_observation or render_obs)
         self._current_observation = observation
-        if self.using_gui and CFG.pybullet_gui_step_sleep > 0:
-            time.sleep(CFG.pybullet_gui_step_sleep)
         return observation
 
     def _step_base(self, action: Action) -> None:

@@ -231,15 +231,6 @@ class GlobalSettings:
     pybullet_camera_width = 335  # for high quality, use 1674
     pybullet_camera_height = 180  # for high quality, use 900
     pybullet_sim_steps_per_action = 20
-    # Wall-clock seconds to pause after each GUI step. Stepping is otherwise
-    # unpaced -- nothing ties simulated time to real time -- so a --use_gui run
-    # plays back many times faster than reality and is hard to watch. One
-    # action covers pybullet_sim_steps_per_action / 240 s of simulated time
-    # (0.083 s at the default 20), so that value here is roughly real time and
-    # larger values are slow motion. 0 disables pacing (the default, unchanged
-    # behavior); ignored without a GUI, so headless runs and option models are
-    # never slowed.
-    pybullet_gui_step_sleep = 0.0
     pybullet_max_ik_iters = 100
     pybullet_ik_tol = 1e-3
     pybullet_robot = "fetch"
