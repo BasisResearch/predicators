@@ -27,7 +27,7 @@ Example::
     )
 """
 
-from typing import Optional, Sequence, Tuple
+from typing import Callable, Optional, Sequence, Tuple
 
 import pybullet as p
 from gym.spaces import Box
@@ -144,6 +144,9 @@ def make_move_to_phase(
     validate_ik: bool = False,
     check_release_clearance: bool = False,
     use_motion_planning: Optional[bool] = None,
+    terminal_fn: Optional[Callable[
+        [State, Sequence[Object], Array, SkillConfig], bool]] = None,
+    max_step_norm: Optional[float] = None,
 ) -> Phase:
     """Create a MOVE_TO_POSE phase for use in a ``PhaseSkill``.
 
@@ -165,6 +168,13 @@ def make_move_to_phase(
             collision-free planner asked for such a goal either fails or
             reaches it by a detour that arrives from the wrong direction
             (see ``create_push_skill``).
+        terminal_fn: Optional custom terminal override forwarded to the
+            ``Phase`` (e.g. "held object made contact"); when ``None``
+            the phase uses the default distance-based terminal.
+        max_step_norm: Optional gentle-stroke step clamp forwarded to
+            the ``Phase`` (see ``Phase.max_step_norm``): small EE steps
+            plus a joint-jump guard and the stall abort, for
+            incremental-IK phases that deliberately seek contact.
 
     Returns:
         A ``Phase`` that can be included in a ``PhaseSkill``.
@@ -221,9 +231,11 @@ def make_move_to_phase(
         name=name,
         action_type=PhaseAction.MOVE_TO_POSE,
         target_fn=_target_fn,
+        terminal_fn=terminal_fn,
         expect_contact=expect_contact,
         allow_shallow_held_object_contacts=allow_shallow_held_object_contacts,
         validate_ik=validate_ik,
         check_release_clearance=check_release_clearance,
         use_motion_planning=plan_motion,
+        max_step_norm=max_step_norm,
     )

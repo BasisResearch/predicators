@@ -29,9 +29,10 @@ Example::
     )
 """
 
-from typing import Optional, Sequence, Tuple
+from typing import Optional, Sequence, Set, Tuple
 
 import numpy as np
+import pybullet as p
 
 from predicators.ground_truth_models.skill_factories.base import \
     _RELEASE_CLEAR_SLACK, _RELEASE_OPEN_STEP, Phase, PhaseAction, PhaseSkill, \
@@ -39,6 +40,64 @@ from predicators.ground_truth_models.skill_factories.base import \
 from predicators.ground_truth_models.skill_factories.move_to import \
     make_move_to_phase
 from predicators.structs import Array, Object, ParameterizedOption, State, Type
+
+# Contact distances below this count as touching for the guarded
+# settle (getContactPoints reports near-contacts up to the contact
+# processing threshold with small positive separations).
+_SETTLE_CONTACT_DIST = 1e-4
+
+
+def _held_assembly_in_contact(state: State) -> bool:
+    """True when the held object, or any body welded to it, touches a body
+    outside the held assembly (the robot excluded).
+
+    Weld partners matter: a carried welded assembly (e.g. a fused span
+    row) usually touches down through an OUTER member, not the grasped
+    one. The assembly is discovered generically by BFS over the client's
+    fixed constraints, skipping the grasp constraint (any fixed
+    constraint involving the robot body).
+    """
+    sim_state = getattr(state, "simulator_state", None)
+    if not isinstance(sim_state, dict):
+        return False
+    client = sim_state.get("physics_client_id")
+    robot_id = sim_state.get("robot_id")
+    if client is None:
+        return False
+    held_id: Optional[int] = None
+    for obj in state:
+        if "is_held" in obj.type.feature_names and \
+                state.get(obj, "is_held") > 0.5:
+            held_id = getattr(obj, "id", None)
+            break
+    if held_id is None:
+        return False
+    edges = []
+    for i in range(p.getNumConstraints(physicsClientId=client)):
+        cid = p.getConstraintUniqueId(i, physicsClientId=client)
+        info = p.getConstraintInfo(cid, physicsClientId=client)
+        parent, child, joint_type = info[0], info[2], info[4]
+        if joint_type != p.JOINT_FIXED or robot_id in (parent, child):
+            continue
+        edges.append((parent, child))
+    assembly: Set[int] = {held_id}
+    frontier = [held_id]
+    while frontier:
+        cur = frontier.pop()
+        for a, b in edges:
+            for nxt in ((b, ) if a == cur else (a, ) if b == cur else ()):
+                if nxt not in assembly:
+                    assembly.add(nxt)
+                    frontier.append(nxt)
+    for body in assembly:
+        for cp in p.getContactPoints(bodyA=body, physicsClientId=client):
+            other = cp[2]
+            if other == robot_id or other in assembly:
+                continue
+            if cp[8] < _SETTLE_CONTACT_DIST:
+                return True
+    return False
+
 
 # Canonical continuous parameters for Place.
 _PLACE_PARAMS = [
@@ -57,6 +116,7 @@ def create_place_skill(
     param_defs: Optional[Sequence[Tuple[str, float, float]]] = None,
     compensate_held_offset: bool = False,
     compensate_held_z: bool = False,
+    settle_to_contact_depth: Optional[float] = None,
 ) -> ParameterizedOption:
     """Create a multi-phase place skill that releases a held object.
 
@@ -112,6 +172,24 @@ def create_place_skill(
             depth AND the pick's IK z-residual into ``release_z`` --
             and a deep grasp (~2 cm residual) drives the held object
             into the support surface at the descend goal.
+        settle_to_contact_depth: If set, insert a guarded
+            **SettleToContact** phase between the descent and the
+            release: an incremental-IK contact stroke (no BiRRT --
+            its goal is intentionally at/inside the support) that
+            lowers the held object up to this many meters below
+            ``release_z`` and stops at the FIRST contact of the held
+            assembly (the held object or anything welded to it)
+            with a body outside the assembly. The release then
+            happens at essentially zero gap, eliminating the
+            free-fall bounce-and-slide scatter of an open-loop drop.
+            ``release_z`` stays the (collision-checked) descend goal,
+            so it must remain clear of the scene; choose the depth to
+            exceed the largest drop clearance a sampler uses. If
+            nothing is contacted within the depth, the phase ends at
+            the depth and the place degrades to a normal (lower)
+            drop. Note the release-clearance check still validates
+            the finger-opening sweep at ``release_z``, an upper bound
+            of the actual release pose.
 
     Returns:
         A ``ParameterizedOption`` implementing the place skill.
@@ -238,14 +316,69 @@ def create_place_skill(
     # at transport height, clear of the scene.
     partial_release = config.release_until_ungrasped
 
+    def _settle_pose(
+        state: State,
+        objects: Sequence[Object],
+        params: Array,
+        cfg: SkillConfig,
+    ) -> Tuple[float, float, float, float]:
+        assert settle_to_contact_depth is not None
+        x, y, z, yaw = _drop_pose(state, objects, params, cfg)
+        return x, y, z - settle_to_contact_depth, yaw
+
+    def _settled_or_at_depth(
+        state: State,
+        objects: Sequence[Object],
+        params: Array,
+        cfg: SkillConfig,
+    ) -> bool:
+        # Contact ends the stroke; reaching the full depth (nothing
+        # under the object within the budget) is the fallback so the
+        # phase always terminates.
+        if _held_assembly_in_contact(state):
+            return True
+        robot_obj = objects[0]
+        current = (state.get(robot_obj,
+                             "x"), state.get(robot_obj,
+                                             "y"), state.get(robot_obj, "z"))
+        tx, ty, tz, _ = _settle_pose(state, objects, params, cfg)
+        squared_dist = float(
+            np.sum(np.square(np.subtract(current, (tx, ty, tz)))))
+        return squared_dist < cfg.move_to_pose_tol
+
     phases = []
+    # A place's first move starts right after a pick, where a shallow
+    # lift plus grasp-constraint droop can leave the held object modeled
+    # grazing the surface it was picked from; allow those shallow start
+    # contacts (the first motion is away from the surface) instead of
+    # rejecting the whole plan at the start config.
     if use_move_above:
-        phases.append(make_move_to_phase("MoveAbove", _above_pose, "closed"))
+        phases.append(
+            make_move_to_phase("MoveAbove",
+                               _above_pose,
+                               "closed",
+                               allow_shallow_held_object_contacts=True))
     phases.append(
-        make_move_to_phase("Descend" if use_move_above else "MoveToDrop",
-                           _drop_pose,
-                           "closed",
-                           check_release_clearance=True))
+        make_move_to_phase(
+            "Descend" if use_move_above else "MoveToDrop",
+            _drop_pose,
+            "closed",
+            allow_shallow_held_object_contacts=not use_move_above,
+            check_release_clearance=True))
+    if settle_to_contact_depth is not None:
+        # Gentle stroke: 3 mm steps bound the post-contact overshoot
+        # (contact is only observed at the next policy step) and arm
+        # the joint-jump guard -- single-shot IK once answered a plain
+        # 2 cm descent with a wrist-flipped branch, and the flipped
+        # retreat then batted the released block across the table.
+        phases.append(
+            make_move_to_phase("SettleToContact",
+                               _settle_pose,
+                               "closed",
+                               expect_contact=True,
+                               use_motion_planning=False,
+                               terminal_fn=_settled_or_at_depth,
+                               max_step_norm=0.003))
     if partial_release:
         phases.extend([
             Phase(

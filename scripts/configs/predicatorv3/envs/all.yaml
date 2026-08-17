@@ -418,3 +418,11 @@ ENVS:
       # in the codebase; path fidelity is worth the ~2x steps per
       # motion-planned phase (episodes stay far under the horizon).
       pybullet_birrt_path_subsample_ratio: 1
+      # Right after a pick, the planning sim's reconstruction of the
+      # held object (grasp-transform capture + orientation round-trip)
+      # occasionally models it up to ~9 mm into the table it was just
+      # lifted off -- physically impossible for a 2-3 cm lift, but it
+      # rejects the next Place's start config. Deepen the shallow-held
+      # allowance past the artifact (start contacts only; the first
+      # motion is upward).
+      pybullet_birrt_shallow_held_contact_margin: -0.012

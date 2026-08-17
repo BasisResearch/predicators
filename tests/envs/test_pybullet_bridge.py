@@ -113,6 +113,67 @@ def test_glue_cure_weld_lifecycle(env_and_task):
     assert len(env._weld_constraints) == 1
 
 
+def test_place_settles_to_contact():
+    """Place must release at first contact instead of free-falling.
+
+    With a release_z several mm above resting height, the settle phase
+    lowers the block to the support before opening, so the block lands
+    at resting height with no bounce spin. Regression coverage for two
+    failure modes: the old open-loop drop bounced and slid (mm-scale
+    scatter that flipped this domain's tight tolerances), and an early
+    settle implementation took the whole stroke in one IK step whose
+    wrist-flipped branch batted the released block across the table
+    (~9 cm slide, 0.16 rad spin).
+    """
+    utils.reset_config({
+        "env": "pybullet_bridge",
+        "seed": 0,
+        "num_train_tasks": 1,
+        "num_test_tasks": 0,
+        "skill_phase_use_motion_planning": True,
+        "pybullet_ik_validate": True,
+        "pybullet_birrt_contact_margin": -0.005,
+        "pybullet_birrt_path_subsample_ratio": 1,
+    })
+    from predicators.envs.pybullet_bridge import \
+        PyBulletBridgeEnv  # pylint: disable=import-outside-toplevel
+    from predicators.ground_truth_models import \
+        get_gt_options  # pylint: disable=import-outside-toplevel
+    env = PyBulletBridgeEnv(use_gui=False)
+    try:
+        task = env._generate_train_tasks()[0]
+        env._set_state(task.init)
+        state = env._get_state()
+        options = {o.name: o for o in get_gt_options(env.get_name())}
+        span1 = next(b for b in env._blocks if b.name == "span1")
+
+        def run_option(opt, objs, params):
+            nonlocal state
+            ground = opt.ground(objs, np.array(params, dtype=np.float32))
+            assert ground.initiable(state)
+            for _ in range(200):
+                env.step(ground.policy(state))
+                state = env._get_state()
+                if ground.terminal(state):
+                    return
+            raise AssertionError(f"{opt.name} did not terminate")
+
+        run_option(options["PickBlock"], [env._robot, span1], [0.002])
+        resting_z = env.table_height + env.span_half_extents[2]
+        tx, ty = 0.75, 1.25
+        run_option(options["Place"], [env._robot],
+                   [tx, ty, resting_z + 0.008, 0.0])
+        # Landed at resting height (no residual drop), near the target,
+        # without spinning.
+        assert abs(state.get(span1, "z") - resting_z) < 0.002
+        assert abs(state.get(span1, "x") - tx) < 0.01
+        assert abs(state.get(span1, "y") - ty) < 0.01
+        assert abs(state.get(span1, "yaw")) < 0.03
+    finally:
+        import pybullet as p  # pylint: disable=import-outside-toplevel
+        p.disconnect(env._physics_client_id)
+
+
 def test_sim_data_isolated_between_env_instances(env_and_task):
     """Glue/cure/attached written by one env instance must never leak into
     another env instance through shared State Object instances.

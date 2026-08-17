@@ -31,15 +31,17 @@ _LEG_H = 2 * _ENV.leg_half_extents[2]  # 0.10
 _SPAN_LEN = 2 * _ENV.span_half_extents[0]  # 0.10
 _SPAN_TH = 2 * _ENV.span_half_extents[2]  # 0.05
 _TABLE = _ENV.table_height
-# Release the held object with its underside ~8 mm above the resting
-# surface. Place's release_z is the HELD OBJECT'S CENTER height (the
-# skill live-compensates the EE-to-held offset on all axes), so a
-# target is simply resting-center + drop -- no grasp-depth or
-# IK-residual budgeting. Keep drops SMALL: standing legs topple from
-# hard landings (a 2 cm seat drop knocked the far leg over), and butt
-# joints freeze landing error into the weld; 8 mm still clears the
-# BiRRT contact margin with room for mm-level execution error.
-_DROP = 0.008
+# End the collision-checked descent with the held object's underside
+# ~3 mm above the resting surface. Place's release_z is the HELD
+# OBJECT'S CENTER height (the skill live-compensates the EE-to-held
+# offset on all axes), so a target is simply resting-center + this
+# clearance -- no grasp-depth or IK-residual budgeting. The skill then
+# settles to FIRST CONTACT before opening (settle_to_contact_depth in
+# options.py), so this is a descend-goal clearance, not a free-fall
+# height: it only needs to keep the BiRRT goal out of contact with
+# ~1 mm of IK error to spare. Small is still better -- it shortens the
+# unplanned settle stroke.
+_DROP = 0.003
 
 
 def _pick_sampler(state: State, goal: Set[GroundAtom],
@@ -90,12 +92,12 @@ def _place_leg_at_site_sampler(state: State, goal: Set[GroundAtom],
     site = objs[2]
     x = state.get(site, "x") + rng.uniform(-0.003, 0.003)
     y = state.get(site, "y") + rng.uniform(-0.003, 0.003)
-    # Half the generic drop: a standing leg is a 2:1 block, and an
-    # 8-13 mm drop can land it rocking near its tipping balance -- one
-    # observed leg leaned ~0.6 deg at release and slowly toppled ~30
-    # steps later with nothing touching it. 4-6 mm sheds most of the
-    # landing energy while still clearing the BiRRT contact margin.
-    z = _TABLE + _ENV.leg_half_extents[2] + 0.004 + rng.uniform(0.0, 0.002)
+    # Standing legs are 2:1 blocks that topple from hard landings (an
+    # 8-13 mm drop once landed a leg rocking near its tipping balance;
+    # it leaned ~0.6 deg at release and slowly fell ~30 steps later).
+    # The settle-to-contact release removes the free fall entirely, so
+    # this is just the descend-goal clearance above resting height.
+    z = _TABLE + _ENV.leg_half_extents[2] + 0.002 + rng.uniform(0.0, 0.001)
     return np.array([x, y, z, 0.0], dtype=np.float32)
 
 
@@ -116,10 +118,11 @@ def _place_next_to_sampler(state: State, goal: Set[GroundAtom],
     x = state.get(left, "x") + _SPAN_LEN + _ENV.lateral_place_gap + \
         rng.uniform(-0.001, 0.001)
     y = state.get(left, "y") + rng.uniform(-0.003, 0.003)
-    # Gentler landing than the generic places: any landing shift here
-    # is FROZEN into the weld and transfers to the far seat joint, so
-    # minimize the drop (span center 4-6 mm above resting height).
-    z = _TABLE + _ENV.span_half_extents[2] + 0.004 + rng.uniform(0.0, 0.002)
+    # Any landing shift here is FROZEN into the weld and transfers to
+    # the far seat joint; the settle-to-contact release means the block
+    # touches down with no free fall, so this is just the descend-goal
+    # clearance above resting height.
+    z = _TABLE + _ENV.span_half_extents[2] + 0.002 + rng.uniform(0.0, 0.001)
     return np.array([x, y, z, 0.0], dtype=np.float32)
 
 
@@ -152,15 +155,19 @@ def _seat_span_sampler(state: State, goal: Set[GroundAtom],
     # planning time on predicted states, so live robot-relative reads
     # are stale garbage (a robot-z-based "hang" read the home pose,
     # blew past the release_z bound, and crash-dropped the assembly).
-    # mid's center = leg top + span half-thickness + ~1.2 cm drop
-    # clearance for the rigid assembly to self-level. A 2 cm drop let
-    # an offset end free-fall onto the far leg hard enough to topple
-    # it, so keep the drop minimal. (The descend's collision check
-    # poses the welded partners from the welds' IDEAL frames, so the
-    # carried row's pendulum transients -- up to ~2 cm at an outer
-    # span right after a lift -- cannot fail the goal check; the
-    # settled row is what lands.)
-    release_z = _TABLE + _LEG_H + _ENV.span_half_extents[2] + 0.012
+    # mid's center = leg top + span half-thickness + 2 cm descend
+    # clearance for the carried rigid assembly. The settle-to-contact
+    # release lowers the row until an outer span first touches a leg
+    # top, so extra clearance costs nothing (no free fall to harden the
+    # landing; the old 12 mm clearance's 2 cm-drop predecessor once
+    # toppled the far leg). It needs to be generous: the descend-goal
+    # collision check poses the welded partners from the welds' IDEAL
+    # frames (flat relative dz), but the whole modeled row inherits the
+    # held span's LIVE pitch through the grasp transform -- a carried
+    # row rides at ~0.06-0.1 rad, which hangs an outer span 8-19 mm
+    # below the held one, and at 12 mm clearance that modeled droop
+    # collided with a leg top and killed otherwise-sound seat goals.
+    release_z = _TABLE + _LEG_H + _ENV.span_half_extents[2] + 0.020
     return np.array([x, y, release_z, 0.0], dtype=np.float32)
 
 
