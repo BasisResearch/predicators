@@ -40,7 +40,7 @@ import logging
 import math
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from predicators.structs import State
@@ -70,9 +70,17 @@ class ObservationTrack:
     angles_deg: Dict[int, List[Tuple[float, float]]]
     n_frames: int
     source: str
-    # Each domino's first observed (x, y) in the base frame, which is what
-    # the ids are matched to the twin's objects by.
+    # Each domino's first observed (x, y) in the base frame.
     first_xy: Dict[int, Tuple[float, float]]
+    # Each domino's (x, y) in the last frame before anything topples: the
+    # settled row the cascade is about to run along. THIS is what the ids
+    # are matched to the twin's objects by, and first_xy is the fallback
+    # for a track in which nothing ever falls. The two differ whenever the
+    # episode rearranges the scene before the push, and which one is
+    # contemporaneous with the twin depends on when recording started --
+    # which is exactly the thing that must not be assumed.
+    pre_cascade_xy: Dict[int, Tuple[float,
+                                    float]] = field(default_factory=dict)
 
     @property
     def duration_s(self) -> float:
@@ -122,7 +130,49 @@ def load_track(path: str, fallback_fps: float = 60.0) -> ObservationTrack:
     return ObservationTrack(angles_deg=angles,
                             n_frames=len(frames),
                             source=path,
-                            first_xy=first_xy)
+                            first_xy=first_xy,
+                            pre_cascade_xy=_pre_cascade_xy(
+                                frames, angles, have_stamps, t0, fallback_fps)
+                            or first_xy)
+
+
+def _pre_cascade_xy(frames: List[Dict[str, Any]],
+                    angles: Dict[int, List[Tuple[float, float]]],
+                    have_stamps: bool, t0: float,
+                    fallback_fps: float) -> Dict[int, Tuple[float, float]]:
+    """Each domino's last centre before the first topple onset.
+
+    A second pass rather than more state in the first: the onsets are
+    not known until every angle has been read, and the parsed document
+    is already in memory, so re-walking it is cheap next to carrying
+    every frame's positions around.
+
+    Detection uses this module's default thresholds rather than the
+    fit's configured ones. The arrangement is static for the whole
+    approach and push, so being a few frames out either way lands on
+    the same positions; what matters is being on the settled side of
+    the cascade rather than after it.
+    """
+    onsets = topple_onsets(angles)
+    if not onsets:
+        return {}
+    cut = min(onsets.values())
+    settled: Dict[int, Tuple[float, float]] = {}
+    for i, frame in enumerate(frames):
+        if have_stamps:
+            seconds = (float(frame.get("timestamp_ns", t0)) - t0) / 1e9
+        else:
+            seconds = float(frame.get("index", i)) / fallback_fps
+        if seconds >= cut:
+            break
+        for record in frame.get("dominoes") or []:
+            if record.get(_SUSPECT_KEY):
+                continue
+            centre = record.get("center_base_m")
+            if centre:
+                settled[int(record["id"])] = (float(centre[0]),
+                                              float(centre[1]))
+    return settled
 
 
 def load_tracks(path: str,
@@ -340,6 +390,59 @@ def sim_topple_series(
     return series
 
 
+def settled_xy_before_cascade(
+        states: Sequence[State],
+        prefix: str,
+        confirm_deg: float = 45.0,
+        onset_deg: float = 5.0,
+        min_persist: int = 3) -> Dict[str, Tuple[float, float]]:
+    """Where each object sits in the last state before anything topples.
+
+    The twin-side counterpart of ``ObservationTrack.pre_cascade_xy``, and
+    the reason both exist: matching is positional, so the two snapshots
+    being compared have to be of the SAME MOMENT, and the episode moves
+    dominoes around before the push. Anchoring on the episode's first
+    state only works if the recording covers the whole episode; anchoring
+    on a scored segment's first state only works if it happens to align.
+    The settled row immediately before the cascade is identifiable in
+    both streams no matter when recording started, and it is the
+    arrangement the propagation intervals are measured on.
+
+    Falls back to the FIRST state when nothing topples: with no cascade
+    there is no such moment, and the first state is what a whole-episode
+    recording starts from.
+    """
+    if not states:
+        return {}
+    names = sorted({
+        obj.name
+        for state in states for obj in state
+        if obj.name.startswith(prefix) and "roll" in obj.type.feature_names
+    })
+    keys = {name: i for i, name in enumerate(names)}
+    series: Dict[int, List[Tuple[float, float]]] = {}
+    for t, state in enumerate(states):
+        for obj in state:
+            key = keys.get(obj.name)
+            if key is None:
+                continue
+            series.setdefault(key, []).append(
+                (float(t), abs(math.degrees(float(state.get(obj, "roll"))))))
+    onsets = topple_onsets(series,
+                           confirm_deg=confirm_deg,
+                           onset_deg=onset_deg,
+                           min_persist=min_persist)
+    # Onset times are state INDICES here, since the series was built with a
+    # step of one: only the ordering matters for choosing a state.
+    cut = int(min(onsets.values())) if onsets else 0
+    settled = states[max(0, min(cut, len(states) - 1))]
+    return {
+        obj.name: (float(settled.get(obj, "x")), float(settled.get(obj, "y")))
+        for obj in settled
+        if obj.name.startswith(prefix) and "x" in obj.type.feature_names
+    }
+
+
 def interval_residuals(sim_intervals: Dict[int, float],
                        obs_intervals: Dict[int, float],
                        missing_penalty_s: float) -> List[float]:
@@ -418,6 +521,19 @@ def match_ids_by_position(state: State,
             continue
         twin[obj.name] = (float(state.get(obj,
                                           "x")), float(state.get(obj, "y")))
+    return match_ids_by_xy(twin, first_xy, tol_m)
+
+
+def match_ids_by_xy(twin: Dict[str, Tuple[float, float]],
+                    first_xy: Dict[int, Tuple[float, float]],
+                    tol_m: float = 0.04) -> Dict[str, int]:
+    """:func:`match_ids_by_position` given the two position sets directly.
+
+    Split out because the twin side is not always a ``State``: the
+    anchor is the settled arrangement before the cascade, which
+    :func:`settled_xy_before_cascade` reads off a whole episode rather
+    than any single state.
+    """
     if not twin or not first_xy:
         return {}
     best: Dict[str, int] = {}

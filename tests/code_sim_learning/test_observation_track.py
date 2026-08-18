@@ -7,6 +7,7 @@ as traces.
 """
 import io
 import json
+import math
 import os
 
 import pytest
@@ -386,6 +387,66 @@ def test_ids_are_matched_once_per_episode_not_per_segment(caplog):
     assert maps == [expected, expected], \
         "every segment of an episode maps by where the episode STARTED"
     assert "could not match" not in caplog.text
+
+
+def test_the_anchor_survives_a_take_that_starts_at_the_push(tmp_path):
+    """A recording that starts just before the Push, to save post-processing
+    time, has its first frame AFTER the plan rearranged the scene.
+
+    The episode-start anchor cannot work for such a take, and a segment-
+    start anchor cannot work for a whole-episode one. The settled
+    arrangement immediately before the cascade is identifiable in both
+    streams whichever window was recorded, so it is what both sides
+    anchor on.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.config import SysIdConfig
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        _episode_id_maps
+    utils.reset_config({"code_sim_learning_track_object_prefix": "domino_"})
+    row = {"domino_0": (0.60, 1.30), "domino_1": (0.60, 1.45)}
+    # domino_2 starts well off the row and the plan places it at the end.
+    start = dict(row, domino_2=(0.95, 1.00))
+    placed = dict(row, domino_2=(0.60, 1.60))
+
+    def _state(positions, roll):
+        """One twin state: the given layout at the given fall angle."""
+        return State({
+            Object(n, _DOMINO): [x, y, 0, 0, roll, 0, 0, 0]
+            for n, (x, y) in positions.items()
+        })
+
+    # Before the place, after it, then the cascade.
+    states = ([_state(start, 0.0)] * 5 + [_state(placed, 0.0)] * 5 +
+              [_state(placed, math.radians(a)) for a in _fall(steps=20)])
+    # The take begins two frames before the first domino moves: everything
+    # it ever sees is the PLACED layout.
+    frames = [{
+        "index":
+        i,
+        "timestamp_ns":
+        i * 16_666_667,
+        "dominoes": [{
+            "id": {
+                "domino_0": 2,
+                "domino_1": 0,
+                "domino_2": 1
+            }[name],
+            "fall_deg": angle,
+            "center_base_m": [x, y, 0.0],
+        } for name, (x, y) in placed.items()],
+    } for i, angle in enumerate([0.2] * 2 + _fall(steps=20))]
+    track = load_track(_write_track(tmp_path, frames))
+    # One episode, split into two scored segments by the place.
+    segments = [(states[:10], []), (states[10:], [])]
+
+    maps = _episode_id_maps([track], segments, SysIdConfig.from_cfg())
+
+    expected = {"domino_0": 2, "domino_1": 0, "domino_2": 1}
+    assert maps == [expected, expected], \
+        "the placed domino must match, though it is 600 mm from where the " \
+        "episode began"
 
 
 def test_paired_tracks_still_anchor_on_their_own_episode():

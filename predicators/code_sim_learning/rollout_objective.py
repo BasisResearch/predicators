@@ -328,11 +328,18 @@ def _track_in_world_frame(track: Any, config: SysIdConfig) -> Any:
     if yaw == 0.0 and off_x == 0.0 and off_y == 0.0:
         return track
     cos_y, sin_y = np.cos(yaw), np.sin(yaw)
-    moved = {
-        obj_id: (off_x + cos_y * x - sin_y * y, off_y + sin_y * x + cos_y * y)
-        for obj_id, (x, y) in track.first_xy.items()
-    }
-    return dataclasses.replace(track, first_xy=moved)
+
+    def _moved(xy: Dict[int, Any]) -> Dict[int, Any]:
+        """Both position sets, or the anchor and the fallback disagree."""
+        return {
+            obj_id:
+            (off_x + cos_y * x - sin_y * y, off_y + sin_y * x + cos_y * y)
+            for obj_id, (x, y) in xy.items()
+        }
+
+    return dataclasses.replace(track,
+                               first_xy=_moved(track.first_xy),
+                               pre_cascade_xy=_moved(track.pre_cascade_xy))
 
 
 def _track_for(tracks: List[Any], index: int, n_trajectories: int) -> Any:
@@ -380,29 +387,38 @@ def _episode_id_maps(tracks: List[Any], trajectories: List[RolloutTrajectory],
     """
     # pylint: disable-next=import-outside-toplevel
     from predicators.code_sim_learning.observation_track import \
-        match_ids_by_position, track_name_to_id
+        match_ids_by_xy, settled_xy_before_cascade, track_name_to_id
     if not trajectories or not tracks:
         return []
+    prefix = config.track_object_prefix
 
-    def _map_for(anchor_state: State, track: Any) -> Dict[str, int]:
-        """Positions first; names only if the track carries no geometry."""
-        name_to_id = match_ids_by_position(anchor_state, track.first_xy,
-                                           config.track_object_prefix)
+    def _map_for(states: List[State], track: Any) -> Dict[str, int]:
+        """Match the two settled arrangements, not two arbitrary moments."""
+        twin_xy = settled_xy_before_cascade(
+            states,
+            prefix,
+            confirm_deg=config.onset_confirm_deg,
+            onset_deg=config.onset_deg,
+            min_persist=config.onset_min_persist)
+        track_xy = track.pre_cascade_xy or track.first_xy
+        name_to_id = match_ids_by_xy(twin_xy, track_xy)
         if not name_to_id:
             logging.warning(
                 "falling back to matching track ids by object name, which "
                 "assumes the initialization boxes were drawn in the env's "
                 "own domino order")
-            name_to_id = track_name_to_id(anchor_state,
-                                          config.track_object_prefix)
+            name_to_id = track_name_to_id(states[0], prefix)
         return name_to_id
 
     if len(tracks) == len(trajectories):
         return [
-            _map_for(states[0], tracks[i])
+            _map_for(list(states), tracks[i])
             for i, (states, _) in enumerate(trajectories)
         ]
-    shared = _map_for(trajectories[0][0][0], tracks[-1])
+    # Segmentation split an episode, so the cascade may be in any segment:
+    # the whole episode's states in order, which is what the split came from.
+    whole = [s for states, _ in trajectories for s in states]
+    shared = _map_for(whole, tracks[-1])
     return [shared] * len(trajectories)
 
 
