@@ -1905,6 +1905,19 @@ class GlobalSettings:
     code_sim_learning_onset_min_persist = 3
     # Object-name prefix mapped onto the track's integer domino ids.
     code_sim_learning_track_object_prefix = "domino_"
+    # Rigid transform taking the track's frame into the env's world frame,
+    # applied to the track's positions before they are matched to objects.
+    # The markerless pipeline emits poses in the ROBOT BASE frame while a
+    # twin state is in the env's own world frame, and for the domino env
+    # those differ by a quarter turn (see
+    # pybullet_domino.real_geometry.base_to_world_transform). Matching is
+    # invariant to a translation -- it votes over candidate offsets, which is
+    # what absorbs the camera calibration error -- but NOT to a rotation, so
+    # without this every pair sits hundreds of mm apart and nothing matches.
+    # Identity by default: an env whose track is already in world frame, and
+    # every test that builds both sides in one frame, must be untouched.
+    code_sim_learning_track_frame_yaw = 0.0
+    code_sim_learning_track_frame_xy = (0.0, 0.0)
     # Frames per second assumed when a track carries no per-frame timestamps.
     code_sim_learning_track_fallback_fps = 60.0
     # How long a fit waits for the tracks its manifest promised. The online

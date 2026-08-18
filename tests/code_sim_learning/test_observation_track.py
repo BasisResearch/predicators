@@ -5,7 +5,10 @@ is ultimately measuring, and two spurious-fall mechanisms have been
 measured on real takes that a naive threshold fires on. Both appear here
 as traces.
 """
+import io
 import json
+import math
+import os
 
 import pytest
 
@@ -259,6 +262,244 @@ def test_one_bad_detection_does_not_break_the_other_matches(caplog):
     assert "could not match" in caplog.text
 
 
+def test_a_track_in_the_robot_base_frame_is_rotated_into_the_env_frame():
+    """The pipeline emits ROBOT BASE poses; a twin state is in the env's world
+    frame, and for the domino env the two differ by a quarter turn.
+
+    Matching votes over candidate translations, so it absorbs the camera
+    calibration offset -- but a rotation is not a translation, and
+    without this transform every pair lands hundreds of mm apart.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.config import SysIdConfig
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.observation_track import \
+        ObservationTrack, match_ids_by_position
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        _track_in_world_frame
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.envs.pybullet_domino.real_geometry import \
+        DOMINO_WORLD_ROBOT_XY, DOMINO_WORLD_ROBOT_YAW
+    utils.reset_config({
+        "code_sim_learning_track_object_prefix":
+        "domino_",
+        "code_sim_learning_track_frame_yaw":
+        DOMINO_WORLD_ROBOT_YAW,
+        "code_sim_learning_track_frame_xy":
+        DOMINO_WORLD_ROBOT_XY,
+    })
+    # A row along the base frame's +y, as the pipeline reports it.
+    base_xy = {0: (0.55, -0.15), 1: (0.55, 0.0), 2: (0.55, 0.15)}
+    # The same row after the quarter turn: what the env's state carries.
+    world = _domino_state({
+        "domino_0": (0.75 + 0.15, 0.72 + 0.55),
+        "domino_1": (0.75 - 0.00, 0.72 + 0.55),
+        "domino_2": (0.75 - 0.15, 0.72 + 0.55),
+    })
+    track = ObservationTrack(
+        angles_deg={i: _series(*_fall())
+                    for i in base_xy},
+        n_frames=20,
+        source="test",
+        first_xy=base_xy)
+    config = SysIdConfig.from_cfg()
+
+    # Not "matches nothing": the offset is voted for from the candidate
+    # pairings, so whichever pair supplies the winning offset always matches
+    # itself. What a rotated frame costs is every OTHER domino.
+    raw = match_ids_by_position(world, track.first_xy, "domino_")
+    assert len(raw) < 3, \
+        "raw base-frame positions cannot match a world-frame state"
+
+    moved = _track_in_world_frame(track, config)
+    mapping = match_ids_by_position(world, moved.first_xy, "domino_")
+
+    assert mapping == {"domino_0": 0, "domino_1": 1, "domino_2": 2}
+    assert moved.angles_deg == track.angles_deg, \
+        "a yaw of the frame leaves every per-domino fall angle alone"
+
+
+def test_the_frame_transform_is_identity_by_default():
+    """An env whose track already shares the twin's frame, and every test that
+    builds both sides in one frame, must be untouched."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.config import SysIdConfig
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.observation_track import \
+        ObservationTrack
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        _track_in_world_frame
+    utils.reset_config({})
+    track = ObservationTrack(angles_deg={0: _series(*_fall())},
+                             n_frames=20,
+                             source="test",
+                             first_xy={0: (0.55, -0.15)})
+
+    assert _track_in_world_frame(track, SysIdConfig.from_cfg()) is track
+
+
+def test_ids_are_matched_once_per_episode_not_per_segment(caplog):
+    """Segmentation splits ONE episode into several scored trajectories, and
+    only the first of them starts where the track's first frame does.
+
+    This episode picks and places a domino before the push, so by the
+    second segment the twin has it 200 mm from where frame 0 saw it --
+    five times the matching tolerance. Matching per segment drops that
+    domino, and the interval it carries, from every segment after the
+    first; matching once per episode keeps it.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.config import SysIdConfig
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.observation_track import \
+        ObservationTrack
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        _episode_id_maps
+    utils.reset_config({"code_sim_learning_track_object_prefix": "domino_"})
+    start = {
+        "domino_0": (0.60, 1.30),
+        "domino_1": (0.70, 1.30),
+        "domino_2": (0.40, 1.00),
+    }
+    # domino_2 is the one the plan relocates: 300 mm in x, 300 mm in y.
+    after_place = dict(start, domino_2=(0.80, 1.30))
+    track = ObservationTrack(
+        angles_deg={i: _series(*_fall())
+                    for i in range(3)},
+        n_frames=20,
+        source="test",
+        first_xy={
+            0: start["domino_0"],
+            1: start["domino_1"],
+            2: start["domino_2"]
+        })
+    # Two segments of one episode: the second begins after the place.
+    trajectories = [([_domino_state(start)], []),
+                    ([_domino_state(after_place)], [])]
+
+    with caplog.at_level("WARNING"):
+        maps = _episode_id_maps([track], trajectories, SysIdConfig.from_cfg())
+
+    expected = {"domino_0": 0, "domino_1": 1, "domino_2": 2}
+    assert maps == [expected, expected], \
+        "every segment of an episode maps by where the episode STARTED"
+    assert "could not match" not in caplog.text
+
+
+def test_the_anchor_survives_a_take_that_starts_at_the_push(tmp_path):
+    """A recording that starts just before the Push, to save post-processing
+    time, has its first frame AFTER the plan rearranged the scene.
+
+    The episode-start anchor cannot work for such a take, and a segment-
+    start anchor cannot work for a whole-episode one. The settled
+    arrangement immediately before the cascade is identifiable in both
+    streams whichever window was recorded, so it is what both sides
+    anchor on.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.config import SysIdConfig
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        _episode_id_maps
+    utils.reset_config({"code_sim_learning_track_object_prefix": "domino_"})
+    row = {"domino_0": (0.60, 1.30), "domino_1": (0.60, 1.45)}
+    # domino_2 starts well off the row and the plan places it at the end.
+    start = dict(row, domino_2=(0.95, 1.00))
+    placed = dict(row, domino_2=(0.60, 1.60))
+
+    def _state(positions, roll):
+        """One twin state: the given layout at the given fall angle."""
+        return State({
+            Object(n, _DOMINO): [x, y, 0, 0, roll, 0, 0, 0]
+            for n, (x, y) in positions.items()
+        })
+
+    # Before the place, after it, then the cascade.
+    states = ([_state(start, 0.0)] * 5 + [_state(placed, 0.0)] * 5 +
+              [_state(placed, math.radians(a)) for a in _fall(steps=20)])
+    # The take begins two frames before the first domino moves: everything
+    # it ever sees is the PLACED layout.
+    frames = [{
+        "index":
+        i,
+        "timestamp_ns":
+        i * 16_666_667,
+        "dominoes": [{
+            "id": {
+                "domino_0": 2,
+                "domino_1": 0,
+                "domino_2": 1
+            }[name],
+            "fall_deg": angle,
+            "center_base_m": [x, y, 0.0],
+        } for name, (x, y) in placed.items()],
+    } for i, angle in enumerate([0.2] * 2 + _fall(steps=20))]
+    track = load_track(_write_track(tmp_path, frames))
+    # One episode, split into two scored segments by the place.
+    segments = [(states[:10], []), (states[10:], [])]
+
+    maps = _episode_id_maps([track], segments, SysIdConfig.from_cfg())
+
+    expected = {"domino_0": 2, "domino_1": 0, "domino_2": 1}
+    assert maps == [expected, expected], \
+        "the placed domino must match, though it is 600 mm from where the " \
+        "episode began"
+
+
+def test_paired_tracks_still_anchor_on_their_own_episode():
+    """One track per trajectory means no segmentation happened, so each
+    trajectory is its own episode and anchors on its own initial state -- it
+    must NOT be forced onto the first trajectory's layout."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.config import SysIdConfig
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.observation_track import \
+        ObservationTrack
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        _episode_id_maps
+    utils.reset_config({"code_sim_learning_track_object_prefix": "domino_"})
+
+    def _track(first_xy):
+        """A track carrying only the geometry the matching reads."""
+        return ObservationTrack(
+            angles_deg={i: _series(*_fall())
+                        for i in first_xy},
+            n_frames=20,
+            source="test",
+            first_xy=first_xy)
+
+    layout_a = {"domino_0": (0.60, 1.30), "domino_1": (0.70, 1.30)}
+    # A second episode, re-laid a long way from the first, with its boxes
+    # drawn in the other order.
+    layout_b = {"domino_0": (1.60, 2.30), "domino_1": (1.70, 2.30)}
+    tracks = [
+        _track({
+            0: layout_a["domino_0"],
+            1: layout_a["domino_1"]
+        }),
+        _track({
+            0: layout_b["domino_1"],
+            1: layout_b["domino_0"]
+        }),
+    ]
+    trajectories = [([_domino_state(layout_a)], []),
+                    ([_domino_state(layout_b)], [])]
+
+    maps = _episode_id_maps(tracks, trajectories, SysIdConfig.from_cfg())
+
+    assert maps == [{
+        "domino_0": 0,
+        "domino_1": 1
+    }, {
+        "domino_0": 1,
+        "domino_1": 0
+    }]
+
+
 def test_object_names_map_onto_track_ids():
     """The one place the numbering assumption lives."""
     state = State({
@@ -283,6 +524,125 @@ def _write_track(tmp_path, frames):
     }),
                     encoding="utf-8")
     return str(path)
+
+
+def _truncate(path, fraction=0.45):
+    """Leave the file real, non-empty, and mid-document.
+
+    What a reader sees while the pipeline is still writing: the path
+    exists and the bytes so far are genuine, they just stop partway
+    through.
+    """
+    text = io.open(path, encoding="utf-8").read()
+    io.open(path, "w",
+            encoding="utf-8").write(text[:int(len(text) * fraction)])
+    return path
+
+
+def test_a_half_written_track_is_not_complete(tmp_path):
+    """Existence is not completion.
+
+    On run_20260818_092302 the fit logged "all episode tracks are ready"
+    and then failed to parse 28 MB of track at char 11,997,567, because
+    the path had appeared while the pipeline was still writing.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.observation_track import \
+        track_is_complete
+    frames = [{
+        "index":
+        i,
+        "timestamp_ns":
+        i,
+        "dominoes": [{
+            "id": 0,
+            "fall_deg": float(i),
+            "center_base_m": [0.5, 0.1, 0.0]
+        }]
+    } for i in range(200)]
+    path = _write_track(tmp_path, frames)
+
+    assert track_is_complete(path), "a finished track is complete"
+
+    _truncate(path)
+
+    assert not track_is_complete(path), \
+        "a track still being written must not read as ready"
+    assert os.path.exists(path), \
+        "and it is not absent either -- which is why existence cannot decide"
+
+
+def test_the_wait_does_not_end_on_a_half_written_track(tmp_path, caplog):
+    """The wait must run to its deadline rather than declaring victory on a
+    file that is merely present."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.observation_track import _await_tracks
+    frames = [{
+        "index":
+        0,
+        "timestamp_ns":
+        0,
+        "dominoes": [{
+            "id": 0,
+            "fall_deg": 1.0,
+            "center_base_m": [0.5, 0.1, 0.0]
+        }]
+    }]
+    path = _truncate(_write_track(tmp_path, frames))
+
+    with caplog.at_level("INFO"):
+        _await_tracks([{"episode": 1, "track": path}], wait_s=0.1)
+
+    assert "waiting up to" in caplog.text
+    assert "all episode tracks are ready" not in caplog.text
+
+
+def test_one_half_written_track_does_not_discard_the_finished_ones(
+        tmp_path, caplog):
+    """The caller catches at the granularity of the whole manifest, so a single
+    truncated file used to take every other episode's evidence with it."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.observation_track import load_tracks
+
+    def _episode(name):
+        """One finished track, written under its own name."""
+        sub = tmp_path / name
+        sub.mkdir()
+        frames = [{
+            "index":
+            i,
+            "timestamp_ns":
+            i * 1000,
+            "dominoes": [{
+                "id": 0,
+                "fall_deg": float(i),
+                "center_base_m": [0.5, 0.1, 0.0]
+            }]
+        } for i in range(60)]
+        return _write_track(sub, frames)
+
+    good, half = _episode("good"), _truncate(_episode("half"))
+    manifest = tmp_path / "tracks.json"
+    manifest.write_text(json.dumps({
+        "episodes": [
+            {
+                "episode": 1,
+                "track": good
+            },
+            {
+                "episode": 2,
+                "track": half
+            },
+        ]
+    }),
+                        encoding="utf-8")
+
+    with caplog.at_level("WARNING"):
+        tracks = load_tracks(str(manifest), wait_s=0.0)
+
+    assert len(tracks) == 1, "the finished episode survives its neighbour"
+    assert tracks[0].source == good
+    assert "still being written" in caplog.text
 
 
 def test_loading_reads_timestamps_and_angles(tmp_path):
@@ -559,7 +919,7 @@ def test_the_wait_gives_up_rather_than_hanging(tmp_path, caplog):
 
     with caplog.at_level("WARNING"):
         assert not load_tracks(_manifest(tmp_path, episodes), wait_s=0.01)
-    assert "still has no track" in caplog.text
+    assert "has no usable track" in caplog.text
 
 
 def test_no_wait_returns_immediately(tmp_path):
