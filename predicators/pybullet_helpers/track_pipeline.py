@@ -56,6 +56,8 @@ class MarkerlessTrackProcessor:
                  max_frames: Optional[int] = None,
                  trim: bool = True,
                  trim_args: str = "",
+                 jobs: int = 0,
+                 viz: bool = False,
                  launcher: Any = None) -> None:
         self._script = script or _default_script()
         self._boxes_json = boxes_json
@@ -63,6 +65,8 @@ class MarkerlessTrackProcessor:
         self._max_frames = max_frames
         self._trim = trim
         self._trim_args = trim_args
+        self._jobs_requested = jobs
+        self._viz = viz
         # Injectable so tests drive the whole lifecycle without a GPU: takes
         # (argv, env) and returns something with poll()/wait().
         self._launcher = launcher or _popen
@@ -87,6 +91,18 @@ class MarkerlessTrackProcessor:
         argv = [self._script, svo, bundle, "given", "--z-mode", self._z_mode]
         env = dict(os.environ)
         env["SERIAL"] = str(serial)
+        if self._jobs_requested:
+            # Stage 4 fans out and saturates whatever it is given; the driver's
+            # own default is 16, which left half a 32-core box idle for the
+            # largest step in the pipeline.
+            env["JOBS"] = str(self._jobs_requested)
+        if not self._viz:
+            # Skip masks_overlay.mp4, which is rendered before stage 4 and so
+            # delays the track by its full cost. Ignored by a driver that
+            # predates the flag -- it renders the overlay as it always did,
+            # rather than failing -- which is what lets this be set before the
+            # submodule has it.
+            env["TRACK_VIZ"] = "0"
         if self._max_frames:
             env["MAX_FRAMES"] = str(self._max_frames)
         if self._trim:
@@ -294,7 +310,9 @@ def make_track_processor() -> MarkerlessTrackProcessor:
         z_mode=CFG.real_robot_track_z_mode,
         max_frames=CFG.real_robot_recording_max_frames or None,
         trim=CFG.real_robot_trim_still_frames,
-        trim_args=CFG.real_robot_trim_args)
+        trim_args=CFG.real_robot_trim_args,
+        jobs=CFG.real_robot_track_jobs,
+        viz=CFG.real_robot_track_viz)
 
 
 def write_manifest(path: str, episodes: List[Dict[str, Any]]) -> None:
