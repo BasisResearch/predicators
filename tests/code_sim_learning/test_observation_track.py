@@ -5,7 +5,9 @@ is ultimately measuring, and two spurious-fall mechanisms have been
 measured on real takes that a naive threshold fires on. Both appear here
 as traces.
 """
+import io
 import json
+import os
 
 import pytest
 
@@ -463,6 +465,125 @@ def _write_track(tmp_path, frames):
     return str(path)
 
 
+def _truncate(path, fraction=0.45):
+    """Leave the file real, non-empty, and mid-document.
+
+    What a reader sees while the pipeline is still writing: the path
+    exists and the bytes so far are genuine, they just stop partway
+    through.
+    """
+    text = io.open(path, encoding="utf-8").read()
+    io.open(path, "w",
+            encoding="utf-8").write(text[:int(len(text) * fraction)])
+    return path
+
+
+def test_a_half_written_track_is_not_complete(tmp_path):
+    """Existence is not completion.
+
+    On run_20260818_092302 the fit logged "all episode tracks are ready"
+    and then failed to parse 28 MB of track at char 11,997,567, because
+    the path had appeared while the pipeline was still writing.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.observation_track import \
+        track_is_complete
+    frames = [{
+        "index":
+        i,
+        "timestamp_ns":
+        i,
+        "dominoes": [{
+            "id": 0,
+            "fall_deg": float(i),
+            "center_base_m": [0.5, 0.1, 0.0]
+        }]
+    } for i in range(200)]
+    path = _write_track(tmp_path, frames)
+
+    assert track_is_complete(path), "a finished track is complete"
+
+    _truncate(path)
+
+    assert not track_is_complete(path), \
+        "a track still being written must not read as ready"
+    assert os.path.exists(path), \
+        "and it is not absent either -- which is why existence cannot decide"
+
+
+def test_the_wait_does_not_end_on_a_half_written_track(tmp_path, caplog):
+    """The wait must run to its deadline rather than declaring victory on a
+    file that is merely present."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.observation_track import _await_tracks
+    frames = [{
+        "index":
+        0,
+        "timestamp_ns":
+        0,
+        "dominoes": [{
+            "id": 0,
+            "fall_deg": 1.0,
+            "center_base_m": [0.5, 0.1, 0.0]
+        }]
+    }]
+    path = _truncate(_write_track(tmp_path, frames))
+
+    with caplog.at_level("INFO"):
+        _await_tracks([{"episode": 1, "track": path}], wait_s=0.1)
+
+    assert "waiting up to" in caplog.text
+    assert "all episode tracks are ready" not in caplog.text
+
+
+def test_one_half_written_track_does_not_discard_the_finished_ones(
+        tmp_path, caplog):
+    """The caller catches at the granularity of the whole manifest, so a single
+    truncated file used to take every other episode's evidence with it."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.observation_track import load_tracks
+
+    def _episode(name):
+        """One finished track, written under its own name."""
+        sub = tmp_path / name
+        sub.mkdir()
+        frames = [{
+            "index":
+            i,
+            "timestamp_ns":
+            i * 1000,
+            "dominoes": [{
+                "id": 0,
+                "fall_deg": float(i),
+                "center_base_m": [0.5, 0.1, 0.0]
+            }]
+        } for i in range(60)]
+        return _write_track(sub, frames)
+
+    good, half = _episode("good"), _truncate(_episode("half"))
+    manifest = tmp_path / "tracks.json"
+    manifest.write_text(json.dumps({
+        "episodes": [
+            {
+                "episode": 1,
+                "track": good
+            },
+            {
+                "episode": 2,
+                "track": half
+            },
+        ]
+    }),
+                        encoding="utf-8")
+
+    with caplog.at_level("WARNING"):
+        tracks = load_tracks(str(manifest), wait_s=0.0)
+
+    assert len(tracks) == 1, "the finished episode survives its neighbour"
+    assert tracks[0].source == good
+    assert "still being written" in caplog.text
+
+
 def test_loading_reads_timestamps_and_angles(tmp_path):
     """The schema the pipeline emits, unchanged."""
     frames = [{
@@ -737,7 +858,7 @@ def test_the_wait_gives_up_rather_than_hanging(tmp_path, caplog):
 
     with caplog.at_level("WARNING"):
         assert not load_tracks(_manifest(tmp_path, episodes), wait_s=0.01)
-    assert "still has no track" in caplog.text
+    assert "has no usable track" in caplog.text
 
 
 def test_no_wait_returns_immediately(tmp_path):

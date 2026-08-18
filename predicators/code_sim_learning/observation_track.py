@@ -167,40 +167,90 @@ def load_tracks(path: str,
     tracks: List[ObservationTrack] = []
     for entry in wanted:
         track_path = entry.get("track")
-        if not track_path or not os.path.exists(track_path):
+        if not track_path or not track_is_complete(str(track_path)):
+            # Skipped, not raised. This loop is every episode of the run, and
+            # letting one half-written file propagate would discard the
+            # finished tracks either side of it -- the caller catches at the
+            # granularity of the whole manifest and falls back to per-step
+            # scoring for all of them.
             logging.warning(
-                "episode %s still has no track at %s after waiting %.0fs; it "
-                "is skipped, so this fit sees less evidence than the run "
-                "recorded. Raise code_sim_learning_track_wait_s if "
-                "post-processing is simply slow.", entry.get("episode", "?"),
-                track_path, wait_s)
+                "episode %s has no usable track at %s after waiting %.0fs "
+                "(absent, or still being written); it is skipped, so this fit "
+                "sees less evidence than the run recorded. Raise "
+                "code_sim_learning_track_wait_s if post-processing is simply "
+                "slow.", entry.get("episode", "?"), track_path, wait_s)
             continue
-        tracks.append(load_track(track_path, fallback_fps))
+        tracks.append(load_track(str(track_path), fallback_fps))
     return tracks
 
 
+def track_is_complete(path: str) -> bool:
+    """Whether the track at ``path`` is finished being written.
+
+    **Parses, rather than exists.** The pipeline writes a track in one
+    pass and a dense one is tens of megabytes, so between the path
+    appearing and the last byte landing there is a window in which the
+    file is real, growing, and not valid JSON. A reader that starts on
+    existence alone falls into it: on run_20260818_092302 the fit read
+    28 MB of track at char 11,997,567 and got "Expecting ',' delimiter",
+    then fell back to per-step scoring -- which cost it its evidence
+    just as surely as no track at all, while logging that the tracks
+    were ready. Parsing is the only test that separates "still being
+    written" from "written".
+    """
+    if not os.path.exists(path):
+        return False
+    try:
+        with open(path, encoding="utf-8") as f:
+            json.load(f)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _settled(path: str, sizes: Dict[str, int]) -> bool:
+    """Whether ``path`` is complete, without re-parsing it every poll.
+
+    Size is a stat and the parse is the whole document, so a file whose
+    length changed since the last look is still being written and needs
+    no parse to rule out. ``sizes`` carries that previous look across
+    iterations. The parse still decides -- a writer that stalls would
+    hold its size steady while remaining truncated.
+    """
+    if not os.path.exists(path):
+        return False
+    size = os.path.getsize(path)
+    if sizes.get(path) != size:
+        sizes[path] = size
+        return False
+    return track_is_complete(path)
+
+
 def _await_tracks(entries: List[Dict[str, Any]], wait_s: float) -> None:
-    """Block until every promised track exists, or ``wait_s`` expires.
+    """Block until every promised track is COMPLETE, or ``wait_s`` expires.
 
     Polls rather than joining the pipeline processes: the fit runs in a
     different process from the recorder that launched them, so the file
-    appearing is the only signal available to it.
+    is the only signal available to it. What counts as ready is
+    ``track_is_complete``, not the path existing.
     """
     if wait_s <= 0:
         return
-    missing = [
-        e for e in entries
-        if e.get("track") and not os.path.exists(str(e["track"]))
+    pending = [
+        str(e["track"]) for e in entries
+        if e.get("track") and not track_is_complete(str(e["track"]))
     ]
-    if not missing:
+    if not pending:
         return
     logging.info(
         "waiting up to %.0fs for %d episode track(s) to finish "
         "post-processing; each run takes about 3x the length of its take",
-        wait_s, len(missing))
+        wait_s, len(pending))
     deadline = time.monotonic() + wait_s
+    sizes: Dict[str, int] = {}
     while time.monotonic() < deadline:
-        if all(os.path.exists(str(e["track"])) for e in missing):
+        pending = [p for p in pending if not _settled(p, sizes)]
+        if not pending:
             logging.info("all episode tracks are ready")
             return
         time.sleep(_POLL_S)
