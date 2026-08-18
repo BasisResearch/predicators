@@ -568,3 +568,48 @@ def test_the_driver_honours_the_trim_request_once_it_can():
             "this submodule predates --trim-motion; TRIM is being set and "
             "ignored, so takes are NOT being trimmed")
     assert "TRIM" in text, "the driver has --trim-motion but reads no TRIM"
+
+
+# The domino bench: fingers rest at the faces rather than closing through.
+_STALLING_LAYOUT = GripperJointLayout(left_finger_joint_idx=7,
+                                      right_finger_joint_idx=8,
+                                      open_fingers=0.04,
+                                      closed_fingers=0.01)
+
+
+def test_split_actions_does_not_read_a_carried_object_as_a_release():
+    """Regression, measured on a Pick in the twin.
+
+    Grasp commands ``closed - 0.01`` = 0.00000, deliberately past the
+    domino. The fingers STALL on it at 0.00658 -- they are force-capped
+    so they rest at the faces instead of closing through -- and the
+    carry phases that follow command ``achieved - 1mm`` = 0.00558. That
+    is wider than the grasp COMMAND, which is all this splitter sees, so
+    a 5mm release epsilon called it a release: every Pick shipped close,
+    open, close and the hand visibly opened around the domino it had
+    just taken.
+    """
+    pytest.importorskip("babyrobot")
+    widths = [0.04, 0.04, 0.0, 0.00558, 0.00558, 0.00611, 0.00612]
+
+    assert _commands(widths, _STALLING_LAYOUT) == ["open", "close"]
+
+
+def test_split_actions_still_sees_a_real_release_on_that_bench():
+    """The other half of the same margin: a genuine release measures
+    0.0122 on this scale and must still register, or the object is
+    carried away instead of being put down."""
+    pytest.importorskip("babyrobot")
+    widths = [0.04, 0.0, 0.00558, 0.0122, 0.0122]
+
+    assert _commands(widths, _STALLING_LAYOUT) == ["open", "close", "open"]
+
+
+def test_release_eps_sits_between_the_two_measured_widths():
+    """The constant is fitted, not derived, so pin what it was fitted to.
+
+    A carry command of 0.00558 must not clear it and a release of
+    0.0122 must. If someone retunes the grasp depth or the finger
+    force, these are the two numbers to re-measure.
+    """
+    assert 0.00558 <= _RELEASE_EPS < 0.0122
