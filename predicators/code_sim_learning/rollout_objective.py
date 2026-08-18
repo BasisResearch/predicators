@@ -9,6 +9,7 @@ for why the objective free-runs the base sim.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
@@ -177,6 +178,10 @@ def _iter_rollout_residual_terms(
     loaded = _load_scored_track(config) if config.score_observed_only else None
     tracks: List[Any] = loaded or []
     score_intervals = bool(tracks)
+    # Once per objective evaluation, and once per EPISODE rather than per
+    # scored segment: the positions only line up at the episode's start.
+    id_maps = (_episode_id_maps(tracks, trajectories, config)
+               if score_intervals else [])
     physical = {n: params[n] for n in physical_names if n in params}
     rules_list = list(rules)
     latent_mode = bool(rules_list) and has_latent_rules(rules_list)
@@ -228,7 +233,7 @@ def _iter_rollout_residual_terms(
             # thousands of terms to a handful.
             yield from _interval_residual_terms(
                 sim_states, _track_for(tracks, traj_index, len(trajectories)),
-                config, summary_w)
+                id_maps[traj_index], config, summary_w)
             continue
         endpoint_residuals: List[float] = []
         for i, sim_state in enumerate(sim_states):
@@ -301,8 +306,33 @@ def _load_scored_track(config: SysIdConfig) -> Optional[Any]:
             "or none has been post-processed yet); falling back to per-step "
             "scoring.", config.track_path)
         return None
+    tracks = [_track_in_world_frame(t, config) for t in tracks]
     _TRACK_CACHE[config.track_path] = tracks
     return tracks
+
+
+def _track_in_world_frame(track: Any, config: SysIdConfig) -> Any:
+    """The same track with its positions in the env's world frame.
+
+    Only the positions move. The angles the onsets are detected from are
+    per-domino rotations about the table normal, so a yaw of the whole
+    frame leaves every one of them unchanged -- which is why this is a
+    matching concern and not a scoring one.
+
+    Identity when the flags are unset, and the track is returned
+    untouched rather than rebuilt, so an env whose track already shares
+    the twin's frame pays nothing and cannot be perturbed.
+    """
+    yaw = float(config.track_frame_yaw)
+    off_x, off_y = (float(v) for v in config.track_frame_xy)
+    if yaw == 0.0 and off_x == 0.0 and off_y == 0.0:
+        return track
+    cos_y, sin_y = np.cos(yaw), np.sin(yaw)
+    moved = {
+        obj_id: (off_x + cos_y * x - sin_y * y, off_y + sin_y * x + cos_y * y)
+        for obj_id, (x, y) in track.first_xy.items()
+    }
+    return dataclasses.replace(track, first_xy=moved)
 
 
 def _track_for(tracks: List[Any], index: int, n_trajectories: int) -> Any:
@@ -328,8 +358,56 @@ def _track_for(tracks: List[Any], index: int, n_trajectories: int) -> Any:
     return tracks[-1]
 
 
+def _episode_id_maps(tracks: List[Any], trajectories: List[RolloutTrajectory],
+                     config: SysIdConfig) -> List[Dict[str, int]]:
+    """Match track ids to object names once per EPISODE, not per segment.
+
+    The match is positional, and the one moment the two position sets
+    are known to agree is the track's first frame against the episode's
+    INITIAL state. Rest-point segmentation then splits that episode into
+    several scored trajectories, and every segment after the first
+    starts from a state the episode has already rearranged: a
+    pick-and-place moves a domino by ~200 mm, five times the matching
+    tolerance, so a per-segment match silently drops those objects and
+    the intervals they carry.
+
+    When the counts pair one-to-one, each trajectory is its own episode
+    and anchors on its own initial state. Otherwise segmentation has
+    split something -- ``_track_for`` scores every trajectory against
+    the most recent track -- and the anchor is the FIRST trajectory's
+    initial state, which is where the episode began, before the plan
+    moved anything.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.observation_track import \
+        match_ids_by_position, track_name_to_id
+    if not trajectories or not tracks:
+        return []
+
+    def _map_for(anchor_state: State, track: Any) -> Dict[str, int]:
+        """Positions first; names only if the track carries no geometry."""
+        name_to_id = match_ids_by_position(anchor_state, track.first_xy,
+                                           config.track_object_prefix)
+        if not name_to_id:
+            logging.warning(
+                "falling back to matching track ids by object name, which "
+                "assumes the initialization boxes were drawn in the env's "
+                "own domino order")
+            name_to_id = track_name_to_id(anchor_state,
+                                          config.track_object_prefix)
+        return name_to_id
+
+    if len(tracks) == len(trajectories):
+        return [
+            _map_for(states[0], tracks[i])
+            for i, (states, _) in enumerate(trajectories)
+        ]
+    shared = _map_for(trajectories[0][0][0], tracks[-1])
+    return [shared] * len(trajectories)
+
+
 def _interval_residual_terms(sim_states: List[State], track: Any,
-                             config: SysIdConfig,
+                             name_to_id: Dict[str, int], config: SysIdConfig,
                              summary_w: float) -> Iterator[float]:
     """Yield (sim - observed) propagation intervals, in seconds.
 
@@ -341,21 +419,13 @@ def _interval_residual_terms(sim_states: List[State], track: Any,
     """
     # pylint: disable-next=import-outside-toplevel
     from predicators.code_sim_learning.observation_track import \
-        interval_residuals, match_ids_by_position, propagation_intervals, \
-        sim_topple_series, topple_onsets, track_name_to_id
+        interval_residuals, propagation_intervals, sim_topple_series, \
+        topple_onsets
     if not sim_states:
         return
-    # By position when the track carries any: the ids are box-drawing order,
-    # so the names only line up if something forced them to.
-    name_to_id = match_ids_by_position(sim_states[0], track.first_xy,
-                                       config.track_object_prefix)
-    if not name_to_id:
-        logging.warning(
-            "falling back to matching track ids by object name, which assumes "
-            "the initialization boxes were drawn in the env's own domino "
-            "order")
-        name_to_id = track_name_to_id(sim_states[0],
-                                      config.track_object_prefix)
+    # Matched once for the whole episode by _episode_id_maps, because only
+    # the episode's initial state is contemporaneous with the track's first
+    # frame; see that function.
     if not name_to_id:
         logging.warning(
             "no object name starts with %r, so nothing in the rollout maps "

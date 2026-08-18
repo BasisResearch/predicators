@@ -259,6 +259,184 @@ def test_one_bad_detection_does_not_break_the_other_matches(caplog):
     assert "could not match" in caplog.text
 
 
+def test_a_track_in_the_robot_base_frame_is_rotated_into_the_env_frame():
+    """The pipeline emits ROBOT BASE poses; a twin state is in the env's world
+    frame, and for the domino env the two differ by a quarter turn.
+
+    Matching votes over candidate translations, so it absorbs the camera
+    calibration offset -- but a rotation is not a translation, and
+    without this transform every pair lands hundreds of mm apart.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.config import SysIdConfig
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.observation_track import \
+        ObservationTrack, match_ids_by_position
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        _track_in_world_frame
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.envs.pybullet_domino.real_geometry import \
+        DOMINO_WORLD_ROBOT_XY, DOMINO_WORLD_ROBOT_YAW
+    utils.reset_config({
+        "code_sim_learning_track_object_prefix":
+        "domino_",
+        "code_sim_learning_track_frame_yaw":
+        DOMINO_WORLD_ROBOT_YAW,
+        "code_sim_learning_track_frame_xy":
+        DOMINO_WORLD_ROBOT_XY,
+    })
+    # A row along the base frame's +y, as the pipeline reports it.
+    base_xy = {0: (0.55, -0.15), 1: (0.55, 0.0), 2: (0.55, 0.15)}
+    # The same row after the quarter turn: what the env's state carries.
+    world = _domino_state({
+        "domino_0": (0.75 + 0.15, 0.72 + 0.55),
+        "domino_1": (0.75 - 0.00, 0.72 + 0.55),
+        "domino_2": (0.75 - 0.15, 0.72 + 0.55),
+    })
+    track = ObservationTrack(
+        angles_deg={i: _series(*_fall())
+                    for i in base_xy},
+        n_frames=20,
+        source="test",
+        first_xy=base_xy)
+    config = SysIdConfig.from_cfg()
+
+    # Not "matches nothing": the offset is voted for from the candidate
+    # pairings, so whichever pair supplies the winning offset always matches
+    # itself. What a rotated frame costs is every OTHER domino.
+    raw = match_ids_by_position(world, track.first_xy, "domino_")
+    assert len(raw) < 3, \
+        "raw base-frame positions cannot match a world-frame state"
+
+    moved = _track_in_world_frame(track, config)
+    mapping = match_ids_by_position(world, moved.first_xy, "domino_")
+
+    assert mapping == {"domino_0": 0, "domino_1": 1, "domino_2": 2}
+    assert moved.angles_deg == track.angles_deg, \
+        "a yaw of the frame leaves every per-domino fall angle alone"
+
+
+def test_the_frame_transform_is_identity_by_default():
+    """An env whose track already shares the twin's frame, and every test that
+    builds both sides in one frame, must be untouched."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.config import SysIdConfig
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.observation_track import \
+        ObservationTrack
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        _track_in_world_frame
+    utils.reset_config({})
+    track = ObservationTrack(angles_deg={0: _series(*_fall())},
+                             n_frames=20,
+                             source="test",
+                             first_xy={0: (0.55, -0.15)})
+
+    assert _track_in_world_frame(track, SysIdConfig.from_cfg()) is track
+
+
+def test_ids_are_matched_once_per_episode_not_per_segment(caplog):
+    """Segmentation splits ONE episode into several scored trajectories, and
+    only the first of them starts where the track's first frame does.
+
+    This episode picks and places a domino before the push, so by the
+    second segment the twin has it 200 mm from where frame 0 saw it --
+    five times the matching tolerance. Matching per segment drops that
+    domino, and the interval it carries, from every segment after the
+    first; matching once per episode keeps it.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.config import SysIdConfig
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.observation_track import \
+        ObservationTrack
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        _episode_id_maps
+    utils.reset_config({"code_sim_learning_track_object_prefix": "domino_"})
+    start = {
+        "domino_0": (0.60, 1.30),
+        "domino_1": (0.70, 1.30),
+        "domino_2": (0.40, 1.00),
+    }
+    # domino_2 is the one the plan relocates: 300 mm in x, 300 mm in y.
+    after_place = dict(start, domino_2=(0.80, 1.30))
+    track = ObservationTrack(
+        angles_deg={i: _series(*_fall())
+                    for i in range(3)},
+        n_frames=20,
+        source="test",
+        first_xy={
+            0: start["domino_0"],
+            1: start["domino_1"],
+            2: start["domino_2"]
+        })
+    # Two segments of one episode: the second begins after the place.
+    trajectories = [([_domino_state(start)], []),
+                    ([_domino_state(after_place)], [])]
+
+    with caplog.at_level("WARNING"):
+        maps = _episode_id_maps([track], trajectories, SysIdConfig.from_cfg())
+
+    expected = {"domino_0": 0, "domino_1": 1, "domino_2": 2}
+    assert maps == [expected, expected], \
+        "every segment of an episode maps by where the episode STARTED"
+    assert "could not match" not in caplog.text
+
+
+def test_paired_tracks_still_anchor_on_their_own_episode():
+    """One track per trajectory means no segmentation happened, so each
+    trajectory is its own episode and anchors on its own initial state -- it
+    must NOT be forced onto the first trajectory's layout."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.config import SysIdConfig
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.observation_track import \
+        ObservationTrack
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        _episode_id_maps
+    utils.reset_config({"code_sim_learning_track_object_prefix": "domino_"})
+
+    def _track(first_xy):
+        """A track carrying only the geometry the matching reads."""
+        return ObservationTrack(
+            angles_deg={i: _series(*_fall())
+                        for i in first_xy},
+            n_frames=20,
+            source="test",
+            first_xy=first_xy)
+
+    layout_a = {"domino_0": (0.60, 1.30), "domino_1": (0.70, 1.30)}
+    # A second episode, re-laid a long way from the first, with its boxes
+    # drawn in the other order.
+    layout_b = {"domino_0": (1.60, 2.30), "domino_1": (1.70, 2.30)}
+    tracks = [
+        _track({
+            0: layout_a["domino_0"],
+            1: layout_a["domino_1"]
+        }),
+        _track({
+            0: layout_b["domino_1"],
+            1: layout_b["domino_0"]
+        }),
+    ]
+    trajectories = [([_domino_state(layout_a)], []),
+                    ([_domino_state(layout_b)], [])]
+
+    maps = _episode_id_maps(tracks, trajectories, SysIdConfig.from_cfg())
+
+    assert maps == [{
+        "domino_0": 0,
+        "domino_1": 1
+    }, {
+        "domino_0": 1,
+        "domino_1": 0
+    }]
+
+
 def test_object_names_map_onto_track_ids():
     """The one place the numbering assumption lives."""
     state = State({
