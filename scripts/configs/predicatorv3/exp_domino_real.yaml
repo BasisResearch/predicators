@@ -127,6 +127,16 @@ ENVS:
       # as soon as an episode ends; without the wait the fit finds nothing and
       # falls back to the per-step scoring above.
       code_sim_learning_track_wait_s: 900.0
+      # The markerless pipeline emits poses in the ROBOT BASE frame; a twin
+      # state is in the env's world frame. For this env the two differ by a
+      # quarter turn about z plus (0.75, 0.72) -- exactly
+      # pybullet_domino.real_geometry.base_to_world_transform, whose
+      # constants these mirror. Matching absorbs a translation by voting over
+      # candidate offsets, but not a rotation: unset, every track/twin pair
+      # lands 144-307 mm apart against a 40 mm tolerance and no domino is
+      # matched at all.
+      code_sim_learning_track_frame_yaw: 1.5707963267948966
+      code_sim_learning_track_frame_xy: [0.75, 0.72]
 APPROACHES:
   agent_oracle_hybrid_sim:
     SKIP: True

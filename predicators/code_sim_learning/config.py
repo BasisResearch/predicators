@@ -18,6 +18,7 @@ non-sysID, per-transition fitting paths).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Tuple
 
 from predicators.settings import CFG
 
@@ -58,6 +59,8 @@ class SysIdConfig:
     track_object_prefix: str
     track_fallback_fps: float
     track_wait_s: float
+    track_frame_yaw: float
+    track_frame_xy: Tuple[float, float]
 
     @classmethod
     def from_cfg(cls) -> SysIdConfig:
@@ -104,4 +107,6 @@ class SysIdConfig:
             track_object_prefix=CFG.code_sim_learning_track_object_prefix,
             track_fallback_fps=CFG.code_sim_learning_track_fallback_fps,
             track_wait_s=CFG.code_sim_learning_track_wait_s,
+            track_frame_yaw=CFG.code_sim_learning_track_frame_yaw,
+            track_frame_xy=tuple(CFG.code_sim_learning_track_frame_xy),
         )

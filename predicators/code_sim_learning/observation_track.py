@@ -40,7 +40,7 @@ import logging
 import math
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from predicators.structs import State
@@ -70,9 +70,17 @@ class ObservationTrack:
     angles_deg: Dict[int, List[Tuple[float, float]]]
     n_frames: int
     source: str
-    # Each domino's first observed (x, y) in the base frame, which is what
-    # the ids are matched to the twin's objects by.
+    # Each domino's first observed (x, y) in the base frame.
     first_xy: Dict[int, Tuple[float, float]]
+    # Each domino's (x, y) in the last frame before anything topples: the
+    # settled row the cascade is about to run along. THIS is what the ids
+    # are matched to the twin's objects by, and first_xy is the fallback
+    # for a track in which nothing ever falls. The two differ whenever the
+    # episode rearranges the scene before the push, and which one is
+    # contemporaneous with the twin depends on when recording started --
+    # which is exactly the thing that must not be assumed.
+    pre_cascade_xy: Dict[int, Tuple[float,
+                                    float]] = field(default_factory=dict)
 
     @property
     def duration_s(self) -> float:
@@ -122,7 +130,49 @@ def load_track(path: str, fallback_fps: float = 60.0) -> ObservationTrack:
     return ObservationTrack(angles_deg=angles,
                             n_frames=len(frames),
                             source=path,
-                            first_xy=first_xy)
+                            first_xy=first_xy,
+                            pre_cascade_xy=_pre_cascade_xy(
+                                frames, angles, have_stamps, t0, fallback_fps)
+                            or first_xy)
+
+
+def _pre_cascade_xy(frames: List[Dict[str, Any]],
+                    angles: Dict[int, List[Tuple[float, float]]],
+                    have_stamps: bool, t0: float,
+                    fallback_fps: float) -> Dict[int, Tuple[float, float]]:
+    """Each domino's last centre before the first topple onset.
+
+    A second pass rather than more state in the first: the onsets are
+    not known until every angle has been read, and the parsed document
+    is already in memory, so re-walking it is cheap next to carrying
+    every frame's positions around.
+
+    Detection uses this module's default thresholds rather than the
+    fit's configured ones. The arrangement is static for the whole
+    approach and push, so being a few frames out either way lands on
+    the same positions; what matters is being on the settled side of
+    the cascade rather than after it.
+    """
+    onsets = topple_onsets(angles)
+    if not onsets:
+        return {}
+    cut = min(onsets.values())
+    settled: Dict[int, Tuple[float, float]] = {}
+    for i, frame in enumerate(frames):
+        if have_stamps:
+            seconds = (float(frame.get("timestamp_ns", t0)) - t0) / 1e9
+        else:
+            seconds = float(frame.get("index", i)) / fallback_fps
+        if seconds >= cut:
+            break
+        for record in frame.get("dominoes") or []:
+            if record.get(_SUSPECT_KEY):
+                continue
+            centre = record.get("center_base_m")
+            if centre:
+                settled[int(record["id"])] = (float(centre[0]),
+                                              float(centre[1]))
+    return settled
 
 
 def load_tracks(path: str,
@@ -167,40 +217,90 @@ def load_tracks(path: str,
     tracks: List[ObservationTrack] = []
     for entry in wanted:
         track_path = entry.get("track")
-        if not track_path or not os.path.exists(track_path):
+        if not track_path or not track_is_complete(str(track_path)):
+            # Skipped, not raised. This loop is every episode of the run, and
+            # letting one half-written file propagate would discard the
+            # finished tracks either side of it -- the caller catches at the
+            # granularity of the whole manifest and falls back to per-step
+            # scoring for all of them.
             logging.warning(
-                "episode %s still has no track at %s after waiting %.0fs; it "
-                "is skipped, so this fit sees less evidence than the run "
-                "recorded. Raise code_sim_learning_track_wait_s if "
-                "post-processing is simply slow.", entry.get("episode", "?"),
-                track_path, wait_s)
+                "episode %s has no usable track at %s after waiting %.0fs "
+                "(absent, or still being written); it is skipped, so this fit "
+                "sees less evidence than the run recorded. Raise "
+                "code_sim_learning_track_wait_s if post-processing is simply "
+                "slow.", entry.get("episode", "?"), track_path, wait_s)
             continue
-        tracks.append(load_track(track_path, fallback_fps))
+        tracks.append(load_track(str(track_path), fallback_fps))
     return tracks
 
 
+def track_is_complete(path: str) -> bool:
+    """Whether the track at ``path`` is finished being written.
+
+    **Parses, rather than exists.** The pipeline writes a track in one
+    pass and a dense one is tens of megabytes, so between the path
+    appearing and the last byte landing there is a window in which the
+    file is real, growing, and not valid JSON. A reader that starts on
+    existence alone falls into it: on run_20260818_092302 the fit read
+    28 MB of track at char 11,997,567 and got "Expecting ',' delimiter",
+    then fell back to per-step scoring -- which cost it its evidence
+    just as surely as no track at all, while logging that the tracks
+    were ready. Parsing is the only test that separates "still being
+    written" from "written".
+    """
+    if not os.path.exists(path):
+        return False
+    try:
+        with open(path, encoding="utf-8") as f:
+            json.load(f)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _settled(path: str, sizes: Dict[str, int]) -> bool:
+    """Whether ``path`` is complete, without re-parsing it every poll.
+
+    Size is a stat and the parse is the whole document, so a file whose
+    length changed since the last look is still being written and needs
+    no parse to rule out. ``sizes`` carries that previous look across
+    iterations. The parse still decides -- a writer that stalls would
+    hold its size steady while remaining truncated.
+    """
+    if not os.path.exists(path):
+        return False
+    size = os.path.getsize(path)
+    if sizes.get(path) != size:
+        sizes[path] = size
+        return False
+    return track_is_complete(path)
+
+
 def _await_tracks(entries: List[Dict[str, Any]], wait_s: float) -> None:
-    """Block until every promised track exists, or ``wait_s`` expires.
+    """Block until every promised track is COMPLETE, or ``wait_s`` expires.
 
     Polls rather than joining the pipeline processes: the fit runs in a
     different process from the recorder that launched them, so the file
-    appearing is the only signal available to it.
+    is the only signal available to it. What counts as ready is
+    ``track_is_complete``, not the path existing.
     """
     if wait_s <= 0:
         return
-    missing = [
-        e for e in entries
-        if e.get("track") and not os.path.exists(str(e["track"]))
+    pending = [
+        str(e["track"]) for e in entries
+        if e.get("track") and not track_is_complete(str(e["track"]))
     ]
-    if not missing:
+    if not pending:
         return
     logging.info(
         "waiting up to %.0fs for %d episode track(s) to finish "
         "post-processing; each run takes about 3x the length of its take",
-        wait_s, len(missing))
+        wait_s, len(pending))
     deadline = time.monotonic() + wait_s
+    sizes: Dict[str, int] = {}
     while time.monotonic() < deadline:
-        if all(os.path.exists(str(e["track"])) for e in missing):
+        pending = [p for p in pending if not _settled(p, sizes)]
+        if not pending:
             logging.info("all episode tracks are ready")
             return
         time.sleep(_POLL_S)
@@ -290,6 +390,59 @@ def sim_topple_series(
     return series
 
 
+def settled_xy_before_cascade(
+        states: Sequence[State],
+        prefix: str,
+        confirm_deg: float = 45.0,
+        onset_deg: float = 5.0,
+        min_persist: int = 3) -> Dict[str, Tuple[float, float]]:
+    """Where each object sits in the last state before anything topples.
+
+    The twin-side counterpart of ``ObservationTrack.pre_cascade_xy``, and
+    the reason both exist: matching is positional, so the two snapshots
+    being compared have to be of the SAME MOMENT, and the episode moves
+    dominoes around before the push. Anchoring on the episode's first
+    state only works if the recording covers the whole episode; anchoring
+    on a scored segment's first state only works if it happens to align.
+    The settled row immediately before the cascade is identifiable in
+    both streams no matter when recording started, and it is the
+    arrangement the propagation intervals are measured on.
+
+    Falls back to the FIRST state when nothing topples: with no cascade
+    there is no such moment, and the first state is what a whole-episode
+    recording starts from.
+    """
+    if not states:
+        return {}
+    names = sorted({
+        obj.name
+        for state in states for obj in state
+        if obj.name.startswith(prefix) and "roll" in obj.type.feature_names
+    })
+    keys = {name: i for i, name in enumerate(names)}
+    series: Dict[int, List[Tuple[float, float]]] = {}
+    for t, state in enumerate(states):
+        for obj in state:
+            key = keys.get(obj.name)
+            if key is None:
+                continue
+            series.setdefault(key, []).append(
+                (float(t), abs(math.degrees(float(state.get(obj, "roll"))))))
+    onsets = topple_onsets(series,
+                           confirm_deg=confirm_deg,
+                           onset_deg=onset_deg,
+                           min_persist=min_persist)
+    # Onset times are state INDICES here, since the series was built with a
+    # step of one: only the ordering matters for choosing a state.
+    cut = int(min(onsets.values())) if onsets else 0
+    settled = states[max(0, min(cut, len(states) - 1))]
+    return {
+        obj.name: (float(settled.get(obj, "x")), float(settled.get(obj, "y")))
+        for obj in settled
+        if obj.name.startswith(prefix) and "x" in obj.type.feature_names
+    }
+
+
 def interval_residuals(sim_intervals: Dict[int, float],
                        obs_intervals: Dict[int, float],
                        missing_penalty_s: float) -> List[float]:
@@ -368,6 +521,19 @@ def match_ids_by_position(state: State,
             continue
         twin[obj.name] = (float(state.get(obj,
                                           "x")), float(state.get(obj, "y")))
+    return match_ids_by_xy(twin, first_xy, tol_m)
+
+
+def match_ids_by_xy(twin: Dict[str, Tuple[float, float]],
+                    first_xy: Dict[int, Tuple[float, float]],
+                    tol_m: float = 0.04) -> Dict[str, int]:
+    """:func:`match_ids_by_position` given the two position sets directly.
+
+    Split out because the twin side is not always a ``State``: the
+    anchor is the settled arrangement before the cascade, which
+    :func:`settled_xy_before_cascade` reads off a whole episode rather
+    than any single state.
+    """
     if not twin or not first_xy:
         return {}
     best: Dict[str, int] = {}
