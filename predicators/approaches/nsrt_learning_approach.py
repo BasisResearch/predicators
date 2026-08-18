@@ -111,7 +111,7 @@ class NSRTLearningApproach(BilevelPlanningApproach):
                                   annotations=annotations)
         save_path = utils.get_approach_save_path_str()
         with open(f"{save_path}_{online_learning_cycle}.NSRTs", "wb") as f:
-            pkl.dump(self._nsrts, f)
+            utils.pkl_dump_with_retry(self._nsrts, f)
         if CFG.compute_sidelining_objective_value:
             self._compute_sidelining_objective_value(trajectories)
 
