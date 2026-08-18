@@ -1740,6 +1740,107 @@ def _shipments_before_the_take_opened(session, recorder):
     return seen
 
 
+def _boxes_drawn_when(session, recorder, episode_recorder):
+    """Note what had shipped, and whether the take was open, at draw time.
+
+    The boxes are SAM-2 prompts for the take's first frame, so WHEN they
+    are drawn is the whole of their correctness: run-start boxes
+    describe an arrangement a later take never sees.
+    """
+    utils.reset_config({
+        "real_robot_pick_boxes_at_start": True,
+        "real_robot_snapshot_boxes_json": "",
+    })
+    seen = []
+    ensure = episode_recorder.ensure_boxes
+
+    def _watched_ensure_boxes(*args, **kwargs):
+        """Snapshot the world at the moment of the draw."""
+        seen.append({
+            "shipments": len(recorder.shipped),
+            "take_open": len(session.started) - len(session.stopped),
+        })
+        return ensure(*args, **kwargs)
+
+    episode_recorder.ensure_boxes = _watched_ensure_boxes
+    return seen
+
+
+def test_boxes_are_drawn_at_the_boundary_when_the_take_opens_later(
+        recorder, tmp_path):
+    """After the prologue rearranges the row, before the take opens.
+
+    The prologue picks and places two dominoes, so boxes drawn at run
+    start point at where they used to be -- and stage 2 does not report
+    an empty box, it fits a mask to whatever is inside it. Observed on
+    run_20260818_140211, whose boxes were drawn 3 minutes before the
+    take opened.
+    """
+    session = _StubSession()
+    episode_recorder = EpisodeRecorder(session, track_dir=str(tmp_path))
+    drawn = _boxes_drawn_when(session, recorder, episode_recorder)
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   human_reset=False,
+                   open_loop_episode=True,
+                   record_from_option="Push",
+                   recorder=episode_recorder)
+
+    _run_episode(ex, ["Pick", "Place", "Push", "Wait"], recorder)
+
+    assert len(drawn) == 1, "drawn exactly once"
+    assert drawn[0]["shipments"] == 1, \
+        "drawn AFTER the prologue, so the row is in its final arrangement"
+    assert drawn[0]["take_open"] == 0, \
+        "and BEFORE the take opens, so its first frame matches the boxes"
+
+
+def test_boxes_are_still_drawn_at_run_start_when_the_take_opens_there(
+        recorder, tmp_path):
+    """Unchanged where it was already right.
+
+    With no record_from_option the take brackets the whole episode, so
+    run start IS the arrangement its first frame shows -- and drawing
+    then keeps the human at the bench before anything moves.
+    """
+    session = _StubSession()
+    episode_recorder = EpisodeRecorder(session, track_dir=str(tmp_path))
+    drawn = _boxes_drawn_when(session, recorder, episode_recorder)
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   human_reset=False,
+                   open_loop_episode=True,
+                   record_from_option="",
+                   recorder=episode_recorder)
+
+    _run_episode(ex, ["Pick", "Place", "Push", "Wait"], recorder)
+
+    assert len(drawn) == 1
+    assert drawn[0]["shipments"] == 0, "nothing had been sent to the arm yet"
+
+
+def test_boxes_are_drawn_once_across_several_episodes(recorder, tmp_path):
+    """A fixed-plan replay arranges the same row every episode, so the boundary
+    draw is a per-RUN cost and must not become a per-take one -- a drag window
+    opening each episode is what pick_boxes_at_start exists to avoid."""
+    session = _StubSession()
+    episode_recorder = EpisodeRecorder(session, track_dir=str(tmp_path))
+    drawn = _boxes_drawn_when(session, recorder, episode_recorder)
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   human_reset=False,
+                   open_loop_episode=True,
+                   record_from_option="Push",
+                   recorder=episode_recorder)
+
+    for _ in range(3):
+        _run_episode(ex, ["Pick", "Place", "Push", "Wait"], recorder)
+
+    assert len(drawn) == 3, "the call site runs every episode"
+    assert episode_recorder.ensure_boxes() is None, \
+        "but the draw itself happens once per run"
+
+
 def test_the_take_opens_between_the_two_shipments(recorder, tmp_path):
     """Ordering is the whole correctness argument.
 

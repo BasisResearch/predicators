@@ -296,11 +296,13 @@ class RealRobotExecutor:
         self._recorder = recorder
         if self._recorder is not None:
             self._recorder.open()
-            if (CFG.real_robot_pick_boxes_at_start
-                    and not CFG.real_robot_snapshot_boxes_json):
+            if self._boxes_wanted() and not record_from_option:
                 # Before the first episode, while a human is still standing
                 # at the bench: one drag window for the whole run rather than
-                # one per take.
+                # one per take. Only correct because the take opens at the
+                # reset, so the arrangement here is the one its first frame
+                # shows. With record_from_option set it does not, and the
+                # draw moves to the boundary in _ship_episode.
                 self._recorder.ensure_boxes()
         # Whether a take is currently open, so an episode that ends without
         # ever having started one does not try to stop it.
@@ -569,11 +571,30 @@ class RealRobotExecutor:
         # state before the push, and now there really is one.
         if start:
             self._ship_batch(chunks[:start], "prologue")
+            if self._boxes_wanted() and self._recorder is not None:
+                # HERE, not at run start. The boxes are prompts for the take's
+                # first frame, and the prologue has just rearranged the row --
+                # boxes drawn before it point at where two dominoes used to
+                # be, and stage 2 fits masks to whatever is inside the box it
+                # was given rather than reporting that the box is empty. The
+                # arm is at rest and the scene is final, which is also the
+                # only moment a human can draw them correctly.
+                self._recorder.ensure_boxes()
         # The take brackets the motion, not the episode: everything before
         # this point is the twin simulating, with the arm parked.
         if self._open_loop:
             self._start_recording(*self._episode_split)
         self._ship_batch(chunks[start:], "batch")
+
+    @staticmethod
+    def _boxes_wanted() -> bool:
+        """Whether this run draws its own stage-2 prompt boxes.
+
+        False when a boxes file was given: that is the unattended path,
+        and it names an arrangement the caller vouches for.
+        """
+        return bool(CFG.real_robot_pick_boxes_at_start
+                    and not CFG.real_robot_snapshot_boxes_json)
 
     def _recording_boundary(self, names: List[str]) -> int:
         """Index of the first chunk the take should be open in front of.
