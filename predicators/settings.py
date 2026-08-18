@@ -679,6 +679,27 @@ class GlobalSettings:
     # Extra --trim-* flags for tuning the scan. Empty uses its own defaults;
     # check a window with `svo_to_bundle.py --trim-dry-run` before pinning one.
     real_robot_trim_args = ""
+    # Stage-4 worker processes. 0 leaves the driver's own default, which is 16
+    # -- sized for the machine it was tuned on, not for this one. Stage 4 is
+    # the pipeline's largest step and it is cleanly core-limited: on a
+    # 7773-frame take it ran 486 frames per worker in 364 s, which is 16.0
+    # cores busy for the whole stage, on a 32-core box. Raising it is the one
+    # speedup available without changing any code.
+    #
+    # Set it to the cores you are willing to give the pipeline, remembering it
+    # runs in the BACKGROUND while the next episode executes -- taking every
+    # core would starve the run that is driving the robot.
+    real_robot_track_jobs = 0
+    # Render stage 3's masks_overlay.mp4. It is a debugging aid nothing
+    # downstream reads, and it is written BEFORE stage 4, so its cost lands
+    # directly on the wait for the track rather than after it: 163 s of a
+    # 1008 s pipeline, 16% of time-to-track, for a 120 MB file no fit opens.
+    #
+    # Worth turning back on when the tracks themselves look wrong -- the
+    # overlay is how id swaps are spotted. Needs BabyRobotPredicator's
+    # TRACK_VIZ; a driver that predates it renders the overlay anyway rather
+    # than failing, so this is safe to set before the submodule has it.
+    real_robot_track_viz = False
     # Dwell before a capture, so the dominoes come to rest after the motion.
     real_robot_settle_s = 0.5
     # How far (metres) the scene may be from where the twin predicted before

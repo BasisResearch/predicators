@@ -85,6 +85,20 @@ ENVS:
       # from another camera land on empty table and stage 2 fits nothing.
       real_robot_pick_boxes_at_start: True
       real_robot_snapshot_boxes_json: ""
+      # -- post-processing speed ---------------------------------------------
+      # run_20260818_092302 took 1008 s to turn a 138 s take into a track and
+      # missed the fit's 900 s deadline by 108 s, so the episode it had just
+      # recorded was skipped. These two take roughly 5 minutes off that.
+      #
+      # 30 of this machine's 32 cores for stage 4, which ran 16.0 cores busy
+      # for its whole 364 s. Sized for THIS box -- lower it on a smaller one,
+      # and remember the pipeline runs in the background while the next
+      # episode drives the robot.
+      real_robot_track_jobs: 30
+      # Skip masks_overlay.mp4: 163 s, rendered before stage 4 and so paid
+      # straight out of time-to-track. Turn it back on when the tracks look
+      # wrong -- it is how id swaps are spotted.
+      real_robot_track_viz: False
       real_robot_divergence_atol: 0.02
       # No learning for now, just hybrid sim.
       # agent_sim_learn_oracle_sim_program: True
