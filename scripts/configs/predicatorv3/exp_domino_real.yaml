@@ -45,6 +45,17 @@ ENVS:
       # moment.
       real_robot_open_loop_episode: True
       real_robot_observe_at_option_boundary: False
+      # Start the take in front of Push rather than in front of the whole
+      # batch. Only the cascade is scored: on run_20260818_092302 the first
+      # onset was 107 s into a 131 s track, so the pick-and-place before it
+      # was ~80% of the video and none of the evidence. The arm still runs
+      # the bridge as one batch, then pauses once while the take opens.
+      #
+      # This also lines the track's frame 0 up with the arrangement the push
+      # acts on, which is what the id matching compares against -- with the
+      # take starting at the reset, that run could not match 2 of 4 dominoes
+      # and logged 122 warnings.
+      real_robot_record_from_option: "Push"
       # The cameras record the whole execution; the poses come out of
       # post-processing afterwards. NOT "zed": that is the marker pipeline,
       # whose 20mm tags do not resolve at this camera distance (1 of ~7 on
