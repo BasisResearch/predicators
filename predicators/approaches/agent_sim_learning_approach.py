@@ -870,6 +870,13 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # (latent threads within a trajectory, not across). Harmless for
         # fully-observable (legacy) simulators, which never regroup.
         self._fit_trajectories = list(trajectories)
+        # Dumped HERE, where the data arrives, rather than only inside the
+        # sysID fit: a cycle where the agent declines to fit is exactly the
+        # one worth post-morteming, and that is the branch that never ran.
+        # run_20260817_171402 declined on a sweep that returned one identical
+        # SSE for every value of five parameters, and left nothing on disk to
+        # explain it -- the episode had to be written off.
+        self._persist_fit_trajectories("recorded")
         # New data invalidates the memoized explainability verdicts and
         # the memoized whole fits.
         self._explainability_cache.clear()
@@ -1952,8 +1959,14 @@ re-score.{probe_note}"""
                     "keeping the whole trajectories.")
         return rollouts
 
-    def _persist_fit_trajectories(self) -> None:
+    def _persist_fit_trajectories(self, label: str = "fitted") -> None:
         """Dump the raw fit trajectories for offline post-mortems.
+
+        ``label`` distinguishes the two moments this is called from:
+        ``recorded`` when a cycle's data arrives (always), ``fitted``
+        when a sysID fit has just run and the payload's identified
+        params mean something. The first is what makes a cycle that
+        declined to fit replayable at all.
 
         The rollout sysID fit data otherwise exists only in memory:
         when run_20260724_232411 shipped friction fits 2-7 sigma from
@@ -1970,7 +1983,8 @@ re-score.{probe_note}"""
             out_dir = os.path.join(self._get_log_dir(), "fit_data")
             os.makedirs(out_dir, exist_ok=True)
             idx = len([f for f in os.listdir(out_dir) if f.endswith(".pkl")])
-            path = os.path.join(out_dir, f"fit_trajectories_{idx:03d}.pkl")
+            path = os.path.join(out_dir,
+                                f"fit_trajectories_{idx:03d}_{label}.pkl")
             payload = {
                 "trajectories":
                 list(self._fit_trajectories),
