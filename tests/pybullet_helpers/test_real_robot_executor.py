@@ -1696,6 +1696,145 @@ def test_batching_ships_the_same_segments_as_shipping_one_at_a_time(recorder):
                 "the arm is being commanded different motion under open-loop"
 
 
+def test_recording_starts_in_front_of_the_named_option(recorder, tmp_path):
+    """The bridge runs unrecorded; the take opens, then the push ships.
+
+    Only the cascade is scored, and on run_20260818_092302 it began 107
+    s into a 131 s take -- so recording the pick-and-place cost most of
+    the video and none of the evidence.
+    """
+    session = _StubSession()
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   human_reset=False,
+                   open_loop_episode=True,
+                   record_from_option="Push",
+                   recorder=EpisodeRecorder(session, track_dir=str(tmp_path)))
+
+    _run_episode(ex, ["Pick", "Place", "Push", "Wait"], recorder)
+
+    prologue, measured = recorder.shipped
+    assert len(prologue) == 2, "the bridge must ship as one unrecorded run"
+    assert len(measured) == 2, "the take must cover Push and the Wait after it"
+    assert len(session.started) == 1
+
+
+def _shipments_before_the_take_opened(session, recorder):
+    """Watch ``session`` and report what had already gone to the arm.
+
+    Counting shipments at ``start_take`` is the only way to pin the
+    ORDER. Asserting on the shipments alone cannot: an episode that
+    sends everything and only then opens the take looks identical from
+    the robot's side, and it is the exact failure worth guarding -- a
+    recording with none of the motion in it.
+    """
+    seen = []
+    start_take = session.start_take
+
+    def _watched_start_take(*args, **kwargs):
+        """Note how much had already been sent to the arm."""
+        seen.append(len(recorder.shipped))
+        return start_take(*args, **kwargs)
+
+    session.start_take = _watched_start_take
+    return seen
+
+
+def test_the_take_opens_between_the_two_shipments(recorder, tmp_path):
+    """Ordering is the whole correctness argument.
+
+    A take opened after the push has already been sent would miss the
+    first onset, and every interval is measured against that one -- so
+    the failure would not be a missing residual but a wrong one.
+    """
+    session = _StubSession()
+    before = _shipments_before_the_take_opened(session, recorder)
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   human_reset=False,
+                   open_loop_episode=True,
+                   record_from_option="Push",
+                   recorder=EpisodeRecorder(session, track_dir=str(tmp_path)))
+
+    _run_episode(ex, ["Pick", "Place", "Push", "Wait"], recorder)
+
+    assert before == [1], \
+        "the take must open after the bridge and before the push"
+
+
+def test_an_option_the_episode_never_runs_records_everything(
+        recorder, tmp_path):
+    """Too much video is slow; too little is a lost episode.
+
+    The take must open BEFORE anything ships, not merely exist: an
+    episode that sends every chunk and then starts recording has the
+    same shipment count and none of the motion.
+    """
+    session = _StubSession()
+    before = _shipments_before_the_take_opened(session, recorder)
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   human_reset=False,
+                   open_loop_episode=True,
+                   record_from_option="Nudge",
+                   recorder=EpisodeRecorder(session, track_dir=str(tmp_path)))
+
+    _run_episode(ex, ["Pick", "Place", "Push"], recorder)
+
+    (batch, ) = recorder.shipped
+    assert len(batch) == 3, "an unknown option must not lose any motion"
+    assert before == [0], "the whole batch must be inside the take"
+
+
+def test_recording_from_the_first_option_ships_one_batch(recorder, tmp_path):
+    """A boundary at index 0 has no prologue, and must not ship an empty
+    request in front of the batch."""
+    session = _StubSession()
+    before = _shipments_before_the_take_opened(session, recorder)
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   human_reset=False,
+                   open_loop_episode=True,
+                   record_from_option="Push",
+                   recorder=EpisodeRecorder(session, track_dir=str(tmp_path)))
+
+    _run_episode(ex, ["Push", "Wait"], recorder)
+
+    (batch, ) = recorder.shipped
+    assert len(batch) == 2
+    assert before == [0], "the whole batch must be inside the take"
+
+
+def test_the_split_commands_the_same_motion_as_one_batch(recorder):
+    """Splitting changes WHEN the arm is told, not WHAT.
+
+    Same argument as batching itself: the payload for chunk i must not
+    depend on which request it travels in, or the recorded episode would
+    be different motion from the unrecorded one.
+    """
+    options = ["Pick", "Place", "Push", "Wait"]
+
+    _run_episode(
+        _executor(_StubEnv(),
+                  observe_at_boundaries=False,
+                  open_loop_episode=True), options, recorder)
+    (whole, ) = recorder.shipped
+    recorder.shipped.clear()
+    _run_episode(
+        _executor(_StubEnv(),
+                  observe_at_boundaries=False,
+                  open_loop_episode=True,
+                  record_from_option="Push"), options, recorder)
+    split = [chunk for call in recorder.shipped for chunk in call]
+
+    assert len(whole) == len(split)
+    for one, two in zip(whole, split):
+        assert len(one) == len(two)
+        for a, b in zip(one, two):
+            assert np.allclose(a.arr, b.arr), \
+                "splitting the batch changed the motion the arm is commanded"
+
+
 def test_open_loop_preserves_option_order(recorder):
     """A batch is a plan, so the arm must run it in the order it was
     simulated."""

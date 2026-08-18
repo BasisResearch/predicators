@@ -249,6 +249,7 @@ class RealRobotExecutor:
                  divergence_atol: float = 0.02,
                  human_reset: bool = True,
                  open_loop_episode: bool = False,
+                 record_from_option: str = "",
                  recorder: Any = None) -> None:
         missing = sorted(name for name in _REQUIRED_HOOKS
                          if not callable(getattr(env, name, None)))
@@ -280,9 +281,14 @@ class RealRobotExecutor:
         self._robot = robot
         self._observe = observe_at_boundaries
         self._open_loop = open_loop_episode
-        # Chunks held back for the end of the episode. Only ever non-empty
-        # under open-loop; the per-boundary path ships and forgets.
-        self._pending: List[List[Action]] = []
+        # Option name the take is opened in front of. Empty records the whole
+        # batch, which is what every episode did before this existed.
+        self._record_from_option = record_from_option
+        # Chunks held back for the end of the episode, each with the name of
+        # the option that produced it -- the name is what _ship_episode finds
+        # the recording boundary by. Only ever non-empty under open-loop; the
+        # per-boundary path ships and forgets.
+        self._pending: List[Tuple[str, List[Action]]] = []
         # Records each episode to an SVO take for offline pose estimation.
         # None when the run is not recording. Opened here rather than at the
         # first episode: a learning cycle is many episodes, and per-episode
@@ -494,7 +500,7 @@ class RealRobotExecutor:
         if chunk is None:
             return obs
         if self._open_loop:
-            self._pending.append(chunk)
+            self._pending.append((action.get_option().name, chunk))
             return obs
         observations = execute_chunks(self._robot, [chunk],
                                       self._env.gripper_joint_layout(),
@@ -552,27 +558,73 @@ class RealRobotExecutor:
                 "real robot: episode completed with %d action(s) mid-option; "
                 "shipping the %d whole option(s) and dropping those",
                 lost_partial, len(pending))
+        names = [name for name, _ in pending]
+        chunks = [chunk for _, chunk in pending]
+        start = self._recording_boundary(names)
+        # Everything before the boundary runs unrecorded. The twin has already
+        # simulated all of it, so splitting the shipment costs one round trip
+        # to the controller and NOT a planner call -- which is why this does
+        # not give back what open-loop batching bought. The arm coming to rest
+        # here is a gain of its own: the free-run is anchored at the last rest
+        # state before the push, and now there really is one.
+        if start:
+            self._ship_batch(chunks[:start], "prologue")
         # The take brackets the motion, not the episode: everything before
         # this point is the twin simulating, with the arm parked.
         if self._open_loop:
             self._start_recording(*self._episode_split)
-        # One request for the whole episode: execute_chunks packs the list
-        # into a single StepRequest, and _split_actions restarts its gripper
-        # tracking per call, which RealRobot dedups session-wide.
+        self._ship_batch(chunks[start:], "batch")
+
+    def _recording_boundary(self, names: List[str]) -> int:
+        """Index of the first chunk the take should be open in front of.
+
+        Only the cascade is scored, so recording the pick-and-place that
+        arranges the row buys nothing and costs most of the take: on
+        run_20260818_092302 the push landed 107 s into a 131 s track, and
+        post-processing scales with frames.
+
+        Recording everything is the fallback, deliberately. Too much video
+        is slow; too little is an episode whose first topple happened off
+        camera, and the first onset is what every interval is measured
+        against.
+        """
+        wanted = self._record_from_option
+        if not wanted:
+            return 0
+        for index, name in enumerate(names):
+            if name == wanted:
+                return index
+        logging.warning(
+            "real robot: asked to record from option %r, which this episode "
+            "never ran (it ran %s); recording the whole batch instead", wanted,
+            ", ".join(names) or "nothing")
+        return 0
+
+    def _ship_batch(self, chunks: List[List[Action]], label: str) -> None:
+        """Send one contiguous run of chunks, logging both clocks.
+
+        ``execute_chunks`` packs the list into a single StepRequest, and
+        ``_split_actions`` restarts its gripper tracking per call, which
+        ``RealRobot`` dedups session-wide -- the same property that made
+        per-boundary shipping safe, and what lets the episode be split
+        in two here without the arm seeing a redundant gripper command.
+        """
+        if not chunks:
+            return
         started_monotonic_ns = time.monotonic_ns()
         started_wall_ns = time.time_ns()
         logging.info(
-            "real robot: shipping %d option(s) as one batch "
-            "(monotonic_ns=%d wall_ns=%d)", len(pending), started_monotonic_ns,
-            started_wall_ns)
+            "real robot: shipping %d option(s) as one %s "
+            "(monotonic_ns=%d wall_ns=%d)", len(chunks), label,
+            started_monotonic_ns, started_wall_ns)
         execute_chunks(self._robot,
-                       pending,
+                       chunks,
                        self._env.gripper_joint_layout(),
                        observe=self._observe,
                        settle_s=self._settle_s)
         logging.info(
-            "real robot: batch done (monotonic_ns=%d wall_ns=%d, "
-            "elapsed %.3fs)", time.monotonic_ns(), time.time_ns(),
+            "real robot: %s done (monotonic_ns=%d wall_ns=%d, "
+            "elapsed %.3fs)", label, time.monotonic_ns(), time.time_ns(),
             (time.monotonic_ns() - started_monotonic_ns) / 1e9)
 
     def _stop_recording(self) -> None:
@@ -685,6 +737,7 @@ def attach_real_robot(env: BaseEnv,
         divergence_atol=CFG.real_robot_divergence_atol,
         human_reset=CFG.real_robot_human_reset,
         open_loop_episode=CFG.real_robot_open_loop_episode,
+        record_from_option=CFG.real_robot_record_from_option,
         recorder=recorder)
     env.attach_executor(executor)
     return executor
