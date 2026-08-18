@@ -518,3 +518,98 @@ def test_markerless_staging_matches_what_the_snapshot_rebuild_calls():
     source = inspect.getsource(run_stages)
     assert "config.boxes" in source
     assert "config.boxes_json" not in source
+
+
+def test_markerless_driver_takes_the_arguments_post_processing_passes():
+    """Pin the batch driver's interface.
+
+    Automatic post-processing launches ``run_markerless.sh <svo> <out>
+    given`` with BOXES and SERIAL in the environment. That is a
+    positional shell contract with no type checker behind it, so a
+    rename upstream would otherwise surface as a background job that
+    fails silently and a track that never appears.
+    """
+    import os
+
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.pybullet_helpers.track_pipeline import _default_script
+    script = _default_script()
+    if not os.path.exists(script):
+        pytest.skip("submodule not checked out")
+    with open(script, encoding="utf-8") as f:
+        text = f.read()
+    assert "<svo> <outdir> [box-source]" in text, \
+        "run_markerless.sh's positional interface changed"
+    for var in ("BOXES", "SERIAL", "MAX_FRAMES"):
+        assert var in text, f"run_markerless.sh no longer reads {var}"
+
+
+def test_the_driver_honours_the_trim_request_once_it_can():
+    """TRIM=1 is set unconditionally, because a driver that predates.
+
+    --trim-motion ignores it rather than failing -- which is what lets it be
+    configured before the submodule has it.
+
+    The cost of that tolerance is that a silent no-op looks exactly like
+    a working one. This says which of the two is in front of us, so
+    "trimming is on" is never assumed.
+    """
+    import os
+
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.pybullet_helpers.track_pipeline import _default_script
+    script = _default_script()
+    if not os.path.exists(script):
+        pytest.skip("submodule not checked out")
+    with open(script, encoding="utf-8") as f:
+        text = f.read()
+    if "trim-motion" not in text:
+        pytest.skip(
+            "this submodule predates --trim-motion; TRIM is being set and "
+            "ignored, so takes are NOT being trimmed")
+    assert "TRIM" in text, "the driver has --trim-motion but reads no TRIM"
+
+
+# The domino bench: fingers rest at the faces rather than closing through.
+_STALLING_LAYOUT = GripperJointLayout(left_finger_joint_idx=7,
+                                      right_finger_joint_idx=8,
+                                      open_fingers=0.04,
+                                      closed_fingers=0.01)
+
+
+def test_split_actions_does_not_read_a_carried_object_as_a_release():
+    """Regression, measured on a Pick in the twin.
+
+    Grasp commands ``closed - 0.01`` = 0.00000, deliberately past the
+    domino. The fingers STALL on it at 0.00658 -- they are force-capped
+    so they rest at the faces instead of closing through -- and the
+    carry phases that follow command ``achieved - 1mm`` = 0.00558. That
+    is wider than the grasp COMMAND, which is all this splitter sees, so
+    a 5mm release epsilon called it a release: every Pick shipped close,
+    open, close and the hand visibly opened around the domino it had
+    just taken.
+    """
+    pytest.importorskip("babyrobot")
+    widths = [0.04, 0.04, 0.0, 0.00558, 0.00558, 0.00611, 0.00612]
+
+    assert _commands(widths, _STALLING_LAYOUT) == ["open", "close"]
+
+
+def test_split_actions_still_sees_a_real_release_on_that_bench():
+    """The other half of the same margin: a genuine release measures
+    0.0122 on this scale and must still register, or the object is
+    carried away instead of being put down."""
+    pytest.importorskip("babyrobot")
+    widths = [0.04, 0.0, 0.00558, 0.0122, 0.0122]
+
+    assert _commands(widths, _STALLING_LAYOUT) == ["open", "close", "open"]
+
+
+def test_release_eps_sits_between_the_two_measured_widths():
+    """The constant is fitted, not derived, so pin what it was fitted to.
+
+    A carry command of 0.00558 must not clear it and a release of
+    0.0122 must. If someone retunes the grasp depth or the finger
+    force, these are the two numbers to re-measure.
+    """
+    assert 0.00558 <= _RELEASE_EPS < 0.0122

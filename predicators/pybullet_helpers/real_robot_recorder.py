@@ -56,9 +56,27 @@ class EpisodeRecorder:
                  session: Any,
                  max_frames: Optional[int] = None,
                  export_mp4: bool = False,
-                 export_depth: bool = False) -> None:
+                 export_depth: bool = False,
+                 processor: Any = None,
+                 track_dir: Optional[str] = None,
+                 camera: Optional[str] = None) -> None:
         self._session = session
         self._max_frames = max_frames
+        # Runs the markerless pipeline over each finished take, in the
+        # background. None means takes are recorded and left for a human to
+        # process.
+        self._processor = processor
+        self._track_dir = track_dir or os.path.join("logs", "zed_tracks")
+        # Which camera the poses are fitted from. Markerless is
+        # single-camera -- the second's cloud is not fused -- and the two are
+        # not interchangeable: on measured ground truth one is 6x better on
+        # orientation (1.03 deg median against 6.29) while the other tracks
+        # 99.9% of frames against 82%. None takes the session's first serial,
+        # which is an arbitrary default rather than a considered one.
+        self._camera = str(camera) if camera else None
+        # One entry per episode, in order, written to the manifest as each
+        # take closes.
+        self._episodes: List[Dict[str, Any]] = []
         # Exports are deliberately off during a run. ``stop_take`` can write
         # mp4s and depth inline, but that is the expensive offline work --
         # doing it here would serialise post-processing into the episode loop
@@ -79,6 +97,25 @@ class EpisodeRecorder:
     def serials(self) -> List[str]:
         """The ZED serials this session holds open."""
         return [str(s) for s in getattr(self._session, "serials", [])]
+
+    @property
+    def fit_camera(self) -> str:
+        """The serial the poses are fitted from.
+
+        Raises when the configured camera is not one the session
+        records: a take has no recording for it, so every episode would
+        fail at post-processing with a missing file rather than here,
+        before the run has cost anything.
+        """
+        serials = self.serials
+        if self._camera is None:
+            return serials[0] if serials else ""
+        if serials and self._camera not in serials:
+            raise ValueError(
+                f"real_robot_track_camera {self._camera!r} is not one of the "
+                f"cameras this session records {serials}; the poses are "
+                "fitted from a take that session wrote.")
+        return self._camera
 
     @property
     def last_take_dir(self) -> Optional[str]:
@@ -140,7 +177,75 @@ class EpisodeRecorder:
                          take_dir, meta.get("timestamp_clock"),
                          meta.get("sdk_version"))
         self.takes.append((take_dir, usable))
+        self._post_process(take_dir, meta, usable)
         return meta
+
+    def _post_process(self, take_dir: str, meta: Dict[str, Any],
+                      usable: bool) -> None:
+        """Record this episode in the manifest and start its pipeline.
+
+        An unusable take is still recorded, marked so, and NOT
+        processed: a track fitted to a recording that lost a camera
+        mid-episode would be a well-formed track of the wrong thing,
+        which is worse than none.
+        """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.pybullet_helpers.track_pipeline import \
+            MANIFEST_NAME, TRACK_NAME, write_manifest
+        serial = self.fit_camera
+        ext = str(meta.get("svo_ext", ".svo2"))
+        svo = os.path.join(take_dir, f"zed_{serial}{ext}")
+        bundle = os.path.join(self._track_dir, os.path.basename(take_dir))
+        entry: Dict[str, Any] = {
+            "episode": len(self._episodes) + 1,
+            "take_dir": take_dir,
+            "svo": svo,
+            "bundle": bundle,
+            "track": os.path.join(bundle, TRACK_NAME),
+            "usable": usable,
+        }
+        self._episodes.append(entry)
+        if usable and self._processor is not None:
+            started = self._processor.launch(svo, bundle, serial)
+            entry["processing"] = started is not None
+        try:
+            write_manifest(os.path.join(self._track_dir, MANIFEST_NAME),
+                           self._episodes)
+        except OSError as e:
+            logging.error("could not write the track manifest: %s", e)
+
+    def ensure_boxes(self, picker: Any = None) -> Optional[str]:
+        """Draw this run's prompt boxes now, once, if none were given.
+
+        Called after the cameras are open and before any episode. The
+        alternative is a drag window opening in the middle of a learning
+        run, or a human producing boxes out of band beforehand -- and
+        since a fixed-plan replay trains and tests on one arrangement,
+        the boxes drawn here are the right ones for every take.
+
+        Returns the boxes file, or None if there was nothing to do or
+        it failed. A failure is not fatal here: it is reported, and the
+        takes are still recorded for processing by hand.
+        """
+        if self._processor is None:
+            return None
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.pybullet_helpers.track_pipeline import pick_boxes
+        picker = picker or pick_boxes
+        take_dir, meta = self.snapshot(frames=5)
+        serial = self.fit_camera
+        ext = str((meta or {}).get("svo_ext", ".svo2"))
+        svo = os.path.join(take_dir, f"zed_{serial}{ext}")
+        bundle = os.path.join(self._track_dir, "boxes")
+        boxes = picker(svo, bundle, serial)
+        if not boxes:
+            logging.error(
+                "no prompt boxes for this run, so takes will be recorded but "
+                "not post-processed; draw them by hand and set "
+                "real_robot_snapshot_boxes_json")
+            return None
+        self._processor.set_boxes(boxes)
+        return str(boxes)
 
     def snapshot(self,
                  frames: int = 5) -> Tuple[str, Optional[Dict[str, Any]]]:
@@ -179,6 +284,13 @@ class EpisodeRecorder:
             self._session.close()
         except Exception as e:  # pylint: disable=broad-except
             logging.error("real robot: closing the recorder failed: %s", e)
+        if self._processor is not None:
+            pending = self._processor.pending()
+            if pending:
+                logging.info(
+                    "waiting for %d markerless post-processing job(s); each "
+                    "runs about 3x the length of its take", pending)
+            self._processor.wait_all()
 
 
 def make_episode_recorder(
@@ -202,7 +314,17 @@ def make_episode_recorder(
         fps=CFG.real_robot_recording_fps,
         out_dir=out_dir)
     max_frames = CFG.real_robot_recording_max_frames or None
-    recorder = EpisodeRecorder(session, max_frames=max_frames)
+    processor = None
+    if CFG.real_robot_process_takes:
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.pybullet_helpers.track_pipeline import \
+            make_track_processor
+        processor = make_track_processor()
+    recorder = EpisodeRecorder(session,
+                               max_frames=max_frames,
+                               processor=processor,
+                               track_dir=CFG.real_robot_track_dir or None,
+                               camera=CFG.real_robot_track_camera or None)
     atexit.register(recorder.close)
     return recorder
 

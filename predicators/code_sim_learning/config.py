@@ -50,6 +50,14 @@ class SysIdConfig:
     summary_weight: float
     consistency_factor: float
     log_hessian_identifiability: bool
+    score_observed_only: bool
+    track_path: str
+    onset_confirm_deg: float
+    onset_deg: float
+    onset_min_persist: int
+    track_object_prefix: str
+    track_fallback_fps: float
+    track_wait_s: float
 
     @classmethod
     def from_cfg(cls) -> SysIdConfig:
@@ -87,4 +95,13 @@ class SysIdConfig:
                 CFG.code_sim_learning_rollout_consistency_factor),
             log_hessian_identifiability=(
                 CFG.code_sim_learning_log_hessian_identifiability),
+            score_observed_only=(
+                CFG.code_sim_learning_rollout_score_observed_only),
+            track_path=CFG.code_sim_learning_rollout_track_path,
+            onset_confirm_deg=CFG.code_sim_learning_onset_confirm_deg,
+            onset_deg=CFG.code_sim_learning_onset_deg,
+            onset_min_persist=CFG.code_sim_learning_onset_min_persist,
+            track_object_prefix=CFG.code_sim_learning_track_object_prefix,
+            track_fallback_fps=CFG.code_sim_learning_track_fallback_fps,
+            track_wait_s=CFG.code_sim_learning_track_wait_s,
         )

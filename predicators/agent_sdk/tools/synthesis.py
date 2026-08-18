@@ -28,6 +28,60 @@ class SynthesisToolkit:
     residuals_runner: Callable[..., str]
 
 
+def moving_feature_scope(
+        rollouts: List[Tuple[Any, Any]]) -> Dict[str, List[str]]:
+    """Features whose OBSERVED value moves anywhere in the fit data.
+
+    The open-loop report scores global fidelity, so its scope is
+    "everything that moves" - independent of the artifact's declared
+    RESIDUAL_FEATURES, which describe rule scope and may legitimately be
+    empty (a physics-only artifact, or one that concluded no rule is
+    needed). A feature is in scope when its observed span across all
+    recorded states exceeds the settle tolerance (the same "still
+    moving" cutoff the settled-tail truncation uses).
+
+    ``code_sim_learning_rollout_scope_types`` narrows that, and is empty
+    by default so this report is unchanged. It exists because
+    identifying ONE physical parameter is a different question from
+    global fidelity: the arm is commanded, so it reproduces at every
+    candidate value and can only dilute the signal -- and with it in
+    scope nothing in the episode ever rests, so the rest-point
+    segmentation this scope also drives can never cut.
+
+    Module-level rather than a closure inside ``create_synthesis_tools``
+    because it captures nothing from it, and the narrowing above is
+    worth testing on its own.
+    """
+    # Deferred, as everywhere else in this module: importing settings at
+    # module level here reintroduces an import cycle.
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.settings import CFG
+    tol = CFG.code_sim_learning_rollout_settle_tol
+    keep_types = set(CFG.code_sim_learning_rollout_scope_types)
+    drop_feats = set(CFG.code_sim_learning_rollout_nonkinematic_features)
+    span_lo: Dict[Tuple[str, str], float] = {}
+    span_hi: Dict[Tuple[str, str], float] = {}
+    for states, _actions in rollouts:
+        for state in states:
+            for obj in state:
+                if keep_types and obj.type.name not in keep_types:
+                    continue
+                for feat in obj.type.feature_names:
+                    if keep_types and feat in drop_feats:
+                        continue
+                    val = float(state.get(obj, feat))
+                    key = (obj.type.name, feat)
+                    if key not in span_lo or val < span_lo[key]:
+                        span_lo[key] = val
+                    if key not in span_hi or val > span_hi[key]:
+                        span_hi[key] = val
+    out: Dict[str, List[str]] = {}
+    for (tn, feat), lo in span_lo.items():
+        if span_hi[(tn, feat)] - lo > tol:
+            out.setdefault(tn, []).append(feat)
+    return {t: sorted(fs) for t, fs in out.items()}
+
+
 def create_synthesis_tools(
     exec_ns: Dict[str, Any],
     base_pred_triples: list,
@@ -651,36 +705,7 @@ def create_synthesis_tools(
 
     # ── rollout-mode residuals (open-loop fidelity) ─────────────
 
-    def _moving_feature_scope(
-            rollouts: List[Tuple[Any, Any]]) -> Dict[str, List[str]]:
-        """Features whose OBSERVED value moves anywhere in the fit data.
-
-        The open-loop report scores global fidelity, so its scope is
-        "everything that moves" - independent of the artifact's declared
-        RESIDUAL_FEATURES, which describe rule scope and may legitimately
-        be empty (a physics-only artifact, or one that concluded no rule
-        is needed). A feature is in scope when its observed span across
-        all recorded states exceeds the settle tolerance (the same
-        "still moving" cutoff the settled-tail truncation uses).
-        """
-        tol = CFG.code_sim_learning_rollout_settle_tol
-        span_lo: Dict[Tuple[str, str], float] = {}
-        span_hi: Dict[Tuple[str, str], float] = {}
-        for states, _actions in rollouts:
-            for state in states:
-                for obj in state:
-                    for feat in obj.type.feature_names:
-                        val = float(state.get(obj, feat))
-                        key = (obj.type.name, feat)
-                        if key not in span_lo or val < span_lo[key]:
-                            span_lo[key] = val
-                        if key not in span_hi or val > span_hi[key]:
-                            span_hi[key] = val
-        out: Dict[str, List[str]] = {}
-        for (tn, feat), lo in span_lo.items():
-            if span_hi[(tn, feat)] - lo > tol:
-                out.setdefault(tn, []).append(feat)
-        return {t: sorted(fs) for t, fs in out.items()}
+    _moving_feature_scope = moving_feature_scope
 
     def _run_rollout_residuals(rules: list, specs: list, latent_init: Any,
                                version_tag: str, sweep_num_points: int,

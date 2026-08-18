@@ -161,6 +161,55 @@ def test_cogman_replan_task_carries_all_task_fields():
     assert replan_task.evaluator is evaluator
 
 
+def test_a_plan_that_runs_to_its_end_reports_a_completed_episode():
+    """Regression: run_20260817_160904 executed all six of its options in the
+    twin and then shipped NOTHING to the arm.
+
+    A fixed plan ends by raising OptionExecutionFailure("Option plan
+    exhausted!"), which is in the exploration loop's break_on set -- so
+    the normal terminus of every fixed-plan episode looked identical to
+    an abort, and an executor deferring its motion to the end of a
+    completed episode discarded all of it. The arm could never move.
+    """
+    utils.reset_config({"env": "cover"})
+    env = CoverEnv()
+    train_tasks = [t.task for t in env.get_train_tasks()]
+    task = env.get_task("test", 0)
+    approach = create_approach("random_options", env.predicates,
+                               get_gt_options(env.get_name()), env.types,
+                               env.action_space, train_tasks)
+    finished = []
+
+    class _RecordingEnv(CoverEnv):
+        """A CoverEnv that records how the episode was reported to end."""
+
+        def finish_execution(self, completed):
+            """Record the verdict the executor would act on."""
+            finished.append(completed)
+
+    recording_env = _RecordingEnv()
+    cogman = CogMan(approach, create_perceiver("trivial"),
+                    create_execution_monitor("trivial"))
+    # Set BEFORE reset, as the exploration loop does -- _reset_policy picks
+    # the override there, and setting it afterwards leaves the approach's own
+    # policy in place and never exercises the exhaustion path at all.
+    cogman.set_override_policy(utils.option_plan_to_policy(
+        []))  # empty plan -> exhausted at once
+    cogman.set_termination_function(lambda _s: False)
+    cogman.reset(task)
+
+    run_episode_and_get_observations(
+        cogman,
+        recording_env,
+        "test",
+        0,
+        max_num_steps=5,
+        exceptions_to_break_on={utils.OptionExecutionFailure})
+
+    assert finished == [True], \
+        "a plan that ran out was reported as an aborted episode"
+
+
 def test_run_episode_and_get_observations():
     """Tests for run_episode_and_get_observations()."""
     utils.reset_config({"env": "cover"})

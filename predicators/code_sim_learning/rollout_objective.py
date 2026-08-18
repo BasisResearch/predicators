@@ -9,6 +9,7 @@ for why the objective free-runs the base sim.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -19,6 +20,7 @@ from predicators.code_sim_learning.lm import solve_lm
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
     rollout_states
 from predicators.code_sim_learning.trajectory_prep import ResidualScaling
+from predicators.settings import CFG
 from predicators.structs import Action, State
 
 # Relative finite-difference step for the rollout LM Jacobian. scipy's
@@ -31,6 +33,18 @@ from predicators.structs import Action, State
 # landscapes are rough at multiple scales — re-sweep this if a new
 # domain's LM fit stalls well above the MCMC-quality SSE.
 _ROLLOUT_LM_DIFF_STEP = 2e-2
+
+# Tracks are read once per path per process, not once per candidate theta: a
+# sweep evaluates the objective dozens of times and an episode's track is a
+# multi-megabyte JSON. Also what stops the post-processing wait below being
+# re-entered on every evaluation. Cleared by ``reset_track_cache``, which the
+# tests use; a run only ever reads one manifest.
+_TRACK_CACHE: Dict[str, List[Any]] = {}
+
+
+def reset_track_cache() -> None:
+    """Forget any loaded tracks, so a new manifest is read fresh."""
+    _TRACK_CACHE.clear()
 
 
 def compute_rollout_sse(
@@ -157,11 +171,17 @@ def _iter_rollout_residual_terms(
     config = config or SysIdConfig.from_cfg()
     delta = config.huber_delta
     summary_w = np.sqrt(max(config.summary_weight, 0.0))
+    # Loaded once per objective evaluation, not per trajectory: the fit calls
+    # this for every candidate theta, and re-reading the JSON each time would
+    # put a file read inside the inner loop of a sweep.
+    loaded = _load_scored_track(config) if config.score_observed_only else None
+    tracks: List[Any] = loaded or []
+    score_intervals = bool(tracks)
     physical = {n: params[n] for n in physical_names if n in params}
     rules_list = list(rules)
     latent_mode = bool(rules_list) and has_latent_rules(rules_list)
 
-    for states, actions in trajectories:
+    for traj_index, (states, actions) in enumerate(trajectories):
         latent: Dict[str, Any] = (init_latent(latent_init, params)
                                   if latent_mode else {})
         history: List[Tuple[State, Optional[Action]]] = []
@@ -200,6 +220,16 @@ def _iter_rollout_residual_terms(
             actions,
             physical,
             post_step=_run_rules_post_step if rules_list else None)
+        if score_intervals:
+            # The per-step loop below is skipped entirely rather than added
+            # to. Under open-loop nothing corrects the twin, so those steps
+            # are the twin's own simulation and including them would let the
+            # defect this flag exists to fix outvote the real evidence by
+            # thousands of terms to a handful.
+            yield from _interval_residual_terms(
+                sim_states, _track_for(tracks, traj_index, len(trajectories)),
+                config, summary_w)
+            continue
         endpoint_residuals: List[float] = []
         for i, sim_state in enumerate(sim_states):
             obs_state = states[i + 1]
@@ -234,6 +264,122 @@ def _iter_rollout_residual_terms(
             yield from _onset_residuals([states[0]] + sim_states, states,
                                         residual_features, config.settle_tol,
                                         summary_w)
+
+
+def _load_scored_track(config: SysIdConfig) -> Optional[Any]:
+    """The observation track to score against, or None to fall back.
+
+    Missing or unreadable is a WARNING and a fallback to per-step
+    scoring, never an empty residual set: scoring nothing would make
+    every theta equally good and return the prior centre with a
+    confident-looking identifiability report. Failing loud is the whole
+    point of the flag.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.observation_track import load_tracks
+    if not config.track_path:
+        logging.warning(
+            "code_sim_learning_rollout_score_observed_only is on but no "
+            "track path is set; falling back to per-step scoring, which "
+            "under open-loop execution scores the twin against itself.")
+        return None
+    cached = _TRACK_CACHE.get(config.track_path)
+    if cached is not None:
+        return cached
+    try:
+        tracks = load_tracks(config.track_path, config.track_fallback_fps,
+                             config.track_wait_s)
+    except (OSError, ValueError, KeyError) as e:
+        logging.warning(
+            "could not read the observation track %s (%s); falling back to "
+            "per-step scoring.", config.track_path, e)
+        return None
+    tracks = [t for t in tracks if t.angles_deg]
+    if not tracks:
+        logging.warning(
+            "no usable observation track at %s (none carried domino angles, "
+            "or none has been post-processed yet); falling back to per-step "
+            "scoring.", config.track_path)
+        return None
+    _TRACK_CACHE[config.track_path] = tracks
+    return tracks
+
+
+def _track_for(tracks: List[Any], index: int, n_trajectories: int) -> Any:
+    """Which track scores trajectory ``index``.
+
+    One track per episode, paired in order, which is how the manifest is
+    written. When the counts disagree every trajectory is scored against
+    the most recent track and the mismatch is logged loudly: the usual
+    cause is rest-point segmentation splitting one episode into several
+    scored segments, which is legitimate -- every segment of an episode
+    does belong to that episode's track -- but the positional pairing
+    can no longer say which.
+    """
+    if len(tracks) == n_trajectories:
+        return tracks[index]
+    if index == 0:
+        logging.warning(
+            "%d trajectory/ies but %d track(s): scoring all of them against "
+            "the most recent track. Rest-point segmentation splitting an "
+            "episode is the usual cause; a per-segment track would need the "
+            "episode identity that segmentation drops.", n_trajectories,
+            len(tracks))
+    return tracks[-1]
+
+
+def _interval_residual_terms(sim_states: List[State], track: Any,
+                             config: SysIdConfig,
+                             summary_w: float) -> Iterator[float]:
+    """Yield (sim - observed) propagation intervals, in seconds.
+
+    The residual set for a whole trajectory is one term per domino
+    after the first to fall. That is a handful of numbers where the
+    per-step objective has thousands, and deliberately so: those
+    thousands are the twin's own simulation under open-loop, and only
+    these carry the real cascade.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.observation_track import \
+        interval_residuals, match_ids_by_position, propagation_intervals, \
+        sim_topple_series, topple_onsets, track_name_to_id
+    if not sim_states:
+        return
+    # By position when the track carries any: the ids are box-drawing order,
+    # so the names only line up if something forced them to.
+    name_to_id = match_ids_by_position(sim_states[0], track.first_xy,
+                                       config.track_object_prefix)
+    if not name_to_id:
+        logging.warning(
+            "falling back to matching track ids by object name, which assumes "
+            "the initialization boxes were drawn in the env's own domino "
+            "order")
+        name_to_id = track_name_to_id(sim_states[0],
+                                      config.track_object_prefix)
+    if not name_to_id:
+        logging.warning(
+            "no object name starts with %r, so nothing in the rollout maps "
+            "onto the track's domino ids; this trajectory contributes no "
+            "interval residuals.", config.track_object_prefix)
+        return
+    step_s = CFG.pybullet_sim_steps_per_action / 240.0
+    sim_series = sim_topple_series(sim_states, step_s, name_to_id)
+
+    def _onsets(series: Any) -> Dict[int, float]:
+        """Both sides detected identically, which is the point."""
+        return topple_onsets(series,
+                             confirm_deg=config.onset_confirm_deg,
+                             onset_deg=config.onset_deg,
+                             min_persist=config.onset_min_persist)
+
+    sim_intervals = propagation_intervals(_onsets(sim_series))
+    obs_intervals = propagation_intervals(_onsets(track.angles_deg))
+    # A cascade that fails to propagate in one of the two is the strongest
+    # evidence there is, so the stand-in is the track's own span rather than
+    # a small number: it must cost more than any real disagreement.
+    penalty = max(track.duration_s, step_s * len(sim_states))
+    for res in interval_residuals(sim_intervals, obs_intervals, penalty):
+        yield summary_w * res
 
 
 def _onset_residuals(sim_states: List[State], obs_states: List[State],

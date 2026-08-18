@@ -1878,7 +1878,12 @@ def option_plan_to_policy(
         if not queue:
             logging.info("Option plan exhausted after %d options.",
                          total_options)
-            raise OptionExecutionFailure("Option plan exhausted!")
+            # Flagged, because running out of options is how a plan ENDS, not
+            # how one fails -- and both arrive as the same exception type. A
+            # caller that cannot tell them apart treats every completed plan
+            # as an aborted episode.
+            raise OptionExecutionFailure("Option plan exhausted!",
+                                         info={"plan_exhausted": True})
         option = queue.pop(0)
         option_num = total_options - len(queue)
         next_option = None if not queue else queue[0].simple_str()
@@ -5298,6 +5303,11 @@ def configure_logging() -> None:
     # Used by openai package
     logging.getLogger("httpx").setLevel(logging.INFO)
     logging.getLogger("httpcore").setLevel(logging.INFO)
+    # The transport babyrobot drives the real arm over. It logs a line per
+    # channel at DEBUG -- one per request, so a hardware run at
+    # loglevel=DEBUG buries its own output in "--> new channel <uuid>".
+    # WARNING still surfaces a transport that is actually failing.
+    logging.getLogger("zerorpc").setLevel(logging.WARNING)
 
 
 def log_initial_info(str_args: str) -> None:

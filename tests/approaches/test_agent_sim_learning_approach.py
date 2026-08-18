@@ -6,6 +6,7 @@ ground-truth simulator program, the hybrid learned option model
 that solve a pybullet_boil task.
 """
 # pylint: disable=protected-access
+import inspect
 import logging
 import os
 import re
@@ -753,7 +754,9 @@ def test_persist_fit_trajectories(tmp_path, monkeypatch) -> None:
     obj._persist_fit_trajectories()
     out_dir = tmp_path / "fit_data"
     files = sorted(f.name for f in out_dir.glob("*.pkl"))
-    assert files == ["fit_trajectories_000.pkl", "fit_trajectories_001.pkl"]
+    assert files == [
+        "fit_trajectories_000_fitted.pkl", "fit_trajectories_001_fitted.pkl"
+    ]
     with open(out_dir / files[0], "rb") as f:
         payload = pkl.load(f)
     assert payload["trajectories"] == ["fake_traj_a", "fake_traj_b"]
@@ -762,6 +765,42 @@ def test_persist_fit_trajectories(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(CFG, "code_sim_learning_persist_fit_data", False)
     obj._persist_fit_trajectories()
     assert len(list(out_dir.glob("*.pkl"))) == 2
+
+
+def test_fit_data_is_dumped_even_when_no_fit_runs(tmp_path) -> None:
+    """A cycle that declines to fit is exactly the one worth post-morteming.
+
+    Persistence used to sit only inside the sysID fit, so the branch
+    that never ran was the branch whose data mattered:
+    run_20260817_171402 declined on a sweep returning one identical SSE
+    for every value of five parameters, and left nothing on disk to
+    explain it. Dumping where the data ARRIVES is what makes that
+    replayable.
+    """
+    obj = object.__new__(AgentSimLearningApproach)
+    obj._physical_param_specs = []
+    obj._identified_physical_params = {}
+    obj._get_log_dir = lambda: str(tmp_path)  # type: ignore[method-assign]
+    obj._explainability_cache = {}
+    obj._sysid_fit_cache = {}
+
+    # The one line of _learn_simulator this is about, with no fit after it.
+    obj._fit_trajectories = cast(List[LowLevelTrajectory], ["traj"])
+    obj._persist_fit_trajectories("recorded")
+
+    files = [f.name for f in (tmp_path / "fit_data").glob("*.pkl")]
+    assert files == ["fit_trajectories_000_recorded.pkl"]
+    with open(tmp_path / "fit_data" / files[0], "rb") as f:
+        assert pkl.load(f)["trajectories"] == ["traj"]
+
+    # The wiring, not just the function: _learn_simulator runs on every
+    # cycle whether or not a fit follows, so the dump has to hang off it.
+    # Asserted on the source because calling _learn_simulator for real
+    # needs a whole synthesis session, and without this the test above
+    # passes with the call deleted.
+    source = inspect.getsource(AgentSimLearningApproach._learn_simulator)  # pylint: disable=protected-access
+    assert "_persist_fit_trajectories(\"recorded\")" in source, \
+        "the recorded-data dump is no longer wired into _learn_simulator"
 
 
 def test_base_sim_reference_provisioning() -> None:

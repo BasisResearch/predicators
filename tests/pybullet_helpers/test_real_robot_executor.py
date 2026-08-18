@@ -128,6 +128,26 @@ def _as_env(env: _StubEnv) -> PyBulletEnv:
     return cast(PyBulletEnv, env)
 
 
+@pytest.fixture(autouse=True)
+def _never_write_into_the_repo(tmp_path, monkeypatch):
+    """Run every test in this module from a scratch directory.
+
+    ``EpisodeRecorder``'s default track directory is the relative
+    ``logs/zed_tracks``, and it rewrites ``tracks.json`` there whenever a
+    take closes. A test that forgets ``track_dir`` therefore writes into
+    the repository -- and if a real run is in flight, over ITS manifest,
+    with stub paths that point at takes which never existed. That
+    happened: the suite clobbered run_20260817_171402's manifest while
+    it was waiting for post-processing, and the fit fell back to
+    per-step scoring having been pointed at a take named by a stub.
+
+    Isolating the working directory fixes every present and future test
+    at once, which passing ``track_dir`` one call site at a time does
+    not.
+    """
+    monkeypatch.chdir(tmp_path)
+
+
 @pytest.fixture(name="recorder")
 def recorder_fixture(monkeypatch):
     """Replace the two bridge helpers with recorders.
@@ -753,6 +773,9 @@ class _StubSession:
         self.started = []
         self.stopped = []
         self.recording = False
+        # The two the bench actually has, in the order the recorder is given
+        # them -- so a test that does not pick a camera exercises the default.
+        self.serials = ["32294776", "30264679"]
         self._errors = errors or []
         self._stop_raises = stop_raises
 
@@ -817,12 +840,61 @@ def test_cameras_open_once_for_the_run_not_once_per_episode():
     assert len(session.stopped) == 3
 
 
-def test_a_take_is_stopped_even_when_nothing_ships(recorder):
-    """Shipping must NOT happen on an abnormal end, but the recording must
-    still stop -- a take left open runs until the disk fills.
+@pytest.mark.usefixtures("recorder")
+def test_open_loop_records_the_motion_not_the_simulating(tmp_path):
+    """The take brackets the batch, not the episode.
 
-    The two have opposite defaults, which is why one is conditional and
-    the other is not.
+    Under open-loop the arm does nothing between the reset and the ship,
+    so recording from the reset captures the twin simulating -- a static
+    scene, and on run_20260817_165815 the larger half of the take (258 s
+    recorded against 153 s of motion). Trimming cannot recover it: the
+    scan keeps everything between the first and last movement, and the
+    arm homing at the reset opens that window.
+    """
+    session = _StubSession()
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   human_reset=False,
+                   open_loop_episode=True,
+                   recorder=EpisodeRecorder(session, track_dir=str(tmp_path)))
+
+    ex.after_reset("train", 0, _state(0.0))
+    assert not session.started, "recording started while the twin simulates"
+
+    obs = _state(0.0)
+    option = _option("Push")
+    ex.after_step(_act(option, terminal=False), obs)
+    ex.after_step(_act(option, terminal=True), obs)
+    ex.after_episode(True)
+
+    assert len(session.started) == 1, "the batch was not recorded"
+    assert len(session.stopped) == 1
+    assert session.started[0][0].endswith("_train0_ep001")
+
+
+@pytest.mark.usefixtures("recorder")
+def test_per_boundary_still_records_the_whole_episode(tmp_path):
+    """Shipping option by option puts motion throughout the episode, so there
+    the take must still span it."""
+    session = _StubSession()
+    ex = _executor(_StubEnv(),
+                   observe_at_boundaries=False,
+                   human_reset=False,
+                   recorder=EpisodeRecorder(session, track_dir=str(tmp_path)))
+
+    ex.after_reset("train", 0, _state(0.0))
+
+    assert len(session.started) == 1, "the episode was not being recorded"
+
+
+def test_nothing_is_left_recording_when_nothing_ships(recorder):
+    """Shipping must NOT happen on an abnormal end, and no take may be left
+    running afterwards -- one would record until the disk fills.
+
+    Under open-loop the take is opened at the ship, so an episode that
+    never ships never opens one; the invariant holds by never starting
+    rather than by stopping. What must not happen is a take still
+    recording at the end.
     """
     session = _StubSession()
     ex = _recording_executor(session, open_loop_episode=True)
@@ -830,7 +902,21 @@ def test_a_take_is_stopped_even_when_nothing_ships(recorder):
     _run_episode(ex, ["Pick", "Place"], recorder, completed=False)
 
     assert recorder.shipped == [], "an incomplete episode ships nothing"
-    assert len(session.stopped) == 1, "but its take is still stopped"
+    assert session.recording is False, "a take was left running"
+    assert len(session.started) == len(session.stopped)
+
+
+@pytest.mark.usefixtures("recorder")
+def test_a_take_opened_before_the_ship_is_stopped_when_nothing_ships():
+    """The per-boundary path DOES open its take at the reset, so there the stop
+    is what keeps the invariant."""
+    session = _StubSession()
+    ex = _recording_executor(session)
+    ex.after_reset("train", 0, _state(0.0))
+    ex.after_episode(False)
+
+    assert len(session.started) == 1
+    assert len(session.stopped) == 1
     assert session.recording is False
 
 
@@ -960,6 +1046,337 @@ def test_take_names_carry_the_episode_they_came_from():
     assert first.endswith("_train0_ep001")
     assert second.endswith("_train0_ep002")
     assert first < second
+
+
+class _StubProcessor:
+    """Stands in for the markerless pipeline, recording what was launched."""
+
+    def __init__(self, started=True):
+        self.launched = []
+        self.waited = 0
+        self.boxes = None
+        self._started = started
+
+    def set_boxes(self, boxes_json):
+        """Record the boxes this run will reuse."""
+        self.boxes = boxes_json
+
+    def launch(self, svo, bundle, serial):
+        """Record a launch; return a handle, or None if it could not start."""
+        self.launched.append((svo, bundle, serial))
+        return object() if self._started else None
+
+    def pending(self):
+        """Nothing is ever really running here."""
+        return 0
+
+    def wait_all(self, timeout=None):
+        """Record the join."""
+        del timeout
+        self.waited += 1
+
+
+def test_each_usable_take_is_post_processed(tmp_path):
+    """The bridge between recording and scoring: predicators runs the pipeline
+    itself rather than leaving takes for a human."""
+    session = _StubSession()
+    processor = _StubProcessor()
+    rec = EpisodeRecorder(session,
+                          processor=processor,
+                          track_dir=str(tmp_path))
+    rec.open()
+    rec.start_episode("ep1")
+    rec.stop_episode()
+
+    assert len(processor.launched) == 1
+    svo, bundle, _serial = processor.launched[0]
+    assert svo.endswith(".svo2")
+    assert str(tmp_path) in bundle
+
+
+def test_an_unusable_take_is_not_post_processed(tmp_path):
+    """A track fitted to a recording that lost a camera mid-episode is a well-
+    formed track of the wrong thing."""
+    session = _StubSession(errors=["ZED 30264679 stopped grabbing"])
+    processor = _StubProcessor()
+    rec = EpisodeRecorder(session,
+                          processor=processor,
+                          track_dir=str(tmp_path))
+    rec.open()
+    rec.start_episode("ep1")
+    rec.stop_episode()
+
+    assert not processor.launched
+
+
+def test_the_manifest_records_every_episode_in_order(tmp_path):
+    """Written as each take closes, so a run killed mid-way still leaves a
+    valid document -- and unusable episodes are recorded, not omitted."""
+    session = _StubSession()
+    rec = EpisodeRecorder(session,
+                          processor=_StubProcessor(),
+                          track_dir=str(tmp_path))
+    rec.open()
+    for i in range(2):
+        rec.start_episode(f"ep{i}")
+        rec.stop_episode()
+
+    manifest = json.loads(
+        (tmp_path / "tracks.json").read_text(encoding="utf-8"))
+
+    assert [e["episode"] for e in manifest["episodes"]] == [1, 2]
+    assert all(e["usable"] for e in manifest["episodes"])
+    assert all(e["track"].endswith("dominoes_traj.json")
+               for e in manifest["episodes"])
+
+
+def test_closing_waits_for_outstanding_post_processing(tmp_path):
+    """The jobs are detached so they overlap the next episode, but the run must
+    not exit while one is still writing a track."""
+    processor = _StubProcessor()
+    rec = EpisodeRecorder(_StubSession(),
+                          processor=processor,
+                          track_dir=str(tmp_path))
+    rec.open()
+
+    rec.close()
+
+    assert processor.waited == 1
+
+
+def test_takes_are_left_alone_when_processing_is_off(tmp_path):
+    """Off means recorded and left for a human, which is the default."""
+    rec = EpisodeRecorder(_StubSession(), track_dir=str(tmp_path))
+    rec.open()
+    rec.start_episode("ep1")
+    rec.stop_episode()
+
+    manifest = json.loads(
+        (tmp_path / "tracks.json").read_text(encoding="utf-8"))
+    assert "processing" not in manifest["episodes"][0]
+
+
+def test_the_configured_camera_is_the_one_fitted(tmp_path):
+    """Markerless is single-camera and the two are not interchangeable: one is
+    6x better on orientation, the other tracks 18% more frames.
+
+    The session's first serial is an arbitrary default, so it must be
+    overridable.
+    """
+    session = _StubSession()
+    session.serials = ["32294776", "30264679"]
+    processor = _StubProcessor()
+    rec = EpisodeRecorder(session,
+                          processor=processor,
+                          track_dir=str(tmp_path),
+                          camera="30264679")
+    rec.open()
+    rec.start_episode("ep")
+    rec.stop_episode()
+
+    svo, _bundle, serial = processor.launched[0]
+    assert serial == "30264679"
+    assert svo.endswith("zed_30264679.svo2")
+
+
+def test_a_camera_the_session_does_not_record_is_refused(tmp_path):
+    """Every episode would otherwise fail at post-processing with a missing
+    file, long after the run has cost something."""
+    session = _StubSession()
+    session.serials = ["32294776"]
+    rec = EpisodeRecorder(session, track_dir=str(tmp_path), camera="99999999")
+
+    with pytest.raises(ValueError, match="not one of the cameras"):
+        _ = rec.fit_camera
+
+
+def test_still_frames_are_trimmed_at_stage_1(tmp_path):
+    """An episode take makes its own dead air: recording starts at the reset
+    and the twin then simulates every option with the arm parked.
+
+    Measured at 152 s of a 420 s take, which SAM-2 would otherwise
+    process at ~0.5 s a frame.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.pybullet_helpers.track_pipeline import \
+        MarkerlessTrackProcessor
+    boxes = tmp_path / "boxes.json"
+    boxes.write_text('{"boxes": [{"id": 0, "box": [1, 2, 3, 4]}]}',
+                     encoding="utf-8")
+    seen = {}
+
+    def _launcher(argv, env, log_path):
+        """Capture the environment the driver would be started with."""
+        del argv, log_path
+        seen.update(env)
+        return _DoneJob()
+
+    processor = MarkerlessTrackProcessor(script=str(boxes),
+                                         boxes_json=str(boxes),
+                                         trim=True,
+                                         trim_args="--trim-pad 5",
+                                         launcher=_launcher)
+    processor.launch("take.svo2", str(tmp_path / "bundle"), "30264679")
+
+    assert seen["TRIM"] == "1"
+    assert seen["TRIM_ARGS"] == "--trim-pad 5"
+    assert seen["SERIAL"] == "30264679"
+
+
+def test_trimming_can_be_turned_off(tmp_path):
+    """Off must leave the driver's environment clean rather than passing an
+    empty TRIM, which the shell would read as set."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.pybullet_helpers.track_pipeline import \
+        MarkerlessTrackProcessor
+    boxes = tmp_path / "boxes.json"
+    boxes.write_text('[[1, 2, 3, 4]]', encoding="utf-8")
+    seen = {}
+
+    def _launcher(argv, env, log_path):
+        """Capture the environment the driver would be started with."""
+        del argv, log_path
+        seen.update(env)
+        return _DoneJob()
+
+    processor = MarkerlessTrackProcessor(script=str(boxes),
+                                         boxes_json=str(boxes),
+                                         trim=False,
+                                         launcher=_launcher)
+    processor.launch("take.svo2", str(tmp_path / "bundle"), "30264679")
+
+    assert "TRIM" not in seen
+
+
+class _DoneJob:
+    """A launched job that has already finished."""
+
+    def poll(self):
+        """Finished."""
+        return 0
+
+    def wait(self, timeout=None):
+        """Finished."""
+        del timeout
+        return 0
+
+
+def test_boxes_are_unwrapped_into_what_stage_2_reads(tmp_path):
+    """Regression from run_20260817_162250: stage 2 died on int('id').
+
+    init_boxes.py WRITES records -- {"id", "box", "label"} under a
+    "boxes" key -- but the BOXES env it READS expects a bare list of
+    [x0, y0, x1, y1]. Handing the records over unchanged made stage 2
+    iterate a dict, minutes into the run, after the arm had already
+    executed the whole episode.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.pybullet_helpers.track_pipeline import _read_boxes
+    written = tmp_path / "boxes.json"
+    written.write_text(json.dumps({
+        "frame":
+        0,
+        "source":
+        "manual",
+        "boxes": [{
+            "id": 0,
+            "box": [324, 434, 411, 555],
+            "label": "domino"
+        }, {
+            "id": 1,
+            "box": [452, 398, 521, 495],
+            "label": "domino"
+        }],
+    }),
+                       encoding="utf-8")
+
+    assert json.loads(_read_boxes(str(written))) == [[324, 434, 411, 555],
+                                                     [452, 398, 521, 495]]
+
+
+def test_bare_box_lists_are_still_accepted(tmp_path):
+    """A hand-written file in the form the env documents keeps working."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.pybullet_helpers.track_pipeline import _read_boxes
+    written = tmp_path / "boxes.json"
+    written.write_text(json.dumps([[1, 2, 3, 4]]), encoding="utf-8")
+
+    assert json.loads(_read_boxes(str(written))) == [[1, 2, 3, 4]]
+
+
+def test_a_failing_pipeline_job_leaves_its_reason_in_a_log(tmp_path):
+    """The job is detached, so its output has nowhere else to go.
+
+    Without the log a failed stage is a missing track and no reason,
+    noticed minutes later when the fit finds nothing.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.pybullet_helpers.track_pipeline import LOG_NAME, \
+        MarkerlessTrackProcessor
+    boxes = tmp_path / "boxes.json"
+    boxes.write_text('{"boxes": [[1, 2, 3, 4]]}', encoding="utf-8")
+    script = tmp_path / "driver.sh"
+    script.write_text("#!/bin/sh\necho 'stage 3 exploded' >&2\nexit 3\n",
+                      encoding="utf-8")
+    script.chmod(0o755)
+    bundle = tmp_path / "bundle"
+    processor = MarkerlessTrackProcessor(script=str(script),
+                                         boxes_json=str(boxes))
+
+    job = processor.launch(str(tmp_path / "take.svo2"), str(bundle), "123")
+    assert job is not None
+    processor.wait_all(timeout=30)
+
+    log = (bundle / LOG_NAME).read_text(encoding="utf-8")
+    assert "stage 3 exploded" in log
+
+
+def test_boxes_are_drawn_once_for_the_run(tmp_path):
+    """One drag window per RUN, not per take.
+
+    That is what makes an otherwise-interactive pipeline usable in a
+    learning loop, and it is valid because a fixed-plan replay trains
+    and tests on one arrangement.
+    """
+    session = _StubSession()
+    processor = _StubProcessor()
+    rec = EpisodeRecorder(session,
+                          processor=processor,
+                          track_dir=str(tmp_path))
+    rec.open()
+    drawn = []
+
+    def _picker(svo, bundle, serial):
+        """Stand in for the drag window."""
+        drawn.append((svo, bundle, serial))
+        return str(tmp_path / "boxes.json")
+
+    rec.ensure_boxes(picker=_picker)
+    for i in range(3):
+        rec.start_episode(f"ep{i}")
+        rec.stop_episode()
+
+    assert len(drawn) == 1, "the window must open once, not once per episode"
+    assert processor.boxes == str(tmp_path / "boxes.json")
+    assert len(processor.launched) == 3
+
+
+def test_a_failed_box_draw_still_records_the_takes(tmp_path, caplog):
+    """Losing the boxes costs the post-processing, not the run: the takes are
+    on disk and can be processed by hand."""
+    processor = _StubProcessor()
+    rec = EpisodeRecorder(_StubSession(),
+                          processor=processor,
+                          track_dir=str(tmp_path))
+    rec.open()
+
+    with caplog.at_level("ERROR"):
+        assert rec.ensure_boxes(picker=lambda *_: None) is None
+
+    assert "recorded but" in caplog.text
+    rec.start_episode("ep")
+    rec.stop_episode()
+    assert len(processor.launched) == 1
 
 
 def test_the_recorder_closes_an_in_flight_take():
@@ -1185,6 +1602,41 @@ def test_open_loop_ships_once_per_episode_not_once_per_option(recorder):
     (batch, ) = recorder.shipped
     assert len(batch) == 3, "every option's chunk must be in the batch"
     assert all(len(chunk) == 2 for chunk in batch)
+
+
+def test_batching_ships_the_same_segments_as_shipping_one_at_a_time(recorder):
+    """Batching changes WHEN the arm is told, not WHAT.
+
+    The payload for chunk i must not depend on how many chunks travel
+    with it -- otherwise open-loop would be commanding different motion,
+    and any difference in how the arm behaves would be ours rather than
+    the hardware's.
+    """
+    options = ["Pick", "Place", "Push"]
+
+    def _chunks_for(ex):
+        obs = _state(0.0)
+        for name in options:
+            option = _option(name)
+            ex.after_step(_act(option, terminal=False), obs)
+            ex.after_step(_act(option, terminal=True), obs)
+        ex.after_episode(True)
+
+    _chunks_for(_executor(_StubEnv(), observe_at_boundaries=False))
+    one_at_a_time = [c for call in recorder.shipped for c in call]
+    recorder.shipped.clear()
+    _chunks_for(
+        _executor(_StubEnv(),
+                  observe_at_boundaries=False,
+                  open_loop_episode=True))
+    (batched, ) = recorder.shipped
+
+    assert len(one_at_a_time) == len(batched)
+    for eager, deferred in zip(one_at_a_time, batched):
+        assert len(eager) == len(deferred)
+        for a, b in zip(eager, deferred):
+            assert np.allclose(a.arr, b.arr), \
+                "the arm is being commanded different motion under open-loop"
 
 
 def test_open_loop_preserves_option_order(recorder):

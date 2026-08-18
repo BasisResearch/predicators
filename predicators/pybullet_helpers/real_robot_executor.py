@@ -290,11 +290,20 @@ class RealRobotExecutor:
         self._recorder = recorder
         if self._recorder is not None:
             self._recorder.open()
+            if (CFG.real_robot_pick_boxes_at_start
+                    and not CFG.real_robot_snapshot_boxes_json):
+                # Before the first episode, while a human is still standing
+                # at the bench: one drag window for the whole run rather than
+                # one per take.
+                self._recorder.ensure_boxes()
         # Whether a take is currently open, so an episode that ends without
         # ever having started one does not try to stop it.
         self._recording_episode = False
         # Episodes begun this run, used to name takes.
         self._episode_num = 0
+        # The split and task the current episode is for, kept because
+        # open-loop names its take at the ship rather than at the reset.
+        self._episode_split: Tuple[str, int] = ("train", 0)
         self._settle_s = settle_s
         self._human_reset = human_reset
         self._buffer = OptionBoundaryBuffer()
@@ -438,7 +447,15 @@ class RealRobotExecutor:
                 "real robot: dropping %d buffered action(s) from an episode "
                 "that ended mid-option; they were never shipped", lost)
         reset_arm(self._robot, self._home_arm_joints(obs))
-        self._start_recording(train_or_test, task_idx)
+        # Under open-loop the arm does nothing between here and the batch, so
+        # recording now would capture the twin simulating -- a static scene,
+        # and the larger half of the take. Measured on run_20260817_165815:
+        # 258 s recorded against 153 s of motion. The take is started at the
+        # ship instead. Per-boundary shipping has motion throughout the
+        # episode, so it still records from the reset.
+        self._episode_split = (train_or_test, task_idx)
+        if not self._open_loop:
+            self._start_recording(train_or_test, task_idx)
 
     def _start_recording(self, train_or_test: str, task_idx: int) -> None:
         """Begin this episode's take, after the arm is home.
@@ -535,6 +552,10 @@ class RealRobotExecutor:
                 "real robot: episode completed with %d action(s) mid-option; "
                 "shipping the %d whole option(s) and dropping those",
                 lost_partial, len(pending))
+        # The take brackets the motion, not the episode: everything before
+        # this point is the twin simulating, with the arm parked.
+        if self._open_loop:
+            self._start_recording(*self._episode_split)
         # One request for the whole episode: execute_chunks packs the list
         # into a single StepRequest, and _split_actions restarts its gripper
         # tracking per call, which RealRobot dedups session-wide.

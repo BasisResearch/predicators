@@ -36,8 +36,24 @@ _MISSING_BABYROBOT = (
     "    git submodule update --init submodules/BabyRobotPredicator\n"
     "    pip install -e submodules/BabyRobotPredicator")
 
-# How much wider than the grasp counts as a release.
-_RELEASE_EPS = 0.005
+# How much wider than the GRASP COMMAND counts as a release. The splitter only
+# ever sees commands, never achieved positions, so this is measured against
+# what Grasp asked for -- not against where the fingers came to rest.
+#
+# STOPGAP, and a fitted constant rather than a derived one. After a grasp the
+# carry phases command `achieved - 1mm`, and the fingers stall on the object
+# well short of the grasp command, so the carry command sits ABOVE it without
+# anything having been released: measured on a Pick as 0.00000 -> 0.00558,
+# which cleared the old 0.005 by 0.58mm and shipped close, open, close to the
+# arm. A genuine release measures 0.0122 on the same scale. 0.008 is simply a
+# value between the two.
+#
+# It cannot be derived, because the two cases are indistinguishable from the
+# command stream: both are "widen after a grasp" and only the magnitude
+# differs. The real fix is to stop inferring intent from widths and carry the
+# skill's own finger_status through on Action.extra_info, at which point this
+# constant only guards actions that arrive without it.
+_RELEASE_EPS = 0.008
 
 
 class MissingBabyRobotError(ImportError):
