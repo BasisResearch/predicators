@@ -413,13 +413,24 @@ def _episode_id_maps(tracks: List[Any], trajectories: List[RolloutTrajectory],
             min_persist=config.onset_min_persist)
         track_xy = track.pre_cascade_xy or track.first_xy
         name_to_id = match_ids_by_xy(twin_xy, track_xy)
-        if not name_to_id:
-            logging.warning(
-                "falling back to matching track ids by object name, which "
-                "assumes the initialization boxes were drawn in the env's "
-                "own domino order")
-            name_to_id = track_name_to_id(states[0], prefix)
-        return name_to_id
+        if name_to_id:
+            return name_to_id
+        # Names are the fallback for a track that carries NO POSITIONS, which
+        # is what track_name_to_id documents itself as. They are not a
+        # fallback for a track that has positions the twin could not be
+        # anchored against: the ids are box-drawing order, and on
+        # run_20260819_152448 the true mapping was a permutation
+        # (domino_3 -> id 4, domino_4 -> id 3), so matching by name would have
+        # attributed each domino's topple to another one -- silently, and
+        # with a full set of confident-looking residuals. An empty mapping
+        # and no residuals is the better failure.
+        if track_xy:
+            return {}
+        logging.warning(
+            "the track carries no positions, so track ids are matched by "
+            "object name, which assumes the initialization boxes were drawn "
+            "in the env's own domino order")
+        return track_name_to_id(states[0], prefix)
 
     if len(tracks) == len(trajectories):
         return [

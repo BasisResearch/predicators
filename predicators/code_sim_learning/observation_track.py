@@ -451,9 +451,24 @@ def settled_xy_before_cascade(
                            confirm_deg=confirm_deg,
                            onset_deg=onset_deg,
                            min_persist=min_persist)
+    # NOTHING when nothing topples. There is then no moment at which the two
+    # streams are known to describe the same arrangement, and the previous
+    # fallback -- states[0] -- is not merely arbitrary but reliably WRONG for
+    # a take that starts at the push: states[0] is the pre-prologue layout
+    # while the track shows the post-prologue one, so the dominoes the arm
+    # PLACES are compared against positions they have not occupied since
+    # before the episode began. On run_20260819_152448 that produced 2 of 5
+    # matched, 63 times, with the unmatched set exactly the three placed
+    # dominoes and the matched pair exactly the two the arm never touches --
+    # the signature of anchoring on the episode's start.
+    #
+    # Refusing is the honest answer. The caller contributes no residuals for
+    # that trajectory, which is right: it has no cascade to score anyway.
+    if not onsets:
+        return {}
     # Onset times are state INDICES here, since the series was built with a
     # step of one: only the ordering matters for choosing a state.
-    cut = int(min(onsets.values())) if onsets else 0
+    cut = int(min(onsets.values()))
     settled = states[max(0, min(cut, len(states) - 1))]
     return {
         obj.name: (float(settled.get(obj, "x")), float(settled.get(obj, "y")))

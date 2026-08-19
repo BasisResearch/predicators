@@ -231,10 +231,10 @@ def test_sim_series_converts_roll_to_degrees():
     assert series[0][1][0] == pytest_approx(0.0833)
 
 
-def _domino_state(positions):
-    """A state with dominoes at the given (x, y)."""
+def _domino_state(positions, roll=0.0):
+    """A state with dominoes at the given (x, y), optionally toppling."""
     return State({
-        Object(name, _DOMINO): [x, y, 0, 0, 0, 0, 0, 0]
+        Object(name, _DOMINO): [x, y, 0, 0, roll, 0, 0, 0]
         for name, (x, y) in positions.items()
     })
 
@@ -416,20 +416,27 @@ def test_ids_are_matched_once_per_episode_not_per_segment(caplog):
         n_frames=20,
         source="test",
         first_xy={
-            0: start["domino_0"],
-            1: start["domino_1"],
-            2: start["domino_2"]
+            0: after_place["domino_0"],
+            1: after_place["domino_1"],
+            2: after_place["domino_2"]
         })
-    # Two segments of one episode: the second begins after the place.
+    # Two segments of one episode: the second begins after the place and
+    # carries the cascade, which is where the anchor comes from. A track of a
+    # push-only take shows the PLACED row, not where the episode began.
+    toppling = [
+        _domino_state(after_place, roll=math.radians(a))
+        for a in _fall(steps=20)
+    ]
     trajectories = [([_domino_state(start)], []),
-                    ([_domino_state(after_place)], [])]
+                    ([_domino_state(after_place)] + toppling, [])]
 
     with caplog.at_level("WARNING"):
         maps = _episode_id_maps([track], trajectories, SysIdConfig.from_cfg())
 
     expected = {"domino_0": 0, "domino_1": 1, "domino_2": 2}
     assert maps == [expected, expected], \
-        "every segment of an episode maps by where the episode STARTED"
+        "every segment of an episode shares ONE mapping, taken from the " \
+        "arrangement the cascade actually ran along"
     assert "could not match" not in caplog.text
 
 
@@ -493,6 +500,79 @@ def test_the_anchor_survives_a_take_that_starts_at_the_push(tmp_path):
         "episode began"
 
 
+def test_no_cascade_means_no_anchor_rather_than_the_episode_start():
+    """The fallback this replaces was not arbitrary, it was reliably WRONG.
+
+    settled_xy_before_cascade used to return states[0] when nothing
+    toppled. For a take that starts at the push that is the pre-prologue
+    layout, while the track shows the post-prologue one -- so the dominoes
+    the arm PLACES get compared against positions they have not occupied
+    since before the episode began, and only the ones it never touches
+    still match.
+
+    Measured on run_20260819_152448: 2 of 5 matched, 63 times, with the
+    unmatched set exactly the three placed dominoes.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.observation_track import \
+        settled_xy_before_cascade
+    placed = {
+        "domino_0": (0.60, 1.30),
+        "domino_1": (0.70, 1.30),
+        "domino_2": (0.80, 1.30),
+    }
+    still = [_domino_state(placed)] * 8
+    toppling = still + [
+        _domino_state(placed, roll=math.radians(a)) for a in _fall(steps=20)
+    ]
+
+    assert settled_xy_before_cascade(still, "domino_") == {}, \
+        "no cascade means there is no moment the two streams are known " \
+        "to share, so no anchor"
+    assert set(settled_xy_before_cascade(toppling, "domino_")) == set(placed)
+
+
+def test_names_are_not_a_fallback_for_a_track_that_has_positions(
+        tmp_path, monkeypatch):
+    """track_name_to_id is for a track carrying NO positions.
+
+    Using it when the twin merely could not be anchored is worse than
+    scoring nothing: the ids are box-drawing order, and on
+    run_20260819_152448 the true mapping was a permutation (domino_3 ->
+    id 4, domino_4 -> id 3), so a name match would have attributed each
+    domino's topple to another one -- silently, with a full set of
+    confident-looking residuals.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.config import SysIdConfig
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.observation_track import \
+        ObservationTrack
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        _episode_id_maps
+    del monkeypatch, tmp_path
+    utils.reset_config({"code_sim_learning_track_object_prefix": "domino_"})
+    placed = {"domino_0": (0.60, 1.30), "domino_1": (0.70, 1.30)}
+    # Nothing topples, so there is no anchor -- but the track HAS positions.
+    trajectories = [([_domino_state(placed)] * 4, [])]
+    track = ObservationTrack(angles_deg={
+        0: _series(*_fall()),
+        1: _series(*_fall())
+    },
+                             n_frames=20,
+                             source="test",
+                             first_xy={
+                                 0: (0.60, 1.30),
+                                 1: (0.70, 1.30)
+                             })
+
+    maps = _episode_id_maps([track], trajectories, SysIdConfig.from_cfg())
+
+    assert maps == [{}], \
+        "a positioned track must not be matched by name as a consolation"
+
+
 def test_paired_tracks_still_anchor_on_their_own_episode():
     """One track per trajectory means no segmentation happened, so each
     trajectory is its own episode and anchors on its own initial state -- it
@@ -530,8 +610,21 @@ def test_paired_tracks_still_anchor_on_their_own_episode():
             1: layout_b["domino_0"]
         }),
     ]
-    trajectories = [([_domino_state(layout_a)], []),
-                    ([_domino_state(layout_b)], [])]
+
+    def _episode(layout):
+        """One episode: the layout, then its cascade.
+
+        A cascade is required now: with nothing toppling there is no
+        moment the two streams are known to share, and
+        settled_xy_before_cascade refuses rather than anchoring on a
+        state that may be the wrong one.
+        """
+        return [_domino_state(layout)] + [
+            _domino_state(layout, roll=math.radians(a))
+            for a in _fall(steps=20)
+        ]
+
+    trajectories = [(_episode(layout_a), []), (_episode(layout_b), [])]
 
     maps = _episode_id_maps(tracks, trajectories, SysIdConfig.from_cfg())
 
