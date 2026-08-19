@@ -37,7 +37,8 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, \
 from predicators import utils
 from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig, \
     ValidationConfig
-from predicators.agent_sdk.tools.context import decorrelated_rollout_seed
+from predicators.agent_sdk.tools.context import absolute_rollout_seed, \
+    decorrelated_rollout_seed
 from predicators.agent_sdk.tools.scene import apply_state_modifications, \
     draw_pybullet_annotation, render_pybullet_image, render_scene_image
 from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
@@ -247,10 +248,12 @@ class ProbeTrialsResult(_StrLikeResult):
 
     ``trials`` holds one dict per trial (``goal_reached``,
     ``num_actions``, ``failure`` - ``None`` or ``"step {i} ({option}):
-    {reason}"``; with ``solved=True`` also ``solved``/``reward`` from
-    the task evaluator, ``None`` when the verdict errored). ``successes``
-    counts goal-reaching trials. The current state is NOT advanced -
-    repeated trials are a measurement, not a navigation step.
+    {reason}"``; ``planner_seed`` - the motion-planner seed the trial
+    ran at, reproducible via ``run(plan, seed=...)``; with
+    ``solved=True`` also ``solved``/``reward`` from the task evaluator,
+    ``None`` when the verdict errored). ``successes`` counts
+    goal-reaching trials. The current state is NOT advanced - repeated
+    trials are a measurement, not a navigation step.
     """
     trials: List[Dict[str, Any]]
     successes: int
@@ -272,13 +275,15 @@ class ProbeTrialsResult(_StrLikeResult):
                          f"evaluator")
         lines = [f"{headline} ({env_note})"]
         for i, t in enumerate(self.trials):
+            seed_tag = (f" (planner seed {t['planner_seed']})"
+                        if t.get("planner_seed") is not None else "")
             if t["failure"]:
-                line = f"  trial {i + 1}: FAILED - {t['failure']}"
+                line = f"  trial {i + 1}{seed_tag}: FAILED - {t['failure']}"
             elif t["goal_reached"]:
-                line = (f"  trial {i + 1}: goal reached "
+                line = (f"  trial {i + 1}{seed_tag}: goal reached "
                         f"({t['num_actions']} actions)")
             else:
-                line = (f"  trial {i + 1}: goal NOT reached "
+                line = (f"  trial {i + 1}{seed_tag}: goal NOT reached "
                         f"({t['num_actions']} actions)")
             if t.get("solved") is not None:
                 line += (f" - evaluator: solved={t['solved']}, "
@@ -852,7 +857,8 @@ class BeliefProbe:
         trials: int = 1,
         solved: bool = False,
         contacts: bool = False,
-        physics_sweep: bool = False
+        physics_sweep: bool = False,
+        seed: Optional[int] = None,
     ) -> Union[ProbeResult, ProbeTrialsResult, ProbeSweepResult]:
         """Execute an option plan from the current state.
 
@@ -918,6 +924,15 @@ class BeliefProbe:
         Rollouts are deterministic per point, so each point costs one
         rollout and its outcome is a measurement, not a sample. The
         current state is NOT advanced and nothing is rendered.
+
+        ``seed=S`` overrides the base motion-planner seed for this call.
+        Trials report the planner seed each ran at (trial ``i`` runs at
+        ``S + i``; without ``seed=`` at ``base + i``), and
+        ``evaluate_option_plan``'s validation rollouts report theirs the
+        same way - so a failed rollout at a reported seed can be
+        reproduced exactly here: ``run(plan, seed=<reported seed>)``.
+        A single run (``trials=1``) executes entirely at ``S``; a
+        physics sweep runs every point at ``S`` instead of the base.
         """
         # pylint: disable-next=import-outside-toplevel
         import numpy as np
@@ -1007,7 +1022,8 @@ class BeliefProbe:
                     # outcome flip between points is attributable to the
                     # physics perturbation alone.
                     with (fresh_scope() if point is None else fresh_scope(
-                            physical_overrides=point)):
+                            physical_overrides=point)), \
+                            absolute_rollout_seed(seed):
                         model = self._option_model()
                         r = bilevel_sketch.execute_plan_forward(
                             probe_task,
@@ -1069,6 +1085,7 @@ class BeliefProbe:
             # pylint: disable-next=import-outside-toplevel
             import contextlib
             trial_dicts: List[Dict[str, Any]] = []
+            base_planner_seed = seed if seed is not None else CFG.seed
             try:
                 for trial_idx in range(trials):
                     _check_time_budget(ctx)
@@ -1083,6 +1100,7 @@ class BeliefProbe:
                     # env construction keeps the base seed.
                     with (fresh_scope() if fresh_scope is not None else
                           contextlib.nullcontext()), \
+                            absolute_rollout_seed(seed), \
                             decorrelated_rollout_seed(trial_idx):
                         model = self._option_model()
                         collector = (_EvalStateCollector(
@@ -1130,12 +1148,20 @@ class BeliefProbe:
                                    f"{fs.failure_reason or 'not initiable'}")
                     total = sum(s.num_actions for s in r.steps)
                     trial_dicts.append({
-                        "goal_reached": r.goal_reached,
-                        "num_actions": total,
-                        "failure": failure,
-                        "solved": trial_solved,
-                        "reward": trial_reward,
-                        "verdict_coarse": coarse,
+                        "goal_reached":
+                        r.goal_reached,
+                        "num_actions":
+                        total,
+                        "failure":
+                        failure,
+                        "solved":
+                        trial_solved,
+                        "reward":
+                        trial_reward,
+                        "verdict_coarse":
+                        coarse,
+                        "planner_seed":
+                        base_planner_seed + trial_idx,
                     })
             except ProbeBudgetExceeded as e:
                 # Completed trials are minutes of sim time and live in the
@@ -1224,15 +1250,19 @@ class BeliefProbe:
                 contact_env = env
                 contact_env.start_contact_recording()
         contact_events: List[Dict[str, Any]] = []
+        if seed is not None:
+            notices.append(f"rollout ran at planner seed {seed} (base seed "
+                           f"overridden for this call)")
         try:
-            result = bilevel_sketch.execute_plan_forward(
-                probe_task,
-                grounded,
-                model,
-                predicates=all_predicates,
-                sketch=sketch_steps,
-                on_step=_on_step,
-                stop_on_failure=True)
+            with absolute_rollout_seed(seed):
+                result = bilevel_sketch.execute_plan_forward(
+                    probe_task,
+                    grounded,
+                    model,
+                    predicates=all_predicates,
+                    sketch=sketch_steps,
+                    on_step=_on_step,
+                    stop_on_failure=True)
         finally:
             if contact_env is not None:
                 contact_events = contact_env.stop_contact_recording()
