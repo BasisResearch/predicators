@@ -273,6 +273,10 @@ _RELEASE_OPEN_STEP = 0.01
 # execution.
 _RELEASE_CLEAR_SLACK = 0.008
 _RELEASE_CHECK_BUFFER = _RELEASE_OPEN_STEP + _RELEASE_CLEAR_SLACK + 0.002
+# Goal-IK seeds tried before the random restarts (current joints, then
+# home); their candidates lead the returned branch order, see
+# PhaseSkill._solve_goal_ik_candidates.
+_NUM_PRIORITY_GOAL_IK_SEEDS = 2
 _IK_STALL_BEST_KEY = "ik_stall_best_{}"  # best EE-to-target distance seen
 _DWELL_COUNT_KEY = "dwell_count_{}"  # post-terminal hold steps taken
 _STROKE_BEST_KEY = "stroke_best_{}"  # gentle stroke: best EE distance
@@ -888,6 +892,11 @@ class PhaseSkill:
     # Random in-limit IK restarts for the BiRRT goal solve, tried after
     # the current-joints and home seeds (see _solve_goal_ik).
     _goal_ik_num_restarts: ClassVar[int] = 8
+    # Escalated restart count for the goal solve, used when every branch
+    # the normal solve found puts the goal configuration in collision
+    # (see _plan_with_simulator). A grasp pose in clutter can need an
+    # arm branch that eight restarts never sample.
+    _goal_ik_escalated_num_restarts: ClassVar[int] = 32
     _ik_stall_min_progress: ClassVar[float] = 2e-3  # meters
 
     def _maybe_drive_base(self, phase: Phase, state: State, memory: Dict,
@@ -1456,24 +1465,62 @@ class PhaseSkill:
             else:
                 goal_finger_joint = self._config.open_fingers_joint
 
-        traj = run_motion_planning(
-            robot=planning_robot,
-            initial_positions=pb_state.joint_positions,
-            target_positions=target_joints,
-            collision_bodies=collision_bodies,
-            seed=CFG.seed,
-            physics_client_id=sim._physics_client_id,  # pylint: disable=protected-access
-            held_object=held_object,
-            base_link_to_held_obj=base_link_to_held_obj,
-            held_attachments=held_attachments,
-            allow_shallow_held_object_contacts=(
-                phase.allow_shallow_held_object_contacts
-                if phase is not None else False),
-            unbounded_shallow_bodies=self._sim_table_ids(sim),
-            goal_finger_joint=goal_finger_joint,
-            held_bystander_clearance=self._config.held_bystander_clearance,
-            goal_candidates=goal_candidates,
-        )
+        def _plan(
+            candidates: List[JointPositions]
+        ) -> Optional[Sequence[JointPositions]]:
+            return run_motion_planning(
+                robot=planning_robot,
+                initial_positions=pb_state.joint_positions,
+                target_positions=candidates[0],
+                collision_bodies=collision_bodies,
+                seed=CFG.seed,
+                physics_client_id=sim._physics_client_id,  # pylint: disable=protected-access
+                held_object=held_object,
+                base_link_to_held_obj=base_link_to_held_obj,
+                held_attachments=held_attachments,
+                allow_shallow_held_object_contacts=(
+                    phase.allow_shallow_held_object_contacts
+                    if phase is not None else False),
+                unbounded_shallow_bodies=self._sim_table_ids(sim),
+                goal_finger_joint=goal_finger_joint,
+                held_bystander_clearance=(
+                    self._config.held_bystander_clearance),
+                goal_candidates=candidates,
+            )
+
+        def _resolve_goal_ik(
+            num_restarts: Optional[int] = None
+        ) -> Optional[List[JointPositions]]:
+            """Re-solve the goal IK from a clean scene, or None if it fails."""
+            sim._set_state(remapped_state)  # pylint: disable=protected-access
+            planning_robot.set_joints(pb_state.joint_positions)
+            try:
+                return self._solve_goal_ik_candidates(
+                    planning_robot,
+                    target_pose,
+                    pb_state.joint_positions,
+                    validate=True,
+                    num_restarts=num_restarts)
+            except InverseKinematicsError:
+                return None
+
+        def _diagnose(goal_joints: JointPositions,
+                      log_errors: bool) -> List[str]:
+            return self._log_collision_diagnostics(
+                planning_robot,
+                sim._physics_client_id,  # pylint: disable=protected-access
+                pb_state.joint_positions,
+                goal_joints,
+                collision_bodies,
+                held_object,
+                base_link_to_held_obj,
+                phase_name,
+                body_names=body_names,
+                goal_finger_joint=goal_finger_joint,
+                held_attachments=held_attachments,
+                log_errors=log_errors)
+
+        traj = _plan(goal_candidates)
 
         if traj is None and not validate_goal_ik:
             # The unvalidated goal solve may have accepted a one-shot IK
@@ -1481,61 +1528,55 @@ class PhaseSkill:
             # the option infeasible, retry with the fully validated goal-IK
             # stack (same restart machinery), which can land a different
             # in-limit branch whose goal configuration is collision-free.
-            sim._set_state(remapped_state)  # pylint: disable=protected-access
-            planning_robot.set_joints(pb_state.joint_positions)
-            validated_candidates: Optional[List[JointPositions]] = None
-            try:
-                validated_candidates = self._solve_goal_ik_candidates(
-                    planning_robot,
-                    target_pose,
-                    pb_state.joint_positions,
-                    validate=True)
-            except InverseKinematicsError:
-                pass
+            validated_candidates = _resolve_goal_ik()
             if validated_candidates is not None and \
                     validated_candidates != goal_candidates:
-                traj = run_motion_planning(
-                    robot=planning_robot,
-                    initial_positions=pb_state.joint_positions,
-                    target_positions=validated_candidates[0],
-                    collision_bodies=collision_bodies,
-                    seed=CFG.seed,
-                    physics_client_id=sim._physics_client_id,  # pylint: disable=protected-access
-                    held_object=held_object,
-                    base_link_to_held_obj=base_link_to_held_obj,
-                    held_attachments=held_attachments,
-                    allow_shallow_held_object_contacts=(
-                        phase.allow_shallow_held_object_contacts
-                        if phase is not None else False),
-                    unbounded_shallow_bodies=self._sim_table_ids(sim),
-                    goal_finger_joint=goal_finger_joint,
-                    held_bystander_clearance=(
-                        self._config.held_bystander_clearance),
-                    goal_candidates=validated_candidates,
-                )
+                traj = _plan(validated_candidates)
                 if traj is not None:
                     target_joints = validated_candidates[0]
+                goal_candidates = validated_candidates
+
+        diagnostics: List[str] = []
+        if traj is None and not expect_contact:
+            diagnostics = _diagnose(target_joints, log_errors=False)
+            if any(d.startswith("GOAL") for d in diagnostics):
+                # The goal CONFIGURATION, not the path, is what failed --
+                # and unlike the start, the goal configuration is a
+                # choice: the same end-effector pose is reachable by
+                # several arm branches, which are pose-equivalent but not
+                # collision-equivalent. When every branch the normal
+                # solve sampled sits in clutter (a grasp goal 15 mm
+                # inside a leg, with the target object parked beside it),
+                # sample many more branches before calling the pose
+                # infeasible.
+                escalated = _resolve_goal_ik(
+                    num_restarts=self._goal_ik_escalated_num_restarts)
+                if escalated is not None and escalated != goal_candidates:
+                    traj = _plan(escalated)
+                    if traj is not None:
+                        target_joints = escalated[0]
+                    else:
+                        diagnostics = _diagnose(escalated[0], log_errors=False)
+                        diagnostics.append(
+                            f"GOAL: none of the {len(escalated)} distinct "
+                            "arm configurations that reach this pose is "
+                            "collision-free, so the pose itself sits in "
+                            "clutter (no path or arm branch can fix it)")
 
         if traj is None and not expect_contact:
-            self._last_plan_diagnostics = self._log_collision_diagnostics(
-                planning_robot,
-                sim._physics_client_id,  # pylint: disable=protected-access
-                pb_state.joint_positions,
-                target_joints,
-                collision_bodies,
-                held_object,
-                base_link_to_held_obj,
-                phase_name,
-                body_names=body_names,
-                goal_finger_joint=goal_finger_joint,
-                held_attachments=held_attachments)
+            for diag in diagnostics:
+                logging.error("[%s/%s] %s", self._name, phase_name, diag)
+            self._last_plan_diagnostics = diagnostics
 
         return traj
 
-    def _solve_goal_ik_candidates(self, planning_robot: SingleArmPyBulletRobot,
-                                  target_pose: Pose,
-                                  current_joints: JointPositions,
-                                  validate: bool) -> List[JointPositions]:
+    def _solve_goal_ik_candidates(
+            self,
+            planning_robot: SingleArmPyBulletRobot,
+            target_pose: Pose,
+            current_joints: JointPositions,
+            validate: bool,
+            num_restarts: Optional[int] = None) -> List[JointPositions]:
         """All distinct pose-accurate goal configs, ordered by seed priority.
 
         PyBullet IK is a one-shot approximation with no accuracy
@@ -1554,16 +1595,28 @@ class PhaseSkill:
         Seeds: the current joints, the home configuration, then
         deterministic random in-limit restarts.
 
-        ALL accepted candidates are returned (deduplicated, seed order
-        preserved, so the current-joints branch comes first): which arm
+        ALL accepted candidates are returned (deduplicated): which arm
         BRANCH a single solve lands on is seed-dependent, and branches
         are pose-equivalent but not collision-equivalent -- one grasp
         branch can sweep a link 6 cm through a neighboring block while
         another clears it. ``run_motion_planning`` picks the first
         collision-free candidate (see its ``goal_candidates``), turning
-        that per-seed coin flip into a deterministic choice. Raise
+        that per-seed coin flip into a deterministic choice.
+
+        Because that pick is first-past-the-post, ORDER is a safety
+        property, not a formality. The two priority seeds (current
+        joints, then home) lead, and the random restarts follow sorted
+        by joint distance from the current configuration, so the chosen
+        branch is the least contorted one that clears. A far branch
+        reaches the same end-effector pose by swinging the whole arm
+        through the scene: legal to within the contact margin, but it
+        grazes what it passes and leaves the following phases starting
+        from an awkward configuration. Unsorted, a wider restart pool
+        makes that outcome MORE likely, exactly when the pool was
+        widened because the scene is cluttered. Raise
         ``InverseKinematicsError`` when no seed produces an acceptable
-        config.
+        config. ``num_restarts`` overrides ``_goal_ik_num_restarts``
+        (the caller escalates it when every branch found collides).
         """
         limits = list(
             zip(planning_robot.joint_lower_limits,
@@ -1573,7 +1626,9 @@ class PhaseSkill:
             list(planning_robot.initial_joint_positions),
         ]
         rng = np.random.default_rng(CFG.seed)
-        for _ in range(self._goal_ik_num_restarts):
+        if num_restarts is None:
+            num_restarts = self._goal_ik_num_restarts
+        for _ in range(num_restarts):
             seeds.append([
                 float(rng.uniform(lo, hi))
                 if np.isfinite(lo) and np.isfinite(hi) and lo <= hi else float(
@@ -1581,8 +1636,11 @@ class PhaseSkill:
                 for (lo, hi), cur in zip(limits, current_joints)
             ])
         candidates: List[JointPositions] = []
+        # Candidates from the two priority seeds keep the lead; the
+        # restart-derived ones are ordered by proximity below.
+        num_priority_candidates = 0
         best_err = float("inf")
-        for seed in seeds:
+        for seed_idx, seed in enumerate(seeds):
             for attempt_validate in ((True, ) if validate else (False, True)):
                 planning_robot.set_joints(seed)
                 try:
@@ -1608,6 +1666,8 @@ class PhaseSkill:
                                 for a, b in zip(clamped, prior)) < 1e-3
                             for prior in candidates):
                         candidates.append(clamped)
+                        if seed_idx < _NUM_PRIORITY_GOAL_IK_SEEDS:
+                            num_priority_candidates += 1
                     break
                 best_err = min(best_err, err)
         if not candidates:
@@ -1615,7 +1675,10 @@ class PhaseSkill:
                 f"Goal IK missed the target pose from all {len(seeds)} seeds "
                 f"(best squared FK error after limit clamping {best_err:.6f})."
             )
-        return candidates
+        return candidates[:num_priority_candidates] + sorted(
+            candidates[num_priority_candidates:],
+            key=lambda cand: max(
+                abs(a - b) for a, b in zip(cand, current_joints)))
 
     def _log_collision_diagnostics(
         self,
@@ -1630,6 +1693,7 @@ class PhaseSkill:
         body_names: Optional[Dict[int, str]] = None,
         goal_finger_joint: Optional[float] = None,
         held_attachments: Optional[Dict[int, Any]] = None,
+        log_errors: bool = True,
     ) -> List[str]:
         """Log which collision bodies cause start/goal collisions.
 
@@ -1637,6 +1701,10 @@ class PhaseSkill:
         ``OptionExecutionFailure`` - in the agent's sandbox that message
         is the only channel through which it learns WHICH object blocked
         the motion plan (and hence how to adjust its target pose).
+
+        ``log_errors=False`` computes the same strings quietly, for
+        callers that inspect them before deciding whether the failure is
+        final (see the goal-branch escalation in _plan_with_simulator).
         """
         diagnostics: List[str] = []
 
@@ -1713,8 +1781,9 @@ class PhaseSkill:
                 release_joints,
                 "GOAL with fingers OPEN to release (the opening "
                 "gripper needs side clearance at the drop pose)")
-        for diag in diagnostics:
-            logging.error("[%s/%s] %s", self._name, phase_name, diag)
+        if log_errors:
+            for diag in diagnostics:
+                logging.error("[%s/%s] %s", self._name, phase_name, diag)
         return diagnostics
 
     # Gentle strokes (Phase.max_step_norm): any single arm joint asked to
