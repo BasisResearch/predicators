@@ -15,6 +15,23 @@ from predicators.pybullet_helpers.link import get_link_state
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 
+# Escape allowance for ROBOT links already in modeled contact at the
+# start configuration (see run_motion_planning): near the start, the
+# path may keep such a contact, but never more than this much deeper
+# than it began (meters).
+_START_ESCAPE_DEPTH_SLACK = 0.003
+# ... and only while within this max-abs joint distance of the start
+# configuration (radians for revolute joints). Beyond it -- and at any
+# goal further away -- full margins apply, so the allowance cannot be
+# exploited elsewhere on the path. The same radius bounds how far a
+# body's start-earned contact-partner status carries; see
+# run_motion_planning.
+_START_LOCAL_JOINT_RADIUS = 0.5
+# Margin applied to a MOVABLE body whose contact-partner status was
+# earned only at the start configuration, once the path has left that
+# start neighborhood: touching stays legal, penetration does not.
+_DEMOTED_PARTNER_MARGIN = 0.0
+
 
 def run_motion_planning(
     robot: SingleArmPyBulletRobot,
@@ -39,6 +56,19 @@ def run_motion_planning(
     against ``CFG.pybullet_birrt_contact_margin``; all other bodies are
     bystanders from which the path must keep
     ``CFG.pybullet_birrt_bystander_clearance`` of separation.
+
+    Partner status earned SOLELY at the start configuration is local to
+    it: a movable body the robot merely happens to begin near is checked
+    with the hard margin only while the path stays within a joint-space
+    radius of the start, and with a no-penetration margin beyond it.
+    Contact the start forces on us says nothing about what the path may
+    do to that body half a metre later, and the hard margin tolerates
+    enough penetration to shove a free-standing object (a retreat after
+    a glue dab repeatedly nudged an assembled row it had grazed on the
+    way out). Static bodies keep their partner margin throughout -- they
+    cannot be shoved, so grazing them is a modeling artifact rather than
+    a physical event -- and goal-earned partners keep it too, since the
+    path is deliberately approaching them.
 
     ``held_attachments`` maps bodies rigidly attached to the held object
     (e.g. the welded members of a glued assembly) to their
@@ -75,6 +105,18 @@ def run_motion_planning(
     once modeled 21 mm into the table it sat on); escaping away from a
     static support is always safe, whereas deep start penetration into
     a movable body still signals genuine trouble and keeps the margin.
+
+    ROBOT links get an analogous (always-on) start-escape allowance: a
+    robot-vs-body contact already present at the start configuration
+    and no deeper than the shallow margin does not reject the path near
+    the start, as long as it never deepens beyond how it began (plus a
+    small slack) and the configuration stays within a joint-space
+    radius of the start. The planning scene is reconstructed from
+    observable features, so a phase that begins right after a grasp or
+    a settled place can model a finger or wrist link several mm inside
+    the object it just touched; the start is a fact, and escaping from
+    it is strictly better than the guaranteed option failure that
+    rejecting it produces.
 
     Note that this function changes the state of the robot.
     """
@@ -157,6 +199,35 @@ def run_motion_planning(
             elif start_depth >= shallow_margin:
                 allowed_shallow_held_margins[body] = shallow_margin
 
+    # Robot links, like the held assembly, can begin a phase already in
+    # modeled contact: the planning scene is reconstructed from
+    # observable features, and right after a grasp or a settled place
+    # that reconstruction can show a finger or wrist link 5-15 mm
+    # inside the object it just touched (execution-side sag and settle
+    # are not in the feature model). The start configuration is a fact,
+    # not a choice -- rejecting it fails the whole option with
+    # certainty -- so a start contact no deeper than the shallow margin
+    # gets a per-body escape allowance: near the start the path may
+    # keep that contact, never more than _START_ESCAPE_DEPTH_SLACK
+    # deeper than it began, and only within
+    # _START_LOCAL_JOINT_RADIUS of the start configuration. Deeper
+    # start penetration still signals genuine scene corruption and
+    # keeps the hard rejection.
+    allowed_robot_escape_margins: Dict[int, float] = {}
+    _set_state(initial_positions)
+    p.performCollisionDetection(physicsClientId=physics_client_id)
+    for body in collision_bodies:
+        contacts = p.getContactPoints(robot.robot_id,
+                                      body,
+                                      physicsClientId=physics_client_id)
+        depths = [c[8] for c in contacts if c[8] < hard_margin]
+        if not depths:
+            continue
+        start_depth = min(depths)
+        if start_depth >= shallow_margin:
+            allowed_robot_escape_margins[body] = \
+                start_depth - _START_ESCAPE_DEPTH_SLACK
+
     # Bodies the robot or held object starts or deliberately ends within
     # the clearance of are intended contact partners (support surfaces,
     # grasp targets, placement neighbors) and keep the hard margin;
@@ -180,19 +251,26 @@ def run_motion_planning(
         else CFG.pybullet_birrt_held_bystander_clearance
     held_body_clearances: dict = {}
     contact_partners: set = set(collision_bodies)
+    # Movable bodies that earned partner status only at the start (see
+    # the docstring): their hard margin expires with the start
+    # neighborhood.
+    demoted_partners: set = set()
     if bystander_clearance > hard_margin:
         contact_partners = set()
+        endpoint_partners: List[set] = [set(), set()]
         held_probe_radius = max(bystander_clearance, held_clearance)
         held_near_endpoint: set = set()
-        for pt in (initial_positions, target_positions):
+        for endpoint_idx, pt in enumerate(
+            (initial_positions, target_positions)):
             _set_state(pt)
             for body in collision_bodies:
-                if body not in contact_partners:
-                    if p.getClosestPoints(robot.robot_id,
-                                          body,
-                                          bystander_clearance,
-                                          physicsClientId=physics_client_id):
-                        contact_partners.add(body)
+                if p.getClosestPoints(robot.robot_id,
+                                      body,
+                                      bystander_clearance,
+                                      physicsClientId=physics_client_id):
+                    contact_partners.add(body)
+                    endpoint_partners[endpoint_idx].add(body)
+                    continue
                 # Evaluate held proximity at BOTH endpoints, even for a
                 # body already seen near the other one: partner status
                 # (within the clearance) at EITHER endpoint must win.
@@ -214,7 +292,14 @@ def run_motion_planning(
                 if held_dists:
                     if min(held_dists) < bystander_clearance:
                         contact_partners.add(body)
+                        endpoint_partners[endpoint_idx].add(body)
                     held_near_endpoint.add(body)
+        for body in endpoint_partners[0] - endpoint_partners[1]:
+            # Base mass 0 marks a static body (table, wall): nothing the
+            # path does can displace it, so its partner margin stands.
+            if p.getDynamicsInfo(body, -1,
+                                 physicsClientId=physics_client_id)[0] > 0:
+                demoted_partners.add(body)
         if held_assembly and held_clearance > bystander_clearance:
             held_body_clearances = {
                 body: held_clearance
@@ -244,13 +329,24 @@ def run_motion_planning(
         # clearance (Bullet generates contact points out to its
         # contactBreakingThreshold, 0.02 by default, so millimetre-scale
         # positive distances are reported here).
+        near_start = True
+        if allowed_robot_escape_margins or demoted_partners:
+            near_start = float(
+                np.max(np.abs(np.subtract(
+                    pt, initial_positions)))) < _START_LOCAL_JOINT_RADIUS
+        robot_escape_active = bool(allowed_robot_escape_margins) and near_start
         for body in collision_bodies:
             margin = hard_margin if body in contact_partners \
                 else bystander_clearance
+            if not near_start and body in demoted_partners:
+                margin = _DEMOTED_PARTNER_MARGIN
+            robot_margin = margin
+            if robot_escape_active and body in allowed_robot_escape_margins:
+                robot_margin = allowed_robot_escape_margins[body]
             contacts = p.getContactPoints(robot.robot_id,
                                           body,
                                           physicsClientId=physics_client_id)
-            if any(c[8] < margin for c in contacts):
+            if any(c[8] < robot_margin for c in contacts):
                 return True
             for assembly_body, _ in held_assembly:
                 # Clearances above Bullet's contactBreakingThreshold
