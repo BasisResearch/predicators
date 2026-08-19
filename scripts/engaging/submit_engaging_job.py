@@ -3,6 +3,7 @@
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 START_SEED = 456
@@ -60,6 +61,11 @@ def submit_engaging_job(entry_point: str,
 
     bash_strs = [
         "#!/bin/bash -l",  # -l => login shell, so /etc/profile.d (module) loads
+        # main.py asserts on this. sbatch propagates the submitting shell's
+        # environment, so inheriting it works only if whoever submits happens
+        # to have it exported; set it here so the job is self-contained. This
+        # matches what scripts/local/launch.py writes into its run scripts.
+        "export PYTHONHASHSEED=0",
         f"module load {_MINIFORGE_MODULE}",
         f"conda activate {_CONDA_ENV}",
         f"cd {_REPO_ROOT}",
@@ -67,10 +73,6 @@ def submit_engaging_job(entry_point: str,
         f"{args_and_flags_str} --seed $SLURM_ARRAY_TASK_ID",
     ]
     mystr = "\n".join(bash_strs)
-    temp_run_file = "temp_run_file.sh"
-    assert not os.path.exists(temp_run_file)
-    with open(temp_run_file, "w", encoding="utf-8") as f:
-        f.write(mystr)
 
     if use_gpu:
         partition = _GPU_PARTITION
@@ -79,22 +81,31 @@ def submit_engaging_job(entry_point: str,
         partition = _CPU_PARTITION
         time_limit = _CPU_TIME
 
-    cmd = f"sbatch --time={time_limit} --partition={partition} "
-    if use_gpu:
-        cmd += "--gres=gpu:1 "
-    cmd += ("--nodes=1 "
-            "--cpus-per-task=4 "
-            "--mem=16G "
-            f"--job-name={job_name} "
-            f"--array={start_seed}-{start_seed + num_seeds - 1} "
-            f"-o {logfile_pattern} {temp_run_file}")
-    print(f"Running command: {cmd}")
-    output = subprocess.getoutput(cmd)
-    print(output)
-    if "command not found" in output:
+    # A unique name per submission, so that a leftover file from a crashed
+    # launch cannot block later ones and so concurrent launches cannot race.
+    fd, temp_run_file = tempfile.mkstemp(prefix="temp_run_file_",
+                                         suffix=".sh",
+                                         dir=".")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(mystr)
+
+        cmd = f"sbatch --time={time_limit} --partition={partition} "
+        if use_gpu:
+            cmd += "--gres=gpu:1 "
+        cmd += ("--nodes=1 "
+                "--cpus-per-task=4 "
+                "--mem=16G "
+                f"--job-name={job_name} "
+                f"--array={start_seed}-{start_seed + num_seeds - 1} "
+                f"-o {logfile_pattern} {temp_run_file}")
+        print(f"Running command: {cmd}")
+        output = subprocess.getoutput(cmd)
+        print(output)
+        if "command not found" in output:
+            raise Exception("Are you logged into the Engaging cluster?")
+    finally:
         os.remove(temp_run_file)
-        raise Exception("Are you logged into the Engaging cluster?")
-    os.remove(temp_run_file)
 
 
 if __name__ == "__main__":
