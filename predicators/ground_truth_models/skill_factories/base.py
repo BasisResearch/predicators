@@ -391,6 +391,13 @@ class Phase:
                                  bool]] = None
     retry_to_phase: Optional[str] = None
     max_retries: int = 0
+    # When set, exhausting the verification budget raises
+    # ``OptionExecutionFailure`` with this message instead of advancing
+    # best-effort. Use for phases whose failed verification proves the
+    # option's outcome is already lost -- e.g. a pick whose "grasped"
+    # object did not rise with the gripper: pressing on only defers the
+    # failure to a downstream option with less context to report it.
+    verify_failure_msg: Optional[str] = None
 
 
 class PhaseSkill:
@@ -520,7 +527,24 @@ class PhaseSkill:
         if phase_idx < len(self._phases) - 1:
             return False
         phase = self._phases[phase_idx]
-        return self._phase_is_terminal(phase, state, memory, objects, params)
+        if not self._phase_is_terminal(phase, state, memory, objects, params):
+            return False
+        # Verified advancement for the FINAL phase: _policy's advance
+        # path (where verify_fn normally runs) is never reached for it,
+        # because executors check terminal before calling the policy. So
+        # the option-level terminal enforces it: while a retry or an
+        # honest failure is still pending, the option is not done -- the
+        # next policy call resolves it (rewinds, or raises
+        # verify_failure_msg). Only a best-effort phase (no failure
+        # message, budget spent) terminates unverified.
+        if phase.verify_fn is None:
+            return True
+        if phase.verify_fn(state, objects, params, self._config):
+            return True
+        used = memory.get(_PHASE_RETRY_KEY.format(id(phase)), 0)
+        if used < phase.max_retries or phase.verify_failure_msg is not None:
+            return False
+        return True
 
     # ------------------------------------------------------------------
     # Phase terminal conditions
@@ -691,6 +715,10 @@ class PhaseSkill:
         retry_key = _PHASE_RETRY_KEY.format(id(phase))
         used = memory.get(retry_key, 0)
         if used >= phase.max_retries:
+            if phase.verify_failure_msg is not None:
+                raise utils.OptionExecutionFailure(
+                    f"[{self._name}/{phase.name}] "
+                    f"{phase.verify_failure_msg}")
             logging.debug(
                 "[%s/%s] verification failed after %d retries; "
                 "advancing best-effort.", self._name, phase.name, used)
@@ -737,6 +765,11 @@ class PhaseSkill:
             # in collision). A retry is opportunistic: degrade to the
             # unverified advance (release where the stroke ended, the
             # pre-verification behavior) instead of aborting the option.
+            if phase.verify_failure_msg is not None:
+                raise utils.OptionExecutionFailure(
+                    f"[{self._name}/{phase.name}] "
+                    f"{phase.verify_failure_msg} "
+                    f"(retry rewind also failed: {e})") from e
             logging.debug(
                 "[%s/%s] retry rewind failed (%s); advancing "
                 "best-effort.", self._name, phase.name, e)

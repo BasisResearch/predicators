@@ -159,6 +159,7 @@ def make_move_to_phase(
                                  bool]] = None,
     retry_to_phase: Optional[str] = None,
     max_retries: int = 0,
+    verify_failure_msg: Optional[str] = None,
 ) -> Phase:
     """Create a MOVE_TO_POSE phase for use in a ``PhaseSkill``.
 
@@ -198,6 +199,9 @@ def make_move_to_phase(
         retry_to_phase: Name of the phase to rewind to on a failed
             verification.
         max_retries: Verification retry budget (see ``Phase``).
+        verify_failure_msg: When set, exhausting the verification budget
+            raises ``OptionExecutionFailure`` with this message instead
+            of advancing best-effort (see ``Phase.verify_failure_msg``).
 
     Returns:
         A ``Phase`` that can be included in a ``PhaseSkill``.
@@ -265,4 +269,5 @@ def make_move_to_phase(
         verify_fn=verify_fn,
         retry_to_phase=retry_to_phase,
         max_retries=max_retries,
+        verify_failure_msg=verify_failure_msg,
     )
