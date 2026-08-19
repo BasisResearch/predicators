@@ -232,7 +232,8 @@ def _iter_rollout_residual_terms(
             # defect this flag exists to fix outvote the real evidence by
             # thousands of terms to a handful.
             yield from _interval_residual_terms(
-                sim_states, _track_for(tracks, traj_index, len(trajectories)),
+                sim_states, states,
+                _track_for(tracks, traj_index, len(trajectories)),
                 id_maps[traj_index], config, summary_w)
             continue
         endpoint_residuals: List[float] = []
@@ -422,8 +423,9 @@ def _episode_id_maps(tracks: List[Any], trajectories: List[RolloutTrajectory],
     return [shared] * len(trajectories)
 
 
-def _interval_residual_terms(sim_states: List[State], track: Any,
-                             name_to_id: Dict[str, int], config: SysIdConfig,
+def _interval_residual_terms(sim_states: List[State], recorded: List[State],
+                             track: Any, name_to_id: Dict[str, int],
+                             config: SysIdConfig,
                              summary_w: float) -> Iterator[float]:
     """Yield (sim - observed) propagation intervals, in seconds.
 
@@ -449,7 +451,6 @@ def _interval_residual_terms(sim_states: List[State], track: Any,
             "interval residuals.", config.track_object_prefix)
         return
     step_s = CFG.pybullet_sim_steps_per_action / 240.0
-    sim_series = sim_topple_series(sim_states, step_s, name_to_id)
 
     def _onsets(series: Any) -> Dict[int, float]:
         """Both sides detected identically, which is the point."""
@@ -457,6 +458,35 @@ def _interval_residual_terms(sim_states: List[State], track: Any,
                              confirm_deg=config.onset_confirm_deg,
                              onset_deg=config.onset_deg,
                              min_persist=config.onset_min_persist)
+
+    sim_series = sim_topple_series(sim_states, step_s, name_to_id)
+    # A segment with no cascade in it scores NOTHING, rather than a penalty
+    # per observed interval. Rest-point segmentation splits an episode into
+    # several scored trajectories while the track covers the whole episode, so
+    # a segment that is pick-and-place has no onsets to offer and every
+    # observed interval reads as a cascade the sim failed to reproduce. On
+    # run_20260819_104757 that put 21-24 WHOLE penalties into every evaluation
+    # -- the reported SSEs were integer multiples of one penalty -- burying
+    # four real residuals of 0.000-0.267 s under a penalty mass of 1.96e+05.
+    # Being near-constant in theta it also made every physical parameter read
+    # as flat, which is what the agent then declined on.
+    #
+    # BOTH sides must be empty, and requiring both is the whole subtlety.
+    # Skipping on the rollout alone would be actively harmful: a theta that
+    # STALLS the cascade also produces no onsets, so its segment would be
+    # skipped and score zero -- making a friction that breaks the chain look
+    # BETTER than one that reproduces it, the exact inversion
+    # interval_residuals penalises a one-sided domino to prevent. The recorded
+    # states are the twin's own baseline simulation under open-loop, so a
+    # segment where THEY cascade is a real cascade segment and keeps its
+    # penalties however badly this theta does. Gating on the recorded states
+    # alone is wrong in the other direction: a caller may hand in a degenerate
+    # recorded trajectory (test_the_objective_prefers_the_cascade_that_matches
+    # _the_track passes two identical states) while the rollout carries the
+    # cascade being scored.
+    if (len(_onsets(sim_series)) < 2 and
+            len(_onsets(sim_topple_series(recorded, step_s, name_to_id))) < 2):
+        return
 
     sim_intervals = propagation_intervals(_onsets(sim_series))
     obs_intervals = propagation_intervals(_onsets(track.angles_deg))

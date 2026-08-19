@@ -1014,6 +1014,77 @@ def test_the_objective_prefers_the_cascade_that_matches_the_track(
     assert sse_wrong > 10 * max(sse_true, 1e-9)
 
 
+def _cascade_track(tmp_path, onsets):
+    """A track whose dominoes fall at the given frame indices."""
+    frames = []
+    for t in range(200):
+        recs = [{
+            "id": i,
+            "fall_deg": min(max((t - o) / 8.0, 0.0), 1.0) * 90.0
+        } for i, o in enumerate(onsets)]
+        frames.append({
+            "index": t,
+            "timestamp_ns": int(t * (1e9 / 60.0)),
+            "dominoes": recs
+        })
+    return _write_track(tmp_path, frames)
+
+
+def _segment_sse(sim_states, recorded, track_path, monkeypatch):
+    """What one scored segment contributes, through the real objective."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning import rollout_objective
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        compute_rollout_sse, reset_track_cache
+    monkeypatch.setattr(rollout_objective, "rollout_states",
+                        lambda *_a, **_k: sim_states)
+    utils.reset_config({
+        "code_sim_learning_rollout_score_observed_only": True,
+        "code_sim_learning_rollout_track_path": track_path,
+    })
+    reset_track_cache()
+    return compute_rollout_sse(None, [(recorded, [None])], {"friction": 0.5},
+                               {}, ["friction"])
+
+
+def test_a_segment_with_no_cascade_scores_nothing_instead_of_penalties(
+        tmp_path, monkeypatch):
+    """Segmentation splits an episode; the track covers all of it.
+
+    A pick-and-place segment has no onsets to offer, so every observed
+    interval used to read as a cascade the sim had failed to reproduce
+    and drew the full missing-cascade penalty. On run_20260819_104757
+    that put 21-24 WHOLE penalties into every evaluation -- the SSEs
+    came back as integer multiples of one -- which made every physical
+    parameter read as flat and is what the agent then declined on.
+    """
+    track_path = _cascade_track(tmp_path, [0, 12, 20, 24])
+    still = _cascade_states([10_000] * 4)[:40]
+
+    assert _segment_sse(still, still, track_path, monkeypatch) == 0.0, \
+        "a segment with no cascade on either side must contribute nothing"
+
+
+def test_a_theta_that_stalls_the_cascade_is_still_penalised(
+        tmp_path, monkeypatch):
+    """The trap in that skip, and why the recorded states are consulted too.
+
+    A candidate that BREAKS the chain also produces no onsets. Skipping
+    on the rollout alone would score it zero -- making a friction that
+    stops the cascade look better than one that reproduces it, the
+    inversion interval_residuals penalises a one-sided domino to
+    prevent.
+    """
+    track_path = _cascade_track(tmp_path, [0, 12, 20, 24])
+    stalled = _cascade_states([10_000] * 4)[:40]
+    # The recorded states DO cascade, so this is a real cascade segment.
+    recorded = _cascade_states([0, 2, 4, 6])
+
+    assert _segment_sse(stalled, recorded, track_path, monkeypatch) > 0.0, \
+        "a stalled cascade in a real cascade segment must still be penalised"
+
+
 def pytest_approx(value, abs=1e-9):  # pylint: disable=redefined-builtin
     """Local approx so the comparisons above read as equations."""
     return pytest.approx(value, abs=abs)
