@@ -54,6 +54,15 @@ class AgentSessionMixin:
     # by the sim-learning approach around synthesis sessions; the class
     # default keeps plain solve-only hosts working without declaring it.
     _learning_mode: bool = False
+    # Flipped around explorer creation (``get_interaction_requests``) so
+    # explore sessions carry their own phase tag: their system prompt is
+    # saved as ``system_prompt_explore.md`` next to the solve and
+    # synthesis ones instead of overwriting the solve copy.
+    _explore_phase: bool = False
+    # Phase tag the live ``_agent_session`` was created with; a query
+    # under a different phase closes and rebuilds the session so the
+    # saved prompt, tools, and CLAUDE.md always match the active phase.
+    _agent_session_phase: Optional[str] = None
     _types: Set[Type]
     _action_space: Box
     _train_tasks: List[Any]
@@ -131,8 +140,14 @@ class AgentSessionMixin:
         …). Otherwise creates the normal in-process
         ``AgentSessionManager``.
         """
+        phase = ("synthesis" if self._learning_mode else
+                 "explore" if self._explore_phase else "solve")
         if self._agent_session is not None:
-            return
+            if self._agent_session_phase == phase:
+                return
+            # A live session from another phase would keep that phase's
+            # prompt tag and tool surface; rebuild so they match.
+            self._close_agent_session()
 
         # Session config is read once here (at session-construction
         # time, never import time) and handed to whichever manager is
@@ -169,7 +184,6 @@ class AgentSessionMixin:
                 f"attached to ctx.extra_mcp_tools — add them to the "
                 f"builder or drop the names.")
 
-        phase = "synthesis" if self._learning_mode else "solve"
         approach_name = getattr(type(self), "get_name",
                                 lambda: type(self).__name__)()
         if tool_names is None:
@@ -240,17 +254,22 @@ class AgentSessionMixin:
             )
 
         self._agent_session = session
+        self._agent_session_phase = phase
         if self._agent_session_id is not None:
             session.session_id = self._agent_session_id
 
-        # Save system prompt to log directory. Suffix with the phase tag
-        # so solve and synthesis prompts don't overwrite each other across
-        # phase switches.
-        log_dir = self._get_log_dir()
-        os.makedirs(log_dir, exist_ok=True)
-        prompt_path = os.path.join(log_dir, f"system_prompt_{phase}.md")
-        with open(prompt_path, "w", encoding="utf-8") as f:
-            f.write(self._get_agent_system_prompt())
+        # Save the system prompt to the log directory, one file per phase.
+        # Sandbox sessions write the FULL prompt (approach prompt + sandbox
+        # suffix) as full_system_prompt_{phase}.md during sandbox setup; for
+        # in-process sessions the approach prompt IS the full prompt, so
+        # save it under the same name here and nothing else.
+        if not (config.use_docker_sandbox or config.use_local_sandbox):
+            log_dir = self._get_log_dir()
+            os.makedirs(log_dir, exist_ok=True)
+            prompt_path = os.path.join(log_dir,
+                                       f"full_system_prompt_{phase}.md")
+            with open(prompt_path, "w", encoding="utf-8") as f:
+                f.write(self._get_agent_system_prompt())
 
     def _get_log_dir(self) -> str:
         """Return the log directory, using the approach name."""
@@ -267,6 +286,7 @@ class AgentSessionMixin:
             return
         session = self._agent_session
         self._agent_session = None
+        self._agent_session_phase = None
         try:
             run_async_sync(session.close())
         except Exception:  # pylint: disable=broad-except
