@@ -49,10 +49,6 @@ def _oracle_bridge_config() -> dict:
         # default 1 mm margin turns those into unrecoverable BiRRT
         # start/goal rejections.
         "pybullet_birrt_contact_margin": -0.005,
-        # Post-grasp modeling artifacts can show the held object up
-        # to ~14 mm into its pick surface at the next phase's start
-        # config; allow escaping those (start contacts only).
-        "pybullet_birrt_shallow_held_contact_margin": -0.02,
         # Each Wait ends on the FIRST atom change, so a plan waiting on
         # several concurrent cures can need a cheap replan for the tail
         # (which reduces to "Wait until the remaining joint cures").
