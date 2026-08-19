@@ -1248,6 +1248,63 @@ def test_trimming_can_be_turned_off(tmp_path):
     assert "TRIM" not in seen
 
 
+def test_speed_settings_reach_the_driver(tmp_path):
+    """Worker count and the overlay switch are passed as the driver's own env
+    vars, since that is the only channel a detached script has."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.pybullet_helpers.track_pipeline import \
+        MarkerlessTrackProcessor
+    boxes = tmp_path / "boxes.json"
+    boxes.write_text('[[1, 2, 3, 4]]', encoding="utf-8")
+    seen = {}
+
+    def _launcher(argv, env, log_path):
+        """Capture the environment the driver would be started with."""
+        del argv, log_path
+        seen.update(env)
+        return _DoneJob()
+
+    processor = MarkerlessTrackProcessor(script=str(boxes),
+                                         boxes_json=str(boxes),
+                                         jobs=30,
+                                         viz=False,
+                                         launcher=_launcher)
+    processor.launch("take.svo2", str(tmp_path / "bundle"), "30264679")
+
+    assert seen["JOBS"] == "30"
+    # "0" rather than absent: the driver compares the VALUE, so an unset
+    # TRACK_VIZ is what asks for the overlay.
+    assert seen["TRACK_VIZ"] == "0"
+
+
+def test_default_jobs_leaves_the_drivers_own_choice(tmp_path):
+    """0 must leave JOBS unset rather than pass "0", which the driver would
+    hand to -j and fan out to nothing."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.pybullet_helpers.track_pipeline import \
+        MarkerlessTrackProcessor
+    boxes = tmp_path / "boxes.json"
+    boxes.write_text('[[1, 2, 3, 4]]', encoding="utf-8")
+    seen = {}
+
+    def _launcher(argv, env, log_path):
+        """Capture the environment the driver would be started with."""
+        del argv, log_path
+        seen.update(env)
+        return _DoneJob()
+
+    processor = MarkerlessTrackProcessor(script=str(boxes),
+                                         boxes_json=str(boxes),
+                                         jobs=0,
+                                         viz=True,
+                                         launcher=_launcher)
+    processor.launch("take.svo2", str(tmp_path / "bundle"), "30264679")
+
+    assert "JOBS" not in seen
+    # Likewise: asking for the overlay means saying nothing at all.
+    assert "TRACK_VIZ" not in seen
+
+
 class _DoneJob:
     """A launched job that has already finished."""
 
