@@ -201,9 +201,18 @@ def test_intervals_are_invariant_to_a_clock_offset():
         assert got[key] == pytest_approx(value, abs=1e-6)
 
 
-def test_one_onset_yields_no_intervals():
-    """A cascade of one has nothing to say about propagation."""
-    assert propagation_intervals({0: 1.0}) == {}
+def test_one_onset_yields_its_origin_not_nothing():
+    """A cascade of one still says WHICH domino fell, and the other stream
+    needs a counterpart for it.
+
+    Collapsing to {} while the origin is kept for longer cascades is an
+    inconsistency that costs a residual: one stream returns nothing
+    while the other keeps every entry including its origin, so a domino
+    BOTH streams watched fall has no counterpart and draws the missing-
+    cascade penalty.
+    """
+    assert propagation_intervals({0: 1.0}) == {0: 0.0}
+    assert propagation_intervals({}) == {}
 
 
 def test_a_cascade_that_stalls_on_one_side_is_penalised_not_skipped():
@@ -1209,6 +1218,48 @@ def test_the_track_cache_does_not_fix_the_frame_for_the_whole_process(
         assert got[1] == pytest_approx(want[1], abs=1e-6)
 
 
+def test_the_cache_key_carries_the_fps_the_timings_depend_on(tmp_path):
+    """A track without per-frame timestamps has every sample time computed as
+    index/fallback_fps, baked straight into angles_deg.
+
+    Keying the cache on the path alone therefore let the first loader
+    fix the TIMEBASE for the whole process too -- the same first-loader-
+    poisons-everyone bug as the frame transform, one field over.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.config import SysIdConfig
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        _load_scored_track, reset_track_cache
+
+    # No timestamp_ns anywhere, so the fps is what sets the times.
+    frames = [{
+        "index":
+        t,
+        "dominoes": [{
+            "id": 0,
+            "fall_deg": min(max((t - 4) / 8.0, 0.0), 1.0) * 90.0
+        }],
+    } for t in range(40)]
+    track_path = _write_track(tmp_path, frames)
+
+    def _at(fps):
+        """The track as a caller asking for this fps would see it."""
+        utils.reset_config({
+            "code_sim_learning_rollout_score_observed_only": True,
+            "code_sim_learning_rollout_track_path": track_path,
+            "code_sim_learning_track_fallback_fps": fps,
+        })
+        return _load_scored_track(SysIdConfig.from_cfg())[0].angles_deg[0]
+
+    reset_track_cache()
+    slow = _at(30.0)
+    fast = _at(120.0)
+
+    assert slow[-1][0] == pytest_approx(fast[-1][0] * 4.0, abs=1e-6), \
+        "the second caller inherited the first caller's timebase"
+
+
 def test_a_partial_mapping_does_not_score_zero_in_silence(
         tmp_path, monkeypatch, caplog):
     """A skip means "no cascade here", which is only readable when every domino
@@ -1226,7 +1277,10 @@ def test_a_partial_mapping_does_not_score_zero_in_silence(
         sse = _segment_sse(still, still, track_path, monkeypatch)
 
     assert sse == 0.0
-    assert "could not be matched" not in caplog.text, \
+    # The warning says "could be matched", so the obvious negative assertion
+    # -- "could not be matched" not in text -- is VACUOUSLY true and would
+    # pass with the guard deleted. Match the string the code actually logs.
+    assert "could be matched" not in caplog.text, \
         "a WHOLE mapping with no cascade is a legitimate silent skip"
 
 

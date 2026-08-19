@@ -41,16 +41,23 @@ _ROLLOUT_LM_DIFF_STEP = 2e-2
 # re-entered on every evaluation. Cleared by ``reset_track_cache``, which the
 # tests use.
 #
-# What is cached is the FILE's contents, never anything derived from a config.
-# The frame transform used to be applied before storing, with the path alone
-# as the key -- so whichever caller loaded first fixed the frame for every
-# later one in the process, and a single load with the transform unset left
-# every subsequent evaluation matching base-frame track positions against
-# world-frame twin states. That is invisible: it degrades the id matching
+# The KEY carries every config value the cached tracks depend on, and the
+# frame transform is applied on the way out rather than before storing.
+#
+# Keying on the path alone was wrong twice over. The frame transform used to
+# be applied before storing, so whichever caller loaded first fixed the frame
+# for every later one, and a single load with the transform unset left every
+# subsequent evaluation matching base-frame track positions against
+# world-frame twin states -- invisible, because it degrades the id matching
 # rather than raising, and on run_20260819_133802 it held matching at 2 of 5
-# dominoes for 99 evaluations while the same inputs match 5 of 5 when the
-# transform is applied.
-_TRACK_CACHE: Dict[str, List[Any]] = {}
+# dominoes for 99 evaluations. An earlier version of this comment then claimed
+# the cache holds "the FILE's contents, never anything derived from a config",
+# which is FALSE: load_tracks takes fallback_fps and wait_s, and for a track
+# without per-frame timestamps every sample time is index/fallback_fps, baked
+# straight into angles_deg. Same first-loader-poisons-the-process class, one
+# field over.
+_TrackKey = Tuple[str, float, float]
+_TRACK_CACHE: Dict[_TrackKey, List[Any]] = {}
 
 
 def reset_track_cache() -> None:
@@ -299,7 +306,9 @@ def _load_scored_track(config: SysIdConfig) -> Optional[Any]:
             "track path is set; falling back to per-step scoring, which "
             "under open-loop execution scores the twin against itself.")
         return None
-    cached = _TRACK_CACHE.get(config.track_path)
+    key: _TrackKey = (config.track_path, float(config.track_fallback_fps),
+                      float(config.track_wait_s))
+    cached = _TRACK_CACHE.get(key)
     if cached is not None:
         # Transform on the way OUT, never on the way in: see _TRACK_CACHE.
         return [_track_in_world_frame(t, config) for t in cached]
@@ -318,7 +327,7 @@ def _load_scored_track(config: SysIdConfig) -> Optional[Any]:
             "or none has been post-processed yet); falling back to per-step "
             "scoring.", config.track_path)
         return None
-    _TRACK_CACHE[config.track_path] = tracks
+    _TRACK_CACHE[key] = tracks
     return [_track_in_world_frame(t, config) for t in tracks]
 
 
@@ -505,7 +514,8 @@ def _interval_residual_terms(sim_states: List[State], recorded: List[State],
     # recorded trajectory (test_the_objective_prefers_the_cascade_that_matches
     # _the_track passes two identical states) while the rollout carries the
     # cascade being scored.
-    if (len(_onsets(sim_series)) < 2 and
+    sim_onsets = _onsets(sim_series)
+    if (len(sim_onsets) < 2 and
             len(_onsets(sim_topple_series(recorded, step_s, name_to_id))) < 2):
         # Silent ONLY when the mapping is whole. A skip means "no cascade
         # here", and that reading depends on having named every domino: with
@@ -526,7 +536,7 @@ def _interval_residual_terms(sim_states: List[State], recorded: List[State],
                 len(track.angles_deg))
         return
 
-    sim_intervals = propagation_intervals(_onsets(sim_series))
+    sim_intervals = propagation_intervals(sim_onsets)
     obs_intervals = propagation_intervals(_onsets(track.angles_deg))
     # A cascade that fails to propagate in one of the two is the strongest
     # evidence there is, so the stand-in is the track's own span rather than

@@ -379,7 +379,13 @@ def propagation_intervals(onsets: Dict[int, float]) -> Dict[int, float]:
     entry needs no agreement. Where both streams do agree on the origin
     it costs one residual that is identically zero.
     """
-    if len(onsets) < 2:
+    # `not onsets`, NOT `len < 2`. Keeping the origin (above) while dropping a
+    # single-onset stream is inconsistent, and the inconsistency costs a
+    # residual: one stream collapses to {} while the other keeps every entry
+    # including its origin, so a domino BOTH streams watched fall has no
+    # counterpart and draws the missing-cascade penalty. That is 5 penalties
+    # where the pre-origin-keeping code had 4.
+    if not onsets:
         return {}
     first = min(onsets.values())
     return {obj_id: t - first for obj_id, t in onsets.items()}
