@@ -3746,3 +3746,57 @@ def test_parse_model_output_into_option_plan_strict():
                                                         strict=True)
     assert len(no_seed) == 1
     assert no_seed[0][2] == []
+
+
+def test_pkl_dump_with_retry_survives_a_transient_failure(
+        tmp_path, monkeypatch):
+    """A TypeError on the first attempt must not lose the artifact.
+
+    The real failure is ``cannot pickle '_abc._abc_data' object``, seen
+    intermittently while saving learned NSRTs and GNN weights. It is
+    faked here because it does not reproduce on demand -- which is the
+    whole reason the retry exists rather than a targeted fix.
+    """
+    attempts = []
+    real_dumps = utils.pkl.dumps
+
+    def _flaky_dumps(obj, *args, **kwargs):
+        """Fail once with the real error, then behave."""
+        attempts.append(obj)
+        if len(attempts) == 1:
+            raise TypeError("cannot pickle '_abc._abc_data' object")
+        return real_dumps(obj, *args, **kwargs)
+
+    monkeypatch.setattr(utils.pkl, "dumps", _flaky_dumps)
+    path = tmp_path / "artifact.pkl"
+    with open(path, "wb") as f:
+        utils.pkl_dump_with_retry({"learned": [1, 2, 3]}, f)
+
+    assert len(attempts) == 2, "the failed dump was not retried"
+    with open(path, "rb") as f:
+        assert utils.pkl.load(f) == {"learned": [1, 2, 3]}
+
+
+def test_pkl_dump_with_retry_writes_nothing_when_it_fails(
+        tmp_path, monkeypatch):
+    """A persistent failure must raise and leave the file EMPTY.
+
+    Retrying into the file handle would append to the prefix the failed
+    dump already wrote, and a half-written pickle only fails at LOAD
+    time -- long after the run that produced it could have been
+    repeated.
+    """
+
+    def _always_fails(obj, *args, **kwargs):
+        """Never picklable."""
+        del obj, args, kwargs
+        raise TypeError("cannot pickle '_abc._abc_data' object")
+
+    monkeypatch.setattr(utils.pkl, "dumps", _always_fails)
+    path = tmp_path / "artifact.pkl"
+    with pytest.raises(TypeError) as excinfo:
+        with open(path, "wb") as f:
+            utils.pkl_dump_with_retry({"learned": [1, 2, 3]}, f)
+    assert "_abc_data" in str(excinfo.value), \
+        "a genuinely unpicklable object must still report why"
+    assert path.stat().st_size == 0, "a failed dump left a partial file"

@@ -27,8 +27,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Collection, Dict, \
-    FrozenSet, Generator, Generic, Hashable, Iterable, Iterator, List, \
+from typing import IO, TYPE_CHECKING, Any, Callable, ClassVar, Collection, \
+    Dict, FrozenSet, Generator, Generic, Hashable, Iterable, Iterator, List, \
     Optional, Sequence, Set, Tuple
 from typing import Type as TypingType
 from typing import TypeVar, Union, cast
@@ -3721,6 +3721,43 @@ def save_ground_atom_dataset(ground_atom_dataset: List[GroundAtomTrajectory],
         ground_atom_dataset_to_pkl.append(trajectory)
     with open(dataset_fname, "wb") as f:
         pkl.dump(ground_atom_dataset_to_pkl, f)
+
+
+def pkl_dump_with_retry(obj: Any, f: IO[bytes]) -> None:
+    """``pkl.dump``, retried once after a collection if it raises TypeError.
+
+    Saving a learned artifact intermittently dies with ``TypeError: cannot
+    pickle '_abc._abc_data' object``, which is the C-level cache behind an
+    abstract base class. On CI it is reproducible for a given set of tests --
+    the same failures twice on the same shard, three times over -- and it has
+    been seen from two call sites, ``nsrt_learning_approach._learn_nsrts`` and
+    ``gnn_approach.learn_from_offline_dataset``. Locally it appears at roughly
+    one run in four with the code, test order and PYTHONHASHSEED all fixed.
+
+    The root cause is NOT established. What is: an ``_abc_data`` holds WEAK
+    references, so whether dill trips over one plausibly depends on collection
+    timing, which is the one thing that varies run to run under everything
+    else being pinned. ``gc.collect()`` before retrying is aimed at exactly
+    that. **This is a mitigation on a hypothesis, not a fix on a diagnosis** --
+    if it stops the failures it is also the evidence for the hypothesis, and
+    if it does not, that rules the hypothesis out.
+
+    Serialising to bytes first rather than retrying into ``f`` matters: a dump
+    that raises part-way has already written a prefix, and a retry appending
+    to that would leave a corrupt file that only fails at load time, which is
+    much worse than the error being fixed here.
+
+    Any TypeError is retried, not only the ``_abc_data`` one. Matching on the
+    message would break silently when it is reworded, and an object that is
+    genuinely unpicklable fails the second time too and raises as it always
+    would -- so the broad catch costs one wasted attempt and hides nothing.
+    """
+    try:
+        blob = pkl.dumps(obj)
+    except TypeError:
+        gc.collect()
+        blob = pkl.dumps(obj)
+    f.write(blob)
 
 
 def merge_ground_atom_datasets(
