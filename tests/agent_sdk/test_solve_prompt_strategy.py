@@ -96,10 +96,10 @@ def test_explore_mode_belief_model_disclosure() -> None:
     reality; solve queries carry no such section."""
     utils.reset_config({"seed": 0})
     prompt = _render_explore(_make_task(None))
-    assert "## Belief-Model Simulator" in prompt
+    assert "## Exploration Setting" in prompt
     assert "not in the belief model yet" in prompt
     solve_prompt = _render(_make_task(None))
-    assert "## Belief-Model Simulator" not in solve_prompt
+    assert "## Exploration Setting" not in solve_prompt
 
 
 def test_explore_mode_experiment_delivery_contract() -> None:
@@ -108,8 +108,9 @@ def test_explore_mode_experiment_delivery_contract() -> None:
     text as the deliverable."""
     utils.reset_config({"seed": 0})
     prompt = _render_explore(_make_task(None))
-    assert "simulator-failing sketch is a valid, useful deliverable" in prompt
-    assert "Do NOT keep searching for a simulator-validated plan" in prompt
+    assert "simulator-failing sketch is a valid deliverable" in prompt
+    assert ("grinding for a validated plan the model cannot produce "
+            "is wasted budget") in prompt
     assert "This is an EXPLORE query" in prompt
     solve_prompt = _render(_make_task(None))
     assert "This is an EXPLORE query" not in solve_prompt
@@ -117,6 +118,5 @@ def test_explore_mode_experiment_delivery_contract() -> None:
     # The contract must survive param-free sketch mode too (the search
     # finds continuous params, but the delivery semantics are the same).
     sketch_prompt = _render_explore(_make_task(None), propose_params=False)
-    assert "simulator-failing sketch is a valid, useful deliverable" \
-        in sketch_prompt
+    assert "simulator-failing sketch is a valid deliverable" in sketch_prompt
     assert "This is an EXPLORE query" in sketch_prompt

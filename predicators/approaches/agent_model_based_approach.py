@@ -238,16 +238,8 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
                "searches for parameters but is slower); read the parameters "
                "it reports and submit them via evaluate_option_plan. Use "
                "whatever tools help.")
-        if propose:
-            job += (" Where many values work, any reasonable parameter is "
-                    "fine; where good values are hard to hit (tight "
-                    f"tolerances), use {refine_ref} to search for one.")
-            if CFG.agent_bilevel_ground_samplers:
-                job += (" Confine its search near your estimate by appending "
-                        "a region `~ [w1, w2]` of per-parameter half-widths "
-                        "after a step's `[params]`, or `~ my_sampler` naming "
-                        "a GROUND_SAMPLERS entry you wrote in "
-                        "ground_samplers.py for state-dependent regions.")
+        # Parameter-effort and ground-sampler guidance live in the query's
+        # Instructions (sketch_prompts.build_solve_prompt) - single source.
 
         # Keep responses short: the model's deliberation is the main driver of
         # the output-token overflow, and testing is often faster than deriving.

@@ -157,37 +157,15 @@ latent crosses a threshold.
 Model the hidden state explicitly: each ``State`` you predict is one
 sample of an *augmented* state - the observable features plus the
 latent dimensions you infer (a free-form dict like ``{"level": 0.73}``
-or ``{"count": 22}``). Write rules with the recurrent 5-arg signature
-so they can read and advance that latent:
-
-```python
-def my_rule(observation, latent, history, updates, params):
-    # observation : current observation (a State with the observable
-    #            features only - no hidden features)
-    # latent   : Dict[str, Any], mutated in place - the latent state
-    #            dims you track, threaded across steps
-    # history  : List[Tuple[State, Optional[Action]]] of past
-    #            observations, read-only; most recent last; first
-    #            action is None
-    # updates  : ResidualUpdate dict, also mutated in place
-    # params   : Dict[str, float] (fitted scalars)
-    ...
-    return updates
-```
-
-The 2nd parameter MUST be named ``latent`` - the engine inspects each
-rule's signature and only threads the latent block into rules that
-declare it. Declare the initial latent block:
+or ``{"count": 22}``). Rules read and advance that latent through the
+``latent`` argument of the 5-arg signature defined in "### Rule
+signature" above. Declare the initial latent block:
 
 ```python
 LATENT_INIT = {"level": 0.0, "count": 0}
 # OR a zero-arg callable returning such a dict.
 # Use ParamSpec("name", ...) values to make an init value learnable.
 ```
-
-Every rule uses this 5-arg signature, so the tools and the fitting
-engine call them all the same way. A rule that needs no hidden state
-simply ignores its `latent`/`history` arguments.
 
 ### Structure the latent like the state (per-object)
 
@@ -496,16 +474,13 @@ confirmed the recorded origin *is* the functional point. Share the \
 offset and distance params with the gating predicate so the rule and \
 predicate anchor to the same point.
 
-**Required check before committing a geometric gate.** Bucket the \
-trajectory steps by whether the gated effect actually fired, compute \
-your gate quantity at each step, and confirm the two buckets separate \
-by a clear margin. If they overlap, or separate only by a knife-edge \
-gap (~5% of the value range or narrower), the gate references the \
-wrong point - a threshold flush against the data boundary is a \
-rejected fit, not a fit. Do **not** nudge the threshold to paper over \
-it: add or refit the anchor offset and re-bucket. To find the offset, \
-__SCENE_VIZ_HINT__; the gap \
-between the origin and the effect-firing cluster is the offset.
+**Before committing any geometric gate**, run the threshold-fitting \
+protocol in CLAUDE.md: bucket trajectory steps by whether the gated \
+effect actually fired and require a clear margin between the buckets - \
+overlap or a knife-edge gap means the gate references the wrong point, \
+so add or refit the anchor offset rather than nudging the threshold. \
+To find the offset, __SCENE_VIZ_HINT__; the gap between the origin and \
+the effect-firing cluster is the offset.
 
 ### ParamSpec
 
@@ -641,7 +616,8 @@ continuous `sim.run` of the refined plan from a fresh \
 `sim.reset(task_idx=i)`. A stuck refine step means the rules gating \
 its subgoal atoms are too tight or too loose; a refine-pass whose \
 `sim.run` diverges means a rule is too permissive. Fix and \
-re-validate - do not declare done until BOTH pass.
+re-validate - do not declare done until BOTH pass.\
+__WORKFLOW_EXTRA__
 """
 
 
@@ -1764,18 +1740,13 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         probe_note = ""
         if CFG.agent_planner_use_explore_python:
             probe_note = (
-                "\n\nTo forward-roll your CURRENT candidate simulator "
-                "(does the process fire when and where you intended?), "
-                "use the `sim` probe available inside `run_python`: it "
-                "probes the `simulator.py` you are editing, re-fit "
-                "automatically whenever the file changes; pass task_idx "
-                "explicitly to `sim.reset` (and `sim.task(task_idx)` for "
-                "a task digest). Its rollouts are CANDIDATE-simulator "
-                "predictions - do not mix them up with the recorded real "
-                "`trajectories`. Exploratory only - "
-                "validate via `sim.fit()` + `sim.refine` + a "
-                "continuous `sim.run` forward pass before declaring "
-                "the simulator done.")
+                "\n\nThe `sim` probe inside `run_python` forward-rolls "
+                "the CANDIDATE simulator you are editing (auto-refit on "
+                "file change; pass task_idx explicitly to `sim.reset`, "
+                "`sim.task(task_idx)` for a task digest). Its rollouts "
+                "are candidate predictions - do not mix them up with the "
+                "recorded real `trajectories`. Usage and the validation "
+                "protocol are in the system prompt's Tools section.")
         # Tool surface of the (just-opened) synthesis session, rendered
         # the same way the solve/explore prompts list theirs.
         # ``tool_names`` already merges the sandbox built-ins with the
@@ -1860,14 +1831,9 @@ behind them: which dynamics the base sim carries vs. your process \
 rules, which features the rules own, any latent structure, and any \
 other structural commitments (e.g. whether base-sim parameters are \
 declared for identification, when the environment discloses them). \
-Later cycles read this record before deciding what to keep. Every \
-successful Write/Edit of \
-`{simulator_file_for_agent}` is snapshotted to `simulator_versions/` as \
-`cycle_XXX_vers_YYY_simulator.py` (deduped by content); `sim.fit` and \
-`sim.residuals` \
-load that file fresh on every call and report the version tag \
-[cycle_XXX_vers_YYY] in their output. Iterate with `Edit` and \
-re-score.{probe_note}"""
+Later cycles read this record before deciding what to keep. Iterate \
+with `Edit` and re-score; every successful write is snapshotted and \
+version-tagged (see the system prompt's Tools section).{probe_note}"""
 
         extra_message = self._extra_synthesis_message(extra_paths)
         if extra_message:
@@ -3501,9 +3467,20 @@ files to see exactly which rules and predicates produced each failed plan.
         prompt = prompt.replace("__PHYSICAL_PARAMS_SECTION__",
                                 self._physical_params_prompt_section())
         prompt = prompt.replace("__SCENE_VIZ_HINT__", self._scene_viz_hint())
+        prompt = prompt.replace("__WORKFLOW_EXTRA__",
+                                self._synthesis_workflow_extra())
         extra = self._extra_synthesis_system_prompt()
         extra_block = "\n" + extra.rstrip() + "\n" if extra else ""
         return prompt.replace("__SYNTHESIS_PROMPT_EXTRA__", extra_block)
+
+    def _synthesis_workflow_extra(self) -> str:
+        """Extra text appended to the Workflow list.
+
+        Subclasses with additional deliverables (e.g. invented
+        predicates) extend the workflow here so the numbered list stays
+        the single authoritative loop description.
+        """
+        return ""
 
     @staticmethod
     def _scene_viz_hint() -> str:

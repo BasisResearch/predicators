@@ -192,51 +192,10 @@ def build_sandbox_system_prompt(
 You are running in {env_description}. You have the following
 built-in tools available: {_BUILTIN_TOOLS_STR}.
 
-Your workspace is {workspace_description}. All file operations (Read, Write,
-Edit, Glob, Grep) are restricted to this directory.
-
-### Writing and Running Code
-You can write Python scripts and execute them with `python3`:
-```
-python3 my_script.py
-```
-The predicators package is importable in your scripts:
-```python
-from predicators.structs import State, Type, Object, Predicate
-from predicators.structs import ParameterizedOption, Action
-```
-
-### Reference Files
-Curated API reference files are in {ref_path}.
-Read these files to understand the system APIs before writing code.
-
-### Session Logs
-Your past queries and tool results are saved in ./session_logs/ as markdown
-files named `<NNN>_<kind>_<timestamp>.md` (e.g. `001_learn_...md`,
-`002_test_...md`). The counter comes first so alphabetical sort matches
-chronological order. Use Glob and Read to review previous attempts:
-```
-Glob ./session_logs/*.md
-Read ./session_logs/001_learn_*.md
-```
-
-### Scene Images
-`evaluate_option_plan` automatically saves scene images to ./test_images/
-after each plan step for later review.
-
-### Proposed Code
-All proposal code and option source code is saved to ./proposed_code/.
-Proposals are numbered (e.g. `001_propose_options_Pick.py`); saved
-option source uses the option name (e.g. `Pick.py`):
-```
-Glob ./proposed_code/*.py
-Read ./proposed_code/001_propose_options_Pick.py
-```
-
-### Rules
-- Do NOT try to read or browse files outside the sandbox directory
-- Do NOT modify files in ./reference/
-- Do NOT inspect predicators source code via `inspect.getsource()`,
-  `inspect.getfile()`, or by reading `.py` files from site-packages.
-  Use MCP tools and reference files instead.
+Your workspace is {workspace_description}; all file operations are
+restricted to it. The workspace's CLAUDE.md documents the rest of the
+layout and rules: the `python3` interpreter (the predicators package is
+importable), curated API references in {ref_path}, past session logs,
+saved scene images and proposed code, and the file-access rules. Read
+the {ref_path} files to understand the system APIs before writing code.
 """
