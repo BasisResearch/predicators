@@ -398,6 +398,9 @@ class PyBulletBridgeEnv(PyBulletEnv):
         # a resting weld can be re-anchored (see _relax_resting_welds).
         self._weld_meta: Dict[FrozenSet[int], Tuple[int, int,
                                                     Optional[float]]] = {}
+        # Live wet-glue tacks (see _sync_wet_joint_tacks):
+        # frozenset({body_id_a, body_id_b}) -> constraint id.
+        self._tack_constraints: Dict[FrozenSet[int], int] = {}
         # Glue-patch visual bodies: block name -> face -> body id.
         self._glue_patch_ids: Dict[str, Dict[str, int]] = {}
 
@@ -1045,6 +1048,68 @@ class PyBulletBridgeEnv(PyBulletEnv):
                 pairs[key] = (blk.id, partner.id, dz)
         return pairs
 
+    # Wet glue is tacky: while a joint is wet and its faces are in
+    # aligned contact, the pair is held together by a weak constraint
+    # (under a newton, against the weld's ten thousand). It does not
+    # stop the impulse the arm leaves behind when it releases and
+    # retreats -- momentum is momentum -- but it makes the joint absorb
+    # that impulse as a UNIT instead of coming apart: a placement that
+    # ended flush against its neighbor was observed to fling an
+    # already-placed span ~5 cm and ~90 degrees during the cure wait
+    # (~30% of flush placements), which forced agents onto a narrow
+    # 3-8 mm assembly gap, wide enough to survive the release and
+    # narrow enough to still cure.
+    #
+    # The force is deliberately held below a block's own weight
+    # (block_mass * g ~ 1 N), so a wet joint can never lift, carry or
+    # drag its neighbour: everything the arm does deliberately still
+    # wins, and picking a block mid-cure aborts the cure exactly as the
+    # abstract model says. The tack is replaced by the rigid weld the
+    # moment the joint latches.
+    wet_joint_tack_force: ClassVar[float] = 0.5  # newtons
+
+    def _sync_wet_joint_tacks(self, curing: Set[FrozenSet[int]]) -> None:
+        """Make the live tack set match the currently curing joints."""
+        for key in list(self._tack_constraints):
+            if key not in curing:
+                self._drop_tack(key)
+        for key in curing:
+            if key in self._tack_constraints or key in self._weld_constraints:
+                continue
+            if self._held_obj_id is not None and self._held_obj_id in key:
+                continue
+            body_a, body_b = sorted(key)
+            pos_a, orn_a = p.getBasePositionAndOrientation(
+                body_a, physicsClientId=self._physics_client_id)
+            pos_b, orn_b = p.getBasePositionAndOrientation(
+                body_b, physicsClientId=self._physics_client_id)
+            inv_pos, inv_orn = p.invertTransform(pos_a, orn_a)
+            rel_pos, rel_orn = p.multiplyTransforms(inv_pos, inv_orn, pos_b,
+                                                    orn_b)
+            # Anchored at the CURRENT relative pose, so the tack holds
+            # the joint as assembled instead of pulling it anywhere.
+            cid = p.createConstraint(parentBodyUniqueId=body_a,
+                                     parentLinkIndex=-1,
+                                     childBodyUniqueId=body_b,
+                                     childLinkIndex=-1,
+                                     jointType=p.JOINT_FIXED,
+                                     jointAxis=[0, 0, 0],
+                                     parentFramePosition=rel_pos,
+                                     parentFrameOrientation=rel_orn,
+                                     childFramePosition=[0, 0, 0],
+                                     childFrameOrientation=[0, 0, 0, 1],
+                                     physicsClientId=self._physics_client_id)
+            p.changeConstraint(cid,
+                               maxForce=self.wet_joint_tack_force,
+                               physicsClientId=self._physics_client_id)
+            self._tack_constraints[key] = cid
+
+    def _drop_tack(self, key: FrozenSet[int]) -> None:
+        """Remove one wet-glue tack, if it exists."""
+        cid = self._tack_constraints.pop(key, None)
+        if cid is not None:
+            p.removeConstraint(cid, physicsClientId=self._physics_client_id)
+
     def _sync_welds_to_state(self, state: State) -> None:
         """Make the live constraint set match the attachment features.
 
@@ -1053,6 +1118,10 @@ class PyBulletBridgeEnv(PyBulletEnv):
         Persisting welds keep their original constraint (the restored
         poses satisfy it by construction).
         """
+        for key in list(self._tack_constraints):
+            # Tacks are anchored to the poses they were created at; a
+            # restored state is a different scene.
+            self._drop_tack(key)
         desired = self._desired_weld_pairs(state)
         for key in list(self._weld_constraints):
             if key not in desired:
@@ -1255,7 +1324,9 @@ class PyBulletBridgeEnv(PyBulletEnv):
                     self._set_attr(blk, f"glue_{face}", 0.0)
 
         # 2. Curing: wet faces in aligned resting contact tick; at the
-        #    threshold the joint latches irreversibly and welds.
+        #    threshold the joint latches irreversibly and welds. While a
+        #    joint is merely wet it is TACKED (see _sync_wet_joint_tacks).
+        curing_pairs: Set[FrozenSet[int]] = set()
         for blk in blocks:
             for face in GLUE_FACES:
                 if self._attr(blk, f"glue_{face}", 0.0) <= 0.5:
@@ -1268,8 +1339,16 @@ class PyBulletBridgeEnv(PyBulletEnv):
                     continue
                 cure = self._attr(blk, f"cure_{face}", 0.0) + 1.0
                 self._set_attr(blk, f"cure_{face}", cure)
-                if cure >= self.cure_threshold:
-                    self._latch_joint(state, blk, face, mate)
+                assert blk.id is not None and mate.id is not None
+                if cure >= self.cure_threshold and \
+                        self._latch_joint(state, blk, face, mate):
+                    # The rigid weld takes over from the tack.
+                    self._drop_tack(frozenset({blk.id, mate.id}))
+                else:
+                    # Still wet -- or a latch that refused (see
+                    # _latch_joint); either way the joint stays tacked.
+                    curing_pairs.add(frozenset({blk.id, mate.id}))
+        self._sync_wet_joint_tacks(curing_pairs)
 
         # 3. Anti-creep: re-anchor welds whose assembly rests free.
         self._relax_resting_welds()
@@ -1373,15 +1452,17 @@ class PyBulletBridgeEnv(PyBulletEnv):
         return best_slot
 
     def _latch_joint(self, state: State, blk: Object, face: str,
-                     mate: Object) -> None:
+                     mate: Object) -> bool:
         """Irreversibly attach ``blk.face`` to ``mate``: record the partnership
-        on both blocks, consume the glue, create the weld."""
+        on both blocks, consume the glue, create the weld.
+
+        Returns whether the joint latched."""
         mate_slot = self._mate_slot_for(state, blk, face, mate)
         if self._attr(mate, f"attached_{mate_slot}", -1.0) >= 0:
             # The mate's slot is somehow taken; refuse to latch rather
             # than corrupt the attachment graph (cure stays at the
             # threshold, so this re-checks every step).
-            return
+            return False
         self._set_attr(blk, f"attached_{face}",
                        float(self._block_index[mate.name]))
         self._set_attr(mate, f"attached_{mate_slot}",
@@ -1395,6 +1476,7 @@ class PyBulletBridgeEnv(PyBulletEnv):
         else:
             ideal_dz = 0.0
         self._create_weld(blk.id, mate.id, ideal_dz=ideal_dz)
+        return True
 
     def _update_glue_patches(self, state: State) -> None:
         """Show a yellow patch on each wet face; park all other patches out of

@@ -10,6 +10,7 @@ attachment latch.
 from __future__ import annotations
 
 import numpy as np
+import pybullet as p
 import pytest
 
 from predicators import utils
@@ -376,3 +377,104 @@ def test_welded_pair_does_not_creep(env_and_task):
         assert drift < 0.002, f"{obj.name} skated {drift * 1000:.1f} mm"
         dyaw = abs(final.get(obj, "yaw") - latched.get(obj, "yaw"))
         assert dyaw < 0.01, f"{obj.name} rotated {dyaw:.4f} rad"
+
+
+def _stage_flush_pair(env, task):
+    """Two spans butted flush on the table with the joint face wet.
+
+    Returns (span0, span1) with everything else parked far away.
+    """
+    env._set_state(task.init)
+    state = env._get_state()
+    blocks = state.get_objects(env._block_type)
+    span0 = next(b for b in blocks if b.name == "span0")
+    span1 = next(b for b in blocks if b.name == "span1")
+    s = state.copy()
+    table_z = s.get(span0, "z")
+    for blk, x in ((span0, 0.45), (span1,
+                                   0.45 + 2 * env.span_half_extents[0])):
+        s.set(blk, "x", x)
+        s.set(blk, "y", 1.14)
+        s.set(blk, "z", table_z)
+        for feat in ("roll", "pitch", "yaw"):
+            s.set(blk, feat, 0.0)
+    for i, blk in enumerate(blocks):
+        if blk not in (span0, span1):
+            s.set(blk, "x", 2.0 + 0.2 * i)
+            s.set(blk, "y", 2.0)
+    env._set_state(s)
+    env._set_attr(span0, "glue_end_b", 1.0)
+    return span0, span1
+
+
+def test_wet_joint_is_tacked_until_it_welds(env_and_task):
+    """A curing joint carries a weak tack constraint, replaced by the weld."""
+    env, task = env_and_task
+    span0, span1 = _stage_flush_pair(env, task)
+    key = frozenset({span0.id, span1.id})
+
+    env.step(_hold_action(env))
+    assert set(env._tack_constraints) == {key}
+    assert not env._weld_constraints
+
+    for _ in range(env.cure_threshold + 5):
+        env.step(_hold_action(env))
+    # The latch hands the joint over to the rigid weld; no tack lingers.
+    assert not env._tack_constraints
+    assert set(env._weld_constraints) == {key}
+
+    # Restoring any state re-derives the welds and drops stale tacks
+    # (they are anchored to the poses they were created at).
+    env._set_state(task.init)
+    assert not env._tack_constraints
+    assert not env._weld_constraints
+
+
+def test_wet_joint_survives_a_release_impulse(env_and_task):
+    """A flush joint takes the arm's parting shove as a unit, and still cures.
+
+    Regression: a placement that ended flush against its neighbor could
+    fling an already-placed span ~5 cm and ~90 degrees during the cure
+    wait (~30% of flush placements), which is what pushed agents onto a
+    narrow 3-8 mm assembly gap. The wet-glue tack cannot cancel the
+    impulse -- momentum is momentum, the assembly still slides -- but
+    the joint must not come apart while it cures. The newcomer is
+    joined to an already-welded pair, the mass asymmetry that makes an
+    untacked joint separate (~11 mm here) rather than slide together.
+    """
+    env, task = env_and_task
+    span0, span1 = _stage_flush_pair(env, task)
+    for _ in range(env.cure_threshold + 5):
+        env.step(_hold_action(env))
+    assert env._weld_constraints
+
+    state = env._get_state()
+    span2 = next(b for b in state.get_objects(env._block_type)
+                 if b.name == "span2")
+    s = state.copy()
+    s.set(span2, "x", s.get(span1, "x") + 2 * env.span_half_extents[0])
+    s.set(span2, "y", s.get(span1, "y"))
+    s.set(span2, "z", s.get(span1, "z"))
+    for feat in ("roll", "pitch", "yaw"):
+        s.set(span2, feat, 0.0)
+    env._set_state(s)
+    env._set_attr(span1, "glue_end_b", 1.0)
+    env.step(_hold_action(env))
+
+    before = env._get_state()
+    rel_before = np.array(
+        [before.get(span2, f) - before.get(span1, f) for f in ("x", "y", "z")])
+    # The shove the arm leaves behind when it releases and retreats.
+    p.resetBaseVelocity(span2.id, (-2.0, 0.0, 0.0), (0.0, 0.0, 0.0),
+                        physicsClientId=env._physics_client_id)
+    for _ in range(env.cure_threshold + 5):
+        env.step(_hold_action(env))
+    after = env._get_state()
+    rel_after = np.array(
+        [after.get(span2, f) - after.get(span1, f) for f in ("x", "y", "z")])
+    assert abs(after.get(span1, "x") - before.get(span1, "x")) > 0.005, \
+        "the shove should still move the assembly"
+    assert np.linalg.norm(rel_after - rel_before) < 0.001
+    assert abs(after.get(span2, "yaw") - after.get(span1, "yaw")) < 0.01
+    assert after.get(span1, "attached_end_b") == \
+        float(env._block_index[span2.name])
