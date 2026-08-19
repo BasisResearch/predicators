@@ -231,7 +231,6 @@ def test_place_settles_to_contact():
         assert abs(state.get(span1, "y") - ty) < 0.006
         assert abs(state.get(span1, "yaw")) < 0.03
     finally:
-        import pybullet as p  # pylint: disable=import-outside-toplevel
         p.disconnect(env._physics_client_id)
 
 
@@ -272,7 +271,6 @@ def test_sim_data_isolated_between_env_instances(env_and_task):
         assert fresh.get(leg0, "glue_end_b") == 0.0
         assert fresh.get(leg0, "cure_end_b") == 0.0
     finally:
-        import pybullet as p  # pylint: disable=import-outside-toplevel
         p.disconnect(other._physics_client_id)
 
 
@@ -443,7 +441,7 @@ def test_wet_joint_survives_a_release_impulse(env_and_task):
     untacked joint separate (~11 mm here) rather than slide together.
     """
     env, task = env_and_task
-    span0, span1 = _stage_flush_pair(env, task)
+    _, span1 = _stage_flush_pair(env, task)
     for _ in range(env.cure_threshold + 5):
         env.step(_hold_action(env))
     assert env._weld_constraints
@@ -478,3 +476,139 @@ def test_wet_joint_survives_a_release_impulse(env_and_task):
     assert abs(after.get(span2, "yaw") - after.get(span1, "yaw")) < 0.01
     assert after.get(span1, "attached_end_b") == \
         float(env._block_index[span2.name])
+
+
+def test_degenerate_top_edge_grasp_fails_honestly():
+    """A pick that never wraps the block must fail, not report success.
+
+    Regression for seed0 run_20260819_053515: PickBlock(leg0)[0.01] on a
+    standing 10 cm leg put the pads' grip band a hair above the leg top.
+    The closing fingers cammed over the top corners (shoving the leg
+    ~18 mm into the table), held detection latched a constraint off a
+    single finger's corner graze, the 3 cm lift left the leg still on
+    the table, and the downstream place jammed it -- episode dead. Two
+    guards cover it:
+
+    1. ``_detect_held_object`` requires an aligned touch on BOTH
+       fingers (a single-finger touch is not a pinch).
+    2. The pick skill's lift verification (``verify_lift``): the object
+       must gain at least half of ``lift_dz``, else the option raises
+       ``OptionExecutionFailure`` -- catching top-EDGE pinches whose
+       both-finger contact normals look like a real grasp.
+    """
+    utils.reset_config({
+        "env": "pybullet_bridge",
+        "seed": 0,
+        "num_train_tasks": 1,
+        "num_test_tasks": 1,
+        "skill_phase_use_motion_planning": True,
+        "pybullet_ik_validate": False,
+        "pybullet_birrt_contact_margin": -0.005,
+        "pybullet_birrt_path_subsample_ratio": 1,
+    })
+    from predicators.envs.pybullet_bridge import \
+        PyBulletBridgeEnv  # pylint: disable=import-outside-toplevel
+    from predicators.ground_truth_models import \
+        get_gt_options  # pylint: disable=import-outside-toplevel
+    env = PyBulletBridgeEnv(use_gui=False)
+    try:
+        env.reset("test", 0)
+        state = env._get_state()
+        options = {o.name: o for o in get_gt_options(env.get_name())}
+        leg0 = next(b for b in env._blocks if b.name == "leg0")
+        robot = env._robot
+        staged_z = state.get(leg0, "z")
+
+        # --- 1) Detector: a single-finger touch is not a grasp. -------
+        # Stage the gripper at grip height beside the standing leg so
+        # that exactly one finger's inner face overlaps the leg (the
+        # cam-over contact geometry). Strip the joint hint so the pose
+        # features drive IK.
+        def _stage_gripper(dy: float, fingers: float) -> None:
+            s = state.copy()
+            sim_state = getattr(s, "simulator_state", None)
+            if isinstance(sim_state, dict):
+                sim_state = dict(sim_state)
+                sim_state.pop("joint_positions", None)
+                s.simulator_state = sim_state
+            s.set(robot, "x", state.get(leg0, "x"))
+            s.set(robot, "y", state.get(leg0, "y") + dy)
+            s.set(robot, "z", staged_z + 0.03)
+            s.set(robot, "wrist", 0.0)
+            s.set(robot, "fingers", fingers)
+            env._set_state(s)
+
+        def _aligned_fingers() -> list:
+            normals = env._get_expected_finger_normals()
+            aligned = []
+            for fid, normal in normals.items():
+                pts = p.getClosestPoints(
+                    bodyA=env._pybullet_robot.robot_id,
+                    bodyB=leg0.id,
+                    distance=env.grasp_tol_small,
+                    linkIndexA=fid,
+                    physicsClientId=env._physics_client_id)
+                aligned.append(
+                    any(abs(float(normal.dot(pt[7]))) >= 0.9 for pt in pts))
+            return aligned
+
+        # One pad overlaps the leg (aligned touch) while the partner pad
+        # is ~37 mm from any leg surface -- beyond grasp_partner_tol, so
+        # nothing is closing in on the other side.
+        _stage_gripper(dy=0.0225, fingers=env.open_fingers)
+        # The staging is the old detector's grant condition: one finger
+        # has an aligned touch...
+        assert sorted(_aligned_fingers()) == [False, True]
+        # ...and the pinch rule refuses it.
+        assert env._detect_held_object() is None
+
+        # An off-center pre-pinch stays a legitimate capture: one pad
+        # touches while the partner pad FACES the leg from ~15 mm
+        # (within grasp_partner_tol) -- the jug-handle pattern.
+        _stage_gripper(dy=-0.009, fingers=0.032)
+        assert env._detect_held_object() == leg0.id
+
+        # Positive control: a genuine straddle (both pads on the leg's
+        # side faces) still detects. 0.0235 leaves both pads slightly
+        # inside the 5 cm leg even with IK centering the gripper ~1 mm
+        # off the commanded xy.
+        _stage_gripper(dy=0.0, fingers=0.0235)
+        assert _aligned_fingers() == [True, True]
+        assert env._detect_held_object() == leg0.id
+
+        # --- 2) Skill: the seed0 pick must fail honestly. -------------
+        def run_pick(grasp_z_offset: float):
+            env.reset("test", 0)
+            ground = options["PickBlock"].ground([robot, leg0],
+                                                 np.array([grasp_z_offset],
+                                                          dtype=np.float32))
+            st = env._get_state()
+            assert ground.initiable(st)
+            for _ in range(200):
+                env.step(ground.policy(st))
+                st = env._get_state()
+                if ground.terminal(st):
+                    return st
+            raise AssertionError("PickBlock did not terminate")
+
+        try:
+            st = run_pick(0.01)
+        except utils.OptionExecutionFailure:
+            # The honest outcome: the pick reports its own failure
+            # (lift verification, or a collision abort from the
+            # crushed-in gripper).
+            pass
+        else:
+            # Physics drift may one day land this knife-edge pick as a
+            # genuine grasp; that is success, not regression. What must
+            # never happen again is the silent middle: option "done",
+            # state claims held, leg still (near) the table.
+            assert st.get(leg0, "is_held") > 0.5
+            assert st.get(leg0, "z") > staged_z + 0.015
+
+        # --- 3) Control: the reliable offset still picks properly. ----
+        st = run_pick(0.0)
+        assert st.get(leg0, "is_held") > 0.5
+        assert st.get(leg0, "z") > staged_z + 0.015
+    finally:
+        p.disconnect(env._physics_client_id)

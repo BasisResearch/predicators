@@ -134,6 +134,14 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
             # a neighboring block, poisoning the next option's BiRRT
             # start config.
             lift_dz=0.03,
+            # A grasp_z_offset near the pads' upper engagement edge
+            # (>= ~1 cm on a standing leg) makes the closing fingers cam
+            # over the block's top corners: held detection can still
+            # latch a degenerate constraint, and the table then drags
+            # the block out of it during the lift. Verifying the lift
+            # fails such picks honestly instead of handing a
+            # ghost-held block to the place.
+            verify_lift=True,
         )
 
         # -- PickBottle ------------------------------------------------------
