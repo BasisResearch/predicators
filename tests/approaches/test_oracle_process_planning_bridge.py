@@ -60,11 +60,13 @@ def _oracle_bridge_config() -> dict:
         "wait_option_max_steps": 120,
         # --- common flags relevant to bilevel refinement ---
         "skill_phase_use_motion_planning": True,
-        # Bridge NEEDS validated IK (unlike boil): placement accuracy
-        # feeds the cure gates, and the lateral placement error is
-        # frozen into the weld. Unvalidated IK leaves the seated span
-        # outside the far leg's cure window.
-        "pybullet_ik_validate": True,
+        # Bridge follows common.yaml: validated IK OFF, like every
+        # other domain. Validation is not what enforces placement
+        # accuracy (goal-IK branches are accepted on forward-kinematics
+        # error either way) and it steered the arm into
+        # worse-executing IK branches (oracle sweep: 22/24 with it on,
+        # 24/24 with it off).
+        "pybullet_ik_validate": False,
         "planning_filter_unreachable_nsrt": False,
         "no_repeated_arguments_in_grounding": True,
         "terminate_on_goal_reached": False,

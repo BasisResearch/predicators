@@ -401,10 +401,6 @@ ENVS:
       # Longest legitimate wait: cure_threshold (25) + cure-start
       # stagger across the preceding option (~60 steps).
       wait_option_max_steps: 120
-      # Bridge NEEDS validated IK (common.yaml turns it off): placement
-      # accuracy feeds the cure gates, and lateral placement error is
-      # frozen into the weld.
-      pybullet_ik_validate: True
       # The packed full-variant staging grid leaves ~1-2 cm clearances
       # that stochastically dip into 2-3 mm grazes; the default 1 mm
       # margin turns those into unrecoverable BiRRT start/goal
