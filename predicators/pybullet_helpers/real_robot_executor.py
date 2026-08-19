@@ -694,8 +694,15 @@ def _max_position_divergence(predicted: State,
 
 def _snapshot_perception(recorder: Any) -> MarkerlessSnapshotPerception:
     """The scene look that a snapshot rebuild uses instead of a live one."""
-    serials = recorder.serials
-    serial = CFG.real_robot_snapshot_camera or (serials[0] if serials else "")
+    # str(), because a launcher config's "30264679" arrives as an INT:
+    # utils.string_to_python_object parses an all-digit serial as a number on
+    # the way in from the command line, and the recorder reports serials as
+    # strings. Comparing the two rejected a camera that was in the list, and
+    # said so in a message that showed the wanted serial unquoted beside a
+    # list of quoted ones -- which is the only visible clue.
+    serials = [str(s) for s in recorder.serials]
+    wanted = CFG.real_robot_snapshot_camera
+    serial = str(wanted) if wanted else (serials[0] if serials else "")
     if not serial:
         raise ValueError(
             "real_robot_snapshot_rebuild needs a camera to fit the scene "
