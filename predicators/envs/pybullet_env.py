@@ -1938,7 +1938,7 @@ class PyBulletEnv(BaseEnv):
                     distance=query_dist,
                     linkIndexA=finger_id,
                     physicsClientId=self._physics_client_id)
-                finger_dist = None
+                finger_dist: Optional[float] = None
                 for point in closest_points:
                     # If the contact normal is substantially different from
                     # the expected contact normal, this is probably an object

@@ -155,7 +155,7 @@ def test_bystander_clearance(physics_client_id):
                                      half_extents=(0.2, 0.01, 0.3),
                                      mass=0,
                                      friction=1,
-                                     orientation=[0., 0., 0., 1.],
+                                     orientation=(0., 0., 0., 1.),
                                      physics_client_id=physics_client_id)
     p.resetBasePositionAndOrientation(block_id, (1.35, 0.6, 0.5),
                                       [0., 0., 0., 1.],
@@ -216,7 +216,7 @@ def test_robot_start_escape(physics_client_id):
                                      half_extents=(0.03, 0.03, 0.03),
                                      mass=0,
                                      friction=1,
-                                     orientation=[0., 0., 0., 1.],
+                                     orientation=(0., 0., 0., 1.),
                                      physics_client_id=physics_client_id)
 
     def _min_robot_dist(z: float) -> float:
@@ -326,7 +326,7 @@ def test_start_local_partner_demotion(physics_client_id):
                                         half_extents=(0.2, 0.01, 0.3),
                                         mass=mass,
                                         friction=1,
-                                        orientation=[0., 0., 0., 1.],
+                                        orientation=(0., 0., 0., 1.),
                                         physics_client_id=physics_client_id)
         # Slide the wall toward the arm until the start config is just
         # within the bystander clearance of it (earning partner status)
@@ -440,7 +440,7 @@ def test_held_attachments(physics_client_id):
                                         half_extents=(0.05, 0.05, 0.05),
                                         mass=0,
                                         friction=1,
-                                        orientation=[0., 0., 0., 1.],
+                                        orientation=(0., 0., 0., 1.),
                                         physics_client_id=physics_client_id)
     p.resetBasePositionAndOrientation(obstacle_id,
                                       np.add(attached_position,
