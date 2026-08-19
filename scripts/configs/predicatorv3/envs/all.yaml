@@ -406,11 +406,3 @@ ENVS:
       # margin turns those into unrecoverable BiRRT start/goal
       # rejections.
       pybullet_birrt_contact_margin: -0.005
-      # Execute EVERY planned waypoint (no subsampling): a carried span
-      # can travel 5-8 cm per physics step between subsampled
-      # waypoints, and that corner-cutting swept a just-picked span
-      # through a standing leg's top corner (a 0.3 mm graze topples the
-      # 2:1 leg). The bridge's standing legs are the tippiest obstacles
-      # in the codebase; path fidelity is worth the ~2x steps per
-      # motion-planned phase (episodes stay far under the horizon).
-      pybullet_birrt_path_subsample_ratio: 1
