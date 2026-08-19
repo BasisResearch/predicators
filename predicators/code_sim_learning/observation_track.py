@@ -355,15 +355,34 @@ def topple_onsets(series_by_id: Mapping[int, Sequence[Tuple[float, float]]],
 def propagation_intervals(onsets: Dict[int, float]) -> Dict[int, float]:
     """Each onset relative to the earliest one, in seconds.
 
-    The first domino to fall defines the origin and contributes a zero
-    that carries no information, so it is dropped: what friction sets is
-    how fast the cascade travels *down the row*, not when the push
-    happened.
+    NOTHING is dropped, including the domino that defines the origin.
+    That domino contributes a zero, which carries no information when
+    both streams agree on which fell first -- and everything when they
+    do not.
+
+    This used to drop every entry at the earliest time, which is a
+    different thing from dropping the origin whenever two dominoes tie.
+    They tie routinely: the sim samples one state per action, 83.3 ms,
+    while the track runs at 60 fps, so the pushed domino and the one
+    beside it land on the SAME sim step and are 5x resolvable on camera.
+    On run_20260819_104757 the twin toppled all five cleanly, yet
+    domino_3 and domino_4 both came back at 0.0833 s, both were dropped,
+    and the track -- which had them 350 ms apart -- kept domino_4. It
+    then had no counterpart and drew the full missing-cascade penalty,
+    reporting that the twin's chain never reached a domino it had in
+    fact laid flat.
+
+    Dropping exactly ONE would need the two streams to agree on WHICH,
+    and neither can see the other from here: a local tie-break on id
+    picks the wrong one as easily as the right one, and picking wrong
+    reproduces the same false penalty on the other domino. Keeping every
+    entry needs no agreement. Where both streams do agree on the origin
+    it costs one residual that is identically zero.
     """
     if len(onsets) < 2:
         return {}
     first = min(onsets.values())
-    return {obj_id: t - first for obj_id, t in onsets.items() if t > first}
+    return {obj_id: t - first for obj_id, t in onsets.items()}
 
 
 def sim_topple_series(

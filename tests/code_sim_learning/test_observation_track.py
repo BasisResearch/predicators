@@ -133,13 +133,57 @@ def test_missing_frames_do_not_break_the_detector():
 
 # -- intervals ---------------------------------------------------------------
 def test_intervals_are_relative_to_the_first_onset():
-    """What friction sets is how fast the cascade travels down the row, so the
-    first onset is an origin and contributes nothing."""
+    """What friction sets is how fast the cascade travels down the row, so
+    every onset is measured from the earliest.
+
+    The origin is KEPT, at zero. It carries no information while both
+    streams agree on which domino fell first, and everything when they
+    do not -- see
+    test_a_tie_at_the_earliest_onset_keeps_both_dominoes.
+    """
     intervals = propagation_intervals({0: 10.0, 1: 10.2, 2: 10.5})
 
-    assert 0 not in intervals
+    assert intervals[0] == pytest_approx(0.0)
     assert intervals[1] == pytest_approx(0.2)
     assert intervals[2] == pytest_approx(0.5)
+
+
+def test_a_tie_at_the_earliest_onset_keeps_both_dominoes():
+    """The sim samples one state per action, 83.3 ms, while the track runs at
+    60 fps -- so the pushed domino and the one beside it land on the SAME sim
+    step and are 5x resolvable on camera.
+
+    Dropping every entry at the earliest time would delete BOTH, and the
+    track keeps the second, which then has no counterpart and draws the
+    full missing-cascade penalty -- reporting that the twin's chain never
+    reached a domino it had in fact laid flat. Measured on
+    run_20260819_104757: domino_3 and domino_4 both at 0.0833 s in the
+    twin, 350 ms apart on camera.
+    """
+    tied = propagation_intervals({0: 0.0833, 1: 0.0833, 2: 0.3333})
+
+    assert set(tied) == {0, 1, 2}, "a tie must not delete both dominoes"
+    assert tied[0] == pytest_approx(0.0)
+    assert tied[1] == pytest_approx(0.0)
+    assert tied[2] == pytest_approx(0.25)
+
+
+def test_streams_that_disagree_on_the_origin_still_compare():
+    """Neither stream can see the other from inside propagation_intervals, so
+    dropping exactly one would need an agreement they cannot reach.
+
+    Keeping every entry needs no agreement: where the two disagree about
+    which domino fell first, both sides still carry both dominoes and
+    the comparison yields real differences instead of two penalties.
+    """
+    # The sim has 0 first; the track resolves 1 as first instead.
+    sim = propagation_intervals({0: 1.00, 1: 1.00, 2: 1.30})
+    obs = propagation_intervals({0: 1.35, 1: 1.00, 2: 1.30})
+
+    assert set(sim) == set(obs), \
+        "every domino must have a counterpart, whoever the origin is"
+    residuals = interval_residuals(sim, obs, missing_penalty_s=999.0)
+    assert 999.0 not in residuals, "no term may fall back to the penalty"
 
 
 def test_intervals_are_invariant_to_a_clock_offset():
