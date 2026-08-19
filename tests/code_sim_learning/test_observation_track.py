@@ -1318,6 +1318,48 @@ def _segment_sse(sim_states, recorded, track_path, monkeypatch):
                                {}, ["friction"])
 
 
+def test_one_episode_yields_one_set_of_residuals_not_one_per_segment(
+        tmp_path, monkeypatch):
+    """The track covers the WHOLE episode, so comparing against it is an
+    episode-level operation.
+
+    Scoring per segment compared the same observed intervals once per
+    segment -- a cascade watched by one camera counted as many times as
+    the episode happened to be cut. Segmentation is a rollout device
+    (multiple shooting, to bound divergence), not a statement about how
+    the evidence divides.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning import rollout_objective
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        compute_rollout_residuals, reset_track_cache
+    track_path = _cascade_track(tmp_path, [0, 12, 20, 24])
+    cascade = _cascade_states([0, 2, 4, 6])
+    monkeypatch.setattr(rollout_objective, "rollout_states",
+                        lambda *_a, **_k: cascade)
+    utils.reset_config({
+        "code_sim_learning_rollout_score_observed_only": True,
+        "code_sim_learning_rollout_track_path": track_path,
+    })
+
+    def _terms(n_segments):
+        """Residual count for one episode cut into n pieces."""
+        reset_track_cache()
+        return len(
+            compute_rollout_residuals(None, [(cascade, [None])] * n_segments,
+                                      {"friction": 0.5}, {}, ["friction"]))
+
+    one = _terms(1)
+    three = _terms(3)
+
+    assert one > 0, "the episode must score something"
+    assert three == one, \
+        "cutting the episode into more segments must not multiply the " \
+        "evidence -- the same observed intervals were being counted once " \
+        "per segment"
+
+
 def test_a_segment_with_no_cascade_scores_nothing_instead_of_penalties(
         tmp_path, monkeypatch):
     """Segmentation splits an episode; the track covers all of it.
