@@ -39,7 +39,17 @@ _ROLLOUT_LM_DIFF_STEP = 2e-2
 # sweep evaluates the objective dozens of times and an episode's track is a
 # multi-megabyte JSON. Also what stops the post-processing wait below being
 # re-entered on every evaluation. Cleared by ``reset_track_cache``, which the
-# tests use; a run only ever reads one manifest.
+# tests use.
+#
+# What is cached is the FILE's contents, never anything derived from a config.
+# The frame transform used to be applied before storing, with the path alone
+# as the key -- so whichever caller loaded first fixed the frame for every
+# later one in the process, and a single load with the transform unset left
+# every subsequent evaluation matching base-frame track positions against
+# world-frame twin states. That is invisible: it degrades the id matching
+# rather than raising, and on run_20260819_133802 it held matching at 2 of 5
+# dominoes for 99 evaluations while the same inputs match 5 of 5 when the
+# transform is applied.
 _TRACK_CACHE: Dict[str, List[Any]] = {}
 
 
@@ -291,7 +301,8 @@ def _load_scored_track(config: SysIdConfig) -> Optional[Any]:
         return None
     cached = _TRACK_CACHE.get(config.track_path)
     if cached is not None:
-        return cached
+        # Transform on the way OUT, never on the way in: see _TRACK_CACHE.
+        return [_track_in_world_frame(t, config) for t in cached]
     try:
         tracks = load_tracks(config.track_path, config.track_fallback_fps,
                              config.track_wait_s)
@@ -307,9 +318,8 @@ def _load_scored_track(config: SysIdConfig) -> Optional[Any]:
             "or none has been post-processed yet); falling back to per-step "
             "scoring.", config.track_path)
         return None
-    tracks = [_track_in_world_frame(t, config) for t in tracks]
     _TRACK_CACHE[config.track_path] = tracks
-    return tracks
+    return [_track_in_world_frame(t, config) for t in tracks]
 
 
 def _track_in_world_frame(track: Any, config: SysIdConfig) -> Any:
@@ -486,6 +496,23 @@ def _interval_residual_terms(sim_states: List[State], recorded: List[State],
     # cascade being scored.
     if (len(_onsets(sim_series)) < 2 and
             len(_onsets(sim_topple_series(recorded, step_s, name_to_id))) < 2):
+        # Silent ONLY when the mapping is whole. A skip means "no cascade
+        # here", and that reading depends on having named every domino: with
+        # a partial mapping the same emptiness can equally mean "the dominoes
+        # that fell are the ones I could not identify", and returning nothing
+        # then reports a flat objective built on a measurement that never
+        # happened. On run_20260819_133802 a stale cached track held the
+        # matching at 2 of 5 for 99 evaluations, every segment fell under the
+        # two onsets an interval needs, and the fit read the resulting zeros
+        # as "insensitive to friction" -- a decision made on data the
+        # objective had quietly declined to score.
+        if len(name_to_id) < len(track.angles_deg):
+            logging.warning(
+                "segment scored nothing: only %d of the track's %d domino(s) "
+                "could be matched, and the matched ones show no cascade. This "
+                "is NOT evidence that the parameters do not matter -- the "
+                "objective could not measure them here.", len(name_to_id),
+                len(track.angles_deg))
         return
 
     sim_intervals = propagation_intervals(_onsets(sim_series))

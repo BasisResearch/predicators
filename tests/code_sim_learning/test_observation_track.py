@@ -1058,6 +1058,85 @@ def test_the_objective_prefers_the_cascade_that_matches_the_track(
     assert sse_wrong > 10 * max(sse_true, 1e-9)
 
 
+def test_the_track_cache_does_not_fix_the_frame_for_the_whole_process(
+        tmp_path):
+    """What is cached must be the FILE, never a config-dependent derivative.
+
+    The frame transform used to be applied before storing, with the path
+    alone as the key, so whichever caller loaded first fixed the frame
+    for every later one. A single load with the transform unset then
+    left every subsequent evaluation matching base-frame track positions
+    against world-frame twin states -- which does not raise, it silently
+    degrades the id matching. On run_20260819_133802 that held matching
+    at 2 of 5 dominoes for 99 evaluations.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.config import SysIdConfig
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        _load_scored_track, reset_track_cache
+
+    # Its own fixture, with CENTRES: the frame transform moves positions, and
+    # the shared _cascade_track carries angles only.
+    frames = [{
+        "index":
+        t,
+        "timestamp_ns":
+        int(t * (1e9 / 60.0)),
+        "dominoes": [{
+            "id": i,
+            "fall_deg": 0.0,
+            "center_base_m": [0.55, -0.15 + 0.1 * i, 0.0]
+        } for i in range(4)],
+    } for t in range(5)]
+    track_path = _write_track(tmp_path, frames)
+
+    def _loaded(yaw, xy):
+        """The track as a caller with this frame config would see it."""
+        utils.reset_config({
+            "code_sim_learning_rollout_score_observed_only": True,
+            "code_sim_learning_rollout_track_path": track_path,
+            "code_sim_learning_track_frame_yaw": yaw,
+            "code_sim_learning_track_frame_xy": xy,
+        })
+        return _load_scored_track(SysIdConfig.from_cfg())
+
+    reset_track_cache()
+    # First loader has NO transform -- the case that used to poison the cache.
+    untransformed = _loaded(0.0, (0.0, 0.0))[0].first_xy
+    # A later caller asks for the quarter turn the domino env actually uses.
+    transformed = _loaded(1.5707963267948966, (0.75, 0.72))[0].first_xy
+
+    assert untransformed != transformed, \
+        "the second caller inherited the first caller's frame"
+    for obj_id, (x, y) in untransformed.items():
+        want = (0.75 - y, 0.72 + x)
+        got = transformed[obj_id]
+        assert got[0] == pytest_approx(want[0], abs=1e-6)
+        assert got[1] == pytest_approx(want[1], abs=1e-6)
+
+
+def test_a_partial_mapping_does_not_score_zero_in_silence(
+        tmp_path, monkeypatch, caplog):
+    """A skip means "no cascade here", which is only readable when every domino
+    could be named.
+
+    With a partial mapping the same emptiness can mean "the dominoes
+    that fell are the ones I could not identify". Returning nothing then
+    reports a flat objective built on a measurement that never happened
+    -- which the fit read as "insensitive to friction".
+    """
+    track_path = _cascade_track(tmp_path, [0, 12, 20, 24])
+    still = _cascade_states([10_000] * 4)[:40]
+
+    with caplog.at_level("WARNING"):
+        sse = _segment_sse(still, still, track_path, monkeypatch)
+
+    assert sse == 0.0
+    assert "could not be matched" not in caplog.text, \
+        "a WHOLE mapping with no cascade is a legitimate silent skip"
+
+
 def _cascade_track(tmp_path, onsets):
     """A track whose dominoes fall at the given frame indices."""
     frames = []
