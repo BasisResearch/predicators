@@ -1453,7 +1453,7 @@ class GlobalSettings:
     vlm_predicator_num_proposal_batches = 1
 
     # agent SDK online abstraction learning parameters
-    agent_sdk_model_name = "claude-sonnet-5"
+    agent_sdk_model_name = "claude-opus-5"
     agent_sdk_max_agent_turns_per_iteration = 50
     # Consecutive agent queries that die without the agent doing ANY work
     # (an auth/billing banner as the only assistant text, an error result,
