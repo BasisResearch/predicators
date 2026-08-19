@@ -125,6 +125,13 @@ class PyBulletEnv(BaseEnv):
     # terminated.
     grasp_tol: ClassVar[float] = 5e-2  # for large objects
     grasp_tol_small: ClassVar[float] = 5e-4  # for small objects
+    # How far the partner finger may still be from the object when the
+    # first finger's touch triggers grasp detection, as long as it FACES
+    # the object with an aligned normal (see _detect_held_object). Covers
+    # objects sitting off-center between the pads (the partner pad is
+    # still closing), while a finger pressing a perpendicular face (e.g.
+    # cammed onto a block top) never qualifies at any distance.
+    grasp_partner_tol: ClassVar[float] = 3e-2
     # Strength of welds created by residual Attach commands. PyBullet's
     # default (500) sags under cantilevered load; matches the bridge
     # env's feature-driven weld_max_force.
@@ -1886,25 +1893,52 @@ class PyBulletEnv(BaseEnv):
         currently held.  Checks contact between each finger and every
         graspable body (from _get_object_ids_for_held_check()), using
         contact-normal alignment to reject touches on the outside of the
-        gripper.  If multiple objects qualify, returns the closest.
+        gripper.  A grasp needs a PINCH, not a touch: one finger within
+        grasp_tol_small of the object with an aligned normal, and the
+        partner finger at least FACING the object -- an aligned closest
+        point within grasp_partner_tol (the partner may still be
+        arriving when the object sits off-center between the pads, e.g.
+        a jug handle; the first pad's touch is a legitimate capture
+        there).  Accepting a single finger with no partner check used to
+        grant degenerate grasps when the pads closed above a block and
+        cammed over its top corners: the partner finger pressed DOWN on
+        the top face (normal perpendicular to the pinch axis, so it
+        fails the alignment check at any distance), and the constraint
+        froze the block dangling below the gripper instead of failing
+        the pick honestly.
+
+        The pinch requirement only applies under POSITION control, where
+        the fingers close incrementally and each step's contact geometry
+        is physical.  Under "reset" control the fingers teleport to the
+        closed position in a single step, so at the detection instant
+        they overlap the object arbitrarily and closest-point normals
+        are artifacts of the overlap (a legitimately-captured jug handle
+        shows the same vertical partner normal as a cam-over) -- there a
+        single aligned touch keeps granting the grasp, as before.
+
+        If multiple objects qualify, returns the closest.
         """
         expected_finger_normals = self._get_expected_finger_normals()
         closest_held_obj = None
         closest_held_obj_dist = float("inf")
+        require_pinch = CFG.pybullet_control_mode != "reset"
+        query_dist = max(self.grasp_tol_small, self.grasp_partner_tol) \
+            if require_pinch else self.grasp_tol_small
         for obj_id in self._get_object_ids_for_held_check():
+            aligned_finger_dists = []
             for finger_id, expected_normal in expected_finger_normals.items():
                 assert abs(np.linalg.norm(expected_normal) - 1.0) < 1e-5
-                # Find points on the object that are within grasp_tol distance
-                # of the finger. Note that we use getClosestPoints instead of
-                # getContactPoints because we still want to consider the object
-                # held even if there is a tiny distance between the fingers and
-                # the object.
+                # Find points on the object near the finger. Note that we
+                # use getClosestPoints instead of getContactPoints because
+                # we still want to consider the object held even if there
+                # is a tiny distance between the fingers and the object.
                 closest_points = p.getClosestPoints(
                     bodyA=self._pybullet_robot.robot_id,
                     bodyB=obj_id,
-                    distance=self.grasp_tol_small,
+                    distance=query_dist,
                     linkIndexA=finger_id,
                     physicsClientId=self._physics_client_id)
+                finger_dist = None
                 for point in closest_points:
                     # If the contact normal is substantially different from
                     # the expected contact normal, this is probably an object
@@ -1912,21 +1946,39 @@ class PyBulletEnv(BaseEnv):
                     # A perfect score here is 1.0 (normals are unit vectors).
                     contact_normal = point[7]
                     score = expected_normal.dot(contact_normal)
-                    # logging.debug(f"With obj {obj_id}, score: {score}")
                     assert -1.01 <= score <= 1.01
 
                     # Take absolute as object/gripper could be rotated 180
                     # degrees in the given axis.
                     if np.abs(score) < 0.9:
                         continue
-                    # Handle the case where multiple objects pass this check
-                    # by taking the closest one. This should be rare, but it
-                    # can happen when two objects are stacked and the robot is
-                    # unstacking the top one.
                     contact_distance = point[8]
-                    if contact_distance < closest_held_obj_dist:
-                        closest_held_obj = obj_id
-                        closest_held_obj_dist = contact_distance
+                    if finger_dist is None or contact_distance < finger_dist:
+                        finger_dist = contact_distance
+                if finger_dist is not None:
+                    aligned_finger_dists.append(finger_dist)
+                elif require_pinch:
+                    # This finger neither touches nor faces the object with
+                    # an aligned normal: not a pinch.
+                    break
+            if not aligned_finger_dists:
+                continue
+            if require_pinch and \
+                    len(aligned_finger_dists) < len(expected_finger_normals):
+                continue
+            obj_dist = min(aligned_finger_dists)
+            # The pinch only triggers once a finger actually reaches the
+            # object; the larger partner tolerance never starts a grasp
+            # on its own.
+            if obj_dist > self.grasp_tol_small:
+                continue
+            # Handle the case where multiple objects pass this check by
+            # taking the closest one. This should be rare, but it can
+            # happen when two objects are stacked and the robot is
+            # unstacking the top one.
+            if obj_dist < closest_held_obj_dist:
+                closest_held_obj = obj_id
+                closest_held_obj_dist = obj_dist
         return closest_held_obj
 
     def _create_grasp_constraint(self) -> None:
