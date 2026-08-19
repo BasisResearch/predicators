@@ -77,6 +77,11 @@ class EpisodeRecorder:
         # One entry per episode, in order, written to the manifest as each
         # take closes.
         self._episodes: List[Dict[str, Any]] = []
+        # Whether this run's prompt boxes have been drawn. The call site
+        # depends on WHEN the take opens -- at the reset, or in front of a
+        # later option -- so ensure_boxes is called from more than one place
+        # and has to be idempotent.
+        self._boxes_drawn = False
         # Exports are deliberately off during a run. ``stop_take`` can write
         # mp4s and depth inline, but that is the expensive offline work --
         # doing it here would serialise post-processing into the episode loop
@@ -217,18 +222,26 @@ class EpisodeRecorder:
     def ensure_boxes(self, picker: Any = None) -> Optional[str]:
         """Draw this run's prompt boxes now, once, if none were given.
 
-        Called after the cameras are open and before any episode. The
-        alternative is a drag window opening in the middle of a learning
-        run, or a human producing boxes out of band beforehand -- and
-        since a fixed-plan replay trains and tests on one arrangement,
-        the boxes drawn here are the right ones for every take.
+        **Called at the moment the take will open, not at run start.**
+        The boxes are SAM-2 prompts applied to the take's first frame,
+        so they have to describe the arrangement that frame shows. While
+        the take began at the reset those were the same thing and the
+        call sat at run start; recording from a later option makes them
+        different, and run-start boxes then point at where two dominoes
+        USED to be. That is not a failure the pipeline can detect --
+        it fits masks to whatever is inside the box it was given.
+
+        Drawn once per run, not once per take: a fixed-plan replay
+        arranges the same row every episode, so the boxes drawn at the
+        first take's boundary are right for every later one.
 
         Returns the boxes file, or None if there was nothing to do or
         it failed. A failure is not fatal here: it is reported, and the
         takes are still recorded for processing by hand.
         """
-        if self._processor is None:
+        if self._processor is None or self._boxes_drawn:
             return None
+        self._boxes_drawn = True
         # pylint: disable-next=import-outside-toplevel
         from predicators.pybullet_helpers.track_pipeline import pick_boxes
         picker = picker or pick_boxes

@@ -649,6 +649,23 @@ class GlobalSettings:
     # on one arrangement. Needs a display; over SSH that means X forwarding.
     # Ignored when boxes are supplied by file.
     real_robot_pick_boxes_at_start = False
+    # Open the take in front of the option with this name, instead of in
+    # front of the whole batch. Only the cascade is scored, so the
+    # pick-and-place that arranges the row is recorded for nothing -- and it
+    # is most of the take: on run_20260818_092302 the push landed 107 s into
+    # a 131 s track, and post-processing scales with frames, not seconds.
+    #
+    # It also puts the track's first frame at the arrangement the push acts
+    # on. Track ids are matched to objects by position against the scored
+    # segment's first state, and that segment begins AFTER the dominoes have
+    # been placed -- so a take starting at the reset has its frame 0 showing
+    # them ~130 mm from where the twin says they are, and the match fails.
+    #
+    # Empty records the whole batch, as every episode did before this
+    # existed, and so does a name the episode never runs: too much video is
+    # slow, but too little is an episode whose first topple happened off
+    # camera, and the first onset is what every interval is measured from.
+    real_robot_record_from_option = ""
     # Where the per-episode bundles and the run manifest are written. Empty
     # means logs/zed_tracks.
     real_robot_track_dir = ""
