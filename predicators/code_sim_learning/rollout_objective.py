@@ -65,6 +65,44 @@ def reset_track_cache() -> None:
     _TRACK_CACHE.clear()
 
 
+@dataclasses.dataclass
+class IntervalStats:
+    """What an interval-scored evaluation was made of, not just how big.
+
+    An RMS collapses two failures that are nothing alike. A
+    MISSING-CASCADE PENALTY says the twin did not reproduce which
+    dominoes fall; a timing term says both fell, at different moments.
+    On run_20260820_123606 one penalty was 2884 in SSE while the entire
+    timing disagreement was 5.3, so any single penalty buries the
+    timing -- and a structurally perfect reproduction with imperfect
+    timing still scored 1.3, well above the 0.1 trim bar.
+
+    Deciding whether a recording is explainable AT ALL is a question
+    about structure, so the counts are reported separately and the
+    caller asks the question it actually means. Filled in only by the
+    interval paths; the per-step objective leaves it at zero.
+    """
+
+    terms: int = 0
+    penalties: int = 0
+
+    @property
+    def measured(self) -> bool:
+        """Whether anything was scored here at all."""
+        return self.terms > 0
+
+    @property
+    def reproduced_cascade(self) -> bool:
+        """Whether every domino one side saw fall, the other saw too.
+
+        False when nothing was measured: there is no cascade to have
+        reproduced, and reading "no penalties" as success would let a
+        segment that scored nothing pass as ideal evidence -- the same
+        inversion that made an empty residual vector an RMS of 0.0.
+        """
+        return self.measured and self.penalties == 0
+
+
 def compute_rollout_sse(
     base_env: Any,
     trajectories: List[RolloutTrajectory],
@@ -114,6 +152,7 @@ def compute_rollout_residuals(
     scaling: Optional[ResidualScaling] = None,
     config: Optional[SysIdConfig] = None,
     episode_count: Optional[int] = None,
+    stats: Optional[IntervalStats] = None,
 ) -> np.ndarray:
     """Rollout residuals (predicted - observed, scaled) as a flat vector.
 
@@ -125,12 +164,18 @@ def compute_rollout_residuals(
     ``episode_count`` is how many trajectories the CALLER holds, when
     that differs from how many were passed here: see
     :func:`_iter_rollout_residual_terms`.
+
+    ``stats``, when given, is FILLED IN with what the interval terms
+    were made of -- see :class:`IntervalStats`. The vector alone cannot
+    say whether a large residual is a cascade the twin failed to
+    reproduce or one it reproduced with the wrong timing, and those two
+    call for opposite decisions.
     """
     return np.asarray(list(
         _iter_rollout_residual_terms(base_env, trajectories, params,
                                      residual_features, physical_names, rules,
                                      latent_init, scaling, config,
-                                     episode_count)),
+                                     episode_count, stats)),
                       dtype=float)
 
 
@@ -167,6 +212,7 @@ def _iter_rollout_residual_terms(
     scaling: Optional[ResidualScaling] = None,
     config: Optional[SysIdConfig] = None,
     episode_count: Optional[int] = None,
+    stats: Optional[IntervalStats] = None,
 ) -> Iterator[float]:
     """Yield per-feature residuals for the joint forward model.
 
@@ -281,7 +327,7 @@ def _iter_rollout_residual_terms(
                 yield from _interval_residual_terms(sim_states, states,
                                                     tracks[traj_index],
                                                     id_maps[traj_index],
-                                                    config, summary_w)
+                                                    config, summary_w, stats)
             else:
                 # Segments of ONE episode. Held, not scored: see the episode
                 # -level yield after this loop.
@@ -325,7 +371,7 @@ def _iter_rollout_residual_terms(
         yield from _episode_interval_terms(episode_rollouts,
                                            [s for s, _ in trajectories],
                                            tracks[-1], id_maps[0], config,
-                                           summary_w)
+                                           summary_w, stats)
 
 
 def _load_scored_track(config: SysIdConfig) -> Optional[Any]:
@@ -498,6 +544,24 @@ def _episode_id_maps(tracks: List[Any], trajectories: List[RolloutTrajectory],
     return [shared] * len(trajectories)
 
 
+def _record_interval_stats(stats: Optional[IntervalStats],
+                           sim_intervals: Dict[int, float],
+                           obs_intervals: Dict[int, float]) -> None:
+    """Count what ``interval_residuals`` is about to emit, by kind.
+
+    Counted from the id sets rather than by recognising penalty-sized
+    numbers in the output: a penalty is exactly a domino one side has
+    and the other does not, which is what the symmetric difference is.
+    Sniffing magnitudes would work today and break the moment a real
+    disagreement happened to land on the penalty value.
+    """
+    if stats is None:
+        return
+    ids = set(sim_intervals) | set(obs_intervals)
+    stats.terms += len(ids)
+    stats.penalties += len(set(sim_intervals) ^ set(obs_intervals))
+
+
 def _interval_scale(obs_intervals: Dict[int, float], penalty: float) -> float:
     """Divisor putting interval residuals in the units everything expects.
 
@@ -534,10 +598,14 @@ def _interval_scale(obs_intervals: Dict[int, float], penalty: float) -> float:
     return penalty if penalty > 0.0 else 1.0
 
 
-def _episode_interval_terms(rollouts: List[List[State]],
-                            recorded: List[List[State]], track: Any,
-                            name_to_id: Dict[str, int], config: SysIdConfig,
-                            summary_w: float) -> Iterator[float]:
+def _episode_interval_terms(
+        rollouts: List[List[State]],
+        recorded: List[List[State]],
+        track: Any,
+        name_to_id: Dict[str, int],
+        config: SysIdConfig,
+        summary_w: float,
+        stats: Optional[IntervalStats] = None) -> Iterator[float]:
     """Yield ONE set of propagation-interval residuals for a whole episode.
 
     Rest-point segmentation is a ROLLOUT device -- multiple shooting, to
@@ -615,16 +683,21 @@ def _episode_interval_terms(rollouts: List[List[State]],
     total_steps = sum(len(s) for s in rollouts)
     penalty = max(track.duration_s, step_s * total_steps)
     del recorded  # kept in the signature for symmetry with the per-segment path
+    _record_interval_stats(stats, sim_intervals, obs_intervals)
     scale = _interval_scale(obs_intervals, penalty)
     for res in interval_residuals(sim_intervals, obs_intervals, penalty,
                                   scale):
         yield summary_w * res
 
 
-def _interval_residual_terms(sim_states: List[State], recorded: List[State],
-                             track: Any, name_to_id: Dict[str, int],
-                             config: SysIdConfig,
-                             summary_w: float) -> Iterator[float]:
+def _interval_residual_terms(
+        sim_states: List[State],
+        recorded: List[State],
+        track: Any,
+        name_to_id: Dict[str, int],
+        config: SysIdConfig,
+        summary_w: float,
+        stats: Optional[IntervalStats] = None) -> Iterator[float]:
     """Yield (sim - observed) propagation intervals, in seconds.
 
     The residual set for a whole trajectory is one term per domino
@@ -732,6 +805,7 @@ def _interval_residual_terms(sim_states: List[State], recorded: List[State],
     # evidence there is, so the stand-in is the track's own span rather than
     # a small number: it must cost more than any real disagreement.
     penalty = max(track.duration_s, step_s * len(sim_states))
+    _record_interval_stats(stats, sim_intervals, obs_intervals)
     scale = _interval_scale(obs_intervals, penalty)
     for res in interval_residuals(sim_intervals, obs_intervals, penalty,
                                   scale):
@@ -883,8 +957,42 @@ def per_trajectory_rms(
     of length 1; the full count goes down as ``episode_count`` so the
     objective can still tell an episode from a segment of one.
     """
-    out: List[float] = []
+    return [
+        score.rms for score in per_trajectory_scores(
+            base_env, trajectories, params, residual_features, physical_names,
+            rules, latent_init, scaling, config)
+    ]
+
+
+@dataclasses.dataclass
+class TrajectoryScore:
+    """One trajectory's fit at one theta: how big, and made of what."""
+
+    rms: float
+    stats: IntervalStats
+
+
+def per_trajectory_scores(
+    base_env: Any,
+    trajectories: List[RolloutTrajectory],
+    params: Dict[str, float],
+    residual_features: Dict[str, List[str]],
+    physical_names: Sequence[str],
+    rules: Sequence[Any] = (),
+    latent_init: Any = None,
+    scaling: Optional[ResidualScaling] = None,
+    config: Optional[SysIdConfig] = None,
+) -> List[TrajectoryScore]:
+    """:func:`per_trajectory_rms`, keeping what the RMS was made of.
+
+    The magnitude answers "how well does this theta fit"; the stats
+    answer "did this theta reproduce the cascade at all", and the
+    trimmer needs the second question rather than the first. See
+    :class:`IntervalStats`.
+    """
+    out: List[TrajectoryScore] = []
     for traj in trajectories:
+        stats = IntervalStats()
         res = compute_rollout_residuals(base_env, [traj],
                                         params,
                                         residual_features,
@@ -893,7 +1001,8 @@ def per_trajectory_rms(
                                         latent_init,
                                         scaling,
                                         config,
-                                        episode_count=len(trajectories))
-        out.append(
-            float(np.sqrt(np.mean(res**2))) if res.size else float("inf"))
+                                        episode_count=len(trajectories),
+                                        stats=stats)
+        rms = float(np.sqrt(np.mean(res**2))) if res.size else float("inf")
+        out.append(TrajectoryScore(rms=rms, stats=stats))
     return out

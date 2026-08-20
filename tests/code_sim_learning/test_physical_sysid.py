@@ -28,6 +28,25 @@ _ROBOT_TYPE = Type("robot", ["x"])
 _RESIDUAL_FEATURES = {"domino": ["x"]}
 
 
+def _scores_from(rms_fn):
+    """Wrap an RMS-only stub as the per-trajectory scores the sweep wants.
+
+    The explainability sweep asks for structure as well as magnitude
+    (see ``rollout_objective.IntervalStats``). These stubs cover the
+    PER-STEP objective, where the RMS bar still decides and the interval
+    stats are never consulted, so they come back empty.
+    """
+
+    def _scores(env, trajectories, *args, **kwargs):
+        return [
+            rollout_objective.TrajectoryScore(
+                rms=r, stats=rollout_objective.IntervalStats())
+            for r in rms_fn(env, trajectories, *args, **kwargs)
+        ]
+
+    return _scores
+
+
 def _trajectory(domino_xs, robot_xs=None):
     """Build a (states, actions) trajectory from per-step feature values."""
     domino = Object("d0", _DOMINO_TYPE)
@@ -504,7 +523,8 @@ def _patch_fit_and_rms(monkeypatch, fit_thetas, rms_by_count):
     monkeypatch.setattr(physical_sysid, "per_trajectory_rms", fake_rms)
     # min_explainable_rms (called by the trimmed fit) evaluates its
     # candidate grid through grid_seed's namespace.
-    monkeypatch.setattr(grid_seed, "per_trajectory_rms", fake_rms)
+    monkeypatch.setattr(grid_seed, "per_trajectory_scores",
+                        _scores_from(fake_rms))
     # The stub trajectories are plain strings; skip the data-derived
     # residual scaling (exercised by its own tests).
     monkeypatch.setattr(physical_sysid, "compute_residual_scaling",
@@ -528,6 +548,70 @@ def test_trimming_drops_unexplainable_and_refits(monkeypatch):
     assert survivors == ["clean"]
     assert rms == [0.7, 0.001]
     assert result.point_estimate["friction"] == 0.1
+
+
+def test_a_reproduced_cascade_is_explainable_however_bad_its_timing(
+        monkeypatch):
+    """Under interval scoring, explainability is structural, not numeric.
+
+    An RMS bar cannot tell a cascade the twin FAILED TO REPRODUCE from
+    one it reproduced with the wrong timing, and the two differ by three
+    orders of magnitude, so the bar is really a penalty detector with a
+    miscalibrated tail. On run_20260820_141450 a theta that reproduced
+    all four falls with zero penalties scored 1.21 against the 0.1 bar
+    and was dropped as "unexplainable at any candidate params" -- while
+    the sweep reported that same theta as explaining the data 1084x
+    better than baseline. The leftover timing error is what the fit
+    exists to reduce; refusing to fit because of it is circular.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    import dataclasses
+
+    # Passed in rather than set on CFG: a reset_config here leaks
+    # interval scoring into every later test in this module.
+    config = dataclasses.replace(physical_sysid.SysIdConfig.from_cfg(),
+                                 score_observed_only=True)
+    specs = [ParamSpec("friction", 0.5, lo=0.01, hi=2)]
+    # empty: nothing measured. cascade: reproduced, badly timed. stalled:
+    # the chain never reached two dominoes at any candidate.
+    trajs = ["empty", "cascade", "stalled"]
+    stats_by_name = {
+        "empty": rollout_objective.IntervalStats(terms=0, penalties=0),
+        "cascade": rollout_objective.IntervalStats(terms=4, penalties=0),
+        "stalled": rollout_objective.IntervalStats(terms=4, penalties=2),
+    }
+    rms_by_name = {"empty": float("inf"), "cascade": 1.21, "stalled": 5000.0}
+
+    def fake_scores(_env, trajectories, *_a, **_k):
+        return [
+            rollout_objective.TrajectoryScore(rms=rms_by_name[t],
+                                              stats=stats_by_name[t])
+            for t in trajectories
+        ]
+
+    def fake_fit(_env, _trajectories, *_args, **_kwargs):
+        return FitResult(names=["friction"],
+                         samples=np.array([[0.24]], dtype=float),
+                         log_probs=np.zeros(1),
+                         jacobian=None,
+                         noise_sigma=0.05,
+                         prior_sigma=np.array([0.375]))
+
+    monkeypatch.setattr(grid_seed, "per_trajectory_scores", fake_scores)
+    monkeypatch.setattr(physical_sysid, "fit_params_rollout", fake_fit)
+    monkeypatch.setattr(
+        physical_sysid, "per_trajectory_rms", lambda _e, trajectories, *_a, **
+        _k: [rms_by_name[t] for t in trajectories])
+    monkeypatch.setattr(physical_sysid, "compute_residual_scaling",
+                        lambda *_a, **_k: None)
+
+    _result, survivors, _rms, _hull = fit_params_rollout_trimmed(
+        None, trajs, specs, {"domino": ["x"]}, config=config)
+
+    assert survivors == ["cascade"], \
+        "the segment that reproduced the cascade must be fitted on, at " \
+        "1.21 against a 0.1 bar; the empty one measured nothing and the " \
+        "stalled one never reproduced the chain"
 
 
 def test_trimming_keeps_all_when_explainable(monkeypatch):
@@ -580,7 +664,8 @@ def test_consistency_loop_drops_disagreeing_survivor(monkeypatch):
 
     monkeypatch.setattr(physical_sysid, "fit_params_rollout", fake_fit)
     monkeypatch.setattr(physical_sysid, "per_trajectory_rms", fake_rms)
-    monkeypatch.setattr(grid_seed, "per_trajectory_rms", fake_rms)
+    monkeypatch.setattr(grid_seed, "per_trajectory_scores",
+                        _scores_from(fake_rms))
     monkeypatch.setattr(physical_sysid, "compute_residual_scaling",
                         lambda *_a, **_k: None)
     result, survivors, _rms, hull = fit_params_rollout_trimmed(
@@ -1043,7 +1128,7 @@ def test_trimming_uses_rms_cache(monkeypatch):
         calls["sweep"] += 1
         return ([0.001] * len(trajectories), [{
             "friction": 0.1
-        } for _ in trajectories])
+        } for _ in trajectories], [True] * len(trajectories))
 
     def fake_fit(_env, _trajectories, *_args, **_kwargs):
         return FitResult(names=["friction"],
