@@ -89,6 +89,24 @@ def test_screen_blocks_hidden_state_access(tmp_path) -> None:
         assert _screen_text_for_sandbox_escape(text, sandbox) is None, text
 
 
+def test_screen_without_sandbox_dir_still_guards_hidden_state() -> None:
+    """``sandbox_dir=None`` must not disable screening.
+
+    An in-process session with no sandbox copy still execs into the live
+    namespace, so the hidden-state, introspection, and import screens
+    apply regardless. Only the path screen, which has no boundary to
+    enforce, is skipped.
+    """
+    for text in [
+            "print(s.privileged)",
+            "e = sim._ctx.env",
+            "inspect.getsource(sim)",
+            "from predicators.envs.pybullet_bridge import PyBulletBridgeEnv",
+    ]:
+        assert _screen_text_for_sandbox_escape(text, None) is not None, text
+    assert _screen_text_for_sandbox_escape("open('/etc/hosts')", None) is None
+
+
 def _run_hook(tmp_path, tool_name, tool_input) -> bool:
     """Run the generated hook script; return True if it denied the call."""
     script = tmp_path / "validate_sandbox.py"
