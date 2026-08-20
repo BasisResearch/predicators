@@ -689,9 +689,9 @@ def test_flaky_report_names_seeds_and_reproduction_path():
 
 
 def test_rollout_seed_with_trials_runs_consecutive_seeds():
-    """``rollout_seed=S`` + ``validation_rollouts=N`` runs N diagnostic
-    trials at planner seeds S..S+N-1 (mirroring ``sim.run(plan, trials=N,
-    seed=S)``), reports each with its seed, and still never captures."""
+    """``rollout_seed=S`` + ``validation_rollouts=N`` runs N diagnostic trials
+    at planner seeds S..S+N-1 (mirroring ``sim.run(plan, trials=N, seed=S)``),
+    reports each with its seed, and still never captures."""
     model = _SeedRecordingModel2()
     text, ctx = _run_tool(model,
                           rollouts=5,
@@ -710,8 +710,11 @@ def test_rollout_seed_with_trials_runs_consecutive_seeds():
 
 
 def test_rollout_seed_is_diagnostic_only():
-    """A seeded rollout runs at exactly that planner seed, reports fully, and
-    is never captured - agent-chosen seeds must not pass the capture gate."""
+    """A seeded rollout runs at exactly the given planner seed.
+
+    It reports fully and is never captured - agent-chosen seeds must
+    not pass the capture gate.
+    """
     model = _SeedRecordingModel2()
     text, ctx = _run_tool(model, rollouts=3, extra_args={"rollout_seed": 4242})
     assert "DIAGNOSTIC rollout at planner seed 4242" in text
@@ -722,5 +725,6 @@ def test_rollout_seed_is_diagnostic_only():
     assert ctx.solved_plan is None
     from predicators.settings import \
         CFG  # pylint: disable=import-outside-toplevel
+
     # The base seed is restored after the seeded rollout.
     assert CFG.seed != 4242
