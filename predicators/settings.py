@@ -632,9 +632,39 @@ class GlobalSettings:
     # Write the stage-2 box and stage-3 mask overlays. They are what show
     # whether a particular capture is trustworthy.
     real_robot_snapshot_viz = True
-    # ZED serial the scene is fitted from. Markerless is single-camera (the
-    # second's cloud is not fused). Empty uses the recorder's first serial.
+    # ZED serial the scene is fitted from. Empty uses the recorder's first
+    # serial. Ignored when real_robot_snapshot_fuse_cameras is on, which fits
+    # every camera the recorder holds.
     real_robot_snapshot_camera = ""
+    # Fit the snapshot from BOTH of the recorder's cameras and fuse the results
+    # into one scene, instead of fitting from one. The point is occlusion: a
+    # domino hidden behind another (or behind the arm) in one view is usually
+    # visible in the other, and single-camera stage 4 gates a mostly-occluded
+    # object out and emits nothing at all for it. The take already contains
+    # both recordings -- the recorder opens every camera it was given -- so the
+    # second view costs no extra hardware time, only the pipeline run.
+    #
+    # Each camera is fitted by the ordinary single-camera chain into its own
+    # sub-bundle, then the records are matched by base-frame position and
+    # merged; ids come from the first camera. Every fused record carries
+    # `disagreement_m`, how far the two cameras placed the same domino apart,
+    # which is a per-observation confidence no single camera can produce. On
+    # this bench that runs ~12 mm, and a scene where it jumps well above that
+    # is one where a camera has been moved.
+    #
+    # Costs a second pipeline run per snapshot, so it roughly doubles the
+    # rebuild's wall time.
+    real_robot_snapshot_fuse_cameras = False
+    # Per-camera stage-2 prompt boxes, as a JSON object mapping ZED serial to an
+    # earlier run's boxes.json:
+    #   {"30264679": "/path/cam1/boxes.json", "32294776": "/path/cam2/boxes.json"}
+    # Boxes CANNOT be shared between cameras -- a box is pixel coordinates on
+    # one camera's frame 0, and the other camera views the scene from somewhere
+    # else, so the same numbers would prompt SAM-2 at whatever lies at those
+    # there. Only read when real_robot_snapshot_fuse_cameras is on; the
+    # single-camera path keeps using real_robot_snapshot_boxes_json. A camera
+    # missing from the mapping opens the drag window every episode.
+    real_robot_snapshot_boxes_json_by_camera = ""
     # Run the markerless pipeline over each episode's take automatically, in
     # the background, and write a manifest saying which track belongs to which
     # episode. Off leaves the takes on disk for a human to process. The job is

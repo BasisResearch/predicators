@@ -20,7 +20,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional, Protocol, Tuple, cast
+from typing import Any, Dict, List, Optional, Protocol, Sequence, Tuple, cast
 
 import numpy as np
 
@@ -695,6 +695,18 @@ def _max_position_divergence(predicted: State,
 def _snapshot_perception(recorder: Any) -> MarkerlessSnapshotPerception:
     """The scene look that a snapshot rebuild uses instead of a live one."""
     serials = recorder.serials
+    if CFG.real_robot_snapshot_fuse_cameras:
+        if len(serials) != 2:
+            raise ValueError(
+                "real_robot_snapshot_fuse_cameras fits the scene from two "
+                f"cameras and fuses them, but the recorder holds {serials}; "
+                "give it exactly two, or turn the setting off to fit from "
+                "one.")
+        return MarkerlessSnapshotPerception(
+            recorder,
+            serials=serials,
+            frames=CFG.real_robot_snapshot_frames,
+            boxes_json_by_camera=_snapshot_boxes_by_camera(serials))
     serial = CFG.real_robot_snapshot_camera or (serials[0] if serials else "")
     if not serial:
         raise ValueError(
@@ -709,6 +721,38 @@ def _snapshot_perception(recorder: Any) -> MarkerlessSnapshotPerception:
     return MarkerlessSnapshotPerception(recorder,
                                         serial=serial,
                                         frames=CFG.real_robot_snapshot_frames)
+
+
+def _snapshot_boxes_by_camera(serials: Sequence[str]) -> Dict[str, str]:
+    """``real_robot_snapshot_boxes_json_by_camera``, parsed and checked.
+
+    Checked here rather than left to the pipeline because the failure it
+    prevents is expensive and late: a serial that is not one of the recorder's
+    means that camera simply gets no boxes, and the first anyone hears of it is
+    stage 2 opening a drag window in the middle of a learning run.
+    """
+    raw = CFG.real_robot_snapshot_boxes_json_by_camera
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except ValueError as e:
+        raise ValueError(
+            "real_robot_snapshot_boxes_json_by_camera must be a JSON object "
+            f'mapping ZED serial to a boxes.json path, e.g. {{"{serials[0]}": '
+            f'"/path/boxes.json"}}; could not parse it: {e}') from e
+    if not isinstance(parsed, dict):
+        raise ValueError(
+            "real_robot_snapshot_boxes_json_by_camera must be a JSON OBJECT "
+            f"keyed by ZED serial, got {type(parsed).__name__}")
+    unknown = sorted(set(map(str, parsed)) - set(map(str, serials)))
+    if unknown:
+        raise ValueError(
+            f"real_robot_snapshot_boxes_json_by_camera names camera(s) "
+            f"{unknown} that the recorder does not hold {list(serials)}; "
+            "boxes are per camera, so a serial that is not recorded means "
+            "some camera has none.")
+    return {str(k): str(v) for k, v in parsed.items()}
 
 
 def attach_real_robot(env: BaseEnv,

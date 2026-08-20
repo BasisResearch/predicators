@@ -14,6 +14,8 @@ those helpers ship is babyrobot's contract, covered in
 import ast
 import inspect
 import json
+import os
+import pathlib
 from typing import Any, List, Optional, cast
 
 import numpy as np
@@ -25,7 +27,10 @@ from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.real_robot_bridge import GripperJointLayout
 from predicators.pybullet_helpers.real_robot_executor import \
     OptionBoundaryBuffer, RealRobotExecutor, _dump_look, \
-    _per_object_divergence, attach_real_robot
+    _per_object_divergence
+from predicators.pybullet_helpers.real_robot_executor import \
+    _snapshot_perception as build_snapshot_perception
+from predicators.pybullet_helpers.real_robot_executor import attach_real_robot
 from predicators.pybullet_helpers.real_robot_recorder import EpisodeRecorder, \
     episode_stamp
 from predicators.pybullet_helpers.real_robot_snapshot import \
@@ -1611,6 +1616,147 @@ def test_the_svo_extension_comes_from_the_take(tmp_path):
     observation = perception.observe()
 
     assert observation[1].endswith(".svo.dominoes.json")
+
+
+# -- two-camera snapshot fusion ----------------------------------------------
+class _TwoCameraRecorder:
+    """A recorder whose snapshot() writes BOTH cameras' recordings, as the real
+    one does -- the session opens every camera it was given."""
+
+    def __init__(self,
+                 tmp_path,
+                 serials=("30264679", "32294776"),
+                 ext=".svo2",
+                 omit=()):
+        self._tmp_path = tmp_path
+        self._ext = ext
+        self._omit = set(omit)
+        self.calls = 0
+        self.serials = list(serials)
+
+    def snapshot(self, frames=5):
+        del frames
+        self.calls += 1
+        directory = self._tmp_path / f"snap{self.calls}"
+        directory.mkdir(parents=True, exist_ok=True)
+        for serial in self.serials:
+            if serial in self._omit:
+                continue
+            (directory / f"zed_{serial}{self._ext}").write_text(
+                "", encoding="utf-8")
+        return str(directory), {"svo_ext": self._ext}
+
+
+def _fusing_perception(recorder, tmp_path, **kwargs):
+    """A two-camera snapshot perception with the pipeline stubbed out."""
+    seen = {}
+
+    def _multi_runner(svos, bundle):
+        seen["svos"] = dict(svos)
+        seen["bundle"] = bundle
+        return os.path.join(bundle, "dominoes.json")
+
+    perception = MarkerlessSnapshotPerception(recorder,
+                                              serials=recorder.serials,
+                                              multi_runner=_multi_runner,
+                                              scene_loader=lambda p:
+                                              ("scene", p),
+                                              work_dir=str(tmp_path),
+                                              frames=3,
+                                              **kwargs)
+    return perception, seen
+
+
+def test_a_fused_snapshot_fits_both_cameras_from_one_take(tmp_path):
+    """One take, two recordings, one fused scene: the second view costs no
+    extra hardware time because the recorder already wrote it."""
+    rec = _TwoCameraRecorder(tmp_path)
+    perception, seen = _fusing_perception(rec, tmp_path)
+
+    kind, path = perception.observe(settle_s=0.0)
+
+    assert rec.calls == 1, "one take, not one per camera"
+    assert set(seen["svos"]) == {"30264679", "32294776"}
+    for serial, svo in seen["svos"].items():
+        assert os.path.basename(svo) == f"zed_{serial}.svo2"
+    assert kind == "scene"
+    assert perception.scenes == [path]
+
+
+def test_a_take_missing_one_camera_is_not_quietly_fitted_from_the_other(
+        tmp_path):
+    """A half-fused scene looks exactly like a fused one, right where the
+    missing camera's view was the reason for fusing."""
+    rec = _TwoCameraRecorder(tmp_path, omit=("32294776", ))
+    perception, _ = _fusing_perception(rec, tmp_path)
+
+    with pytest.raises(FileNotFoundError, match="32294776"):
+        perception.observe()
+
+
+def test_fusing_needs_exactly_two_cameras():
+    """The fusion pairs a reference against one other."""
+    utils.reset_config({"real_robot_snapshot_fuse_cameras": True})
+    recorder = _TwoCameraRecorder(pathlib.Path("."), serials=("30264679", ))
+
+    with pytest.raises(ValueError, match="exactly two"):
+        build_snapshot_perception(recorder)
+
+
+def test_per_camera_boxes_are_parsed_and_passed_through(tmp_path):
+    """Boxes cannot be shared between cameras, so each one names its own."""
+    utils.reset_config({
+        "real_robot_snapshot_fuse_cameras":
+        True,
+        "real_robot_snapshot_boxes_json_by_camera":
+        '{"30264679": "/a/boxes.json", "32294776": "/b/boxes.json"}',
+    })
+    recorder = _TwoCameraRecorder(tmp_path)
+
+    perception = build_snapshot_perception(recorder)
+
+    # pylint: disable-next=protected-access
+    assert perception._boxes_json_by_camera == {
+        "30264679": "/a/boxes.json",
+        "32294776": "/b/boxes.json",
+    }
+
+
+def test_boxes_for_a_camera_that_is_not_recorded_are_refused(tmp_path):
+    """Otherwise the first anyone hears of it is a drag window opening
+    mid-run."""
+    utils.reset_config({
+        "real_robot_snapshot_fuse_cameras":
+        True,
+        "real_robot_snapshot_boxes_json_by_camera":
+        '{"19824535": "/a/boxes.json"}',
+    })
+
+    with pytest.raises(ValueError, match="19824535"):
+        build_snapshot_perception(_TwoCameraRecorder(tmp_path))
+
+
+def test_unparseable_per_camera_boxes_say_what_the_shape_should_be(tmp_path):
+    utils.reset_config({
+        "real_robot_snapshot_fuse_cameras": True,
+        "real_robot_snapshot_boxes_json_by_camera": "not json",
+    })
+
+    with pytest.raises(ValueError, match="JSON object"):
+        build_snapshot_perception(_TwoCameraRecorder(tmp_path))
+
+
+def test_single_camera_snapshots_are_unchanged_by_the_fusion_setting(tmp_path):
+    """Off by default, and the one-camera path must not go near the fusion."""
+    utils.reset_config({
+        "real_robot_snapshot_fuse_cameras": False,
+        "real_robot_snapshot_camera": "30264679"
+    })
+
+    perception = build_snapshot_perception(_TwoCameraRecorder(tmp_path))
+
+    # pylint: disable-next=protected-access
+    assert perception._serials == ["30264679"]
 
 
 def test_snapshot_rebuild_needs_the_recorder():
