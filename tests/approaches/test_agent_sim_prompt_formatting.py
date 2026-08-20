@@ -117,10 +117,10 @@ def test_trajectory_listing_env_reward(approach_cls):
 
 
 def test_trajectory_listing_partial_provenance(approach_cls):
-    """A trajectory with only ``source_simulator_version`` set should list
-    only.
+    """Only ``source_simulator_version`` set: list just the sim tag.
 
-    the sim tag - no stray ``, `` from a missing pair.
+    No stray ``, `` may appear from the missing predicate half of the
+    provenance pair.
     """
     trajs = [_mk_traj(is_demo=False, task_idx=1, sim_v="cycle_001_vers_007")]
     out = approach_cls._format_trajectory_listing(trajs)

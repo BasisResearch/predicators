@@ -152,7 +152,7 @@ def apply_rules(state: State,
 # ``observation_view(state)``: history reaches (agent-synthesized)
 # rules, so the env-only ``privileged`` / ``simulator_state`` channels
 # must be stripped at append time (the entry points strip only their
-# first argument — re-wrapping the whole history per call would be
+# first argument - re-wrapping the whole history per call would be
 # quadratic in trajectory length).
 History = Sequence[Tuple[State, Optional[Action]]]
 
@@ -241,7 +241,7 @@ def apply_rules_with_latent(
       updates``. Called without latent/history; latent and history are
       ignored.
     * **Recurrent 5-arg**: ``rule(observation, latent, history,
-      updates, params) -> updates``. ``latent`` is mutated in place —
+      updates, params) -> updates``. ``latent`` is mutated in place -
       the same dict object passed in by the caller is threaded across
       steps.
 

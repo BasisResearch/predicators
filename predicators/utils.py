@@ -3247,7 +3247,7 @@ def abstract(state: State,
 
     Duplicate arguments in predicates are allowed. Latent-aware
     classifiers (invented under `CFG.partially_observable`) read their
-    latent from `state.latent` via `Predicate.holds` — abstract itself
+    latent from `state.latent` via `Predicate.holds` - abstract itself
     does nothing extra to support them.
     """
     # Start by pulling out all VLM predicates.
