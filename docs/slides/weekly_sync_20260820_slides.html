@@ -67,7 +67,7 @@ Note: Last sync ended with fan solved 3/3 after the physics-command re-architect
 An agent dropped into an unfamiliar, partially observable physical environment that <span class="hl">learns an executable world model from a handful of its own experiments</span>, then solves long-horizon manipulation tasks by planning with it.
 
 - <b>World model = code over a physics engine</b>: residual process rules + physical parameters + latent state.
-- <b>Abstraction and dynamics are learned together</b>: the agent invents the predicates that helps it's exploration, planning and execution.
+- <b>Abstraction and dynamics are learned together</b>: the agent invents the predicates that help its exploration, planning and execution.
 - <b>Interactive agentic learning, not one-shot prompting</b>: multi-turn sandbox sessions with probes (`sim.fit` / `sim.residuals` / `sim.refine` / `sim.run`).
 - (minor) exploration plans are scored by posterior-ensemble disagreement and truncated at the first step the current model cannot predict.
 
@@ -149,7 +149,7 @@ Note: The DECISION RECORD convention: simulator.py opens with the agent's own ru
 
 - Evaluation is the same agent on the held-out task with its learned model: up to 5 attempts, each a fresh conversation with a 45 min wall clock; knowledge crosses attempts only through the curated journal.
 <!-- - Hard rule: <span class="hl">nothing unvalidated executes</span> - only a plan captured through the validation tool on the true initial state is run. -->
-- Only validated plans are finally submmited: 5 seeded rollouts (10 after a flaky pass), and the capture must survive <span class="hl">&plusmn;1 posterior-&sigma;</span> perturbation of the identified physical params - plans that only work at the point estimate are rejected.
+- Only validated plans are finally submitted: 5 seeded rollouts (10 after a flaky rejection), and the capture must survive <span class="hl">&plusmn;1 posterior-&sigma;</span> perturbation of the identified physical params - plans that only work at the point estimate are rejected.
 - During execution, per-step subgoal annotations are checked against reality; divergence triggers up to 2 suffix replans.
 - Test-phase journal entries are rolled back afterwards, so each cycle's evaluation is independent.
 
@@ -201,7 +201,7 @@ Three seeds of the learning arm ran 08-19 (footage above: cycle-0 exploration). 
 
 1. <span class="bad">The agent read hidden ground truth</span>: `State.privileged` (cure counters).
 2. <span class="bad">The goal itself was privileged</span>: two `Attached` goal atoms read the hidden weld state, which a belief model over observable features can never write - so the honest early-stop was unreachable by construction.
-3. <span class="bad">Latent-targeted Waits never terminated</span> they burned whole episodes, and the step budget then killed seed 0's well-designed cure experiment mid-Wait.
+3. <span class="bad">Latent-targeted Waits never terminated</span>: they burned whole episodes, and the step budget then killed seed 0's well-designed cure experiment mid-Wait.
 
 Note: Finding 1 is genuinely instructive: given any channel that correlates with the hidden state, an agent optimizing for model accuracy will find it - seed 1 read cure counters straight out of the privileged channel and reported the threshold as "learned". The audit that caught it was diffing what the agent claimed against what its recorded observations could support. Finding 2 is the deep one: we had defined success partly in terms of the thing being hidden.
 
