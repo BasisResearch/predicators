@@ -212,26 +212,30 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
                 "arguments and subgoal atoms after each step, plus continuous "
                 f"parameters you find with {refine_ref}")
 
-        # One session serves two query kinds with different delivery
-        # contracts: SOLVE (hard capture gate) and EXPLORE (experiment
-        # sketch - the belief model may lack goal-critical dynamics, so
-        # a goal-reaching capture can be impossible by construction).
-        # State both contracts; each query's Instructions pick one.
+        # Sessions are per-phase (see _ensure_agent_session: a phase
+        # change closes and rebuilds the session), so a solve session
+        # only ever receives solve queries and an explore session only
+        # explore queries - each phase's system prompt states just its
+        # own delivery contract. SOLVE is a hard capture gate; EXPLORE
+        # delivers an experiment sketch as text (the belief model may
+        # lack goal-critical dynamics, so a goal-reaching capture can be
+        # impossible by construction).
+        if self._explore_phase:
+            contract = ("Your deliverable is your final plan-sketch TEXT: an "
+                        "experiment to run in the real environment. A "
+                        "simulator-validated sketch is preferred when the "
+                        "current model supports one; when it does not, submit "
+                        "the sketch most likely to work in reality instead of "
+                        "grinding for a capture the model cannot produce.")
+        else:
+            contract = (
+                "You DELIVER by running evaluate_option_plan with "
+                "per-step subgoals on the current task until it reaches "
+                "the goal - that captured plan is your ONLY accepted "
+                "output, so do not finish until evaluate_option_plan "
+                "reaches the goal.")
         job = ("Your job is to produce a plan - " + sketch_desc +
-               " - that reaches the goal. Queries arrive in two kinds; "
-               "each query's Instructions section states which contract "
-               "applies.\n"
-               "- SOLVE queries: you DELIVER by running "
-               "evaluate_option_plan with per-step subgoals on the current "
-               "task until it reaches the goal - that captured plan is "
-               "your ONLY accepted output, so do not finish until "
-               "evaluate_option_plan reaches the goal.\n"
-               "- EXPLORE queries: the deliverable is your final "
-               "plan-sketch TEXT, an experiment to run in the real "
-               "environment. A simulator-validated sketch is preferred "
-               "when the current model supports one; when it does not, "
-               "submit the sketch most likely to work in reality instead "
-               "of grinding for a capture the model cannot produce.\n"
+               " - that reaches the goal. " + contract + "\n"
                "evaluate_option_plan runs your EXACT parameters with no "
                "sampling, so every parameter must be right. To find working "
                f"values you MAY use {refine_ref} while reasoning (it "
@@ -252,9 +256,19 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         # the solve prompt: show the [params] slot iff the agent proposes them.
         param_slot = "[param1, param2]" if propose else ""
         wait_slot = "[]" if propose else ""
+        if self._explore_phase:
+            identity = (
+                "You are an exploration agent in an online learning "
+                "loop. You observe task environments through inspection "
+                "tools and design plan sketches as experiments that "
+                "gather information about the real environment.")
+        else:
+            identity = (
+                "You are a planning agent. You observe task environments "
+                "through inspection tools and generate plan sketches to "
+                "achieve goals.")
         return (
-            "You are a planning agent. You observe task environments through "
-            "inspection tools and generate plan sketches to achieve goals. "
+            identity + " "
             "You have access to read-only tools to inspect predicates, "
             "options, trajectories, and training tasks.\n\n"
             f"{params_clause}"
