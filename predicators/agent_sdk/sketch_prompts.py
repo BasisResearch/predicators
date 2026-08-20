@@ -143,20 +143,19 @@ def build_solve_prompt(
     if explore_mode:
         early_stop_note = ""
         if (CFG.online_learning_early_stopping
-                and not CFG.online_learning_early_stopping_by_test_solve_rate
-            ):
+                and not CFG.online_learning_early_stopping_by_test_solve_rate):
             attempts_clause = (
-                "every episode of a cycle" if
-                CFG.online_learning_early_stopping_require_all_attempts else
+                "every episode of a cycle"
+                if CFG.online_learning_early_stopping_require_all_attempts else
                 "each train task's first episode of a cycle")
             early_stop_note = (
-                " The loop concludes early once the learned model solves "
-                f"training: {attempts_clause} must reach the goal for "
-                "real, AND the plan must have validated in the belief "
+                " The loop concludes early once the exploration plans "
+                f"solve training: {attempts_clause} must reach the goal "
+                "for real, AND the plan must have validated in the belief "
                 "model - a lucky real success from a plan the model could "
-                "not certify does not count. Once the model can validate "
-                "a goal-reaching plan, submitting it (even unchanged) is "
-                "how learning concludes.")
+                "not certify does not count. Once the belief model can "
+                "validate a goal-reaching plan, submitting it (even "
+                "unchanged) is how the loop concludes.")
         setting_section = (
             "\n## Exploration Setting\n"
             "You are the explorer in an online learning loop: the plan "
@@ -185,12 +184,16 @@ def build_solve_prompt(
             "sketch is a valid deliverable, and grinding for a validated "
             "plan the model cannot produce is wasted budget. An "
             "experiment's information comes from the steps the belief "
-            "model cannot predict, so reach the first such step as early "
-            "and cheaply as the task allows, and follow it with a step "
-            "whose outcome reveals whether the mechanism worked - a "
-            "short plan that exercises the unknown beats a long one that "
-            "spends the episode's steps on what the model already "
-            "predicts.\n")
+            "model cannot predict. Before running, your sketch's "
+            "continuous parameters are refined in the belief model, and "
+            "when refinement cannot establish a step's annotated "
+            "subgoals the plan is truncated just after that step - "
+            "steps beyond the disagreement never execute. So reach the "
+            "first such step as early and cheaply as the task allows, "
+            "and follow it with a step whose outcome reveals whether "
+            "the mechanism worked - a short plan that exercises the "
+            "unknown beats a long one that spends the episode's steps "
+            "on what the model already predicts.\n")
 
     scheduled_plans_section = ""
     if scheduled_plans:
@@ -485,8 +488,18 @@ def build_solve_prompt(
     atoms_block = chr(10).join(atom_strs) if atom_strs else (
         "  (none - no atom of the available predicates holds initially)")
 
-    prompt = f"""You are solving a task. \
-Generate a plan sketch to achieve the goal.
+    if explore_mode:
+        opening = (
+            "You are exploring a task environment to gather information. "
+            "Generate a plan sketch to run in the real environment as an "
+            "experiment. Achieving the goal is the most informative "
+            "experiment available, so treat solving the task as part of "
+            "information gathering.")
+    else:
+        opening = ("You are solving a task. Generate a plan sketch to "
+                   "achieve the goal.")
+
+    prompt = f"""{opening}
 {goal_nl_section}{scoring_section}{goal_atoms_section}{setting_section}\
 {experiment_section}
 ## Initial State Atoms

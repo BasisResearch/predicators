@@ -120,3 +120,35 @@ def test_explore_mode_experiment_delivery_contract() -> None:
     sketch_prompt = _render_explore(_make_task(None), propose_params=False)
     assert "simulator-failing sketch is a valid deliverable" in sketch_prompt
     assert "This is an EXPLORE query" in sketch_prompt
+
+
+def test_explore_mode_opening_focuses_on_information_gathering() -> None:
+    """Explore queries open with an exploration framing (solving the task
+    is part of information gathering); solve queries keep the solving
+    opening."""
+    utils.reset_config({"seed": 0})
+    prompt = _render_explore(_make_task(None))
+    assert prompt.startswith("You are exploring a task environment")
+    assert "part of information gathering" in prompt
+    solve_prompt = _render(_make_task(None))
+    assert solve_prompt.startswith("You are solving a task.")
+    assert "part of information gathering" not in solve_prompt
+
+
+def test_explore_mode_early_stop_note_credits_exploration_plans() -> None:
+    """The early-stop note attributes loop conclusion to the exploration
+    plans solving training (goal reached for real AND validated in the
+    belief model), and it states the refine-then-truncate mechanism."""
+    utils.reset_config({
+        "seed":
+        0,
+        "online_learning_early_stopping":
+        True,
+        "online_learning_early_stopping_require_all_attempts":
+        True,
+    })
+    prompt = _render_explore(_make_task(None))
+    assert ("The loop concludes early once the exploration plans solve "
+            "training") in prompt
+    assert "learned model solves training" not in prompt
+    assert "the plan is truncated just after that step" in prompt
