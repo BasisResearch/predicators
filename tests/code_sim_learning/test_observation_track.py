@@ -440,7 +440,8 @@ def test_ids_are_matched_once_per_episode_not_per_segment(caplog):
                     ([_domino_state(after_place)] + toppling, [])]
 
     with caplog.at_level("WARNING"):
-        maps = _episode_id_maps([track], trajectories, SysIdConfig.from_cfg())
+        maps = _episode_id_maps([track], trajectories,
+                                SysIdConfig.from_cfg(), paired=False)
 
     expected = {"domino_0": 0, "domino_1": 1, "domino_2": 2}
     assert maps == [expected, expected], \
@@ -501,7 +502,8 @@ def test_the_anchor_survives_a_take_that_starts_at_the_push(tmp_path):
     # One episode, split into two scored segments by the place.
     segments = [(states[:10], []), (states[10:], [])]
 
-    maps = _episode_id_maps([track], segments, SysIdConfig.from_cfg())
+    maps = _episode_id_maps([track], segments, SysIdConfig.from_cfg(),
+                            paired=False)
 
     expected = {"domino_0": 2, "domino_1": 0, "domino_2": 1}
     assert maps == [expected, expected], \
@@ -576,7 +578,8 @@ def test_names_are_not_a_fallback_for_a_track_that_has_positions(
                                  1: (0.70, 1.30)
                              })
 
-    maps = _episode_id_maps([track], trajectories, SysIdConfig.from_cfg())
+    maps = _episode_id_maps([track], trajectories, SysIdConfig.from_cfg(),
+                            paired=True)
 
     assert maps == [{}], \
         "a positioned track must not be matched by name as a consolation"
@@ -635,7 +638,8 @@ def test_paired_tracks_still_anchor_on_their_own_episode():
 
     trajectories = [(_episode(layout_a), []), (_episode(layout_b), [])]
 
-    maps = _episode_id_maps(tracks, trajectories, SysIdConfig.from_cfg())
+    maps = _episode_id_maps(tracks, trajectories, SysIdConfig.from_cfg(),
+                            paired=True)
 
     assert maps == [{
         "domino_0": 0,
@@ -1395,6 +1399,70 @@ def test_a_theta_that_stalls_the_cascade_is_still_penalised(
 
     assert _segment_sse(stalled, recorded, track_path, monkeypatch) > 0.0, \
         "a stalled cascade in a real cascade segment must still be penalised"
+
+
+def test_a_trajectory_with_no_residuals_scores_infinite_not_zero(monkeypatch):
+    """Nothing measured must never outrank something measured.
+
+    ``per_trajectory_rms`` used to turn an empty residual vector into an
+    RMS of 0.0 -- the best score obtainable. Under interval scoring a
+    segment holding no cascade yields exactly that empty vector, so on
+    run_20260820_123606 the trimmer saw best RMS ['0', '1.497'] against
+    a 0.1 bar, kept the segment that measured nothing and dropped the
+    one carrying the only cascade in the run.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    import numpy as np
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning import rollout_objective
+
+    def _fake(_env, trajectories, *_a, **_k):
+        """Empty for the first trajectory, two real residuals for the second."""
+        return (np.asarray([], dtype=float) if trajectories[0][0] == "empty"
+                else np.asarray([0.3, 0.4], dtype=float))
+
+    monkeypatch.setattr(rollout_objective, "compute_rollout_residuals", _fake)
+    rms = rollout_objective.per_trajectory_rms(None,
+                                               [("empty", []), ("real", [])],
+                                               {}, {}, [])
+
+    assert math.isinf(rms[0]), \
+        "a trajectory nothing could be measured on must not score 0.0, " \
+        "which is the best RMS there is and beats every real measurement"
+    assert rms[1] == pytest.approx(math.sqrt((0.3**2 + 0.4**2) / 2))
+    assert rms[0] > rms[1], \
+        "the unmeasured trajectory must rank WORSE than the measured one"
+
+
+def test_per_trajectory_rms_reports_the_callers_own_episode_count(monkeypatch):
+    """Pairing is a property of the whole set, not of one call's sublist.
+
+    ``per_trajectory_rms`` scores segments one at a time, so every call
+    reaches the objective with a list of length 1. With a single track
+    loaded, ``len(tracks) == len(trajectories)`` is then 1 == 1 and each
+    fragment was treated as a whole episode and anchored on itself --
+    which is why segments before the cascade reported all five dominoes
+    unmatched. The full count has to travel with the call.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    import numpy as np
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning import rollout_objective
+
+    seen = []
+
+    def _fake(_env, trajectories, *_a, **kwargs):
+        """Record what the objective was told about the caller's list."""
+        seen.append((len(trajectories), kwargs.get("episode_count")))
+        return np.asarray([1.0], dtype=float)
+
+    monkeypatch.setattr(rollout_objective, "compute_rollout_residuals", _fake)
+    rollout_objective.per_trajectory_rms(None, [("a", []), ("b", []),
+                                                ("c", [])], {}, {}, [])
+
+    assert seen == [(1, 3), (1, 3), (1, 3)], \
+        "each call scores one trajectory but must report that the caller " \
+        "holds 3, so one track cannot be mistaken for a per-episode pairing"
 
 
 def pytest_approx(value, abs=1e-9):  # pylint: disable=redefined-builtin

@@ -113,6 +113,7 @@ def compute_rollout_residuals(
     latent_init: Any = None,
     scaling: Optional[ResidualScaling] = None,
     config: Optional[SysIdConfig] = None,
+    episode_count: Optional[int] = None,
 ) -> np.ndarray:
     """Rollout residuals (predicted - observed, scaled) as a flat vector.
 
@@ -120,11 +121,16 @@ def compute_rollout_residuals(
     prediction pipeline, same iteration order — the sim is deterministic,
     so the same theta yields the same vector, as finite-difference
     Jacobians require).
+
+    ``episode_count`` is how many trajectories the CALLER holds, when
+    that differs from how many were passed here: see
+    :func:`_iter_rollout_residual_terms`.
     """
     return np.asarray(list(
         _iter_rollout_residual_terms(base_env, trajectories, params,
                                      residual_features, physical_names, rules,
-                                     latent_init, scaling, config)),
+                                     latent_init, scaling, config,
+                                     episode_count)),
                       dtype=float)
 
 
@@ -160,6 +166,7 @@ def _iter_rollout_residual_terms(
     latent_init: Any,
     scaling: Optional[ResidualScaling] = None,
     config: Optional[SysIdConfig] = None,
+    episode_count: Optional[int] = None,
 ) -> Iterator[float]:
     """Yield per-feature residuals for the joint forward model.
 
@@ -195,14 +202,27 @@ def _iter_rollout_residual_terms(
     loaded = _load_scored_track(config) if config.score_observed_only else None
     tracks: List[Any] = loaded or []
     score_intervals = bool(tracks)
-    # Once per objective evaluation, and once per EPISODE rather than per
-    # scored segment: the positions only line up at the episode's start.
-    id_maps = (_episode_id_maps(tracks, trajectories, config)
-               if score_intervals else [])
     # One track per trajectory means each trajectory is a whole episode.
     # Otherwise rest-point segmentation split ONE episode into several, and
     # the track covers all of them at once.
-    paired_tracks = len(tracks) == len(trajectories)
+    #
+    # COUNT THE CALLER'S LIST, NOT THIS CALL'S. Pairing is a property of the
+    # whole trajectory set, and per_trajectory_rms scores segments ONE AT A
+    # TIME: with a single track loaded, len(tracks) == len(trajectories) is
+    # then 1 == 1 for every segment, and each fragment gets treated as a
+    # whole episode and anchored on itself. Segments before the cascade have
+    # nothing to anchor on, so they yielded NO residuals -- which
+    # per_trajectory_rms scored as a perfect RMS of 0, and the trimmer then
+    # kept them and dropped the one segment that held the cascade
+    # (run_20260820_123606: best RMS ['0', '1.497'] against a 0.1 bar, so
+    # the only evidence in the run was discarded as unexplainable).
+    n_trajectories = (episode_count
+                      if episode_count is not None else len(trajectories))
+    paired_tracks = len(tracks) == n_trajectories
+    # Once per objective evaluation, and once per EPISODE rather than per
+    # scored segment: the positions only line up at the episode's start.
+    id_maps = (_episode_id_maps(tracks, trajectories, config, paired_tracks)
+               if score_intervals else [])
     episode_rollouts: List[List[State]] = []
     physical = {n: params[n] for n in physical_names if n in params}
     rules_list = list(rules)
@@ -403,7 +423,8 @@ def _track_for(tracks: List[Any], index: int, n_trajectories: int) -> Any:
 
 
 def _episode_id_maps(tracks: List[Any], trajectories: List[RolloutTrajectory],
-                     config: SysIdConfig) -> List[Dict[str, int]]:
+                     config: SysIdConfig,
+                     paired: bool) -> List[Dict[str, int]]:
     """Match track ids to object names once per EPISODE, not per segment.
 
     The match is positional, and the one moment the two position sets
@@ -415,12 +436,17 @@ def _episode_id_maps(tracks: List[Any], trajectories: List[RolloutTrajectory],
     tolerance, so a per-segment match silently drops those objects and
     the intervals they carry.
 
-    When the counts pair one-to-one, each trajectory is its own episode
-    and anchors on its own initial state. Otherwise segmentation has
-    split something -- ``_track_for`` scores every trajectory against
-    the most recent track -- and the anchor is the FIRST trajectory's
-    initial state, which is where the episode began, before the plan
-    moved anything.
+    When ``paired``, each trajectory is its own episode and anchors on
+    its own initial state. Otherwise segmentation has split something --
+    ``_track_for`` scores every trajectory against the most recent track
+    -- and the anchor is the FIRST trajectory's initial state, which is
+    where the episode began, before the plan moved anything.
+
+    ``paired`` is DECIDED BY THE CALLER and passed in, never re-derived
+    from ``len(tracks) == len(trajectories)`` here: that comparison is a
+    coincidence when the caller is scoring one segment at a time, and
+    reading it as pairing anchors a fragment on itself. See
+    :func:`_iter_rollout_residual_terms`.
     """
     # pylint: disable-next=import-outside-toplevel
     from predicators.code_sim_learning.observation_track import \
@@ -458,7 +484,7 @@ def _episode_id_maps(tracks: List[Any], trajectories: List[RolloutTrajectory],
             "in the env's own domino order")
         return track_name_to_id(states[0], prefix)
 
-    if len(tracks) == len(trajectories):
+    if paired:
         return [
             _map_for(list(states), tracks[i])
             for i, (states, _) in enumerate(trajectories)
@@ -799,11 +825,28 @@ def per_trajectory_rms(
     ``scaling`` the RMS is in the scored features' native units (meters
     / radians per residual); with it, a dimensionless fraction of
     typical motion.
+
+    NO RESIDUALS IS NOT A PERFECT FIT. An empty residual vector means
+    nothing was measured -- under interval scoring, a segment that holds
+    no cascade has nothing the track can be compared against -- and this
+    used to return 0.0 for it, the best score obtainable. The trimmer in
+    :func:`physical_sysid.fit_params_rollout_trimmed` keeps whatever
+    scores below its bar, so a vacuous segment was kept as ideal
+    evidence while the segment carrying the real cascade was dropped for
+    scoring above it. Infinity is the honest answer: a trajectory
+    nothing could be measured on must never win a comparison against one
+    that was actually scored.
+
+    ``trajectories`` are scored ONE AT A TIME, so each call gets a list
+    of length 1; the full count goes down as ``episode_count`` so the
+    objective can still tell an episode from a segment of one.
     """
     out: List[float] = []
     for traj in trajectories:
         res = compute_rollout_residuals(base_env, [traj], params,
                                         residual_features, physical_names,
-                                        rules, latent_init, scaling, config)
-        out.append(float(np.sqrt(np.mean(res**2))) if res.size else 0.0)
+                                        rules, latent_init, scaling, config,
+                                        episode_count=len(trajectories))
+        out.append(
+            float(np.sqrt(np.mean(res**2))) if res.size else float("inf"))
     return out
