@@ -20,6 +20,15 @@ from predicators.settings import CFG
 # path may keep such a contact, but never more than this much deeper
 # than it began (meters).
 _START_ESCAPE_DEPTH_SLACK = 0.003
+# Deepest robot-link start contact that still earns the start-escape
+# allowance. Deliberately its own bound rather than the shallow
+# held-object margin: the rule's motivating reconstruction error is a
+# finger or wrist link 5-15 mm inside the object it just grasped or
+# settled onto (execution-side sag and settle are not in the feature
+# model), well beyond the ~6 mm shallow margin. The allowance is
+# escape-only (never deeper than the start, only near the start), so a
+# generous depth here cannot be exploited elsewhere on the path.
+_ROBOT_START_ESCAPE_MAX_DEPTH = -0.02
 # ... and only while within this max-abs joint distance of the start
 # configuration (radians for revolute joints). Beyond it -- and at any
 # goal further away -- full margins apply, so the allowance cannot be
@@ -108,8 +117,9 @@ def run_motion_planning(
 
     ROBOT links get an analogous (always-on) start-escape allowance: a
     robot-vs-body contact already present at the start configuration
-    and no deeper than the shallow margin does not reject the path near
-    the start, as long as it never deepens beyond how it began (plus a
+    and no deeper than ``_ROBOT_START_ESCAPE_MAX_DEPTH`` does not
+    reject the path near the start, as long as it never deepens beyond
+    how it began (plus a
     small slack) and the configuration stays within a joint-space
     radius of the start. The planning scene is reconstructed from
     observable features, so a phase that begins right after a grasp or
@@ -206,8 +216,9 @@ def run_motion_planning(
     # inside the object it just touched (execution-side sag and settle
     # are not in the feature model). The start configuration is a fact,
     # not a choice -- rejecting it fails the whole option with
-    # certainty -- so a start contact no deeper than the shallow margin
-    # gets a per-body escape allowance: near the start the path may
+    # certainty -- so a start contact no deeper than
+    # _ROBOT_START_ESCAPE_MAX_DEPTH gets a per-body escape allowance:
+    # near the start the path may
     # keep that contact, never more than _START_ESCAPE_DEPTH_SLACK
     # deeper than it began, and only within
     # _START_LOCAL_JOINT_RADIUS of the start configuration. Deeper
@@ -224,7 +235,7 @@ def run_motion_planning(
         if not depths:
             continue
         start_depth = min(depths)
-        if start_depth >= shallow_margin:
+        if start_depth >= _ROBOT_START_ESCAPE_MAX_DEPTH:
             allowed_robot_escape_margins[body] = \
                 start_depth - _START_ESCAPE_DEPTH_SLACK
 
@@ -270,16 +281,22 @@ def run_motion_planning(
                                       physicsClientId=physics_client_id):
                     contact_partners.add(body)
                     endpoint_partners[endpoint_idx].add(body)
-                    continue
-                # Evaluate held proximity at BOTH endpoints, even for a
-                # body already seen near the other one: partner status
-                # (within the clearance) at EITHER endpoint must win.
-                # Skipping bodies already in held_near_endpoint once
-                # made a butt-joint neighbor 3.1 mm away at the start
-                # but 1.8 mm away at the (re-aimed) goal a permanent
-                # bystander, and its own goal proximity then rejected
-                # the plan.
-                if not held_assembly or body in contact_partners:
+                # Evaluate held proximity at EVERY endpoint for EVERY
+                # body, even one already a partner: partner status
+                # (within the clearance) at EITHER endpoint must win,
+                # and this probe also feeds held_near_endpoint and the
+                # per-endpoint demotion bookkeeping. Skipping bodies
+                # already seen near the other endpoint once made a
+                # butt-joint neighbor 3.1 mm away at the start but
+                # 1.8 mm away at the (re-aimed) goal a permanent
+                # bystander; skipping bodies the robot is near left a
+                # robot-earned start partner that the held assembly
+                # deliberately approaches at the goal out of
+                # endpoint_partners[1] (wrongly demoting it to the
+                # zero margin) and out of held_near_endpoint (wrongly
+                # holding an intended contact to the wide held
+                # clearance).
+                if not held_assembly:
                     continue
                 held_dists: List[float] = []
                 for assembly_body, _ in held_assembly:
