@@ -48,8 +48,8 @@ _SETTLE_CONTACT_DIST = 1e-4
 
 
 def _held_assembly_in_contact(state: State) -> bool:
-    """True when the held object, or any body rigidly attached to it,
-    touches a body outside the held assembly (the robot excluded).
+    """True when the held object, or any body rigidly attached to it, touches a
+    body outside the held assembly (the robot excluded).
 
     Attached partners matter: a carried multi-body assembly usually
     touches down through an OUTER member, not the grasped one. The

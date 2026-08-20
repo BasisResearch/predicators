@@ -226,6 +226,7 @@ class PyBulletBridgeEnv(PyBulletEnv):
         ``wet_streak_steps`` or the consecutive-dwell requirement.
         """
         return cls.wet_streak_steps + 1
+
     # Dab points hover this far off the face surface.
     dab_margin: ClassVar[float] = 0.005
     # Stacking tolerances for the top-face cure detector (leg-on-leg).

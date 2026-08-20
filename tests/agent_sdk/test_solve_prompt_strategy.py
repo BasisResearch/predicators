@@ -123,9 +123,8 @@ def test_explore_mode_experiment_delivery_contract() -> None:
 
 
 def test_explore_mode_opening_focuses_on_information_gathering() -> None:
-    """Explore queries open with an exploration framing (solving the task
-    is part of information gathering); solve queries keep the solving
-    opening."""
+    """Explore queries open with an exploration framing (solving the task is
+    part of information gathering); solve queries keep the solving opening."""
     utils.reset_config({"seed": 0})
     prompt = _render_explore(_make_task(None))
     assert prompt.startswith("You are exploring a task environment")
@@ -136,9 +135,9 @@ def test_explore_mode_opening_focuses_on_information_gathering() -> None:
 
 
 def test_explore_mode_early_stop_note_credits_exploration_plans() -> None:
-    """The early-stop note attributes loop conclusion to the exploration
-    plans solving training (goal reached for real AND validated in the
-    belief model), and it states the refine-then-truncate mechanism."""
+    """The early-stop note attributes loop conclusion to the exploration plans
+    solving training (goal reached for real AND validated in the belief model),
+    and it states the refine-then-truncate mechanism."""
     utils.reset_config({
         "seed":
         0,

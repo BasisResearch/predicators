@@ -1,11 +1,11 @@
 """Tests for sandbox prompt construction and prose unwrapping."""
-from predicators.agent_sdk.sandbox_prompts import build_sandbox_system_prompt, \
-    unwrap_prose_lines
+from predicators.agent_sdk.sandbox_prompts import \
+    build_sandbox_system_prompt, unwrap_prose_lines
 
 
 def test_unwrap_prose_lines_joins_wrapped_paragraphs() -> None:
-    """Hard-wrapped prose joins into one line per paragraph; paragraph
-    breaks survive."""
+    """Hard-wrapped prose joins into one line per paragraph; paragraph breaks
+    survive."""
     text = ("First paragraph wrapped\n"
             "across two lines.\n"
             "\n"
@@ -42,8 +42,8 @@ def test_unwrap_prose_lines_preserves_structure() -> None:
 
 
 def test_sandbox_system_prompt_has_no_wrapped_prose() -> None:
-    """The sandbox suffix renders one line per paragraph (no manual line
-    breaks mid-sentence)."""
+    """The sandbox suffix renders one line per paragraph (no manual line breaks
+    mid-sentence)."""
     prompt = build_sandbox_system_prompt()
     for line in prompt.split("\n"):
         if not line or line.startswith("#"):

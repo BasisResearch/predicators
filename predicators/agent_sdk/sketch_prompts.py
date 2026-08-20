@@ -532,7 +532,7 @@ step whose effect the available predicates can express (typed obj:type \
 references in arguments and atoms alike), insert a Wait after any action \
 whose subgoal depends on a delayed process, and annotate each Wait with \
 the atoms that should end it. A step without `-> {{atoms}}` is only \
-checked for "executed" — search and execution monitoring are blind there.
+checked for "executed" - search and execution monitoring are blind there.
 
 {closing_block}"""
 

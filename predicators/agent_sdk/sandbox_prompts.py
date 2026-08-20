@@ -79,7 +79,7 @@ _CLAUDE_MD_RULES = """\
 - Do NOT reach into harness internals from executed code. In particular
   `State.privileged`, the probe's `_ctx`, and env flags/attributes are
   hidden environment ground truth and are blocked. Learn the world model
-  from observable state features and the documented tool surface only —
+  from observable state features and the documented tool surface only -
   a conclusion derived from hidden internals is an invalid result.
 """
 

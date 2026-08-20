@@ -615,11 +615,13 @@ def test_degenerate_top_edge_grasp_fails_honestly():
 
 
 def test_goal_is_fully_observable(env_and_task):
-    """The task goal contains no Attached atoms: it pins the geometric
-    layout only, so a learned belief model can represent every goal atom
-    without access to the hidden attachment state. The row welds the
-    goal implies are certified physically instead (see the settle test
-    below)."""
+    """The task goal contains no Attached atoms: it pins the geometric layout
+    only, so a learned belief model can represent every goal atom without
+    access to the hidden attachment state.
+
+    The row welds the goal implies are certified physically instead (see
+    the settle test below).
+    """
     env, task = env_and_task
     goal_preds = {atom.predicate.name for atom in task.goal_description}
     assert "Attached" not in goal_preds
@@ -628,10 +630,10 @@ def test_goal_is_fully_observable(env_and_task):
 
 
 def test_settle_certificate_rejects_dry_row(env_and_task):
-    """check_episode_trajectory settles the final scene unactuated: an
-    elevated butted-but-unwelded span falls out of the NextToEnd window
-    and the episode is rejected; the same layout with the butt weld in
-    place survives and is accepted.
+    """check_episode_trajectory settles the final scene unactuated: an elevated
+    butted-but-unwelded span falls out of the NextToEnd window and the episode
+    is rejected; the same layout with the butt weld in place survives and is
+    accepted.
 
     This closes the transient the goal change opened: the base sim
     removes the grasp constraint AFTER an action's substeps, so the
@@ -674,10 +676,8 @@ def test_settle_certificate_rejects_dry_row(env_and_task):
                 s.set(blk, "x", 2.0 + 0.2 * i)
                 s.set(blk, "y", 2.0)
         if welded:
-            s.set(span0, "attached_end_b", float(env._block_index[
-                span1.name]))
-            s.set(span1, "attached_end_a", float(env._block_index[
-                span0.name]))
+            s.set(span0, "attached_end_b", float(env._block_index[span1.name]))
+            s.set(span1, "attached_end_a", float(env._block_index[span0.name]))
         return s
 
     goal_pred = next(p_ for p_ in env.predicates if p_.name == "NextToEnd")
