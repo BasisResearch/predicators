@@ -192,16 +192,18 @@ def test_robot_start_escape(physics_client_id):
     """A start config with a shallow robot-vs-body contact still plans.
 
     The planning scene is reconstructed from observable features, so a
-    phase that begins right after a grasp or a settled place can model
-    a finger or wrist link several mm inside the object it just
-    touched. Such a start is a fact, not a choice: it must not reject
-    the whole plan; the path escapes the contact instead (never going
-    deeper than it began). Start penetration deeper than the shallow
-    margin still rejects.
+    phase that begins right after a grasp or a settled place can model a
+    finger or wrist link several mm inside the object it just touched.
+    Such a start is a fact, not a choice: it must not reject the whole
+    plan; the path escapes the contact instead (never going deeper than
+    it began). Start penetration deeper than the dedicated
+    ``_ROBOT_START_ESCAPE_MAX_DEPTH`` bound still rejects. Deliberately
+    run with the default shallow held-object margin: the escape window
+    must not depend on it (it once did, and dropping a bridge margin
+    override silently narrowed the window to 6 mm).
     """
     utils.reset_config({
         "pybullet_birrt_contact_margin": -0.001,
-        "pybullet_birrt_shallow_held_contact_margin": -0.02,
     })
     ee_home_position = (1.35, 0.75, 0.75)
     ee_orn = p.getQuaternionFromEuler([0.0, np.pi / 2, -np.pi])
@@ -295,13 +297,13 @@ def test_robot_start_escape(physics_client_id):
 def test_start_local_partner_demotion(physics_client_id):
     """Partner status earned only at the start expires with the start.
 
-    A movable body the robot merely begins near is checked with the
-    hard contact margin only inside the start neighborhood; beyond it
-    the path may touch the body but not penetrate it. Otherwise a body
-    grazed on the way out of the start keeps a penetration allowance
-    for the entire path, which physically shoves it (a bottle retreat
-    after a glue dab repeatedly nudged an assembled row this way).
-    Static bodies cannot be shoved and keep their partner margin.
+    A movable body the robot merely begins near is checked with the hard
+    contact margin only inside the start neighborhood; beyond it the
+    path may touch the body but not penetrate it. Otherwise a body
+    grazed on the way out of the start keeps a penetration allowance for
+    the entire path, which physically shoves it (a bottle retreat after
+    a glue dab repeatedly nudged an assembled row this way). Static
+    bodies cannot be shoved and keep their partner margin.
     """
     utils.reset_config({
         "pybullet_birrt_contact_margin": -0.03,
