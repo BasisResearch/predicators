@@ -58,9 +58,8 @@ _BRIDGE_PLACE_PARAMS = [
 # triggers a replan) instead of "succeeding" at a clamped pose.
 #
 # NOTE (hidden-dynamics hygiene): this file is copied verbatim into the
-# agent sandbox as reference/options.py. Do not document the wetting or
-# curing mechanics (radii, streaks, thresholds) here -- discovering
-# them is the agent's job.
+# agent sandbox as reference/options.py. Do not document any hidden
+# dynamics here -- discovering them is the agent's job.
 _BRIDGE_MOVE_TO_PARAMS = [
     ("target_x (world x position for the held object, or the EE if "
      "empty-handed)",
