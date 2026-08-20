@@ -19,3 +19,5 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
+      bilevel_plan_without_sim: True # for the demonstrator
+      agent_solve_max_attempts: 1
