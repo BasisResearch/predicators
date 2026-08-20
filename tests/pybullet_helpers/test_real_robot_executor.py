@@ -1766,6 +1766,34 @@ def _boxes_drawn_when(session, recorder, episode_recorder):
     return seen
 
 
+def test_a_numeric_camera_serial_from_a_config_is_still_recognised():
+    """An all-digit serial arrives from a launcher config as an INT.
+
+    utils.string_to_python_object parses "30264679" as a number on the way
+    in from the command line, while the recorder reports its serials as
+    strings -- so the membership test rejected a camera that was in the
+    list, and the message showed the wanted serial unquoted beside a list
+    of quoted ones, which was the only visible clue.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.pybullet_helpers.real_robot_executor import \
+        _snapshot_perception
+
+    class _Rec:
+        """Only the attribute the lookup reads."""
+        serials = ["32294776", "30264679"]
+
+    utils.reset_config({
+        "real_robot_snapshot_camera": 30264679,
+        "real_robot_snapshot_frames": 5,
+    })
+
+    perception = _snapshot_perception(_Rec())
+
+    # pylint: disable-next=protected-access
+    assert perception._serial == "30264679"
+
+
 def test_boxes_are_drawn_at_the_boundary_when_the_take_opens_later(
         recorder, tmp_path):
     """After the prologue rearranges the row, before the take opens.

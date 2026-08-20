@@ -39,8 +39,25 @@ _ROLLOUT_LM_DIFF_STEP = 2e-2
 # sweep evaluates the objective dozens of times and an episode's track is a
 # multi-megabyte JSON. Also what stops the post-processing wait below being
 # re-entered on every evaluation. Cleared by ``reset_track_cache``, which the
-# tests use; a run only ever reads one manifest.
-_TRACK_CACHE: Dict[str, List[Any]] = {}
+# tests use.
+#
+# The KEY carries every config value the cached tracks depend on, and the
+# frame transform is applied on the way out rather than before storing.
+#
+# Keying on the path alone was wrong twice over. The frame transform used to
+# be applied before storing, so whichever caller loaded first fixed the frame
+# for every later one, and a single load with the transform unset left every
+# subsequent evaluation matching base-frame track positions against
+# world-frame twin states -- invisible, because it degrades the id matching
+# rather than raising, and on run_20260819_133802 it held matching at 2 of 5
+# dominoes for 99 evaluations. An earlier version of this comment then claimed
+# the cache holds "the FILE's contents, never anything derived from a config",
+# which is FALSE: load_tracks takes fallback_fps and wait_s, and for a track
+# without per-frame timestamps every sample time is index/fallback_fps, baked
+# straight into angles_deg. Same first-loader-poisons-the-process class, one
+# field over.
+_TrackKey = Tuple[str, float, float]
+_TRACK_CACHE: Dict[_TrackKey, List[Any]] = {}
 
 
 def reset_track_cache() -> None:
@@ -96,6 +113,7 @@ def compute_rollout_residuals(
     latent_init: Any = None,
     scaling: Optional[ResidualScaling] = None,
     config: Optional[SysIdConfig] = None,
+    episode_count: Optional[int] = None,
 ) -> np.ndarray:
     """Rollout residuals (predicted - observed, scaled) as a flat vector.
 
@@ -103,11 +121,16 @@ def compute_rollout_residuals(
     prediction pipeline, same iteration order — the sim is deterministic,
     so the same theta yields the same vector, as finite-difference
     Jacobians require).
+
+    ``episode_count`` is how many trajectories the CALLER holds, when
+    that differs from how many were passed here: see
+    :func:`_iter_rollout_residual_terms`.
     """
     return np.asarray(list(
         _iter_rollout_residual_terms(base_env, trajectories, params,
                                      residual_features, physical_names, rules,
-                                     latent_init, scaling, config)),
+                                     latent_init, scaling, config,
+                                     episode_count)),
                       dtype=float)
 
 
@@ -143,6 +166,7 @@ def _iter_rollout_residual_terms(
     latent_init: Any,
     scaling: Optional[ResidualScaling] = None,
     config: Optional[SysIdConfig] = None,
+    episode_count: Optional[int] = None,
 ) -> Iterator[float]:
     """Yield per-feature residuals for the joint forward model.
 
@@ -178,10 +202,28 @@ def _iter_rollout_residual_terms(
     loaded = _load_scored_track(config) if config.score_observed_only else None
     tracks: List[Any] = loaded or []
     score_intervals = bool(tracks)
+    # One track per trajectory means each trajectory is a whole episode.
+    # Otherwise rest-point segmentation split ONE episode into several, and
+    # the track covers all of them at once.
+    #
+    # COUNT THE CALLER'S LIST, NOT THIS CALL'S. Pairing is a property of the
+    # whole trajectory set, and per_trajectory_rms scores segments ONE AT A
+    # TIME: with a single track loaded, len(tracks) == len(trajectories) is
+    # then 1 == 1 for every segment, and each fragment gets treated as a
+    # whole episode and anchored on itself. Segments before the cascade have
+    # nothing to anchor on, so they yielded NO residuals -- which
+    # per_trajectory_rms scored as a perfect RMS of 0, and the trimmer then
+    # kept them and dropped the one segment that held the cascade
+    # (run_20260820_123606: best RMS ['0', '1.497'] against a 0.1 bar, so
+    # the only evidence in the run was discarded as unexplainable).
+    n_trajectories = (episode_count
+                      if episode_count is not None else len(trajectories))
+    paired_tracks = len(tracks) == n_trajectories
     # Once per objective evaluation, and once per EPISODE rather than per
     # scored segment: the positions only line up at the episode's start.
-    id_maps = (_episode_id_maps(tracks, trajectories, config)
+    id_maps = (_episode_id_maps(tracks, trajectories, config, paired_tracks)
                if score_intervals else [])
+    episode_rollouts: List[List[State]] = []
     physical = {n: params[n] for n in physical_names if n in params}
     rules_list = list(rules)
     latent_mode = bool(rules_list) and has_latent_rules(rules_list)
@@ -231,9 +273,17 @@ def _iter_rollout_residual_terms(
             # are the twin's own simulation and including them would let the
             # defect this flag exists to fix outvote the real evidence by
             # thousands of terms to a handful.
-            yield from _interval_residual_terms(
-                sim_states, _track_for(tracks, traj_index, len(trajectories)),
-                id_maps[traj_index], config, summary_w)
+            if paired_tracks:
+                # One track per trajectory: each trajectory IS an episode, so
+                # scoring it on its own already is per-episode.
+                yield from _interval_residual_terms(sim_states, states,
+                                                    tracks[traj_index],
+                                                    id_maps[traj_index],
+                                                    config, summary_w)
+            else:
+                # Segments of ONE episode. Held, not scored: see the episode
+                # -level yield after this loop.
+                episode_rollouts.append(sim_states)
             continue
         endpoint_residuals: List[float] = []
         for i, sim_state in enumerate(sim_states):
@@ -269,6 +319,11 @@ def _iter_rollout_residual_terms(
             yield from _onset_residuals([states[0]] + sim_states, states,
                                         residual_features, config.settle_tol,
                                         summary_w)
+    if score_intervals and not paired_tracks and episode_rollouts:
+        yield from _episode_interval_terms(episode_rollouts,
+                                           [s for s, _ in trajectories],
+                                           tracks[-1], id_maps[0], config,
+                                           summary_w)
 
 
 def _load_scored_track(config: SysIdConfig) -> Optional[Any]:
@@ -288,9 +343,12 @@ def _load_scored_track(config: SysIdConfig) -> Optional[Any]:
             "track path is set; falling back to per-step scoring, which "
             "under open-loop execution scores the twin against itself.")
         return None
-    cached = _TRACK_CACHE.get(config.track_path)
+    key: _TrackKey = (config.track_path, float(config.track_fallback_fps),
+                      float(config.track_wait_s))
+    cached = _TRACK_CACHE.get(key)
     if cached is not None:
-        return cached
+        # Transform on the way OUT, never on the way in: see _TRACK_CACHE.
+        return [_track_in_world_frame(t, config) for t in cached]
     try:
         tracks = load_tracks(config.track_path, config.track_fallback_fps,
                              config.track_wait_s)
@@ -306,9 +364,8 @@ def _load_scored_track(config: SysIdConfig) -> Optional[Any]:
             "or none has been post-processed yet); falling back to per-step "
             "scoring.", config.track_path)
         return None
-    tracks = [_track_in_world_frame(t, config) for t in tracks]
-    _TRACK_CACHE[config.track_path] = tracks
-    return tracks
+    _TRACK_CACHE[key] = tracks
+    return [_track_in_world_frame(t, config) for t in tracks]
 
 
 def _track_in_world_frame(track: Any, config: SysIdConfig) -> Any:
@@ -366,7 +423,8 @@ def _track_for(tracks: List[Any], index: int, n_trajectories: int) -> Any:
 
 
 def _episode_id_maps(tracks: List[Any], trajectories: List[RolloutTrajectory],
-                     config: SysIdConfig) -> List[Dict[str, int]]:
+                     config: SysIdConfig,
+                     paired: bool) -> List[Dict[str, int]]:
     """Match track ids to object names once per EPISODE, not per segment.
 
     The match is positional, and the one moment the two position sets
@@ -378,12 +436,17 @@ def _episode_id_maps(tracks: List[Any], trajectories: List[RolloutTrajectory],
     tolerance, so a per-segment match silently drops those objects and
     the intervals they carry.
 
-    When the counts pair one-to-one, each trajectory is its own episode
-    and anchors on its own initial state. Otherwise segmentation has
-    split something -- ``_track_for`` scores every trajectory against
-    the most recent track -- and the anchor is the FIRST trajectory's
-    initial state, which is where the episode began, before the plan
-    moved anything.
+    When ``paired``, each trajectory is its own episode and anchors on
+    its own initial state. Otherwise segmentation has split something --
+    ``_track_for`` scores every trajectory against the most recent track
+    -- and the anchor is the FIRST trajectory's initial state, which is
+    where the episode began, before the plan moved anything.
+
+    ``paired`` is DECIDED BY THE CALLER and passed in, never re-derived
+    from ``len(tracks) == len(trajectories)`` here: that comparison is a
+    coincidence when the caller is scoring one segment at a time, and
+    reading it as pairing anchors a fragment on itself. See
+    :func:`_iter_rollout_residual_terms`.
     """
     # pylint: disable-next=import-outside-toplevel
     from predicators.code_sim_learning.observation_track import \
@@ -402,15 +465,26 @@ def _episode_id_maps(tracks: List[Any], trajectories: List[RolloutTrajectory],
             min_persist=config.onset_min_persist)
         track_xy = track.pre_cascade_xy or track.first_xy
         name_to_id = match_ids_by_xy(twin_xy, track_xy)
-        if not name_to_id:
-            logging.warning(
-                "falling back to matching track ids by object name, which "
-                "assumes the initialization boxes were drawn in the env's "
-                "own domino order")
-            name_to_id = track_name_to_id(states[0], prefix)
-        return name_to_id
+        if name_to_id:
+            return name_to_id
+        # Names are the fallback for a track that carries NO POSITIONS, which
+        # is what track_name_to_id documents itself as. They are not a
+        # fallback for a track that has positions the twin could not be
+        # anchored against: the ids are box-drawing order, and on
+        # run_20260819_152448 the true mapping was a permutation
+        # (domino_3 -> id 4, domino_4 -> id 3), so matching by name would have
+        # attributed each domino's topple to another one -- silently, and
+        # with a full set of confident-looking residuals. An empty mapping
+        # and no residuals is the better failure.
+        if track_xy:
+            return {}
+        logging.warning(
+            "the track carries no positions, so track ids are matched by "
+            "object name, which assumes the initialization boxes were drawn "
+            "in the env's own domino order")
+        return track_name_to_id(states[0], prefix)
 
-    if len(tracks) == len(trajectories):
+    if paired:
         return [
             _map_for(list(states), tracks[i])
             for i, (states, _) in enumerate(trajectories)
@@ -422,8 +496,132 @@ def _episode_id_maps(tracks: List[Any], trajectories: List[RolloutTrajectory],
     return [shared] * len(trajectories)
 
 
-def _interval_residual_terms(sim_states: List[State], track: Any,
-                             name_to_id: Dict[str, int], config: SysIdConfig,
+def _interval_scale(obs_intervals: Dict[int, float], penalty: float) -> float:
+    """Divisor putting interval residuals in the units everything expects.
+
+    Every consumer downstream of the objective assumes residuals are
+    DIMENSIONLESS -- a fraction of typical motion -- because that is what
+    :func:`compute_residual_scaling` makes the per-step ones: each linear
+    feature over its observed span, each angle over pi. The interval
+    branch never went through it. Its residuals are SECONDS, and they
+    were handed to the same consumers anyway.
+
+    The trim threshold is where that bites. It is
+    ``trim_rms_factor * noise_sigma`` = 0.1, meaning "10% of typical
+    motion", and applying it to seconds demands the twin reproduce a
+    cascade to within 0.1 s / sqrt(summary_weight) ~ 45 ms at the best
+    grid point before the fit will look at the data at all. Nothing real
+    passes that, so under interval scoring the trimmer dropped every
+    segment holding a cascade -- and, before the sibling fix in this
+    module, kept the ones holding none.
+
+    The scale is the OBSERVED propagation span: the camera's own measure
+    of how long this cascade took, so a residual of 1.0 means "out by
+    the whole cascade". Read off the track and never off the rollout,
+    because a theta-dependent divisor is an objective a fit can game --
+    stalling the chain would stretch the sim's span and shrink its own
+    residuals.
+
+    Falls back to ``penalty`` when the track saw fewer than two onsets:
+    there is no observed span then, and the residuals that remain are
+    one-sided penalties, which that choice puts at 1.0 apiece.
+    """
+    span = max(obs_intervals.values()) if obs_intervals else 0.0
+    if span > 0.0:
+        return span
+    return penalty if penalty > 0.0 else 1.0
+
+
+def _episode_interval_terms(rollouts: List[List[State]],
+                            recorded: List[List[State]], track: Any,
+                            name_to_id: Dict[str, int], config: SysIdConfig,
+                            summary_w: float) -> Iterator[float]:
+    """Yield ONE set of propagation-interval residuals for a whole episode.
+
+    Rest-point segmentation is a ROLLOUT device -- multiple shooting, to
+    stop early divergence compounding across an entire manipulation. It
+    is not a statement about how the evidence divides. The track covers
+    the whole episode, so comparing against it is inherently an
+    episode-level operation, and doing it per segment created three
+    problems that each needed their own guard:
+
+    * the same observed intervals were compared once per segment, so a
+      cascade watched by one camera was counted as many times as the
+      episode happened to be cut;
+    * segments with no cascade in them drew a missing-cascade penalty
+      for every observed interval, which needed a skip gate -- and that
+      gate could not consult the track, the only theta-independent
+      witness, because the track spans the whole episode while a segment
+      is a sub-range of it;
+    * when every segment skipped, the objective was exactly 0 and flat
+      in theta, which the fit reads as "this parameter does not matter".
+      run_20260819_163114 refused all five parameters that way.
+
+    Scoring once removes all three by construction rather than by guard.
+
+    The rollouts are concatenated with a per-segment time offset. They
+    are NOT one continuous simulation -- each is re-anchored at rest with
+    velocities zeroed, which is the whole point of the segmentation -- but
+    onset detection only needs each domino's fall to lie within one
+    segment, and a cascade runs in well under a second while segments are
+    cut at quiescence. A cascade straddling a boundary would be
+    misreported, and that is the assumption this rests on.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.observation_track import \
+        interval_residuals, propagation_intervals, sim_topple_series, \
+        topple_onsets
+    if not rollouts or not name_to_id:
+        return
+    step_s = CFG.pybullet_sim_steps_per_action / 240.0
+
+    def _across(segments: List[List[State]]) -> Dict[int, Any]:
+        """One (seconds, fall_deg) series per domino, spanning the episode."""
+        joined: Dict[int, List[Any]] = {}
+        offset = 0.0
+        for states in segments:
+            for obj_id, series in sim_topple_series(states, step_s,
+                                                    name_to_id).items():
+                joined.setdefault(obj_id, []).extend(
+                    (t + offset, a) for t, a in series)
+            offset += len(states) * step_s
+        return joined
+
+    def _onsets(series: Any) -> Dict[int, float]:
+        """Both sides detected identically, which is the point."""
+        return topple_onsets(series,
+                             confirm_deg=config.onset_confirm_deg,
+                             onset_deg=config.onset_deg,
+                             min_persist=config.onset_min_persist)
+
+    sim_intervals = propagation_intervals(_onsets(_across(rollouts)))
+    obs_series = {
+        obj_id: series
+        for obj_id, series in track.angles_deg.items()
+        if obj_id in set(name_to_id.values())
+    }
+    obs_intervals = propagation_intervals(_onsets(obs_series))
+    if not sim_intervals and not obs_intervals:
+        # Neither the twin nor the camera saw a cascade anywhere in the
+        # episode. There is nothing to disagree about, and a penalty would
+        # claim otherwise.
+        logging.warning(
+            "no cascade in either the rollout or the track for this episode, "
+            "so it contributes no interval residuals. Nothing was measured; "
+            "this is NOT evidence that the parameters do not matter.")
+        return
+    total_steps = sum(len(s) for s in rollouts)
+    penalty = max(track.duration_s, step_s * total_steps)
+    del recorded  # kept in the signature for symmetry with the per-segment path
+    scale = _interval_scale(obs_intervals, penalty)
+    for res in interval_residuals(sim_intervals, obs_intervals, penalty,
+                                  scale):
+        yield summary_w * res
+
+
+def _interval_residual_terms(sim_states: List[State], recorded: List[State],
+                             track: Any, name_to_id: Dict[str, int],
+                             config: SysIdConfig,
                              summary_w: float) -> Iterator[float]:
     """Yield (sim - observed) propagation intervals, in seconds.
 
@@ -443,13 +641,34 @@ def _interval_residual_terms(sim_states: List[State], track: Any,
     # the episode's initial state is contemporaneous with the track's first
     # frame; see that function.
     if not name_to_id:
-        logging.warning(
-            "no object name starts with %r, so nothing in the rollout maps "
-            "onto the track's domino ids; this trajectory contributes no "
-            "interval residuals.", config.track_object_prefix)
+        # SAY WHICH. An empty mapping used to mean one thing -- no object
+        # carries the prefix -- and this warning still said so after I made
+        # it mean a second: the anchor could not be established, because
+        # nothing topples in the states the matcher was given. On
+        # run_20260819_163114 the message fired 61 times claiming no object
+        # starts with "domino_" while the twin held domino_0 through
+        # domino_4 and cascaded all five to 90 degrees. A log that
+        # misattributes its own cause is worse than a quiet one: it sends
+        # whoever reads it to the wrong place.
+        named = sorted(o.name for o in sim_states[0]
+                       if o.name.startswith(config.track_object_prefix))
+        if named:
+            logging.warning(
+                "no domino topples anywhere in this trajectory, so there is "
+                "no moment at which the twin and the track can be compared: "
+                "positions are matched just BEFORE the cascade, and there is "
+                "no cascade here. %s went unmatched and this trajectory "
+                "contributes no interval residuals. This is NOT evidence "
+                "that the parameters do not matter -- nothing was measured.",
+                named)
+        else:
+            logging.warning(
+                "no object name starts with %r, so nothing in the rollout "
+                "maps onto the track's domino ids; this trajectory "
+                "contributes no interval residuals.",
+                config.track_object_prefix)
         return
     step_s = CFG.pybullet_sim_steps_per_action / 240.0
-    sim_series = sim_topple_series(sim_states, step_s, name_to_id)
 
     def _onsets(series: Any) -> Dict[int, float]:
         """Both sides detected identically, which is the point."""
@@ -458,13 +677,62 @@ def _interval_residual_terms(sim_states: List[State], track: Any,
                              onset_deg=config.onset_deg,
                              min_persist=config.onset_min_persist)
 
-    sim_intervals = propagation_intervals(_onsets(sim_series))
+    sim_series = sim_topple_series(sim_states, step_s, name_to_id)
+    # A segment with no cascade in it scores NOTHING, rather than a penalty
+    # per observed interval. Rest-point segmentation splits an episode into
+    # several scored trajectories while the track covers the whole episode, so
+    # a segment that is pick-and-place has no onsets to offer and every
+    # observed interval reads as a cascade the sim failed to reproduce. On
+    # run_20260819_104757 that put 21-24 WHOLE penalties into every evaluation
+    # -- the reported SSEs were integer multiples of one penalty -- burying
+    # four real residuals of 0.000-0.267 s under a penalty mass of 1.96e+05.
+    # Being near-constant in theta it also made every physical parameter read
+    # as flat, which is what the agent then declined on.
+    #
+    # BOTH sides must be empty, and requiring both is the whole subtlety.
+    # Skipping on the rollout alone would be actively harmful: a theta that
+    # STALLS the cascade also produces no onsets, so its segment would be
+    # skipped and score zero -- making a friction that breaks the chain look
+    # BETTER than one that reproduces it, the exact inversion
+    # interval_residuals penalises a one-sided domino to prevent. The recorded
+    # states are the twin's own baseline simulation under open-loop, so a
+    # segment where THEY cascade is a real cascade segment and keeps its
+    # penalties however badly this theta does. Gating on the recorded states
+    # alone is wrong in the other direction: a caller may hand in a degenerate
+    # recorded trajectory (test_the_objective_prefers_the_cascade_that_matches
+    # _the_track passes two identical states) while the rollout carries the
+    # cascade being scored.
+    sim_onsets = _onsets(sim_series)
+    if (len(sim_onsets) < 2 and
+            len(_onsets(sim_topple_series(recorded, step_s, name_to_id))) < 2):
+        # Silent ONLY when the mapping is whole. A skip means "no cascade
+        # here", and that reading depends on having named every domino: with
+        # a partial mapping the same emptiness can equally mean "the dominoes
+        # that fell are the ones I could not identify", and returning nothing
+        # then reports a flat objective built on a measurement that never
+        # happened. On run_20260819_133802 a stale cached track held the
+        # matching at 2 of 5 for 99 evaluations, every segment fell under the
+        # two onsets an interval needs, and the fit read the resulting zeros
+        # as "insensitive to friction" -- a decision made on data the
+        # objective had quietly declined to score.
+        if len(name_to_id) < len(track.angles_deg):
+            logging.warning(
+                "segment scored nothing: only %d of the track's %d domino(s) "
+                "could be matched, and the matched ones show no cascade. This "
+                "is NOT evidence that the parameters do not matter -- the "
+                "objective could not measure them here.", len(name_to_id),
+                len(track.angles_deg))
+        return
+
+    sim_intervals = propagation_intervals(sim_onsets)
     obs_intervals = propagation_intervals(_onsets(track.angles_deg))
     # A cascade that fails to propagate in one of the two is the strongest
     # evidence there is, so the stand-in is the track's own span rather than
     # a small number: it must cost more than any real disagreement.
     penalty = max(track.duration_s, step_s * len(sim_states))
-    for res in interval_residuals(sim_intervals, obs_intervals, penalty):
+    scale = _interval_scale(obs_intervals, penalty)
+    for res in interval_residuals(sim_intervals, obs_intervals, penalty,
+                                  scale):
         yield summary_w * res
 
 
@@ -597,11 +865,33 @@ def per_trajectory_rms(
     ``scaling`` the RMS is in the scored features' native units (meters
     / radians per residual); with it, a dimensionless fraction of
     typical motion.
+
+    NO RESIDUALS IS NOT A PERFECT FIT. An empty residual vector means
+    nothing was measured -- under interval scoring, a segment that holds
+    no cascade has nothing the track can be compared against -- and this
+    used to return 0.0 for it, the best score obtainable. The trimmer in
+    :func:`physical_sysid.fit_params_rollout_trimmed` keeps whatever
+    scores below its bar, so a vacuous segment was kept as ideal
+    evidence while the segment carrying the real cascade was dropped for
+    scoring above it. Infinity is the honest answer: a trajectory
+    nothing could be measured on must never win a comparison against one
+    that was actually scored.
+
+    ``trajectories`` are scored ONE AT A TIME, so each call gets a list
+    of length 1; the full count goes down as ``episode_count`` so the
+    objective can still tell an episode from a segment of one.
     """
     out: List[float] = []
     for traj in trajectories:
-        res = compute_rollout_residuals(base_env, [traj], params,
-                                        residual_features, physical_names,
-                                        rules, latent_init, scaling, config)
-        out.append(float(np.sqrt(np.mean(res**2))) if res.size else 0.0)
+        res = compute_rollout_residuals(base_env, [traj],
+                                        params,
+                                        residual_features,
+                                        physical_names,
+                                        rules,
+                                        latent_init,
+                                        scaling,
+                                        config,
+                                        episode_count=len(trajectories))
+        out.append(
+            float(np.sqrt(np.mean(res**2))) if res.size else float("inf"))
     return out

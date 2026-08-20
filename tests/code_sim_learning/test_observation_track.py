@@ -133,13 +133,57 @@ def test_missing_frames_do_not_break_the_detector():
 
 # -- intervals ---------------------------------------------------------------
 def test_intervals_are_relative_to_the_first_onset():
-    """What friction sets is how fast the cascade travels down the row, so the
-    first onset is an origin and contributes nothing."""
+    """What friction sets is how fast the cascade travels down the row, so
+    every onset is measured from the earliest.
+
+    The origin is KEPT, at zero. It carries no information while both
+    streams agree on which domino fell first, and everything when they
+    do not -- see
+    test_a_tie_at_the_earliest_onset_keeps_both_dominoes.
+    """
     intervals = propagation_intervals({0: 10.0, 1: 10.2, 2: 10.5})
 
-    assert 0 not in intervals
+    assert intervals[0] == pytest_approx(0.0)
     assert intervals[1] == pytest_approx(0.2)
     assert intervals[2] == pytest_approx(0.5)
+
+
+def test_a_tie_at_the_earliest_onset_keeps_both_dominoes():
+    """The sim samples one state per action, 83.3 ms, while the track runs at
+    60 fps -- so the pushed domino and the one beside it land on the SAME sim
+    step and are 5x resolvable on camera.
+
+    Dropping every entry at the earliest time would delete BOTH, and the
+    track keeps the second, which then has no counterpart and draws the
+    full missing-cascade penalty -- reporting that the twin's chain never
+    reached a domino it had in fact laid flat. Measured on
+    run_20260819_104757: domino_3 and domino_4 both at 0.0833 s in the
+    twin, 350 ms apart on camera.
+    """
+    tied = propagation_intervals({0: 0.0833, 1: 0.0833, 2: 0.3333})
+
+    assert set(tied) == {0, 1, 2}, "a tie must not delete both dominoes"
+    assert tied[0] == pytest_approx(0.0)
+    assert tied[1] == pytest_approx(0.0)
+    assert tied[2] == pytest_approx(0.25)
+
+
+def test_streams_that_disagree_on_the_origin_still_compare():
+    """Neither stream can see the other from inside propagation_intervals, so
+    dropping exactly one would need an agreement they cannot reach.
+
+    Keeping every entry needs no agreement: where the two disagree about
+    which domino fell first, both sides still carry both dominoes and
+    the comparison yields real differences instead of two penalties.
+    """
+    # The sim has 0 first; the track resolves 1 as first instead.
+    sim = propagation_intervals({0: 1.00, 1: 1.00, 2: 1.30})
+    obs = propagation_intervals({0: 1.35, 1: 1.00, 2: 1.30})
+
+    assert set(sim) == set(obs), \
+        "every domino must have a counterpart, whoever the origin is"
+    residuals = interval_residuals(sim, obs, missing_penalty_s=999.0)
+    assert 999.0 not in residuals, "no term may fall back to the penalty"
 
 
 def test_intervals_are_invariant_to_a_clock_offset():
@@ -157,9 +201,18 @@ def test_intervals_are_invariant_to_a_clock_offset():
         assert got[key] == pytest_approx(value, abs=1e-6)
 
 
-def test_one_onset_yields_no_intervals():
-    """A cascade of one has nothing to say about propagation."""
-    assert propagation_intervals({0: 1.0}) == {}
+def test_one_onset_yields_its_origin_not_nothing():
+    """A cascade of one still says WHICH domino fell, and the other stream
+    needs a counterpart for it.
+
+    Collapsing to {} while the origin is kept for longer cascades is an
+    inconsistency that costs a residual: one stream returns nothing
+    while the other keeps every entry including its origin, so a domino
+    BOTH streams watched fall has no counterpart and draws the missing-
+    cascade penalty.
+    """
+    assert propagation_intervals({0: 1.0}) == {0: 0.0}
+    assert propagation_intervals({}) == {}
 
 
 def test_a_cascade_that_stalls_on_one_side_is_penalised_not_skipped():
@@ -187,10 +240,10 @@ def test_sim_series_converts_roll_to_degrees():
     assert series[0][1][0] == pytest_approx(0.0833)
 
 
-def _domino_state(positions):
-    """A state with dominoes at the given (x, y)."""
+def _domino_state(positions, roll=0.0):
+    """A state with dominoes at the given (x, y), optionally toppling."""
     return State({
-        Object(name, _DOMINO): [x, y, 0, 0, 0, 0, 0, 0]
+        Object(name, _DOMINO): [x, y, 0, 0, roll, 0, 0, 0]
         for name, (x, y) in positions.items()
     })
 
@@ -372,20 +425,30 @@ def test_ids_are_matched_once_per_episode_not_per_segment(caplog):
         n_frames=20,
         source="test",
         first_xy={
-            0: start["domino_0"],
-            1: start["domino_1"],
-            2: start["domino_2"]
+            0: after_place["domino_0"],
+            1: after_place["domino_1"],
+            2: after_place["domino_2"]
         })
-    # Two segments of one episode: the second begins after the place.
+    # Two segments of one episode: the second begins after the place and
+    # carries the cascade, which is where the anchor comes from. A track of a
+    # push-only take shows the PLACED row, not where the episode began.
+    toppling = [
+        _domino_state(after_place, roll=math.radians(a))
+        for a in _fall(steps=20)
+    ]
     trajectories = [([_domino_state(start)], []),
-                    ([_domino_state(after_place)], [])]
+                    ([_domino_state(after_place)] + toppling, [])]
 
     with caplog.at_level("WARNING"):
-        maps = _episode_id_maps([track], trajectories, SysIdConfig.from_cfg())
+        maps = _episode_id_maps([track],
+                                trajectories,
+                                SysIdConfig.from_cfg(),
+                                paired=False)
 
     expected = {"domino_0": 0, "domino_1": 1, "domino_2": 2}
     assert maps == [expected, expected], \
-        "every segment of an episode maps by where the episode STARTED"
+        "every segment of an episode shares ONE mapping, taken from the " \
+        "arrangement the cascade actually ran along"
     assert "could not match" not in caplog.text
 
 
@@ -441,12 +504,91 @@ def test_the_anchor_survives_a_take_that_starts_at_the_push(tmp_path):
     # One episode, split into two scored segments by the place.
     segments = [(states[:10], []), (states[10:], [])]
 
-    maps = _episode_id_maps([track], segments, SysIdConfig.from_cfg())
+    maps = _episode_id_maps([track],
+                            segments,
+                            SysIdConfig.from_cfg(),
+                            paired=False)
 
     expected = {"domino_0": 2, "domino_1": 0, "domino_2": 1}
     assert maps == [expected, expected], \
         "the placed domino must match, though it is 600 mm from where the " \
         "episode began"
+
+
+def test_no_cascade_means_no_anchor_rather_than_the_episode_start():
+    """The fallback this replaces was not arbitrary, it was reliably WRONG.
+
+    settled_xy_before_cascade used to return states[0] when nothing
+    toppled. For a take that starts at the push that is the pre-prologue
+    layout, while the track shows the post-prologue one -- so the dominoes
+    the arm PLACES get compared against positions they have not occupied
+    since before the episode began, and only the ones it never touches
+    still match.
+
+    Measured on run_20260819_152448: 2 of 5 matched, 63 times, with the
+    unmatched set exactly the three placed dominoes.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.observation_track import \
+        settled_xy_before_cascade
+    placed = {
+        "domino_0": (0.60, 1.30),
+        "domino_1": (0.70, 1.30),
+        "domino_2": (0.80, 1.30),
+    }
+    still = [_domino_state(placed)] * 8
+    toppling = still + [
+        _domino_state(placed, roll=math.radians(a)) for a in _fall(steps=20)
+    ]
+
+    assert settled_xy_before_cascade(still, "domino_") == {}, \
+        "no cascade means there is no moment the two streams are known " \
+        "to share, so no anchor"
+    assert set(settled_xy_before_cascade(toppling, "domino_")) == set(placed)
+
+
+def test_names_are_not_a_fallback_for_a_track_that_has_positions(
+        tmp_path, monkeypatch):
+    """track_name_to_id is for a track carrying NO positions.
+
+    Using it when the twin merely could not be anchored is worse than
+    scoring nothing: the ids are box-drawing order, and on
+    run_20260819_152448 the true mapping was a permutation (domino_3 ->
+    id 4, domino_4 -> id 3), so a name match would have attributed each
+    domino's topple to another one -- silently, with a full set of
+    confident-looking residuals.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.config import SysIdConfig
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.observation_track import \
+        ObservationTrack
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        _episode_id_maps
+    del monkeypatch, tmp_path
+    utils.reset_config({"code_sim_learning_track_object_prefix": "domino_"})
+    placed = {"domino_0": (0.60, 1.30), "domino_1": (0.70, 1.30)}
+    # Nothing topples, so there is no anchor -- but the track HAS positions.
+    trajectories = [([_domino_state(placed)] * 4, [])]
+    track = ObservationTrack(angles_deg={
+        0: _series(*_fall()),
+        1: _series(*_fall())
+    },
+                             n_frames=20,
+                             source="test",
+                             first_xy={
+                                 0: (0.60, 1.30),
+                                 1: (0.70, 1.30)
+                             })
+
+    maps = _episode_id_maps([track],
+                            trajectories,
+                            SysIdConfig.from_cfg(),
+                            paired=True)
+
+    assert maps == [{}], \
+        "a positioned track must not be matched by name as a consolation"
 
 
 def test_paired_tracks_still_anchor_on_their_own_episode():
@@ -486,10 +628,26 @@ def test_paired_tracks_still_anchor_on_their_own_episode():
             1: layout_b["domino_0"]
         }),
     ]
-    trajectories = [([_domino_state(layout_a)], []),
-                    ([_domino_state(layout_b)], [])]
 
-    maps = _episode_id_maps(tracks, trajectories, SysIdConfig.from_cfg())
+    def _episode(layout):
+        """One episode: the layout, then its cascade.
+
+        A cascade is required now: with nothing toppling there is no
+        moment the two streams are known to share, and
+        settled_xy_before_cascade refuses rather than anchoring on a
+        state that may be the wrong one.
+        """
+        return [_domino_state(layout)] + [
+            _domino_state(layout, roll=math.radians(a))
+            for a in _fall(steps=20)
+        ]
+
+    trajectories = [(_episode(layout_a), []), (_episode(layout_b), [])]
+
+    maps = _episode_id_maps(tracks,
+                            trajectories,
+                            SysIdConfig.from_cfg(),
+                            paired=True)
 
     assert maps == [{
         "domino_0": 0,
@@ -1012,6 +1170,412 @@ def test_the_objective_prefers_the_cascade_that_matches_the_track(
     assert sse_true < sse_wrong, \
         "the interval objective did not prefer the matching cascade"
     assert sse_wrong > 10 * max(sse_true, 1e-9)
+
+
+def test_the_track_cache_does_not_fix_the_frame_for_the_whole_process(
+        tmp_path):
+    """What is cached must be the FILE, never a config-dependent derivative.
+
+    The frame transform used to be applied before storing, with the path
+    alone as the key, so whichever caller loaded first fixed the frame
+    for every later one. A single load with the transform unset then
+    left every subsequent evaluation matching base-frame track positions
+    against world-frame twin states -- which does not raise, it silently
+    degrades the id matching. On run_20260819_133802 that held matching
+    at 2 of 5 dominoes for 99 evaluations.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.config import SysIdConfig
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        _load_scored_track, reset_track_cache
+
+    # Its own fixture, with CENTRES: the frame transform moves positions, and
+    # the shared _cascade_track carries angles only.
+    frames = [{
+        "index":
+        t,
+        "timestamp_ns":
+        int(t * (1e9 / 60.0)),
+        "dominoes": [{
+            "id": i,
+            "fall_deg": 0.0,
+            "center_base_m": [0.55, -0.15 + 0.1 * i, 0.0]
+        } for i in range(4)],
+    } for t in range(5)]
+    track_path = _write_track(tmp_path, frames)
+
+    def _loaded(yaw, xy):
+        """The track as a caller with this frame config would see it."""
+        utils.reset_config({
+            "code_sim_learning_rollout_score_observed_only": True,
+            "code_sim_learning_rollout_track_path": track_path,
+            "code_sim_learning_track_frame_yaw": yaw,
+            "code_sim_learning_track_frame_xy": xy,
+        })
+        return _load_scored_track(SysIdConfig.from_cfg())
+
+    reset_track_cache()
+    # First loader has NO transform -- the case that used to poison the cache.
+    untransformed = _loaded(0.0, (0.0, 0.0))[0].first_xy
+    # A later caller asks for the quarter turn the domino env actually uses.
+    transformed = _loaded(1.5707963267948966, (0.75, 0.72))[0].first_xy
+
+    assert untransformed != transformed, \
+        "the second caller inherited the first caller's frame"
+    for obj_id, (x, y) in untransformed.items():
+        want = (0.75 - y, 0.72 + x)
+        got = transformed[obj_id]
+        assert got[0] == pytest_approx(want[0], abs=1e-6)
+        assert got[1] == pytest_approx(want[1], abs=1e-6)
+
+
+def test_the_cache_key_carries_the_fps_the_timings_depend_on(tmp_path):
+    """A track without per-frame timestamps has every sample time computed as
+    index/fallback_fps, baked straight into angles_deg.
+
+    Keying the cache on the path alone therefore let the first loader
+    fix the TIMEBASE for the whole process too -- the same first-loader-
+    poisons-everyone bug as the frame transform, one field over.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.config import SysIdConfig
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        _load_scored_track, reset_track_cache
+
+    # No timestamp_ns anywhere, so the fps is what sets the times.
+    frames = [{
+        "index":
+        t,
+        "dominoes": [{
+            "id": 0,
+            "fall_deg": min(max((t - 4) / 8.0, 0.0), 1.0) * 90.0
+        }],
+    } for t in range(40)]
+    track_path = _write_track(tmp_path, frames)
+
+    def _at(fps):
+        """The track as a caller asking for this fps would see it."""
+        utils.reset_config({
+            "code_sim_learning_rollout_score_observed_only": True,
+            "code_sim_learning_rollout_track_path": track_path,
+            "code_sim_learning_track_fallback_fps": fps,
+        })
+        return _load_scored_track(SysIdConfig.from_cfg())[0].angles_deg[0]
+
+    reset_track_cache()
+    slow = _at(30.0)
+    fast = _at(120.0)
+
+    assert slow[-1][0] == pytest_approx(fast[-1][0] * 4.0, abs=1e-6), \
+        "the second caller inherited the first caller's timebase"
+
+
+def test_a_partial_mapping_does_not_score_zero_in_silence(
+        tmp_path, monkeypatch, caplog):
+    """A skip means "no cascade here", which is only readable when every domino
+    could be named.
+
+    With a partial mapping the same emptiness can mean "the dominoes
+    that fell are the ones I could not identify". Returning nothing then
+    reports a flat objective built on a measurement that never happened
+    -- which the fit read as "insensitive to friction".
+    """
+    track_path = _cascade_track(tmp_path, [0, 12, 20, 24])
+    still = _cascade_states([10_000] * 4)[:40]
+
+    with caplog.at_level("WARNING"):
+        sse = _segment_sse(still, still, track_path, monkeypatch)
+
+    assert sse == 0.0
+    # The warning says "could be matched", so the obvious negative assertion
+    # -- "could not be matched" not in text -- is VACUOUSLY true and would
+    # pass with the guard deleted. Match the string the code actually logs.
+    assert "could be matched" not in caplog.text, \
+        "a WHOLE mapping with no cascade is a legitimate silent skip"
+
+
+def _cascade_track(tmp_path, onsets):
+    """A track whose dominoes fall at the given frame indices."""
+    frames = []
+    for t in range(200):
+        recs = [{
+            "id": i,
+            "fall_deg": min(max((t - o) / 8.0, 0.0), 1.0) * 90.0
+        } for i, o in enumerate(onsets)]
+        frames.append({
+            "index": t,
+            "timestamp_ns": int(t * (1e9 / 60.0)),
+            "dominoes": recs
+        })
+    return _write_track(tmp_path, frames)
+
+
+def _segment_sse(sim_states, recorded, track_path, monkeypatch):
+    """What one scored segment contributes, through the real objective."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning import rollout_objective
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        compute_rollout_sse, reset_track_cache
+    monkeypatch.setattr(rollout_objective, "rollout_states",
+                        lambda *_a, **_k: sim_states)
+    utils.reset_config({
+        "code_sim_learning_rollout_score_observed_only": True,
+        "code_sim_learning_rollout_track_path": track_path,
+    })
+    reset_track_cache()
+    return compute_rollout_sse(None, [(recorded, [None])], {"friction": 0.5},
+                               {}, ["friction"])
+
+
+def test_one_episode_yields_one_set_of_residuals_not_one_per_segment(
+        tmp_path, monkeypatch):
+    """The track covers the WHOLE episode, so comparing against it is an
+    episode-level operation.
+
+    Scoring per segment compared the same observed intervals once per
+    segment -- a cascade watched by one camera counted as many times as
+    the episode happened to be cut. Segmentation is a rollout device
+    (multiple shooting, to bound divergence), not a statement about how
+    the evidence divides.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning import rollout_objective
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        compute_rollout_residuals, reset_track_cache
+    track_path = _cascade_track(tmp_path, [0, 12, 20, 24])
+    cascade = _cascade_states([0, 2, 4, 6])
+    monkeypatch.setattr(rollout_objective, "rollout_states",
+                        lambda *_a, **_k: cascade)
+    utils.reset_config({
+        "code_sim_learning_rollout_score_observed_only": True,
+        "code_sim_learning_rollout_track_path": track_path,
+    })
+
+    def _terms(n_segments):
+        """Residual count for one episode cut into n pieces."""
+        reset_track_cache()
+        return len(
+            compute_rollout_residuals(None, [(cascade, [None])] * n_segments,
+                                      {"friction": 0.5}, {}, ["friction"]))
+
+    one = _terms(1)
+    three = _terms(3)
+
+    assert one > 0, "the episode must score something"
+    assert three == one, \
+        "cutting the episode into more segments must not multiply the " \
+        "evidence -- the same observed intervals were being counted once " \
+        "per segment"
+
+
+def test_a_segment_with_no_cascade_scores_nothing_instead_of_penalties(
+        tmp_path, monkeypatch):
+    """Segmentation splits an episode; the track covers all of it.
+
+    A pick-and-place segment has no onsets to offer, so every observed
+    interval used to read as a cascade the sim had failed to reproduce
+    and drew the full missing-cascade penalty. On run_20260819_104757
+    that put 21-24 WHOLE penalties into every evaluation -- the SSEs
+    came back as integer multiples of one -- which made every physical
+    parameter read as flat and is what the agent then declined on.
+    """
+    track_path = _cascade_track(tmp_path, [0, 12, 20, 24])
+    still = _cascade_states([10_000] * 4)[:40]
+
+    assert _segment_sse(still, still, track_path, monkeypatch) == 0.0, \
+        "a segment with no cascade on either side must contribute nothing"
+
+
+def test_a_theta_that_stalls_the_cascade_is_still_penalised(
+        tmp_path, monkeypatch):
+    """The trap in that skip, and why the recorded states are consulted too.
+
+    A candidate that BREAKS the chain also produces no onsets. Skipping
+    on the rollout alone would score it zero -- making a friction that
+    stops the cascade look better than one that reproduces it, the
+    inversion interval_residuals penalises a one-sided domino to
+    prevent.
+    """
+    track_path = _cascade_track(tmp_path, [0, 12, 20, 24])
+    stalled = _cascade_states([10_000] * 4)[:40]
+    # The recorded states DO cascade, so this is a real cascade segment.
+    recorded = _cascade_states([0, 2, 4, 6])
+
+    assert _segment_sse(stalled, recorded, track_path, monkeypatch) > 0.0, \
+        "a stalled cascade in a real cascade segment must still be penalised"
+
+
+def test_the_objective_scores_a_cascade_the_same_however_slow_it_was(
+        tmp_path, monkeypatch):
+    """The scaling has to reach the objective, not just exist beside it.
+
+    Two episodes disagreeing by the SAME FRACTION of their own cascade
+    must score identically: one cascade takes twice as long as the other
+    and the twin is wrong by twice as much, so the twin is equally wrong
+    in both. In raw seconds the slow one scores 4x the fast one purely
+    for having taken longer, which is what let a slow cascade sit above
+    the trim bar while an identically-wrong fast one passed.
+    """
+    fast_dir = tmp_path / "fast"
+    slow_dir = tmp_path / "slow"
+    fast_dir.mkdir()
+    slow_dir.mkdir()
+    fast = _segment_sse(_cascade_states([0, 3, 6, 9]),
+                        _cascade_states([0, 3, 6, 9]),
+                        _cascade_track(fast_dir, [0, 10, 20, 30]), monkeypatch)
+    slow = _segment_sse(_cascade_states([0, 6, 12, 18]),
+                        _cascade_states([0, 6, 12, 18]),
+                        _cascade_track(slow_dir, [0, 20, 40, 60]), monkeypatch)
+
+    assert fast > 0.0, "the twin disagrees with the track, so this must score"
+    assert slow == pytest.approx(fast, rel=1e-6), \
+        "the same proportional disagreement must cost the same; scoring in " \
+        "raw seconds charges the slower cascade 4x for its duration alone"
+
+
+def test_the_episode_path_scales_its_residuals_too(tmp_path, monkeypatch):
+    """The two interval paths are wired separately, so both need proving.
+
+    One track against one trajectory scores through
+    ``_interval_residual_terms``; one track against the several segments
+    an episode was cut into scores through ``_episode_interval_terms``.
+    A fix applied to one and not the other is invisible in a test that
+    only drives the first.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning import rollout_objective
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        compute_rollout_sse, reset_track_cache
+
+    def _episode_sse(sim_states, track_path):
+        """One episode cut into two segments, so the counts cannot pair."""
+        monkeypatch.setattr(rollout_objective, "rollout_states",
+                            lambda *_a, **_k: sim_states)
+        utils.reset_config({
+            "code_sim_learning_rollout_score_observed_only": True,
+            "code_sim_learning_rollout_track_path": track_path,
+        })
+        reset_track_cache()
+        return compute_rollout_sse(None, [(sim_states, [None])] * 2,
+                                   {"friction": 0.5}, {}, ["friction"])
+
+    fast_dir = tmp_path / "fast"
+    slow_dir = tmp_path / "slow"
+    fast_dir.mkdir()
+    slow_dir.mkdir()
+    fast = _episode_sse(_cascade_states([0, 3, 6, 9]),
+                        _cascade_track(fast_dir, [0, 10, 20, 30]))
+    slow = _episode_sse(_cascade_states([0, 6, 12, 18]),
+                        _cascade_track(slow_dir, [0, 20, 40, 60]))
+
+    assert fast > 0.0, "the twin disagrees with the track, so this must score"
+    assert slow == pytest.approx(fast, rel=1e-6), \
+        "the episode path must scale by the observed span as well"
+
+
+def test_interval_residuals_are_a_fraction_of_the_observed_span():
+    """Seconds are the wrong units for every consumer of a residual.
+
+    The trim threshold is ``trim_rms_factor * noise_sigma`` = 0.1,
+    meaning "10% of typical motion" because per-step residuals go
+    through compute_residual_scaling. Interval residuals never did, so
+    the same bar demanded the twin reproduce a cascade to ~45 ms before
+    the fit would look at it, and every cascade-bearing segment was
+    dropped as unexplainable.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import _interval_scale
+
+    # A real cascade: the span is the last domino's interval.
+    obs = {3: 0.0, 2: 0.7669, 1: 0.9001, 0: 1.0668}
+    sim = {3: 0.0, 2: 0.0833, 1: 0.4167, 0: 0.5833}
+    scale = _interval_scale(obs, penalty=25.62)
+
+    assert scale == pytest.approx(1.0668), \
+        "the scale is the observed propagation span, read off the track"
+    scaled = interval_residuals(sim, obs, 25.62, scale)
+    raw = interval_residuals(sim, obs, 25.62)
+
+    assert scaled == pytest.approx([r / 1.0668 for r in raw])
+    assert max(abs(r) for r in scaled) < 1.0, \
+        "a disagreement smaller than the whole cascade must score under 1.0"
+    # The divisor must not come from the rollout: a theta that stalls the
+    # chain would stretch the sim's span and shrink its own residuals.
+    assert _interval_scale({}, penalty=25.62) == pytest.approx(25.62), \
+        "with no observed span the penalty is the scale, so a one-sided " \
+        "domino costs 1.0 rather than an unbounded number of seconds"
+
+
+def test_a_trajectory_with_no_residuals_scores_infinite_not_zero(monkeypatch):
+    """Nothing measured must never outrank something measured.
+
+    ``per_trajectory_rms`` used to turn an empty residual vector into an
+    RMS of 0.0 -- the best score obtainable. Under interval scoring a
+    segment holding no cascade yields exactly that empty vector, so on
+    run_20260820_123606 the trimmer saw best RMS ['0', '1.497'] against
+    a 0.1 bar, kept the segment that measured nothing and dropped the
+    one carrying the only cascade in the run.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    import numpy as np
+
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning import rollout_objective
+
+    def _fake(_env, trajectories, *_a, **_k):
+        """Empty for the first trajectory, two real residuals for the
+        second."""
+        return (np.asarray([], dtype=float) if trajectories[0][0] == "empty"
+                else np.asarray([0.3, 0.4], dtype=float))
+
+    monkeypatch.setattr(rollout_objective, "compute_rollout_residuals", _fake)
+    rms = rollout_objective.per_trajectory_rms(None, [("empty", []),
+                                                      ("real", [])], {}, {},
+                                               [])
+
+    assert math.isinf(rms[0]), \
+        "a trajectory nothing could be measured on must not score 0.0, " \
+        "which is the best RMS there is and beats every real measurement"
+    assert rms[1] == pytest.approx(math.sqrt((0.3**2 + 0.4**2) / 2))
+    assert rms[0] > rms[1], \
+        "the unmeasured trajectory must rank WORSE than the measured one"
+
+
+def test_per_trajectory_rms_reports_the_callers_own_episode_count(monkeypatch):
+    """Pairing is a property of the whole set, not of one call's sublist.
+
+    ``per_trajectory_rms`` scores segments one at a time, so every call
+    reaches the objective with a list of length 1. With a single track
+    loaded, ``len(tracks) == len(trajectories)`` is then 1 == 1 and each
+    fragment was treated as a whole episode and anchored on itself --
+    which is why segments before the cascade reported all five dominoes
+    unmatched. The full count has to travel with the call.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    import numpy as np
+
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning import rollout_objective
+
+    seen = []
+
+    def _fake(_env, trajectories, *_a, **kwargs):
+        """Record what the objective was told about the caller's list."""
+        seen.append((len(trajectories), kwargs.get("episode_count")))
+        return np.asarray([1.0], dtype=float)
+
+    monkeypatch.setattr(rollout_objective, "compute_rollout_residuals", _fake)
+    rollout_objective.per_trajectory_rms(None, [("a", []), ("b", []),
+                                                ("c", [])], {}, {}, [])
+
+    assert seen == [(1, 3), (1, 3), (1, 3)], \
+        "each call scores one trajectory but must report that the caller " \
+        "holds 3, so one track cannot be mistaken for a per-episode pairing"
 
 
 def pytest_approx(value, abs=1e-9):  # pylint: disable=redefined-builtin

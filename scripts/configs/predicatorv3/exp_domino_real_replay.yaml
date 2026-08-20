@@ -1,0 +1,65 @@
+# Replay: the domino friction fit, scored against an ALREADY-RECORDED track.
+# Usage:
+#   python scripts/local/launch_simp.py -c predicatorv3/exp_domino_real_replay.yaml
+#
+# Same experiment as exp_domino_real.yaml, with the two slow halves removed:
+# the arm does not move and the cameras do not look. Everything downstream of
+# the track -- id matching, interval residuals, the parameter sweep, and the
+# agent's decision about what to declare -- runs exactly as it does live.
+#
+# WHY THIS EXISTS. One live episode costs a scene reset, ~110 s of arm motion
+# and ~3 min of markerless post-processing, and it produces the same track
+# every time the layout is the same. The objective is what has been changing,
+# not the data, so iterating on the objective against a known-good recording
+# is the loop that matters. run_20260820_123606 is that recording: four
+# dominoes cascaded 3 -> 2 -> 1 -> 0, the twin reproduced all four, and the
+# ids match 5 of 5 offline.
+#
+# WHAT STILL RUNS. The twin simulates the fixed plan, which is where the
+# recorded trajectory comes from -- that half is pure PyBullet and was never
+# the slow part. The arm is dry, so the plan's motion is a no-op at the
+# hardware boundary, and perception is the captured scene file rather than a
+# camera. The trajectory this produces is the same computation the live run
+# performed, because under open-loop nothing corrects the twin mid-episode.
+#
+# WHAT THIS CANNOT TELL YOU. Whether the real world would have cascaded
+# differently at a different friction. The track is fixed, so the replay
+# answers "what does the fit do with this evidence", never "is the evidence
+# right". Re-record when the scene or the plan changes.
+---
+includes:
+  - exp_domino_real.yaml
+ENVS:
+  domino_real:
+    FLAGS:
+      # -- the arm and the cameras, both off ---------------------------------
+      # Dry: no arm is built and arm calls are no-ops, so the plan is
+      # simulated and then dropped at the hardware boundary. The executor is
+      # still attached (real_robot_execute stays True) so the same shipping
+      # and batching path runs -- it just ships into nothing.
+      real_robot_dry: True
+      # "scene_file" replays domino_real_scene: cameraless, and it reports the
+      # captured layout, which is what the twin has to start from for its
+      # trajectory to match the recorded run's.
+      real_robot_perception: "scene_file"
+      # No takes, so no ZED session, no SVOs and no markerless pipeline. This
+      # also stops tracks.json being rewritten, which is what makes the frozen
+      # manifest below safe to point at.
+      real_robot_record_episodes: False
+      real_robot_process_takes: False
+      # Nothing to reset between episodes when nothing moved, and nothing to
+      # draw boxes on when no camera looked. Both of these BLOCK on a human
+      # (a terminal prompt and an OpenCV drag window), which would defeat the
+      # point of a replay.
+      real_robot_human_reset: False
+      real_robot_pick_boxes_at_start: False
+      real_robot_snapshot_rebuild: False
+      # -- the evidence ------------------------------------------------------
+      # The frozen copy, NOT logs/zed_tracks/tracks.json: that file is
+      # rewritten by every live run, so a replay pointed at it would silently
+      # start scoring whatever was recorded most recently.
+      code_sim_learning_rollout_track_path: "logs/zed_tracks/replay_20260820_124013.json"
+      # The track is already on disk and complete, so there is nothing to wait
+      # for. Left long enough to be a real error rather than a hang if the
+      # manifest ever points somewhere wrong.
+      code_sim_learning_track_wait_s: 30

@@ -355,15 +355,40 @@ def topple_onsets(series_by_id: Mapping[int, Sequence[Tuple[float, float]]],
 def propagation_intervals(onsets: Dict[int, float]) -> Dict[int, float]:
     """Each onset relative to the earliest one, in seconds.
 
-    The first domino to fall defines the origin and contributes a zero
-    that carries no information, so it is dropped: what friction sets is
-    how fast the cascade travels *down the row*, not when the push
-    happened.
+    NOTHING is dropped, including the domino that defines the origin.
+    That domino contributes a zero, which carries no information when
+    both streams agree on which fell first -- and everything when they
+    do not.
+
+    This used to drop every entry at the earliest time, which is a
+    different thing from dropping the origin whenever two dominoes tie.
+    They tie routinely: the sim samples one state per action, 83.3 ms,
+    while the track runs at 60 fps, so the pushed domino and the one
+    beside it land on the SAME sim step and are 5x resolvable on camera.
+    On run_20260819_104757 the twin toppled all five cleanly, yet
+    domino_3 and domino_4 both came back at 0.0833 s, both were dropped,
+    and the track -- which had them 350 ms apart -- kept domino_4. It
+    then had no counterpart and drew the full missing-cascade penalty,
+    reporting that the twin's chain never reached a domino it had in
+    fact laid flat.
+
+    Dropping exactly ONE would need the two streams to agree on WHICH,
+    and neither can see the other from here: a local tie-break on id
+    picks the wrong one as easily as the right one, and picking wrong
+    reproduces the same false penalty on the other domino. Keeping every
+    entry needs no agreement. Where both streams do agree on the origin
+    it costs one residual that is identically zero.
     """
-    if len(onsets) < 2:
+    # `not onsets`, NOT `len < 2`. Keeping the origin (above) while dropping a
+    # single-onset stream is inconsistent, and the inconsistency costs a
+    # residual: one stream collapses to {} while the other keeps every entry
+    # including its origin, so a domino BOTH streams watched fall has no
+    # counterpart and draws the missing-cascade penalty. That is 5 penalties
+    # where the pre-origin-keeping code had 4.
+    if not onsets:
         return {}
     first = min(onsets.values())
-    return {obj_id: t - first for obj_id, t in onsets.items() if t > first}
+    return {obj_id: t - first for obj_id, t in onsets.items()}
 
 
 def sim_topple_series(
@@ -432,9 +457,24 @@ def settled_xy_before_cascade(
                            confirm_deg=confirm_deg,
                            onset_deg=onset_deg,
                            min_persist=min_persist)
+    # NOTHING when nothing topples. There is then no moment at which the two
+    # streams are known to describe the same arrangement, and the previous
+    # fallback -- states[0] -- is not merely arbitrary but reliably WRONG for
+    # a take that starts at the push: states[0] is the pre-prologue layout
+    # while the track shows the post-prologue one, so the dominoes the arm
+    # PLACES are compared against positions they have not occupied since
+    # before the episode began. On run_20260819_152448 that produced 2 of 5
+    # matched, 63 times, with the unmatched set exactly the three placed
+    # dominoes and the matched pair exactly the two the arm never touches --
+    # the signature of anchoring on the episode's start.
+    #
+    # Refusing is the honest answer. The caller contributes no residuals for
+    # that trajectory, which is right: it has no cascade to score anyway.
+    if not onsets:
+        return {}
     # Onset times are state INDICES here, since the series was built with a
     # step of one: only the ordering matters for choosing a state.
-    cut = int(min(onsets.values())) if onsets else 0
+    cut = int(min(onsets.values()))
     settled = states[max(0, min(cut, len(states) - 1))]
     return {
         obj.name: (float(settled.get(obj, "x")), float(settled.get(obj, "y")))
@@ -445,8 +485,9 @@ def settled_xy_before_cascade(
 
 def interval_residuals(sim_intervals: Dict[int, float],
                        obs_intervals: Dict[int, float],
-                       missing_penalty_s: float) -> List[float]:
-    """``sim - obs`` per domino, in seconds, over the union of both.
+                       missing_penalty_s: float,
+                       scale_s: float = 1.0) -> List[float]:
+    """``sim - obs`` per domino over the union of both, divided by scale.
 
     A domino present in one side only is the strongest evidence the
     track carries -- the cascade completed under one friction and
@@ -454,15 +495,24 @@ def interval_residuals(sim_intervals: Dict[int, float],
     ``missing_penalty_s`` rather than skipped. Skipping it would make a
     friction that stops the cascade early look *better* than one that
     reproduces it, because it would simply have fewer terms.
+
+    ``scale_s`` divides both the differences and the penalty, turning
+    seconds into a fraction of whatever the caller considers the natural
+    span -- the units every consumer of a residual already assumes. It
+    defaults to 1.0, which leaves the raw seconds this returned before
+    the divisor existed. See
+    :func:`rollout_objective._interval_scale` for what is passed and
+    why it is read off the track rather than the rollout.
     """
+    denom = scale_s if scale_s > 0.0 else 1.0
     residuals: List[float] = []
     for obj_id in sorted(set(sim_intervals) | set(obs_intervals)):
         sim_t = sim_intervals.get(obj_id)
         obs_t = obs_intervals.get(obj_id)
         if sim_t is None or obs_t is None:
-            residuals.append(missing_penalty_s)
+            residuals.append(missing_penalty_s / denom)
             continue
-        residuals.append(sim_t - obs_t)
+        residuals.append((sim_t - obs_t) / denom)
     return residuals
 
 
