@@ -5,5 +5,7 @@ yapf -i -r --style .style.yapf tests
 yapf -i -r --style .style.yapf setup.py
 # submodules/ holds git submodules: formatting them would dirty another repo's
 # working tree with changes this repo's style config, not theirs, asked for.
-docformatter -i -r . --exclude venv predicators/third_party submodules
+# logs/ holds recorded experiment artifacts (including synthesized-code
+# snapshots); formatting would silently rewrite them.
+docformatter -i -r . --exclude venv predicators/third_party submodules logs
 isort . --skip submodules

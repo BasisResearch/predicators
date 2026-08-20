@@ -1,7 +1,7 @@
 """Ground-truth NSRTs for the bridge (glue construction) environment.
 
-Manipulation NSRTs (pick/place/stack/butt-join/seat/glue/wait) mirror
-the endogenous processes. There is deliberately no NSRT that adds
+Manipulation NSRTs (pick/place/butt-join/seat/glue/wait) mirror the
+endogenous processes. There is deliberately no NSRT that adds
 ``Attached`` -- curing is a delayed exogenous process, so the
 environment is solved/demoed by ``oracle_process_planning`` (like
 ``pybullet_boil`` and ``pybullet_bond``), not plain sesame ``oracle``.
@@ -11,9 +11,9 @@ from typing import Dict, Set
 
 from predicators.ground_truth_models import GroundTruthNSRTFactory
 from predicators.ground_truth_models.bridge.processes import \
-    _apply_glue_sampler, _pick_sampler, _place_block_on_table_sampler, \
+    _glue_end_b_sampler, _pick_sampler, _place_block_on_table_sampler, \
     _place_bottle_sampler, _place_leg_at_site_sampler, \
-    _place_next_to_sampler, _seat_span_sampler, _stack_leg_sampler
+    _place_next_to_sampler, _seat_span_sampler
 from predicators.structs import NSRT, LiftedAtom, ParameterizedOption, \
     Predicate, Type, Variable
 from predicators.utils import null_sampler
@@ -39,9 +39,7 @@ class PyBulletBridgeGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         HandEmpty = predicates["HandEmpty"]
         Holding = predicates["Holding"]
         HoldingBottle = predicates["HoldingBottle"]
-        GlueTop = predicates["GlueTop"]
         GlueEndB = predicates["GlueEndB"]
-        OnBlock = predicates["OnBlock"]
         NextToEnd = predicates["NextToEnd"]
         SeatedOn = predicates["SeatedOn"]
         AtSite = predicates["AtSite"]
@@ -52,27 +50,73 @@ class PyBulletBridgeGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         Loose = predicates["Loose"]
         Resting = predicates["Resting"]
         TopFree = predicates["TopFree"]
+        EndsFree = predicates["EndsFree"]
 
         PickBlock = options["PickBlock"]
         PickBottle = options["PickBottle"]
         Place = options["Place"]
-        ApplyGlueTop = options["ApplyGlueTop"]
-        ApplyGlueEndB = options["ApplyGlueEndB"]
+        MoveTo = options["MoveTo"]
         Wait = options["Wait"]
 
         nsrts: Set[NSRT] = set()
 
-        # PickBlockFromTable
+        # PickBlockFromTable (see processes.py for the EndsFree and
+        # Loose rationales; welded assemblies go through PickRow).
         robot = Variable("?robot", robot_type)
         blk = Variable("?block", block_type)
         nsrts.add(
-            NSRT("PickBlockFromTable", [robot, blk], {
-                LiftedAtom(HandEmpty, [robot]),
-                LiftedAtom(TopFree, [blk]),
-            }, {LiftedAtom(Holding, [robot, blk])}, {
-                LiftedAtom(HandEmpty, [robot]),
-                LiftedAtom(Resting, [blk]),
-            }, set(), PickBlock, [robot, blk], _pick_sampler))
+            NSRT(
+                "PickBlockFromTable", [robot, blk], {
+                    LiftedAtom(HandEmpty, [robot]),
+                    LiftedAtom(TopFree, [blk]),
+                    LiftedAtom(EndsFree, [blk]),
+                    LiftedAtom(Loose, [blk]),
+                }, {LiftedAtom(Holding, [robot, blk])}, {
+                    LiftedAtom(HandEmpty, [robot]),
+                    LiftedAtom(Resting, [blk]),
+                }, set(), PickBlock, [robot, blk], _pick_sampler))
+
+        # PickRow (grasp the MIDDLE span of the FULLY welded row; see
+        # processes.py -- a partially cured row must never be lifted,
+        # and an end grasp cantilevers the row into the far leg).
+        robot = Variable("?robot", robot_type)
+        span_a = Variable("?spanA", block_type)
+        mid = Variable("?spanMid", block_type)
+        span_b = Variable("?spanB", block_type)
+        nsrts.add(
+            NSRT(
+                "PickRow", [robot, span_a, mid, span_b], {
+                    LiftedAtom(HandEmpty, [robot]),
+                    LiftedAtom(TopFree, [mid]),
+                    LiftedAtom(Attached, [span_a, mid]),
+                    LiftedAtom(Attached, [mid, span_b]),
+                    LiftedAtom(Lying, [span_a]),
+                    LiftedAtom(Lying, [mid]),
+                    LiftedAtom(Lying, [span_b]),
+                }, {LiftedAtom(Holding, [robot, mid])}, {
+                    LiftedAtom(HandEmpty, [robot]),
+                    LiftedAtom(Resting, [span_a]),
+                    LiftedAtom(Resting, [mid]),
+                    LiftedAtom(Resting, [span_b]),
+                }, set(), PickBlock, [robot, mid], _pick_sampler))
+
+        # PickSpanFromRow (dismantle an uncured butt joint; deletes the
+        # named adjacency to stay frame-correct).
+        robot = Variable("?robot", robot_type)
+        blk = Variable("?block", block_type)
+        left = Variable("?left", block_type)
+        nsrts.add(
+            NSRT(
+                "PickSpanFromRow", [robot, blk, left], {
+                    LiftedAtom(HandEmpty, [robot]),
+                    LiftedAtom(TopFree, [blk]),
+                    LiftedAtom(NextToEnd, [blk, left]),
+                    LiftedAtom(Loose, [blk]),
+                }, {LiftedAtom(Holding, [robot, blk])}, {
+                    LiftedAtom(HandEmpty, [robot]),
+                    LiftedAtom(Resting, [blk]),
+                    LiftedAtom(NextToEnd, [blk, left]),
+                }, set(), PickBlock, [robot, blk], _pick_sampler))
 
         # PickGlueBottle
         robot = Variable("?robot", robot_type)
@@ -114,28 +158,6 @@ class PyBulletBridgeGroundTruthNSRTFactory(GroundTruthNSRTFactory):
                     LiftedAtom(SiteFree, [site]),
                 }, set(), Place, [robot], _place_leg_at_site_sampler))
 
-        # StackLegOnLeg
-        robot = Variable("?robot", robot_type)
-        top = Variable("?top", block_type)
-        bottom = Variable("?bottom", block_type)
-        site = Variable("?site", site_type)
-        nsrts.add(
-            NSRT(
-                "StackLegOnLeg", [robot, top, bottom, site], {
-                    LiftedAtom(Holding, [robot, top]),
-                    LiftedAtom(AtSite, [bottom, site]),
-                    LiftedAtom(GlueTop, [bottom]),
-                    LiftedAtom(Standing, [top]),
-                    LiftedAtom(Loose, [top]),
-                }, {
-                    LiftedAtom(HandEmpty, [robot]),
-                    LiftedAtom(OnBlock, [top, bottom]),
-                    LiftedAtom(Resting, [top]),
-                }, {
-                    LiftedAtom(Holding, [robot, top]),
-                    LiftedAtom(TopFree, [bottom]),
-                }, set(), Place, [robot], _stack_leg_sampler))
-
         # PlaceSpanNextTo
         robot = Variable("?robot", robot_type)
         right = Variable("?right", block_type)
@@ -166,80 +188,55 @@ class PyBulletBridgeGroundTruthNSRTFactory(GroundTruthNSRTFactory):
                  }, {LiftedAtom(Holding, [robot, blk])}, set(), Place, [robot],
                  _place_block_on_table_sampler))
 
-        # ApplyGlueTop / ApplyGlueEndB
-        for glue_pred, shape_pred, option, name in ((GlueTop, Standing,
-                                                     ApplyGlueTop,
-                                                     "ApplyGlueTop"),
-                                                    (GlueEndB, Lying,
-                                                     ApplyGlueEndB,
-                                                     "ApplyGlueEndB")):
-            robot = Variable("?robot", robot_type)
-            bottle = Variable("?bottle", bottle_type)
-            blk = Variable("?block", block_type)
-            conds = {
-                LiftedAtom(HoldingBottle, [robot, bottle]),
-                LiftedAtom(shape_pred, [blk]),
-            }
-            if glue_pred is GlueTop:
-                conds.add(LiftedAtom(TopFree, [blk]))
-            nsrts.add(
-                NSRT(name, [robot, bottle, blk], conds,
-                     {LiftedAtom(glue_pred, [blk])}, set(), set(), option,
-                     [robot, bottle, blk], _apply_glue_sampler))
+        # ApplyGlueEndB (grounds to the generic MoveTo skill; the
+        # sampler aims at the end_b dab point).
+        robot = Variable("?robot", robot_type)
+        bottle = Variable("?bottle", bottle_type)
+        blk = Variable("?block", block_type)
+        nsrts.add(
+            NSRT(
+                "ApplyGlueEndB", [robot, bottle, blk], {
+                    LiftedAtom(HoldingBottle, [robot, bottle]),
+                    LiftedAtom(Lying, [blk]),
+                }, {LiftedAtom(GlueEndB, [blk])}, set(), set(), MoveTo,
+                [robot], _glue_end_b_sampler))
 
-        # SeatSpan2 / SeatSpan3 (see processes.py for the condition
-        # rationale -- these mirror the endogenous processes exactly).
-        for n_span in (2, 3):
-            robot = Variable("?robot", robot_type)
-            span_a = Variable("?spanA", block_type)
-            span_b = Variable("?spanB", block_type)
-            leg_l = Variable("?legL", block_type)
-            leg_r = Variable("?legR", block_type)
-            if n_span == 2:
-                span_vars = [span_a, span_b]
-                chain = {LiftedAtom(Attached, [span_a, span_b])}
-                site_l = Variable("?siteL", site_type)
-                site_r = Variable("?siteR", site_type)
-                leg_vars = [leg_l, leg_r, site_l, site_r]
-                legs_ready = {
-                    LiftedAtom(AtSite, [leg_l, site_l]),
-                    LiftedAtom(AtSite, [leg_r, site_r]),
-                }
-            else:
-                mid = Variable("?spanMid", block_type)
-                span_vars = [span_a, mid, span_b]
-                chain = {
+        # SeatSpan3 (see processes.py for the condition rationale --
+        # this mirrors the endogenous process exactly).
+        robot = Variable("?robot", robot_type)
+        span_a = Variable("?spanA", block_type)
+        mid = Variable("?spanMid", block_type)
+        span_b = Variable("?spanB", block_type)
+        leg_l = Variable("?legL", block_type)
+        leg_r = Variable("?legR", block_type)
+        site_l = Variable("?siteL", site_type)
+        site_r = Variable("?siteR", site_type)
+        nsrts.add(
+            NSRT(
+                "SeatSpan3",
+                [robot, span_a, mid, span_b, leg_l, leg_r, site_l, site_r], {
+                    LiftedAtom(Holding, [robot, mid]),
+                    LiftedAtom(Lying, [span_a]),
+                    LiftedAtom(Lying, [mid]),
+                    LiftedAtom(Lying, [span_b]),
                     LiftedAtom(Attached, [span_a, mid]),
                     LiftedAtom(Attached, [mid, span_b]),
-                    LiftedAtom(Lying, [mid]),
-                }
-                base_l = Variable("?baseL", block_type)
-                base_r = Variable("?baseR", block_type)
-                leg_vars = [leg_l, leg_r, base_l, base_r]
-                legs_ready = {
-                    LiftedAtom(OnBlock, [leg_l, base_l]),
-                    LiftedAtom(OnBlock, [leg_r, base_r]),
-                }
-            nsrts.add(
-                NSRT(
-                    f"SeatSpan{n_span}", [robot] + span_vars + leg_vars, {
-                        LiftedAtom(Holding, [robot, span_a]),
-                        LiftedAtom(GlueTop, [leg_l]),
-                        LiftedAtom(GlueTop, [leg_r]),
-                        LiftedAtom(Lying, [span_a]),
-                        LiftedAtom(Lying, [span_b]),
-                        LiftedAtom(Standing, [leg_l]),
-                        LiftedAtom(Standing, [leg_r]),
-                    } | chain | legs_ready, {
-                        LiftedAtom(HandEmpty, [robot]),
-                        LiftedAtom(SeatedOn, [span_a, leg_l]),
-                        LiftedAtom(SeatedOn, [span_b, leg_r]),
-                        LiftedAtom(Resting, [span_a]),
-                    }, {
-                        LiftedAtom(Holding, [robot, span_a]),
-                        LiftedAtom(TopFree, [leg_l]),
-                        LiftedAtom(TopFree, [leg_r]),
-                    }, set(), Place, [robot], _seat_span_sampler))
+                    LiftedAtom(Standing, [leg_l]),
+                    LiftedAtom(Standing, [leg_r]),
+                    LiftedAtom(AtSite, [leg_l, site_l]),
+                    LiftedAtom(AtSite, [leg_r, site_r]),
+                }, {
+                    LiftedAtom(HandEmpty, [robot]),
+                    LiftedAtom(SeatedOn, [span_a, leg_l]),
+                    LiftedAtom(SeatedOn, [span_b, leg_r]),
+                    LiftedAtom(Resting, [span_a]),
+                    LiftedAtom(Resting, [mid]),
+                    LiftedAtom(Resting, [span_b]),
+                }, {
+                    LiftedAtom(Holding, [robot, mid]),
+                    LiftedAtom(TopFree, [leg_l]),
+                    LiftedAtom(TopFree, [leg_r]),
+                }, set(), Place, [robot], _seat_span_sampler))
 
         # Wait
         robot = Variable("?robot", robot_type)

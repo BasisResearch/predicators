@@ -190,7 +190,8 @@ def _iter_rollout_residual_terms(
     # pylint: disable=import-outside-toplevel
     from predicators.code_sim_learning.commands import CommandBuffer
     from predicators.code_sim_learning.utils import apply_rules, \
-        apply_rules_with_latent, has_latent_rules, init_latent
+        apply_rules_with_latent, has_latent_rules, init_latent, \
+        observation_view
 
     # pylint: enable=import-outside-toplevel
     config = config or SysIdConfig.from_cfg()
@@ -244,8 +245,9 @@ def _iter_rollout_residual_terms(
         def _run_rules_post_step(env: Any, sim_state: State, i: int) -> None:
             cmds = CommandBuffer()
             if latent_mode:
-                history.append((sim_state, actions[i]))
-                step_updates = apply_rules_with_latent(sim_state,
+                obs = observation_view(sim_state)
+                history.append((obs, actions[i]))
+                step_updates = apply_rules_with_latent(obs,
                                                        latent,
                                                        history,
                                                        rules_list,

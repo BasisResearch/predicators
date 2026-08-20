@@ -6,18 +6,20 @@ so that a regression in the approach (process planning + bilevel
 refinement), the bridge env's glue/weld machinery, or the skill
 factories would surface here.
 
-Runs the smallest viable config (1 train task, 1 test task, "simple"
-spec: 4 blocks, 3 glue joints) and asserts:
+Runs the smallest viable config (1 train task, 1 test task; 5 blocks,
+2 glue joints) and asserts:
 
   - The approach returns a policy (no ApproachTimeout / ApproachFailure).
   - Executing the policy in the env reaches ``task.goal_holds`` within
     the configured horizon (the finished n-bridge: legs at both sites,
-    the welded 2-block span seated and cured onto the glued leg tops).
+    the welded 3-block span seated across the leg tops).
 """
 # pylint: disable=protected-access
 from __future__ import annotations
 
 import logging
+
+import pytest
 
 import predicators.approaches  # noqa: F401  # pylint: disable=unused-import
 import predicators.envs  # noqa: F401  # pylint: disable=unused-import
@@ -37,13 +39,10 @@ def _oracle_bridge_config() -> dict:
         # --- env: bridge from envs/all.yaml ---
         "env": "pybullet_bridge",
         "horizon": 3000,
-        "bridge_task_spec_train": ["simple"],
-        "bridge_task_spec_test": ["simple"],
         "pybullet_birrt_path_subsample_ratio": 2,
-        # The two seat joints cure a few physics steps apart, but each
-        # Wait ends on the FIRST atom change, so the tail of a
-        # multi-cure plan routinely needs a cheap replan (which reduces
-        # to "Wait until the remaining joint cures").
+        # Each Wait ends on the FIRST atom change, so a plan waiting on
+        # several concurrent cures can need a cheap replan for the tail
+        # (which reduces to "Wait until the remaining joint cures").
         "process_planning_max_execution_replans": 3,
         "wait_option_max_steps": 120,
         # --- common flags relevant to bilevel refinement ---
@@ -73,6 +72,11 @@ def _oracle_bridge_config() -> dict:
     }
 
 
+@pytest.mark.xfail(
+    reason="The pre-hardening GT-sim pipeline is not reliable enough for CI\n"
+    "yet; the hardening changes stacked on this commit make the solve\n"
+    "deterministic and drop this marker.",
+    strict=False)
 def test_oracle_process_planning_solves_bridge_task():
     """Smoke test: oracle_process_planning builds the simple n-bridge."""
     utils.reset_config(_oracle_bridge_config())

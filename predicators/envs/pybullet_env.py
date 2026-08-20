@@ -8,19 +8,19 @@ For a comprehensive guide on creating new PyBullet environments, see:
     docs/pybullet_env_guide.md
 
 Main public API:
-    reset(train_or_test, task_idx) — reset env to a task, returns observation
-    simulate(state, action) — forward-simulate without touching real env
-    step(action) — _step_base (robot control, physics, grasps)
+    reset(train_or_test, task_idx) - reset env to a task, returns observation
+    simulate(state, action) - forward-simulate without touching real env
+    step(action) - _step_base (robot control, physics, grasps)
         → _domain_specific_step (water filling, heating, etc.)
         → get_observation. Domain dynamics are skipped when
         skip_residual_dynamics=True is passed to the constructor.
-    get_observation() — read PyBullet state, optionally attach images/masks
+    get_observation() - read PyBullet state, optionally attach images/masks
 
 State synchronization:
-    _set_state(state) — write a State into PyBullet (robot pose, object
+    _set_state(state) - write a State into PyBullet (robot pose, object
         poses, grasp constraints). Delegates domain-specific setup to
         _set_domain_specific_state().
-    _get_state() — read PyBullet into a PyBulletState. Delegates
+    _get_state() - read PyBullet into a PyBulletState. Delegates
         domain-specific features to _get_domain_specific_feature().
 
 Required overrides in subclasses:
@@ -35,8 +35,8 @@ Required overrides in subclasses:
 
 import abc
 import logging
-from typing import Any, ClassVar, Dict, List, Optional, Protocol, Sequence, \
-    Set, Tuple, Type, cast
+from typing import Any, ClassVar, Dict, FrozenSet, List, Optional, Protocol, \
+    Sequence, Set, Tuple, Type, cast
 
 import matplotlib
 import numpy as np
@@ -46,7 +46,7 @@ from PIL import Image
 
 from predicators import utils
 from predicators.code_sim_learning.commands import ApplyForce, ApplyTorque, \
-    PhysicsCommand, SetVelocity
+    Attach, PhysicsCommand, SetVelocity
 from predicators.envs import BaseEnv
 from predicators.pybullet_helpers import retry_pybullet_call, studio_visuals
 from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
@@ -125,6 +125,10 @@ class PyBulletEnv(BaseEnv):
     # terminated.
     grasp_tol: ClassVar[float] = 5e-2  # for large objects
     grasp_tol_small: ClassVar[float] = 5e-4  # for small objects
+    # Strength of welds created by residual Attach commands. PyBullet's
+    # default (500) sags under cantilevered load; matches the bridge
+    # env's feature-driven weld_max_force.
+    residual_attach_max_force: ClassVar[float] = 10000.0
     _finger_action_tol: ClassVar[float] = 1e-4
     open_fingers: ClassVar[float] = 0.04
     closed_fingers: ClassVar[float] = 0.01
@@ -174,7 +178,7 @@ class PyBulletEnv(BaseEnv):
     _out_of_view_xy: ClassVar[Sequence[float]] = [10.0, 10.0]
     _default_orn: ClassVar[Sequence[float]] = [0.0, 0.0, 0.0, 1.0]
 
-    # Object types that have no PyBullet body — features managed
+    # Object types that have no PyBullet body - features managed
     # entirely by _get_domain_specific_feature().
     _VIRTUAL_OBJECT_TYPES: ClassVar[frozenset] = frozenset(
         {"loc", "angle", "human", "side", "direction"})
@@ -189,8 +193,8 @@ class PyBulletEnv(BaseEnv):
     # Euler-angle features that jointly encode one full 3D orientation must
     # be compared as a *rotation*, not axis-by-axis. At gimbal lock (e.g. the
     # EE pointing straight down, tilt=±π/2) the individual angles are
-    # numerically degenerate — only the rotation they jointly encode is
-    # meaningful — so an axis-by-axis compare reports up to π of spurious
+    # numerically degenerate - only the rotation they jointly encode is
+    # meaningful - so an axis-by-axis compare reports up to π of spurious
     # error on the *same* physical orientation (a different but equivalent
     # gimbal-lock branch). (roll, tilt, wrist) is the robot EE orientation,
     # built by _extract_robot_state via getQuaternionFromEuler([roll, tilt,
@@ -202,7 +206,7 @@ class PyBulletEnv(BaseEnv):
                                                          "wrist"), )
 
     # _set_state round-trips the written state through _get_state and
-    # compares, then reacts by mismatch *magnitude* — no per-env opt-in:
+    # compares, then reacts by mismatch *magnitude* - no per-env opt-in:
     #   * any feature off by more than _reconstruction_warn_atol → warn,
     #   * any feature off by more than _reconstruction_raise_atol → raise.
     # Valid States legitimately fail to round-trip exactly for two reasons:
@@ -213,7 +217,7 @@ class PyBulletEnv(BaseEnv):
     # benign workspace-scale disagreement). The raise threshold sits well
     # above both (~2.5x the worst observed) yet far below an impossible or
     # corrupt requested feature (e.g. held=-10000, off by 1e4), so only the
-    # latter aborts — for every env, with no per-env strictness flag.
+    # latter aborts - for every env, with no per-env strictness flag.
     _reconstruction_warn_atol: ClassVar[float] = 1e-3
     _reconstruction_raise_atol: ClassVar[float] = 2.0
 
@@ -298,6 +302,10 @@ class PyBulletEnv(BaseEnv):
         # Residual physics commands awaiting the next action's substeps;
         # see queue_residual_commands for the contract.
         self._pending_residual_commands: List[PhysicsCommand] = []
+        # Welds created by Attach commands, keyed by the unordered
+        # object-name pair. Reconciled against the pending commands once
+        # per action (re-emit-to-persist), cleared at episode reset.
+        self._cmd_weld_constraints: Dict[FrozenSet[str], int] = {}
 
         # Set up all the static PyBullet content.
         self._physics_client_id, self._pybullet_robot, pybullet_bodies = \
@@ -314,7 +322,7 @@ class PyBulletEnv(BaseEnv):
         self._objects: List[Object] = []
 
         # Populated by _set_state(): (object, feature) pairs whose value the
-        # reset could not reproduce — e.g. an observable derived from a
+        # reset could not reproduce - e.g. an observable derived from a
         # hidden sim-feature (bubbling_level from heat_level), which a State
         # carrying only observables cannot round-trip. Combined simulators
         # read this to restore the carried value after a backtracking reset,
@@ -640,9 +648,8 @@ class PyBulletEnv(BaseEnv):
               task_idx: int,
               render: bool = False) -> Observation:
         state = super().reset(train_or_test, task_idx)
-        # Episode boundary: any residual commands queued for a step that
-        # never ran belong to the abandoned rollout.
-        self._pending_residual_commands = []
+        # Episode boundary: _set_state clears any residual commands and
+        # commanded welds left over from the abandoned rollout.
         self._set_state(state)
         observation = self.get_observation(render=render)
         if self._executor is not None:
@@ -667,7 +674,17 @@ class PyBulletEnv(BaseEnv):
         """
         if self._current_observation is None or \
             not state.allclose(self._current_state):
+            # Commands already queued at this point were computed for
+            # exactly this incoming state: the option model queues them
+            # only after matching the state it emitted them for (see
+            # the combined-simulator queue sites), so the lifecycle
+            # wipe in _set_state must not eat them. Commanded
+            # attachments still reset -- a re-emitted Attach in the
+            # preserved queue re-freezes its frame at the poses this
+            # _set_state restores.
+            queued_commands = self._pending_residual_commands
             self._set_state(state)
+            self._pending_residual_commands = queued_commands
         else:
             # Sequential rollout: PyBullet already holds this state, so no
             # reset happens and no feature is lost to reconstruction.
@@ -717,8 +734,8 @@ class PyBulletEnv(BaseEnv):
         target_joint_positions, base_delta = self._split_action(action)
         # Only relocate the (kinematic) base when there is an actual move.
         # Calling set_base_pose (resetBasePositionAndOrientation) every step,
-        # even for a zero delta, perturbs the arm's contact dynamics — it makes
-        # the mobile_fetch switch-push wander off target — whereas fixed-base
+        # even for a zero delta, perturbs the arm's contact dynamics - it makes
+        # the mobile_fetch switch-push wander off target - whereas fixed-base
         # robots never touch the base. A zero delta is a no-op, so skip it.
         base_moved = bool(
             base_delta.size) and not bool(np.allclose(base_delta, 0.0))
@@ -759,6 +776,10 @@ class PyBulletEnv(BaseEnv):
         # Step the simulation here before adding or removing constraints
         # because detect_held_object() should use the updated state.
         if CFG.pybullet_control_mode != "reset":
+            # Attachments are constraints, not per-substep actuation:
+            # reconcile once per action (create newly commanded welds,
+            # remove ones whose command was not re-emitted).
+            self._reconcile_commanded_attachments()
             for _ in range(CFG.pybullet_sim_steps_per_action):
                 # Residual physics commands act during this one action
                 # (applyExternalForce is cleared by each stepSimulation,
@@ -821,12 +842,94 @@ class PyBulletEnv(BaseEnv):
         """
         self._pending_residual_commands = list(commands)
 
+    def _residual_command_body_ids(self) -> Dict[str, int]:
+        """Object name -> body id, for resolving residual commands.
+
+        Resolved against ``self._objects`` (the set the current state
+        carries), so command emitters built from another env instance's
+        ``State`` still drive this env.
+        """
+        ids_by_name: Dict[str, int] = {}
+        for obj in self._objects:
+            obj_id = getattr(obj, "id", None)
+            if obj_id is not None and obj_id >= 0:
+                ids_by_name[obj.name] = obj_id
+        return ids_by_name
+
+    def _reconcile_commanded_attachments(self) -> None:
+        """Sync command-created welds to this action's Attach commands.
+
+        Called once per action, before the physics substeps. Re-emit-to-
+        persist, like every residual command: a pair commanded this
+        action keeps (or gains) its JOINT_FIXED weld, frozen at the
+        pair's current relative pose; a pair no longer commanded loses
+        it. Runs even with an empty queue so stale welds from a rule
+        that stopped emitting (or a planner backtrack that dropped the
+        pending commands) are removed. Fails soft on unresolvable object
+        names, mirroring :meth:`_apply_pending_residual_commands`.
+        """
+        desired: Dict[FrozenSet[str], Attach] = {
+            frozenset((cmd.obj_a_name, cmd.obj_b_name)): cmd
+            for cmd in self._pending_residual_commands
+            if isinstance(cmd, Attach)
+        }
+        for key in list(self._cmd_weld_constraints):
+            if key not in desired:
+                p.removeConstraint(self._cmd_weld_constraints.pop(key),
+                                   physicsClientId=self._physics_client_id)
+        if not desired:
+            return
+        ids_by_name = self._residual_command_body_ids()
+        for key, cmd in desired.items():
+            if key in self._cmd_weld_constraints:
+                continue
+            body_a = ids_by_name.get(cmd.obj_a_name)
+            body_b = ids_by_name.get(cmd.obj_b_name)
+            if body_a is None or body_b is None:
+                logging.warning(
+                    "Attach command targets unknown or bodiless object "
+                    "pair ('%s', '%s'); skipping.", cmd.obj_a_name,
+                    cmd.obj_b_name)
+                continue
+            pos_a, orn_a = p.getBasePositionAndOrientation(
+                body_a, physicsClientId=self._physics_client_id)
+            pos_b, orn_b = p.getBasePositionAndOrientation(
+                body_b, physicsClientId=self._physics_client_id)
+            inv_pos, inv_orn = p.invertTransform(pos_a, orn_a)
+            rel_pos, rel_orn = p.multiplyTransforms(inv_pos, inv_orn, pos_b,
+                                                    orn_b)
+            cid = p.createConstraint(parentBodyUniqueId=body_a,
+                                     parentLinkIndex=-1,
+                                     childBodyUniqueId=body_b,
+                                     childLinkIndex=-1,
+                                     jointType=p.JOINT_FIXED,
+                                     jointAxis=[0, 0, 0],
+                                     parentFramePosition=rel_pos,
+                                     parentFrameOrientation=rel_orn,
+                                     childFramePosition=[0, 0, 0],
+                                     childFrameOrientation=[0, 0, 0, 1],
+                                     physicsClientId=self._physics_client_id)
+            # PyBullet's default maxForce (500) sags under cantilevered
+            # load (see the bridge env's weld_max_force).
+            p.changeConstraint(cid,
+                               maxForce=self.residual_attach_max_force,
+                               physicsClientId=self._physics_client_id)
+            self._cmd_weld_constraints[key] = cid
+
+    def _clear_commanded_attachments(self) -> None:
+        """Remove every command-created weld (episode boundary)."""
+        for cid in self._cmd_weld_constraints.values():
+            p.removeConstraint(cid, physicsClientId=self._physics_client_id)
+        self._cmd_weld_constraints.clear()
+
     def _apply_pending_residual_commands(self) -> None:
         """Execute the queued commands against the live PyBullet world.
 
         Called before every physics substep, so force/torque commands
-        act as continuous actuation across the whole action. Objects
-        are resolved by NAME against ``self._objects`` (the set the
+        act as continuous actuation across the whole action (Attach
+        commands are handled once per action by
+        :meth:`_reconcile_commanded_attachments` instead). Objects are
+        resolved by NAME against ``self._objects`` (the set the
         current state carries), so command emitters built from another
         env instance's ``State`` still drive this env. Fails soft on
         unknown names or bodiless objects - agent-written rules may
@@ -835,12 +938,10 @@ class PyBulletEnv(BaseEnv):
         """
         if not self._pending_residual_commands:
             return
-        ids_by_name: Dict[str, int] = {}
-        for obj in self._objects:
-            obj_id = getattr(obj, "id", None)
-            if obj_id is not None and obj_id >= 0:
-                ids_by_name[obj.name] = obj_id
+        ids_by_name = self._residual_command_body_ids()
         for cmd in self._pending_residual_commands:
+            if isinstance(cmd, Attach):
+                continue
             body_id = ids_by_name.get(cmd.obj_name)
             if body_id is None:
                 logging.warning(
@@ -968,7 +1069,7 @@ class PyBulletEnv(BaseEnv):
         PyBullet world and only re-written when it actually differs.
         This lets sequential rollouts (option model, learned process
         simulators) advance without snapping the arm or rebuilding the
-        grasp constraint when only a subset of features changed — which
+        grasp constraint when only a subset of features changed - which
         is what eliminates the visible robot jitter during combined
         base+learned simulator calls. It also lets a learned rule move
         an *unheld* object without disturbing the arm or any other body.
@@ -978,6 +1079,22 @@ class PyBulletEnv(BaseEnv):
         - simulate(): option-model / bilevel-planning rollouts
         - external callers (skill factories, agent tools, tests)
         """
+        # A state override is a lifecycle boundary for the physics-
+        # command channel: pending commands were computed for whatever
+        # state the env held before, and a commanded weld's frozen
+        # relative frame was captured at the OLD poses -- keeping it
+        # across a teleport makes the solver yank the pair back toward
+        # the stale frame at maxForce on the next step. Callers whose
+        # queued commands ARE meant for the state being written must
+        # re-instate the queue themselves (simulate() does: rule-
+        # written features make the merged rollout state differ from
+        # the raw post-step state on every step where a rule fired,
+        # and the freshly queued commands were computed for exactly
+        # that merged state); welds a rule still wants are re-emitted
+        # and re-frozen at the restored poses.
+        self._pending_residual_commands = []
+        self._clear_commanded_attachments()
+
         # Cohort change or the very first call forces a full reset:
         # per-component compares assume the same set of bodies.
         full_reset = (self._current_observation is None
@@ -1047,12 +1164,12 @@ class PyBulletEnv(BaseEnv):
 
         if robot_changed:
             # Prefer exact joint positions when the State carries them in
-            # simulator_state — IK from (x, y, z, tilt, wrist) drops
+            # simulator_state - IK from (x, y, z, tilt, wrist) drops
             # wrist roll, which corrupts the held-object offset that
             # _create_grasp_constraint records below.
             joint_positions = self._extract_robot_joint_positions(state)
             # When simulator_state is a rich dict (produced exclusively by
-            # _get_state), the joint hint is authoritative — skip
+            # _get_state), the joint hint is authoritative - skip
             # reset_state's roundtrip-vs-EE-pose guardrail, which can
             # spuriously fail on Euler->Quat float noise at the 1e-2
             # tolerance and force a lossy IK fallback. Raw-sequence and
@@ -1084,7 +1201,7 @@ class PyBulletEnv(BaseEnv):
         # 4) Subclass-specific state always runs (idempotent and cheap).
         self._set_domain_specific_state(state)
 
-        # 5) Reconstruction check — only when we actually wrote something
+        # 5) Reconstruction check - only when we actually wrote something
         # kinematic. React by mismatch magnitude (see the threshold
         # ClassVars above): a large mismatch can't be benign IK noise, so
         # raise; a small one just warns since the IK reset path is lossy.
@@ -1129,7 +1246,7 @@ class PyBulletEnv(BaseEnv):
         (kinematic ``x, y`` a robot can move) untouched. Angle features
         are compared modulo 2π; the orientation-triple geodesic handling
         in ``_reconstruction_diff`` is unnecessary here because
-        orientation features are kinematic — never residual features —
+        orientation features are kinematic - never residual features -
         so they are filtered out by the caller's intersection
         regardless.
         """
@@ -1168,8 +1285,8 @@ class PyBulletEnv(BaseEnv):
         2π so a wrist value of 4.68 matches a reconstructed -1.60 (same
         physical orientation, different euler representation). Features that
         jointly form a full orientation (see ``_ORIENTATION_EULER_TRIPLES``)
-        are instead compared as a rotation — the geodesic angle between the
-        two — which is gimbal-lock safe: at tilt=±π/2 the per-axis split of
+        are instead compared as a rotation - the geodesic angle between the
+        two - which is gimbal-lock safe: at tilt=±π/2 the per-axis split of
         roll/wrist is degenerate, so an axis-by-axis compare would report up
         to π of spurious error on the same physical orientation.
         """
@@ -1245,9 +1362,9 @@ class PyBulletEnv(BaseEnv):
         given as extrinsic-XYZ euler triples.
 
         Representation-invariant: two euler triples encoding the same
-        rotation — including different gimbal-lock branches, e.g.
+        rotation - including different gimbal-lock branches, e.g.
         (roll=2.42, tilt=π/2, wrist=-0.71) vs (roll=0, tilt=π/2,
-        wrist=-3.13) — return ~0. Computed as the angle between the unit
+        wrist=-3.13) - return ~0. Computed as the angle between the unit
         quaternions, taking the smaller of q and -q (double cover).
         """
         q_a = np.array(p.getQuaternionFromEuler(list(euler_a)))
@@ -1271,7 +1388,7 @@ class PyBulletEnv(BaseEnv):
         ``initial_joint_positions`` as a hint and the live joints are
         only 1e-2 close).
 
-        Returns False when ``state`` has no joint_positions — the only
+        Returns False when ``state`` has no joint_positions - the only
         live caller in that situation is
         ``_add_pybullet_state_to_tasks``, where forcing a reset is
         exactly the desired behavior.
@@ -1328,7 +1445,7 @@ class PyBulletEnv(BaseEnv):
 
         ``atol`` matches ``_reconstruction_diff``'s tolerance so an
         object that the diff helper would complain about is also one the
-        matches-check rejects — without this alignment, an object whose
+        matches-check rejects - without this alignment, an object whose
         pose drifts within 1e-3..1e-2 sits stale in the planning sim
         (skipped by this check) while the diff still flags it, and the
         planning sim's plans get computed against the stale pose.
@@ -1388,7 +1505,7 @@ class PyBulletEnv(BaseEnv):
     def _reset_single_object(self, obj: Object, state: State) -> None:
         """Teleport a single physical object to match the given State.
 
-        Pose only — grasp-constraint management is centralized in
+        Pose only - grasp-constraint management is centralized in
         _set_state so teardown/rebuild stays in one place.
 
         Called by _set_state() for every non-robot, non-virtual object
@@ -1415,8 +1532,8 @@ class PyBulletEnv(BaseEnv):
         elif {"yaw", "roll", "pitch"} & set(features):
             # Rebuild the full orientation from whichever Euler angles the type
             # carries (PyBullet's convention is [roll, pitch, yaw]). Dropping
-            # roll/pitch here would make toppled objects — e.g. a fallen domino
-            # with roll≈π — unreconstructible: _get_state reads the angle back,
+            # roll/pitch here would make toppled objects - e.g. a fallen domino
+            # with roll≈π - unreconstructible: _get_state reads the angle back,
             # the mismatch exceeds _reconstruction_raise_atol, and _set_state
             # raises instead of round-tripping. Missing angles default to 0.
             roll = state.get(obj, "roll") if "roll" in features else 0.0
@@ -1435,7 +1552,7 @@ class PyBulletEnv(BaseEnv):
     def _set_domain_specific_state(self, state: State) -> None:
         """Set simulator state for features that the base class doesn't handle.
 
-        — e.g. switch on/off, liquid levels, button colors, balance beam
+        - e.g. switch on/off, liquid levels, button colors, balance beam
         positions.
 
         Called at the end of _set_state(), after the base class has
@@ -1640,7 +1757,7 @@ class PyBulletEnv(BaseEnv):
                     self._get_domain_specific_feature(obj, feature)
             return obj_dict
 
-        # Physical object — query PyBullet for pose
+        # Physical object - query PyBullet for pose
         try:
             (px, py, pz), orn = retry_pybullet_call(
                 p.getBasePositionAndOrientation,

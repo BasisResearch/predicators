@@ -46,14 +46,26 @@ def create_move_to_skill(
     config: SkillConfig,
     get_target_pose_fn: TargetPoseFn,
     params_description: Optional[Tuple[str, ...]] = None,
+    use_move_above: bool = False,
+    retreat: bool = False,
+    validate_ik: bool = False,
+    base_mode: Optional[str] = None,
 ) -> ParameterizedOption:
-    """Create a single-phase move-to-pose skill.
+    """Create a move-to-pose skill.
 
     Preserves the current finger status (open/closed) from state.
 
-    Phases:
-        0. **Move** -- Move end-effector to the target pose, preserving
+    Phases (with the default flags, only the middle one):
+        0. **MoveAbove** (``use_move_above``) -- Move to the target xy
+           at ``config.transport_z``, so the approach comes from above
+           and a held object clears the scene.
+        1. **Move** -- Move end-effector to the target pose, preserving
            the current finger state.
+        2. **Retreat** (``retreat``) -- Return to the target xy at
+           ``config.transport_z``.  Allows shallow held-object contacts
+           at the start, so a target pose that ends grazing a surface
+           by ~1 mm doesn't invalidate the retreat's motion-planning
+           start config.
 
     Args:
         name: Option name.
@@ -63,16 +75,42 @@ def create_move_to_skill(
         config: Shared skill configuration.  See ``SkillConfig``.
         get_target_pose_fn: Callback that returns the target as
             ``(x, y, z, yaw)`` from ``(state, objects, params, config)``.
+        use_move_above: Prepend the transport-height approach phase.
+        retreat: Append the transport-height retreat phase.
+        validate_ik: Gate the Move phase's target through validated IK.
+        base_mode: Optional ``PhaseSkill`` base mode (e.g. ``"home"``).
 
     Returns:
         A ``ParameterizedOption`` implementing the move-to-pose skill.
     """
-    phase = make_move_to_phase(name, get_target_pose_fn)
+
+    def _above_pose(
+        state: State,
+        objects: Sequence[Object],
+        params: Array,
+        cfg: SkillConfig,
+    ) -> Tuple[float, float, float, float]:
+        x, y, _, yaw = get_target_pose_fn(state, objects, params, cfg)
+        return x, y, cfg.transport_z, yaw
+
+    phases = []
+    if use_move_above:
+        phases.append(make_move_to_phase("MoveAbove", _above_pose))
+    phases.append(
+        make_move_to_phase("Move", get_target_pose_fn,
+                           validate_ik=validate_ik))
+    if retreat:
+        phases.append(
+            make_move_to_phase("Retreat",
+                               _above_pose,
+                               allow_shallow_held_object_contacts=True))
     return PhaseSkill(name,
                       types,
                       params_space,
-                      config, [phase],
-                      params_description=params_description).build()
+                      config,
+                      phases,
+                      params_description=params_description,
+                      base_mode=base_mode).build()
 
 
 def _get_current_ee_pose(state: State, robot_obj: Object) -> Pose:

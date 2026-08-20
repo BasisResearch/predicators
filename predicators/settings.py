@@ -111,9 +111,10 @@ class GlobalSettings:
     # Cross-cutting partial-observability flag. When True, envs that
     # support it hide selected latent features in `get_observation()`
     # (e.g. pybullet_boil hides `heat_level` and exposes a derived
-    # `bubbling_level` instead). Used by approaches such as
-    # agent_po_sim_predicate_invention. Each env decides which
-    # of its features count as latent.
+    # `bubbling_level` instead), the GT simulator factories dispatch to
+    # their `gt_simulator_po` variants, and the sim-learning approaches
+    # switch their synthesis prompt to the recurrent 5-arg rule form.
+    # Each env decides which of its features count as latent.
     partially_observable = False
     # cover_multistep_options env parameters
     cover_multistep_action_limits = [-np.inf, np.inf]
@@ -246,8 +247,10 @@ class GlobalSettings:
     pybullet_birrt_contact_margin = -0.001
     # During a lift after grasping, the held object can start in shallow
     # penetration from grasp settling. Allow escaping these initial contacts
-    # only up to this depth; deeper penetration remains a collision.
-    pybullet_birrt_shallow_held_contact_margin = -0.003
+    # only up to this depth; deeper penetration remains a collision. 6mm
+    # covers a tall block grasped mid-rock (a ~7 degree tilt frozen into the
+    # grasp puts a 10cm block's corner ~4-5mm below its resting plane).
+    pybullet_birrt_shallow_held_contact_margin = -0.006
     # Required separation (metres) from "bystander" bodies during BiRRT -
     # bodies the plan neither starts nor deliberately ends in proximity of.
     # The hard contact margin above tolerates ~1mm of penetration (needed
@@ -952,13 +955,6 @@ class GlobalSettings:
     # at the home x (diagonal approach) which leaves room for sideways switch
     # push-throughs.
     boil_mobile_base_align_x = True
-
-    # bridge env
-    # Task sizes: "simple" = 4 blocks (1-block legs, 2-block span, 3 glue
-    # joints); "full" = 7 blocks (2-block leg stacks, 3-block span, 6
-    # glue joints). One spec is drawn per task from these lists.
-    bridge_task_spec_train = ["simple"]
-    bridge_task_spec_test = ["simple"]
 
     # parameters for random options approach
     random_options_max_tries = 100

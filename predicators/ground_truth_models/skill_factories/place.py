@@ -56,6 +56,7 @@ def create_place_skill(
     use_move_above: bool = False,
     param_defs: Optional[Sequence[Tuple[str, float, float]]] = None,
     compensate_held_offset: bool = False,
+    compensate_held_z: bool = False,
 ) -> ParameterizedOption:
     """Create a multi-phase place skill that releases a held object.
 
@@ -104,6 +105,13 @@ def create_place_skill(
             the object hanging ~2 cm off the EE (IK residual at the
             grasp pose); without compensation that error transfers
             verbatim to every placement.
+        compensate_held_z: If True, additionally shift the EE target z
+            by the live (EE - held object) z offset, so ``release_z``
+            is the HELD OBJECT'S CENTER height at release rather than
+            an EE height. Without it, samplers must budget the grasp
+            depth AND the pick's IK z-residual into ``release_z`` --
+            and a deep grasp (~2 cm residual) drives the held object
+            into the support surface at the descend goal.
 
     Returns:
         A ``ParameterizedOption`` implementing the place skill.
@@ -178,19 +186,26 @@ def create_place_skill(
                 return False
         return True
 
-    def _held_xy_offset(state: State,
-                        robot_obj: Object) -> Tuple[float, float]:
-        """(EE - held object) xy offset, or (0, 0) if nothing is held."""
-        if not compensate_held_offset:
-            return 0.0, 0.0
+    def _held_offset(state: State,
+                     robot_obj: Object) -> Tuple[float, float, float]:
+        """(EE - held object) offset, or zeros if nothing is held.
+
+        The xy components apply under ``compensate_held_offset``; the z
+        component under ``compensate_held_z``.
+        """
+        if not (compensate_held_offset or compensate_held_z):
+            return 0.0, 0.0, 0.0
         for obj in state:
             if obj == robot_obj or \
                     "is_held" not in obj.type.feature_names:
                 continue
             if state.get(obj, "is_held") > 0.5:
-                return (state.get(robot_obj, "x") - state.get(obj, "x"),
-                        state.get(robot_obj, "y") - state.get(obj, "y"))
-        return 0.0, 0.0
+                dx = state.get(robot_obj, "x") - state.get(obj, "x")
+                dy = state.get(robot_obj, "y") - state.get(obj, "y")
+                dz = state.get(robot_obj, "z") - state.get(obj, "z")
+                return ((dx, dy) if compensate_held_offset else (0.0, 0.0)) \
+                    + ((dz, ) if compensate_held_z else (0.0, ))
+        return 0.0, 0.0, 0.0
 
     def _above_pose(
         state: State,
@@ -199,7 +214,7 @@ def create_place_skill(
         cfg: SkillConfig,
     ) -> Tuple[float, float, float, float]:
         x, y, yaw = float(params[0]), float(params[1]), float(params[3])
-        off_x, off_y = _held_xy_offset(state, objects[0])
+        off_x, off_y, _ = _held_offset(state, objects[0])
         return x + off_x, y + off_y, cfg.transport_z, yaw
 
     def _drop_pose(
@@ -211,8 +226,8 @@ def create_place_skill(
         del cfg  # unused
         x, y = float(params[0]), float(params[1])
         drop_z, yaw = float(params[2]), float(params[3])
-        off_x, off_y = _held_xy_offset(state, objects[0])
-        return x + off_x, y + off_y, drop_z, yaw
+        off_x, off_y, off_z = _held_offset(state, objects[0])
+        return x + off_x, y + off_y, drop_z + off_z, yaw
 
     # With release_until_ungrasped, the drop-pose opening is
     # grasp-relative instead of full-span: open gradually until the

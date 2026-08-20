@@ -261,7 +261,16 @@ _FINGER_TARGET_KEY = "finger_target_{}"  # anchored CHANGE_FINGERS target
 # check budgets the worst-case width: grasp + open step + clear slack +
 # margin.
 _RELEASE_OPEN_STEP = 0.01
-_RELEASE_CLEAR_SLACK = 0.004
+# 8mm slack = ~4mm per-side pad clearance for a centered object. The
+# pads are NOT generally centered on the released object: the grasp's
+# IK residual offsets the EE from the object by several mm (and
+# held-offset-compensated placements aim the OBJECT, not the EE), so a
+# 4mm total slack left <2mm real clearance and the Retreat phase
+# started in shallow contact with the just-released block (observed
+# -1.5mm on bridge legs). The release-clearance check budgets this
+# width at the drop pose, so denser scenes fail at planning, not
+# execution.
+_RELEASE_CLEAR_SLACK = 0.008
 _RELEASE_CHECK_BUFFER = _RELEASE_OPEN_STEP + _RELEASE_CLEAR_SLACK + 0.002
 _IK_STALL_BEST_KEY = "ik_stall_best_{}"  # best EE-to-target distance seen
 _IK_STALL_COUNT_KEY = "ik_stall_count_{}"  # steps since last improvement
@@ -407,8 +416,8 @@ class PhaseSkill:
                 phase_idx = len(self._phases) - 1
                 memory["phase_idx"] = phase_idx
             phase = self._phases[phase_idx]
-            logging.debug(f"[{self._name}] Advanced to phase {phase_idx}: "
-                          f"{phase.name}")
+            logging.debug("[%s] Advanced to phase %d: %s", self._name,
+                          phase_idx, phase.name)
 
         if phase.action_type == PhaseAction.MOVE_TO_POSE:
             return self._execute_move(phase, state, memory, objects, params)
@@ -903,9 +912,9 @@ class PhaseSkill:
         except InverseKinematicsError:
             pos = target_pose.position
             logging.warning(
-                f"[{self._name}/{phase_name}] IK failed for BiRRT target "
-                f"({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f}); "
-                "falling back to incremental IK.")
+                "[%s/%s] IK failed for BiRRT target "
+                "(%.3f, %.3f, %.3f); falling back to incremental IK.",
+                self._name, phase_name, pos[0], pos[1], pos[2])
             return None
 
         return run_motion_planning(
@@ -1083,11 +1092,10 @@ class PhaseSkill:
         except InverseKinematicsError:
             pos = target_pose.position
             logging.warning(
-                f"[{self._name}/{phase_name}] IK failed for BiRRT target "
-                f"({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f}); "
-                "falling back to incremental IK.")
+                "[%s/%s] IK failed for BiRRT target "
+                "(%.3f, %.3f, %.3f); falling back to incremental IK.",
+                self._name, phase_name, pos[0], pos[1], pos[2])
             return None
-
         goal_finger_joint = None
         if phase is not None and phase.check_release_clearance:
             # Check the width the fingers actually reach at the drop pose:
@@ -1324,7 +1332,7 @@ class PhaseSkill:
                 "GOAL with fingers OPEN to release (the opening "
                 "gripper needs side clearance at the drop pose)")
         for diag in diagnostics:
-            logging.error(f"[{self._name}/{phase_name}] {diag}")
+            logging.error("[%s/%s] %s", self._name, phase_name, diag)
         return diagnostics
 
     def _execute_move_ik(self, phase: Phase, state: State,
@@ -1351,14 +1359,14 @@ class PhaseSkill:
                 # doesn't drift during contact phases (e.g. a switch push).
                 move_base=False,
             )
-        except utils.OptionExecutionFailure:
+        except utils.OptionExecutionFailure as e:
             cur = current_pose.position
             tgt = target_pose.position
             raise utils.OptionExecutionFailure(
                 f"[{self._name}/{phase.name}] IK failed. "
                 f"current=({cur[0]:.3f}, {cur[1]:.3f}, {cur[2]:.3f}), "
                 f"target=({tgt[0]:.3f}, {tgt[1]:.3f}, {tgt[2]:.3f}), "
-                f"params={params.tolist()}")
+                f"params={params.tolist()}") from e
 
     def _execute_fingers(self, phase: Phase, state: State, memory: Dict,
                          objects: Sequence[Object], params: Array) -> Action:

@@ -388,11 +388,9 @@ ENVS:
     FLAGS:
       max_initial_demos: 1
       horizon: 3000
-      # Required for the "full" spec (7 blocks / 6 joints): unweighted
-      # skeleton search times out; with weight 10 plans land in ~1.5 s.
+      # Unweighted skeleton search is slow on the multi-joint goal;
+      # with weight 10 plans land in ~1.5 s.
       process_planning_heuristic_weight: 10.0
-      bridge_task_spec_train: ["simple"]
-      bridge_task_spec_test: ["simple"]
       # The two seat joints cure a few physics steps apart, but each
       # Wait ends on the FIRST atom change, so the tail of a multi-cure
       # plan routinely needs a cheap replan-from-current-state (which

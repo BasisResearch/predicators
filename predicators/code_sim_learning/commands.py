@@ -5,20 +5,26 @@ Residual rules have two output channels. *Feature overwrites*
 filling, curing). *Physics commands* - this module - suit residuals
 that move rigid bodies through space: a rule that declares a ``cmds``
 parameter receives a :class:`CommandBuffer` and may queue generic
-rigid-body actuation - forces, torques, velocity overrides - expressed
-against the symbolic ``State``'s objects. The buffer is pure data:
-rules never touch a physics client or body ids. The base sim executes
-queued commands during the physics substeps of its *next* action (see
-``PyBulletEnv.queue_residual_commands``), the same cadence at which a
-hidden ``_domain_specific_step`` acts, so the engine - not the rule -
-resolves every contact the commanded motion runs into.
+rigid-body actuation - forces, torques, velocity overrides, rigid
+attachments - expressed against the symbolic ``State``'s objects. The
+buffer is pure data: rules never touch a physics client or body ids.
+The base sim executes queued commands during the physics substeps of
+its *next* action (see ``PyBulletEnv.queue_residual_commands``), the
+same cadence at which a hidden ``_domain_specific_step`` acts, so the
+engine - not the rule - resolves every contact the commanded motion
+runs into.
 
 Command semantics:
 
 * Commands act for the duration of ONE env action (all of its physics
   substeps) and then expire. A persistent process (wind while a fan is
-  on) is expressed by the rule re-emitting the command every step it
-  applies; a rule that stops emitting stops the effect.
+  on, a cured glue weld) is expressed by the rule re-emitting the
+  command every step it applies; a rule that stops emitting stops the
+  effect. This holds for :class:`Attach` too: the fixed constraint
+  exists exactly while some rule keeps commanding it, so there is no
+  separate detach command, and planner backtracking to a pre-attachment
+  state removes the weld for free (the rule run from that state simply
+  does not emit it).
 * Commands are queued by object NAME. The executing env resolves names
   against its own object registry at application time, so rules built
   from one env's ``State`` drive rollouts in a separately-constructed
@@ -108,7 +114,23 @@ class SetVelocity:
     angular: Optional[Vec3]
 
 
-PhysicsCommand = Union[ApplyForce, ApplyTorque, SetVelocity]
+@dataclass(frozen=True)
+class Attach:
+    """Rigid attachment (JOINT_FIXED weld) between two bodies.
+
+    The executing env creates the constraint at the pair's CURRENT
+    relative pose, and keeps it exactly as long as the command is
+    re-emitted every step (the pair key is unordered, so emission order
+    of the two objects never matters). Irreversible processes (a cured
+    glue joint) are expressed by latching the decision in the rule's
+    latent/feature state and re-emitting from the latch - the standard
+    persistent-process idiom.
+    """
+    obj_a_name: str
+    obj_b_name: str
+
+
+PhysicsCommand = Union[ApplyForce, ApplyTorque, SetVelocity, Attach]
 
 
 class CommandBuffer:
@@ -158,6 +180,20 @@ class CommandBuffer:
                 if linear is not None else None,
                 _as_vec3(angular, "set_velocity angular")
                 if angular is not None else None))
+
+    def attach(self, obj_a: Any, obj_b: Any) -> None:
+        """Queue a rigid attachment between ``obj_a`` and ``obj_b``.
+
+        Welds the pair at their current relative pose for the next
+        action; re-emit every step to keep them welded (see
+        :class:`Attach`).
+        """
+        name_a = _obj_name(obj_a, "attach obj_a")
+        name_b = _obj_name(obj_b, "attach obj_b")
+        if name_a == name_b:
+            raise ValueError(f"attach needs two distinct objects, got "
+                             f"{name_a!r} twice")
+        self._commands.append(Attach(name_a, name_b))
 
     # ── Consumer API ─────────────────────────────────────────────
 

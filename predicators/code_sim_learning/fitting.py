@@ -122,7 +122,7 @@ def compute_sse_recurrent(
     """
     # pylint: disable=import-outside-toplevel
     from predicators.code_sim_learning.utils import apply_rules_with_latent, \
-        init_latent
+        init_latent, observation_view
 
     # pylint: enable=import-outside-toplevel
 
@@ -131,9 +131,10 @@ def compute_sse_recurrent(
         latent: Dict[str, Any] = init_latent(latent_init, params)
         history: List[Tuple[State, Optional[Action]]] = []
         for state_base, action, state_obs in traj:
-            history.append((state_base, action))
-            updates = apply_rules_with_latent(state_base, latent, history,
-                                              rules, params)
+            obs = observation_view(state_base)
+            history.append((obs, action))
+            updates = apply_rules_with_latent(obs, latent, history, rules,
+                                              params)
 
             for _obj, _feat, pred, obs, _fired in iter_step_terms(
                     state_base, updates, state_obs, residual_features):
@@ -279,7 +280,7 @@ def compute_residuals_recurrent(
     """
     # pylint: disable=import-outside-toplevel
     from predicators.code_sim_learning.utils import apply_rules_with_latent, \
-        init_latent
+        init_latent, observation_view
 
     # pylint: enable=import-outside-toplevel
 
@@ -288,9 +289,10 @@ def compute_residuals_recurrent(
         latent: Dict[str, Any] = init_latent(latent_init, params)
         history: List[Tuple[State, Optional[Action]]] = []
         for state_base, action, state_obs in traj:
-            history.append((state_base, action))
-            updates = apply_rules_with_latent(state_base, latent, history,
-                                              rules, params)
+            obs = observation_view(state_base)
+            history.append((obs, action))
+            updates = apply_rules_with_latent(obs, latent, history, rules,
+                                              params)
             residuals.extend(
                 pred - obs
                 for _obj, _feat, pred, obs, _fired in iter_step_terms(
