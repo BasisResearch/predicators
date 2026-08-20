@@ -1456,7 +1456,8 @@ class PyBulletBridgeEnv(PyBulletEnv):
         """Irreversibly attach ``blk.face`` to ``mate``: record the partnership
         on both blocks, consume the glue, create the weld.
 
-        Returns whether the joint latched."""
+        Returns whether the joint latched.
+        """
         mate_slot = self._mate_slot_for(state, blk, face, mate)
         if self._attr(mate, f"attached_{mate_slot}", -1.0) >= 0:
             # The mate's slot is somehow taken; refuse to latch rather
