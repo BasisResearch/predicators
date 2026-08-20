@@ -72,6 +72,11 @@ _CLAUDE_MD_RULES = """\
 - Do NOT inspect predicators source code (e.g. via `inspect.getsource()`,
   `inspect.getfile()`, reading `.py` files from site-packages, or any other
   method). Use the MCP tools and reference files instead.
+- Do NOT reach into harness internals from executed code. In particular
+  `State.privileged`, the probe's `_ctx`, and env flags/attributes are
+  hidden environment ground truth and are blocked. Learn the world model
+  from observable state features and the documented tool surface only —
+  a conclusion derived from hidden internals is an invalid result.
 """
 
 _CLAUDE_MD_SOLVE_STRATEGY = """\

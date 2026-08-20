@@ -4,10 +4,8 @@ Built on the shared skill factories: PickBlock / PickBottle (pick),
 Place (generic place), MoveTo (generic move-through-pose), and Wait.
 All geometry lives in continuous params supplied by the samplers in
 ``processes.py`` -- the skill set itself carries ZERO glue semantics.
-In particular there is no ApplyGlue skill: gluing a face is just MoveTo
-with the samplers aiming the held bottle's tip at the face's dab point;
-the wetting is the env's proximity response, which an agent must
-discover as a causal process.
+In particular there is no ApplyGlue skill: the glue bottle is picked
+and moved with the same generic skills as every other object.
 """
 
 from typing import ClassVar, Dict, Sequence, Set, Tuple
@@ -49,20 +47,20 @@ _BRIDGE_PLACE_PARAMS = [
 # (the EE itself when empty-handed) -- all axes live-compensated by the
 # EE-to-held offset, so the sampled target is exactly where the held
 # object goes regardless of grasp depth or the pick's IK residual. The
-# glue samplers use this to land the held bottle's tip on a face dab
-# point (tip = center minus the bottle half-height). Wetting requires
-# the tip within apply_glue_radius of the dab for wet_streak_steps
-# CONSECUTIVE steps -- the skill dwells at the reached target to
-# provide them, so glue targets must put the tip AT the dab; a
-# trajectory that merely passes through the radius never wets.
+# glue samplers use this to land the held bottle's tip on a face target
+# (tip = center minus the bottle half-height).
 #
 # The x bounds extend one span half-length past the block workspace: a
-# block STAGED near the workspace edge has its end-face dab point up to
-# span_half_x outside it, and clamping the glue target to the block
-# workspace silently parked the bottle tip 2.5 cm short of the dab --
-# outside the 2 cm wetting radius, so the face never wet and the joint
-# never cured. With the wider box a genuinely unreachable dab fails IK
-# loudly (and triggers a replan) instead of "succeeding" without glue.
+# block STAGED near the workspace edge presents its end face up to
+# span_half_x outside it, and clamping the target to the block
+# workspace silently parked the bottle tip short of the face. With the
+# wider box a genuinely unreachable target fails IK loudly (and
+# triggers a replan) instead of "succeeding" at a clamped pose.
+#
+# NOTE (hidden-dynamics hygiene): this file is copied verbatim into the
+# agent sandbox as reference/options.py. Do not document the wetting or
+# curing mechanics (radii, streaks, thresholds) here -- discovering
+# them is the agent's job.
 _BRIDGE_MOVE_TO_PARAMS = [
     ("target_x (world x position for the held object, or the EE if "
      "empty-handed)",
@@ -175,7 +173,7 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         # -- Place (generic; geometry via params) ---------------------------
         # use_move_above keeps the carry at transport_z so a held block
-        # (or a whole welded span assembly) clears staged objects and
+        # (or a whole multi-body assembly) clears staged objects and
         # the standing legs.
         Place = create_place_skill(
             name="Place",
@@ -187,8 +185,8 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
             # target, on all three axes: blocks staged near the reach
             # limit grasp with up to ~2 cm of EE-to-block IK residual.
             # Uncompensated xy transfers that error into the butt
-            # joints and seat alignment, past the cure gates'
-            # tolerance; uncompensated z drives a deep-grasped block
+            # joints and seat alignment, past this domain's tight
+            # tolerances; uncompensated z drives a deep-grasped block
             # into the table at the descend goal (BiRRT rejects it
             # forever).
             compensate_held_offset=True,
@@ -196,17 +194,17 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
             # Guarded release: after the (collision-checked) descent to
             # release_z, settle straight down to FIRST contact of the
             # held assembly before opening. Drop-settle scatter is what
-            # flips this domain's tight tolerances (a butt joint's cure
-            # window, a 2:1 leg's sub-mm topple threshold, the seat's
-            # chaotic landing). 3 cm covers the largest sampler descend
+            # flips this domain's tight tolerances (a butt joint's
+            # contact window, a 2:1 leg's sub-mm topple threshold, the
+            # seat's chaotic landing). 3 cm covers the largest sampler descend
             # clearance (the seat's 20 mm) with margin; table places
             # settle only their 2-3 mm.
             settle_to_contact_depth=0.03,
             # Verified release: the settle stroke ends at FIRST contact,
             # and plant sag (position control under gravity + payload)
             # was measured walking that contact point ~15 mm toward the
-            # robot base -- a systematic landing bias the cure gates
-            # tolerate but that bends every butt row. Before opening,
+            # robot base -- a systematic landing bias that bends every
+            # butt row. Before opening,
             # require the held block within 4 mm of the commanded xy;
             # otherwise lift back to release_z and re-descend, aiming
             # upstream of the measured (repeatable) drift.
@@ -260,14 +258,10 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
             retreat=True,
             validate_ik=True,
             base_mode="home",
-            # Hold at the reached target before retreating: wetting a
-            # glue face needs the tip inside the apply radius for
-            # wet_streak_steps CONSECUTIVE steps (a drive-by crossing
-            # never wets, by design), and without a dwell the approach
-            # spends as little as one step in range before the retreat
-            # exits the radius. +1 covers the approach/retreat edge
-            # steps.
-            dwell_steps=cls.env_cls.wet_streak_steps + 1,
+            # Hold at the reached target before retreating, so the tip
+            # spends a stable interval at the target pose instead of a
+            # single drive-by step between approach and retreat.
+            dwell_steps=cls.env_cls.glue_dab_dwell_steps(),
         )
 
         return {

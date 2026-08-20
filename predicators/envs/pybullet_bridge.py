@@ -213,6 +213,19 @@ class PyBulletBridgeEnv(PyBulletEnv):
     # so it round-trips through _set_state like any other feature.
     wet_streak_steps: ClassVar[int] = 3
     _WET_PARTIAL: ClassVar[float] = 0.2
+
+    @classmethod
+    def glue_dab_dwell_steps(cls) -> int:
+        """How long the MoveTo skill holds a reached glue target before
+        retreating.
+
+        Derived from the hidden wetting law (+1 covers the
+        approach/retreat edge steps), but exposed under a neutral name:
+        the bridge options file is copied verbatim into the agent
+        sandbox as a skill reference, so it must not spell out
+        ``wet_streak_steps`` or the consecutive-dwell requirement.
+        """
+        return cls.wet_streak_steps + 1
     # Dab points hover this far off the face surface.
     dab_margin: ClassVar[float] = 0.005
     # Stacking tolerances for the top-face cure detector (leg-on-leg).
