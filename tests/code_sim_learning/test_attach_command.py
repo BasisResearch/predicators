@@ -97,6 +97,39 @@ def test_attach_command_welds_and_expires():
     p.disconnect(env._physics_client_id)
 
 
+def test_queued_commands_survive_simulate_state_sync():
+    """Commands queued for the incoming state survive simulate().
+
+    The option model queues commands and then calls ``simulate(state,
+    act)``, where ``state`` is the previous step's MERGED state (base
+    step plus rule-written feature updates, e.g. a curing counter). The
+    merge makes ``state`` differ from the env's raw post-step state, so
+    simulate() takes its ``_set_state`` branch; the lifecycle wipe in
+    ``_set_state`` must not eat the just-queued commands.
+    """
+    env = _make_env(skip_residual_dynamics=True)
+    state, span0, span1 = _side_by_side_state(env)
+    env._set_state(state)
+    act = Action(np.array(env._pybullet_robot.initial_joint_positions))
+    cur = env.simulate(state, act)
+    z1_start = cur.get(span1, "z")
+    for _ in range(6):
+        # Mimic a residual rule advancing a counter: the merged state
+        # now differs from the env's post-step state by one feature.
+        merged = cur.copy()
+        merged.set(span0, "cure_end_b", merged.get(span0, "cure_end_b") + 1.0)
+        buf = CommandBuffer()
+        buf.attach(span0, span1)
+        buf.apply_force(span0, (0.0, 0.0, 3.0))
+        env.queue_residual_commands(buf.commands)
+        cur = env.simulate(merged, act)
+    assert len(env._cmd_weld_constraints) == 1, \
+        "queued Attach was wiped by simulate()'s internal _set_state"
+    assert cur.get(span1, "z") > z1_start + 0.02, \
+        "welded partner did not follow the commanded lift"
+    p.disconnect(env._physics_client_id)
+
+
 def test_base_sim_does_not_materialize_feature_welds():
     """skip_residual_dynamics gates _sync_welds_to_state; full env keeps it."""
     for skip, expect_welds in ((True, 0), (False, 1)):

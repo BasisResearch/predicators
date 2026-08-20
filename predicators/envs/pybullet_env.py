@@ -662,7 +662,17 @@ class PyBulletEnv(BaseEnv):
         """
         if self._current_observation is None or \
             not state.allclose(self._current_state):
+            # Commands already queued at this point were computed for
+            # exactly this incoming state: the option model queues them
+            # only after matching the state it emitted them for (see
+            # the combined-simulator queue sites), so the lifecycle
+            # wipe in _set_state must not eat them. Commanded
+            # attachments still reset -- a re-emitted Attach in the
+            # preserved queue re-freezes its frame at the poses this
+            # _set_state restores.
+            queued_commands = self._pending_residual_commands
             self._set_state(state)
+            self._pending_residual_commands = queued_commands
         else:
             # Sequential rollout: PyBullet already holds this state, so no
             # reset happens and no feature is lost to reconstruction.
@@ -1052,12 +1062,14 @@ class PyBulletEnv(BaseEnv):
         # state the env held before, and a commanded weld's frozen
         # relative frame was captured at the OLD poses -- keeping it
         # across a teleport makes the solver yank the pair back toward
-        # the stale frame at maxForce on the next step. Sequential
-        # rollouts never reach here (simulate() skips _set_state when
-        # the state already matches), and every queue site queues
-        # after its _set_state, so nothing legitimate is lost; welds a
-        # rule still wants are re-emitted and re-frozen at the
-        # restored poses.
+        # the stale frame at maxForce on the next step. Callers whose
+        # queued commands ARE meant for the state being written must
+        # re-instate the queue themselves (simulate() does: rule-
+        # written features make the merged rollout state differ from
+        # the raw post-step state on every step where a rule fired,
+        # and the freshly queued commands were computed for exactly
+        # that merged state); welds a rule still wants are re-emitted
+        # and re-frozen at the restored poses.
         self._pending_residual_commands = []
         self._clear_commanded_attachments()
 
