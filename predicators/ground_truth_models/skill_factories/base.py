@@ -923,7 +923,7 @@ class PhaseSkill:
     # horizon (where the thrashing arm bulldozes the scene).
     _ik_stall_window: ClassVar[int] = 25
     # Random in-limit IK restarts for the BiRRT goal solve, tried after
-    # the current-joints and home seeds (see _solve_goal_ik).
+    # the current-joints and home seeds (see _solve_goal_ik_candidates).
     _goal_ik_num_restarts: ClassVar[int] = 8
     # Escalated restart count for the goal solve, used when every branch
     # the normal solve found puts the goal configuration in collision
@@ -1694,6 +1694,20 @@ class PhaseSkill:
                         np.square(
                             np.subtract(ee_position, target_pose.position))))
                 if err < self._config.move_to_pose_tol:
+                    # IK leaves the finger joints wherever the seed put
+                    # them (they do not move the EE pose, so the
+                    # accuracy check above is indifferent), and the
+                    # restart seeds randomize every joint - so restart-
+                    # derived candidates would carry arbitrary finger
+                    # values. The chosen candidate's goal is collision-
+                    # checked (and the goal-side BiRRT tree grown) at
+                    # those values while replay drives the fingers per
+                    # finger_status, so pin them to the current finger
+                    # positions; this also keeps the dedup below from
+                    # treating arm-identical branches as distinct.
+                    for f_idx in (planning_robot.left_finger_joint_idx,
+                                  planning_robot.right_finger_joint_idx):
+                        clamped[f_idx] = float(current_joints[f_idx])
                     if not any(
                             max(abs(a - b)
                                 for a, b in zip(clamped, prior)) < 1e-3

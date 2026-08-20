@@ -1335,6 +1335,10 @@ class _FakeGoalIkRobot:
     joint_lower_limits = [-3.0] * 7
     joint_upper_limits = [3.0] * 7
     initial_joint_positions = [0.0] * 7
+    # Accepted candidates get their finger entries pinned to the current
+    # finger positions (IK leaves fingers wherever the seed put them).
+    left_finger_joint_idx = 5
+    right_finger_joint_idx = 6
 
     def __init__(self, target_pose: Pose, one_shot_error_m: float) -> None:
         self._target = target_pose
@@ -1399,8 +1403,9 @@ class TestSolveGoalIkCandidates:
             target, [0.5] * 7,
             validate=False)
         # The validated branch is the only accurate one; every seed
-        # escalates to it and dedup collapses them to one candidate.
-        assert result == [[0.1] * 7]
+        # escalates to it and dedup collapses them to one candidate
+        # (fingers pinned to the current joints).
+        assert result == [[0.1] * 5 + [0.5] * 2]
         assert fake.validated_calls == _GOAL_IK_NUM_SEEDS
 
     def test_accurate_one_shot_keeps_fast_path(self, robot_scene):
@@ -1413,7 +1418,7 @@ class TestSolveGoalIkCandidates:
             fake,
             target, [0.5] * 7,
             validate=False)
-        assert result == [[0.2] * 7]
+        assert result == [[0.2] * 5 + [0.5] * 2]
         assert fake.validated_calls == 0
 
     def test_distinct_branches_are_all_collected(self, robot_scene):
@@ -1434,7 +1439,11 @@ class TestSolveGoalIkCandidates:
             fake,
             target, [0.5] * 7,
             validate=False)
-        assert result == [[0.0] * 7, [0.1] * 7, [0.2] * 7]
+        assert result == [
+            [0.0] * 5 + [0.5] * 2,
+            [0.1] * 5 + [0.5] * 2,
+            [0.2] * 5 + [0.5] * 2,
+        ]
 
     def test_all_branches_inaccurate_raises(self, robot_scene):
         """When no branch hits the pose, goal IK raises instead of handing
@@ -1503,8 +1512,8 @@ class TestSolveGoalIkCandidates:
 
 
 class TestCollisionDiagnosticsLogging:
-    """The diagnostics can be computed quietly, before the failure is
-    known to be final."""
+    """The diagnostics can be computed quietly, before the failure is known to
+    be final."""
 
     def _make_skill(self, robot) -> PhaseSkill:
         config = _make_config(robot)
