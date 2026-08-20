@@ -10,7 +10,6 @@ critical final steps. The backstop terminates such a Wait at
 change) branch already had.
 """
 import numpy as np
-import pytest
 from gym.spaces import Box
 
 from predicators import utils

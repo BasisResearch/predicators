@@ -14,7 +14,7 @@ import pybullet as p
 import pytest
 
 from predicators import utils
-from predicators.structs import Action
+from predicators.structs import Action, EnvironmentTask, GroundAtom
 
 
 @pytest.fixture(scope="module", name="env_and_task")
@@ -640,8 +640,6 @@ def test_settle_certificate_rejects_dry_row(env_and_task):
     release step's observation shows an unheld dry span at its exact
     placement pose and the geometric goal transiently holds there.
     """
-    from predicators.structs import EnvironmentTask, GroundAtom
-
     env, task = env_and_task
     env._set_state(task.init)
     state = env._get_state()
