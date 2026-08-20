@@ -612,3 +612,85 @@ def test_degenerate_top_edge_grasp_fails_honestly():
         assert st.get(leg0, "z") > staged_z + 0.015
     finally:
         p.disconnect(env._physics_client_id)
+
+
+def test_goal_is_fully_observable(env_and_task):
+    """The task goal contains no Attached atoms: it pins the geometric
+    layout only, so a learned belief model can represent every goal atom
+    without access to the hidden attachment state. The row welds the
+    goal implies are certified physically instead (see the settle test
+    below)."""
+    env, task = env_and_task
+    goal_preds = {atom.predicate.name for atom in task.goal_description}
+    assert "Attached" not in goal_preds
+    assert {"AtSite", "SeatedOn", "NextToEnd"} <= goal_preds
+    assert "Attached" not in {p_.name for p_ in env.goal_predicates}
+
+
+def test_settle_certificate_rejects_dry_row(env_and_task):
+    """check_episode_trajectory settles the final scene unactuated: an
+    elevated butted-but-unwelded span falls out of the NextToEnd window
+    and the episode is rejected; the same layout with the butt weld in
+    place survives and is accepted.
+
+    This closes the transient the goal change opened: the base sim
+    removes the grasp constraint AFTER an action's substeps, so the
+    release step's observation shows an unheld dry span at its exact
+    placement pose and the geometric goal transiently holds there.
+    """
+    from predicators.structs import EnvironmentTask, GroundAtom
+
+    env, task = env_and_task
+    env._set_state(task.init)
+    state = env._get_state()
+    blocks = state.get_objects(env._block_type)
+    span0 = next(b for b in blocks if b.name == "span0")
+    span1 = next(b for b in blocks if b.name == "span1")
+    support = next(b for b in blocks if b.name == "leg0")
+
+    def _layout(welded: bool):
+        s = state.copy()
+        # A lying support block, its center nudged +2 cm so the welded
+        # pair's COM (at span0's +x face) stays over the support.
+        sx, sy = 0.75, 1.25
+        s.set(support, "x", sx + 0.02)
+        s.set(support, "y", sy)
+        s.set(support, "z", env.table_height + env.leg_half_extents[2])
+        for feat in ("roll", "pitch", "yaw"):
+            s.set(support, feat, 0.0)
+        # span0 rests on the support; span1 butts its +x end face,
+        # hanging in the air with nothing underneath.
+        top_z = env.table_height + 2 * env.leg_half_extents[2] + \
+            env.span_half_extents[2]
+        for blk, bx in ((span0, sx), (span1,
+                                      sx + 2 * env.span_half_extents[0])):
+            s.set(blk, "x", bx)
+            s.set(blk, "y", sy)
+            s.set(blk, "z", top_z)
+            for feat in ("roll", "pitch", "yaw"):
+                s.set(blk, feat, 0.0)
+        for i, blk in enumerate(blocks):
+            if blk not in (span0, span1, support):
+                s.set(blk, "x", 2.0 + 0.2 * i)
+                s.set(blk, "y", 2.0)
+        if welded:
+            s.set(span0, "attached_end_b", float(env._block_index[
+                span1.name]))
+            s.set(span1, "attached_end_a", float(env._block_index[
+                span0.name]))
+        return s
+
+    goal_pred = next(p_ for p_ in env.predicates if p_.name == "NextToEnd")
+
+    for welded, expect_ok in ((False, False), (True, True)):
+        s = _layout(welded)
+        env._set_state(s)
+        cur = env._get_state()
+        goal = {GroundAtom(goal_pred, [span1, span0])}
+        assert all(a.holds(cur) for a in goal), \
+            f"layout (welded={welded}) must satisfy the goal pre-settle"
+        env._current_task = EnvironmentTask(cur, goal)
+        ok, reason = env.check_episode_trajectory([cur], [])
+        assert ok == expect_ok, (welded, reason)
+        if not expect_ok:
+            assert "did not survive settling" in reason
