@@ -29,6 +29,17 @@ SANDBOX_SYSTEM_ROOTS = (
 # ``getsourcelines``; ``inspect.getfile`` is matched explicitly so the
 # generic ``getfilesystemencoding`` etc. don't false-positive.
 SANDBOX_INTROSPECTION = ("getsource", "inspect.getfile", "site-packages")
+# Hidden-ground-truth handles reachable from the in-process exec
+# namespace: ``State.privileged`` (the env-only channel carrying hidden
+# dynamics bookkeeping), the probe's ``_ctx`` (whose ``env`` is the LIVE
+# real env, attributes and all), and the env's hidden-dynamics kill
+# switch. Observed exploits: run_20260819_183137 seed1 read the cure
+# counters off ``s.privileged``; run_20260819_183252 seed2 did
+# ``sim._ctx.env`` to read ``cure_threshold`` and flipped
+# ``_skip_domain_specific_dynamics`` to run true dynamics in its belief
+# sim. Word-boundary regexes so e.g. ``budget_ctx`` never matches.
+_SANDBOX_HIDDEN_STATE_RE = re.compile(
+    r"\bprivileged\b|\b_ctx\b|\b_skip_domain_specific_dynamics\b")
 # Hidden-implementation predicators imports inside agent-executed
 # Python: the exec runs in-process, so ``from predicators.envs... import
 # ...`` would hand the agent the real env classes and ground-truth
@@ -67,13 +78,19 @@ _SANDBOX_PATH_RE = re.compile(
     r"""(?:^|(?<=[\s'"`(=]))((?:/|\.\.)[^\s'"`)<>|;:,]*)""")
 
 
-def _screen_text_for_sandbox_escape(text: str,
-                                    sandbox_dir: str) -> Optional[str]:
+def _screen_text_for_sandbox_escape(
+        text: str, sandbox_dir: Optional[str]) -> Optional[str]:
     """Best-effort screen of a Bash command / ``run_python`` code string.
 
     Returns a short deny reason if ``text`` looks like it reads outside
-    ``sandbox_dir`` — an absolute or ``..`` path resolving out of the
-    sandbox, or predicators-source introspection — else ``None``.
+    ``sandbox_dir`` - an absolute or ``..`` path resolving out of the
+    sandbox, or predicators-source introspection - else ``None``.
+
+    ``sandbox_dir`` may be None (an in-process session with no sandbox
+    copy on disk): the path screen has no boundary to enforce then and
+    is skipped, but the source-introspection, hidden-state, and hidden-
+    module-import screens still apply - the exec runs in-process either
+    way, and those leaks do not depend on a sandbox directory existing.
 
     This is a heuristic: a determined script can still escape (env vars,
     ``subprocess``, computed paths), so OS-level isolation (the docker
@@ -85,11 +102,19 @@ def _screen_text_for_sandbox_escape(text: str,
         if needle in text:
             return (f"'{needle}' may read predicators source outside the "
                     "sandbox; use the MCP tools and ./reference/ files")
+    hidden = _SANDBOX_HIDDEN_STATE_RE.search(text)
+    if hidden is not None:
+        return (f"'{hidden.group(0)}' accesses harness-internal state "
+                "that carries hidden environment ground truth; the "
+                "belief model must be learned from observable features "
+                "and the documented probe/tool surface only")
     if _SANDBOX_PREDICATORS_IMPORT_RE.search(text):
         return ("importing predicators env/ground-truth modules would "
                 "expose implementation the sandbox hides; use the "
                 "provided namespace and the MCP tools / ./reference/ "
                 "files")
+    if sandbox_dir is None:
+        return None
     sandbox = os.path.realpath(sandbox_dir)
     for match in _SANDBOX_PATH_RE.finditer(text):
         token = match.group(1)
@@ -101,7 +126,7 @@ def _screen_text_for_sandbox_escape(text: str,
                 token == root or token.startswith(root + "/")
                 for root in SANDBOX_SYSTEM_ROOTS):
             # Absolute but not a real filesystem path (e.g. printed data
-            # like "/done") — don't flag.
+            # like "/done") - don't flag.
             continue
         return f"path '{token}' resolves outside the sandbox directory"
     return None

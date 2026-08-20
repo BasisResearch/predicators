@@ -96,10 +96,10 @@ def test_explore_mode_belief_model_disclosure() -> None:
     reality; solve queries carry no such section."""
     utils.reset_config({"seed": 0})
     prompt = _render_explore(_make_task(None))
-    assert "## Belief-Model Simulator" in prompt
+    assert "## Exploration Setting" in prompt
     assert "not in the belief model yet" in prompt
     solve_prompt = _render(_make_task(None))
-    assert "## Belief-Model Simulator" not in solve_prompt
+    assert "## Exploration Setting" not in solve_prompt
 
 
 def test_explore_mode_experiment_delivery_contract() -> None:
@@ -108,8 +108,9 @@ def test_explore_mode_experiment_delivery_contract() -> None:
     text as the deliverable."""
     utils.reset_config({"seed": 0})
     prompt = _render_explore(_make_task(None))
-    assert "simulator-failing sketch is a valid, useful deliverable" in prompt
-    assert "Do NOT keep searching for a simulator-validated plan" in prompt
+    assert "simulator-failing sketch is a valid deliverable" in prompt
+    assert ("grinding for a validated plan the model cannot produce "
+            "is wasted budget") in prompt
     assert "This is an EXPLORE query" in prompt
     solve_prompt = _render(_make_task(None))
     assert "This is an EXPLORE query" not in solve_prompt
@@ -117,6 +118,36 @@ def test_explore_mode_experiment_delivery_contract() -> None:
     # The contract must survive param-free sketch mode too (the search
     # finds continuous params, but the delivery semantics are the same).
     sketch_prompt = _render_explore(_make_task(None), propose_params=False)
-    assert "simulator-failing sketch is a valid, useful deliverable" \
-        in sketch_prompt
+    assert "simulator-failing sketch is a valid deliverable" in sketch_prompt
     assert "This is an EXPLORE query" in sketch_prompt
+
+
+def test_explore_mode_opening_focuses_on_information_gathering() -> None:
+    """Explore queries open with an exploration framing (solving the task is
+    part of information gathering); solve queries keep the solving opening."""
+    utils.reset_config({"seed": 0})
+    prompt = _render_explore(_make_task(None))
+    assert prompt.startswith("You are exploring a task environment")
+    assert "part of information gathering" in prompt
+    solve_prompt = _render(_make_task(None))
+    assert solve_prompt.startswith("You are solving a task.")
+    assert "part of information gathering" not in solve_prompt
+
+
+def test_explore_mode_early_stop_note_credits_exploration_plans() -> None:
+    """The early-stop note attributes loop conclusion to the exploration plans
+    solving training (goal reached for real AND validated in the belief model),
+    and it states the refine-then-truncate mechanism."""
+    utils.reset_config({
+        "seed":
+        0,
+        "online_learning_early_stopping":
+        True,
+        "online_learning_early_stopping_require_all_attempts":
+        True,
+    })
+    prompt = _render_explore(_make_task(None))
+    assert ("The loop concludes early once the exploration plans solve "
+            "training") in prompt
+    assert "learned model solves training" not in prompt
+    assert "the plan is truncated just after that step" in prompt

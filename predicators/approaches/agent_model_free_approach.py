@@ -400,29 +400,37 @@ and update before doing anything else.**"""
                 dataset.trajectories[0].states[0]
 
     def get_interaction_requests(self) -> List[InteractionRequest]:
-        explorer = self._create_explorer()
-        requests: List[InteractionRequest] = []
-        self._requests_train_task_idxs = []
-        # A cycle's requests are all generated before any executes, so the
-        # explorer shows each query the plans already scheduled this cycle and
-        # asks for a complementary one. Fresh list per cycle.
-        self._tool_context.cycle_scheduled_plans = []
-        for _ in range(CFG.online_nsrt_learning_requests_per_cycle):
-            task_idx = self._rng.choice(len(self._train_tasks))
-            # Clear so a planning explorer's verdict is read fresh per request;
-            # non-planning explorers leave it None (no verdict).
-            self._tool_context.last_mental_model_solved = None
-            policy, termination_function = explorer.get_exploration_strategy(
-                task_idx, CFG.timeout)
-            req = InteractionRequest(train_task_idx=task_idx,
-                                     act_policy=policy,
-                                     query_policy=lambda s: None,
-                                     termination_function=termination_function,
-                                     mental_model_solved=self._tool_context.
-                                     last_mental_model_solved)
-            requests.append(req)
-            self._requests_train_task_idxs.append(task_idx)
-        return requests
+        # Explore sessions carry their own phase tag (see the mixin's
+        # ``_explore_phase``) so their system prompt logs separately
+        # from the solve and synthesis ones.
+        self._explore_phase = True
+        try:
+            explorer = self._create_explorer()
+            requests: List[InteractionRequest] = []
+            self._requests_train_task_idxs = []
+            # A cycle's requests are all generated before any executes, so
+            # the explorer shows each query the plans already scheduled this
+            # cycle and asks for a complementary one. Fresh list per cycle.
+            self._tool_context.cycle_scheduled_plans = []
+            for _ in range(CFG.online_nsrt_learning_requests_per_cycle):
+                task_idx = self._rng.choice(len(self._train_tasks))
+                # Clear so a planning explorer's verdict is read fresh per
+                # request; non-planning explorers leave it None (no verdict).
+                self._tool_context.last_mental_model_solved = None
+                policy, termination_function = \
+                    explorer.get_exploration_strategy(task_idx, CFG.timeout)
+                req = InteractionRequest(
+                    train_task_idx=task_idx,
+                    act_policy=policy,
+                    query_policy=lambda s: None,
+                    termination_function=termination_function,
+                    mental_model_solved=self._tool_context.
+                    last_mental_model_solved)
+                requests.append(req)
+                self._requests_train_task_idxs.append(task_idx)
+            return requests
+        finally:
+            self._explore_phase = False
 
     def learn_from_interaction_results(
             self, results: Sequence[InteractionResult]) -> None:

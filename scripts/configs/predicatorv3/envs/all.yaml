@@ -388,6 +388,10 @@ ENVS:
     FLAGS:
       max_initial_demos: 1
       horizon: 3000
+      # A full assembly plan runs well past the common 500-step cap
+      # (12 of 19 options already cost ~483 steps), so give explore
+      # episodes enough room to finish an experiment.
+      max_num_steps_interaction_request: 1000
       # Unweighted skeleton search is slow on the multi-joint goal;
       # with weight 10 plans land in ~1.5 s.
       process_planning_heuristic_weight: 10.0

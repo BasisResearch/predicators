@@ -8,6 +8,7 @@ asking the agent for a plan sketch in the grammar that
 from typing import Optional, Sequence, Set
 
 from predicators import utils
+from predicators.settings import CFG
 from predicators.structs import ParameterizedOption, Predicate, Task
 
 
@@ -134,20 +135,65 @@ def build_solve_prompt(
         experiment_section = (f"\n## Experiment Guidance\n"
                               f"{experiment_guidance}\n")
 
-    belief_model_section = ""
+    # Everything explore-specific lives in this ONE section: loop
+    # context, belief-model semantics, and experiment-design principles.
+    # The deliverable contract stays in closing_block; the system prompt
+    # never repeats any of it.
+    setting_section = ""
     if explore_mode:
-        belief_model_section = (
-            "\n## Belief-Model Simulator\n"
-            "The simulator behind your tools is the current BELIEF MODEL: "
-            "known base physics plus whatever additional dynamics have been "
+        early_stop_note = ""
+        if (CFG.online_learning_early_stopping
+                and not CFG.online_learning_early_stopping_by_test_solve_rate):
+            attempts_clause = (
+                "every episode of a cycle"
+                if CFG.online_learning_early_stopping_require_all_attempts else
+                "each train task's first episode of a cycle")
+            early_stop_note = (
+                " The loop concludes early once the exploration plans "
+                f"solve training: {attempts_clause} must reach the goal "
+                "for real, AND the plan must have validated in the belief "
+                "model - a lucky real success from a plan the model could "
+                "not certify does not count. Once the belief model can "
+                "validate a goal-reaching plan, submitting it (even "
+                "unchanged) is how the loop concludes.")
+        setting_section = (
+            "\n## Exploration Setting\n"
+            "You are the explorer in an online learning loop: the plan "
+            "you submit runs in the REAL environment as an experiment, "
+            "and its episode data is what the next learning phase uses "
+            "to correct the belief model." + early_stop_note + "\n\n"
+            "The simulator behind your tools is that belief model: known "
+            "base physics plus whatever additional dynamics have been "
             "learned from real interaction data so far. A mechanism that "
             "has not been learned yet is simply ABSENT from it - the "
-            "simulator shows zero effect for that mechanism no matter how "
-            "you arrange the probe, and early in learning this can include "
-            "the very mechanism the goal depends on. Treat a null effect "
-            "after a few well-aimed probes as \"not in the belief model "
-            "yet\", NOT as evidence about the real environment, and do not "
-            "spend the session exhaustively confirming the absence.\n")
+            "simulator shows zero effect no matter how you arrange the "
+            "probe, and early in learning this can include the very "
+            "mechanism the goal depends on. Treat a null effect after a "
+            "few well-aimed probes as \"not in the belief model yet\", "
+            "not as evidence about the real environment, and do not "
+            "spend the session exhaustively confirming the absence.\n\n"
+            "Design the experiment accordingly. A goal-reaching, "
+            "simulator-validated plan is ideal when the model supports "
+            "one; when the goal depends on a mechanism the model lacks, "
+            "submit the plan most likely to achieve the goal in reality "
+            "- reason from the goal description, the scene geometry, and "
+            "physical common sense - and annotate the subgoals that "
+            "SHOULD hold if the mechanism works: the disagreement "
+            "between prediction and reality is exactly the signal "
+            "exploration exists to collect, so a simulator-failing "
+            "sketch is a valid deliverable, and grinding for a validated "
+            "plan the model cannot produce is wasted budget. An "
+            "experiment's information comes from the steps the belief "
+            "model cannot predict. Before running, your sketch's "
+            "continuous parameters are refined in the belief model, and "
+            "when refinement cannot establish a step's annotated "
+            "subgoals the plan is truncated just after that step - "
+            "steps beyond the disagreement never execute. So reach the "
+            "first such step as early and cheaply as the task allows, "
+            "and follow it with a step whose outcome reveals whether "
+            "the mechanism worked - a short plan that exercises the "
+            "unknown beats a long one that spends the episode's steps "
+            "on what the model already predicts.\n")
 
     scheduled_plans_section = ""
     if scheduled_plans:
@@ -410,23 +456,8 @@ def build_solve_prompt(
         submit_guidance = (
             f"You may vet a sketch with {refine_ref} before finishing; "
             "the backtracking search will find continuous parameters.")
-    if explore_mode:
-        submit_guidance += (
-            " Your plan will be executed in the REAL environment as an "
-            "experiment, and the data it produces is what the next "
-            "learning cycle uses to correct the belief model. A plan "
-            "that reaches the goal in the simulator is ideal when one "
-            "exists; when the goal depends on a mechanism the belief "
-            "model lacks (see the Belief-Model Simulator section), "
-            "still submit the plan most likely to achieve the goal in "
-            "reality - reason from the goal description, the scene "
-            "geometry, and physical common sense - and annotate the "
-            "subgoals that SHOULD hold if the mechanism works. The "
-            "disagreement between the model's prediction and reality "
-            "is exactly the signal exploration exists to collect, so a "
-            "simulator-failing sketch is a valid, useful deliverable "
-            "there. Do NOT keep searching for a simulator-validated "
-            "plan the belief model cannot produce.")
+    # Explore-specific delivery guidance lives in the Exploration
+    # Setting section above (single source); nothing to append here.
 
     if require_tool_validation:
         # Plain text is NOT a submission in this mode; saying "output the
@@ -454,12 +485,25 @@ def build_solve_prompt(
             "Output ONLY the plan sketch lines at the end, after any "
             "analysis.")
 
-    prompt = f"""You are solving a task. \
-Generate a plan sketch to achieve the goal.
-{goal_nl_section}{scoring_section}{goal_atoms_section}{belief_model_section}\
+    atoms_block = chr(10).join(atom_strs) if atom_strs else (
+        "  (none - no atom of the available predicates holds initially)")
+
+    if explore_mode:
+        opening = (
+            "You are exploring a task environment to gather information. "
+            "Generate a plan sketch to run in the real environment as an "
+            "experiment. Achieving the goal is the most informative "
+            "experiment available, so treat solving the task as part of "
+            "information gathering.")
+    else:
+        opening = ("You are solving a task. Generate a plan sketch to "
+                   "achieve the goal.")
+
+    prompt = f"""{opening}
+{goal_nl_section}{scoring_section}{goal_atoms_section}{setting_section}\
 {experiment_section}
 ## Initial State Atoms
-{chr(10).join(atom_strs)}
+{atoms_block}
 
 ## Initial State Features
 {state_str}
@@ -481,26 +525,14 @@ Use your available tools to inspect the environment before producing the plan.
 
 {submit_guidance}
 
-Annotate subgoal atoms after EVERY step whose effect your predicates can \
-express, using `-> {{atoms}}`. Prefer atoms that NEWLY hold (or stop \
-holding) because of the step — atoms that were already true beforehand \
-reveal nothing. Annotations are load-bearing: the search validates each \
-annotated step, and during execution they are checked against the real \
-state so a diverged step triggers replanning instead of silently dooming \
-the rest of the plan.
-
-After any action whose desired subgoal depends on a delayed process (e.g. \
-water filling, dominoes cascading, heating), insert a Wait action. For Wait \
-steps, annotate with the atoms the process should produce — this tells the \
-system exactly when the Wait should end rather than terminating on any \
-incidental atom change. Use `NOT Pred(...)` for atoms that should become false.
-
 {format_block}
 
-Always use typed references (obj:type) in both option arguments AND subgoal \
-atoms. If you omit `-> {{atoms}}` on a step, the search only checks that the \
-option executed (non-zero actions) and execution monitoring is blind there — \
-omit it only when no available predicate can express the step's effect.
+Follow the system prompt's Subgoal Annotations contract: annotate every \
+step whose effect the available predicates can express (typed obj:type \
+references in arguments and atoms alike), insert a Wait after any action \
+whose subgoal depends on a delayed process, and annotate each Wait with \
+the atoms that should end it. A step without `-> {{atoms}}` is only \
+checked for "executed" - search and execution monitoring are blind there.
 
 {closing_block}"""
 

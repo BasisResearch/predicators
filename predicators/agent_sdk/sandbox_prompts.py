@@ -4,9 +4,13 @@ Both ``LocalSandboxSessionManager`` and ``DockerSessionManager`` use
 these constants and builder functions so that prompt text stays in sync.
 Sandbox directory scaffolding lives in :mod:`sandbox_setup`.
 """
+import re
 from typing import Optional
 
 from predicators.agent_sdk.tools import BUILTIN_TOOLS
+
+# Matches "1. ", "12) " etc. at the start of a stripped line.
+_NUMBERED_ITEM_RE = re.compile(r"^\d+[.)]\s")
 
 # ---------------------------------------------------------------------------
 # Prompt template builders
@@ -72,6 +76,11 @@ _CLAUDE_MD_RULES = """\
 - Do NOT inspect predicators source code (e.g. via `inspect.getsource()`,
   `inspect.getfile()`, reading `.py` files from site-packages, or any other
   method). Use the MCP tools and reference files instead.
+- Do NOT reach into harness internals from executed code. In particular
+  `State.privileged`, the probe's `_ctx`, and env flags/attributes are
+  hidden environment ground truth and are blocked. Learn the world model
+  from observable state features and the documented tool surface only -
+  a conclusion derived from hidden internals is an invalid result.
 """
 
 _CLAUDE_MD_SOLVE_STRATEGY = """\
@@ -171,7 +180,9 @@ def build_claude_md(phase: Optional[str] = None) -> str:
         else:
             hint = _VISUALIZE_HINT_GENERIC
         strategy = _CLAUDE_MD_SOLVE_STRATEGY.format(visualize_hint=hint)
-    return _CLAUDE_MD_HEADER + strategy + _CLAUDE_MD_RULES
+    # The templates are authored as hard-wrapped markdown; render one
+    # line per paragraph, consistent with the system prompts.
+    return unwrap_prose_lines(_CLAUDE_MD_HEADER + strategy + _CLAUDE_MD_RULES)
 
 
 def build_sandbox_system_prompt(
@@ -186,57 +197,59 @@ def build_sandbox_system_prompt(
         workspace_description: How the workspace directory is described.
         ref_path: Path to reference files shown in examples.
     """
-    return f"""
+    return ("\n\n## Sandbox Environment\n"
+            f"You are running in {env_description}. You have the "
+            f"following built-in tools available: {_BUILTIN_TOOLS_STR}."
+            "\n\n"
+            f"Your workspace is {workspace_description}; all file "
+            "operations are restricted to it. The workspace's CLAUDE.md "
+            "documents the rest of the layout and rules: the `python3` "
+            "interpreter (the predicators package is importable), "
+            f"curated API references in {ref_path}, past session logs, "
+            "saved scene images and proposed code, and the file-access "
+            f"rules. Read the {ref_path} files to understand the system "
+            "APIs before writing code.\n")
 
-## Sandbox Environment
-You are running in {env_description}. You have the following
-built-in tools available: {_BUILTIN_TOOLS_STR}.
 
-Your workspace is {workspace_description}. All file operations (Read, Write,
-Edit, Glob, Grep) are restricted to this directory.
+def unwrap_prose_lines(text: str) -> str:
+    """Join hard-wrapped prose lines into single-line paragraphs.
 
-### Writing and Running Code
-You can write Python scripts and execute them with `python3`:
-```
-python3 my_script.py
-```
-The predicators package is importable in your scripts:
-```python
-from predicators.structs import State, Type, Object, Predicate
-from predicators.structs import ParameterizedOption, Action
-```
-
-### Reference Files
-Curated API reference files are in {ref_path}.
-Read these files to understand the system APIs before writing code.
-
-### Session Logs
-Your past queries and tool results are saved in ./session_logs/ as markdown
-files named `<NNN>_<kind>_<timestamp>.md` (e.g. `001_learn_...md`,
-`002_test_...md`). The counter comes first so alphabetical sort matches
-chronological order. Use Glob and Read to review previous attempts:
-```
-Glob ./session_logs/*.md
-Read ./session_logs/001_learn_*.md
-```
-
-### Scene Images
-`evaluate_option_plan` automatically saves scene images to ./test_images/
-after each plan step for later review.
-
-### Proposed Code
-All proposal code and option source code is saved to ./proposed_code/.
-Proposals are numbered (e.g. `001_propose_options_Pick.py`); saved
-option source uses the option name (e.g. `Pick.py`):
-```
-Glob ./proposed_code/*.py
-Read ./proposed_code/001_propose_options_Pick.py
-```
-
-### Rules
-- Do NOT try to read or browse files outside the sandbox directory
-- Do NOT modify files in ./reference/
-- Do NOT inspect predicators source code via `inspect.getsource()`,
-  `inspect.getfile()`, or by reading `.py` files from site-packages.
-  Use MCP tools and reference files instead.
-"""
+    Prompt templates authored as triple-quoted markdown are wrapped at
+    source-code width; the rendered prompt should not carry those manual
+    line breaks (one line per paragraph, like the prompts built from
+    concatenated string literals). Joins a line onto the previous one
+    when both are plain prose (or the previous is a list item and the
+    current is its continuation). Preserves verbatim: blank lines,
+    fenced code blocks, headings, list items, tables, blockquotes, and
+    indented lines.
+    """
+    out: list = []
+    in_fence = False
+    for line in text.split("\n"):
+        stripped = line.lstrip()
+        is_fence = stripped.startswith("```")
+        if is_fence:
+            in_fence = not in_fence
+            out.append(line)
+            continue
+        if in_fence:
+            out.append(line)
+            continue
+        starts_structure = (
+            not stripped  # blank
+            or line[0] in " \t"  # indented (code/aligned examples)
+            or stripped.startswith(("#", ">", "|"))  # heading/quote/table
+            or stripped.startswith(("- ", "* ", "+ "))  # list item
+            or _NUMBERED_ITEM_RE.match(stripped) is not None)
+        prev = out[-1] if out else ""
+        prev_stripped = prev.lstrip()
+        prev_joinable = (
+            bool(prev_stripped) and prev_stripped != "---"
+            and prev[0] not in " \t"  # never join onto verbatim lines
+            and not prev_stripped.startswith(
+                ("#", "|", ">")) and not prev_stripped.startswith("```"))
+        if starts_structure or not prev_joinable:
+            out.append(line)
+        else:
+            out[-1] = prev.rstrip() + " " + stripped
+    return "\n".join(out)

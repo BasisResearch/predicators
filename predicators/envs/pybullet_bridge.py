@@ -73,7 +73,7 @@ from predicators.pybullet_helpers.objects import create_object, \
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, DerivedPredicate, EnvironmentTask, \
-    GroundAtom, Object, Predicate, State, Type
+    GroundAtom, Object, Observation, Predicate, State, Type
 
 # Faces that can be wetted with glue (block-local frame).
 GLUE_FACES = ("top", "end_a", "end_b")
@@ -213,6 +213,20 @@ class PyBulletBridgeEnv(PyBulletEnv):
     # so it round-trips through _set_state like any other feature.
     wet_streak_steps: ClassVar[int] = 3
     _WET_PARTIAL: ClassVar[float] = 0.2
+
+    @classmethod
+    def glue_dab_dwell_steps(cls) -> int:
+        """How long the MoveTo skill holds a reached glue target before
+        retreating.
+
+        Derived from the hidden wetting law (+1 covers the
+        approach/retreat edge steps), but exposed under a neutral name:
+        the bridge options file is copied verbatim into the agent
+        sandbox as a skill reference, so it must not spell out
+        ``wet_streak_steps`` or the consecutive-dwell requirement.
+        """
+        return cls.wet_streak_steps + 1
+
     # Dab points hover this far off the face surface.
     dab_margin: ClassVar[float] = 0.005
     # Stacking tolerances for the top-face cure detector (leg-on-leg).
@@ -488,11 +502,53 @@ class PyBulletBridgeEnv(PyBulletEnv):
 
     @property
     def goal_predicates(self) -> Set[Predicate]:
-        # Goals pin the full geometric layout (not just Attached): the
-        # extra atoms force the planner's bindings to a physically
-        # consistent left-to-right build (see processes.py docstring)
-        # and all of them persist in the finished bridge.
-        return {self._Attached, self._AtSite, self._NextToEnd, self._SeatedOn}
+        # Goals pin the full geometric layout: the atoms force the
+        # planner's bindings to a physically consistent left-to-right
+        # build (see processes.py docstring) and all of them persist in
+        # the finished bridge. Attached is deliberately absent - the
+        # goal is fully observable, and the row welds it implies are
+        # certified physically by the settle check in
+        # check_episode_trajectory.
+        return {self._AtSite, self._NextToEnd, self._SeatedOn}
+
+    # Settle duration for the episode certificate below: three actions'
+    # worth of physics. An unsupported span in free fall leaves the
+    # 1.5 cm NextToEnd z-window within a single action's substeps
+    # (~3.4 cm of drop), so this carries ample margin.
+    _GOAL_SETTLE_SUBSTEPS: ClassVar[int] = 60
+
+    def check_episode_trajectory(
+            self, observations: Sequence[Observation],
+            actions: Sequence[Action]) -> Tuple[bool, str]:
+        """Certify success by letting the final scene settle unactuated.
+
+        The goal is purely geometric (Attached is deliberately not in
+        it), and the base sim removes the grasp constraint AFTER an
+        action's physics substeps - so the release step's observation
+        shows an unheld block at its exact placement pose with zero
+        fall, and a DRY span row transiently satisfies the goal there.
+        Free physics settles the ambiguity: cured welds are persistent
+        constraints and hold the row up; an unwelded span drops out of
+        the NextToEnd window within one action's worth of substeps.
+        Raw ``stepSimulation`` on purpose - no robot actuation, no wet
+        tack, no cure progression - so the structure must stand by its
+        cured joints alone. Runs once at episode end, so mutating the
+        sim is safe (the env is reset before its next use).
+        """
+        ok, reason = super().check_episode_trajectory(observations, actions)
+        if not ok:
+            return ok, reason
+        for _ in range(self._GOAL_SETTLE_SUBSTEPS):
+            p.stepSimulation(physicsClientId=self._physics_client_id)
+        settled = self._get_state()
+        goal = self._current_task.goal_description
+        assert isinstance(goal, set)
+        missing = [a for a in goal if not a.holds(settled)]
+        if missing:
+            return False, ("goal geometry did not survive settling "
+                           f"(collapsed: {sorted(map(str, missing))}); an "
+                           "unwelded row cannot stand")
+        return True, ""
 
     @property
     def types(self) -> Set[Type]:
@@ -1803,16 +1859,20 @@ class PyBulletBridgeEnv(PyBulletEnv):
 
             # Goal: the n-bridge standing at the two sites. Roles are
             # task-assigned by block name, and the goal pins the full
-            # geometric layout (AtSite / NextToEnd / SeatedOn
-            # plus the ROW welds): every atom persists in the finished
-            # bridge, and the pinning forces the planner's bindings to
-            # the physically consistent left-to-right build. The SEAT
-            # joints are deliberately NOT in the goal: they are not
-            # structural (the welded row rests on the legs by gravity),
-            # and the glue that IS required -- the lateral row welds --
-            # should be discoverable as a physical necessity (the
-            # unglued middle span falls into the gap), not read off the
-            # goal.
+            # geometric layout (AtSite / NextToEnd / SeatedOn): every
+            # atom persists in the finished bridge, and the pinning
+            # forces the planner's bindings to the physically
+            # consistent left-to-right build. The SEAT joints are
+            # deliberately NOT in the goal: they are not structural
+            # (the welded row rests on the legs by gravity). Neither is
+            # Attached: the row welds are physically implied (the
+            # unwelded middle span falls into the gap, so the geometry
+            # cannot persist without them - enforced by the settle
+            # check in check_episode_trajectory), and keeping the goal
+            # fully observable lets a learned belief model represent it
+            # without access to the hidden attachment state. Discovering
+            # that the row must be glued and cured stays the agent's
+            # job - it is a physical necessity, not read off the goal.
             goal_atoms = {
                 GroundAtom(self._AtSite, [legs[0], self._sites[0]]),
                 GroundAtom(self._AtSite, [legs[1], self._sites[1]]),
@@ -1822,8 +1882,6 @@ class PyBulletBridgeEnv(PyBulletEnv):
             for left_span, right_span in zip(spans, spans[1:]):
                 goal_atoms.add(
                     GroundAtom(self._NextToEnd, [right_span, left_span]))
-                goal_atoms.add(
-                    GroundAtom(self._Attached, [left_span, right_span]))
             # Outcome-only description: it says WHAT must stand at the
             # end, never how (no glue recipe) -- discovering that the
             # row must be glued and cured before it can be seated is

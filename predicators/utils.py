@@ -1800,7 +1800,23 @@ def option_policy_to_policy(
                 wait_terminate = True
             elif result is False:
                 assert target_atoms is not None
-                if num_cur_option_steps <= 1 or num_cur_option_steps % 25 == 0:
+                if num_cur_option_steps >= CFG.wait_option_max_steps:
+                    # Backstop: a target atom the world never produces
+                    # (e.g. a learned predicate that is unevaluable on
+                    # real states) would otherwise pin the Wait until
+                    # the episode budget kills it - run_20260819 seed1
+                    # burned ~250 steps per episode this way and lost
+                    # the plan's payoff steps. Terminating here also
+                    # surfaces the model-vs-reality disagreement as an
+                    # explicit signal instead of a silent stall.
+                    logging.info(
+                        "Wait terminating: target atoms not satisfied "
+                        "within %d steps (wait_option_max_steps "
+                        "backstop). Targets: %s", num_cur_option_steps,
+                        target_atoms)
+                    wait_terminate = True
+                elif num_cur_option_steps <= 1 or \
+                        num_cur_option_steps % 25 == 0:
                     wait_debug = _format_wait_target_debug(
                         state, target_atoms, abstract_function)
                     logging.debug(
@@ -2508,7 +2524,12 @@ def run_hill_climbing(
                         best_child_node = child_node
             if parallelize:
                 # Parallelize the expensive part (heuristic computation).
-                num_cpus = mp.cpu_count()
+                # Cap the pool: cpu_count() on a large shared node (448
+                # cores observed) exceeds the per-user process rlimit,
+                # so an uncapped fork fan-out dies with EAGAIN - and
+                # more workers than work items is pure overhead anyway.
+                num_cpus = max(
+                    1, min(mp.cpu_count(), len(successors_at_depth), 32))
                 fn = lambda n: (heuristic(n.state), n)
                 with mp.Pool(processes=num_cpus) as p:
                     for child_heuristic, child_node in p.map(

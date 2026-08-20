@@ -162,27 +162,18 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
         return f"""\
 ## Predicate Invention
 
-Important: this approach has stripped the env's symbolic predicates down \
-to the "## Available Predicates" allowlist above (just `Holding` by \
-default). You must invent everything else used as a subgoal in plan \
-sketches - placements (object-at-target relations), device states \
-(on / off), and process completions (a rule-driven feature reaching a \
-target value) - by writing them to `{path}` as `LEARNED_PREDICATES`. \
-See the system prompt section "Predicate Invention" for the file format.
+Only the predicates in "## Available Predicates" above exist - this \
+approach stripped the env's symbolic predicates down to that allowlist. \
+Invent every other subgoal predicate (placements, device states, \
+process completions) in `{path}` as `LEARNED_PREDICATES`; the file \
+format, parameter sharing, coverage rules, and verification protocol \
+are in the system prompt's "Predicate Invention" section.
 
 {goal_block}\
 Goal achievement is checked externally - the env owns the goal \
-definition. You do **not** need to invent goal predicates or match any \
-env predicate names. To check whether a state satisfies the goal, call \
-the black-box goal-atom check `is_goal_state(state, task_idx)` \
-(equivalently \
-`train_tasks[task_idx].goal_holds(state)`). Refinement uses the same \
-env-side check, so your invented predicates are free to use any names \
-you like and only need to support plan-sketch subgoals (gating Wait, \
-Place, etc.). Aim for coverage: every option you will use in a sketch \
-should have a predicate that expresses its post-condition, so each \
-sketch step can be subgoal-annotated (annotations drive refinement \
-validation, execution monitoring, and replanning).
+definition; check any state with the black-box `is_goal_state` (see \
+above). Your invented predicates only need to support plan-sketch \
+subgoals (gating Wait, Place, etc.) and may use any names.
 
 Failure trajectories are signal: when an interaction trajectory has \
 `reached_goal=False`, look for points where your predicate was true but \
@@ -221,6 +212,15 @@ names. Any predicate you reference in a sketch must exist in \
             return f"Goal (natural language): {seen[0]}\n\n"
         bullets = "\n".join(f"  - {g}" for g in seen)
         return f"Goals across train tasks (natural language):\n{bullets}\n\n"
+
+    def _synthesis_workflow_extra(self) -> str:
+        # The base workflow's step 4 depends on invented predicates:
+        # sketches can only reference predicates that already exist.
+        return (
+            "\nStep 4's sketches need subgoal predicates that do not "
+            "exist until you invent them: before validating, write them "
+            "to `predicates.py` and load with `evaluate_predicate_quality` "
+            "(see \"Predicate Invention\").")
 
     def _extra_synthesis_system_prompt(self) -> str:
         # The scene workbench is the sim probe inside run_python (the
@@ -451,38 +451,20 @@ steps; a step with no annotatable effect is unmonitored. While drafting \
 sketches, a step you cannot annotate with any invented predicate is a \
 missing predicate - invent it.
 
-Verifying classifiers against the scene and data (applies to all predicates):
-
-A classifier picks features and parameter values; both can be wrong. Do \
-not pick either from intuition - verify before committing. CLAUDE.md \
-contains the full threshold-fitting protocol (bucket steps by downstream \
-effect, check for a knife-edge gap, visualize, then refit); follow it \
-whenever you fit a numeric cutoff. The two workbenches you'll lean on:
-
-- __SCENE_WORKBENCH__ (available for any PyBullet env): \
-use whenever a predicate depends on geometry. A body's recorded pose \
-often doesn't coincide with the feature that matters (a body center vs. \
-an outlet on its side, a joint base vs. an end-effector tip, a container \
-origin vs. its opening, a switch housing vs. its handle). On one \
-__SCENE_RENDER_REF__ render, overlay the recorded object origin and the \
-positions where the gated effect did vs. did not fire - the gap between \
-the origin and the effect-firing cluster, expressed in the fixture's \
-local frame, is the anchor offset the predicate needs. Confirm what's \
-actually where before encoding a threshold.
-- `run_python` (numerical workbench): iterate trajectory states and \
-compute the candidate classifier (or its underlying numeric expression) \
-at each step. The right parameter values cleanly separate the steps \
-where a downstream effect actually happens - the relevant rule feature \
-advances, the goal-relevant quantity changes - from the steps where it \
-doesn't. Sweep candidates against that signal and pick by separation. \
-This applies to every kind of predicate: placement thresholds, \
-process-completion cutoffs, on/off comparison points, etc. The two \
-buckets must separate by a clear margin; if they overlap or separate \
-only by a knife-edge gap (~5% of the value range or narrower), the \
-candidate quantity references the wrong point - a threshold flush \
-against the data boundary is a rejected fit. Do not widen the threshold \
-to absorb the gap: add a learned, rotation-aware anchor offset (shared \
-with the gating rule) and re-bucket. Visualize before fitting.
+Verifying classifiers against the scene and data (applies to all \
+predicates): a classifier picks features and parameter values, and both \
+can be wrong - never commit either from intuition. Follow CLAUDE.md's \
+threshold-fitting protocol whenever you fit a numeric cutoff: bucket \
+trajectory steps by whether the downstream effect actually happened, \
+require the buckets to separate by a clear margin (overlap or a \
+knife-edge gap means the candidate quantity references the wrong point \
+- add a learned, rotation-aware anchor offset shared with the gating \
+rule instead of widening the threshold), and visualize before fitting. \
+Your two workbenches: __SCENE_WORKBENCH__ for geometry - a body's \
+recorded pose origin often is not the functional point (body center vs. \
+outlet, joint base vs. tool tip, housing vs. handle), so use one \
+__SCENE_RENDER_REF__ render to confirm what's actually where - and \
+`run_python` for the numeric sweep over trajectory states.
 
 Validate with `evaluate_predicate_quality` (cheap; reports first-flip step, \
 monotonicity, coverage across all available trajectories). On goal-reaching \

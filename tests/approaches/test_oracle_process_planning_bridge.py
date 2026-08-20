@@ -103,14 +103,23 @@ def test_oracle_process_planning_solves_bridge_task():
     assert policy is not None, "oracle_process_planning returned no policy"
 
     env.reset("test", 0)
+    goal_step = None
     for step in range(CFG.horizon):
         if test_task.goal_holds(env._current_state):
             logger.info("Goal reached after %d env steps.", step)
-            return
+            goal_step = step
+            break
         action = policy(env._current_state)
         env.step(action)
-    assert test_task.goal_holds(env._current_state), (
+    assert goal_step is not None, (
         f"Policy executed for {CFG.horizon} steps but goal not reached. "
         f"Final state predicates: "
         f"{utils.abstract(env._current_state, env.predicates)}; "
         f"required goal: {test_task.goal}")
+    # The demonstrator's episodes are certified through
+    # check_episode_trajectory (the settle certificate): the finished
+    # bridge must keep the geometric goal under free physics - its butt
+    # joints are welded, and the unwelded seat joints rest on the leg
+    # tops by gravity. A dry row would collapse here instead.
+    ok, reason = env.check_episode_trajectory([env._current_state], [])
+    assert ok, f"oracle bridge failed the settle certificate: {reason}"

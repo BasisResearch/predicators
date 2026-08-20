@@ -87,14 +87,15 @@ def _make_python_exec_tool(
         # sandbox's PreToolUse file-path hook does not cover MCP tools, so
         # screen the code here for out-of-sandbox reads / source
         # introspection before executing (best-effort; see
-        # _screen_text_for_sandbox_escape).
-        if sandbox_dir is not None:
-            reason = _screen_text_for_sandbox_escape(code, sandbox_dir)
-            if reason is not None:
-                return text_result(
-                    f"Error: sandbox guard blocked this code - {reason}. "
-                    "Read files with Read/Grep and use the MCP tools and "
-                    "./reference/ files instead.")
+        # _screen_text_for_sandbox_escape). Screened even with no
+        # sandbox_dir: the hidden-state and hidden-module screens guard
+        # the in-process namespace, which exists either way.
+        reason = _screen_text_for_sandbox_escape(code, sandbox_dir)
+        if reason is not None:
+            return text_result(
+                f"Error: sandbox guard blocked this code - {reason}. "
+                "Read files with Read/Grep and use the MCP tools and "
+                "./reference/ files instead.")
         rollouts_before = 0
         if budget_ctx is not None:
             rollouts_before = budget_ctx.attempt_rollout_count

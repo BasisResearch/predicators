@@ -48,14 +48,14 @@ _SETTLE_CONTACT_DIST = 1e-4
 
 
 def _held_assembly_in_contact(state: State) -> bool:
-    """True when the held object, or any body welded to it, touches a body
-    outside the held assembly (the robot excluded).
+    """True when the held object, or any body rigidly attached to it, touches a
+    body outside the held assembly (the robot excluded).
 
-    Weld partners matter: a carried welded assembly (e.g. a fused span
-    row) usually touches down through an OUTER member, not the grasped
-    one. The assembly is discovered generically by BFS over the client's
-    fixed constraints, skipping the grasp constraint (any fixed
-    constraint involving the robot body).
+    Attached partners matter: a carried multi-body assembly usually
+    touches down through an OUTER member, not the grasped one. The
+    assembly is discovered generically by BFS over the client's fixed
+    constraints, skipping the grasp constraint (any fixed constraint
+    involving the robot body).
     """
     sim_state = getattr(state, "simulator_state", None)
     if not isinstance(sim_state, dict):
@@ -180,8 +180,8 @@ def create_place_skill(
             its goal is intentionally at/inside the support) that
             lowers the held object up to this many meters below
             ``release_z`` and stops at the FIRST contact of the held
-            assembly (the held object or anything welded to it)
-            with a body outside the assembly. The release then
+            assembly (the held object or anything rigidly attached
+            to it) with a body outside the assembly. The release then
             happens at essentially zero gap, eliminating the
             free-fall bounce-and-slide scatter of an open-loop drop.
             ``release_z`` stays the (collision-checked) descend goal,
