@@ -440,8 +440,10 @@ def test_ids_are_matched_once_per_episode_not_per_segment(caplog):
                     ([_domino_state(after_place)] + toppling, [])]
 
     with caplog.at_level("WARNING"):
-        maps = _episode_id_maps([track], trajectories,
-                                SysIdConfig.from_cfg(), paired=False)
+        maps = _episode_id_maps([track],
+                                trajectories,
+                                SysIdConfig.from_cfg(),
+                                paired=False)
 
     expected = {"domino_0": 0, "domino_1": 1, "domino_2": 2}
     assert maps == [expected, expected], \
@@ -502,7 +504,9 @@ def test_the_anchor_survives_a_take_that_starts_at_the_push(tmp_path):
     # One episode, split into two scored segments by the place.
     segments = [(states[:10], []), (states[10:], [])]
 
-    maps = _episode_id_maps([track], segments, SysIdConfig.from_cfg(),
+    maps = _episode_id_maps([track],
+                            segments,
+                            SysIdConfig.from_cfg(),
                             paired=False)
 
     expected = {"domino_0": 2, "domino_1": 0, "domino_2": 1}
@@ -578,7 +582,9 @@ def test_names_are_not_a_fallback_for_a_track_that_has_positions(
                                  1: (0.70, 1.30)
                              })
 
-    maps = _episode_id_maps([track], trajectories, SysIdConfig.from_cfg(),
+    maps = _episode_id_maps([track],
+                            trajectories,
+                            SysIdConfig.from_cfg(),
                             paired=True)
 
     assert maps == [{}], \
@@ -638,7 +644,9 @@ def test_paired_tracks_still_anchor_on_their_own_episode():
 
     trajectories = [(_episode(layout_a), []), (_episode(layout_b), [])]
 
-    maps = _episode_id_maps(tracks, trajectories, SysIdConfig.from_cfg(),
+    maps = _episode_id_maps(tracks,
+                            trajectories,
+                            SysIdConfig.from_cfg(),
                             paired=True)
 
     assert maps == [{
@@ -1406,11 +1414,11 @@ def test_the_objective_scores_a_cascade_the_same_however_slow_it_was(
     """The scaling has to reach the objective, not just exist beside it.
 
     Two episodes disagreeing by the SAME FRACTION of their own cascade
-    must score identically: one cascade takes twice as long as the
-    other and the twin is wrong by twice as much, so the twin is equally
-    wrong in both. In raw seconds the slow one scores 4x the fast one
-    purely for having taken longer, which is what let a slow cascade sit
-    above the trim bar while an identically-wrong fast one passed.
+    must score identically: one cascade takes twice as long as the other
+    and the twin is wrong by twice as much, so the twin is equally wrong
+    in both. In raw seconds the slow one scores 4x the fast one purely
+    for having taken longer, which is what let a slow cascade sit above
+    the trim bar while an identically-wrong fast one passed.
     """
     fast_dir = tmp_path / "fast"
     slow_dir = tmp_path / "slow"
@@ -1482,6 +1490,7 @@ def test_interval_residuals_are_a_fraction_of_the_observed_span():
     """
     # pylint: disable-next=import-outside-toplevel
     from predicators.code_sim_learning.rollout_objective import _interval_scale
+
     # A real cascade: the span is the last domino's interval.
     obs = {3: 0.0, 2: 0.7669, 1: 0.9001, 0: 1.0668}
     sim = {3: 0.0, 2: 0.0833, 1: 0.4167, 0: 0.5833}
@@ -1514,18 +1523,20 @@ def test_a_trajectory_with_no_residuals_scores_infinite_not_zero(monkeypatch):
     """
     # pylint: disable-next=import-outside-toplevel
     import numpy as np
+
     # pylint: disable-next=import-outside-toplevel
     from predicators.code_sim_learning import rollout_objective
 
     def _fake(_env, trajectories, *_a, **_k):
-        """Empty for the first trajectory, two real residuals for the second."""
+        """Empty for the first trajectory, two real residuals for the
+        second."""
         return (np.asarray([], dtype=float) if trajectories[0][0] == "empty"
                 else np.asarray([0.3, 0.4], dtype=float))
 
     monkeypatch.setattr(rollout_objective, "compute_rollout_residuals", _fake)
-    rms = rollout_objective.per_trajectory_rms(None,
-                                               [("empty", []), ("real", [])],
-                                               {}, {}, [])
+    rms = rollout_objective.per_trajectory_rms(None, [("empty", []),
+                                                      ("real", [])], {}, {},
+                                               [])
 
     assert math.isinf(rms[0]), \
         "a trajectory nothing could be measured on must not score 0.0, " \
@@ -1547,6 +1558,7 @@ def test_per_trajectory_rms_reports_the_callers_own_episode_count(monkeypatch):
     """
     # pylint: disable-next=import-outside-toplevel
     import numpy as np
+
     # pylint: disable-next=import-outside-toplevel
     from predicators.code_sim_learning import rollout_objective
 

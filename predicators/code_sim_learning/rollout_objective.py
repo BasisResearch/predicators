@@ -883,9 +883,14 @@ def per_trajectory_rms(
     """
     out: List[float] = []
     for traj in trajectories:
-        res = compute_rollout_residuals(base_env, [traj], params,
-                                        residual_features, physical_names,
-                                        rules, latent_init, scaling, config,
+        res = compute_rollout_residuals(base_env, [traj],
+                                        params,
+                                        residual_features,
+                                        physical_names,
+                                        rules,
+                                        latent_init,
+                                        scaling,
+                                        config,
                                         episode_count=len(trajectories))
         out.append(
             float(np.sqrt(np.mean(res**2))) if res.size else float("inf"))
