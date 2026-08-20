@@ -4,6 +4,8 @@ Covers: SkillConfig, Phase, PhaseSkill, create_wait_option,
         make_move_to_phase, create_move_to_skill,
         create_pick_skill, create_place_skill, create_push_skill.
 """
+import logging
+
 import numpy as np
 import pybullet as p
 import pytest
@@ -26,6 +28,7 @@ from predicators.ground_truth_models.skill_factories.wait import \
 from predicators.pybullet_helpers.geometry import Pose
 from predicators.pybullet_helpers.inverse_kinematics import \
     InverseKinematicsError
+from predicators.pybullet_helpers.objects import create_pybullet_block
 from predicators.pybullet_helpers.robots import \
     create_single_arm_pybullet_robot
 from predicators.structs import Action, Object, ParameterizedOption, Type
@@ -1317,7 +1320,7 @@ class TestIkStallAbort:
 
 
 # ---------------------------------------------------------------------------
-# PhaseSkill._solve_goal_ik acceptance logic
+# PhaseSkill._solve_goal_ik_candidates acceptance logic
 # ---------------------------------------------------------------------------
 
 
@@ -1332,6 +1335,10 @@ class _FakeGoalIkRobot:
     joint_lower_limits = [-3.0] * 7
     joint_upper_limits = [3.0] * 7
     initial_joint_positions = [0.0] * 7
+    # Accepted candidates get their finger entries pinned to the current
+    # finger positions (IK leaves fingers wherever the seed put them).
+    left_finger_joint_idx = 5
+    right_finger_joint_idx = 6
 
     def __init__(self, target_pose: Pose, one_shot_error_m: float) -> None:
         self._target = target_pose
@@ -1357,8 +1364,14 @@ class _FakeGoalIkRobot:
         return Pose((x, y, z - self._one_shot_error_m))
 
 
-class TestSolveGoalIk:
-    """Every accepted goal config must hit the pose under FK."""
+# Seed count inside _solve_goal_ik_candidates: current joints, home,
+# then the random restarts. Every seed is tried (branch collection).
+_GOAL_IK_NUM_SEEDS = 2 + PhaseSkill._goal_ik_num_restarts  # pylint: disable=protected-access
+
+
+class TestSolveGoalIkCandidates:
+    """Every accepted goal config must hit the pose under FK, and all distinct
+    pose-accurate branches are collected (deduplicated)."""
 
     def _make_skill(self, robot) -> PhaseSkill:
         config = _make_config(robot)
@@ -1385,12 +1398,15 @@ class TestSolveGoalIk:
         skill = self._make_skill(robot)
         target = Pose((0.77, 1.34, 0.55))
         fake = _FakeGoalIkRobot(target, one_shot_error_m=0.057)
-        result = skill._solve_goal_ik(  # pylint: disable=protected-access
+        result = skill._solve_goal_ik_candidates(  # pylint: disable=protected-access
             fake,
             target, [0.5] * 7,
             validate=False)
-        assert result == [0.1] * 7
-        assert fake.validated_calls == 1
+        # The validated branch is the only accurate one; every seed
+        # escalates to it and dedup collapses them to one candidate
+        # (fingers pinned to the current joints).
+        assert result == [[0.1] * 5 + [0.5] * 2]
+        assert fake.validated_calls == _GOAL_IK_NUM_SEEDS
 
     def test_accurate_one_shot_keeps_fast_path(self, robot_scene):
         """A one-shot within tolerance is accepted with no validated IK."""
@@ -1398,12 +1414,36 @@ class TestSolveGoalIk:
         skill = self._make_skill(robot)
         target = Pose((0.77, 1.34, 0.55))
         fake = _FakeGoalIkRobot(target, one_shot_error_m=0.002)
-        result = skill._solve_goal_ik(  # pylint: disable=protected-access
+        result = skill._solve_goal_ik_candidates(  # pylint: disable=protected-access
             fake,
             target, [0.5] * 7,
             validate=False)
-        assert result == [0.2] * 7
+        assert result == [[0.2] * 5 + [0.5] * 2]
         assert fake.validated_calls == 0
+
+    def test_distinct_branches_are_all_collected(self, robot_scene):
+        """Pose-equivalent but distinct arm branches must ALL be returned, in
+        seed order, so the motion planner can pick the first collision-free one
+        (branches are not collision-equivalent: one grasp branch swept a link 6
+        cm through a neighboring leg while another cleared it)."""
+        _, robot = robot_scene
+        skill = self._make_skill(robot)
+        target = Pose((0.77, 1.34, 0.55))
+        fake = _FakeGoalIkRobot(target, one_shot_error_m=0.0)
+        branches = [[0.1 * (i % 3)] * 7 for i in range(_GOAL_IK_NUM_SEEDS)]
+        fake.inverse_kinematics = (  # type: ignore
+            lambda *a, _it=iter(branches), **k: next(_it))
+        fake.forward_kinematics = (  # type: ignore
+            lambda joints: Pose(target.position))
+        result = skill._solve_goal_ik_candidates(  # pylint: disable=protected-access
+            fake,
+            target, [0.5] * 7,
+            validate=False)
+        assert result == [
+            [0.0] * 5 + [0.5] * 2,
+            [0.1] * 5 + [0.5] * 2,
+            [0.2] * 5 + [0.5] * 2,
+        ]
 
     def test_all_branches_inaccurate_raises(self, robot_scene):
         """When no branch hits the pose, goal IK raises instead of handing
@@ -1416,7 +1456,118 @@ class TestSolveGoalIk:
             (target.position[0], target.position[1], target.position[2] - 0.057
              ))
         with pytest.raises(InverseKinematicsError):
-            skill._solve_goal_ik(  # pylint: disable=protected-access
+            skill._solve_goal_ik_candidates(  # pylint: disable=protected-access
                 fake,
                 target, [0.5] * 7,
                 validate=False)
+
+    def test_escalated_restarts_extend_the_branch_set(self, robot_scene):
+        """More restarts only ever ADD branches, in the same order.
+
+        When every branch of the normal solve puts the goal
+        configuration in collision, ``_plan_with_simulator`` re-solves
+        with ``_goal_ik_escalated_num_restarts``. That is only worth
+        doing if the escalated solve is a superset of the normal one:
+        the deterministic seed prefix is unchanged, so a branch that
+        already failed is not re-planned, and only genuinely new
+        configurations are tried.
+        """
+        _, robot = robot_scene
+        skill = self._make_skill(robot)
+        target = Pose((0.77, 1.34, 0.55))
+        escalated_restarts = PhaseSkill._goal_ik_escalated_num_restarts  # pylint: disable=protected-access
+
+        def _make_fake():
+            fake = _FakeGoalIkRobot(target, one_shot_error_m=0.0)
+            branches = [[0.01 * i] * 7 for i in range(2 + escalated_restarts)]
+            fake.inverse_kinematics = (  # type: ignore
+                lambda *a, _it=iter(branches), **k: next(_it))
+            fake.forward_kinematics = (  # type: ignore
+                lambda joints: Pose(target.position))
+            return fake
+
+        default = skill._solve_goal_ik_candidates(  # pylint: disable=protected-access
+            _make_fake(),
+            target, [0.5] * 7,
+            validate=True)
+        escalated = skill._solve_goal_ik_candidates(  # pylint: disable=protected-access
+            _make_fake(),
+            target, [0.5] * 7,
+            validate=True,
+            num_restarts=escalated_restarts)
+        assert len(default) == _GOAL_IK_NUM_SEEDS
+        assert len(escalated) == 2 + escalated_restarts
+        # The two priority seeds still lead, and every branch the normal
+        # solve found is still offered; the restart-derived ones are
+        # ordered by proximity to the current configuration, so a wider
+        # pool cannot push a NEARER branch behind a contorted one.
+        assert escalated[:2] == default[:2]
+        assert all(cand in escalated for cand in default)
+        current = [0.5] * 7
+        spread = [
+            max(abs(a - b) for a, b in zip(cand, current))
+            for cand in escalated[2:]
+        ]
+        assert spread == sorted(spread)
+
+
+class TestCollisionDiagnosticsLogging:
+    """The diagnostics can be computed quietly, before the failure is known to
+    be final."""
+
+    def _make_skill(self, robot) -> PhaseSkill:
+        config = _make_config(robot)
+        phase = Phase(
+            name="MoveToGrasp",
+            action_type=PhaseAction.MOVE_TO_POSE,
+            target_fn=lambda *args: None,
+            use_motion_planning=True,
+        )
+        return PhaseSkill("Pick", [_ROBOT_TYPE], Box(0, 1, (0, )), config,
+                          [phase])
+
+    def test_log_errors_false_reports_without_logging(self, robot_scene,
+                                                      caplog):
+        """``log_errors=False`` returns the same strings but logs nothing.
+
+        ``_plan_with_simulator`` inspects the diagnostics to decide
+        whether to escalate the goal-IK branch search; escalating can
+        turn the failure into a success, so the ERROR lines must not be
+        emitted until the failure is final.
+        """
+        physics_client_id, robot = robot_scene
+        skill = self._make_skill(robot)
+        robot.reset_state(
+            tuple(_EE_HOME) + tuple(_get_ee_home_pose().orientation) +
+            (robot.open_fingers, ))
+        joints = robot.get_joints()
+        # A block straddling the gripper guarantees START contacts.
+        block_id = create_pybullet_block(color=(1.0, 0.0, 0.0, 1.0),
+                                         half_extents=(0.05, 0.05, 0.05),
+                                         mass=0,
+                                         friction=1,
+                                         orientation=[0., 0., 0., 1.],
+                                         physics_client_id=physics_client_id)
+        p.resetBasePositionAndOrientation(block_id,
+                                          _EE_HOME, [0., 0., 0., 1.],
+                                          physicsClientId=physics_client_id)
+        try:
+            with caplog.at_level(logging.ERROR):
+                quiet = skill._log_collision_diagnostics(  # pylint: disable=protected-access
+                    robot,
+                    physics_client_id,
+                    joints,
+                    joints, {block_id},
+                    None,
+                    None,
+                    "MoveToGrasp",
+                    log_errors=False)
+                assert quiet
+                assert not caplog.records
+                loud = skill._log_collision_diagnostics(  # pylint: disable=protected-access
+                    robot, physics_client_id, joints, joints, {block_id}, None,
+                    None, "MoveToGrasp")
+            assert loud == quiet
+            assert len(caplog.records) == len(loud)
+        finally:
+            p.removeBody(block_id, physicsClientId=physics_client_id)

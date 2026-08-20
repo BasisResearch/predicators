@@ -155,7 +155,7 @@ def test_bystander_clearance(physics_client_id):
                                      half_extents=(0.2, 0.01, 0.3),
                                      mass=0,
                                      friction=1,
-                                     orientation=[0., 0., 0., 1.],
+                                     orientation=(0., 0., 0., 1.),
                                      physics_client_id=physics_client_id)
     p.resetBasePositionAndOrientation(block_id, (1.35, 0.6, 0.5),
                                       [0., 0., 0., 1.],
@@ -186,6 +186,300 @@ def test_bystander_clearance(physics_client_id):
                                       clearance - 1e-6,
                                       physicsClientId=physics_client_id)
     p.removeBody(block_id, physicsClientId=physics_client_id)
+
+
+def test_robot_start_escape(physics_client_id):
+    """A start config with a shallow robot-vs-body contact still plans.
+
+    The planning scene is reconstructed from observable features, so a
+    phase that begins right after a grasp or a settled place can model a
+    finger or wrist link several mm inside the object it just touched.
+    Such a start is a fact, not a choice: it must not reject the whole
+    plan; the path escapes the contact instead (never going deeper than
+    it began). Start penetration deeper than the dedicated
+    ``_ROBOT_START_ESCAPE_MAX_DEPTH`` bound still rejects. Deliberately
+    run with the default shallow held-object margin: the escape window
+    must not depend on it (it once did, and dropping a bridge margin
+    override silently narrowed the window to 6 mm).
+    """
+    utils.reset_config({
+        "pybullet_birrt_contact_margin": -0.001,
+    })
+    ee_home_position = (1.35, 0.75, 0.75)
+    ee_orn = p.getQuaternionFromEuler([0.0, np.pi / 2, -np.pi])
+    ee_home_pose = Pose(ee_home_position, ee_orn)
+    robot = create_single_arm_pybullet_robot("fetch", physics_client_id,
+                                             ee_home_pose)
+    robot_init_state = tuple(ee_home_position) + tuple(
+        ee_orn, ) + (robot.open_fingers, )
+    robot.reset_state(robot_init_state)
+    joint_initial = robot.get_joints()
+    block_id = create_pybullet_block(color=(0.0, 0.0, 1.0, 1.0),
+                                     half_extents=(0.03, 0.03, 0.03),
+                                     mass=0,
+                                     friction=1,
+                                     orientation=(0., 0., 0., 1.),
+                                     physics_client_id=physics_client_id)
+
+    def _min_robot_dist(z: float) -> float:
+        p.resetBasePositionAndOrientation(block_id, (1.35, 0.75, z),
+                                          [0., 0., 0., 1.],
+                                          physicsClientId=physics_client_id)
+        robot.set_joints(joint_initial)
+        p.performCollisionDetection(physicsClientId=physics_client_id)
+        contacts = p.getContactPoints(robot.robot_id,
+                                      block_id,
+                                      physicsClientId=physics_client_id)
+        return min((c[8] for c in contacts), default=float("inf"))
+
+    # Raise the block toward the gripper until a robot link is modeled
+    # 5-12 mm inside it (the artifact depth seen in post-grasp /
+    # post-place reconstructions).
+    shallow_z = None
+    for z in np.arange(0.40, 0.80, 0.001):
+        depth = _min_robot_dist(z)
+        if -0.012 < depth < -0.005:
+            shallow_z = z
+            break
+        if depth <= -0.012:
+            break
+    assert shallow_z is not None
+    start_depth = _min_robot_dist(shallow_z)
+    ee_target = Pose((1.35, 0.75, 0.90), ee_orn)
+    joint_target = robot.inverse_kinematics(ee_target, validate=True)
+    path = None
+    # Motion planning is non-deterministic (RRT); try multiple seeds.
+    for seed in [123, 456, 789]:
+        robot.set_joints(joint_initial)
+        path = run_motion_planning(robot,
+                                   joint_initial,
+                                   joint_target,
+                                   collision_bodies={block_id},
+                                   seed=seed,
+                                   physics_client_id=physics_client_id)
+        if path is not None:
+            break
+    assert path is not None
+    # The escape never deepens the start contact beyond how it began
+    # (plus the small slack), and the goal keeps the hard margin.
+    for pt in path:
+        robot.set_joints(pt)
+        p.performCollisionDetection(physicsClientId=physics_client_id)
+        contacts = p.getContactPoints(robot.robot_id,
+                                      block_id,
+                                      physicsClientId=physics_client_id)
+        assert all(c[8] >= start_depth - 0.003 - 1e-6 for c in contacts)
+    robot.set_joints(path[-1])
+    p.performCollisionDetection(physicsClientId=physics_client_id)
+    contacts = p.getContactPoints(robot.robot_id,
+                                  block_id,
+                                  physicsClientId=physics_client_id)
+    assert all(c[8] >= -0.001 for c in contacts)
+    # Start penetration deeper than the shallow margin still signals
+    # genuine scene corruption and rejects the plan.
+    deep_z = None
+    for z in np.arange(shallow_z, 0.90, 0.002):
+        if _min_robot_dist(z) < -0.025:
+            deep_z = z
+            break
+    assert deep_z is not None
+    robot.set_joints(joint_initial)
+    path = run_motion_planning(robot,
+                               joint_initial,
+                               joint_target,
+                               collision_bodies={block_id},
+                               seed=123,
+                               physics_client_id=physics_client_id)
+    assert path is None
+    p.removeBody(block_id, physicsClientId=physics_client_id)
+
+
+def test_start_local_partner_demotion(physics_client_id):
+    """Partner status earned only at the start expires with the start.
+
+    A movable body the robot merely begins near is checked with the hard
+    contact margin only inside the start neighborhood; beyond it the
+    path may touch the body but not penetrate it. Otherwise a body
+    grazed on the way out of the start keeps a penetration allowance for
+    the entire path, which physically shoves it (a bottle retreat after
+    a glue dab repeatedly nudged an assembled row this way). Static
+    bodies cannot be shoved and keep their partner margin.
+    """
+    utils.reset_config({
+        "pybullet_birrt_contact_margin": -0.03,
+        "pybullet_birrt_bystander_clearance": 0.005,
+    })
+    ee_home_position = (1.35, 0.75, 0.75)
+    ee_orn = p.getQuaternionFromEuler([0.0, np.pi / 2, -np.pi])
+    ee_home_pose = Pose(ee_home_position, ee_orn)
+    robot = create_single_arm_pybullet_robot("fetch", physics_client_id,
+                                             ee_home_pose)
+    robot.reset_state(
+        tuple(ee_home_position) + tuple(ee_orn, ) + (robot.open_fingers, ))
+    joint_initial = robot.get_joints()
+    # The goal is on the far side of a thin wall, so the path must
+    # travel around it: plenty of opportunity to graze it mid-flight.
+    ee_target = Pose((1.35, 0.4, 0.6), ee_orn)
+    joint_target = robot.inverse_kinematics(ee_target, validate=True)
+    assert np.max(np.abs(np.subtract(joint_target, joint_initial))) > 0.5
+
+    def _plan_around_wall(mass: float, seed: int):
+        wall_id = create_pybullet_block(color=(1.0, 0.0, 0.0, 1.0),
+                                        half_extents=(0.2, 0.01, 0.3),
+                                        mass=mass,
+                                        friction=1,
+                                        orientation=(0., 0., 0., 1.),
+                                        physics_client_id=physics_client_id)
+        # Slide the wall toward the arm until the start config is just
+        # within the bystander clearance of it (earning partner status)
+        # without penetrating it.
+        near_start = False
+        for wall_y in np.arange(0.80, 0.55, -0.002):
+            p.resetBasePositionAndOrientation(
+                wall_id, (1.35, wall_y, 0.5), [0., 0., 0., 1.],
+                physicsClientId=physics_client_id)
+            robot.set_joints(joint_initial)
+            contacts = p.getClosestPoints(robot.robot_id,
+                                          wall_id,
+                                          0.005,
+                                          physicsClientId=physics_client_id)
+            distances = [c[8] for c in contacts]
+            if distances and min(distances) > 0.0:
+                near_start = True
+                break
+        assert near_start
+        robot.set_joints(joint_initial)
+        return wall_id, run_motion_planning(
+            robot,
+            joint_initial,
+            joint_target,
+            collision_bodies={wall_id},
+            seed=seed,
+            physics_client_id=physics_client_id)
+
+    for seed in [123, 456, 789]:
+        wall_id, path = _plan_around_wall(1.0, seed)
+        assert path is not None
+        num_far = 0
+        for pt in path:
+            if np.max(np.abs(np.subtract(pt, joint_initial))) < 0.5:
+                continue
+            num_far += 1
+            robot.set_joints(pt)
+            p.performCollisionDetection(physicsClientId=physics_client_id)
+            contacts = p.getContactPoints(robot.robot_id,
+                                          wall_id,
+                                          physicsClientId=physics_client_id)
+            # Beyond the start neighborhood, touching is still legal but
+            # penetrating the movable wall is not.
+            assert all(c[8] >= -1e-6 for c in contacts)
+        assert num_far > 0
+        p.removeBody(wall_id, physicsClientId=physics_client_id)
+    # The same wall, static: nothing the path does can displace it, so
+    # its partner margin stands for the whole path and planning is not
+    # made harder. (With this geometry the undemoted margin is real:
+    # seed 123 routes a link 17 mm through the static wall.)
+    wall_id, path = _plan_around_wall(0.0, 123)
+    assert path is not None
+    p.removeBody(wall_id, physicsClientId=physics_client_id)
+
+
+def test_held_attachments(physics_client_id):
+    """Bodies rigidly attached to the held object are collision-checked.
+
+    A goal that keeps the held object itself clear of an obstacle but
+    sweeps a welded attachment into it must be rejected; the same goal
+    without the attachment plans fine.
+    """
+    utils.reset_config({})
+    ee_home_position = (1.35, 0.75, 0.75)
+    ee_orn = p.getQuaternionFromEuler([0.0, np.pi / 2, -np.pi])
+    ee_home_pose = Pose(ee_home_position, ee_orn)
+    robot = create_single_arm_pybullet_robot("fetch", physics_client_id,
+                                             ee_home_pose)
+    robot_init_state = tuple(ee_home_position) + tuple(
+        ee_orn, ) + (robot.open_fingers, )
+    robot.reset_state(robot_init_state)
+    joint_initial = robot.get_joints()
+    block_kwargs = {
+        "color": (0.0, 0.0, 1.0, 1.0),
+        "half_extents": (0.03, 0.03, 0.03),
+        # Nonzero mass: Bullet generates no contacts between two static
+        # bodies, and the obstacle below is static.
+        "mass": 0.1,
+        "friction": 1,
+        "orientation": [0., 0., 0., 1.],
+        "physics_client_id": physics_client_id,
+    }
+    # The held object hangs 10 cm under the end effector; a welded
+    # partner sits 15 cm to its +y side (like a row member).
+    held_id = create_pybullet_block(**block_kwargs)
+    held_position = np.add(ee_home_position, (0.0, 0.0, -0.1))
+    p.resetBasePositionAndOrientation(held_id,
+                                      held_position, [0., 0., 0., 1.],
+                                      physicsClientId=physics_client_id)
+    attached_id = create_pybullet_block(**block_kwargs)
+    attached_position = np.add(held_position, (0.0, 0.15, 0.0))
+    p.resetBasePositionAndOrientation(attached_id,
+                                      attached_position, [0., 0., 0., 1.],
+                                      physicsClientId=physics_client_id)
+    world_to_base_link = get_link_state(
+        robot.robot_id,
+        robot.end_effector_id,
+        physics_client_id=physics_client_id).com_pose
+    base_link_to_world = p.invertTransform(world_to_base_link[0],
+                                           world_to_base_link[1])
+    base_link_to_held = p.multiplyTransforms(base_link_to_world[0],
+                                             base_link_to_world[1],
+                                             held_position, [0., 0., 0., 1.])
+    base_link_to_attached = p.multiplyTransforms(base_link_to_world[0],
+                                                 base_link_to_world[1],
+                                                 attached_position,
+                                                 [0., 0., 0., 1.])
+    # Static obstacle exactly where the ATTACHED body ends up after the
+    # planned 10 cm descent; the held object and the robot stay clear.
+    obstacle_id = create_pybullet_block(color=(1.0, 0.0, 0.0, 1.0),
+                                        half_extents=(0.05, 0.05, 0.05),
+                                        mass=0,
+                                        friction=1,
+                                        orientation=(0., 0., 0., 1.),
+                                        physics_client_id=physics_client_id)
+    p.resetBasePositionAndOrientation(obstacle_id,
+                                      np.add(attached_position,
+                                             (0.0, 0.0, -0.1)),
+                                      [0., 0., 0., 1.],
+                                      physicsClientId=physics_client_id)
+    ee_target = Pose(tuple(np.add(ee_home_position, (0.0, 0.0, -0.1))), ee_orn)
+    joint_target = robot.inverse_kinematics(ee_target, validate=True)
+    # With the attachment checked, the goal sweeps it into the obstacle.
+    path = run_motion_planning(
+        robot,
+        joint_initial,
+        joint_target,
+        collision_bodies={obstacle_id},
+        seed=123,
+        physics_client_id=physics_client_id,
+        held_object=held_id,
+        base_link_to_held_obj=base_link_to_held,
+        held_attachments={attached_id: base_link_to_attached})
+    assert path is None
+    # Without the attachment, the same goal plans fine.
+    path = None
+    for seed in [123, 456, 789]:
+        robot.set_joints(joint_initial)
+        path = run_motion_planning(robot,
+                                   joint_initial,
+                                   joint_target,
+                                   collision_bodies={obstacle_id},
+                                   seed=seed,
+                                   physics_client_id=physics_client_id,
+                                   held_object=held_id,
+                                   base_link_to_held_obj=base_link_to_held)
+        if path is not None:
+            break
+    assert path is not None
+    for body in (held_id, attached_id, obstacle_id):
+        p.removeBody(body, physicsClientId=physics_client_id)
 
 
 def test_move_to_shelf():

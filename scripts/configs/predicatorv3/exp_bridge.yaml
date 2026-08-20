@@ -13,5 +13,7 @@ ENVS:
   bridge:
     SKIP: False
 APPROACHES:
-  agent_po_predicate_invention_al:
+  agent_oracle_hybrid_sim:
     SKIP: False
+  agent_po_predicate_invention_al:
+    SKIP: True

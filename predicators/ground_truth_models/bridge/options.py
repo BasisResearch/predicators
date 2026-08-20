@@ -30,8 +30,12 @@ from predicators.structs import Array, Object, ParameterizedOption, \
 # Place params: canonical (x, y, release_z, yaw) order. All three
 # position params are HELD-OBJECT coordinates (live-compensated, see
 # compensate_held_offset / compensate_held_z below): release_z is the
-# held object's CENTER height at release -- a span dropped on the
-# table releases at ~0.435, a span seated on the leg tops at ~0.545.
+# held object's CENTER height at the END OF THE DESCENT -- the skill
+# then settles to first contact before releasing (see
+# settle_to_contact_depth below), so release_z only needs to clear the
+# scene; the block touches down with essentially no free fall. A span
+# descends over the table to ~0.428, a span seated on the leg tops to
+# ~0.545.
 _BRIDGE_PLACE_PARAMS = [
     ("target_x (world x position for the held object)",
      PyBulletBridgeEnv.workspace_x_lo, PyBulletBridgeEnv.workspace_x_hi),
@@ -46,11 +50,25 @@ _BRIDGE_PLACE_PARAMS = [
 # EE-to-held offset, so the sampled target is exactly where the held
 # object goes regardless of grasp depth or the pick's IK residual. The
 # glue samplers use this to land the held bottle's tip on a face dab
-# point (tip = center minus the bottle half-height).
+# point (tip = center minus the bottle half-height). Wetting requires
+# the tip within apply_glue_radius of the dab for wet_streak_steps
+# CONSECUTIVE steps -- the skill dwells at the reached target to
+# provide them, so glue targets must put the tip AT the dab; a
+# trajectory that merely passes through the radius never wets.
+#
+# The x bounds extend one span half-length past the block workspace: a
+# block STAGED near the workspace edge has its end-face dab point up to
+# span_half_x outside it, and clamping the glue target to the block
+# workspace silently parked the bottle tip 2.5 cm short of the dab --
+# outside the 2 cm wetting radius, so the face never wet and the joint
+# never cured. With the wider box a genuinely unreachable dab fails IK
+# loudly (and triggers a replan) instead of "succeeding" without glue.
 _BRIDGE_MOVE_TO_PARAMS = [
     ("target_x (world x position for the held object, or the EE if "
-     "empty-handed)", PyBulletBridgeEnv.workspace_x_lo,
-     PyBulletBridgeEnv.workspace_x_hi),
+     "empty-handed)",
+     PyBulletBridgeEnv.workspace_x_lo - PyBulletBridgeEnv.span_half_extents[0],
+     PyBulletBridgeEnv.workspace_x_hi +
+     PyBulletBridgeEnv.span_half_extents[0]),
     ("target_y (world y position for the held object, or the EE if "
      "empty-handed)", 1.1, 1.6),
     ("target_z (world z height for the held object, or the EE if "
@@ -116,6 +134,14 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
             # a neighboring block, poisoning the next option's BiRRT
             # start config.
             lift_dz=0.03,
+            # A grasp_z_offset near the pads' upper engagement edge
+            # (>= ~1 cm on a standing leg) makes the closing fingers cam
+            # over the block's top corners: held detection can still
+            # latch a degenerate constraint, and the table then drags
+            # the block out of it during the lift. Verifying the lift
+            # fails such picks honestly instead of handing a
+            # ghost-held block to the place.
+            verify_lift=True,
         )
 
         # -- PickBottle ------------------------------------------------------
@@ -140,6 +166,11 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
             get_target_pose_fn=_get_bottle_grasp_pose,
             approach_open=True,
             anchor_lift=True,
+            # The default 1 cm lift is within the move-to acceptance
+            # radius, so the pick can end with the bottle still at
+            # table height; grasp-constraint droop then models it in
+            # table contact at the next option's planning start.
+            lift_dz=0.03,
         )
 
         # -- Place (generic; geometry via params) ---------------------------
@@ -162,6 +193,24 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
             # forever).
             compensate_held_offset=True,
             compensate_held_z=True,
+            # Guarded release: after the (collision-checked) descent to
+            # release_z, settle straight down to FIRST contact of the
+            # held assembly before opening. Drop-settle scatter is what
+            # flips this domain's tight tolerances (a butt joint's cure
+            # window, a 2:1 leg's sub-mm topple threshold, the seat's
+            # chaotic landing). 3 cm covers the largest sampler descend
+            # clearance (the seat's 20 mm) with margin; table places
+            # settle only their 2-3 mm.
+            settle_to_contact_depth=0.03,
+            # Verified release: the settle stroke ends at FIRST contact,
+            # and plant sag (position control under gravity + payload)
+            # was measured walking that contact point ~15 mm toward the
+            # robot base -- a systematic landing bias the cure gates
+            # tolerate but that bends every butt row. Before opening,
+            # require the held block within 4 mm of the commanded xy;
+            # otherwise lift back to release_z and re-descend, aiming
+            # upstream of the measured (repeatable) drift.
+            verify_xy_tol=0.004,
         )
 
         # -- MoveTo (generic move-through-pose) ------------------------------
@@ -211,6 +260,14 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
             retreat=True,
             validate_ik=True,
             base_mode="home",
+            # Hold at the reached target before retreating: wetting a
+            # glue face needs the tip inside the apply radius for
+            # wet_streak_steps CONSECUTIVE steps (a drive-by crossing
+            # never wets, by design), and without a dwell the approach
+            # spends as little as one step in range before the retreat
+            # exits the radius. +1 covers the approach/retreat edge
+            # steps.
+            dwell_steps=cls.env_cls.wet_streak_steps + 1,
         )
 
         return {
@@ -239,4 +296,13 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
                             env_cls.robot_init_z),
             transport_z=env_cls.transport_z,
             simulator=simulator,
+            # The carried block lags the end effector's mid-path swings
+            # by up to centimetres, and the standing legs (2:1 aspect)
+            # topple from a fraction-of-a-mm graze, so plans must keep
+            # a real berth between the carried block and bodies the
+            # path only passes by. Bodies within this clearance of the
+            # held object at a path ENDPOINT (butt-joint neighbors,
+            # seat legs, glue targets) are exempted by the planner, so
+            # deliberately tight placements stay plannable.
+            held_bystander_clearance=0.01,
         )

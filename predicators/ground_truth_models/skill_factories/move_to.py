@@ -27,7 +27,7 @@ Example::
     )
 """
 
-from typing import Optional, Sequence, Tuple
+from typing import Callable, Optional, Sequence, Tuple
 
 import pybullet as p
 from gym.spaces import Box
@@ -50,6 +50,7 @@ def create_move_to_skill(
     retreat: bool = False,
     validate_ik: bool = False,
     base_mode: Optional[str] = None,
+    dwell_steps: int = 0,
 ) -> ParameterizedOption:
     """Create a move-to-pose skill.
 
@@ -79,6 +80,10 @@ def create_move_to_skill(
         retreat: Append the transport-height retreat phase.
         validate_ik: Gate the Move phase's target through validated IK.
         base_mode: Optional ``PhaseSkill`` base mode (e.g. ``"home"``).
+        dwell_steps: Hold at the reached target for this many extra
+            steps before retreating (see ``Phase.dwell_steps``) --
+            "move there and DWELL" semantics, e.g. for sustained-
+            proximity glue application.
 
     Returns:
         A ``ParameterizedOption`` implementing the move-to-pose skill.
@@ -97,8 +102,10 @@ def create_move_to_skill(
     if use_move_above:
         phases.append(make_move_to_phase("MoveAbove", _above_pose))
     phases.append(
-        make_move_to_phase("Move", get_target_pose_fn,
-                           validate_ik=validate_ik))
+        make_move_to_phase("Move",
+                           get_target_pose_fn,
+                           validate_ik=validate_ik,
+                           dwell_steps=dwell_steps))
     if retreat:
         phases.append(
             make_move_to_phase("Retreat",
@@ -144,6 +151,15 @@ def make_move_to_phase(
     validate_ik: bool = False,
     check_release_clearance: bool = False,
     use_motion_planning: Optional[bool] = None,
+    terminal_fn: Optional[Callable[
+        [State, Sequence[Object], Array, SkillConfig], bool]] = None,
+    max_step_norm: Optional[float] = None,
+    dwell_steps: int = 0,
+    verify_fn: Optional[Callable[[State, Sequence[Object], Array, SkillConfig],
+                                 bool]] = None,
+    retry_to_phase: Optional[str] = None,
+    max_retries: int = 0,
+    verify_failure_msg: Optional[str] = None,
 ) -> Phase:
     """Create a MOVE_TO_POSE phase for use in a ``PhaseSkill``.
 
@@ -165,6 +181,27 @@ def make_move_to_phase(
             collision-free planner asked for such a goal either fails or
             reaches it by a detour that arrives from the wrong direction
             (see ``create_push_skill``).
+        terminal_fn: Optional custom terminal override forwarded to the
+            ``Phase`` (e.g. "held object made contact"); when ``None``
+            the phase uses the default distance-based terminal.
+        max_step_norm: Optional gentle-stroke step clamp forwarded to
+            the ``Phase`` (see ``Phase.max_step_norm``): small EE steps
+            plus a joint-jump guard and the stall abort, for
+            incremental-IK phases that deliberately seek contact.
+        dwell_steps: Hold at the reached target for this many extra
+            policy steps before advancing (see ``Phase.dwell_steps``),
+            for "move there and DWELL" semantics such as sustained-
+            proximity glue application.
+        verify_fn: Optional verified-advancement predicate forwarded to
+            the ``Phase`` (see ``Phase.verify_fn``): the phase only
+            advances when it returns True; otherwise the skill rewinds
+            to ``retry_to_phase`` up to ``max_retries`` times.
+        retry_to_phase: Name of the phase to rewind to on a failed
+            verification.
+        max_retries: Verification retry budget (see ``Phase``).
+        verify_failure_msg: When set, exhausting the verification budget
+            raises ``OptionExecutionFailure`` with this message instead
+            of advancing best-effort (see ``Phase.verify_failure_msg``).
 
     Returns:
         A ``Phase`` that can be included in a ``PhaseSkill``.
@@ -221,9 +258,16 @@ def make_move_to_phase(
         name=name,
         action_type=PhaseAction.MOVE_TO_POSE,
         target_fn=_target_fn,
+        terminal_fn=terminal_fn,
         expect_contact=expect_contact,
         allow_shallow_held_object_contacts=allow_shallow_held_object_contacts,
         validate_ik=validate_ik,
         check_release_clearance=check_release_clearance,
         use_motion_planning=plan_motion,
+        max_step_norm=max_step_norm,
+        dwell_steps=dwell_steps,
+        verify_fn=verify_fn,
+        retry_to_phase=retry_to_phase,
+        max_retries=max_retries,
+        verify_failure_msg=verify_failure_msg,
     )

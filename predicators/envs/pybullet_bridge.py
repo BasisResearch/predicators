@@ -201,6 +201,18 @@ class PyBulletBridgeEnv(PyBulletEnv):
     # Only the single nearest in-range face is wetted per step, so
     # neighboring dab points (>= 2.5 cm apart) don't double-wet.
     apply_glue_radius: ClassVar[float] = 0.02
+    # Consecutive in-range steps required to wet a face. Wetting used
+    # to be instantaneous, so a one-step drive-by crossing of the
+    # radius (e.g. a bottle retreat clipping the sphere on its way up)
+    # could wet a face -- a step-phasing coin flip that let marginal
+    # glue targets validate in the sandbox and then miss for real.
+    # Requiring a sustained dwell makes grazes fail deterministically
+    # everywhere. The streak rides IN the glue_* feature as partials of
+    # _WET_PARTIAL per step (kept <= 0.5 so every "is wet" reader --
+    # classifiers, cure gate, patch visuals -- still sees a dry face),
+    # so it round-trips through _set_state like any other feature.
+    wet_streak_steps: ClassVar[int] = 3
+    _WET_PARTIAL: ClassVar[float] = 0.2
     # Dab points hover this far off the face surface.
     dab_margin: ClassVar[float] = 0.005
     # Stacking tolerances for the top-face cure detector (leg-on-leg).
@@ -313,9 +325,13 @@ class PyBulletBridgeEnv(PyBulletEnv):
     # degenerate, so roll folds to 0 there; reconstruction checks
     # compare the triple as a geodesic rotation (gimbal-safe), not
     # axis-by-axis.
+    # half_x/y/z are the block's BODY-FRAME half extents (constant;
+    # local x is the long axis). Observable geometry: an agent needs
+    # them to compute face centers, dab points, and touch spacings
+    # without probing the physics for block dimensions.
     _block_features_common = [
-        "x", "y", "z", "roll", "pitch", "yaw", "is_held", "glue_top",
-        "glue_end_a", "glue_end_b"
+        "x", "y", "z", "roll", "pitch", "yaw", "half_x", "half_y", "half_z",
+        "is_held", "glue_top", "glue_end_a", "glue_end_b"
     ]
     # attached_* (partner block index, -1 = none) are observable ONLY
     # in FO mode: no real perception system emits "attached to block
@@ -378,6 +394,13 @@ class PyBulletBridgeEnv(PyBulletEnv):
         # PyBullet constraint id. Must exist before super().__init__
         # (reset paths may call _set_domain_specific_state).
         self._weld_constraints: Dict[FrozenSet[int], int] = {}
+        # Per-weld creation arguments (parent, child, ideal_dz), kept so
+        # a resting weld can be re-anchored (see _relax_resting_welds).
+        self._weld_meta: Dict[FrozenSet[int], Tuple[int, int,
+                                                    Optional[float]]] = {}
+        # Live wet-glue tacks (see _sync_wet_joint_tacks):
+        # frozenset({body_id_a, body_id_b}) -> constraint id.
+        self._tack_constraints: Dict[FrozenSet[int], int] = {}
         # Glue-patch visual bodies: block name -> face -> body id.
         self._glue_patch_ids: Dict[str, Dict[str, int]] = {}
 
@@ -585,12 +608,32 @@ class PyBulletBridgeEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Small helpers
     # -------------------------------------------------------------------------
-    @staticmethod
-    def _attr(blk: Object, name: str, default: float) -> float:
-        """Read a sim-feature attribute with an explicit None default (0.0 is a
-        meaningful value for attached_* -- block index 0)."""
-        val = getattr(blk, name)
+    def _own_block(self, blk: Object) -> Object:
+        """This env's canonical instance of ``blk``, matched by name.
+
+        Glue/cure/attached live in ``Object.sim_data``, which is stored
+        on the INSTANCE. States routinely cross env instances (option-
+        model resets, refinement rollouts, fresh test envs) carrying the
+        source env's Object instances, so reading or writing sim_data
+        through a state-derived block would silently share hidden glue
+        state between envs. Every sim_data access therefore resolves to
+        the env-owned instance first.
+        """
+        idx = self._block_index.get(blk.name)
+        return self._blocks[idx] if idx is not None else blk
+
+    def _attr(self, blk: Object, name: str, default: float) -> float:
+        """Read a sim-feature attribute off this env's own instance.
+
+        The None default is explicit because 0.0 is a meaningful value
+        for attached_* (block index 0).
+        """
+        val = getattr(self._own_block(blk), name)
         return float(val) if val is not None else default
+
+    def _set_attr(self, blk: Object, name: str, value: float) -> None:
+        """Write a sim-feature attribute onto this env's own instance."""
+        setattr(self._own_block(blk), name, value)
 
     @classmethod
     def _is_leg_shaped(cls, blk: Object) -> bool:
@@ -745,6 +788,12 @@ class PyBulletBridgeEnv(PyBulletEnv):
                 return self._attr(obj, feature, 0.0)
             if feature.startswith("attached_"):
                 return self._attr(obj, feature, -1.0)
+            if feature == "half_x":
+                return self.block_half_extents[0]
+            if feature == "half_y":
+                return self.block_half_extents[1]
+            if feature == "half_z":
+                return self.block_half_extents[2]
         raise ValueError(f"Unknown feature {feature} for object {obj}.")
 
     def _is_block(self, obj: Object) -> bool:
@@ -825,18 +874,19 @@ class PyBulletBridgeEnv(PyBulletEnv):
         blocks = state.get_objects(self._block_type)
         for blk in blocks:
             for face in GLUE_FACES:
-                setattr(blk, f"glue_{face}", state.get(blk, f"glue_{face}"))
+                self._set_attr(blk, f"glue_{face}",
+                               state.get(blk, f"glue_{face}"))
                 if f"cure_{face}" in blk.type.feature_names:
-                    setattr(blk, f"cure_{face}",
-                            state.get(blk, f"cure_{face}"))
+                    self._set_attr(blk, f"cure_{face}",
+                                   state.get(blk, f"cure_{face}"))
                 else:
                     priv = state.privileged or {}
-                    setattr(
+                    self._set_attr(
                         blk, f"cure_{face}",
                         float(priv.get(blk.name, {}).get(f"cure_{face}", 0.0)))
             for slot in ATTACH_SLOTS:
-                setattr(blk, f"attached_{slot}",
-                        self._attached_value(state, blk, slot))
+                self._set_attr(blk, f"attached_{slot}",
+                               self._attached_value(state, blk, slot))
             # Colors are task-assigned features; the base env never
             # writes them to PyBullet, so apply them here.
             if blk.id is not None:
@@ -916,6 +966,36 @@ class PyBulletBridgeEnv(PyBulletEnv):
                                           (0.0, 0.0, 0.0, 1.0))
         _, rel_orn = p.multiplyTransforms((0.0, 0.0, 0.0), inv_orn,
                                           (0.0, 0.0, 0.0), orn_b_ideal)
+        # Teleport the child onto the EXACT pose the constraint will
+        # enforce (parent's ACTUAL frame composed with the snapped
+        # relative transform) and zero both bodies' velocities, so the
+        # constraint starts with zero error. Without this, the solver
+        # spends every subsequent step pulling the pair toward the
+        # snapped frame while table contact resists, and the rectified
+        # micro-vibration SKATES the welded assembly across the table
+        # (measured 2-10 mm and up to 0.08 rad yaw per 200 idle steps;
+        # unwelded pairs move < 1 mm). The teleport is mm/mrad scale --
+        # exactly the snap distance.
+        child_pos, child_orn = p.multiplyTransforms(pos_a, orn_a, rel_pos,
+                                                    rel_orn)
+        p.resetBasePositionAndOrientation(
+            body_b,
+            child_pos,
+            child_orn,
+            physicsClientId=self._physics_client_id)
+        for body in (body_a, body_b):
+            p.resetBaseVelocity(body, (0.0, 0.0, 0.0), (0.0, 0.0, 0.0),
+                                physicsClientId=self._physics_client_id)
+        # Welded partners must not collide with each other: the box
+        # collision margin keeps the flush faces in permanent contact,
+        # and the contact solver fighting the weld is the other motor
+        # of the same skating creep. Re-enabled in _remove_weld.
+        p.setCollisionFilterPair(body_a,
+                                 body_b,
+                                 -1,
+                                 -1,
+                                 0,
+                                 physicsClientId=self._physics_client_id)
         cid = p.createConstraint(parentBodyUniqueId=body_a,
                                  parentLinkIndex=-1,
                                  childBodyUniqueId=body_b,
@@ -932,6 +1012,7 @@ class PyBulletBridgeEnv(PyBulletEnv):
                            maxForce=self.weld_max_force,
                            physicsClientId=self._physics_client_id)
         self._weld_constraints[key] = cid
+        self._weld_meta[key] = (body_a, body_b, ideal_dz)
 
     def _desired_weld_pairs(
             self,
@@ -967,6 +1048,68 @@ class PyBulletBridgeEnv(PyBulletEnv):
                 pairs[key] = (blk.id, partner.id, dz)
         return pairs
 
+    # Wet glue is tacky: while a joint is wet and its faces are in
+    # aligned contact, the pair is held together by a weak constraint
+    # (under a newton, against the weld's ten thousand). It does not
+    # stop the impulse the arm leaves behind when it releases and
+    # retreats -- momentum is momentum -- but it makes the joint absorb
+    # that impulse as a UNIT instead of coming apart: a placement that
+    # ended flush against its neighbor was observed to fling an
+    # already-placed span ~5 cm and ~90 degrees during the cure wait
+    # (~30% of flush placements), which forced agents onto a narrow
+    # 3-8 mm assembly gap, wide enough to survive the release and
+    # narrow enough to still cure.
+    #
+    # The force is deliberately held below a block's own weight
+    # (block_mass * g ~ 1 N), so a wet joint can never lift, carry or
+    # drag its neighbour: everything the arm does deliberately still
+    # wins, and picking a block mid-cure aborts the cure exactly as the
+    # abstract model says. The tack is replaced by the rigid weld the
+    # moment the joint latches.
+    wet_joint_tack_force: ClassVar[float] = 0.5  # newtons
+
+    def _sync_wet_joint_tacks(self, curing: Set[FrozenSet[int]]) -> None:
+        """Make the live tack set match the currently curing joints."""
+        for key in list(self._tack_constraints):
+            if key not in curing:
+                self._drop_tack(key)
+        for key in curing:
+            if key in self._tack_constraints or key in self._weld_constraints:
+                continue
+            if self._held_obj_id is not None and self._held_obj_id in key:
+                continue
+            body_a, body_b = sorted(key)
+            pos_a, orn_a = p.getBasePositionAndOrientation(
+                body_a, physicsClientId=self._physics_client_id)
+            pos_b, orn_b = p.getBasePositionAndOrientation(
+                body_b, physicsClientId=self._physics_client_id)
+            inv_pos, inv_orn = p.invertTransform(pos_a, orn_a)
+            rel_pos, rel_orn = p.multiplyTransforms(inv_pos, inv_orn, pos_b,
+                                                    orn_b)
+            # Anchored at the CURRENT relative pose, so the tack holds
+            # the joint as assembled instead of pulling it anywhere.
+            cid = p.createConstraint(parentBodyUniqueId=body_a,
+                                     parentLinkIndex=-1,
+                                     childBodyUniqueId=body_b,
+                                     childLinkIndex=-1,
+                                     jointType=p.JOINT_FIXED,
+                                     jointAxis=[0, 0, 0],
+                                     parentFramePosition=rel_pos,
+                                     parentFrameOrientation=rel_orn,
+                                     childFramePosition=[0, 0, 0],
+                                     childFrameOrientation=[0, 0, 0, 1],
+                                     physicsClientId=self._physics_client_id)
+            p.changeConstraint(cid,
+                               maxForce=self.wet_joint_tack_force,
+                               physicsClientId=self._physics_client_id)
+            self._tack_constraints[key] = cid
+
+    def _drop_tack(self, key: FrozenSet[int]) -> None:
+        """Remove one wet-glue tack, if it exists."""
+        cid = self._tack_constraints.pop(key, None)
+        if cid is not None:
+            p.removeConstraint(cid, physicsClientId=self._physics_client_id)
+
     def _sync_welds_to_state(self, state: State) -> None:
         """Make the live constraint set match the attachment features.
 
@@ -975,15 +1118,146 @@ class PyBulletBridgeEnv(PyBulletEnv):
         Persisting welds keep their original constraint (the restored
         poses satisfy it by construction).
         """
+        for key in list(self._tack_constraints):
+            # Tacks are anchored to the poses they were created at; a
+            # restored state is a different scene.
+            self._drop_tack(key)
         desired = self._desired_weld_pairs(state)
         for key in list(self._weld_constraints):
             if key not in desired:
-                p.removeConstraint(self._weld_constraints[key],
-                                   physicsClientId=self._physics_client_id)
-                del self._weld_constraints[key]
+                self._remove_weld(key)
         for key, (body_a, body_b, ideal_dz) in desired.items():
             if key not in self._weld_constraints:
                 self._create_weld(body_a, body_b, ideal_dz=ideal_dz)
+
+    # Quiescence gates for weld re-anchoring (see _relax_resting_welds):
+    # creep velocities are ~0.5 mm/s and ~4 mrad/s; real dynamics (drops,
+    # pushes, carried swings) are orders of magnitude above these.
+    weld_relax_max_lin_vel: ClassVar[float] = 0.02  # m/s
+    weld_relax_max_ang_vel: ClassVar[float] = 0.2  # rad/s
+
+    def _relax_resting_welds(self) -> None:
+        """Re-anchor every weld whose assembly is resting free.
+
+        A PyBullet JOINT_FIXED constraint between two table-resting
+        bodies is never quiescent: each body settles into its own
+        contact, the constraint accumulates sub-mm error, and the
+        correction impulses rectify (through friction) into a steady
+        skate -- measured 7-9 mm and up to 0.13 rad of yaw per 200 idle
+        steps, invariant to maxForce, erp, pair-collision filtering and
+        a zero-error anchor at creation, and present even for a welded
+        pair 5 cm apart. Unwelded pairs in the same layout move < 1 mm.
+
+        The fix breaks the error-accumulation loop: while every member
+        of a welded assembly is quiescent, not held, and not touched by
+        the robot, each weld is rebuilt at the current snapped relative
+        pose every step, so the solver never has an error to fight and
+        the assembly behaves like resting free bodies (which are
+        stable). Under load -- carried, pushed, mid-drop -- the gates
+        fail and the anchor holds, keeping the weld fully rigid exactly
+        when rigidity matters. The relative-geometry ratchet this
+        introduces is the free drift of resting bodies (sub-mm over
+        hundreds of steps), not the skate.
+        """
+        if not self._weld_constraints:
+            return
+        # Connected components over the weld graph.
+        adjacency: Dict[int, Set[int]] = {}
+        for key in self._weld_constraints:
+            body_a, body_b = tuple(key)
+            adjacency.setdefault(body_a, set()).add(body_b)
+            adjacency.setdefault(body_b, set()).add(body_a)
+        seen: Set[int] = set()
+        for root in list(adjacency):
+            if root in seen:
+                continue
+            component = {root}
+            frontier = [root]
+            while frontier:
+                for nxt in adjacency[frontier.pop()]:
+                    if nxt not in component:
+                        component.add(nxt)
+                        frontier.append(nxt)
+            seen |= component
+            if self._held_obj_id is not None and \
+                    self._held_obj_id in component:
+                continue
+            resting = True
+            for body in component:
+                lin, ang = p.getBaseVelocity(
+                    body, physicsClientId=self._physics_client_id)
+                if np.linalg.norm(lin) > self.weld_relax_max_lin_vel or \
+                        np.linalg.norm(ang) > self.weld_relax_max_ang_vel:
+                    resting = False
+                    break
+                if p.getContactPoints(self._pybullet_robot.robot_id,
+                                      body,
+                                      physicsClientId=self._physics_client_id):
+                    resting = False
+                    break
+            if not resting:
+                continue
+            for key in list(self._weld_constraints):
+                if not key <= component:
+                    continue
+                body_a, body_b, ideal_dz = self._weld_meta[key]
+                self._remove_weld(key)
+                self._create_weld(body_a, body_b, ideal_dz=ideal_dz)
+
+    def _remove_weld(self, key: FrozenSet[int]) -> None:
+        """Tear down one weld: remove the constraint and restore the pair's
+        collision (disabled at creation; the blocks are separate objects again
+        after a planner backtrack to a pre-weld state)."""
+        cid = self._weld_constraints.pop(key)
+        self._weld_meta.pop(key, None)
+        p.removeConstraint(cid, physicsClientId=self._physics_client_id)
+        body_a, body_b = tuple(key)
+        p.setCollisionFilterPair(body_a,
+                                 body_b,
+                                 -1,
+                                 -1,
+                                 1,
+                                 physicsClientId=self._physics_client_id)
+
+    def get_welded_partner_transforms(
+        self, body_id: int
+    ) -> Dict[int, Tuple[Tuple[float, ...], Tuple[float, ...]]]:
+        """Ideal ``(position, orientation)`` of every transitively welded
+        partner RELATIVE to ``body_id``, chained from the weld constraints'
+        snapped frames.
+
+        Consumed by the skill-factory motion planner to pose welded
+        partners of the held object. The constraint frames are the
+        settled geometry the physical assembly returns to; live partner
+        poses instead snapshot whatever pendulum transient the carried
+        assembly is mid-swing through (an outer span was captured 19 mm
+        low right after a lift), which poisons every collision check
+        that reuses the capture.
+        """
+        out: Dict[int, Tuple[Tuple[float, ...], Tuple[float, ...]]] = {}
+        identity = ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+        frontier: List[int] = [body_id]
+        transforms = {body_id: identity}
+        while frontier:
+            current = frontier.pop()
+            for key, cid in self._weld_constraints.items():
+                if current not in key:
+                    continue
+                (other, ) = key - {current}
+                if other in transforms:
+                    continue
+                info = p.getConstraintInfo(
+                    cid, physicsClientId=self._physics_client_id)
+                parent_id, rel = info[0], (info[6], info[8])
+                step_tf = rel if current == parent_id else \
+                    p.invertTransform(rel[0], rel[1])
+                base = transforms[current]
+                tf = p.multiplyTransforms(base[0], base[1], step_tf[0],
+                                          step_tf[1])
+                transforms[other] = tf
+                out[other] = tf
+                frontier.append(other)
+        return out
 
     def get_welded_partner_ids(self, body_id: int) -> Set[int]:
         """All body ids rigidly welded (transitively) to ``body_id``.
@@ -1018,11 +1292,12 @@ class PyBulletBridgeEnv(PyBulletEnv):
         state = self._get_state()
         blocks = state.get_objects(self._block_type)
 
-        # 1. Glue application: wet the single nearest in-range face.
+        # 1. Glue application: sustained proximity wets the single
+        #    nearest in-range face (see wet_streak_steps).
+        best: Optional[Tuple[Object, str]] = None
         if state.get(self._bottle, "is_held") > 0.5:
             tip = (state.get(self._bottle, "x"), state.get(self._bottle, "y"),
                    state.get(self._bottle, "z") - self.bottle_half_extents[2])
-            best: Optional[Tuple[Object, str]] = None
             best_dist = self.apply_glue_radius
             for blk in blocks:
                 for face in GLUE_FACES:
@@ -1035,12 +1310,23 @@ class PyBulletBridgeEnv(PyBulletEnv):
                     if dist < best_dist:
                         best = (blk, face)
                         best_dist = dist
-            if best is not None:
-                blk, face = best
-                setattr(blk, f"glue_{face}", 1.0)
+        for blk in blocks:
+            for face in GLUE_FACES:
+                prev = self._attr(blk, f"glue_{face}", 0.0)
+                if best == (blk, face):
+                    streak = int(round(prev / self._WET_PARTIAL)) + 1
+                    self._set_attr(
+                        blk, f"glue_{face}",
+                        1.0 if streak >= self.wet_streak_steps else streak *
+                        self._WET_PARTIAL)
+                elif 0.0 < prev <= 0.5:
+                    # Not the in-range face this step: the streak breaks.
+                    self._set_attr(blk, f"glue_{face}", 0.0)
 
         # 2. Curing: wet faces in aligned resting contact tick; at the
-        #    threshold the joint latches irreversibly and welds.
+        #    threshold the joint latches irreversibly and welds. While a
+        #    joint is merely wet it is TACKED (see _sync_wet_joint_tacks).
+        curing_pairs: Set[FrozenSet[int]] = set()
         for blk in blocks:
             for face in GLUE_FACES:
                 if self._attr(blk, f"glue_{face}", 0.0) <= 0.5:
@@ -1049,14 +1335,25 @@ class PyBulletBridgeEnv(PyBulletEnv):
                     continue
                 mate = self._find_mate(state, blk, face)
                 if mate is None:
-                    setattr(blk, f"cure_{face}", 0.0)
+                    self._set_attr(blk, f"cure_{face}", 0.0)
                     continue
                 cure = self._attr(blk, f"cure_{face}", 0.0) + 1.0
-                setattr(blk, f"cure_{face}", cure)
-                if cure >= self.cure_threshold:
-                    self._latch_joint(state, blk, face, mate)
+                self._set_attr(blk, f"cure_{face}", cure)
+                assert blk.id is not None and mate.id is not None
+                if cure >= self.cure_threshold and \
+                        self._latch_joint(state, blk, face, mate):
+                    # The rigid weld takes over from the tack.
+                    self._drop_tack(frozenset({blk.id, mate.id}))
+                else:
+                    # Still wet -- or a latch that refused (see
+                    # _latch_joint); either way the joint stays tacked.
+                    curing_pairs.add(frozenset({blk.id, mate.id}))
+        self._sync_wet_joint_tacks(curing_pairs)
 
-        # 3. Visuals.
+        # 3. Anti-creep: re-anchor welds whose assembly rests free.
+        self._relax_resting_welds()
+
+        # 4. Visuals.
         self._update_glue_patches(state)
 
     def _find_mate(self, state: State, blk: Object,
@@ -1155,19 +1452,23 @@ class PyBulletBridgeEnv(PyBulletEnv):
         return best_slot
 
     def _latch_joint(self, state: State, blk: Object, face: str,
-                     mate: Object) -> None:
+                     mate: Object) -> bool:
         """Irreversibly attach ``blk.face`` to ``mate``: record the partnership
-        on both blocks, consume the glue, create the weld."""
+        on both blocks, consume the glue, create the weld.
+
+        Returns whether the joint latched.
+        """
         mate_slot = self._mate_slot_for(state, blk, face, mate)
         if self._attr(mate, f"attached_{mate_slot}", -1.0) >= 0:
             # The mate's slot is somehow taken; refuse to latch rather
             # than corrupt the attachment graph (cure stays at the
             # threshold, so this re-checks every step).
-            return
-        setattr(blk, f"attached_{face}", float(self._block_index[mate.name]))
-        setattr(mate, f"attached_{mate_slot}",
-                float(self._block_index[blk.name]))
-        setattr(blk, f"glue_{face}", 0.0)
+            return False
+        self._set_attr(blk, f"attached_{face}",
+                       float(self._block_index[mate.name]))
+        self._set_attr(mate, f"attached_{mate_slot}",
+                       float(self._block_index[blk.name]))
+        self._set_attr(blk, f"glue_{face}", 0.0)
         assert blk.id is not None and mate.id is not None
         if self._face_world_dir(state, blk, face)[2] > np.cos(np.pi / 4):
             # The mate rests on blk's upward face: a vertical joint.
@@ -1176,6 +1477,7 @@ class PyBulletBridgeEnv(PyBulletEnv):
         else:
             ideal_dz = 0.0
         self._create_weld(blk.id, mate.id, ideal_dz=ideal_dz)
+        return True
 
     def _update_glue_patches(self, state: State) -> None:
         """Show a yellow patch on each wet face; park all other patches out of
@@ -1454,6 +1756,12 @@ class PyBulletBridgeEnv(PyBulletEnv):
                     -np.pi / 2 if is_leg else 0.0,
                     "yaw":
                     0.0,
+                    "half_x":
+                    self.block_half_extents[0],
+                    "half_y":
+                    self.block_half_extents[1],
+                    "half_z":
+                    self.block_half_extents[2],
                     "is_held":
                     0.0,
                     "r":

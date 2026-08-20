@@ -69,6 +69,7 @@ def create_pick_skill(
     anchor_lift: bool = False,
     grasp_finger_tol: Optional[float] = None,
     lift_dz: float = 0.01,
+    verify_lift: bool = False,
     param_defs: Optional[Sequence[Tuple[str, float, float]]] = None,
 ) -> ParameterizedOption:
     """Create a multi-phase pick skill that grasps and lifts an object.
@@ -112,6 +113,19 @@ def create_pick_skill(
             a neighboring object, which then invalidates the NEXT
             option's BiRRT start config -- unrecoverable by replanning
             since the arm physically stays put.
+        verify_lift: If True, the option only succeeds when the target
+            object actually rose with the gripper: at the end of
+            LiftSlightly its pose-fn z must have gained at least half of
+            ``lift_dz``, else the option raises
+            ``OptionExecutionFailure`` instead of reporting a successful
+            pick. This is the honest failure for grasps that contact-
+            level held detection cannot reject: pads that close above a
+            block cam over its top corners or pinch its top edge, the
+            grasp constraint freezes the block dangling below the
+            gripper, and the support drags it out of the constraint
+            during the lift -- the block is left (near) its support
+            while the state claims it is held, and the downstream place
+            jams it into the support instead of failing here.
         param_defs: Optional override for the continuous parameter
             definitions (``(description, low, high)`` triples). The
             default box spans the whole plausible range for any hand,
@@ -166,6 +180,10 @@ def create_pick_skill(
         grasp_z = z + grasp_z_offset
         _shared["grasp_z"] = grasp_z
         _shared["grasp_xy_yaw"] = (x, y, yaw)
+        # The object's own (pose-fn) height while it still rests on its
+        # support: the lift verification measures the object's rise
+        # against this.
+        _shared["rest_pose_z"] = z
         return x, y, grasp_z, yaw
 
     def _slight_lift_pose(
@@ -180,6 +198,20 @@ def create_pick_skill(
         else:
             x, y, _, yaw = get_target_pose_fn(state, objects, _empty, cfg)
         return x, y, _shared["grasp_z"] + lift_dz, yaw
+
+    def _object_rose_with_gripper(
+        state: State,
+        objects: Sequence[Object],
+        params: Array,
+        cfg: SkillConfig,
+    ) -> bool:
+        del params
+        z_now = get_target_pose_fn(state, objects, _empty, cfg)[2]
+        # Half of lift_dz separates cleanly: a properly-held object
+        # tracks the gripper to within a few mm (constraint sag), while
+        # a degenerate grasp's object is dragged out of the constraint
+        # by its support and gains at most a third of the lift.
+        return bool(z_now - _shared["rest_pose_z"] >= 0.5 * lift_dz)
 
     phases = []
     phases.extend([
@@ -200,10 +232,19 @@ def create_pick_skill(
             finger_direction="close",
             finger_tol=grasp_finger_tol,
         ),
-        make_move_to_phase("LiftSlightly",
-                           _slight_lift_pose,
-                           "closed",
-                           allow_shallow_held_object_contacts=True)
+        make_move_to_phase(
+            "LiftSlightly",
+            _slight_lift_pose,
+            "closed",
+            allow_shallow_held_object_contacts=True,
+            verify_fn=_object_rose_with_gripper if verify_lift else None,
+            verify_failure_msg=(
+                "grasp verification failed: the object did not rise "
+                "with the gripper (it was never actually wrapped by the "
+                "fingers, or its support dragged it out of the grasp "
+                "during the lift). Retry the pick with a grasp_z_offset "
+                "that closes the fingers around the object's body, not "
+                "above it.") if verify_lift else None)
     ])
 
     return PhaseSkill(name,

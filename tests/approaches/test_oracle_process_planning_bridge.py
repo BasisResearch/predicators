@@ -19,8 +19,6 @@ from __future__ import annotations
 
 import logging
 
-import pytest
-
 import predicators.approaches  # noqa: F401  # pylint: disable=unused-import
 import predicators.envs  # noqa: F401  # pylint: disable=unused-import
 import predicators.ground_truth_models  # noqa: F401  # pylint: disable=unused-import
@@ -39,7 +37,16 @@ def _oracle_bridge_config() -> dict:
         # --- env: bridge from envs/all.yaml ---
         "env": "pybullet_bridge",
         "horizon": 3000,
-        "pybullet_birrt_path_subsample_ratio": 2,
+        # Execute every planned waypoint: subsampled execution cuts
+        # corners the plan cleared, and a carried span grazing a
+        # standing 2:1 leg by a fraction of a mm topples it.
+        "pybullet_birrt_path_subsample_ratio": 1,
+        # The packed staging grid leaves ~1-2 cm clearances that
+        # stochastically dip into 2-3 mm grazes (e.g. a welded row's
+        # frozen offsets against a seat leg at the descend goal); the
+        # default 1 mm margin turns those into unrecoverable BiRRT
+        # start/goal rejections.
+        "pybullet_birrt_contact_margin": -0.005,
         # Each Wait ends on the FIRST atom change, so a plan waiting on
         # several concurrent cures can need a cheap replan for the tail
         # (which reduces to "Wait until the remaining joint cures").
@@ -47,11 +54,13 @@ def _oracle_bridge_config() -> dict:
         "wait_option_max_steps": 120,
         # --- common flags relevant to bilevel refinement ---
         "skill_phase_use_motion_planning": True,
-        # Bridge NEEDS validated IK (unlike boil): placement accuracy
-        # feeds the cure gates, and the lateral placement error is
-        # frozen into the weld. Unvalidated IK leaves the seated span
-        # outside the far leg's cure window.
-        "pybullet_ik_validate": True,
+        # Bridge follows common.yaml: validated IK OFF, like every
+        # other domain. Validation is not what enforces placement
+        # accuracy (goal-IK branches are accepted on forward-kinematics
+        # error either way) and it steered the arm into
+        # worse-executing IK branches (oracle sweep: 22/24 with it on,
+        # 24/24 with it off).
+        "pybullet_ik_validate": False,
         "planning_filter_unreachable_nsrt": False,
         "no_repeated_arguments_in_grounding": True,
         "terminate_on_goal_reached": False,
@@ -72,11 +81,6 @@ def _oracle_bridge_config() -> dict:
     }
 
 
-@pytest.mark.xfail(
-    reason="The pre-hardening GT-sim pipeline is not reliable enough for CI\n"
-    "yet; the hardening changes stacked on this commit make the solve\n"
-    "deterministic and drop this marker.",
-    strict=False)
 def test_oracle_process_planning_solves_bridge_task():
     """Smoke test: oracle_process_planning builds the simple n-bridge."""
     utils.reset_config(_oracle_bridge_config())
