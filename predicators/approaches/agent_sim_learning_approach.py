@@ -3471,7 +3471,13 @@ files to see exactly which rules and predicates produced each failed plan.
                                 self._synthesis_workflow_extra())
         extra = self._extra_synthesis_system_prompt()
         extra_block = "\n" + extra.rstrip() + "\n" if extra else ""
-        return prompt.replace("__SYNTHESIS_PROMPT_EXTRA__", extra_block)
+        prompt = prompt.replace("__SYNTHESIS_PROMPT_EXTRA__", extra_block)
+        # The template (and the blocks spliced into it) is authored as
+        # hard-wrapped markdown; the rendered prompt keeps one line per
+        # paragraph like every other phase's prompt.
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.sandbox_prompts import unwrap_prose_lines
+        return unwrap_prose_lines(prompt)
 
     def _synthesis_workflow_extra(self) -> str:
         """Extra text appended to the Workflow list.
