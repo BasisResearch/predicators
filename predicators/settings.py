@@ -1453,7 +1453,7 @@ class GlobalSettings:
     vlm_predicator_num_proposal_batches = 1
 
     # agent SDK online abstraction learning parameters
-    agent_sdk_model_name = "claude-sonnet-5"
+    agent_sdk_model_name = "claude-opus-5"
     agent_sdk_max_agent_turns_per_iteration = 50
     # Consecutive agent queries that die without the agent doing ANY work
     # (an auth/billing banner as the only assistant text, an error result,
@@ -1652,16 +1652,20 @@ class GlobalSettings:
     # variability the real rollout will - a flaky plan is reported to the
     # agent in-session (where it can add margin and resubmit) instead of
     # captured and discovered as a failed real episode. 1 disables repeats.
-    agent_plan_validation_rollouts = 3
-    # Escalated rollout count once a task has produced a FLAKY rejection.
-    # A 3-rollout gate passes a plan with per-rollout success rate p with
-    # probability p^3 (p=0.85 -> 61%), so marginal plans slip through and
-    # die on the single real episode (run_20260717_182321: a 20/20-swept
-    # relay placement validated 3/3, then missed the target for real). A
-    # FLAKY rejection is direct evidence the agent is tuning in a marginal
+    # An n-rollout gate passes a plan with per-rollout success rate p with
+    # probability p^n, so small n lets marginal plans through: at p=0.85,
+    # 3 rollouts pass 61% and 5 pass 44% (bridge run_20260819_053515: a
+    # knife-edge grasp offset validated 3/3, then cammed out on the real
+    # episode). The agent can request a stricter gate per submission via
+    # the tool's validation_rollouts argument; it can never lower this.
+    agent_plan_validation_rollouts = 5
+    # Escalated rollout count once a task has produced a FLAKY rejection
+    # (see the p^n math above; run_20260717_182321: a 20/20-swept relay
+    # placement validated 3/3, then missed the target for real). A FLAKY
+    # rejection is direct evidence the agent is tuning in a marginal
     # region, so subsequent captures on that task must clear this stricter
     # gate instead. Never lowers the base count.
-    agent_plan_validation_rollouts_after_flaky = 6
+    agent_plan_validation_rollouts_after_flaky = 10
     # Run each validation rollout inside ``ctx.validation_env_scope`` (a
     # freshly constructed sim env) when the approach installs one. A shared
     # env's reset provably cannot reconstruct state exactly (solver

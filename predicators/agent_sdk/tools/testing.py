@@ -13,7 +13,7 @@ from predicators.agent_sdk.tools.budget import _budget_footer
 from predicators.agent_sdk.tools.capture import BestEffortReason, \
     CaptureDecision, _decide_capture
 from predicators.agent_sdk.tools.context import ToolContext, \
-    _capture_task_key, decorrelated_rollout_seed
+    _capture_task_key, absolute_rollout_seed, decorrelated_rollout_seed
 from predicators.agent_sdk.tools.results import _error_result
 from predicators.agent_sdk.tools.scene import format_object_poses, \
     render_scene_image
@@ -22,6 +22,11 @@ from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
     _format_evaluator_verdict, _resolve_task_evaluator, evaluate_states_with, \
     load_ground_sampler_fns
 from predicators.settings import CFG
+
+# Ceiling on agent-requested validation rollouts per submission
+# (validation_rollouts): the agent pays for rollouts from its budget, but
+# a typo'd request should not silently torch it.
+_MAX_REQUESTED_ROLLOUTS = 25
 
 
 def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
@@ -137,8 +142,16 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         "CURRENT task (omit task_idx), it is captured as your answer, and the "
         "per-step subgoals make it execute closed-loop (monitored, with "
         "replan-on-divergence). Capture is gated: a goal-reaching plan is "
-        "re-run several times (simulation varies across runs) and a FLAKY "
-        "plan is reported instead of captured - add margin and resubmit. "
+        "re-run several times (simulation varies across runs; each rollout "
+        "reports the motion-planner seed it ran at) and a FLAKY plan is "
+        "reported instead of captured - add margin and resubmit. "
+        "`validation_rollouts` requests a STRICTER gate for this "
+        "submission (more rollouts; never fewer than configured). "
+        "`rollout_seed` re-runs the plan at that exact planner seed "
+        "with full per-step reporting - use it to reproduce and debug a "
+        "reported failed rollout; combine with validation_rollouts=N for "
+        "N seeded trials at consecutive seeds. A seeded run is diagnostic "
+        "only and is never captured. "
         "When identified physical parameters are active, it is also re-run "
         "at a grid of perturbations spanning +-1 sigma of those parameters "
         "(the physics fit's own uncertainty); a PARAM-SENSITIVE plan is "
@@ -183,6 +196,30 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                     "Train task index to test on. Omit to use "
                     "the current solve-time task."
                 },
+                "validation_rollouts": {
+                    "type":
+                    "integer",
+                    "description":
+                    "Request a stricter capture gate: total validation "
+                    "rollouts a goal-reaching submission must pass. The "
+                    "effective count is max(configured gate, this) - it can "
+                    "raise the gate but never lower it. Use before "
+                    "committing a plan you suspect is marginal. Combined "
+                    "with rollout_seed=S it instead runs exactly this many "
+                    "DIAGNOSTIC trials at planner seeds S, S+1, ... (each "
+                    "outcome reported with its seed; never captured).",
+                },
+                "rollout_seed": {
+                    "type":
+                    "integer",
+                    "description":
+                    "Diagnostic: run the plan at this exact motion-planner "
+                    "seed (as reported per rollout in validation output) "
+                    "with full per-step reporting, to reproduce a failed "
+                    "validation rollout. Add validation_rollouts=N to run "
+                    "N trials at seeds S, S+1, ..., like sim.run(plan, "
+                    "trials=N, seed=S). A seeded run is never captured.",
+                },
             },
             "required": ["plan"],
         },
@@ -212,6 +249,15 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         plan_text = (args.get("plan") or "").strip()
         include_states = args.get("include_states", False)
         include_atoms = args.get("include_atoms", True)
+        requested_rollouts = args.get("validation_rollouts")
+        diagnostic_seed = args.get("rollout_seed")
+        if requested_rollouts is not None and (not isinstance(
+                requested_rollouts, int) or requested_rollouts < 1):
+            return _error_result(
+                "validation_rollouts must be a positive integer.")
+        if diagnostic_seed is not None and not isinstance(
+                diagnostic_seed, int):
+            return _error_result("rollout_seed must be an integer.")
 
         resolved, task_err = _resolve_task(ctx, task_idx)
         if task_err is not None:
@@ -312,6 +358,11 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 step_line += ("\n  State:\n" +
                               post.dict_str(indent=4, num_decimal_points=4))
             lines.append(step_line)
+            # A seeded diagnostic rollout runs on a FRESH env (when the
+            # session provides one), but the renderer draws the shared
+            # session env - its stale scene would be misleading.
+            if diagnostic_seed is not None and diag_fresh_scope is not None:
+                return
             img_block = render_scene_image(ctx, f"step_{i}_{opt.name}")
             if img_block and img_block.get("saved_path"):
                 saved_image_paths.append(img_block["saved_path"])
@@ -322,13 +373,36 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # continue past a collision and report a goal that the real rollout —
         # which ends the episode at that failed option — never reaches.
         ctx.attempt_rollout_count += 1
-        result = bilevel_sketch.execute_plan_forward(task,
-                                                     grounded_plan,
-                                                     ctx.option_model,
-                                                     predicates=all_predicates,
-                                                     sketch=sketch_steps,
-                                                     on_step=_report_step,
-                                                     stop_on_failure=True)
+        # A seeded diagnostic rollout reproduces a validation repeat
+        # faithfully: fresh env (when the session provides one) plus the
+        # requested planner seed. diag_fresh_scope is also read by
+        # _report_step to skip stale-env renders.
+        diag_fresh_scope = (ctx.validation_env_scope
+                            if diagnostic_seed is not None
+                            and validation_cfg.fresh_env else None)
+        if diagnostic_seed is not None:
+            trials_note = (
+                f"; running {min(requested_rollouts, _MAX_REQUESTED_ROLLOUTS)}"
+                " diagnostic trials at consecutive seeds"
+                if requested_rollouts is not None and requested_rollouts > 1
+                else "; validation repeats skipped")
+            lines.append(
+                f"DIAGNOSTIC rollout at planner seed {diagnostic_seed}" +
+                (" on a fresh simulator env"
+                 if diag_fresh_scope is not None else "") +
+                f" - never captured{trials_note}. Resubmit without "
+                "rollout_seed to capture.")
+        with (diag_fresh_scope() if diag_fresh_scope is not None else
+              contextlib.nullcontext()), \
+                absolute_rollout_seed(diagnostic_seed):
+            result = bilevel_sketch.execute_plan_forward(
+                task,
+                grounded_plan,
+                ctx.option_model,
+                predicates=all_predicates,
+                sketch=sketch_steps,
+                on_step=_report_step,
+                stop_on_failure=True)
 
         final_atoms = utils.abstract(result.final_state, ctx.predicates)
         # Use the env's goal-check (its own classifiers); robust to invented
@@ -444,6 +518,22 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         capture_task_key = _capture_task_key(ctx)
         if capture_task_key in ctx.flaky_capture_task_keys:
             n_rollouts = max(n_rollouts, validation_cfg.rollouts_after_flaky)
+        # The agent may request a STRICTER gate for this submission (a
+        # plan it suspects is marginal); it can never lower the
+        # configured gate - that would let a lucky draw bypass it.
+        capped_request: Optional[int] = None
+        if requested_rollouts is not None:
+            capped_request = min(requested_rollouts, _MAX_REQUESTED_ROLLOUTS)
+            if capped_request < requested_rollouts:
+                lines.append(
+                    f"NOTE: validation_rollouts={requested_rollouts} capped "
+                    f"at {_MAX_REQUESTED_ROLLOUTS}.")
+            # With rollout_seed the request means "this many diagnostic
+            # trials", exactly as asked - there is no capture gate to
+            # protect, so neither the configured gate nor the flaky
+            # escalation inflates it.
+            if diagnostic_seed is None:
+                n_rollouts = max(n_rollouts, capped_request)
         # Fresh env per validation rollout when the approach provides one:
         # repeats on the shared env are correlated (its reset cannot
         # reconstruct state exactly), so only fresh envs sample the same
@@ -451,9 +541,10 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         fresh_scope = (ctx.validation_env_scope
                        if validation_cfg.fresh_env else None)
         rollout_outcomes: List[str] = []
+        base_planner_seed = CFG.seed
         if (ctx.capture_goal_reaching_plans and is_current and goal_achieved
                 and not evaluator_rejected and grounded_plan
-                and n_rollouts > 1):
+                and diagnostic_seed is None and n_rollouts > 1):
             # Run ALL validation rollouts even after a failure: the
             # per-rollout outcome list distinguishes failure modes (a
             # physics-tail fizzle vs. an IK stall vs. a certificate
@@ -472,23 +563,68 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                       contextlib.nullcontext()), \
                         decorrelated_rollout_seed(repeat_idx - 1):
                     ok, why = _validation_rollout()
+                repeat_seed = base_planner_seed + repeat_idx - 1
                 if ok:
                     rollout_outcomes.append(
-                        f"rollout {repeat_idx}: goal reached")
+                        f"rollout {repeat_idx} (planner seed "
+                        f"{repeat_seed}): goal reached")
                 else:
                     rollout_outcomes.append(
-                        f"rollout {repeat_idx}: FAILED - {why}")
+                        f"rollout {repeat_idx} (planner seed "
+                        f"{repeat_seed}): FAILED - {why}")
                     if flaky_detail is None:
                         flaky_detail = (f"rollout {repeat_idx}/{n_rollouts} "
+                                        f"(planner seed {repeat_seed}) "
                                         f"FAILED: {why}")
             if flaky_detail is None:
                 fresh_note = (", each on a freshly constructed simulator "
                               "instance" if fresh_scope is not None else "")
                 validation_note = (
-                    f" Validated {n_rollouts}/{n_rollouts} rollouts (the "
+                    f" Validated {n_rollouts}/{n_rollouts} rollouts "
+                    f"(planner seeds {base_planner_seed}-"
+                    f"{base_planner_seed + n_rollouts - 1}; the "
                     "simulator's motion planning and physics stepping vary "
                     "across runs; repeats sample that execution "
                     f"variability{fresh_note}).")
+
+        # Diagnostic trials: rollout_seed combined with
+        # validation_rollouts=N runs N rollouts at planner seeds
+        # S, S+1, ..., S+N-1 (rollout 1, reported step by step above,
+        # ran at S) - the same contract as explore_python's
+        # ``sim.run(plan, trials=N, seed=S)``. Reported only: a seeded
+        # run never captures and never arms the flaky escalation.
+        if (diagnostic_seed is not None and grounded_plan
+                and capped_request is not None and capped_request > 1):
+            r1_ok = (result.first_failure_idx is None and result.goal_reached)
+            if r1_ok:
+                r1_line = "goal reached"
+            elif result.first_failure_idx is not None:
+                r1_line = "FAILED - see the step report above"
+            else:
+                r1_line = "goal NOT reached"
+            diag_outcomes = [
+                f"rollout 1 (planner seed {diagnostic_seed}): {r1_line}"
+            ]
+            for repeat_idx in range(2, capped_request + 1):
+                ctx.attempt_rollout_count += 1
+                repeat_seed = diagnostic_seed + repeat_idx - 1
+                with (fresh_scope() if fresh_scope is not None else
+                      contextlib.nullcontext()), \
+                        absolute_rollout_seed(repeat_seed):
+                    ok, why = _validation_rollout()
+                if ok:
+                    diag_outcomes.append(f"rollout {repeat_idx} (planner seed "
+                                         f"{repeat_seed}): goal reached")
+                else:
+                    diag_outcomes.append(f"rollout {repeat_idx} (planner seed "
+                                         f"{repeat_seed}): FAILED - {why}")
+            n_ok_diag = sum(1 for o in diag_outcomes
+                            if o.endswith("goal reached"))
+            per_diag = "\n".join(f"  {o}" for o in diag_outcomes)
+            lines.append(
+                f"Diagnostic trials: {n_ok_diag}/{capped_request} reached "
+                f"the goal (planner seeds {diagnostic_seed}-"
+                f"{diagnostic_seed + capped_request - 1}):\n{per_diag}")
 
         # Physics-margin gate: the execution repeats above all run AT the
         # fitted physical params, so they cannot see a plan whose success
@@ -505,7 +641,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 and ctx.physics_margin_provider is not None
                 and ctx.capture_goal_reaching_plans and is_current
                 and goal_achieved and not evaluator_rejected and grounded_plan
-                and flaky_detail is None):
+                and diagnostic_seed is None and flaky_detail is None):
             for point in ctx.physics_margin_provider() or []:
                 ctx.attempt_rollout_count += 1
                 with fresh_scope(physical_overrides=point):
@@ -548,7 +684,11 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # also documents the best-effort-mode semantics); the branches
         # below apply its ctx mutations and format its messages.
         capture_outcome = _decide_capture(
-            capture_enabled=ctx.capture_goal_reaching_plans,
+            # A seeded diagnostic rollout is never captured: letting the
+            # agent choose the planner seed of a capturing rollout would
+            # let a cherry-picked known-good seed bypass the gate.
+            capture_enabled=(ctx.capture_goal_reaching_plans
+                             and diagnostic_seed is None),
             is_current_task=is_current,
             have_plan=bool(grounded_plan),
             goal_achieved=goal_achieved,
@@ -642,12 +782,16 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 f"FLAKY (plan NOT captured): the plan reached the goal on "
                 f"rollout 1 but {flaky_detail}. Per-rollout outcomes "
                 f"(estimated reliability {n_ok}/{n_rollouts}):\n"
-                f"  rollout 1: goal reached\n{per_rollout}\n"
+                f"  rollout 1 (planner seed {base_planner_seed}): "
+                f"goal reached\n{per_rollout}\n"
                 "The simulator's motion "
                 "planning and physics stepping vary across runs, and the "
                 "real environment samples the same variability - a plan "
                 "that only sometimes succeeds in simulation will likely "
-                "fail for real. Add margin (e.g. tighter spacing, aim "
+                "fail for real. To debug a failed rollout first, re-run "
+                "it exactly: call this tool with rollout_seed=<the failed "
+                "rollout's planner seed> for full per-step reporting at "
+                "that seed. Then add margin (e.g. tighter spacing, aim "
                 "impacts closer to the middle of the fall path) and "
                 "resubmit. Because this task has now produced a flaky "
                 f"submission, captures require {escalated_n}/{escalated_n} "

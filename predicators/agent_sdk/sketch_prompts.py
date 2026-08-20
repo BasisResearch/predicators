@@ -372,9 +372,16 @@ def build_solve_prompt(
             "task_idx). When it reaches the goal, that plan is captured as "
             "your answer, so do NOT finish until evaluate_option_plan "
             "CONFIRMS the capture. A goal-reaching plan is re-run several "
-            "times before capture (simulation varies across runs); if it is "
-            "reported FLAKY, add margin to the fragile step and resubmit. " +
-            margin_guidance +
+            "times before capture (simulation varies across runs; each "
+            "rollout reports the motion-planner seed it ran at); if it is "
+            "reported FLAKY, reproduce the failed rollout exactly (pass "
+            "its reported seed as rollout_seed to evaluate_option_plan, or "
+            "`sim.run(plan_text, seed=...)` in explore_python) to see WHY, "
+            "then add margin to the fragile step and resubmit. For a plan "
+            "you suspect is marginal, request a stricter gate up front "
+            "with validation_rollouts=N (more repeats; never fewer than "
+            "configured) or measure reliability first with "
+            "`sim.run(plan_text, trials=N)`. " + margin_guidance +
             "CAPTURE FIRST, OPTIMIZE SECOND: when the reward charges for "
             "resources used (read the scoring section), a captured "
             "modest-reward solve outscores an uncaptured optimal attempt "

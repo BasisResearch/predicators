@@ -118,7 +118,7 @@ def _make_ctx(model, evaluator=None, best_effort=False, goal_nl=None):
     return ctx
 
 
-def _call_tool(ctx, plan_text=_PLAN_TEXT):
+def _call_tool(ctx, plan_text=_PLAN_TEXT, extra_args=None):
     """Invoke the real tool handler once against ``ctx``."""
     tools = {
         t.name: t.handler
@@ -129,10 +129,11 @@ def _call_tool(ctx, plan_text=_PLAN_TEXT):
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-    result: Any = loop.run_until_complete(tools["evaluate_option_plan"]({
-        "plan":
-        plan_text
-    }))
+    call_args = {"plan": plan_text}
+    if extra_args:
+        call_args.update(extra_args)
+    result: Any = loop.run_until_complete(
+        tools["evaluate_option_plan"](call_args))
     return result["content"][0]["text"]
 
 
@@ -141,13 +142,14 @@ def _run_tool(model,
               rollouts=3,
               plan_text=_PLAN_TEXT,
               best_effort=False,
-              goal_nl=None):
+              goal_nl=None,
+              extra_args=None):
     utils.reset_config({"agent_plan_validation_rollouts": rollouts})
     ctx = _make_ctx(model,
                     evaluator=evaluator,
                     best_effort=best_effort,
                     goal_nl=goal_nl)
-    return _call_tool(ctx, plan_text), ctx
+    return _call_tool(ctx, plan_text, extra_args=extra_args), ctx
 
 
 def test_robust_plan_is_captured_with_validation_note():
@@ -166,7 +168,7 @@ def test_flaky_plan_is_not_captured():
     model = _Model(succeed_first_n=1)
     text, ctx = _run_tool(model, rollouts=3)
     assert "FLAKY (plan NOT captured)" in text
-    assert "rollout 2/3 FAILED" in text
+    assert "rollout 2/3 (planner seed" in text
     assert "goal not reached" in text
     assert "ReachedHi" in text
     assert "Captured as the current answer" not in text
@@ -193,9 +195,11 @@ def test_flaky_message_reports_all_rollout_outcomes():
     model = _Model(succeed_first_n=1)
     text, _ = _run_tool(model, rollouts=3)
     assert "estimated reliability 1/3" in text
-    assert "rollout 1: goal reached" in text
-    assert "rollout 2: FAILED" in text
-    assert "rollout 3: FAILED" in text
+    assert "rollout 1 (planner seed" in text
+    assert "): goal reached" in text
+    assert "rollout 2 (planner seed" in text
+    assert "rollout 3 (planner seed" in text
+    assert text.count("FAILED -") >= 2
     # All three rollouts actually ran (no early break).
     assert model.num_calls == 3
 
@@ -550,7 +554,7 @@ def test_best_effort_flaky_plan_is_captured():
     text, ctx = _run_tool(model, rollouts=3, best_effort=True)
     assert "Captured as the current answer" in text
     assert "best-effort" in text
-    assert "rollout 2/3 FAILED" in text
+    assert "rollout 2/3 (planner seed" in text
     assert "FLAKY (plan NOT captured)" not in text
     assert ctx.solved_plan is not None
     assert ctx.solved_plan_reached_goal is False
@@ -632,3 +636,95 @@ def test_validation_repeats_use_decorrelated_planner_seeds():
     assert ctx.solved_plan is not None
     # One capture rollout at the base seed, two decorrelated repeats.
     assert model.seeds == [base, base + 1, base + 2]
+
+
+class _SeedRecordingModel2(_Model):
+    """Records ``CFG.seed`` at each rollout step (module-level reuse)."""
+
+    def __init__(self, succeed_first_n=10**9):
+        super().__init__(succeed_first_n=succeed_first_n)
+        self.seeds = []
+
+    def get_next_state_and_num_actions(self, state, option):
+        from predicators.settings import \
+            CFG  # pylint: disable=import-outside-toplevel
+        self.seeds.append(CFG.seed)
+        return super().get_next_state_and_num_actions(state, option)
+
+
+def test_validation_rollouts_arg_raises_the_gate():
+    """``validation_rollouts=N`` requests a stricter gate than configured."""
+    model = _Model()
+    text, ctx = _run_tool(model,
+                          rollouts=3,
+                          extra_args={"validation_rollouts": 5})
+    assert "Validated 5/5 rollouts" in text
+    assert ctx.solved_plan is not None
+    assert model.num_calls == 5
+
+
+def test_validation_rollouts_arg_cannot_lower_the_gate():
+    """A request below the configured gate is ignored: the gate is a floor -
+    letting the agent lower it would let a lucky draw bypass validation."""
+    model = _Model()
+    text, ctx = _run_tool(model,
+                          rollouts=3,
+                          extra_args={"validation_rollouts": 1})
+    assert "Validated 3/3 rollouts" in text
+    assert ctx.solved_plan is not None
+    assert model.num_calls == 3
+
+
+def test_flaky_report_names_seeds_and_reproduction_path():
+    """A FLAKY rejection names each rollout's planner seed and tells the agent
+    how to reproduce the failed rollout (``rollout_seed``)."""
+    model = _Model(succeed_first_n=1)
+    text, _ = _run_tool(model, rollouts=3)
+    from predicators.settings import \
+        CFG  # pylint: disable=import-outside-toplevel
+    base = CFG.seed
+    assert f"rollout 1 (planner seed {base}): goal reached" in text
+    assert f"(planner seed {base + 1}): FAILED" in text
+    assert "rollout_seed=" in text
+
+
+def test_rollout_seed_with_trials_runs_consecutive_seeds():
+    """``rollout_seed=S`` + ``validation_rollouts=N`` runs N diagnostic trials
+    at planner seeds S..S+N-1 (mirroring ``sim.run(plan, trials=N, seed=S)``),
+    reports each with its seed, and still never captures."""
+    model = _SeedRecordingModel2()
+    text, ctx = _run_tool(model,
+                          rollouts=5,
+                          extra_args={
+                              "rollout_seed": 900,
+                              "validation_rollouts": 3
+                          })
+    # Exactly the requested 3 trials - the configured gate (5) does not
+    # inflate a diagnostic run.
+    assert model.seeds == [900, 901, 902]
+    assert "Diagnostic trials: 3/3 reached the goal" in text
+    assert "rollout 2 (planner seed 901): goal reached" in text
+    assert "rollout 3 (planner seed 902): goal reached" in text
+    assert "Captured as the current answer" not in text
+    assert ctx.solved_plan is None
+
+
+def test_rollout_seed_is_diagnostic_only():
+    """A seeded rollout runs at exactly the given planner seed.
+
+    It reports fully and is never captured - agent-chosen seeds must
+    not pass the capture gate.
+    """
+    model = _SeedRecordingModel2()
+    text, ctx = _run_tool(model, rollouts=3, extra_args={"rollout_seed": 4242})
+    assert "DIAGNOSTIC rollout at planner seed 4242" in text
+    assert model.seeds == [4242]  # no validation repeats either
+    assert "Goal achieved: True" in text
+    assert "Captured as the current answer" not in text
+    assert "Validated" not in text
+    assert ctx.solved_plan is None
+    from predicators.settings import \
+        CFG  # pylint: disable=import-outside-toplevel
+
+    # The base seed is restored after the seeded rollout.
+    assert CFG.seed != 4242

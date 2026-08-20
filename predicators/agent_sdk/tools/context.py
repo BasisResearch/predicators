@@ -304,3 +304,28 @@ def decorrelated_rollout_seed(rollout_idx: int) -> Iterator[None]:
         yield
     finally:
         CFG.seed = base_seed
+
+
+@contextmanager
+def absolute_rollout_seed(seed: Optional[int]) -> Iterator[None]:
+    """Run a scope at an explicit motion-planner seed (None = no-op).
+
+    The agent-facing counterpart of ``decorrelated_rollout_seed``:
+    validation repeats and probe trials REPORT the planner seed each
+    rollout ran at, and this scope lets a follow-up call re-run a plan
+    at exactly that seed - the only way to reproduce a seed-dependent
+    failure (e.g. one FLAKY validation rollout out of five) instead of
+    re-sampling and hoping to draw it again. Composes with
+    ``decorrelated_rollout_seed``: enter this first, and trial ``i``
+    runs at ``seed + i``. Enter AFTER any fresh env is created so env
+    construction (and its task-cache key) still sees the base seed.
+    """
+    if seed is None:
+        yield
+        return
+    base_seed = CFG.seed
+    CFG.seed = seed
+    try:
+        yield
+    finally:
+        CFG.seed = base_seed
