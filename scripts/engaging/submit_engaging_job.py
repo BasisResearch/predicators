@@ -149,10 +149,10 @@ def submit_engaging_job(entry_point: str,
                         requeue: Optional[bool] = None) -> None:
     """Launch one Slurm array job (one array task per seed) on Engaging.
 
-    partition defaults to mit_normal (or mit_normal_gpu for GPU jobs), and
-    requeue defaults to True on preemptable partitions. Both can also be set
-    via the PREDICATORS_ENGAGING_PARTITION and PREDICATORS_ENGAGING_REQUEUE
-    environment variables.
+    partition defaults to mit_normal (or mit_normal_gpu for GPU jobs),
+    and requeue defaults to True on preemptable partitions. Both can
+    also be set via the PREDICATORS_ENGAGING_PARTITION and
+    PREDICATORS_ENGAGING_REQUEUE environment variables.
     """
     del use_mujoco  # unused
     os.makedirs(log_dir, exist_ok=True)
