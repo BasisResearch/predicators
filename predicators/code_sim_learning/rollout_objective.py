@@ -496,6 +496,42 @@ def _episode_id_maps(tracks: List[Any], trajectories: List[RolloutTrajectory],
     return [shared] * len(trajectories)
 
 
+def _interval_scale(obs_intervals: Dict[int, float], penalty: float) -> float:
+    """Divisor putting interval residuals in the units everything expects.
+
+    Every consumer downstream of the objective assumes residuals are
+    DIMENSIONLESS -- a fraction of typical motion -- because that is what
+    :func:`compute_residual_scaling` makes the per-step ones: each linear
+    feature over its observed span, each angle over pi. The interval
+    branch never went through it. Its residuals are SECONDS, and they
+    were handed to the same consumers anyway.
+
+    The trim threshold is where that bites. It is
+    ``trim_rms_factor * noise_sigma`` = 0.1, meaning "10% of typical
+    motion", and applying it to seconds demands the twin reproduce a
+    cascade to within 0.1 s / sqrt(summary_weight) ~ 45 ms at the best
+    grid point before the fit will look at the data at all. Nothing real
+    passes that, so under interval scoring the trimmer dropped every
+    segment holding a cascade -- and, before the sibling fix in this
+    module, kept the ones holding none.
+
+    The scale is the OBSERVED propagation span: the camera's own measure
+    of how long this cascade took, so a residual of 1.0 means "out by
+    the whole cascade". Read off the track and never off the rollout,
+    because a theta-dependent divisor is an objective a fit can game --
+    stalling the chain would stretch the sim's span and shrink its own
+    residuals.
+
+    Falls back to ``penalty`` when the track saw fewer than two onsets:
+    there is no observed span then, and the residuals that remain are
+    one-sided penalties, which that choice puts at 1.0 apiece.
+    """
+    span = max(obs_intervals.values()) if obs_intervals else 0.0
+    if span > 0.0:
+        return span
+    return penalty if penalty > 0.0 else 1.0
+
+
 def _episode_interval_terms(rollouts: List[List[State]],
                             recorded: List[List[State]], track: Any,
                             name_to_id: Dict[str, int], config: SysIdConfig,
@@ -577,7 +613,9 @@ def _episode_interval_terms(rollouts: List[List[State]],
     total_steps = sum(len(s) for s in rollouts)
     penalty = max(track.duration_s, step_s * total_steps)
     del recorded  # kept in the signature for symmetry with the per-segment path
-    for res in interval_residuals(sim_intervals, obs_intervals, penalty):
+    scale = _interval_scale(obs_intervals, penalty)
+    for res in interval_residuals(sim_intervals, obs_intervals, penalty,
+                                  scale):
         yield summary_w * res
 
 
@@ -692,7 +730,9 @@ def _interval_residual_terms(sim_states: List[State], recorded: List[State],
     # evidence there is, so the stand-in is the track's own span rather than
     # a small number: it must cost more than any real disagreement.
     penalty = max(track.duration_s, step_s * len(sim_states))
-    for res in interval_residuals(sim_intervals, obs_intervals, penalty):
+    scale = _interval_scale(obs_intervals, penalty)
+    for res in interval_residuals(sim_intervals, obs_intervals, penalty,
+                                  scale):
         yield summary_w * res
 
 

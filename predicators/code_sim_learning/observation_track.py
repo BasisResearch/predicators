@@ -485,8 +485,9 @@ def settled_xy_before_cascade(
 
 def interval_residuals(sim_intervals: Dict[int, float],
                        obs_intervals: Dict[int, float],
-                       missing_penalty_s: float) -> List[float]:
-    """``sim - obs`` per domino, in seconds, over the union of both.
+                       missing_penalty_s: float,
+                       scale_s: float = 1.0) -> List[float]:
+    """``sim - obs`` per domino over the union of both, divided by scale.
 
     A domino present in one side only is the strongest evidence the
     track carries -- the cascade completed under one friction and
@@ -494,15 +495,24 @@ def interval_residuals(sim_intervals: Dict[int, float],
     ``missing_penalty_s`` rather than skipped. Skipping it would make a
     friction that stops the cascade early look *better* than one that
     reproduces it, because it would simply have fewer terms.
+
+    ``scale_s`` divides both the differences and the penalty, turning
+    seconds into a fraction of whatever the caller considers the natural
+    span -- the units every consumer of a residual already assumes. It
+    defaults to 1.0, which leaves the raw seconds this returned before
+    the divisor existed. See
+    :func:`rollout_objective._interval_scale` for what is passed and
+    why it is read off the track rather than the rollout.
     """
+    denom = scale_s if scale_s > 0.0 else 1.0
     residuals: List[float] = []
     for obj_id in sorted(set(sim_intervals) | set(obs_intervals)):
         sim_t = sim_intervals.get(obj_id)
         obs_t = obs_intervals.get(obj_id)
         if sim_t is None or obs_t is None:
-            residuals.append(missing_penalty_s)
+            residuals.append(missing_penalty_s / denom)
             continue
-        residuals.append(sim_t - obs_t)
+        residuals.append((sim_t - obs_t) / denom)
     return residuals
 
 

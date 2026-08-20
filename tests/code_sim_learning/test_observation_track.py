@@ -1401,6 +1401,107 @@ def test_a_theta_that_stalls_the_cascade_is_still_penalised(
         "a stalled cascade in a real cascade segment must still be penalised"
 
 
+def test_the_objective_scores_a_cascade_the_same_however_slow_it_was(
+        tmp_path, monkeypatch):
+    """The scaling has to reach the objective, not just exist beside it.
+
+    Two episodes disagreeing by the SAME FRACTION of their own cascade
+    must score identically: one cascade takes twice as long as the
+    other and the twin is wrong by twice as much, so the twin is equally
+    wrong in both. In raw seconds the slow one scores 4x the fast one
+    purely for having taken longer, which is what let a slow cascade sit
+    above the trim bar while an identically-wrong fast one passed.
+    """
+    fast_dir = tmp_path / "fast"
+    slow_dir = tmp_path / "slow"
+    fast_dir.mkdir()
+    slow_dir.mkdir()
+    fast = _segment_sse(_cascade_states([0, 3, 6, 9]),
+                        _cascade_states([0, 3, 6, 9]),
+                        _cascade_track(fast_dir, [0, 10, 20, 30]), monkeypatch)
+    slow = _segment_sse(_cascade_states([0, 6, 12, 18]),
+                        _cascade_states([0, 6, 12, 18]),
+                        _cascade_track(slow_dir, [0, 20, 40, 60]), monkeypatch)
+
+    assert fast > 0.0, "the twin disagrees with the track, so this must score"
+    assert slow == pytest.approx(fast, rel=1e-6), \
+        "the same proportional disagreement must cost the same; scoring in " \
+        "raw seconds charges the slower cascade 4x for its duration alone"
+
+
+def test_the_episode_path_scales_its_residuals_too(tmp_path, monkeypatch):
+    """The two interval paths are wired separately, so both need proving.
+
+    One track against one trajectory scores through
+    ``_interval_residual_terms``; one track against the several segments
+    an episode was cut into scores through ``_episode_interval_terms``.
+    A fix applied to one and not the other is invisible in a test that
+    only drives the first.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning import rollout_objective
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import \
+        compute_rollout_sse, reset_track_cache
+
+    def _episode_sse(sim_states, track_path):
+        """One episode cut into two segments, so the counts cannot pair."""
+        monkeypatch.setattr(rollout_objective, "rollout_states",
+                            lambda *_a, **_k: sim_states)
+        utils.reset_config({
+            "code_sim_learning_rollout_score_observed_only": True,
+            "code_sim_learning_rollout_track_path": track_path,
+        })
+        reset_track_cache()
+        return compute_rollout_sse(None, [(sim_states, [None])] * 2,
+                                   {"friction": 0.5}, {}, ["friction"])
+
+    fast_dir = tmp_path / "fast"
+    slow_dir = tmp_path / "slow"
+    fast_dir.mkdir()
+    slow_dir.mkdir()
+    fast = _episode_sse(_cascade_states([0, 3, 6, 9]),
+                        _cascade_track(fast_dir, [0, 10, 20, 30]))
+    slow = _episode_sse(_cascade_states([0, 6, 12, 18]),
+                        _cascade_track(slow_dir, [0, 20, 40, 60]))
+
+    assert fast > 0.0, "the twin disagrees with the track, so this must score"
+    assert slow == pytest.approx(fast, rel=1e-6), \
+        "the episode path must scale by the observed span as well"
+
+
+def test_interval_residuals_are_a_fraction_of_the_observed_span():
+    """Seconds are the wrong units for every consumer of a residual.
+
+    The trim threshold is ``trim_rms_factor * noise_sigma`` = 0.1,
+    meaning "10% of typical motion" because per-step residuals go
+    through compute_residual_scaling. Interval residuals never did, so
+    the same bar demanded the twin reproduce a cascade to ~45 ms before
+    the fit would look at it, and every cascade-bearing segment was
+    dropped as unexplainable.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.rollout_objective import _interval_scale
+    # A real cascade: the span is the last domino's interval.
+    obs = {3: 0.0, 2: 0.7669, 1: 0.9001, 0: 1.0668}
+    sim = {3: 0.0, 2: 0.0833, 1: 0.4167, 0: 0.5833}
+    scale = _interval_scale(obs, penalty=25.62)
+
+    assert scale == pytest.approx(1.0668), \
+        "the scale is the observed propagation span, read off the track"
+    scaled = interval_residuals(sim, obs, 25.62, scale)
+    raw = interval_residuals(sim, obs, 25.62)
+
+    assert scaled == pytest.approx([r / 1.0668 for r in raw])
+    assert max(abs(r) for r in scaled) < 1.0, \
+        "a disagreement smaller than the whole cascade must score under 1.0"
+    # The divisor must not come from the rollout: a theta that stalls the
+    # chain would stretch the sim's span and shrink its own residuals.
+    assert _interval_scale({}, penalty=25.62) == pytest.approx(25.62), \
+        "with no observed span the penalty is the scale, so a one-sided " \
+        "domino costs 1.0 rather than an unbounded number of seconds"
+
+
 def test_a_trajectory_with_no_residuals_scores_infinite_not_zero(monkeypatch):
     """Nothing measured must never outrank something measured.
 
