@@ -154,6 +154,7 @@ def fit_params_recurrent(
     burn_in: int = 200,
     noise_sigma: float = 0.05,
     prior_sigma_scale: float = 1.0,
+    lm_seed: Optional[Tuple[np.ndarray, Optional[np.ndarray]]] = None,
 ) -> FitResult:
     """Fit recurrent-sim parameters via emcee MCMC.
 
@@ -191,8 +192,13 @@ def fit_params_recurrent(
         lambda: fit_map_lm_recurrent(rules, trajectories, param_specs,
                                      latent_init, residual_features),
         lambda p: compute_sse_recurrent(rules, trajectories, p, latent_init,
-                                        residual_features), names, init_values,
-        noise_sigma, prior_sigma, "recurrent")
+                                        residual_features),
+        names,
+        init_values,
+        noise_sigma,
+        prior_sigma,
+        "recurrent",
+        precomputed=lm_seed)
 
     if num_steps == 0:
         return lm_point_fit_result(walker_center,
@@ -545,6 +551,7 @@ def fit_params(
     burn_in: int = 200,
     noise_sigma: float = 0.05,
     prior_sigma_scale: float = 1.0,
+    lm_seed: Optional[Tuple[np.ndarray, Optional[np.ndarray]]] = None,
 ) -> FitResult:
     """Fit simulator parameters: LM point fit, optional emcee posterior.
 
@@ -597,7 +604,8 @@ def fit_params(
                                                             p,
                                                             residual_features,
                                                             label=
-                                                            "lm-warm-start"))
+                                                            "lm-warm-start"),
+        precomputed=lm_seed)
 
     if num_steps == 0:
         return lm_point_fit_result(walker_center,
@@ -665,6 +673,7 @@ def fit_rule_parameters(
     base_pred_triples: List[Tuple[State, Action, State]],
     residual_features: Dict[str, List[str]],
     num_steps: Optional[int] = None,
+    lm_seed: Optional[Tuple[np.ndarray, Optional[np.ndarray]]] = None,
 ) -> Tuple[FitResult, float]:
     """Fit parameters for synthesized residual rules (teacher-forced).
 
@@ -688,16 +697,19 @@ def fit_rule_parameters(
         return apply_rules(state, rules, params)
 
     init_params = {s.name: s.init_value for s in specs}
-    pre_sse = compute_sse(sim_fn, base_pred_triples, init_params,
-                          residual_features)
-    pre_ll = -0.5 * pre_sse / (FIT_NOISE_SIGMA**2)
-    logger.info("Before fitting - SSE: %.6f  log-likelihood: %.2f", pre_sse,
-                pre_ll)
-    log_sse_breakdown(sim_fn,
-                      base_pred_triples,
-                      init_params,
-                      residual_features,
-                      label="before")
+    if lm_seed is None:
+        # An identical earlier fit already logged these; a seeded refit
+        # must not re-pay the full-data SSE passes just to re-log them.
+        pre_sse = compute_sse(sim_fn, base_pred_triples, init_params,
+                              residual_features)
+        pre_ll = -0.5 * pre_sse / (FIT_NOISE_SIGMA**2)
+        logger.info("Before fitting - SSE: %.6f  log-likelihood: %.2f",
+                    pre_sse, pre_ll)
+        log_sse_breakdown(sim_fn,
+                          base_pred_triples,
+                          init_params,
+                          residual_features,
+                          label="before")
 
     result = fit_params(
         simulator_fn=sim_fn,
@@ -705,6 +717,7 @@ def fit_rule_parameters(
         param_specs=specs,
         residual_features=residual_features,
         num_steps=num_steps,
+        lm_seed=lm_seed,
     )
 
     fitted_params = result.point_estimate
@@ -729,6 +742,7 @@ def fit_rule_parameters_latent(
     latent_init: Any,
     residual_features: Dict[str, List[str]],
     num_steps: Optional[int] = None,
+    lm_seed: Optional[Tuple[np.ndarray, Optional[np.ndarray]]] = None,
 ) -> Tuple[FitResult, float]:
     """Recurrent MCMC fit over pre-grouped trajectories.
 
@@ -745,9 +759,12 @@ def fit_rule_parameters_latent(
     setting while the post-synthesis fit can run real MCMC.
     """
     init_params = {s.name: s.init_value for s in specs}
-    pre_sse = compute_sse_recurrent(rules, groups, init_params, latent_init,
-                                    residual_features)
-    logger.info("Recurrent fit - pre-SSE: %.6f", pre_sse)
+    if lm_seed is None:
+        # An identical earlier fit already logged the pre-SSE; a seeded
+        # refit must not re-pay a full recurrent rollout pass for it.
+        pre_sse = compute_sse_recurrent(rules, groups, init_params,
+                                        latent_init, residual_features)
+        logger.info("Recurrent fit - pre-SSE: %.6f", pre_sse)
 
     result = fit_params_recurrent(
         rules=rules,
@@ -756,6 +773,7 @@ def fit_rule_parameters_latent(
         latent_init=latent_init,
         residual_features=residual_features,
         num_steps=num_steps,
+        lm_seed=lm_seed,
     )
     fitted_params = result.point_estimate
     post_sse = compute_sse_recurrent(rules, groups, fitted_params, latent_init,
