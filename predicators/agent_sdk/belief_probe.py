@@ -249,7 +249,9 @@ class ProbeTrialsResult(_StrLikeResult):
     ``trials`` holds one dict per trial (``goal_reached``,
     ``num_actions``, ``failure`` - ``None`` or ``"step {i} ({option}):
     {reason}"``; ``planner_seed`` - the motion-planner seed the trial
-    ran at, reproducible via ``run(plan, seed=...)``; with
+    ran at, reproducible via ``run(plan, seed=..., fresh=True)`` - a
+    plain ``run(plan, seed=...)`` executes on the WARM shared env, a
+    different substrate that reads optimistic; with
     ``solved=True`` also ``solved``/``reward`` from the task evaluator,
     ``None`` when the verdict errored). ``successes`` counts
     goal-reaching trials. The current state is NOT advanced - repeated
@@ -859,6 +861,7 @@ class BeliefProbe:
         contacts: bool = False,
         physics_sweep: bool = False,
         seed: Optional[int] = None,
+        fresh: bool = False,
     ) -> Union[ProbeResult, ProbeTrialsResult, ProbeSweepResult]:
         """Execute an option plan from the current state.
 
@@ -929,11 +932,25 @@ class BeliefProbe:
         Trials report the planner seed each ran at (trial ``i`` runs at
         ``S + i``; without ``seed=`` at ``base + i``), and
         ``evaluate_option_plan``'s validation rollouts report theirs the
-        same way - so a failed rollout at a reported seed can be
-        reproduced exactly here: ``run(plan, seed=<reported seed>)``.
-        A single run (``trials=1``) executes entirely at ``S``; a
-        physics sweep runs every point at ``S`` instead of the base.
+        same way. A single run (``trials=1``) executes entirely at
+        ``S``; a physics sweep runs every point at ``S`` instead of the
+        base.
+
+        SUBSTRATE: a default single run executes on the WARM shared
+        session env from the probe's current state - a feature for
+        mid-exploration probing (after ``reset(mods=...)`` or a partial
+        rollout), but a different physics substrate from trials,
+        validation rollouts, and the real episode, which all run on a
+        freshly constructed env. A warm pass at a seed where a fresh
+        trial failed is evidence of shared-env optimism, not seed luck.
+        ``fresh=True`` (single-run mode only) reproduces a failed
+        trial's substrate exactly: ``run(plan, seed=<reported seed>,
+        fresh=True)`` runs once on a fresh env from the parsed start
+        state, without advancing the shared session state (per-step
+        renders are skipped - the renderer draws the shared env).
         """
+        # pylint: disable-next=import-outside-toplevel
+        import contextlib
         # pylint: disable-next=import-outside-toplevel
         import numpy as np
 
@@ -961,6 +978,17 @@ class BeliefProbe:
                 "contacts=True is only available in single-run mode "
                 "(trials=1): per-contact recording is a diagnostic for one "
                 "rollout, not a statistic.")
+        if fresh and (trials > 1 or physics_sweep):
+            raise ValueError(
+                "fresh=True applies to single runs only: trials and "
+                "physics_sweep already run every rollout on a freshly "
+                "constructed env.")
+        if fresh and contacts:
+            raise ValueError(
+                "fresh=True cannot record contacts: contact recording "
+                "binds to the shared session env. Run contacts=True "
+                "without fresh (the warm substrate), or diagnose the "
+                "fresh-substrate failure via the step report alone.")
         ctx = self._ctx
         _check_time_budget(ctx)
         ctx.test_call_id += 1
@@ -1082,8 +1110,6 @@ class BeliefProbe:
                            and ctx.validation_env_scope is not None
                            and ctx.probe_option_model_provider is None else
                            None)
-            # pylint: disable-next=import-outside-toplevel
-            import contextlib
             trial_dicts: List[Dict[str, Any]] = []
             base_planner_seed = seed if seed is not None else CFG.seed
             try:
@@ -1098,6 +1124,7 @@ class BeliefProbe:
                     # constant CFG.seed), so without it N trials are one
                     # effective sample. Entered inside the fresh scope so
                     # env construction keeps the base seed.
+                    trial_inexact: List[str] = []
                     with (fresh_scope() if fresh_scope is not None else
                           contextlib.nullcontext()), \
                             absolute_rollout_seed(seed), \
@@ -1106,14 +1133,31 @@ class BeliefProbe:
                         collector = (_EvalStateCollector(
                             model, probe_task.init)
                                      if evaluator is not None else None)
+
+                        def _trial_on_step(i: int, outcome: Any) -> None:
+                            # The first option's execution resets the
+                            # (fresh) env to the parsed start state; any
+                            # features that reset could not round-trip
+                            # are a start-state reconstruction error, a
+                            # failure source distinct from plan margin.
+                            if i == 0:
+                                env = getattr(model, "sim_env", None)
+                                lossy = getattr(
+                                    env, "_last_unreconstructible_features",
+                                    None) or []
+                                trial_inexact.extend(
+                                    f"{obj.name}.{feat}"
+                                    for obj, feat in lossy)
+                            if collector is not None:
+                                collector.on_step(i, outcome)
+
                         r = bilevel_sketch.execute_plan_forward(
                             probe_task,
                             grounded,
                             model,
                             predicates=all_predicates,
                             sketch=sketch_steps,
-                            on_step=(collector.on_step
-                                     if collector is not None else None),
+                            on_step=_trial_on_step,
                             stop_on_failure=True)
                         # Score INSIDE the scope: the evaluator's
                         # certificate probes at the (fresh) env the
@@ -1162,6 +1206,8 @@ class BeliefProbe:
                         coarse,
                         "planner_seed":
                         base_planner_seed + trial_idx,
+                        "inexact_start_features":
+                        sorted(set(trial_inexact)),
                     })
             except ProbeBudgetExceeded as e:
                 # Completed trials are minutes of sim time and live in the
@@ -1194,8 +1240,45 @@ class BeliefProbe:
                     f"{len(over)} goal-reaching trial(s) exceeded the real "
                     f"episode horizon ({CFG.horizon} low-level steps) - the "
                     "real executor would run out of steps.")
+            inexact = [t for t in trial_dicts if t["inexact_start_features"]]
+            if inexact:
+                feats = sorted(
+                    {f
+                     for t in inexact
+                     for f in t["inexact_start_features"]})
+                shown = ", ".join(feats[:8]) + ("..."
+                                                if len(feats) > 8 else "")
+                notices.append(
+                    f"{len(inexact)}/{len(trial_dicts)} trials started from "
+                    f"an inexactly reconstructed state (features: {shown}) "
+                    "- failures may partly reflect start-state "
+                    "reconstruction error, not plan margin.")
             return ProbeTrialsResult(trial_dicts, successes, fresh_scope
                                      is not None, notices)
+
+        run_fresh_scope = None
+        if fresh:
+            run_fresh_scope = (ctx.validation_env_scope
+                               if ValidationConfig.from_cfg().fresh_env
+                               and ctx.validation_env_scope is not None
+                               and ctx.probe_option_model_provider is None
+                               else None)
+            if run_fresh_scope is None:
+                raise ValueError(
+                    "fresh=True needs the session's fresh-env scope "
+                    "(unavailable here - synthesis sessions run the "
+                    "candidate model on its own env). Rerun without "
+                    "fresh=True.")
+            if render:
+                render = False
+                notices.append(
+                    "fresh=True: per-step renders skipped (the renderer "
+                    "draws the shared session env, which this rollout does "
+                    "not touch).")
+            notices.append(
+                "fresh=True: rollout ran on a freshly constructed env from "
+                "the parsed start state; the shared session state was NOT "
+                "advanced.")
 
         step_dicts: List[Dict[str, Any]] = []
 
@@ -1211,6 +1294,19 @@ class BeliefProbe:
                 after = utils.abstract(outcome.post_state, report_preds)
                 added = [str(a) for a in sorted(after - before)]
                 deleted = [str(a) for a in sorted(before - after)]
+            if i == 0 and fresh:
+                env = getattr(model, "sim_env", None)
+                lossy = getattr(env, "_last_unreconstructible_features",
+                                None) or []
+                if lossy:
+                    feats = ", ".join(
+                        sorted({f"{obj.name}.{feat}"
+                                for obj, feat in lossy}))
+                    notices.append(
+                        "the fresh env could not reconstruct the start "
+                        f"state exactly (features: {feats}) - a failure "
+                        "here may partly reflect start-state "
+                        "reconstruction error, not plan margin.")
             # Same per-step audit image evaluate_option_plan saves; the
             # env already sits at the post-step state here.
             img = render_scene_image(
@@ -1254,7 +1350,8 @@ class BeliefProbe:
             notices.append(f"rollout ran at planner seed {seed} (base seed "
                            f"overridden for this call)")
         try:
-            with absolute_rollout_seed(seed):
+            with (run_fresh_scope() if run_fresh_scope is not None else
+                  contextlib.nullcontext()), absolute_rollout_seed(seed):
                 result = bilevel_sketch.execute_plan_forward(
                     probe_task,
                     grounded,
@@ -1277,8 +1374,11 @@ class BeliefProbe:
                     "contacts are attached to the last step and spans "
                     "there are relative to that step's start.")
             _attach_step_contacts(contact_events, step_dicts)
-        self._state = result.final_state
-        self._pristine = False
+        if not fresh:
+            # A fresh-env rollout's final state is not the warm session
+            # state; advancing to it would silently mix substrates.
+            self._state = result.final_state
+            self._pristine = False
         final_atoms = [
             str(a)
             for a in sorted(utils.abstract(result.final_state, report_preds))

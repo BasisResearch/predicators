@@ -198,3 +198,60 @@ def test_physics_sweep_returns_partial_on_mid_loop_budget_expiry():
     ctx3.attempt_deadline = time.monotonic() - 1.0
     with pytest.raises(ProbeBudgetExceeded):
         sim3.run("Move(block0:block)[0.95]", render=False, physics_sweep=True)
+
+
+# ---------------------------------------------------------------------------
+# fresh=True single runs + start-state reconstruction diagnostics
+# ---------------------------------------------------------------------------
+
+
+def test_fresh_single_run_uses_scope_and_preserves_state():
+    """fresh=True enters the fresh-env scope and never advances state."""
+    utils.reset_config({})
+    ctx, _, scope_overrides = _make_ctx([])
+    sim = BeliefProbe(ctx)
+    sim.reset()
+    res = sim.run("Move(block0:block)[0.95]", fresh=True)
+    assert res.goal_reached
+    # The scope was entered exactly once, with no physics overrides.
+    assert scope_overrides == [None]
+    # The shared session state was NOT advanced.
+    assert sim._require_state().get(_block, "x") == 0.0
+    text = res.text
+    assert "shared session state was NOT advanced" in text
+    # Renders are skipped with a notice (render defaulted to True).
+    assert "renders skipped" in text
+
+
+def test_fresh_mode_exclusivity_and_scope_requirement():
+    """fresh composes with nothing that is already fresh, needs a scope."""
+    utils.reset_config({})
+    ctx, _, _ = _make_ctx([{"friction": 0.43}])
+    sim = BeliefProbe(ctx)
+    sim.reset()
+    with pytest.raises(ValueError, match="single runs only"):
+        sim.run("Move(block0:block)[0.95]", trials=2, fresh=True)
+    with pytest.raises(ValueError, match="single runs only"):
+        sim.run("Move(block0:block)[0.95]", physics_sweep=True, fresh=True)
+    with pytest.raises(ValueError, match="cannot record contacts"):
+        sim.run("Move(block0:block)[0.95]", contacts=True, fresh=True)
+    ctx.validation_env_scope = None
+    with pytest.raises(ValueError, match="fresh-env scope"):
+        sim.run("Move(block0:block)[0.95]", fresh=True)
+
+
+def test_trials_report_inexact_start_reconstruction():
+    """Trials surface the fresh env's start-state reconstruction error."""
+    utils.reset_config({})
+    ctx, model, _ = _make_ctx([])
+    model.sim_env = type("E", (),
+                         {"_last_unreconstructible_features": [(_block, "x")]
+                          })()
+    sim = BeliefProbe(ctx)
+    sim.reset()
+    res = sim.run("Move(block0:block)[0.95]", trials=2, render=False)
+    assert all(t["inexact_start_features"] == ["block0.x"]
+               for t in res.trials)
+    assert "2/2 trials started from an inexactly reconstructed state" \
+        in res.text
+    assert "block0.x" in res.text
