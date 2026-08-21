@@ -22,6 +22,7 @@ from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
     _format_evaluator_verdict, _resolve_task_evaluator, evaluate_states_with, \
     load_ground_sampler_fns
 from predicators.settings import CFG
+from predicators.structs import State
 
 # Ceiling on agent-requested validation rollouts per submission
 # (validation_rollouts): the agent pays for rollouts from its budget, but
@@ -460,8 +461,16 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # after every one of validation_cfg.rollouts total
         # rollouts succeeds; a flaky repeat is reported to the agent, who
         # still has the session to add margin and resubmit.
-        def _validation_rollout() -> Tuple[bool, str]:
-            """One extra rollout of the exact plan; (ok, failure detail)."""
+        def _validation_rollout(
+        ) -> Tuple[bool, str, List[Optional[State]]]:
+            """One extra rollout of the exact plan.
+
+            Returns ``(ok, failure detail, per-step post-states)``; the
+            post-state list is padded with ``None`` to the plan length so
+            a truncated (failed) rollout still indexes safely. Passing
+            rollouts' post-states feed the captured-annotation
+            intersection filter.
+            """
             v_collector = _EvalStateCollector(model, task.init)
             r = bilevel_sketch.execute_plan_forward(
                 task,
@@ -471,22 +480,24 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 sketch=sketch_steps,
                 on_step=v_collector.on_step,
                 stop_on_failure=True)
+            posts: List[Optional[State]] = [s.post_state for s in r.steps]
+            posts += [None] * (len(grounded_plan) - len(posts))
             if r.first_failure_idx is not None:
                 fr = r.steps[r.first_failure_idx].failure_reason
                 opt = r.steps[r.first_failure_idx].option
                 return False, (f"step {r.first_failure_idx} "
-                               f"({opt.name}) failed: {fr}")
+                               f"({opt.name}) failed: {fr}"), posts
             if not r.goal_reached:
                 missing = task.goal - utils.abstract(r.final_state,
                                                      ctx.predicates)
                 missing_str = ", ".join(str(a) for a in sorted(missing))
                 detail = f" (missing: {{{missing_str}}})" if missing else ""
-                return False, f"goal not reached{detail}"
+                return False, f"goal not reached{detail}", posts
             if not (r.actions_to_goal is not None
                     and r.actions_to_goal <= horizon):
                 return False, (f"goal reached only after "
                                f"{r.actions_to_goal} low-level steps, past "
-                               f"the episode horizon ({horizon})")
+                               f"the episode horizon ({horizon})"), posts
             # Same legitimacy rule as the first rollout: a non-coarse
             # illegitimate verdict fails the validation.
             if (evaluator is not None and len(v_collector.states) > 1
@@ -502,10 +513,11 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                         return False, (
                             "this rollout reached the goal atoms but the "
                             "task evaluator scored it as a non-solve "
-                            f"(solved=False, reward={v['reward']:.2f})")
+                            f"(solved=False, reward={v['reward']:.2f})"
+                        ), posts
                 except Exception as e:  # pylint: disable=broad-except
                     logging.debug("Validation-rollout verdict failed: %s", e)
-            return True, ""
+            return True, "", posts
 
         flaky_detail: Optional[str] = None
         validation_note = ""
@@ -541,6 +553,14 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         fresh_scope = (ctx.validation_env_scope
                        if validation_cfg.fresh_env else None)
         rollout_outcomes: List[str] = []
+        # Per-step post-states of PASSING validation rollouts, for the
+        # captured-annotation intersection filter. Failing rollouts are
+        # excluded on purpose: they are off-track by definition, so their
+        # post-states are not evidence about what holds on a successful
+        # execution (using them would prune annotations that hold in
+        # every on-track run). Physics-margin rollouts are likewise
+        # excluded: they run under deliberately perturbed physics.
+        passing_validation_posts: List[List[Optional[State]]] = []
         base_planner_seed = CFG.seed
         if (ctx.capture_goal_reaching_plans and is_current and goal_achieved
                 and not evaluator_rejected and grounded_plan
@@ -562,9 +582,10 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 with (fresh_scope() if fresh_scope is not None else
                       contextlib.nullcontext()), \
                         decorrelated_rollout_seed(repeat_idx - 1):
-                    ok, why = _validation_rollout()
+                    ok, why, repeat_posts = _validation_rollout()
                 repeat_seed = base_planner_seed + repeat_idx - 1
                 if ok:
+                    passing_validation_posts.append(repeat_posts)
                     rollout_outcomes.append(
                         f"rollout {repeat_idx} (planner seed "
                         f"{repeat_seed}): goal reached")
@@ -611,7 +632,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 with (fresh_scope() if fresh_scope is not None else
                       contextlib.nullcontext()), \
                         absolute_rollout_seed(repeat_seed):
-                    ok, why = _validation_rollout()
+                    ok, why, _ = _validation_rollout()
                 if ok:
                     diag_outcomes.append(f"rollout {repeat_idx} (planner seed "
                                          f"{repeat_seed}): goal reached")
@@ -645,7 +666,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             for point in ctx.physics_margin_provider() or []:
                 ctx.attempt_rollout_count += 1
                 with fresh_scope(physical_overrides=point):
-                    ok, why = _validation_rollout()
+                    ok, why, _ = _validation_rollout()
                 desc = ", ".join(f"{k}={v:.4g}"
                                  for k, v in sorted(point.items()))
                 if ok:
@@ -703,9 +724,26 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         if captured:
             # Capture the plan with a sketch that keeps only the subgoals
             # that actually held (so the closed-loop monitor won't flag a
-            # spurious divergence on a wrong annotation).
+            # spurious divergence on a wrong annotation). An annotation
+            # must hold in rollout 1 AND in every PASSING validation
+            # rollout: an atom that held once by luck under the sim's own
+            # nondeterminism would otherwise survive into the executed
+            # sketch and kill the real episode on a spurious divergence.
+            # (With zero passing repeats this reduces to the rollout-1
+            # filter.)
             validated_solve = decision is CaptureDecision.VALIDATED_CAPTURE
             captured_sketch = []
+
+            def _held_in_passing_repeats(atom: Any, i: int,
+                                         want_held: bool) -> bool:
+                for posts in passing_validation_posts:
+                    post_i = posts[i] if i < len(posts) else None
+                    # bool(): classifiers may return numpy bools, which
+                    # fail identity checks against Python bools.
+                    if post_i is None or bool(atom.holds(post_i)) != want_held:
+                        return False
+                return True
+
             for i, st in enumerate(sketch_steps):
                 post = (result.steps[i].post_state
                         if i < len(result.steps) else None)
@@ -713,12 +751,14 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                     after = utils.abstract(post, all_predicates)
                     pos_held = {
                         a
-                        for a in (st.subgoal_atoms or set()) if a in after
+                        for a in (st.subgoal_atoms or set())
+                        if a in after and _held_in_passing_repeats(a, i, True)
                     }
                     neg_held = {
                         a
                         for a in (st.subgoal_neg_atoms or set())
                         if a not in after
+                        and _held_in_passing_repeats(a, i, False)
                     }
                 else:
                     pos_held, neg_held = set(), set()
@@ -733,6 +773,19 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             ctx.solved_plan_reached_goal = validated_solve
             ctx.solved_plan_eval_reward = (float(verdict["reward"])
                                            if verdict is not None else None)
+            summary_bits = [
+                f"validation: "
+                f"{1 + sum(1 for o in rollout_outcomes if 'FAILED' not in o)}"
+                f"/{1 + len(rollout_outcomes)} rollouts ok"
+            ]
+            if flaky_detail is not None:
+                summary_bits.append(f"first failure: {flaky_detail}")
+            if margin_outcomes:
+                n_margin_ok = sum(1 for o in margin_outcomes
+                                  if "FAILED" not in o)
+                summary_bits.append(f"physics margin: {n_margin_ok}/"
+                                    f"{len(margin_outcomes)} points ok")
+            ctx.solved_plan_validation_summary = "; ".join(summary_bits)
             n_annot = sum(1 for s in captured_sketch
                           if s.subgoal_atoms or s.subgoal_neg_atoms)
             reason = capture_outcome.best_effort_reason

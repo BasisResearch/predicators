@@ -79,6 +79,12 @@ class _CaptureInfo:
     validated: bool
     reward: Optional[float]
     plan_lines: List[str]
+    # One-line capture-time validation record (rollout tally, first
+    # failing step, physics-margin tally), journaled so a later
+    # fresh-context attempt sees HOW reliable the capture was (e.g.
+    # "8/10 rollouts ok; first failure: ... step 25 (Place) ...")
+    # instead of only that it exists.
+    validation_summary: Optional[str] = None
 
 
 class AgentModelBasedApproach(AgentModelFreeApproach):
@@ -553,6 +559,8 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
             elapsed_min = (time.monotonic() - ctx.attempt_start) / 60.0
             body.append(f"- budget spent: {elapsed_min:.1f} min, "
                         f"{ctx.attempt_rollout_count} sim rollouts")
+        if info is not None and info.validation_summary:
+            body.append(f"- {info.validation_summary}")
         if info is not None and info.plan_lines:
             body.append("- captured plan:")
             body.extend(f"  {line}" for line in info.plan_lines)
@@ -967,9 +975,11 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         lines = list(
             bilevel_sketch.format_plan_lines(capture.plan,
                                              sketch=capture.sketch))
-        self._last_capture_info = _CaptureInfo(validated=validated,
-                                               reward=capture.eval_reward,
-                                               plan_lines=lines)
+        self._last_capture_info = _CaptureInfo(
+            validated=validated,
+            reward=capture.eval_reward,
+            plan_lines=lines,
+            validation_summary=capture.validation_summary)
         verdict = ("simulator-verified" if validated else
                    "best-effort: not a validated solve in the belief rollout")
         # Log the full plan (options + continuous params + subgoal

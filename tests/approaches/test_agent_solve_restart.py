@@ -93,7 +93,8 @@ class _AttemptScript:
         self.approach._last_capture_info = _CaptureInfo(
             validated=(kind == "validated"),
             reward=value,
-            plan_lines=[f"Move(block0:block)[{0.9 + self.calls / 100.0}]"])
+            plan_lines=[f"Move(block0:block)[{0.9 + self.calls / 100.0}]"],
+            validation_summary="validation: 5/6 rollouts ok")
         policy = lambda _s: Action(np.zeros(1, dtype=np.float32))
         self.policies.append(policy)
         return policy
@@ -190,6 +191,9 @@ def test_journal_auto_entries_record_each_attempt(tmp_path):
     assert "### task 0 attempt 2/2 (auto)" in content
     assert "best-effort capture (evaluator reward -0.05)" in content
     assert "Move(block0:block)" in content
+    # The capture-time validation record travels into the auto entry so a
+    # later fresh-context attempt sees how reliable the capture was.
+    assert "- validation: 5/6 rollouts ok" in content
     # Task context (goal + init state dict, the prompt's own
     # representation) is a dedicated entry written once, at the TOP of
     # the task's section - before any attempt entry.
