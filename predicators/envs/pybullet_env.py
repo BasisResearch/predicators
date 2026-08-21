@@ -1211,7 +1211,9 @@ class PyBulletEnv(BaseEnv):
         # 5) Reconstruction check - only when we actually wrote something
         # kinematic. React by mismatch magnitude (see the threshold
         # ClassVars above): a large mismatch can't be benign IK noise, so
-        # raise; a small one just warns since the IK reset path is lossy.
+        # raise; a small one is expected (the IK reset path is lossy) and
+        # only logs at debug - it fires ~100k times per learning run and
+        # at warning level it was ~95% of info.log by volume.
         if wrote_anything:
             reconstructed = self._get_state()
             warn_diff = self._reconstruction_diff(
@@ -1225,7 +1227,7 @@ class PyBulletEnv(BaseEnv):
                     raise ValueError(
                         f"Could not reconstruct state. Mismatched "
                         f"features:\n{raise_diff}")
-                logging.warning(
+                logging.debug(
                     "Could not reconstruct state exactly in reset. "
                     "Mismatched features:\n%s", warn_diff)
                 # Structured view of the same mismatch, for combined
