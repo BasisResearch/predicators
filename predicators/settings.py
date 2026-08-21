@@ -1604,6 +1604,25 @@ class GlobalSettings:
     # later ones away from repeated sweeps without re-importing their
     # anchoring mistakes.
     agent_solve_use_journal = False
+    # Closed-loop policy mode: the solve agent's deliverable is a per-task
+    # PROGRAM (<sandbox>/policy.py with get_option(state, memory) -> next
+    # plan line or None) validated in the belief model via the
+    # evaluate_policy tool and executed at test time WITHOUT an LLM in
+    # the loop. Option failures are surfaced to the policy (via
+    # memory["last_failure"]) instead of ending the episode, so recovery
+    # (re-place a drifted block, re-aim after a BiRRT refusal) is the
+    # policy's job - which is why this mode is mutually exclusive with
+    # the sketch-divergence replan machinery
+    # (agent_bilevel_max_execution_replans must be 0).
+    agent_solve_policy_mode = False
+    # Total options a policy episode may issue (belief validation AND real
+    # execution): the anti-oscillation bound that converts a retry loop
+    # that never progresses into a bounded, attributable failure.
+    agent_policy_max_options = 50
+    # LLM-free bypass: path to a prewritten policy.py used as the captured
+    # artifact for every test task (mirrors the sketch-file bypass). For
+    # smoke tests and debugging the execution path.
+    agent_policy_file = ""
     # Per-call wall-clock limit for explore_python code execution, in
     # seconds (0 disables). Enforced cooperatively at every probe sim
     # call, plus a hard async-exception watchdog for sim-free code (a

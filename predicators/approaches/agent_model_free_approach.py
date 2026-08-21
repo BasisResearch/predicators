@@ -382,6 +382,11 @@ and update before doing anything else.**"""
         # is exposed only by AgentModelBasedApproach.)
         if CFG.agent_planner_use_simulator:
             tools.append("evaluate_option_plan")
+            # Closed-loop policy mode: the delivery gate for the
+            # agent-written policy.py (evaluate_option_plan stays as a
+            # probe but no longer captures).
+            if CFG.agent_solve_policy_mode:
+                tools.append("evaluate_policy")
             if CFG.agent_planner_use_explore_python:
                 tools.append("explore_python")
         if CFG.agent_solve_use_journal:

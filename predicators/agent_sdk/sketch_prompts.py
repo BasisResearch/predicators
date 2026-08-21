@@ -29,6 +29,7 @@ def build_solve_prompt(
     journal: str = "",
     strategy: str = "",
     physics_margin: bool = False,
+    policy_mode: bool = False,
 ) -> str:
     """Build the bilevel solve/explore prompt asking for a plan sketch.
 
@@ -79,6 +80,11 @@ def build_solve_prompt(
     the knowledge can be wrong, so the prompt tells the solver to
     re-verify rather than inherit.
 
+    ``policy_mode`` (``CFG.agent_solve_policy_mode``): the deliverable
+    becomes a closed-loop ./policy.py validated via ``evaluate_policy``
+    instead of a fixed evaluate_option_plan capture; the submit and
+    closing guidance swap to the policy contract.
+
     ``physics_margin`` is the caller-threaded value of
     ``CFG.agent_plan_validation_physics_margin``: when True (and
     ``require_tool_validation``), the submit guidance tells the agent
@@ -90,6 +96,9 @@ def build_solve_prompt(
     assert not (explore_mode and require_tool_validation), (
         "explore_mode accepts an uncaptured experiment sketch, which "
         "contradicts the hard capture gate of require_tool_validation")
+    assert not policy_mode or require_tool_validation, (
+        "policy_mode is a hard capture gate (evaluate_policy), so it "
+        "requires require_tool_validation")
 
     init_state = task.init
     objects = list(init_state)
@@ -480,7 +489,55 @@ def build_solve_prompt(
     # Explore-specific delivery guidance lives in the Exploration
     # Setting section above (single source); nothing to append here.
 
-    if require_tool_validation:
+    if policy_mode:
+        submit_guidance = (
+            "## Deliverable: Closed-Loop Policy (./policy.py)\n"
+            "Instead of a fixed plan, you deliver a PROGRAM that chooses "
+            "the next option from the current state. Write it to "
+            "./policy.py:\n\n"
+            "    def get_option(state, memory):\n"
+            "        ...\n\n"
+            "- `state`: the current State object (read-only copy). Same "
+            "API as explore_python: `state.get(obj, 'feature')`, iterate "
+            "objects with `for obj in state`, `obj.name`, `obj.type`.\n"
+            "- `memory`: a dict, initially empty, persisting across calls "
+            "within ONE episode (phase flags, counters, cached "
+            "measurements); reset between episodes. After a failed "
+            "option, `memory['last_failure']` holds the failure text - "
+            "branch on it to RECOVER (re-place a drifted block, adjust a "
+            "target after a motion-planning refusal); it is None on clean "
+            "steps.\n"
+            "- Return ONE plan line as a string, in the exact sketch "
+            "grammar `OptionName(obj:type, ...)[p1, p2]` with exact "
+            "continuous parameters (`[]` for none; `->`/`~` annotations "
+            "are ignored here). Return None to declare the episode "
+            "finished.\n"
+            "- Helpers available inside policy.py: `np` (numpy) and "
+            "`atoms(state)` -> set of ground-atom strings.\n"
+            "- Execution semantics (identical in the belief simulator and "
+            "the real environment): get_option is called once per option "
+            "boundary with the ACTUAL current state; option failures do "
+            "NOT end the episode (they surface via memory['last_failure'] "
+            "and you are asked again); exceptions in get_option or "
+            "unparsable/ungroundable lines DO end it; a hard cap of "
+            f"{CFG.agent_policy_max_options} options bounds every "
+            "episode.\n"
+            "SUBMIT via `evaluate_policy` on the CURRENT task until it "
+            "reaches the goal across all validation rollouts - the "
+            "validated policy.py snapshot (taken at call time; later "
+            "edits need a new call) is your ONLY accepted output. Test "
+            "recovery behavior first: in explore_python, "
+            "`sim.run_policy()` runs ./policy.py from the CURRENT probe "
+            "state (including perturbed or mid-plan states), so check "
+            "that the policy recovers from off-nominal states, not just "
+            "the initial one. " + margin_guidance)
+        closing_block = (
+            "Your answer is ONLY accepted from a goal-reaching "
+            "`evaluate_policy` run on the CURRENT task; final text alone "
+            "is discarded, so never finish without that validated run. "
+            "After the goal-reaching run, summarize the policy's strategy "
+            "as your final text.")
+    if require_tool_validation and not policy_mode:
         # Plain text is NOT a submission in this mode; saying "output the
         # plan lines" as the closing instruction has led agents (especially
         # right after an SDK context compaction, whose text-only summary
@@ -501,7 +558,8 @@ def build_solve_prompt(
             "deliverable (a simulator-validated capture is welcome but NOT "
             "required). Output ONLY the plan sketch lines at the end, "
             "after any analysis.")
-    else:
+    elif not policy_mode:
+        # (In policy mode the closing block was set above.)
         closing_block = (
             "Output ONLY the plan sketch lines at the end, after any "
             "analysis.")

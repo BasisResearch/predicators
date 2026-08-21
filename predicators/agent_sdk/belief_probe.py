@@ -29,6 +29,7 @@ annotation failed to hold).
 from __future__ import annotations
 
 import dataclasses
+import os
 import logging
 import time
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, \
@@ -1386,6 +1387,169 @@ class BeliefProbe:
         hn = _horizon_note(sum(s["num_actions"] for s in step_dicts))
         if hn is not None:
             notices.append(hn)
+        return ProbeResult(step_dicts, result.goal_reached, final_atoms,
+                           result.final_state, notices)
+
+    def run_policy(
+        self,
+        trials: int = 1,
+        seed: Optional[int] = None,
+        source: Optional[str] = None,
+    ) -> Union[ProbeResult, ProbeTrialsResult]:
+        """Run ./policy.py closed-loop FROM THE CURRENT STATE.
+
+        Policy-mode counterpart of ``run``: loads the sandbox's
+        ``policy.py`` fresh (or executes ``source`` directly) and drives
+        its ``get_option(state, memory)`` through the belief model with
+        the same failure-surfacing semantics as ``evaluate_policy`` and
+        the real executor - option failures land in
+        ``memory['last_failure']`` and the policy is asked again;
+        get_option bugs end the episode.
+
+        Starting from the CURRENT probe state is the point: perturb or
+        advance the state first (``reset(mods=...)``, a partial ``run``)
+        and check that the policy RECOVERS from off-nominal states, not
+        just the initial one. ``trials=N`` repeats from the task's
+        initial state on fresh envs (fresh memory per trial). Never
+        captures - deliver via ``evaluate_policy``. Also available in
+        learn sessions (probing a candidate simulator); there it runs
+        against the candidate model.
+        """
+        # pylint: disable=import-outside-toplevel
+        import contextlib
+
+        from predicators.agent_sdk.policy_execution import \
+            build_policy_option_fn, execute_policy_forward
+        from predicators.agent_sdk.tools.testing import _policy_source_path
+        from predicators.settings import CFG
+
+        # pylint: enable=import-outside-toplevel
+        ctx = self._ctx
+        _check_time_budget(ctx)
+        ctx.test_call_id += 1
+        if trials < 1:
+            raise ValueError(f"trials must be >= 1, got {trials}")
+        if source is None:
+            path = _policy_source_path(ctx)
+            if path is None or not os.path.isfile(path):
+                raise ValueError(
+                    "No ./policy.py found (and no `source` given). Write "
+                    "`def get_option(state, memory): ...` there first.")
+            with open(path, "r", encoding="utf-8") as f:
+                source = f.read()
+        cur = self._require_state()
+        assert self._base_task is not None
+        probe_task = dataclasses.replace(self._base_task,
+                                         init=cur,
+                                         evaluator=None)
+        all_options = ctx.options | ctx.iteration_proposals.proposed_options
+        all_predicates = (ctx.predicates
+                          | ctx.iteration_proposals.proposed_predicates)
+        types = set(ctx.types)
+        for opt in all_options:
+            types.update(opt.types)
+        for pred in all_predicates:
+            types.update(pred.types)
+        types.update(o.type for o in cur)
+
+        def _fresh_fn() -> Any:
+            fn, err = build_policy_option_fn(source,
+                                             probe_task,
+                                             predicates=all_predicates,
+                                             options=all_options,
+                                             types=types)
+            if err is not None or fn is None:
+                raise ValueError(err or "policy failed to load")
+            return fn
+
+        max_opts = CFG.agent_policy_max_options
+        notices: List[str] = []
+
+        def _one_rollout(fn: Any) -> Any:
+            model = self._option_model()
+            return execute_policy_forward(probe_task,
+                                          fn,
+                                          model,
+                                          predicates=all_predicates,
+                                          max_policy_options=max_opts)
+
+        if trials > 1:
+            fresh_scope = (ctx.validation_env_scope
+                           if ValidationConfig.from_cfg().fresh_env
+                           and ctx.validation_env_scope is not None
+                           and ctx.probe_option_model_provider is None else
+                           None)
+            trial_dicts: List[Dict[str, Any]] = []
+            base_planner_seed = seed if seed is not None else CFG.seed
+            for trial_idx in range(trials):
+                _check_time_budget(ctx)
+                _count_rollout(ctx)
+                with (fresh_scope() if fresh_scope is not None else
+                      contextlib.nullcontext()), \
+                        absolute_rollout_seed(seed), \
+                        decorrelated_rollout_seed(trial_idx):
+                    r = _one_rollout(_fresh_fn())
+                failure: Optional[str] = None
+                if r.policy_error is not None:
+                    failure = f"policy error: {r.policy_error}"
+                elif r.first_failure_idx is not None and not r.goal_reached:
+                    fs = r.steps[r.first_failure_idx]
+                    failure = (f"step {r.first_failure_idx} "
+                               f"({_fmt_option(fs.option)}): "
+                               f"{fs.failure_reason}")
+                trial_dicts.append({
+                    "goal_reached": r.goal_reached,
+                    "num_actions": r.total_actions,
+                    "failure": failure,
+                    "planner_seed": base_planner_seed + trial_idx,
+                    "inexact_start_features": [],
+                })
+            successes = sum(1 for t in trial_dicts if t["goal_reached"])
+            return ProbeTrialsResult(trial_dicts, successes, fresh_scope
+                                     is not None, notices)
+
+        _count_rollout(ctx)
+        step_dicts: List[Dict[str, Any]] = []
+
+        def _on_step(i: int, outcome: Any) -> None:
+            failure = outcome.failure_reason
+            if failure is not None:
+                failure = (f"{failure} [surfaced to the policy as "
+                           "memory['last_failure']]")
+            added: List[str] = []
+            deleted: List[str] = []
+            if outcome.post_state is not None:
+                before = utils.abstract(outcome.pre_state, ctx.predicates)
+                after = utils.abstract(outcome.post_state, ctx.predicates)
+                added = [str(a) for a in sorted(after - before)]
+                deleted = [str(a) for a in sorted(before - after)]
+            step_dicts.append({
+                "option": _fmt_option(outcome.option),
+                "num_actions": outcome.num_actions,
+                "failure": failure,
+                "added": added,
+                "deleted": deleted,
+                "subgoals_missing": [],
+                "image": None,
+            })
+
+        with absolute_rollout_seed(seed):
+            result = execute_policy_forward(probe_task,
+                                            _fresh_fn(),
+                                            self._option_model(),
+                                            predicates=all_predicates,
+                                            max_policy_options=max_opts,
+                                            on_step=_on_step)
+        if result.policy_error is not None:
+            notices.append(f"POLICY ERROR ended the episode: "
+                           f"{result.policy_error}")
+        # A closed-loop probe advances the session state like `run`.
+        self._state = result.final_state
+        self._pristine = False
+        final_atoms = [
+            str(a)
+            for a in sorted(utils.abstract(result.final_state, ctx.predicates))
+        ]
         return ProbeResult(step_dicts, result.goal_reached, final_atoms,
                            result.final_state, notices)
 

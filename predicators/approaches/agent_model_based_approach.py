@@ -20,6 +20,7 @@ Example command::
         --num_online_learning_cycles 1 --explorer agent_plan
 """
 import dataclasses
+import hashlib
 import logging
 import os
 import time
@@ -66,6 +67,16 @@ _FINAL_SUBMIT_NUDGE = (
     "It is captured as your answer even if it does not fully reach the "
     "goal or does not score as a solve; then finish.")
 
+# Policy-mode variant: a best-effort POLICY is genuinely better than a
+# best-effort plan - it is closed-loop, so whatever recovery logic it
+# carries still applies at execution.
+_FINAL_SUBMIT_POLICY_NUDGE = (
+    "You are out of exploration budget for this attempt. Do NOT explore "
+    "further. In as few tool calls as possible, submit your current best "
+    "./policy.py NOW via evaluate_policy on the current task. It is "
+    "captured as your answer even if it does not fully reach the goal or "
+    "does not score as a solve; then finish.")
+
 
 @dataclasses.dataclass
 class _CaptureInfo:
@@ -106,6 +117,19 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
                 f"{CFG.execution_monitor!r}): divergence detection lives "
                 "in the execution monitor, so without it test execution "
                 "is silently open-loop.")
+        if CFG.agent_solve_policy_mode:
+            if CFG.agent_bilevel_max_execution_replans > 0:
+                raise ValueError(
+                    "agent_solve_policy_mode is mutually exclusive with "
+                    "agent_bilevel_max_execution_replans > 0: the policy "
+                    "OWNS closed-loop recovery (option failures are "
+                    "surfaced to it), so the sketch-divergence replan "
+                    "machinery must be off.")
+            if not CFG.agent_planner_use_simulator:
+                raise ValueError(
+                    "agent_solve_policy_mode requires "
+                    "agent_planner_use_simulator: the policy is validated "
+                    "in the belief model before execution.")
         # Live status of the currently executing annotated plan, exported
         # to the subgoal_annotations execution monitor. None whenever no
         # monitored plan is active (exploration, replanning disabled).
@@ -233,13 +257,21 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
                         "current model supports one; when it does not, submit "
                         "the sketch most likely to work in reality instead of "
                         "grinding for a capture the model cannot produce.")
-        else:
+        elif CFG.agent_solve_policy_mode:
             contract = (
-                "You DELIVER by running evaluate_option_plan with "
-                "per-step subgoals on the current task until it reaches "
-                "the goal - that captured plan is your ONLY accepted "
-                "output, so do not finish until evaluate_option_plan "
-                "reaches the goal.")
+                "You DELIVER a closed-loop PROGRAM, not a fixed plan: "
+                "write ./policy.py with `get_option(state, memory)` "
+                "returning ONE plan line (the same sketch grammar) from "
+                "the actual current state, or None when finished, then "
+                "run evaluate_policy on the current task until it "
+                "reaches the goal - that validated policy.py snapshot is "
+                "your ONLY accepted output. Option failures do NOT end "
+                "an episode: they arrive in memory['last_failure'] and "
+                "get_option is asked again, so RECOVERY (re-place a "
+                "drifted block, re-aim after a motion-planning refusal) "
+                "is your policy's job. Sketches and subgoal annotations "
+                "remain useful for exploration (sim.run / sim.refine) "
+                "but are not the deliverable.")
         job = ("Your job is to produce a plan - " + sketch_desc +
                " - that reaches the goal. " + contract + "\n"
                "evaluate_option_plan runs your EXACT parameters with no "
@@ -331,6 +363,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
             journal=journal_text,
             strategy=strategy_text,
             physics_margin=CFG.agent_plan_validation_physics_margin,
+            policy_mode=CFG.agent_solve_policy_mode,
         )
 
     def _solve_prompt_tool_names(self) -> Optional[List[str]]:
@@ -621,6 +654,19 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         # Let evaluate_option_plan record a goal-reaching
         # plan on this task into solved_plan/solved_sketch (consumed below).
         self._tool_context.capture_goal_reaching_plans = True
+        # Policy mode: the deliverable is policy.py via evaluate_policy;
+        # evaluate_option_plan stays available for probing but cannot
+        # capture.
+        self._tool_context.policy_capture_mode = CFG.agent_solve_policy_mode
+        # LLM-free bypass: a prewritten policy.py as the captured
+        # artifact (smoke tests / debugging the execution path).
+        if CFG.agent_solve_policy_mode and CFG.agent_policy_file:
+            with open(CFG.agent_policy_file, "r", encoding="utf-8") as f:
+                self._tool_context.solved_policy_source = f.read()
+            self._tool_context.solved_plan_reached_goal = True
+            policy = self._consume_validated_plan()
+            assert policy is not None
+            return policy
         # Render the initial state so the agent can see the scene layout.
         self._render_initial_state_image(task)
         # Whether later fresh-context restarts exist after this attempt;
@@ -923,7 +969,8 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         task evaluator, or is flaky: there are no restarts left, and a
         partial plan beats forfeiting the task.
         """
-        nudge = _FINAL_SUBMIT_NUDGE
+        nudge = (_FINAL_SUBMIT_POLICY_NUDGE
+                 if CFG.agent_solve_policy_mode else _FINAL_SUBMIT_NUDGE)
         if CFG.agent_solve_use_journal:
             nudge += (
                 " If an earlier attempt's entry in the Solve Journal "
@@ -971,6 +1018,8 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         it.
         """
         capture = self._tool_context.take_plan_capture()
+        if capture.policy_source:
+            return self._policy_capture_to_policy(capture)
         if not capture.plan:
             return None
         # A capture with reached_goal False was accepted under the
@@ -993,6 +1042,132 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
             "(%d steps, %s):\n%s", self._run_id, len(capture.plan), verdict,
             "\n".join(lines))
         return self._plan_to_policy(capture.plan, sketch=capture.sketch)
+
+    def _policy_capture_to_policy(
+            self, capture: Any) -> Callable[[State], Action]:
+        """Turn a captured policy.py source into the execution policy.
+
+        Policy-mode counterpart of the plan branch below: records the
+        capture metadata (the journal gets the source hash + validation
+        summary rather than plan lines), composes the SNAPSHOTTED source
+        against the real task and vocabulary, and wraps it in the
+        closed-loop executor. No ``SubgoalExecutionStatus`` is ever
+        published: the monitor and the divergence-replan path stay inert
+        (the constructor enforces replans == 0 in policy mode).
+        """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.policy_execution import \
+            build_policy_option_fn
+        source = capture.policy_source
+        validated = capture.reached_goal is not False
+        sha = hashlib.sha256(source.encode("utf-8")).hexdigest()[:12]
+        n_lines = len(source.splitlines())
+        self._last_capture_info = _CaptureInfo(
+            validated=validated,
+            reward=capture.eval_reward,
+            plan_lines=[f"<closed-loop policy.py sha={sha}, "
+                        f"{n_lines} lines>"],
+            validation_summary=capture.validation_summary)
+        verdict = ("simulator-verified" if validated else
+                   "best-effort: not a validated solve in the belief rollout")
+        logging.info(
+            "[%s] Using agent-validated POLICY from capture (sha=%s, "
+            "%d lines, %s).", self._run_id, sha, n_lines, verdict)
+        task = self._tool_context.current_task
+        assert task is not None
+        option_fn, err = build_policy_option_fn(
+            source,
+            task,
+            predicates=self._get_all_predicates(),
+            options=self._get_all_options(),
+            types=self._types)
+        if err is not None or option_fn is None:
+            raise ApproachFailure(
+                f"Captured policy.py failed to load for execution: {err}")
+        return self._policy_to_execution_policy(option_fn)
+
+    def _policy_to_execution_policy(
+            self, option_fn: Any) -> Callable[[State], Action]:
+        """Closed-loop real executor for a composed policy option fn.
+
+        Mirrors ``execute_policy_forward``'s semantics on the real env:
+        option execution failures (non-initiable, a skill raising
+        mid-execution - e.g. post-release placement verification, a
+        motion-planning refusal - or an option step-cap timeout) do NOT
+        end the episode; the failure text is surfaced to the policy via
+        ``memory['last_failure']`` and the next option is requested from
+        the current state, bounded by ``CFG.agent_policy_max_options``.
+        ``get_option`` bugs and DONE end the episode via
+        ``ApproachFailure`` (harmless when the goal already holds).
+
+        Implementation note: each issued option still runs through
+        ``utils.option_policy_to_policy`` (per-option step caps and the
+        Wait atom-change machinery live there), but the wrapper is
+        REBUILT after every surfaced failure - the failed option is
+        stuck inside the old wrapper's closure (its terminal never
+        holds), so a fresh wrapper is what makes the next call request a
+        new option.
+        """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.policy_execution import PolicyError
+        predicates = self._get_all_predicates()
+
+        def _abstract(s: State) -> Set[GroundAtom]:
+            return utils.abstract(s, predicates)
+
+        state_box = {"last_failure": None, "issued": 0}
+
+        class _PolicyFatal(utils.OptionExecutionFailure):
+            """DONE / policy bug / budget: never surfaced, ends episode."""
+
+        def _option_policy(state: State) -> _Option:
+            if state_box["issued"] >= CFG.agent_policy_max_options:
+                raise _PolicyFatal(
+                    "Policy exhausted its option budget "
+                    f"({CFG.agent_policy_max_options} options) without "
+                    "signalling DONE.")
+            try:
+                nxt = option_fn(state, state_box["last_failure"])
+            except PolicyError as e:
+                raise _PolicyFatal(f"policy error: {e}") from e
+            if nxt is None:
+                logging.info("Policy signaled DONE after %d options.",
+                             state_box["issued"])
+                raise _PolicyFatal("Policy signaled DONE.")
+            state_box["issued"] += 1
+            state_box["last_failure"] = None
+            logging.info("Executing policy option %d/%d: %s",
+                         state_box["issued"], CFG.agent_policy_max_options,
+                         nxt.simple_str())
+            return nxt
+
+        def _fresh_inner() -> Callable[[State], Action]:
+            return utils.option_policy_to_policy(
+                _option_policy,
+                max_option_steps=CFG.max_num_steps_option_rollout,
+                abstract_function=_abstract)
+
+        inner_box = {"inner": _fresh_inner()}
+
+        def _execution_policy(state: State) -> Action:
+            while True:
+                try:
+                    return inner_box["inner"](state)
+                except _PolicyFatal as e:
+                    raise ApproachFailure(str(e)) from e
+                except utils.OptionExecutionFailure as e:
+                    # Surface to the policy and continue: the failed
+                    # option is stuck in the old wrapper, so rebuild.
+                    failed = getattr(e, "info", {}).get("last_failed_option")
+                    prefix = (f"{failed.name}: "
+                              if failed is not None else "")
+                    state_box["last_failure"] = f"{prefix}{e}"
+                    logging.info(
+                        "Option failure surfaced to the policy: %s",
+                        state_box["last_failure"])
+                    inner_box["inner"] = _fresh_inner()
+
+        return _execution_policy
 
     def _plan_to_policy(
         self,
