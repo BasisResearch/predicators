@@ -804,8 +804,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # reuse the sweep instead of re-rolling it, which both saves
         # rollouts and pins the verdict for identical inputs.
         self._explainability_cache: Dict[Tuple, Tuple[List[float],
-                                                      List[Dict[str,
-                                                                float]]]] = {}
+                                                      List[Dict[str, float]],
+                                                      List[bool]]] = {}
         # Whole-fit memoization for the orchestrator (same lifecycle as
         # the explainability cache): repeated canonical sim.fit calls on
         # an unchanged artifact version + data reuse the entire fit core

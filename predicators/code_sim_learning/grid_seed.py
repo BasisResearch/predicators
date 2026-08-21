@@ -20,7 +20,7 @@ from predicators.code_sim_learning.fit_space import ParamSpec, is_log, \
     scalar_from_fit_space, scalar_to_fit_space
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory
 from predicators.code_sim_learning.rollout_objective import \
-    compute_rollout_sse, per_trajectory_rms
+    compute_rollout_sse, per_trajectory_scores
 from predicators.code_sim_learning.trajectory_prep import ResidualScaling
 
 logger = logging.getLogger(__name__)
@@ -351,17 +351,17 @@ def min_explainable_rms(
     and unexplainable as the agent re-declared inits across calls
     (observed on run_20260711_141026, cycle 2).
     """
-    best, _ = min_explainable_fits(base_env,
-                                   trajectories,
-                                   physical_specs,
-                                   residual_features,
-                                   rules=rules,
-                                   rule_specs=rule_specs,
-                                   latent_init=latent_init,
-                                   extra_candidates=extra_candidates,
-                                   scaling=scaling,
-                                   anchors=anchors,
-                                   config=config)
+    best, _, _ = min_explainable_fits(base_env,
+                                      trajectories,
+                                      physical_specs,
+                                      residual_features,
+                                      rules=rules,
+                                      rule_specs=rule_specs,
+                                      latent_init=latent_init,
+                                      extra_candidates=extra_candidates,
+                                      scaling=scaling,
+                                      anchors=anchors,
+                                      config=config)
     return best
 
 
@@ -377,7 +377,7 @@ def min_explainable_fits(
     scaling: Optional[ResidualScaling] = None,
     anchors: Optional[Dict[str, float]] = None,
     config: Optional[SysIdConfig] = None,
-) -> Tuple[List[float], List[Dict[str, float]]]:
+) -> Tuple[List[float], List[Dict[str, float]], List[bool]]:
     """:func:`min_explainable_rms` plus each trajectory's argmin params.
 
     The second return is, per trajectory, the PHYSICAL portion of the
@@ -412,12 +412,19 @@ def min_explainable_fits(
         n: float(base[n])
         for n in physical_names
     } for _ in trajectories]
+    # Whether ANY candidate reproduced the cascade -- not whether the
+    # RMS-best one did. The two differ: under interval scoring a theta that
+    # completes the chain but mistimes it can score worse than one that
+    # stalls it early with few terms, and "could this model ever produce
+    # this outcome" is a question about the whole grid.
+    reproduced = [False] * len(trajectories)
     for params in candidates:
-        rms = per_trajectory_rms(base_env, trajectories, params,
-                                 residual_features, physical_names, rules,
-                                 latent_init, scaling)
-        for i, r in enumerate(rms):
-            if r < best[i]:
-                best[i] = r
+        scores = per_trajectory_scores(base_env, trajectories, params,
+                                       residual_features, physical_names,
+                                       rules, latent_init, scaling)
+        for i, score in enumerate(scores):
+            reproduced[i] = reproduced[i] or score.stats.reproduced_cascade
+            if score.rms < best[i]:
+                best[i] = score.rms
                 best_params[i] = {n: float(params[n]) for n in physical_names}
-    return best, best_params
+    return best, best_params, reproduced

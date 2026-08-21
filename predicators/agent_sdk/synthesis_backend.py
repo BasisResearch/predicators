@@ -52,9 +52,15 @@ class SynthesisBackend(Protocol):
     _types: Set[Type]
     _initial_predicates: Set[Predicate]
     _initial_options: Set[ParameterizedOption]
-    # Per-fit cache of best-achievable per-segment RMS (system ID).
+    # Per-fit cache of the explainability sweep's verdicts (system ID):
+    # best-achievable per-segment RMS, each segment's argmin params, and
+    # whether ANY candidate reproduced its cascade -- the last being what
+    # decides explainability under interval scoring, where an RMS bar
+    # cannot separate "the twin did not reproduce which dominoes fall"
+    # from "it reproduced them with the wrong timing".
     _explainability_cache: Dict[Tuple, Tuple[List[float], List[Dict[str,
-                                                                    float]]]]
+                                                                    float]],
+                                             List[bool]]]
 
     # ── State written by the tools ───────────────────────────────
     # Per-skill samplers keyed by option name.

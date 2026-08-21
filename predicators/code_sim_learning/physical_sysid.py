@@ -623,8 +623,8 @@ def fit_params_rollout_trimmed(
     noise_sigma: float = 0.05,
     scaling: Optional[ResidualScaling] = None,
     anchors: Optional[Dict[str, float]] = None,
-    rms_cache: Optional[Dict[Tuple, Tuple[List[float],
-                                          List[Dict[str, float]]]]] = None,
+    rms_cache: Optional[Dict[Tuple, Tuple[List[float], List[Dict[str, float]],
+                                          List[bool]]]] = None,
     config: Optional[SysIdConfig] = None,
 ) -> Tuple[FitResult, List[RolloutTrajectory], List[float], List[Dict[str,
                                                                       float]]]:
@@ -695,7 +695,8 @@ def fit_params_rollout_trimmed(
                                     config=config)
         return result, list(trajectories), [], []
     cache_key: Optional[Tuple] = None
-    cached: Optional[Tuple[List[float], List[Dict[str, float]]]] = None
+    cached: Optional[Tuple[List[float], List[Dict[str, float]],
+                           List[bool]]] = None
     if rms_cache is not None:
         cache_key = _explainability_cache_key(physical_specs, rule_specs,
                                               trajectories, anchors, scaling,
@@ -725,17 +726,51 @@ def fit_params_rollout_trimmed(
             "%.1fs.",
             num_rollouts_run() - sweep_n0,
             time.monotonic() - sweep_t0)
-    rms, argmins = cached
+    rms, argmins, reproduced = cached
     threshold = factor * noise_sigma
-    survivors = [t for t, r in zip(trajectories, rms) if r <= threshold]
-    surv_argmins = [a for a, r in zip(argmins, rms) if r <= threshold]
+    # UNDER INTERVAL SCORING THE QUESTION IS STRUCTURAL, NOT NUMERIC. An RMS
+    # bar asks "how closely does the twin match", but the residuals it is
+    # applied to are a missing-cascade penalty (the twin did not reproduce
+    # WHICH dominoes fall) and a timing difference (both fell, at different
+    # moments) added together -- and those differ by three orders of
+    # magnitude, so the bar is really a penalty detector with a
+    # wildly-miscalibrated tail. On run_20260820_141450 a theta reproducing
+    # all four falls with ZERO penalties scored 1.21 against the 0.1 bar and
+    # was dropped as "unexplainable at any candidate params", while the same
+    # theta was reported by the sweep as explaining the data 1084x better
+    # than baseline.
+    #
+    # So ask the question that was meant: did any candidate reproduce the
+    # cascade? The leftover timing error is precisely what the fit exists to
+    # reduce, and using it to refuse to fit is circular. The per-step
+    # objective keeps the RMS bar, where residuals really are a
+    # dimensionless fraction of typical motion and the bar means what it says.
+    structural = config.score_observed_only
+
+    def _explainable(index: int) -> bool:
+        """Whether trajectory ``index`` is worth fitting on."""
+        if structural:
+            return reproduced[index]
+        return rms[index] <= threshold
+
+    keep = [i for i in range(len(trajectories)) if _explainable(i)]
+    survivors = [trajectories[i] for i in keep]
+    surv_argmins = [argmins[i] for i in keep]
     if len(survivors) < len(trajectories):
-        logger.info(
-            "Rollout sysID trimming: per-trajectory best RMS %s vs "
-            "threshold %.4f (%g x noise %.3f) — dropping %d of %d "
-            "unexplainable trajectories.", [f"{r:.4g}" for r in rms],
-            threshold, factor, noise_sigma,
-            len(trajectories) - len(survivors), len(trajectories))
+        if structural:
+            logger.info(
+                "Rollout sysID trimming: no candidate reproduced the cascade "
+                "for %d of %d trajectories (best RMS %s, kept for the fit "
+                "rather than compared against a bar) — dropping them.",
+                len(trajectories) - len(survivors), len(trajectories),
+                [f"{r:.4g}" for r in rms])
+        else:
+            logger.info(
+                "Rollout sysID trimming: per-trajectory best RMS %s vs "
+                "threshold %.4f (%g x noise %.3f) — dropping %d of %d "
+                "unexplainable trajectories.", [f"{r:.4g}" for r in rms],
+                threshold, factor, noise_sigma,
+                len(trajectories) - len(survivors), len(trajectories))
     if not survivors:
         logger.warning(
             "Rollout sysID trimming: NO trajectory is explainable at any "
@@ -755,7 +790,7 @@ def fit_params_rollout_trimmed(
     # cleanest data rather than the loudest.
     consistency = config.consistency_factor
     physical_names = [s.name for s in physical_specs]
-    best = [r for r in rms if r <= threshold]
+    best = [rms[i] for i in keep]
     hull_candidates: List[Dict[str, float]] = []
     while True:
         result = fit_params_rollout(base_env,

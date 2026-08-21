@@ -104,8 +104,8 @@ def run_rollout_sysid(
     rule_specs: Sequence[ParamSpec] = (),
     latent_init: Any = None,
     anchors: Optional[Dict[str, float]] = None,
-    rms_cache: Optional[Dict[Tuple, Tuple[List[float],
-                                          List[Dict[str, float]]]]] = None,
+    rms_cache: Optional[Dict[Tuple, Tuple[List[float], List[Dict[str, float]],
+                                          List[bool]]]] = None,
     fit_cache: Optional[Dict[Tuple, _FitComputation]] = None,
     fit_cache_key: Optional[Any] = None,
     report_adjuster: Optional[ReportAdjuster] = None,
@@ -239,8 +239,8 @@ def _compute_fit(
     rule_specs: Sequence[ParamSpec],
     latent_init: Any,
     anchors: Dict[str, float],
-    rms_cache: Optional[Dict[Tuple, Tuple[List[float], List[Dict[str,
-                                                                 float]]]]],
+    rms_cache: Optional[Dict[Tuple, Tuple[List[float], List[Dict[str, float]],
+                                          List[bool]]]],
     config: SysIdConfig,
 ) -> _FitComputation:
     """The cacheable fit core: trim + fit + report on the survivors."""
