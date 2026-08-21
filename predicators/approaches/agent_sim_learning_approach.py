@@ -2014,19 +2014,33 @@ version-tagged (see the system prompt's Tools section).{probe_note}"""
             logger.info("Skipping separate active-experiment fit: the joint "
                         "rollout sysID posterior is reused for exploration.")
             return
+        # Reuse the solver fit's LM MAP + jacobian instead of re-running
+        # the (expensive, full-data) LM fit for the identical objective.
+        # Only safe when the solver fit was LM-only: with real solver
+        # MCMC its point_estimate is the MCMC MAP, not the LM MAP the
+        # jacobian was computed at.
+        lm_seed: Optional[Tuple[np.ndarray, Optional[np.ndarray]]] = None
+        prev = self._last_fit_result
+        if (prev is not None and CFG.code_sim_learning_num_mcmc_steps == 0
+                and prev.samples.shape[0] == 1
+                and list(prev.names) == [s.name for s in specs]):
+            theta = np.array([prev.point_estimate[n] for n in prev.names])
+            lm_seed = (theta, prev.jacobian)
         if has_latent_rules(rules):
             fit_result, sse = self._fit_parameters_recurrent(
                 rules,
                 specs,
                 base_pred_triples,
                 residual_features,
-                num_steps=num_steps)
+                num_steps=num_steps,
+                lm_seed=lm_seed)
         else:
             fit_result, sse = fit_rule_parameters(rules,
                                                   specs,
                                                   base_pred_triples,
                                                   residual_features,
-                                                  num_steps=num_steps)
+                                                  num_steps=num_steps,
+                                                  lm_seed=lm_seed)
         self._last_fit_result = fit_result
         logger.info(
             "Fitted active-experiment posterior with %d MCMC steps "
@@ -2643,6 +2657,7 @@ version-tagged (see the system prompt's Tools section).{probe_note}"""
         base_pred_triples: List[Tuple[State, Action, State]],
         residual_features: Dict[str, List[str]],
         num_steps: Optional[int] = None,
+        lm_seed: Optional[Tuple[np.ndarray, Optional[np.ndarray]]] = None,
     ) -> Tuple[FitResult, float]:
         """MCMC over the recurrent (per-trajectory) SSE.
 
@@ -2666,7 +2681,8 @@ version-tagged (see the system prompt's Tools section).{probe_note}"""
                                           groups,
                                           self._latent_init,
                                           residual_features,
-                                          num_steps=num_steps)
+                                          num_steps=num_steps,
+                                          lm_seed=lm_seed)
 
     def _oracle_param_sse_recurrent(
         self,

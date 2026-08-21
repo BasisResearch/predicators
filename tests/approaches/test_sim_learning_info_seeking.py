@@ -277,8 +277,9 @@ def test_exploration_mcmc_does_not_replace_solver_params(monkeypatch):
                   specs,
                   base_pred_triples,
                   residual_features,
-                  num_steps=None):
-        del rules, specs, base_pred_triples, residual_features
+                  num_steps=None,
+                  lm_seed=None):
+        del rules, specs, base_pred_triples, residual_features, lm_seed
         calls.append(num_steps)
         if num_steps is None:
             return solver_result, 10.0
@@ -397,3 +398,97 @@ def test_fit_parameters_latent_threads_num_steps(monkeypatch):
     assert captured["num_steps"] == 7
     assert sse == 0.0
     assert result.point_estimate == {"a": 1.0}
+
+
+def test_lm_seed_skips_lm_refit(monkeypatch):
+    """A precomputed (theta_map, jac) short-circuits the LM prefit."""
+    import predicators.code_sim_learning.fitting as fitting_mod
+    from predicators.code_sim_learning.fit_space import ParamSpec
+    utils.reset_config({
+        "code_sim_learning_num_mcmc_steps": 0,
+        "code_sim_learning_warm_start_with_lm": True,
+        "agent_explorer_info_seeking": True,
+    })
+    calls = {"n": 0}
+
+    def _counting_lm(*_a, **_k):
+        calls["n"] += 1
+        return np.array([1.2]), np.array([[0.5]])
+
+    monkeypatch.setattr(fitting_mod, "fit_map_lm_recurrent", _counting_lm)
+    monkeypatch.setattr(fitting_mod, "compute_sse_recurrent",
+                        lambda *a, **k: 0.0)
+    specs = [ParamSpec("a", 1.0, lo=0.0, hi=2.0)]
+    # Without a seed the LM prefit runs.
+    result = fitting_mod.fit_params_recurrent(rules=[],
+                                              trajectories=[[]],
+                                              param_specs=specs,
+                                              latent_init=None,
+                                              residual_features={})
+    assert calls["n"] == 1
+    # With a seed it does not, and the seed's jacobian is carried.
+    jac = np.array([[0.7]])
+    result = fitting_mod.fit_params_recurrent(rules=[],
+                                              trajectories=[[]],
+                                              param_specs=specs,
+                                              latent_init=None,
+                                              residual_features={},
+                                              lm_seed=(np.array([1.3]), jac))
+    assert calls["n"] == 1
+    assert result.jacobian is not None
+    assert float(result.jacobian[0, 0]) == 0.7
+    assert result.point_estimate == {"a": 1.3}
+
+
+def test_exploration_refit_seeds_from_lm_only_solver_fit(monkeypatch):
+    """The exploration refit reuses the solver LM MAP only when safe."""
+    from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
+    specs = [ParamSpec("a", 1.0, lo=0.0, hi=2.0)]
+    captured = {}
+
+    def _fake_recurrent(self, rules, s, triples, feats, num_steps=None,
+                        lm_seed=None):
+        captured["lm_seed"] = lm_seed
+        captured["num_steps"] = num_steps
+        return FitResult(names=["a"],
+                         samples=np.array([[1.0], [1.1]]),
+                         log_probs=np.zeros(2)), 0.0
+
+    monkeypatch.setattr(AgentSimLearningApproach, "_fit_parameters_recurrent",
+                        _fake_recurrent)
+    monkeypatch.setattr(
+        "predicators.approaches.agent_sim_learning_approach."
+        "has_latent_rules", lambda _r: True)
+    monkeypatch.setattr(
+        "predicators.approaches.agent_sim_learning_approach."
+        "has_physics_rules", lambda _r: False)
+    approach = object.__new__(AgentSimLearningApproach)
+    approach._physical_param_specs = []
+    utils.reset_config({
+        "agent_explorer_info_seeking": True,
+        "agent_explorer_info_mcmc_steps": 300,
+        "code_sim_learning_num_mcmc_steps": 0,
+    })
+    # LM-only solver fit (single-row samples, matching names): seeded.
+    jac = np.array([[0.4]])
+    approach._last_fit_result = FitResult(names=["a"],
+                                          samples=np.array([[1.5]]),
+                                          log_probs=np.zeros(1),
+                                          jacobian=jac)
+    approach._maybe_refit_exploration_posterior([], specs, [], {})
+    assert captured["num_steps"] == 300
+    theta, seed_jac = captured["lm_seed"]
+    assert float(theta[0]) == 1.5
+    assert seed_jac is jac
+    # Multi-row solver samples (real solver MCMC): no seed.
+    approach._last_fit_result = FitResult(names=["a"],
+                                          samples=np.array([[1.5], [1.6]]),
+                                          log_probs=np.zeros(2))
+    approach._maybe_refit_exploration_posterior([], specs, [], {})
+    assert captured["lm_seed"] is None
+    # Name mismatch (stale fit for different specs): no seed.
+    approach._last_fit_result = FitResult(names=["b"],
+                                          samples=np.array([[1.5]]),
+                                          log_probs=np.zeros(1))
+    approach._maybe_refit_exploration_posterior([], specs, [], {})
+    assert captured["lm_seed"] is None
