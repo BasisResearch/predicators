@@ -8,9 +8,8 @@ import numpy as np
 
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
-from predicators.agent_sdk.config import RefinementConfig, \
-    SessionConfig, ToolSurfaceConfig, \
-    ValidationConfig
+from predicators.agent_sdk.config import RefinementConfig, SessionConfig, \
+    ToolSurfaceConfig, ValidationConfig
 from predicators.agent_sdk.tools.budget import _budget_footer
 from predicators.agent_sdk.tools.capture import BestEffortReason, \
     CaptureDecision, _decide_capture
@@ -480,14 +479,13 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # after every one of validation_cfg.rollouts total
         # rollouts succeeds; a flaky repeat is reported to the agent, who
         # still has the session to add margin and resubmit.
-        def _validation_rollout(
-        ) -> Tuple[bool, str, List[Optional[State]]]:
+        def _validation_rollout() -> Tuple[bool, str, List[Optional[State]]]:
             """One extra rollout of the exact plan.
 
             Returns ``(ok, failure detail, per-step post-states)``; the
-            post-state list is padded with ``None`` to the plan length so
-            a truncated (failed) rollout still indexes safely. Passing
-            rollouts' post-states feed the captured-annotation
+            post-state list is padded with ``None`` to the plan length
+            so a truncated (failed) rollout still indexes safely.
+            Passing rollouts' post-states feed the captured-annotation
             intersection filter.
             """
             v_collector = _EvalStateCollector(model, task.init)
@@ -532,8 +530,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                         return False, (
                             "this rollout reached the goal atoms but the "
                             "task evaluator scored it as a non-solve "
-                            f"(solved=False, reward={v['reward']:.2f})"
-                        ), posts
+                            f"(solved=False, reward={v['reward']:.2f})"), posts
                 except Exception as e:  # pylint: disable=broad-except
                     logging.debug("Validation-rollout verdict failed: %s", e)
             return True, "", posts
@@ -1341,10 +1338,9 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 "branches.")
         elif decision is CaptureDecision.PARAM_SENSITIVE_NO_CAPTURE:
             per_point = "\n".join(f"  {o}" for o in margin_outcomes)
-            lines.append(
-                f"PARAM-SENSITIVE (policy NOT captured): failed "
-                f"{param_sensitive_detail}. Per-point outcomes:\n"
-                f"{per_point}")
+            lines.append(f"PARAM-SENSITIVE (policy NOT captured): failed "
+                         f"{param_sensitive_detail}. Per-point outcomes:\n"
+                         f"{per_point}")
         elif decision is CaptureDecision.REWARD_HACK_NO_CAPTURE:
             lines.append(
                 "NOT captured: the rollout reaches the goal atoms but the "

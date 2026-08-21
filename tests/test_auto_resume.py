@@ -5,8 +5,6 @@ it reports whether any checkpoint exists and the highest completed
 online-learning cycle, from which _maybe_auto_resume derives
 load_approach / restart_learning / skip_until_cycle.
 """
-import os
-
 from predicators.main import discover_resume_cycles
 
 

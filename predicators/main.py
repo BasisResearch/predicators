@@ -145,8 +145,8 @@ def discover_resume_cycles(load_path: str) -> Tuple[bool, Optional[int]]:
 def _maybe_auto_resume() -> None:
     """Under ``--auto_resume``, continue from the latest checkpoint.
 
-    Sets ``load_approach`` (so the offline phase loads instead of
-    re-learning), ``restart_learning`` (without it the online loop's
+    Sets ``load_approach`` (so the offline phase loads instead of re-
+    learning), ``restart_learning`` (without it the online loop's
     learning gate skips learning on EVERY cycle of a loaded run), and
     ``skip_until_cycle`` past the last completed cycle. A run with no
     checkpoint starts fresh. This makes a Slurm requeue / resubmission

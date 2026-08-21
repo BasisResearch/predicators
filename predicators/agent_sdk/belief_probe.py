@@ -29,8 +29,8 @@ annotation failed to hold).
 from __future__ import annotations
 
 import dataclasses
-import os
 import logging
+import os
 import time
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, \
     Union
@@ -952,6 +952,7 @@ class BeliefProbe:
         """
         # pylint: disable-next=import-outside-toplevel
         import contextlib
+
         # pylint: disable-next=import-outside-toplevel
         import numpy as np
 
@@ -1135,6 +1136,8 @@ class BeliefProbe:
                             model, probe_task.init)
                                      if evaluator is not None else None)
 
+                        # pylint: disable=cell-var-from-loop
+                        # (called synchronously within this iteration)
                         def _trial_on_step(i: int, outcome: Any) -> None:
                             # The first option's execution resets the
                             # (fresh) env to the parsed start state; any
@@ -1146,9 +1149,8 @@ class BeliefProbe:
                                 lossy = getattr(
                                     env, "_last_unreconstructible_features",
                                     None) or []
-                                trial_inexact.extend(
-                                    f"{obj.name}.{feat}"
-                                    for obj, feat in lossy)
+                                trial_inexact.extend(f"{obj.name}.{feat}"
+                                                     for obj, feat in lossy)
                             if collector is not None:
                                 collector.on_step(i, outcome)
 
@@ -1245,10 +1247,9 @@ class BeliefProbe:
             if inexact:
                 feats = sorted(
                     {f
-                     for t in inexact
-                     for f in t["inexact_start_features"]})
-                shown = ", ".join(feats[:8]) + ("..."
-                                                if len(feats) > 8 else "")
+                     for t in inexact for f in t["inexact_start_features"]})
+                shown = ", ".join(
+                    feats[:8]) + ("..." if len(feats) > 8 else "")
                 notices.append(
                     f"{len(inexact)}/{len(trial_dicts)} trials started from "
                     f"an inexactly reconstructed state (features: {shown}) "
@@ -1262,8 +1263,8 @@ class BeliefProbe:
             run_fresh_scope = (ctx.validation_env_scope
                                if ValidationConfig.from_cfg().fresh_env
                                and ctx.validation_env_scope is not None
-                               and ctx.probe_option_model_provider is None
-                               else None)
+                               and ctx.probe_option_model_provider is None else
+                               None)
             if run_fresh_scope is None:
                 raise ValueError(
                     "fresh=True needs the session's fresh-env scope "
@@ -1511,7 +1512,7 @@ class BeliefProbe:
         _count_rollout(ctx)
         step_dicts: List[Dict[str, Any]] = []
 
-        def _on_step(i: int, outcome: Any) -> None:
+        def _on_step(_i: int, outcome: Any) -> None:
             failure = outcome.failure_reason
             if failure is not None:
                 failure = (f"{failure} [surfaced to the policy as "

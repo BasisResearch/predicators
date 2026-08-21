@@ -1584,6 +1584,8 @@ _PBLOCK_TYPE = Type("pblock", ["x", "y", "z", "is_held"])
 class TestPlacePostReleaseVerify:
     """The post-release check fails a drifted placement honestly."""
 
+    # pylint: disable=protected-access
+
     _PARAMS = np.array([0.75, 1.35, 0.55, 0.0], dtype=np.float32)
 
     def _make(self, robot, post_tol):

@@ -428,12 +428,10 @@ def test_read_strategy_absent_present_and_truncated(tmp_path):
     sandbox = str(tmp_path)
     assert journal_mod.read_strategy(sandbox) == ""
     assert journal_mod.read_strategy(None) == ""
-    with open(journal_mod.strategy_path(sandbox), "w",
-              encoding="utf-8") as f:
+    with open(journal_mod.strategy_path(sandbox), "w", encoding="utf-8") as f:
         f.write("## Approach\n- glue both faces\n")
     assert "- glue both faces" in journal_mod.read_strategy(sandbox)
-    with open(journal_mod.strategy_path(sandbox), "w",
-              encoding="utf-8") as f:
+    with open(journal_mod.strategy_path(sandbox), "w", encoding="utf-8") as f:
         f.write("HEADLINE\n" + "x" * 10000)
     content = journal_mod.read_strategy(sandbox)
     assert content.startswith("HEADLINE")

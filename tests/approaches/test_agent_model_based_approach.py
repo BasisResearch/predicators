@@ -1565,7 +1565,6 @@ def get_option(state, memory):
 
 def test_policy_mode_constructor_checks():
     """Policy mode rejects replans>0 and sim-free configs."""
-    from predicators.approaches import ApproachFailure  # noqa: F401
     state = _make_state()
     task = Task(state, {GroundAtom(_On, [_block0, _block1])})
     base_kwargs = dict(initial_predicates=_ALL_PREDICATES,
@@ -1597,7 +1596,6 @@ def test_policy_mode_constructor_checks():
 
 def test_consume_policy_capture_builds_executor():
     """A captured policy source composes and executes closed-loop."""
-    from predicators.approaches import ApproachFailure
     approach, _, _ = _make_approach()
     utils.reset_config({
         "env": "cover",
@@ -1686,8 +1684,8 @@ def test_execution_policy_budget_is_fatal():
 
     def option_fn(state, last_failure):
         del state, last_failure
-        return not_initiable.ground([_block0],
-                                    np.array([0.5], dtype=np.float32))
+        return not_initiable.ground([_block0], np.array([0.5],
+                                                        dtype=np.float32))
 
     policy = approach._policy_to_execution_policy(option_fn)
     with pytest.raises(ApproachFailure, match="option budget"):

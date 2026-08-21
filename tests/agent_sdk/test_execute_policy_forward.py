@@ -45,6 +45,7 @@ class _Model:
         self._fail_calls = set(fail_calls)
 
     def get_next_state_and_num_actions(self, state, option):
+        """Roll the option forward one step, counting the call."""
         self.num_calls += 1
         if self.num_calls in self._fail_calls:
             self.last_execution_failure = "simulated option failure"
@@ -82,6 +83,7 @@ def get_option(state, memory):
 
 
 def test_reaches_goal_then_done():
+    """A goal-reaching policy stops via DONE with a clean result."""
     fn, task = _fn(_GOAL_POLICY)
     r = execute_policy_forward(task,
                                fn,
@@ -93,6 +95,7 @@ def test_reaches_goal_then_done():
 
 
 def test_done_before_goal_is_honest():
+    """DONE before the goal ends the episode with no policy error."""
     fn, task = _fn("def get_option(state, memory):\n    return None\n")
     r = execute_policy_forward(task,
                                fn,
@@ -104,9 +107,9 @@ def test_done_before_goal_is_honest():
 
 
 def test_option_cap_is_attributable():
-    fn, task = _fn(
-        "def get_option(state, memory):\n"
-        "    return 'Move(block0:block)[0.1]'\n")
+    """The option cap converts a non-terminating policy into a failure."""
+    fn, task = _fn("def get_option(state, memory):\n"
+                   "    return 'Move(block0:block)[0.1]'\n")
     r = execute_policy_forward(task,
                                fn,
                                _Model(),
@@ -117,9 +120,9 @@ def test_option_cap_is_attributable():
 
 
 def test_policy_exception_is_fatal():
-    fn, task = _fn(
-        "def get_option(state, memory):\n"
-        "    raise RuntimeError('bug')\n")
+    """An exception inside get_option ends the episode as a policy error."""
+    fn, task = _fn("def get_option(state, memory):\n"
+                   "    raise RuntimeError('bug')\n")
     r = execute_policy_forward(task,
                                fn,
                                _Model(),
@@ -130,9 +133,9 @@ def test_policy_exception_is_fatal():
 
 
 def test_unparsable_line_is_fatal():
-    fn, task = _fn(
-        "def get_option(state, memory):\n"
-        "    return 'Bogus(block0:block)[]'\n")
+    """A line that fails to parse ends the episode as a policy error."""
+    fn, task = _fn("def get_option(state, memory):\n"
+                   "    return 'Bogus(block0:block)[]'\n")
     r = execute_policy_forward(task,
                                fn,
                                _Model(),
@@ -166,6 +169,7 @@ def get_option(state, memory):
 
 
 def test_memory_persists_within_episode_and_resets_across():
+    """memory carries within an episode; a fresh instance starts empty."""
     src = '''
 def get_option(state, memory):
     memory["n"] = memory.get("n", 0) + 1
@@ -211,6 +215,7 @@ def get_option(state, memory):
 
 
 def test_load_error_reported_not_raised():
+    """Broken policy source returns an agent-facing error message."""
     task = _make_task()
     fn, err = build_policy_option_fn("this is not python",
                                      task,
@@ -227,6 +232,7 @@ def test_load_error_reported_not_raised():
 
 
 def test_non_string_return_is_fatal():
+    """A non-string, non-None return is a PolicyError."""
     fn, task = _fn("def get_option(state, memory):\n    return 42\n")
     with pytest.raises(PolicyError, match="plan-line string"):
         fn(task.init, None)

@@ -1043,8 +1043,8 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
             "\n".join(lines))
         return self._plan_to_policy(capture.plan, sketch=capture.sketch)
 
-    def _policy_capture_to_policy(
-            self, capture: Any) -> Callable[[State], Action]:
+    def _policy_capture_to_policy(self,
+                                  capture: Any) -> Callable[[State], Action]:
         """Turn a captured policy.py source into the execution policy.
 
         Policy-mode counterpart of the plan branch below: records the
@@ -1065,8 +1065,10 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         self._last_capture_info = _CaptureInfo(
             validated=validated,
             reward=capture.eval_reward,
-            plan_lines=[f"<closed-loop policy.py sha={sha}, "
-                        f"{n_lines} lines>"],
+            plan_lines=[
+                f"<closed-loop policy.py sha={sha}, "
+                f"{n_lines} lines>"
+            ],
             validation_summary=capture.validation_summary)
         verdict = ("simulator-verified" if validated else
                    "best-effort: not a validated solve in the belief rollout")
@@ -1115,30 +1117,30 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         def _abstract(s: State) -> Set[GroundAtom]:
             return utils.abstract(s, predicates)
 
-        state_box = {"last_failure": None, "issued": 0}
+        issued = 0
+        last_failure: Optional[str] = None
 
         class _PolicyFatal(utils.OptionExecutionFailure):
             """DONE / policy bug / budget: never surfaced, ends episode."""
 
         def _option_policy(state: State) -> _Option:
-            if state_box["issued"] >= CFG.agent_policy_max_options:
+            nonlocal issued, last_failure
+            if issued >= CFG.agent_policy_max_options:
                 raise _PolicyFatal(
                     "Policy exhausted its option budget "
                     f"({CFG.agent_policy_max_options} options) without "
                     "signalling DONE.")
             try:
-                nxt = option_fn(state, state_box["last_failure"])
+                nxt = option_fn(state, last_failure)
             except PolicyError as e:
                 raise _PolicyFatal(f"policy error: {e}") from e
             if nxt is None:
-                logging.info("Policy signaled DONE after %d options.",
-                             state_box["issued"])
+                logging.info("Policy signaled DONE after %d options.", issued)
                 raise _PolicyFatal("Policy signaled DONE.")
-            state_box["issued"] += 1
-            state_box["last_failure"] = None
-            logging.info("Executing policy option %d/%d: %s",
-                         state_box["issued"], CFG.agent_policy_max_options,
-                         nxt.simple_str())
+            issued += 1
+            last_failure = None
+            logging.info("Executing policy option %d/%d: %s", issued,
+                         CFG.agent_policy_max_options, nxt.simple_str())
             return nxt
 
         def _fresh_inner() -> Callable[[State], Action]:
@@ -1150,6 +1152,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         inner_box = {"inner": _fresh_inner()}
 
         def _execution_policy(state: State) -> Action:
+            nonlocal last_failure
             while True:
                 try:
                     return inner_box["inner"](state)
@@ -1159,12 +1162,10 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
                     # Surface to the policy and continue: the failed
                     # option is stuck in the old wrapper, so rebuild.
                     failed = getattr(e, "info", {}).get("last_failed_option")
-                    prefix = (f"{failed.name}: "
-                              if failed is not None else "")
-                    state_box["last_failure"] = f"{prefix}{e}"
-                    logging.info(
-                        "Option failure surfaced to the policy: %s",
-                        state_box["last_failure"])
+                    prefix = (f"{failed.name}: " if failed is not None else "")
+                    last_failure = f"{prefix}{e}"
+                    logging.info("Option failure surfaced to the policy: %s",
+                                 last_failure)
                     inner_box["inner"] = _fresh_inner()
 
         return _execution_policy
