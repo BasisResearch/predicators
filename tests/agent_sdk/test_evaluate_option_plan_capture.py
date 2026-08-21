@@ -728,3 +728,116 @@ def test_rollout_seed_is_diagnostic_only():
 
     # The base seed is restored after the seeded rollout.
     assert CFG.seed != 4242
+
+
+# ---------------------------------------------------------------------------
+# annotation intersection over passing validation rollouts
+# ---------------------------------------------------------------------------
+
+_MidHi = Predicate("MidHi", [_block_type],
+                   lambda s, o: s.get(o[0], "x") >= 0.4)
+
+_TWO_STEP_PLAN = ("Move(block0:block)[0.5] -> {MidHi(block0:block)}\n"
+                  "Move(block0:block)[0.95] -> {ReachedHi(block0:block)}")
+
+_NEG_STEP_PLAN = ("Move(block0:block)[0.5] -> {NOT ReachedHi(block0:block)}\n"
+                  "Move(block0:block)[0.95] -> {ReachedHi(block0:block)}")
+
+
+class _RepeatDriftModel(_Model):
+    """Two-step plans; validation repeats drift the FIRST step's landing.
+
+    Rollout 1 applies each Move's parameter exactly. Later rollouts land
+    the first step of each pair at ``repeat_first_step_x`` instead,
+    while the second step still applies its parameter, so repeats reach
+    the goal (pass) with a different intermediate state.
+    """
+
+    def __init__(self, repeat_first_step_x):
+        super().__init__()
+        self._repeat_x = repeat_first_step_x
+
+    def get_next_state_and_num_actions(self, state, option):
+        nxt, n = super().get_next_state_and_num_actions(state, option)
+        rollout_idx = (self.num_calls - 1) // 2
+        step_in_rollout = (self.num_calls - 1) % 2
+        if rollout_idx >= 1 and step_in_rollout == 0:
+            nxt.set(_block, "x", self._repeat_x)
+        return nxt, n
+
+
+def test_annotation_pruned_when_absent_in_a_passing_repeat():
+    """An atom that held in rollout 1 by luck is pruned by the repeats.
+
+    The repeats pass (goal reached), but the intermediate MidHi does not
+    hold there, so the captured sketch drops it - keeping it would arm
+    the closed-loop monitor with a divergence the plan does not need.
+    """
+    model = _RepeatDriftModel(repeat_first_step_x=0.3)
+    utils.reset_config({"agent_plan_validation_rollouts": 3})
+    ctx = _make_ctx(model)
+    ctx.predicates.add(_MidHi)
+    text = _call_tool(ctx, _TWO_STEP_PLAN)
+    assert "Captured as the current answer" in text
+    sketch = ctx.solved_sketch
+    assert sketch is not None
+    assert not sketch[0].subgoal_atoms  # MidHi pruned
+    assert {str(a) for a in sketch[1].subgoal_atoms} == \
+        {"ReachedHi(block0:block)"}
+    assert ctx.solved_plan_validation_summary == \
+        "validation: 3/3 rollouts ok"
+
+
+def test_annotation_kept_when_only_a_failing_repeat_disagrees():
+    """Failing rollouts contribute no evidence to the intersection.
+
+    Repeats fail outright here (goal never reached), so under the
+    best-effort nudge the flaky capture falls back to the rollout-1
+    filter and MidHi survives.
+    """
+    model = _RepeatDriftModel(repeat_first_step_x=0.3)
+    # Make repeats FAIL: the second step of later rollouts also misses.
+    orig = _RepeatDriftModel.get_next_state_and_num_actions
+
+    def _failing(self, state, option):
+        nxt, n = orig(self, state, option)
+        rollout_idx = (self.num_calls - 1) // 2
+        if rollout_idx >= 1:
+            nxt.set(_block, "x", 0.3)
+        return nxt, n
+
+    model.get_next_state_and_num_actions = _failing.__get__(model)
+    utils.reset_config({"agent_plan_validation_rollouts": 3})
+    ctx = _make_ctx(model, best_effort=True)
+    ctx.predicates.add(_MidHi)
+    text = _call_tool(ctx, _TWO_STEP_PLAN)
+    assert "best-effort" in text
+    sketch = ctx.solved_sketch
+    assert sketch is not None
+    assert {str(a) for a in sketch[0].subgoal_atoms} == \
+        {"MidHi(block0:block)"}
+    assert "first failure: rollout" in ctx.solved_plan_validation_summary
+
+
+def test_negative_annotation_pruned_when_violated_in_a_passing_repeat():
+    """The mirrored rule: a NOT atom must be absent in every passing
+    repeat's post-state to survive."""
+    model = _RepeatDriftModel(repeat_first_step_x=0.95)
+    utils.reset_config({"agent_plan_validation_rollouts": 3})
+    ctx = _make_ctx(model)
+    text = _call_tool(ctx, _NEG_STEP_PLAN)
+    assert "Captured as the current answer" in text
+    sketch = ctx.solved_sketch
+    assert sketch is not None
+    # NOT ReachedHi held after step 1 of rollout 1 (x=0.5) but is
+    # violated in the passing repeats (x=0.95), so it is pruned.
+    assert not sketch[0].subgoal_neg_atoms
+
+
+def test_plan_capture_carries_validation_summary():
+    """take_plan_capture surfaces the summary alongside the plan."""
+    model = _Model()
+    _, ctx = _run_tool(model, rollouts=3)
+    capture = ctx.take_plan_capture()
+    assert capture.validation_summary == "validation: 3/3 rollouts ok"
+    assert ctx.solved_plan_validation_summary is None

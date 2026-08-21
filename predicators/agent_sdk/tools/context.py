@@ -23,6 +23,7 @@ class PlanCapture:
     sketch: Optional[Any]
     reached_goal: Optional[bool]
     eval_reward: Optional[float]
+    validation_summary: Optional[str] = None
 
 
 @dataclass
@@ -194,6 +195,10 @@ class ToolContext:
     # The restart loop ranks best-effort captures across attempts by it.
     # Cleared together with solved_plan.
     solved_plan_eval_reward: Optional[float] = None
+    # One-line record of the capture-time validation outcome (rollout
+    # tally, first failing step, physics-margin tally), for the journal
+    # auto-entry. Cleared together with solved_plan.
+    solved_plan_validation_summary: Optional[str] = None
     # Restart-loop attempt bookkeeping, set by AgentModelBasedApproach._solve
     # around each attempt. ``attempt_start``/``attempt_deadline`` are
     # time.monotonic() values; the deadline is enforced cooperatively by
@@ -248,6 +253,7 @@ class ToolContext:
         self.solved_sketch = None
         self.solved_plan_reached_goal = None
         self.solved_plan_eval_reward = None
+        self.solved_plan_validation_summary = None
 
     def take_plan_capture(self) -> PlanCapture:
         """Pop the captured plan, clearing it so it cannot be reused.
@@ -255,10 +261,12 @@ class ToolContext:
         The returned capture's ``plan`` is falsy when nothing was
         captured since the last clear.
         """
-        capture = PlanCapture(plan=self.solved_plan,
-                              sketch=self.solved_sketch,
-                              reached_goal=self.solved_plan_reached_goal,
-                              eval_reward=self.solved_plan_eval_reward)
+        capture = PlanCapture(
+            plan=self.solved_plan,
+            sketch=self.solved_sketch,
+            reached_goal=self.solved_plan_reached_goal,
+            eval_reward=self.solved_plan_eval_reward,
+            validation_summary=self.solved_plan_validation_summary)
         self.clear_plan_capture()
         return capture
 
