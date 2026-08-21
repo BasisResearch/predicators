@@ -1845,7 +1845,18 @@ other structural commitments (e.g. whether base-sim parameters are \
 declared for identification, when the environment discloses them). \
 Later cycles read this record before deciding what to keep. Iterate \
 with `Edit` and re-score; every successful write is snapshotted and \
-version-tagged (see the system prompt's Tools section).{probe_note}"""
+version-tagged (see the system prompt's Tools section).{probe_note}
+
+Separately, maintain `./strategy.md`: a natural-language DOMAIN \
+STRATEGY for solving tasks in this environment - the recommended \
+approach and step ordering, the mechanisms that matter and how to \
+trigger them, parameter formulas expressed relative to the scene \
+(never hard-coded to one task's coordinates), and known pitfalls. \
+Future solve sessions read it as advisory reference (clearly framed \
+as possibly wrong), so state uncertainty honestly. Unlike the \
+append-only journal, strategy.md is a LIVING document: REWRITE it \
+freely this cycle wherever new evidence corrects or supersedes \
+earlier advice, rather than appending contradictions."""
 
         extra_message = self._extra_synthesis_message(extra_paths)
         if extra_message:

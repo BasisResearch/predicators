@@ -27,6 +27,7 @@ def build_solve_prompt(
     explore_mode: bool = False,
     ground_samplers: bool = False,
     journal: str = "",
+    strategy: str = "",
     physics_margin: bool = False,
 ) -> str:
     """Build the bilevel solve/explore prompt asking for a plan sketch.
@@ -70,6 +71,13 @@ def build_solve_prompt(
     attempts' outcomes and lessons, injected so fresh-context sessions
     inherit what worked (and what was already swept) without inheriting
     failed attempts' conclusions.
+
+    ``strategy`` is the learn-phase-maintained domain strategy document
+    (``strategy.md``): the learn agent's best current natural-language
+    account of how to solve tasks in this domain, rewritten freely
+    across learning cycles. Injected as explicitly-advisory reference -
+    the knowledge can be wrong, so the prompt tells the solver to
+    re-verify rather than inherit.
 
     ``physics_margin`` is the caller-threaded value of
     ``CFG.agent_plan_validation_physics_margin``: when True (and
@@ -209,6 +217,19 @@ def build_solve_prompt(
             "meaningfully from the plan(s) above, so this cycle's data is "
             "complementary rather than redundant. Only if no meaningfully "
             "different goal-reaching plan exists, repeat the best plan.\n")
+
+    strategy_section = ""
+    if strategy:
+        strategy_section = (
+            "\n## Domain Strategy (advisory, written during learning)\n"
+            "The learning phase maintains this strategy document - its "
+            "best current account of how to solve tasks in this domain "
+            "(approach, mechanisms, parameter formulas, pitfalls). Use "
+            "it as a reference and starting point, but you are NOT "
+            "limited to it: it can be wrong or stale, so re-verify its "
+            "load-bearing claims cheaply before building on them, and "
+            "depart from it whenever your own measurements disagree.\n\n"
+            f"{strategy}\n")
 
     journal_section = ""
     if journal:
@@ -516,7 +537,7 @@ def build_solve_prompt(
 
 ## Available Predicates (for subgoal annotations)
 {chr(10).join(pred_strs)}
-{trajectory_summary}{tools_str}{journal_section}\
+{trajectory_summary}{tools_str}{strategy_section}{journal_section}\
 {scheduled_plans_section}
 ## Instructions
 Use your available tools to inspect the environment before producing the plan.
