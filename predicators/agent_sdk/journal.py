@@ -48,10 +48,49 @@ MAX_AUTO_ENTRY_CHARS = 4000
 # recent attempts (usually the same task) matter most.
 MAX_PROMPT_CHARS = 8000
 
+# The learn-phase-maintained domain strategy document. Unlike the
+# append-only journal (facts and measurements), strategy.md is a LIVING
+# document the learn agent rewrites freely each cycle: its best current
+# natural-language account of how to solve tasks in this domain. Solve
+# prompts inject it as explicitly-advisory reference.
+STRATEGY_FILENAME = "strategy.md"
+
+# Cap on how much strategy is injected into a solve prompt. Head-biased
+# (unlike the journal): the document is curated, so its lead carries the
+# headline strategy and a tail truncation only cuts detail.
+MAX_STRATEGY_PROMPT_CHARS = 4000
+
 
 def journal_path(sandbox_dir: str) -> str:
     """Host path of the run's journal file."""
     return os.path.join(sandbox_dir, JOURNAL_FILENAME)
+
+
+def strategy_path(sandbox_dir: str) -> str:
+    """Host path of the run's domain strategy document."""
+    return os.path.join(sandbox_dir, STRATEGY_FILENAME)
+
+
+def read_strategy(sandbox_dir: Optional[str],
+                  max_chars: int = MAX_STRATEGY_PROMPT_CHARS) -> str:
+    """Strategy document content for prompt injection ("" when absent).
+
+    Head-biased truncation: the document is curated by the learn agent,
+    so the front holds the headline strategy; a truncation notice marks
+    the cut so readers know detail was dropped.
+    """
+    if not sandbox_dir:
+        return ""
+    path = strategy_path(sandbox_dir)
+    if not os.path.isfile(path):
+        return ""
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read().strip()
+    if len(content) > max_chars:
+        content = (content[:max_chars].rstrip() +
+                   "\n[strategy truncated at the prompt cap - read "
+                   f"./{STRATEGY_FILENAME} for the rest]")
+    return content
 
 
 def append_entry(sandbox_dir: str,

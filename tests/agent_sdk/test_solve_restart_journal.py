@@ -421,3 +421,21 @@ def test_solve_prompt_includes_journal_section():
                                            all_predicates={_ReachedHi},
                                            all_options={_Move})
     assert "## Solve Journal" not in prompt_no_journal
+
+
+def test_read_strategy_absent_present_and_truncated(tmp_path):
+    """read_strategy: "" when absent, verbatim when small, head-kept cap."""
+    sandbox = str(tmp_path)
+    assert journal_mod.read_strategy(sandbox) == ""
+    assert journal_mod.read_strategy(None) == ""
+    with open(journal_mod.strategy_path(sandbox), "w",
+              encoding="utf-8") as f:
+        f.write("## Approach\n- glue both faces\n")
+    assert "- glue both faces" in journal_mod.read_strategy(sandbox)
+    with open(journal_mod.strategy_path(sandbox), "w",
+              encoding="utf-8") as f:
+        f.write("HEADLINE\n" + "x" * 10000)
+    content = journal_mod.read_strategy(sandbox)
+    assert content.startswith("HEADLINE")
+    assert "[strategy truncated at the prompt cap" in content
+    assert len(content) < 4300

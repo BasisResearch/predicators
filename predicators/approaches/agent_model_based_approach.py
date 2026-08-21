@@ -310,10 +310,13 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
     def _build_solve_prompt(self, task: Task) -> str:
         """Build prompt asking for a plan sketch without continuous params."""
         journal_text = ""
+        strategy_text = ""
         if CFG.agent_solve_use_journal:
             # pylint: disable-next=import-outside-toplevel
             from predicators.agent_sdk import journal as journal_mod
             journal_text = journal_mod.read_journal(
+                self._tool_context.sandbox_dir)
+            strategy_text = journal_mod.read_strategy(
                 self._tool_context.sandbox_dir)
         return bilevel_sketch.build_solve_prompt(
             task,
@@ -326,6 +329,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
             require_tool_validation=True,
             ground_samplers=CFG.agent_bilevel_ground_samplers,
             journal=journal_text,
+            strategy=strategy_text,
             physics_margin=CFG.agent_plan_validation_physics_margin,
         )
 
