@@ -835,9 +835,6 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
     instead is wrong: only some configs run an initial pre-learning test
     round, so the offset between learn count and round index varies.)
     """
-    text, _ = read_text(path, max_bytes=8 * 1024 * 1024)
-    text = ANSI_RE.sub("", text)
-    m_vid = VIDEO_SAVED_RE.search(text)
     totals: List[Tuple[int, int, Optional[float]]] = []
     rounds: List[Dict[int, Dict[str, Any]]] = []
     current: Dict[int, Dict[str, Any]] = {}
@@ -847,70 +844,92 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
     pending_test: List[int] = []
     last_explore: Optional[int] = None
     done = False
-    for line in text.splitlines():
-        if DONE_RE.match(line):
-            done = True
-            continue
-        if "Test results:" in line:
-            ms, mt = NUM_SOLVED_RE.search(line), NUM_TOTAL_RE.search(line)
-            mr = AVG_TEST_REWARD_RE.search(line)
-            if ms and mt:
-                totals.append(
-                    (int(float(ms.group(1))), int(float(mt.group(1))),
-                     float(mr.group(1)) if mr else None))
-            continue
-        m = TASK_VERDICT_RE.match(line)
-        if m:
-            msg = m.group(3).strip()
-            # A later verdict for the same task within a round (e.g. the
-            # impossible-goal SOLVED after an approach failure) overwrites.
-            current[int(m.group(1)) - 1] = {
-                "solved": msg.startswith("SOLVED"),
-                "msg": msg,
-            }
-            continue
-        if TASKS_SOLVED_RE.search(line):
-            rounds.append(current)
-            current = {}
-            for num in pending_test:
-                test_round[num] = len(rounds) - 1
-            pending_test.clear()
-            continue
-        # Logged after the "Tasks solved" line, so this decorates the
-        # round that line just closed.
-        if "Per-task rewards:" in line and rounds:
-            for tm in PER_TASK_REWARD_RE.finditer(line):
-                verdict = rounds[-1].get(int(tm.group(1)))
-                if verdict is not None:
-                    verdict["reward"] = float(tm.group(2))
-            continue
-        m = SAVED_EP_RE.search(line)
-        if m:
-            if m.group(2) == "explore":
-                pending.append(int(m.group(1)))
-            elif m.group(2) == "learn":
-                pending.clear()
-            elif m.group(2) == "test":
-                pending_test.append(int(m.group(1)))
-            continue
-        m = INTERACTION_RE.match(line)
-        if m:
-            last_explore = pending.pop(0) if pending else None
-            if last_explore is not None:
-                explore[last_explore] = {
-                    "reward": float(m.group(1)),
-                    "terminated": m.group(2) == "True",
-                    "accepted": m.group(3) == "True",
-                    "msg": "",
-                }
-            continue
-        m = INTERACTION_REJECT_RE.match(line)
-        if m and last_explore is not None:
-            explore[last_explore]["msg"] = "REJECTED: " + m.group(1).strip()
-            continue
-        m = INTERACTION_BAR_RE.match(line)
-        if m and last_explore is not None:
-            explore[last_explore]["msg"] = "solved but " + m.group(1).strip()
+    video_rel = ""
+    # Stream the whole file line by line: a tail-only size cap here used
+    # to drop the head of long runs' logs, silently losing early env
+    # verdicts (grey test chips, unmarked explore episodes, mis-paired
+    # interaction verdicts). Memory stays O(line) and the parse is
+    # cached by (mtime, size) in _cached.
+    try:
+        f = open(path, "r", encoding="utf-8", errors="replace")
+    except OSError:
+        f = None
+    if f is not None:
+        with f:
+            for raw in f:
+                line = ANSI_RE.sub("", raw).rstrip("\n")
+                if not video_rel:
+                    m = VIDEO_SAVED_RE.search(line)
+                    if m:
+                        video_rel = m.group(1)
+                        continue
+                if DONE_RE.match(line):
+                    done = True
+                    continue
+                if "Test results:" in line:
+                    ms, mt = NUM_SOLVED_RE.search(line), NUM_TOTAL_RE.search(
+                        line)
+                    mr = AVG_TEST_REWARD_RE.search(line)
+                    if ms and mt:
+                        totals.append(
+                            (int(float(ms.group(1))), int(float(mt.group(1))),
+                             float(mr.group(1)) if mr else None))
+                    continue
+                m = TASK_VERDICT_RE.match(line)
+                if m:
+                    msg = m.group(3).strip()
+                    # A later verdict for the same task within a round (e.g.
+                    # the impossible-goal SOLVED after an approach failure)
+                    # overwrites.
+                    current[int(m.group(1)) - 1] = {
+                        "solved": msg.startswith("SOLVED"),
+                        "msg": msg,
+                    }
+                    continue
+                if TASKS_SOLVED_RE.search(line):
+                    rounds.append(current)
+                    current = {}
+                    for num in pending_test:
+                        test_round[num] = len(rounds) - 1
+                    pending_test.clear()
+                    continue
+                # Logged after the "Tasks solved" line, so this decorates the
+                # round that line just closed.
+                if "Per-task rewards:" in line and rounds:
+                    for tm in PER_TASK_REWARD_RE.finditer(line):
+                        verdict = rounds[-1].get(int(tm.group(1)))
+                        if verdict is not None:
+                            verdict["reward"] = float(tm.group(2))
+                    continue
+                m = SAVED_EP_RE.search(line)
+                if m:
+                    if m.group(2) == "explore":
+                        pending.append(int(m.group(1)))
+                    elif m.group(2) == "learn":
+                        pending.clear()
+                    elif m.group(2) == "test":
+                        pending_test.append(int(m.group(1)))
+                    continue
+                m = INTERACTION_RE.match(line)
+                if m:
+                    last_explore = pending.pop(0) if pending else None
+                    if last_explore is not None:
+                        explore[last_explore] = {
+                            "reward": float(m.group(1)),
+                            "terminated": m.group(2) == "True",
+                            "accepted": m.group(3) == "True",
+                            "msg": "",
+                        }
+                    continue
+                m = INTERACTION_REJECT_RE.match(line)
+                if m and last_explore is not None:
+                    explore[last_explore]["msg"] = ("REJECTED: " +
+                                                    m.group(1).strip())
+                    continue
+                m = INTERACTION_BAR_RE.match(line)
+                if m and last_explore is not None:
+                    explore[last_explore]["msg"] = ("solved but " +
+                                                    m.group(1).strip())
     if current:  # run still in progress or crashed mid-round
         rounds.append(current)
     return {
@@ -919,7 +938,7 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
         "explore": explore,
         "test_round": test_round,
         "done": done,
-        "video_rel": m_vid.group(1) if m_vid else "",
+        "video_rel": video_rel,
     }
 
 
