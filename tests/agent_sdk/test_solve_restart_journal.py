@@ -180,6 +180,20 @@ def test_record_journal_tool_writes_stamped_entry(tmp_path):
     assert "tried yaw 0-15 deg" in content
 
 
+def test_record_journal_tool_stamps_learning_cycle(tmp_path):
+    """During a synthesis session the header names the learning cycle."""
+    utils.reset_config({"agent_solve_use_journal": True})
+    ctx = _make_ctx(sandbox_dir=str(tmp_path))
+    ctx.learn_cycle_index = 2
+    # learn_cycle_index wins even if a stale test_task_idx is set.
+    ctx.test_task_idx = 0
+    text = _call(_get_tool(ctx, "record_journal"),
+                 {"entry": "- glue latch needs 3 in-zone steps"})
+    assert "Recorded" in text
+    content = journal_mod.read_journal(str(tmp_path))
+    assert "### Agent notes (learning cycle 2)" in content
+
+
 def test_record_journal_tool_rejects_empty(tmp_path):
     """An empty entry is an error, not a silent no-op."""
     utils.reset_config({"agent_solve_use_journal": True})

@@ -33,10 +33,10 @@ import pybullet
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.agent_sdk.tools import SAMPLER_SYNTHESIS_TOOL_NAMES, \
-    SYNTHESIS_TOOL_NAMES, _SnapshotTarget, create_synthesis_tools, \
-    evaluate_states_with, finalize_versioned_snapshot, \
-    make_write_snapshot_hook
+from predicators.agent_sdk.tools import JOURNAL_TOOL_NAMES, \
+    SAMPLER_SYNTHESIS_TOOL_NAMES, SYNTHESIS_TOOL_NAMES, _SnapshotTarget, \
+    create_synthesis_tools, evaluate_states_with, \
+    finalize_versioned_snapshot, make_write_snapshot_hook
 from predicators.agent_sdk.tools.inspection import render_options_digest, \
     render_trajectory_digest, render_types_digest
 from predicators.approaches.agent_model_based_approach import \
@@ -944,6 +944,14 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # ground-truth ones), expose the evaluate_sampler tool.
         if self._do_synthesize_samplers:
             names += list(SAMPLER_SYNTHESIS_TOOL_NAMES)
+        # The run's solve journal is also writable from learn sessions:
+        # what the learn phase discovers about the domain is exactly what
+        # future fresh-context solve attempts need (agents were already
+        # appending to journal.md by hand, bypassing the size cap and the
+        # facts-only guidance). The flag name reads "solve" but gates the
+        # run's journal channel as a whole.
+        if CFG.agent_solve_use_journal:
+            names += list(JOURNAL_TOOL_NAMES)
         return names
 
     # ── Subclass hooks ──────────────────────────────────────────
@@ -1531,6 +1539,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             self._tool_context.probe_option_model_provider = None
             self._tool_context.probe_fit_provider = None
             self._tool_context.probe_residuals_provider = None
+            self._tool_context.learn_cycle_index = None
             self._learning_mode = False
             self._close_agent_session()
         return self._load_synthesis_artifacts(trajectories, inferred_hint,
@@ -1632,6 +1641,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         Everything installed here is cleared by the caller's ``finally``
         once the session query returns.
         """
+        # Label tool output (e.g. record_journal headers) with the
+        # learning cycle for the duration of this session.
+        self._tool_context.learn_cycle_index = self._learning_cycle_index()
         # Build dynamic synthesis tools and attach them to the tool
         # context *before* opening the session. The attached set is
         # filtered against ``_get_synthesis_tool_names`` so that method

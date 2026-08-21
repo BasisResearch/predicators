@@ -38,8 +38,11 @@ def _build_journal_tools(ctx: ToolContext, _text_result: Callable,
          "exact family swept - parameters, orientations, regions, and any "
          "formula the sweep assumed - plus what remains untested: 'X never "
          "works' generalized from a partial sweep has buried the correct "
-         "mechanism for entire runs. Keep it skimmable: a few bullets, "
-         f"under {journal_mod.MAX_ENTRY_CHARS} chars."),
+         "mechanism for entire runs. In learning sessions, record what the "
+         "current simulator gets wrong and which experiment would "
+         "discriminate - future solve attempts read this. Keep it "
+         f"skimmable: a few bullets, under {journal_mod.MAX_ENTRY_CHARS} "
+         "chars."),
         {
             "type": "object",
             "properties": {
@@ -57,7 +60,9 @@ def _build_journal_tools(ctx: ToolContext, _text_result: Callable,
             return _error_result("`entry` is required.")
         if not ctx.sandbox_dir:
             return _error_result("No sandbox directory in this session.")
-        if ctx.test_task_idx is not None:
+        if ctx.learn_cycle_index is not None:
+            where = f"learning cycle {ctx.learn_cycle_index}"
+        elif ctx.test_task_idx is not None:
             where = f"test task {ctx.test_task_idx}"
         else:
             where = "pre-test phase"

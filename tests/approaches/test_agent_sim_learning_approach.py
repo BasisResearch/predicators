@@ -831,3 +831,16 @@ def test_base_sim_reference_provisioning() -> None:
     assert not any(
         k.startswith("base_sim/") for k in obj._get_sandbox_reference_files())
     assert obj._base_sim_reference_paths() == []
+
+
+def test_synthesis_tool_names_gate_record_journal():
+    """The learn session offers record_journal iff the journal is enabled."""
+    stub = SimpleNamespace(_do_synthesize_samplers=False)
+    utils.reset_config({"agent_solve_use_journal": True})
+    names = AgentSimLearningApproach._get_synthesis_tool_names(stub)
+    assert "record_journal" in names
+    utils.reset_config({"agent_solve_use_journal": False})
+    names = AgentSimLearningApproach._get_synthesis_tool_names(stub)
+    assert "record_journal" not in names
+    # run_python is always present regardless of the journal flag.
+    assert "run_python" in names

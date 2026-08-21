@@ -93,6 +93,11 @@ class ToolContext:
     # the saved session-log filename so test queries are attributable to a task.
     test_task_idx: Optional[int] = None
     test_call_id: int = 0  # incremented per evaluate_option_plan call
+    # 1-indexed learning cycle while a synthesis (learn) session is active,
+    # None otherwise. Set/cleared around the synthesis query so tools that
+    # label output by phase (e.g. record_journal headers) can attribute
+    # entries to the learning cycle instead of "pre-test phase".
+    learn_cycle_index: Optional[int] = None
     # Managed by AgentSessionMixin: populated from
     # `_build_synthesis_mcp_tools` at session-open, reset to [] for
     # solve sessions. Approaches should not write to this directly —
