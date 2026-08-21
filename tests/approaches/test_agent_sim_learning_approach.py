@@ -844,3 +844,171 @@ def test_synthesis_tool_names_gate_record_journal():
     assert "record_journal" not in names
     # run_python is always present regardless of the journal flag.
     assert "run_python" in names
+
+
+# ---------------------------------------------------------------------------
+# Checkpointing (Feature B)
+# ---------------------------------------------------------------------------
+
+_STUB_SIMULATOR_PY = '''\
+"""Stub simulator for checkpoint rehydration tests."""
+from predicators.code_sim_learning.fit_space import ParamSpec
+
+
+def _noop_rule(state, rule_params, params):
+    return {}
+
+
+RESIDUAL_RULES = [_noop_rule]
+PARAM_SPECS = [ParamSpec("gain", 0.5, lo=0.0, hi=1.0)]
+RESIDUAL_FEATURES = {"block": ["x"]}
+'''
+
+
+def _make_checkpoint_stub(tmp_path, monkeypatch):
+    """A bare AgentSimLearningApproach wired for checkpoint methods."""
+    obj = object.__new__(AgentSimLearningApproach)
+    sandbox = tmp_path / "sandbox"
+    sandbox.mkdir(exist_ok=True)
+    monkeypatch.setattr(AgentSimLearningApproach, "_checkpoint_sandbox_dir",
+                        lambda self: str(sandbox))
+    # Fields _extra_save_state reads.
+    obj._fitted_params = {"gain": 0.7}
+    obj._fit_sse = 1.5
+    obj._param_specs = []
+    obj._physical_param_specs = []
+    obj._last_fit_result = None
+    obj._param_ensemble = [{"gain": 0.7}]
+    obj._identified_physical_params = {"lateral_friction": 0.5}
+    obj._identified_physical_sigma_points = [{"lateral_friction": 0.55}]
+    obj._sysid_fit_history = {}
+    obj._residual_features = {"block": ["x"]}
+    obj._current_simulator_version = "cycle_001_vers_003"
+    obj._current_predicates_version = None
+    obj._current_samplers_version = None
+    return obj, sandbox
+
+
+def test_sandbox_artifacts_round_trip(tmp_path, monkeypatch):
+    """Curated files (incl. version dirs) round-trip; junk is skipped."""
+    obj, sandbox = _make_checkpoint_stub(tmp_path, monkeypatch)
+    (sandbox / "simulator.py").write_text("SIM")
+    (sandbox / "journal.md").write_text("JOURNAL")
+    (sandbox / "strategy.md").write_text("STRATEGY")
+    (sandbox / "simulator_versions").mkdir()
+    (sandbox / "simulator_versions" / "cycle_001_vers_001.py").write_text("V1")
+    (sandbox / "session_logs").mkdir()
+    (sandbox / "session_logs" / "big.md").write_text("NOT CHECKPOINTED")
+    files = obj._collect_sandbox_artifacts()
+    assert files["simulator.py"] == b"SIM"
+    assert files["strategy.md"] == b"STRATEGY"
+    assert files[os.path.join("simulator_versions",
+                              "cycle_001_vers_001.py")] == b"V1"
+    assert not any("session_logs" in k for k in files)
+    # Restore into a fresh sandbox.
+    for f in list(sandbox.iterdir()):
+        if f.is_file():
+            f.unlink()
+    obj._restore_sandbox_artifacts(files)
+    assert (sandbox / "simulator.py").read_text() == "SIM"
+    assert (sandbox / "simulator_versions" /
+            "cycle_001_vers_001.py").read_text() == "V1"
+
+
+def test_extra_save_state_round_trip_defers_sigma_points(
+        tmp_path, monkeypatch):
+    """Plain fields round-trip; sigma points restore AFTER rehydration."""
+    obj, sandbox = _make_checkpoint_stub(tmp_path, monkeypatch)
+    (sandbox / "simulator.py").write_text("SIM")
+    save_dict = obj._extra_save_state()
+    assert save_dict["fitted_params"] == {"gain": 0.7}
+    assert save_dict["sandbox_files"]["simulator.py"] == b"SIM"
+    assert "git_describe" in save_dict
+
+    fresh, _ = _make_checkpoint_stub(tmp_path, monkeypatch)
+    fresh._fitted_params = {}
+    fresh._identified_physical_sigma_points = []
+    events = []
+    monkeypatch.setattr(
+        AgentSimLearningApproach, "_rehydrate_from_artifacts", lambda self:
+        events.append(("rehydrate", list(self._identified_physical_sigma_points
+                                         ))))
+    fresh._load_extra_save_state(save_dict)
+    # Rehydration observed the sigma points still EMPTY (they must not
+    # outlive _apply_identified_physical_params, which rehydrate calls).
+    assert events == [("rehydrate", [])]
+    assert fresh._identified_physical_sigma_points == [{
+        "lateral_friction": 0.55
+    }]
+    assert fresh._fitted_params == {"gain": 0.7}
+    assert fresh._identified_physical_params == {"lateral_friction": 0.5}
+
+
+def test_rehydrate_rebuilds_simulator_from_restored_file(
+        tmp_path, monkeypatch):
+    """A restored simulator.py rebuilds rules + option model; mismatched
+    fitted params fall back to spec inits."""
+    obj, sandbox = _make_checkpoint_stub(tmp_path, monkeypatch)
+    (sandbox / "simulator.py").write_text(_STUB_SIMULATOR_PY)
+    utils.reset_config({"agent_explorer_info_seeking": False})
+    obj._residual_rules = None
+    obj._learned_simulator = None
+    obj._latent_init = None
+    obj._fit_trajectories = []
+    obj._synthesized_samplers = {}
+    obj._base_env = SimpleNamespace(get_physical_param_info=lambda: {})
+    calls = []
+    monkeypatch.setattr(
+        AgentSimLearningApproach, "_resolve_synthesis_paths",
+        lambda self: SimpleNamespace(base=str(sandbox),
+                                     simulator_file=str(sandbox /
+                                                        "simulator.py"),
+                                     versions_dir=str(sandbox /
+                                                      "simulator_versions"),
+                                     simulator_file_for_agent="./simulator.py",
+                                     sandbox_dir_for_agent="."))
+    monkeypatch.setattr(AgentSimLearningApproach, "_get_all_trajectories",
+                        lambda self: [])
+    monkeypatch.setattr(AgentSimLearningApproach, "_build_combined_simulator",
+                        lambda self, sim: calls.append("combined") or
+                        (lambda s, a: s))
+    monkeypatch.setattr(AgentSimLearningApproach, "_build_option_model",
+                        lambda self, fn: calls.append("option_model") or
+                        SimpleNamespace())
+    monkeypatch.setattr(AgentSimLearningApproach,
+                        "_apply_identified_physical_params",
+                        lambda self, p: calls.append(("apply", dict(p))))
+    monkeypatch.setattr(AgentSimLearningApproach, "_samplers_enabled",
+                        staticmethod(lambda: False))
+    monkeypatch.setattr(AgentSimLearningApproach, "_rebuild_param_ensemble",
+                        lambda self: calls.append("ensemble"))
+    # Checkpointed fitted params carry a stale name -> fall back to init.
+    obj._fitted_params = {"stale_name": 9.9}
+    obj._rehydrate_from_artifacts()
+    assert obj._residual_rules is not None and len(obj._residual_rules) == 1
+    assert obj._learned_simulator is not None
+    assert obj._fitted_params == {"gain": 0.5}
+    assert calls == [
+        "combined", "option_model", ("apply", {
+            "lateral_friction": 0.5
+        }), "ensemble"
+    ]
+
+
+def test_rehydrate_without_simulator_is_graceful(tmp_path, monkeypatch):
+    """Resume before the first synthesis leaves the initial model alone."""
+    obj, sandbox = _make_checkpoint_stub(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        AgentSimLearningApproach, "_resolve_synthesis_paths",
+        lambda self: SimpleNamespace(base=str(sandbox),
+                                     simulator_file=str(sandbox /
+                                                        "simulator.py"),
+                                     versions_dir=str(sandbox /
+                                                      "simulator_versions"),
+                                     simulator_file_for_agent="./simulator.py",
+                                     sandbox_dir_for_agent="."))
+    hooks = []
+    monkeypatch.setattr(AgentSimLearningApproach, "_rehydrate_extra_artifacts",
+                        lambda self, base: hooks.append(base))
+    obj._rehydrate_from_artifacts()
+    assert hooks == [str(sandbox)]

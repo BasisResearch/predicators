@@ -23,6 +23,7 @@ import hashlib
 import inspect
 import logging
 import os
+import subprocess
 from contextlib import contextmanager
 from typing import Any, Callable, Collection, Dict, FrozenSet, Iterator, \
     List, Optional, Sequence, Set, Tuple
@@ -648,6 +649,22 @@ class _SynthesisPaths:
     sandbox_dir_for_agent: Optional[str]
 
 
+def _describe_git_revision() -> str:
+    """Best-effort ``git describe`` of the running code, for checkpoint
+    version stamping ("unknown" outside a repo or without git)."""
+    try:
+        out = subprocess.run(
+            ["git", "describe", "--always", "--dirty"],
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False)
+        return out.stdout.strip() or "unknown"
+    except OSError:
+        return "unknown"
+
+
 # ── Approach ─────────────────────────────────────────────────────
 
 
@@ -1073,11 +1090,231 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     def learn_from_offline_dataset(self, dataset: Dataset) -> None:
         super().learn_from_offline_dataset(dataset)
         self._learn_simulator(self._get_all_trajectories())
+        # Re-save so the post-offline checkpoint carries the learned
+        # simulator state (super() saved before the learn ran).
+        self.save(None)
 
     def learn_from_interaction_results(
             self, results: Sequence[InteractionResult]) -> None:
+        # Capture the index BEFORE super() increments it: the re-save
+        # below must overwrite the same cycle's checkpoint, not the
+        # next one's.
+        cycle = self._online_learning_cycle
         super().learn_from_interaction_results(results)
         self._learn_simulator(self._get_all_trajectories())
+        # super() saved at the end of data collection, BEFORE this
+        # cycle's simulator learning - a resumed run would silently
+        # redo (and re-pay) the whole learn. Overwrite with the
+        # post-learn state; the double write is cheap next to a cycle.
+        self.save(cycle)
+
+    # ── Checkpointing ────────────────────────────────────────────
+    # The base checkpoint (AgentModelFreeApproach.save/load) persists
+    # the datasets + cycle counter. This approach's real state is split
+    # between plain fitted values (pickled below) and the sandbox
+    # artifacts the agent wrote (simulator.py / predicates.py / ...),
+    # which are embedded as file CONTENTS - run dirs are minted per run
+    # and pruned, so a path reference to the old run's sandbox would be
+    # fragile. Closures (_residual_rules, _learned_simulator, the option
+    # model, learned predicates/samplers) are never pickled: they are
+    # rebuilt from the restored files in _rehydrate_from_artifacts.
+
+    _save_suffix: str = "AgentSimLearner"
+
+    _CHECKPOINT_SANDBOX_FILES = ("simulator.py", "predicates.py",
+                                 "samplers.py", "ground_samplers.py",
+                                 "notes.md", "journal.md", "strategy.md")
+    _CHECKPOINT_SANDBOX_DIRS = ("simulator_versions", "predicates_versions",
+                                "samplers_versions")
+    _CHECKPOINT_MAX_FILE_BYTES = 2 * 1024 * 1024
+
+    def _checkpoint_sandbox_dir(self) -> str:
+        """The run's sandbox root (mirrors session_base's derivation)."""
+        return os.path.abspath(os.path.join(self._get_log_dir(), "sandbox"))
+
+    def _collect_sandbox_artifacts(self) -> Dict[str, bytes]:
+        """Curated sandbox files as {relative path: content} for the
+        checkpoint.
+
+        Skips session logs, reference copies, images, and git state -
+        bulky and reconstructable. Oversized files are skipped with a
+        warning rather than failing the save.
+        """
+        base = self._checkpoint_sandbox_dir()
+        rel_paths: List[str] = [
+            f for f in self._CHECKPOINT_SANDBOX_FILES
+            if os.path.isfile(os.path.join(base, f))
+        ]
+        for dirname in self._CHECKPOINT_SANDBOX_DIRS:
+            dirpath = os.path.join(base, dirname)
+            if not os.path.isdir(dirpath):
+                continue
+            for fname in sorted(os.listdir(dirpath)):
+                fpath = os.path.join(dirpath, fname)
+                if os.path.isfile(fpath):
+                    rel_paths.append(os.path.join(dirname, fname))
+        files: Dict[str, bytes] = {}
+        for rel in rel_paths:
+            fpath = os.path.join(base, rel)
+            size = os.path.getsize(fpath)
+            if size > self._CHECKPOINT_MAX_FILE_BYTES:
+                logger.warning(
+                    "Checkpoint skipping oversized sandbox file %s "
+                    "(%d bytes).", rel, size)
+                continue
+            with open(fpath, "rb") as f:
+                files[rel] = f.read()
+        return files
+
+    def _restore_sandbox_artifacts(self, files: Dict[str, bytes]) -> None:
+        """Write embedded sandbox files into THIS run's sandbox.
+
+        Safe against the lazy sandbox setup: ``setup_sandbox_directory``
+        only writes reference/CLAUDE.md/hooks and seeds notes.md when
+        missing, so restoring first never gets clobbered.
+        """
+        base = self._checkpoint_sandbox_dir()
+        for rel, content in files.items():
+            fpath = os.path.join(base, rel)
+            os.makedirs(os.path.dirname(fpath), exist_ok=True)
+            with open(fpath, "wb") as f:
+                f.write(content)
+        if files:
+            logger.info("Restored %d sandbox artifact(s) into %s.",
+                        len(files), base)
+
+    def _extra_save_state(self) -> Dict[str, Any]:
+        return {
+            "fitted_params": dict(self._fitted_params),
+            "fit_sse": self._fit_sse,
+            "param_specs": list(self._param_specs),
+            "physical_param_specs": list(self._physical_param_specs),
+            "last_fit_result": self._last_fit_result,
+            "param_ensemble": list(self._param_ensemble),
+            "identified_physical_params":
+            dict(self._identified_physical_params),
+            "identified_physical_sigma_points":
+            list(self._identified_physical_sigma_points),
+            "sysid_fit_history": dict(self._sysid_fit_history),
+            "residual_features": dict(self._residual_features),
+            "current_simulator_version": self._current_simulator_version,
+            "current_predicates_version": self._current_predicates_version,
+            "current_samplers_version": self._current_samplers_version,
+            "sandbox_files": self._collect_sandbox_artifacts(),
+            "git_describe": _describe_git_revision(),
+        }
+
+    def _load_extra_save_state(self, save_dict: Dict[str, Any]) -> None:
+        saved_rev = save_dict.get("git_describe")
+        current_rev = _describe_git_revision()
+        if saved_rev and saved_rev != current_rev:
+            logger.warning(
+                "Checkpoint was written at git revision %s but this run "
+                "is at %s - resuming across code versions is untested.",
+                saved_rev, current_rev)
+        # In-place update: _ParamsView holders (invented predicate and
+        # sampler closures) alias this exact dict object.
+        self._fitted_params.clear()
+        self._fitted_params.update(save_dict.get("fitted_params") or {})
+        self._fit_sse = save_dict.get("fit_sse", float("inf"))
+        self._param_specs = list(save_dict.get("param_specs") or [])
+        self._physical_param_specs = list(
+            save_dict.get("physical_param_specs") or [])
+        self._last_fit_result = save_dict.get("last_fit_result")
+        self._param_ensemble = list(save_dict.get("param_ensemble") or [])
+        self._identified_physical_params = dict(
+            save_dict.get("identified_physical_params") or {})
+        self._sysid_fit_history = dict(
+            save_dict.get("sysid_fit_history") or {})
+        self._residual_features = dict(
+            save_dict.get("residual_features") or {})
+        self._current_simulator_version = save_dict.get(
+            "current_simulator_version")
+        self._current_predicates_version = save_dict.get(
+            "current_predicates_version")
+        self._current_samplers_version = save_dict.get(
+            "current_samplers_version")
+        self._restore_sandbox_artifacts(save_dict.get("sandbox_files") or {})
+        self._rehydrate_from_artifacts()
+        # AFTER rehydration: _apply_identified_physical_params clears
+        # the sigma points (they must never outlive the fit they came
+        # from), so the checkpointed points are restored last.
+        self._identified_physical_sigma_points = list(
+            save_dict.get("identified_physical_sigma_points") or [])
+
+    def _rehydrate_extra_artifacts(self, base: str) -> None:
+        """Subclass hook: reload extra artifacts (e.g. predicates.py)."""
+
+    def _rehydrate_from_artifacts(self) -> None:
+        """Rebuild the learned simulator/option model from restored files.
+
+        Order matters: simulator.py first (rules + latent init + physical
+        specs), then the option model, then identified physics onto the
+        base env, then subclass artifacts (predicates read the already-
+        restored ``_fitted_params``), then samplers and the ensemble.
+        """
+        paths = self._resolve_synthesis_paths()
+        if not os.path.isfile(paths.simulator_file):
+            logger.info("Checkpoint carried no simulator.py; the initial "
+                        "option model stands (resume before the first "
+                        "successful synthesis).")
+            self._rehydrate_extra_artifacts(paths.base)
+            return
+        trajectories = self._get_all_trajectories()
+        self._fit_trajectories = list(trajectories)
+        rules, specs, declared_features, sim_ns = (
+            self._load_simulator_from_module_file(paths.simulator_file,
+                                                  trajectories))
+        if not rules or specs is None:
+            logger.warning(
+                "Restored simulator.py failed to load; continuing with "
+                "the initial option model (the next learn cycle will "
+                "rebuild it).")
+            self._rehydrate_extra_artifacts(paths.base)
+            return
+        self._residual_rules = rules
+        if declared_features:
+            self._residual_features = declared_features
+        self._latent_init = (read_latent_init(sim_ns)
+                             if isinstance(sim_ns, dict) else None)
+        self._physical_param_specs = stamp_physical_spec_scales(
+            list((read_physical_param_specs(sim_ns) if isinstance(
+                sim_ns, dict) else None) or []), self._base_env)
+        # The agent may have edited simulator.py after the last fit:
+        # pickled fitted params are only valid for matching spec names.
+        spec_names = {s.name for s in specs}
+        if set(self._fitted_params) != spec_names:
+            logger.warning(
+                "Checkpointed fitted params %s do not match the restored "
+                "simulator's PARAM_SPECS %s; falling back to declared "
+                "init values.", sorted(self._fitted_params),
+                sorted(spec_names))
+            self._fitted_params.clear()
+            self._fitted_params.update(
+                {s.name: s.init_value
+                 for s in specs})
+        rules_ref, params_ref = self._residual_rules, self._fitted_params
+        self._learned_simulator = LearnedSimulator(
+            step_fn=lambda s, c, _r=rules_ref, _p=params_ref:  # type: ignore[misc]
+            apply_rules(s, _r, _p, cmds=c),
+            name="agent_synthesized")
+        combined_sim = self._build_combined_simulator(self._learned_simulator)
+        self._option_model = self._build_option_model(combined_sim)
+        if self._identified_physical_params:
+            self._apply_identified_physical_params(
+                self._identified_physical_params)
+        self._rehydrate_extra_artifacts(paths.base)
+        if self._samplers_enabled():
+            sampler_paths = self._sampler_paths(paths.base)
+            self._synthesized_samplers = self._load_samplers_from_module_file(
+                sampler_paths["samplers_file"])
+        self._rebuild_param_ensemble()
+        logger.info(
+            "Rehydrated learned simulator from checkpoint artifacts "
+            "(%d rules, %d fitted params, %d learned predicates, "
+            "%d samplers).", len(rules), len(self._fitted_params),
+            len(getattr(self, "_learned_predicates", set()) or set()),
+            len(self._synthesized_samplers))
 
     def _learn_simulator(self, trajectories: List[LowLevelTrajectory]) -> None:
         """Synthesize rules, fit parameters, and build the option model."""

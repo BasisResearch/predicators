@@ -398,6 +398,11 @@ and update before doing anything else.**"""
         if dataset.trajectories:
             self._tool_context.example_state = \
                 dataset.trajectories[0].states[0]
+        # Post-offline checkpoint: main.py's --load_approach path loads
+        # cycle None before the online loop, which previously had no
+        # file to read for this approach family (save only ran at the
+        # end of each online cycle).
+        self.save(None)
 
     def get_interaction_requests(self) -> List[InteractionRequest]:
         # Explore sessions carry their own phase tag (see the mixin's

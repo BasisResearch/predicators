@@ -34,6 +34,7 @@ To run grammar search predicate invention (example):
         --seed 0 --excluded_predicates all
 """
 
+import glob
 import logging
 import os
 import sys
@@ -83,6 +84,9 @@ def main() -> None:
     # Log initial info
     utils.log_initial_info(str_args)
 
+    # Self-resume (Slurm requeue / resubmission of the same command).
+    _maybe_auto_resume()
+
     # Setup environment and tasks
     env, approach_train_tasks, train_tasks = setup_environment()
 
@@ -111,6 +115,62 @@ def main() -> None:
 
 
 # ── Setup helpers ────────────────────────────────────────────────
+
+
+def discover_resume_cycles(load_path: str) -> Tuple[bool, Optional[int]]:
+    """Scan for ``{load_path}_{cycle}.{suffix}`` approach checkpoints.
+
+    Returns ``(found_any, max_int_cycle)``: ``max_int_cycle`` is the
+    highest completed online-learning cycle with a checkpoint, or None
+    when only the post-offline (``_None``) checkpoint exists.
+    """
+    found = False
+    max_cycle: Optional[int] = None
+    prefix_len = len(os.path.basename(load_path)) + 1
+    for path in glob.glob(glob.escape(load_path) + "_*"):
+        name = os.path.basename(path)[prefix_len:]
+        cycle_token = name.split(".", 1)[0]
+        if cycle_token == "None":
+            found = True
+            continue
+        try:
+            cycle = int(cycle_token)
+        except ValueError:
+            continue
+        found = True
+        max_cycle = cycle if max_cycle is None else max(max_cycle, cycle)
+    return found, max_cycle
+
+
+def _maybe_auto_resume() -> None:
+    """Under ``--auto_resume``, continue from the latest checkpoint.
+
+    Sets ``load_approach`` (so the offline phase loads instead of
+    re-learning), ``restart_learning`` (without it the online loop's
+    learning gate skips learning on EVERY cycle of a loaded run), and
+    ``skip_until_cycle`` past the last completed cycle. A run with no
+    checkpoint starts fresh. This makes a Slurm requeue / resubmission
+    of the identical command self-resuming.
+    """
+    if not getattr(CFG, "auto_resume", False):
+        return
+    load_path = utils.get_approach_load_path_str()
+    found, max_cycle = discover_resume_cycles(load_path)
+    if not found:
+        logging.info(
+            "--auto_resume: no checkpoint at %s_*; starting fresh. NOTE: "
+            "the checkpoint path ignores the run timestamp, so concurrent "
+            "launches of the same config/seed/experiment_id would "
+            "overwrite each other's checkpoints - keep experiment_id "
+            "unique per concurrent launch.", load_path)
+        return
+    CFG.load_approach = True
+    CFG.restart_learning = True
+    CFG.skip_until_cycle = 0 if max_cycle is None else max_cycle + 1
+    logging.info(
+        "--auto_resume: checkpoint(s) found at %s_* (last completed "
+        "cycle: %s); resuming with load_approach + restart_learning, "
+        "skip_until_cycle=%d.", load_path, max_cycle, CFG.skip_until_cycle)
 
 
 def setup_environment() -> Tuple[BaseEnv, List[Task], List[Task]]:
@@ -295,10 +355,12 @@ def _run_online_learning_loop(
     # Create teacher if needed
     teacher = Teacher(train_tasks) if get_allowed_query_type_names() else None
     load_approach = CFG.load_approach
+    ran_any_cycle = False
 
     for i in range(CFG.num_online_learning_cycles):
         if i < CFG.skip_until_cycle:
             continue
+        ran_any_cycle = True
 
         # Handle loading approach
         if load_approach and i > 0:
@@ -491,6 +553,28 @@ def _run_online_learning_loop(
                     f"Early stopping: last test evaluation ({label}): "
                     f"{_format_test_results_line(test_results)}")
             break
+
+    # Resume landed past the final cycle (e.g. preempted during or after
+    # the last cycle's test phase): every learn is checkpointed but the
+    # loop body never ran, so no final test would ever be produced. Load
+    # the last cycle's checkpoint and run just the test.
+    if (not ran_any_cycle and CFG.load_approach
+            and CFG.skip_until_cycle >= CFG.num_online_learning_cycles > 0):
+        last_cycle = CFG.num_online_learning_cycles - 1
+        logging.info(
+            "All %d online learning cycles were already completed at "
+            "resume; loading cycle %d and running the final test only.",
+            CFG.num_online_learning_cycles, last_cycle)
+        cogman.load(online_learning_cycle=last_cycle)
+        results = _run_testing(env, cogman, online_learning_cycle=last_cycle)
+        results.update({
+            "num_offline_transitions": num_offline_transitions,
+            "num_online_transitions": num_online_transitions,
+            "query_cost": total_query_cost,
+            "learning_time": learning_time,
+            **offline_learning_metrics
+        })
+        _save_test_results(results, online_learning_cycle=last_cycle)
 
 
 def _early_stop_below_bar_msg(episode_reward: float,
