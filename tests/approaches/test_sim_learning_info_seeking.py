@@ -446,8 +446,14 @@ def test_exploration_refit_seeds_from_lm_only_solver_fit(monkeypatch):
     specs = [ParamSpec("a", 1.0, lo=0.0, hi=2.0)]
     captured = {}
 
-    def _fake_recurrent(self, rules, s, triples, feats, num_steps=None,
+    def _fake_recurrent(self,
+                        rules,
+                        s,
+                        triples,
+                        feats,
+                        num_steps=None,
                         lm_seed=None):
+        del self, rules, s, triples, feats
         captured["lm_seed"] = lm_seed
         captured["num_steps"] = num_steps
         return FitResult(names=["a"],

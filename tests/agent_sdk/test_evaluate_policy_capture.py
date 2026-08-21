@@ -58,6 +58,7 @@ class _Model:
         self.last_trajectory = None
 
     def get_next_state_and_num_actions(self, state, option):
+        """Roll the option forward one step, counting the call."""
         self.num_calls += 1
         nxt = state.copy()
         if self.num_calls <= self._succeed_first_n and len(option.params):
@@ -106,13 +107,17 @@ def _call_tool(ctx, extra_args=None):
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-    result: Any = loop.run_until_complete(
-        tools["evaluate_policy"](extra_args or {}))
+    result: Any = loop.run_until_complete(tools["evaluate_policy"](extra_args
+                                                                   or {}))
     return result["content"][0]["text"]
 
 
-def _run_tool(model, tmp_path, source=_GOAL_POLICY, rollouts=3,
-              best_effort=False, extra_args=None):
+def _run_tool(model,
+              tmp_path,
+              source=_GOAL_POLICY,
+              rollouts=3,
+              best_effort=False,
+              extra_args=None):
     # The local-sandbox path resolution reads <log_dir>/sandbox.
     sandbox = os.path.join(str(tmp_path), "sandbox")
     os.makedirs(sandbox, exist_ok=True)
@@ -127,6 +132,7 @@ def _run_tool(model, tmp_path, source=_GOAL_POLICY, rollouts=3,
 
 
 def test_robust_policy_is_captured_with_validation_note(tmp_path):
+    """All rollouts succeed: source captured with the K/K note."""
     model = _Model()
     text, ctx, _ = _run_tool(model, tmp_path, rollouts=3)
     assert "Captured policy.py as the current answer" in text
@@ -140,6 +146,7 @@ def test_robust_policy_is_captured_with_validation_note(tmp_path):
 
 
 def test_flaky_policy_is_not_captured(tmp_path):
+    """A failing validation repeat blocks the capture, loudly."""
     model = _Model(succeed_first_n=1)
     text, ctx, _ = _run_tool(model, tmp_path, rollouts=3)
     assert "FLAKY (policy NOT captured)" in text
@@ -147,6 +154,7 @@ def test_flaky_policy_is_not_captured(tmp_path):
 
 
 def test_flaky_policy_best_effort_captured(tmp_path):
+    """Under the final nudge a flaky policy is captured as best-effort."""
     model = _Model(succeed_first_n=1)
     text, ctx, _ = _run_tool(model, tmp_path, rollouts=3, best_effort=True)
     assert "best-effort" in text
@@ -164,8 +172,11 @@ def test_source_snapshot_not_rereading_file(tmp_path):
 
 
 def test_diagnostic_seed_never_captures(tmp_path):
+    """A seeded diagnostic rollout is reported but never captured."""
     model = _Model()
-    text, ctx, _ = _run_tool(model, tmp_path, rollouts=1,
+    text, ctx, _ = _run_tool(model,
+                             tmp_path,
+                             rollouts=1,
                              extra_args={"rollout_seed": 999})
     assert "DIAGNOSTIC rollout at planner seed 999" in text
     assert ctx.solved_policy_source is None
@@ -183,6 +194,7 @@ def test_recovered_option_failure_still_captures(tmp_path):
             return state.copy(), 0
         return orig(self, state, option)
 
+    # pylint: disable-next=no-value-for-parameter
     model.get_next_state_and_num_actions = _first_call_fails.__get__(model)
     text, ctx, _ = _run_tool(model, tmp_path, rollouts=1)
     assert "OPTION FAILURE (surfaced to the policy" in text
@@ -191,6 +203,7 @@ def test_recovered_option_failure_still_captures(tmp_path):
 
 
 def test_mode_gate_refuses_outside_policy_mode(tmp_path):
+    """The tool refuses when the attempt is not in policy mode."""
     model = _Model()
     sandbox = os.path.join(str(tmp_path), "sandbox")
     os.makedirs(sandbox, exist_ok=True)
@@ -206,6 +219,7 @@ def test_mode_gate_refuses_outside_policy_mode(tmp_path):
 
 
 def test_missing_policy_file_is_instructive(tmp_path):
+    """A missing policy.py errors with writing instructions."""
     model = _Model()
     utils.reset_config({
         "agent_solve_policy_mode": True,

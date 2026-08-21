@@ -890,7 +890,10 @@ def _make_checkpoint_stub(tmp_path, monkeypatch):
 
 
 def test_sandbox_artifacts_round_trip(tmp_path, monkeypatch):
-    """Curated files (incl. version dirs) round-trip; junk is skipped."""
+    """Curated files (incl.
+
+    version dirs) round-trip; junk is skipped.
+    """
     obj, sandbox = _make_checkpoint_stub(tmp_path, monkeypatch)
     (sandbox / "simulator.py").write_text("SIM")
     (sandbox / "journal.md").write_text("JOURNAL")
@@ -930,9 +933,9 @@ def test_extra_save_state_round_trip_defers_sigma_points(
     fresh._identified_physical_sigma_points = []
     events = []
     monkeypatch.setattr(
-        AgentSimLearningApproach, "_rehydrate_from_artifacts", lambda self:
-        events.append(("rehydrate", list(self._identified_physical_sigma_points
-                                         ))))
+        AgentSimLearningApproach, "_rehydrate_from_artifacts",
+        lambda self: events.append(
+            ("rehydrate", list(self._identified_physical_sigma_points))))
     fresh._load_extra_save_state(save_dict)
     # Rehydration observed the sigma points still EMPTY (they must not
     # outlive _apply_identified_physical_params, which rehydrate calls).
@@ -946,8 +949,8 @@ def test_extra_save_state_round_trip_defers_sigma_points(
 
 def test_rehydrate_rebuilds_simulator_from_restored_file(
         tmp_path, monkeypatch):
-    """A restored simulator.py rebuilds rules + option model; mismatched
-    fitted params fall back to spec inits."""
+    """A restored simulator.py rebuilds rules + option model; mismatched fitted
+    params fall back to spec inits."""
     obj, sandbox = _make_checkpoint_stub(tmp_path, monkeypatch)
     (sandbox / "simulator.py").write_text(_STUB_SIMULATOR_PY)
     utils.reset_config({"agent_explorer_info_seeking": False})
@@ -959,22 +962,20 @@ def test_rehydrate_rebuilds_simulator_from_restored_file(
     obj._base_env = SimpleNamespace(get_physical_param_info=lambda: {})
     calls = []
     monkeypatch.setattr(
-        AgentSimLearningApproach, "_resolve_synthesis_paths",
-        lambda self: SimpleNamespace(base=str(sandbox),
-                                     simulator_file=str(sandbox /
-                                                        "simulator.py"),
-                                     versions_dir=str(sandbox /
-                                                      "simulator_versions"),
-                                     simulator_file_for_agent="./simulator.py",
-                                     sandbox_dir_for_agent="."))
+        AgentSimLearningApproach, "_resolve_synthesis_paths", lambda self:
+        SimpleNamespace(base=str(sandbox),
+                        simulator_file=str(sandbox / "simulator.py"),
+                        versions_dir=str(sandbox / "simulator_versions"),
+                        simulator_file_for_agent="./simulator.py",
+                        sandbox_dir_for_agent="."))
     monkeypatch.setattr(AgentSimLearningApproach, "_get_all_trajectories",
                         lambda self: [])
-    monkeypatch.setattr(AgentSimLearningApproach, "_build_combined_simulator",
-                        lambda self, sim: calls.append("combined") or
-                        (lambda s, a: s))
-    monkeypatch.setattr(AgentSimLearningApproach, "_build_option_model",
-                        lambda self, fn: calls.append("option_model") or
-                        SimpleNamespace())
+    monkeypatch.setattr(
+        AgentSimLearningApproach, "_build_combined_simulator",
+        lambda self, sim: calls.append("combined") or (lambda s, a: s))
+    monkeypatch.setattr(
+        AgentSimLearningApproach, "_build_option_model",
+        lambda self, fn: calls.append("option_model") or SimpleNamespace())
     monkeypatch.setattr(AgentSimLearningApproach,
                         "_apply_identified_physical_params",
                         lambda self, p: calls.append(("apply", dict(p))))
@@ -999,14 +1000,12 @@ def test_rehydrate_without_simulator_is_graceful(tmp_path, monkeypatch):
     """Resume before the first synthesis leaves the initial model alone."""
     obj, sandbox = _make_checkpoint_stub(tmp_path, monkeypatch)
     monkeypatch.setattr(
-        AgentSimLearningApproach, "_resolve_synthesis_paths",
-        lambda self: SimpleNamespace(base=str(sandbox),
-                                     simulator_file=str(sandbox /
-                                                        "simulator.py"),
-                                     versions_dir=str(sandbox /
-                                                      "simulator_versions"),
-                                     simulator_file_for_agent="./simulator.py",
-                                     sandbox_dir_for_agent="."))
+        AgentSimLearningApproach, "_resolve_synthesis_paths", lambda self:
+        SimpleNamespace(base=str(sandbox),
+                        simulator_file=str(sandbox / "simulator.py"),
+                        versions_dir=str(sandbox / "simulator_versions"),
+                        simulator_file_for_agent="./simulator.py",
+                        sandbox_dir_for_agent="."))
     hooks = []
     monkeypatch.setattr(AgentSimLearningApproach, "_rehydrate_extra_artifacts",
                         lambda self, base: hooks.append(base))

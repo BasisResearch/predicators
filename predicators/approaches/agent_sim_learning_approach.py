@@ -650,16 +650,15 @@ class _SynthesisPaths:
 
 
 def _describe_git_revision() -> str:
-    """Best-effort ``git describe`` of the running code, for checkpoint
-    version stamping ("unknown" outside a repo or without git)."""
+    """Best-effort ``git describe`` of the running code, for checkpoint version
+    stamping ("unknown" outside a repo or without git)."""
     try:
-        out = subprocess.run(
-            ["git", "describe", "--always", "--dirty"],
-            cwd=os.path.dirname(os.path.abspath(__file__)),
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False)
+        out = subprocess.run(["git", "describe", "--always", "--dirty"],
+                             cwd=os.path.dirname(os.path.abspath(__file__)),
+                             capture_output=True,
+                             text=True,
+                             timeout=10,
+                             check=False)
         return out.stdout.strip() or "unknown"
     except OSError:
         return "unknown"
@@ -1180,28 +1179,41 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             with open(fpath, "wb") as f:
                 f.write(content)
         if files:
-            logger.info("Restored %d sandbox artifact(s) into %s.",
-                        len(files), base)
+            logger.info("Restored %d sandbox artifact(s) into %s.", len(files),
+                        base)
 
     def _extra_save_state(self) -> Dict[str, Any]:
         return {
-            "fitted_params": dict(self._fitted_params),
-            "fit_sse": self._fit_sse,
-            "param_specs": list(self._param_specs),
-            "physical_param_specs": list(self._physical_param_specs),
-            "last_fit_result": self._last_fit_result,
-            "param_ensemble": list(self._param_ensemble),
+            "fitted_params":
+            dict(self._fitted_params),
+            "fit_sse":
+            self._fit_sse,
+            "param_specs":
+            list(self._param_specs),
+            "physical_param_specs":
+            list(self._physical_param_specs),
+            "last_fit_result":
+            self._last_fit_result,
+            "param_ensemble":
+            list(self._param_ensemble),
             "identified_physical_params":
             dict(self._identified_physical_params),
             "identified_physical_sigma_points":
             list(self._identified_physical_sigma_points),
-            "sysid_fit_history": dict(self._sysid_fit_history),
-            "residual_features": dict(self._residual_features),
-            "current_simulator_version": self._current_simulator_version,
-            "current_predicates_version": self._current_predicates_version,
-            "current_samplers_version": self._current_samplers_version,
-            "sandbox_files": self._collect_sandbox_artifacts(),
-            "git_describe": _describe_git_revision(),
+            "sysid_fit_history":
+            dict(self._sysid_fit_history),
+            "residual_features":
+            dict(self._residual_features),
+            "current_simulator_version":
+            self._current_simulator_version,
+            "current_predicates_version":
+            self._current_predicates_version,
+            "current_samplers_version":
+            self._current_samplers_version,
+            "sandbox_files":
+            self._collect_sandbox_artifacts(),
+            "git_describe":
+            _describe_git_revision(),
         }
 
     def _load_extra_save_state(self, save_dict: Dict[str, Any]) -> None:
@@ -1232,6 +1244,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             "current_simulator_version")
         self._current_predicates_version = save_dict.get(
             "current_predicates_version")
+        # pylint: disable-next=attribute-defined-outside-init
+        # (initialized by SamplerLearningMixin's init hook)
         self._current_samplers_version = save_dict.get(
             "current_samplers_version")
         self._restore_sandbox_artifacts(save_dict.get("sandbox_files") or {})
@@ -1248,10 +1262,11 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     def _rehydrate_from_artifacts(self) -> None:
         """Rebuild the learned simulator/option model from restored files.
 
-        Order matters: simulator.py first (rules + latent init + physical
-        specs), then the option model, then identified physics onto the
-        base env, then subclass artifacts (predicates read the already-
-        restored ``_fitted_params``), then samplers and the ensemble.
+        Order matters: simulator.py first (rules + latent init +
+        physical specs), then the option model, then identified physics
+        onto the base env, then subclass artifacts (predicates read the
+        already- restored ``_fitted_params``), then samplers and the
+        ensemble.
         """
         paths = self._resolve_synthesis_paths()
         if not os.path.isfile(paths.simulator_file):
@@ -1275,8 +1290,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         self._residual_rules = rules
         if declared_features:
             self._residual_features = declared_features
-        self._latent_init = (read_latent_init(sim_ns)
-                             if isinstance(sim_ns, dict) else None)
+        self._latent_init = (read_latent_init(sim_ns) if isinstance(
+            sim_ns, dict) else None)
         self._physical_param_specs = stamp_physical_spec_scales(
             list((read_physical_param_specs(sim_ns) if isinstance(
                 sim_ns, dict) else None) or []), self._base_env)
@@ -1290,14 +1305,14 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 "init values.", sorted(self._fitted_params),
                 sorted(spec_names))
             self._fitted_params.clear()
-            self._fitted_params.update(
-                {s.name: s.init_value
-                 for s in specs})
+            self._fitted_params.update({s.name: s.init_value for s in specs})
         rules_ref, params_ref = self._residual_rules, self._fitted_params
-        self._learned_simulator = LearnedSimulator(
-            step_fn=lambda s, c, _r=rules_ref, _p=params_ref:  # type: ignore[misc]
-            apply_rules(s, _r, _p, cmds=c),
-            name="agent_synthesized")
+
+        def _step_fn(s: State, c: Any) -> Any:
+            return apply_rules(s, rules_ref, params_ref, cmds=c)
+
+        self._learned_simulator = LearnedSimulator(step_fn=_step_fn,
+                                                   name="agent_synthesized")
         combined_sim = self._build_combined_simulator(self._learned_simulator)
         self._option_model = self._build_option_model(combined_sim)
         if self._identified_physical_params:

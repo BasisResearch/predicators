@@ -244,14 +244,13 @@ def test_trials_report_inexact_start_reconstruction():
     """Trials surface the fresh env's start-state reconstruction error."""
     utils.reset_config({})
     ctx, model, _ = _make_ctx([])
-    model.sim_env = type("E", (),
-                         {"_last_unreconstructible_features": [(_block, "x")]
-                          })()
+    # pylint: disable-next=attribute-defined-outside-init
+    model.sim_env = type(
+        "E", (), {"_last_unreconstructible_features": [(_block, "x")]})()
     sim = BeliefProbe(ctx)
     sim.reset()
     res = sim.run("Move(block0:block)[0.95]", trials=2, render=False)
-    assert all(t["inexact_start_features"] == ["block0.x"]
-               for t in res.trials)
+    assert all(t["inexact_start_features"] == ["block0.x"] for t in res.trials)
     assert "2/2 trials started from an inexactly reconstructed state" \
         in res.text
     assert "block0.x" in res.text

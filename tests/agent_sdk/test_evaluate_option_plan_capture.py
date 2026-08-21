@@ -791,9 +791,9 @@ def test_annotation_pruned_when_absent_in_a_passing_repeat():
 def test_annotation_kept_when_only_a_failing_repeat_disagrees():
     """Failing rollouts contribute no evidence to the intersection.
 
-    Repeats fail outright here (goal never reached), so under the
-    best-effort nudge the flaky capture falls back to the rollout-1
-    filter and MidHi survives.
+    Repeats fail outright here (goal never reached), so under the best-
+    effort nudge the flaky capture falls back to the rollout-1 filter
+    and MidHi survives.
     """
     model = _RepeatDriftModel(repeat_first_step_x=0.3)
     # Make repeats FAIL: the second step of later rollouts also misses.
@@ -806,6 +806,7 @@ def test_annotation_kept_when_only_a_failing_repeat_disagrees():
             nxt.set(_block, "x", 0.3)
         return nxt, n
 
+    # pylint: disable-next=no-value-for-parameter
     model.get_next_state_and_num_actions = _failing.__get__(model)
     utils.reset_config({"agent_plan_validation_rollouts": 3})
     ctx = _make_ctx(model, best_effort=True)
@@ -820,8 +821,8 @@ def test_annotation_kept_when_only_a_failing_repeat_disagrees():
 
 
 def test_negative_annotation_pruned_when_violated_in_a_passing_repeat():
-    """The mirrored rule: a NOT atom must be absent in every passing
-    repeat's post-state to survive."""
+    """The mirrored rule: a NOT atom must be absent in every passing repeat's
+    post-state to survive."""
     model = _RepeatDriftModel(repeat_first_step_x=0.95)
     utils.reset_config({"agent_plan_validation_rollouts": 3})
     ctx = _make_ctx(model)

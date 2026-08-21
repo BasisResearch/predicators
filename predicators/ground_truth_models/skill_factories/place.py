@@ -496,9 +496,8 @@ def create_place_skill(
                 return True
             tx, ty = float(params[0]), float(params[1])
             err = float(
-                np.hypot(
-                    state.get(obj, "x") - tx,
-                    state.get(obj, "y") - ty))
+                np.hypot(state.get(obj, "x") - tx,
+                         state.get(obj, "y") - ty))
             ok = err <= post_release_verify_xy_tol
             if not ok:
                 logging.debug(
@@ -562,13 +561,12 @@ def create_place_skill(
                 target_fn=_open_fingers_target,
                 finger_direction="open",
             ),
-            make_move_to_phase(
-                "Retreat",
-                _above_pose,
-                "open",
-                verify_fn=post_release_verify_fn,
-                max_retries=0,
-                verify_failure_msg=post_release_failure_msg),
+            make_move_to_phase("Retreat",
+                               _above_pose,
+                               "open",
+                               verify_fn=post_release_verify_fn,
+                               max_retries=0,
+                               verify_failure_msg=post_release_failure_msg),
         ])
 
     return PhaseSkill(name,
