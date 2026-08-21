@@ -1,13 +1,15 @@
 """Testing tools, including the evaluate_option_plan capture surface."""
 import contextlib
 import logging
+import os
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
-from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig, \
+from predicators.agent_sdk.config import RefinementConfig, \
+    SessionConfig, ToolSurfaceConfig, \
     ValidationConfig
 from predicators.agent_sdk.tools.budget import _budget_footer
 from predicators.agent_sdk.tools.capture import BestEffortReason, \
@@ -28,6 +30,23 @@ from predicators.structs import State
 # (validation_rollouts): the agent pays for rollouts from its budget, but
 # a typo'd request should not silently torch it.
 _MAX_REQUESTED_ROLLOUTS = 25
+
+
+def _policy_source_path(ctx: ToolContext) -> Optional[str]:
+    """Host path of the agent-editable ``policy.py`` (policy mode).
+
+    Same sandbox-base resolution as ``_ground_samplers_path``.
+    """
+    if SessionConfig.from_cfg().use_local_sandbox and ctx.log_dir:
+        base: Optional[str] = os.path.abspath(
+            os.path.join(ctx.log_dir, "sandbox"))
+    elif ctx.sandbox_dir:
+        base = ctx.sandbox_dir
+    else:
+        base = ctx.log_dir
+    if not base:
+        return None
+    return os.path.join(base, "policy.py")
 
 
 def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
@@ -708,7 +727,11 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             # A seeded diagnostic rollout is never captured: letting the
             # agent choose the planner seed of a capturing rollout would
             # let a cherry-picked known-good seed bypass the gate.
+            # In policy mode the deliverable is policy.py (via
+            # evaluate_policy); this tool remains a probe but can no
+            # longer capture the answer.
             capture_enabled=(ctx.capture_goal_reaching_plans
+                             and not ctx.policy_capture_mode
                              and diagnostic_seed is None),
             is_current_task=is_current,
             have_plan=bool(grounded_plan),
@@ -943,7 +966,414 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         return _text_result("\n".join(lines) +
                             _budget_footer(ctx, rollouts_before))
 
+    @tool(
+        "evaluate_policy",
+        "Validate ./policy.py - your closed-loop `get_option(state, memory)` "
+        "program - on the CURRENT task and capture it as your answer. The "
+        "policy source is SNAPSHOTTED at call time (later edits need a new "
+        "call). Each rollout runs the policy closed-loop through the belief "
+        "model: get_option is called at every option boundary with the "
+        "actual current state; option failures (not initiable, motion-"
+        "planning refusal, 0 actions) do NOT end the episode - the failure "
+        "text arrives in memory['last_failure'] and get_option is asked "
+        "again, so RECOVERY is your policy's job; exceptions in get_option "
+        "or unparsable/ungroundable lines DO end it. Capture is gated like "
+        "evaluate_option_plan: the goal-reaching rollout is repeated "
+        "several times (fresh simulator env + varied planner seed per "
+        "repeat, fresh memory per episode) and a FLAKY policy is reported "
+        "instead of captured; physics-margin perturbations apply too. "
+        "`validation_rollouts` requests a stricter gate; `rollout_seed` "
+        "runs one diagnostic rollout at that planner seed (never "
+        "captured). Test recovery behavior first with sim.run_policy() in "
+        "explore_python, which runs ./policy.py from the CURRENT probe "
+        "state (including perturbed or mid-plan states).",
+        {
+            "type": "object",
+            "properties": {
+                "validation_rollouts": {
+                    "type":
+                    "integer",
+                    "description":
+                    "Request a stricter capture gate: total validation "
+                    "rollouts a goal-reaching policy must pass (effective "
+                    "count is max(configured, this); never fewer).",
+                },
+                "rollout_seed": {
+                    "type":
+                    "integer",
+                    "description":
+                    "Diagnostic: run ONE rollout at this exact motion-"
+                    "planner seed with full per-step reporting, to "
+                    "reproduce a reported failed validation rollout. Never "
+                    "captured.",
+                },
+                "include_atoms": {
+                    "type": "boolean",
+                    "description":
+                    "Include atoms added/deleted after each step",
+                    "default": True
+                },
+            },
+        },
+    )
+    async def evaluate_policy(args: Dict[str, Any]) -> Dict[str, Any]:
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.policy_execution import \
+            build_policy_option_fn, execute_policy_forward
+        validation_cfg = ValidationConfig.from_cfg()
+        ctx.test_call_id += 1
+        rollouts_before = ctx.attempt_rollout_count
+        if not ctx.policy_capture_mode:
+            return _error_result(
+                "evaluate_policy is only available in policy mode "
+                "(agent_solve_policy_mode); submit plans via "
+                "evaluate_option_plan instead.")
+        if ctx.option_model is None:
+            return _error_result("No option model available in ToolContext.")
+        all_options = ctx.options | ctx.iteration_proposals.proposed_options
+        model = ctx.option_model
+        model._name_to_parameterized_option = (  # type: ignore[attr-defined]  # pylint: disable=protected-access
+            {o.name: o
+             for o in all_options})
+        requested_rollouts = args.get("validation_rollouts")
+        diagnostic_seed = args.get("rollout_seed")
+        include_atoms = args.get("include_atoms", True)
+        if requested_rollouts is not None and (not isinstance(
+                requested_rollouts, int) or requested_rollouts < 1):
+            return _error_result(
+                "validation_rollouts must be a positive integer.")
+        if diagnostic_seed is not None and not isinstance(
+                diagnostic_seed, int):
+            return _error_result("rollout_seed must be an integer.")
+
+        resolved, task_err = _resolve_task(ctx, None)
+        if task_err is not None:
+            return task_err
+        assert resolved is not None
+        task = resolved.task
+        task_label = resolved.label
+
+        policy_path = _policy_source_path(ctx)
+        if policy_path is None or not os.path.isfile(policy_path):
+            return _error_result(
+                "No ./policy.py found. Write your closed-loop policy there "
+                "first: `def get_option(state, memory): ...` returning one "
+                "plan line (sketch grammar) or None for DONE.")
+        with open(policy_path, "r", encoding="utf-8") as f:
+            policy_source = f.read()
+
+        all_predicates = (ctx.predicates
+                          | ctx.iteration_proposals.proposed_predicates)
+        types = set(ctx.types)
+        for opt in all_options:
+            types.update(opt.types)
+        for pred in all_predicates:
+            types.update(pred.types)
+        types.update(o.type for o in task.init)
+
+        def _fresh_option_fn() -> Tuple[Optional[Any], Optional[str]]:
+            # Fresh instance per episode: memory must reset per rollout.
+            return build_policy_option_fn(policy_source,
+                                          task,
+                                          predicates=all_predicates,
+                                          options=all_options,
+                                          types=types)
+
+        option_fn, load_err = _fresh_option_fn()
+        if load_err is not None or option_fn is None:
+            return _error_result(load_err or "policy.py failed to load.")
+        max_opts = CFG.agent_policy_max_options
+        horizon = CFG.horizon
+
+        lines = [f"Testing policy.py on task {task_label}:"]
+        saved_image_paths: List[str] = []
+        eval_collector = _EvalStateCollector(model, task.init)
+
+        def _report_step(i: int, outcome: Any) -> None:
+            eval_collector.collect(outcome)
+            opt = outcome.option
+            sig = f"{opt.name}({[o.name for o in opt.objects]})"
+            step_line = f"Step {i}: {sig} ({outcome.num_actions} actions)"
+            if outcome.failure_reason is not None:
+                step_line += (
+                    f"\n  OPTION FAILURE (surfaced to the policy as "
+                    f"memory['last_failure']): {outcome.failure_reason}")
+            post = outcome.post_state
+            if post is not None and include_atoms:
+                before = utils.abstract(outcome.pre_state, ctx.predicates)
+                after = utils.abstract(post, ctx.predicates)
+                added_s = ", ".join(str(a) for a in sorted(after - before))
+                del_s = ", ".join(str(a) for a in sorted(before - after))
+                step_line += (f"\n  Added:   {{{added_s}}}"
+                              f"\n  Deleted: {{{del_s}}}")
+            lines.append(step_line)
+            if diagnostic_seed is not None and diag_fresh_scope is not None:
+                return
+            img_block = render_scene_image(ctx, f"policy_step_{i}_{opt.name}")
+            if img_block and img_block.get("saved_path"):
+                saved_image_paths.append(img_block["saved_path"])
+
+        ctx.attempt_rollout_count += 1
+        diag_fresh_scope = (ctx.validation_env_scope
+                            if diagnostic_seed is not None
+                            and validation_cfg.fresh_env else None)
+        if diagnostic_seed is not None:
+            lines.append(
+                f"DIAGNOSTIC rollout at planner seed {diagnostic_seed} - "
+                "never captured. Call again without rollout_seed to "
+                "capture.")
+        with (diag_fresh_scope() if diag_fresh_scope is not None else
+              contextlib.nullcontext()), \
+                absolute_rollout_seed(diagnostic_seed):
+            result = execute_policy_forward(task,
+                                            option_fn,
+                                            model,
+                                            predicates=all_predicates,
+                                            max_policy_options=max_opts,
+                                            on_step=_report_step)
+
+        goal_reached = result.goal_reached
+        within_horizon = (result.actions_to_goal is not None
+                          and result.actions_to_goal <= horizon)
+        if result.policy_error is not None:
+            lines.append(f"POLICY ERROR (ended the episode): "
+                         f"{result.policy_error}")
+        n_surfaced = sum(1 for s in result.steps
+                         if s.failure_reason is not None)
+        if n_surfaced:
+            lines.append(
+                f"{n_surfaced} option failure(s) were surfaced to the "
+                "policy during this rollout (recovery attempts included "
+                "above).")
+        # Closed-loop: recovered option failures do NOT disqualify - the
+        # policy handling them is the point. Only the goal, the horizon,
+        # and policy-code errors gate.
+        goal_achieved = (goal_reached and within_horizon
+                         and result.policy_error is None)
+        evaluator = _resolve_task_evaluator(ctx, task_label)
+        verdict: Optional[Dict[str, Any]] = None
+        if evaluator is not None and len(eval_collector.states) > 1:
+            try:
+                verdict = evaluate_states_with(evaluator,
+                                               eval_collector.states,
+                                               eval_collector.labels,
+                                               sim_env=getattr(
+                                                   ctx.option_model, "sim_env",
+                                                   None))
+            except Exception as e:  # pylint: disable=broad-except
+                logging.debug("Task-evaluator verdict failed: %s", e)
+        evaluator_rejected = (verdict is not None and not verdict["legitimate"]
+                              and not eval_collector.coarse)
+        reward_hack = (evaluator_rejected and verdict is not None
+                       and verdict["terminated"])
+
+        def _policy_validation_rollout() -> Tuple[bool, str]:
+            fn, err = _fresh_option_fn()
+            if err is not None or fn is None:
+                return False, f"policy failed to load: {err}"
+            v_collector = _EvalStateCollector(model, task.init)
+            r = execute_policy_forward(task,
+                                       fn,
+                                       model,
+                                       predicates=all_predicates,
+                                       max_policy_options=max_opts,
+                                       on_step=v_collector.on_step)
+            if r.policy_error is not None:
+                return False, f"policy error: {r.policy_error}"
+            if not r.goal_reached:
+                missing = task.goal - utils.abstract(r.final_state,
+                                                     ctx.predicates)
+                missing_str = ", ".join(str(a) for a in sorted(missing))
+                detail = f" (missing: {{{missing_str}}})" if missing else ""
+                return False, f"goal not reached{detail}"
+            if not (r.actions_to_goal is not None
+                    and r.actions_to_goal <= horizon):
+                return False, (f"goal reached only after {r.actions_to_goal} "
+                               f"low-level steps, past the episode horizon "
+                               f"({horizon})")
+            if (evaluator is not None and len(v_collector.states) > 1
+                    and not v_collector.coarse):
+                try:
+                    v = evaluate_states_with(evaluator,
+                                             v_collector.states,
+                                             v_collector.labels,
+                                             sim_env=getattr(
+                                                 ctx.option_model, "sim_env",
+                                                 None))
+                    if not v["legitimate"]:
+                        return False, (
+                            "this rollout reached the goal atoms but the "
+                            "task evaluator scored it as a non-solve "
+                            f"(solved=False, reward={v['reward']:.2f})")
+                except Exception as e:  # pylint: disable=broad-except
+                    logging.debug("Validation-rollout verdict failed: %s", e)
+            return True, ""
+
+        flaky_detail: Optional[str] = None
+        validation_note = ""
+        n_rollouts = max(1, validation_cfg.rollouts)
+        capture_task_key = _capture_task_key(ctx)
+        if capture_task_key in ctx.flaky_capture_task_keys:
+            n_rollouts = max(n_rollouts, validation_cfg.rollouts_after_flaky)
+        if requested_rollouts is not None and diagnostic_seed is None:
+            n_rollouts = max(n_rollouts,
+                             min(requested_rollouts, _MAX_REQUESTED_ROLLOUTS))
+        fresh_scope = (ctx.validation_env_scope
+                       if validation_cfg.fresh_env else None)
+        rollout_outcomes: List[str] = []
+        base_planner_seed = CFG.seed
+        if (ctx.capture_goal_reaching_plans and goal_achieved
+                and not evaluator_rejected and diagnostic_seed is None
+                and n_rollouts > 1):
+            for repeat_idx in range(2, n_rollouts + 1):
+                ctx.attempt_rollout_count += 1
+                with (fresh_scope() if fresh_scope is not None else
+                      contextlib.nullcontext()), \
+                        decorrelated_rollout_seed(repeat_idx - 1):
+                    ok, why = _policy_validation_rollout()
+                repeat_seed = base_planner_seed + repeat_idx - 1
+                if ok:
+                    rollout_outcomes.append(
+                        f"rollout {repeat_idx} (planner seed "
+                        f"{repeat_seed}): goal reached")
+                else:
+                    rollout_outcomes.append(
+                        f"rollout {repeat_idx} (planner seed "
+                        f"{repeat_seed}): FAILED - {why}")
+                    if flaky_detail is None:
+                        flaky_detail = (f"rollout {repeat_idx}/{n_rollouts} "
+                                        f"(planner seed {repeat_seed}) "
+                                        f"FAILED: {why}")
+            if flaky_detail is None:
+                validation_note = (
+                    f" Validated {n_rollouts}/{n_rollouts} rollouts "
+                    f"(planner seeds {base_planner_seed}-"
+                    f"{base_planner_seed + n_rollouts - 1}; fresh env and "
+                    "fresh policy memory per rollout).")
+
+        # Physics-margin gate, mirroring evaluate_option_plan.
+        param_sensitive_detail: Optional[str] = None
+        margin_outcomes: List[str] = []
+        if (validation_cfg.physics_margin and fresh_scope is not None
+                and ctx.physics_margin_provider is not None
+                and ctx.capture_goal_reaching_plans and goal_achieved
+                and not evaluator_rejected and diagnostic_seed is None
+                and flaky_detail is None):
+            for point in ctx.physics_margin_provider() or []:
+                ctx.attempt_rollout_count += 1
+                with fresh_scope(physical_overrides=point):
+                    ok, why = _policy_validation_rollout()
+                desc = ", ".join(f"{k}={v:.4g}"
+                                 for k, v in sorted(point.items()))
+                if ok:
+                    margin_outcomes.append(
+                        f"physics point ({desc}): goal reached")
+                else:
+                    margin_outcomes.append(
+                        f"physics point ({desc}): FAILED - {why}")
+                    if param_sensitive_detail is None:
+                        param_sensitive_detail = f"at {desc}: {why}"
+            if margin_outcomes and param_sensitive_detail is None:
+                validation_note += (
+                    " Physics-margin check passed: the policy also reached "
+                    f"the goal at all {len(margin_outcomes)} grid points "
+                    "spanning +-1 sigma of the identified physical "
+                    "parameters.")
+
+        capture_outcome = _decide_capture(
+            capture_enabled=(ctx.capture_goal_reaching_plans
+                             and ctx.policy_capture_mode
+                             and diagnostic_seed is None),
+            is_current_task=True,
+            have_plan=True,
+            goal_achieved=goal_achieved,
+            evaluator_rejected=evaluator_rejected,
+            reward_hack=reward_hack,
+            flaky=flaky_detail is not None,
+            best_effort_mode=ctx.capture_best_effort_plan,
+            have_validated_capture=bool(ctx.solved_plan_reached_goal),
+            param_sensitive=param_sensitive_detail is not None)
+        decision = capture_outcome.decision
+        captured = capture_outcome.captured
+        if captured:
+            validated_solve = decision is CaptureDecision.VALIDATED_CAPTURE
+            ctx.solved_plan = None
+            ctx.solved_sketch = None
+            ctx.solved_policy_source = policy_source
+            ctx.solved_plan_reached_goal = validated_solve
+            ctx.solved_plan_eval_reward = (float(verdict["reward"])
+                                           if verdict is not None else None)
+            summary_bits = [
+                f"validation: "
+                f"{1 + sum(1 for o in rollout_outcomes if 'FAILED' not in o)}"
+                f"/{1 + len(rollout_outcomes)} rollouts ok"
+            ]
+            if flaky_detail is not None:
+                summary_bits.append(f"first failure: {flaky_detail}")
+            if margin_outcomes:
+                n_margin_ok = sum(1 for o in margin_outcomes
+                                  if "FAILED" not in o)
+                summary_bits.append(f"physics margin: {n_margin_ok}/"
+                                    f"{len(margin_outcomes)} points ok")
+            ctx.solved_plan_validation_summary = "; ".join(summary_bits)
+            reason = capture_outcome.best_effort_reason
+            best_effort_note = ""
+            if reason is not None:
+                best_effort_note = (
+                    " (best-effort: accepted because the attempt budget is "
+                    "exhausted; it executes for its honest reward but may "
+                    "not count as a solve)")
+            lines.append(
+                f"Captured policy.py as the current answer{best_effort_note}"
+                f": {len(result.steps)} option(s) in the capture rollout."
+                f"{validation_note}")
+        elif decision is CaptureDecision.FLAKY_NO_CAPTURE:
+            ctx.flaky_capture_task_keys.add(capture_task_key)
+            per_rollout = "\n".join(f"  {o}" for o in rollout_outcomes)
+            n_ok = 1 + sum(1 for o in rollout_outcomes if "FAILED" not in o)
+            lines.append(
+                f"FLAKY (policy NOT captured): rollout 1 reached the goal "
+                f"but {flaky_detail}. Per-rollout outcomes (estimated "
+                f"reliability {n_ok}/{n_rollouts}):\n{per_rollout}\n"
+                "A closed-loop policy that cannot recover in some rollouts "
+                "needs better feedback handling - inspect the failing "
+                "seeds with rollout_seed and strengthen the recovery "
+                "branches.")
+        elif decision is CaptureDecision.PARAM_SENSITIVE_NO_CAPTURE:
+            per_point = "\n".join(f"  {o}" for o in margin_outcomes)
+            lines.append(
+                f"PARAM-SENSITIVE (policy NOT captured): failed "
+                f"{param_sensitive_detail}. Per-point outcomes:\n"
+                f"{per_point}")
+        elif decision is CaptureDecision.REWARD_HACK_NO_CAPTURE:
+            lines.append(
+                "NOT captured: the rollout reaches the goal atoms but the "
+                "task evaluator scores it as a non-solve, and the real env "
+                "applies the same scoring.")
+
+        lines.append(f"Goal achieved: {goal_reached}")
+        if verdict is not None:
+            lines.append(
+                _format_evaluator_verdict(verdict,
+                                          coarse=eval_collector.coarse))
+        if goal_reached and not within_horizon:
+            lines.append(
+                f"NOT EXECUTABLE: reaching the goal takes "
+                f"{result.actions_to_goal} low-level steps but the episode "
+                f"horizon is {horizon}.")
+        if not goal_reached:
+            final_atoms = utils.abstract(result.final_state, ctx.predicates)
+            missing = task.goal - final_atoms
+            missing_str = ", ".join(str(a) for a in sorted(missing))
+            lines.append(f"Missing goal atoms: {{{missing_str}}}")
+        if saved_image_paths:
+            lines.append("\nSaved images:")
+            lines.extend(f"  {p}" for p in saved_image_paths)
+        return _text_result("\n".join(lines) +
+                            _budget_footer(ctx, rollouts_before))
+
     return {
         "evaluate_predicate_on_trajectory": evaluate_predicate_on_trajectory,
         "evaluate_option_plan": evaluate_option_plan,
+        "evaluate_policy": evaluate_policy,
     }

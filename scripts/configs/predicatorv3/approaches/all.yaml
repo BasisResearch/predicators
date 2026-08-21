@@ -60,6 +60,37 @@ APPROACHES:
       agent_plan_validation_physics_margin: True
       code_sim_learning_rollout_min_posterior_width: 0.1
 
+  # Same arm, but the solve deliverable is a per-task closed-loop
+  # policy.py (agent_solve_policy_mode) instead of a fixed captured
+  # plan: option failures are surfaced to the policy, which owns
+  # recovery - so the sketch-divergence replan machinery is off
+  # (mutually exclusive by construction).
+  agent_po_predicate_invention_al_policy:
+    NAME: "agent_sim_predicate_invention"
+    SKIP: True
+    FLAGS:
+      demonstrator: "oracle_process_planning"
+      explorer: "agent_bilevel"
+      terminate_on_goal_reached_and_option_terminated: True
+      agent_sdk_use_local_sandbox: True
+      option_model_terminate_on_repeat: False
+      agent_sim_learn_kept_predicates_names: ["Holding"]
+      partially_observable: True
+      agent_explorer_info_seeking: True
+      execution_monitor: "subgoal_annotations"
+      agent_bilevel_max_execution_replans: 0
+      agent_solve_policy_mode: True
+      agent_bilevel_use_llm_initial_params: True # LLM proposes params
+      agent_sdk_max_agent_turns_per_iteration: 200
+      agent_sdk_image_max_px: 900
+      agent_planner_use_explore_python: True
+      agent_solve_max_attempts: 5
+      agent_solve_attempt_wall_clock: 2700
+      agent_solve_fresh_context: True
+      agent_solve_use_journal: True
+      agent_plan_validation_physics_margin: True
+      code_sim_learning_rollout_min_posterior_width: 0.1
+
   # ======================================================================
   # ORACLES  (given a GT world model; the two GT-mono-sim arms first (with vs
   #           without the refine_plan_sketch tool), then the GT-hybrid-sim

@@ -1548,3 +1548,147 @@ class TestTurnCapHandling:
         assert policy is not None
         assert approach._tool_context.solved_plan is None
         assert approach._tool_context.solved_plan_reached_goal is None
+
+
+# ---------------------------------------------------------------------------
+# Policy mode (agent_solve_policy_mode)
+# ---------------------------------------------------------------------------
+
+_POLICY_SOURCE = '''
+def get_option(state, memory):
+    if memory.get("issued"):
+        return None
+    memory["issued"] = True
+    return "Pick(block0:block)[0.5]"
+'''
+
+
+def test_policy_mode_constructor_checks():
+    """Policy mode rejects replans>0 and sim-free configs."""
+    from predicators.approaches import ApproachFailure  # noqa: F401
+    state = _make_state()
+    task = Task(state, {GroundAtom(_On, [_block0, _block1])})
+    base_kwargs = dict(initial_predicates=_ALL_PREDICATES,
+                       initial_options=_ALL_OPTIONS,
+                       types={_block_type, _robot_type},
+                       action_space=Box(low=-1, high=1, shape=(1, )),
+                       train_tasks=[task])
+    utils.reset_config({
+        "env": "cover",
+        "approach": "agent_bilevel",
+        "seed": 42,
+        "agent_solve_policy_mode": True,
+        "agent_bilevel_max_execution_replans": 1,
+        "execution_monitor": "subgoal_annotations",
+    })
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        AgentModelBasedApproach(**base_kwargs)
+    utils.reset_config({
+        "env": "cover",
+        "approach": "agent_bilevel",
+        "seed": 42,
+        "agent_solve_policy_mode": True,
+        "agent_bilevel_max_execution_replans": 0,
+        "agent_planner_use_simulator": False,
+    })
+    with pytest.raises(ValueError, match="use_simulator"):
+        AgentModelBasedApproach(**base_kwargs)
+
+
+def test_consume_policy_capture_builds_executor():
+    """A captured policy source composes and executes closed-loop."""
+    from predicators.approaches import ApproachFailure
+    approach, _, _ = _make_approach()
+    utils.reset_config({
+        "env": "cover",
+        "approach": "agent_bilevel",
+        "seed": 42,
+        "agent_solve_policy_mode": True,
+        "agent_bilevel_max_execution_replans": 0,
+    })
+    state = _make_state()
+    task = Task(state, {GroundAtom(_On, [_block0, _block1])})
+    approach._tool_context.current_task = task
+    approach._tool_context.solved_policy_source = _POLICY_SOURCE
+    approach._tool_context.solved_plan_reached_goal = True
+    policy = approach._consume_validated_plan()
+    assert policy is not None
+    info = approach._last_capture_info
+    assert info is not None and info.validated
+    assert "policy.py sha=" in info.plan_lines[0]
+    # The composed executor runs the issued option (terminal is always
+    # False here, so the first call returns that option's action).
+    action = policy(state)
+    assert isinstance(action, Action)
+    # No sketch monitor is armed in policy mode.
+    assert approach._exec_status is None
+
+
+def test_execution_policy_surfaces_option_failures():
+    """A failed option is surfaced to the policy, not episode-fatal."""
+    from predicators.approaches import ApproachFailure
+    approach, _, _ = _make_approach()
+    utils.reset_config({
+        "env": "cover",
+        "approach": "agent_bilevel",
+        "seed": 42,
+        "agent_solve_policy_mode": True,
+        "agent_bilevel_max_execution_replans": 0,
+        "agent_policy_max_options": 10,
+    })
+    not_initiable = ParameterizedOption(
+        "Broken",
+        types=[_block_type],
+        params_space=Box(low=np.array([0.0], dtype=np.float32),
+                         high=np.array([1.0], dtype=np.float32)),
+        policy=_noop_policy,
+        initiable=_always_false,
+        terminal=_always_false,
+    )
+    seen = []
+
+    def option_fn(state, last_failure):
+        del state
+        seen.append(last_failure)
+        if last_failure is None and len(seen) == 1:
+            return not_initiable.ground([_block0],
+                                        np.array([0.5], dtype=np.float32))
+        return None
+
+    policy = approach._policy_to_execution_policy(option_fn)
+    with pytest.raises(ApproachFailure, match="DONE"):
+        policy(_make_state())
+    assert seen[0] is None
+    assert seen[1] is not None  # the failure was surfaced, not fatal
+
+
+def test_execution_policy_budget_is_fatal():
+    """The option cap converts an oscillating policy into a failure."""
+    from predicators.approaches import ApproachFailure
+    approach, _, _ = _make_approach()
+    utils.reset_config({
+        "env": "cover",
+        "approach": "agent_bilevel",
+        "seed": 42,
+        "agent_solve_policy_mode": True,
+        "agent_bilevel_max_execution_replans": 0,
+        "agent_policy_max_options": 2,
+    })
+    not_initiable = ParameterizedOption(
+        "Broken",
+        types=[_block_type],
+        params_space=Box(low=np.array([0.0], dtype=np.float32),
+                         high=np.array([1.0], dtype=np.float32)),
+        policy=_noop_policy,
+        initiable=_always_false,
+        terminal=_always_false,
+    )
+
+    def option_fn(state, last_failure):
+        del state, last_failure
+        return not_initiable.ground([_block0],
+                                    np.array([0.5], dtype=np.float32))
+
+    policy = approach._policy_to_execution_policy(option_fn)
+    with pytest.raises(ApproachFailure, match="option budget"):
+        policy(_make_state())

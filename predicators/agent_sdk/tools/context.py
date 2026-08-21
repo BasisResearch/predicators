@@ -24,6 +24,10 @@ class PlanCapture:
     reached_goal: Optional[bool]
     eval_reward: Optional[float]
     validation_summary: Optional[str] = None
+    # Closed-loop policy mode: the validated policy.py SOURCE snapshot
+    # (mutually exclusive with ``plan``). The capture is falsy when both
+    # are None.
+    policy_source: Optional[str] = None
 
 
 @dataclass
@@ -199,6 +203,16 @@ class ToolContext:
     # tally, first failing step, physics-margin tally), for the journal
     # auto-entry. Cleared together with solved_plan.
     solved_plan_validation_summary: Optional[str] = None
+    # Closed-loop policy mode (CFG.agent_solve_policy_mode): the captured
+    # policy.py source, SNAPSHOTTED at evaluate_policy call time so a
+    # later edit of the file cannot swap unvalidated code into the
+    # executed artifact. Mutually exclusive with solved_plan; cleared
+    # together with it.
+    solved_policy_source: Optional[str] = None
+    # True while the current solve attempt's deliverable is a policy:
+    # evaluate_option_plan keeps its probing role but its CAPTURE gate is
+    # disabled, and evaluate_policy requires it. Set by _solve_attempt.
+    policy_capture_mode: bool = False
     # Restart-loop attempt bookkeeping, set by AgentModelBasedApproach._solve
     # around each attempt. ``attempt_start``/``attempt_deadline`` are
     # time.monotonic() values; the deadline is enforced cooperatively by
@@ -254,6 +268,7 @@ class ToolContext:
         self.solved_plan_reached_goal = None
         self.solved_plan_eval_reward = None
         self.solved_plan_validation_summary = None
+        self.solved_policy_source = None
 
     def take_plan_capture(self) -> PlanCapture:
         """Pop the captured plan, clearing it so it cannot be reused.
@@ -266,7 +281,8 @@ class ToolContext:
             sketch=self.solved_sketch,
             reached_goal=self.solved_plan_reached_goal,
             eval_reward=self.solved_plan_eval_reward,
-            validation_summary=self.solved_plan_validation_summary)
+            validation_summary=self.solved_plan_validation_summary,
+            policy_source=self.solved_policy_source)
         self.clear_plan_capture()
         return capture
 
