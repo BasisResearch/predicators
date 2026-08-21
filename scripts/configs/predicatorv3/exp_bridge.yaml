@@ -21,3 +21,9 @@ APPROACHES:
       skip_initial_test: True
       bilevel_plan_without_sim: True # for the demonstrator
       agent_solve_max_attempts: 1
+      # Skip the once-per-cycle exploration-posterior emcee fit (up to 5h
+      # wall per cycle at bridge scale for a ~0.1% log-prob gain over the
+      # LM warm start). The info-seeking ensemble falls back to a Laplace
+      # draw from the solver fit's jacobian; gate/threshold params with a
+      # flat likelihood get prior-width spread, degrading gracefully.
+      agent_explorer_info_mcmc_steps: 0
