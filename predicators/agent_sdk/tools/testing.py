@@ -8,8 +8,8 @@ import numpy as np
 
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
-from predicators.agent_sdk.config import RefinementConfig, SessionConfig, \
-    ToolSurfaceConfig, ValidationConfig
+from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig, \
+    ValidationConfig
 from predicators.agent_sdk.tools.budget import _budget_footer
 from predicators.agent_sdk.tools.capture import BestEffortReason, \
     CaptureDecision, _decide_capture
@@ -20,8 +20,8 @@ from predicators.agent_sdk.tools.scene import format_object_poses, \
     render_scene_image
 from predicators.agent_sdk.tools.tasks import _resolve_task
 from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
-    _format_evaluator_verdict, _resolve_task_evaluator, evaluate_states_with, \
-    load_ground_sampler_fns
+    _format_evaluator_verdict, _resolve_task_evaluator, _sandbox_base, \
+    evaluate_states_with, load_ground_sampler_fns
 from predicators.settings import CFG
 from predicators.structs import State
 
@@ -32,17 +32,8 @@ _MAX_REQUESTED_ROLLOUTS = 25
 
 
 def _policy_source_path(ctx: ToolContext) -> Optional[str]:
-    """Host path of the agent-editable ``policy.py`` (policy mode).
-
-    Same sandbox-base resolution as ``_ground_samplers_path``.
-    """
-    if SessionConfig.from_cfg().use_local_sandbox and ctx.log_dir:
-        base: Optional[str] = os.path.abspath(
-            os.path.join(ctx.log_dir, "sandbox"))
-    elif ctx.sandbox_dir:
-        base = ctx.sandbox_dir
-    else:
-        base = ctx.log_dir
+    """Host path of the agent-editable ``policy.py`` (policy mode)."""
+    base = _sandbox_base(ctx)
     if not base:
         return None
     return os.path.join(base, "policy.py")

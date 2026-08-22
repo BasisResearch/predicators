@@ -1410,11 +1410,11 @@ class BeliefProbe:
         Starting from the CURRENT probe state is the point: perturb or
         advance the state first (``reset(mods=...)``, a partial ``run``)
         and check that the policy RECOVERS from off-nominal states, not
-        just the initial one. ``trials=N`` repeats from the task's
-        initial state on fresh envs (fresh memory per trial). Never
-        captures - deliver via ``evaluate_policy``. Also available in
-        learn sessions (probing a candidate simulator); there it runs
-        against the candidate model.
+        just the initial one. ``trials=N`` repeats the rollout from the
+        SAME current state on fresh envs (fresh policy memory per
+        trial). Never captures - deliver via ``evaluate_policy``. Also
+        available in learn sessions (probing a candidate simulator);
+        there it runs against the candidate model.
         """
         # pylint: disable=import-outside-toplevel
         import contextlib
@@ -1482,29 +1482,40 @@ class BeliefProbe:
                            None)
             trial_dicts: List[Dict[str, Any]] = []
             base_planner_seed = seed if seed is not None else CFG.seed
-            for trial_idx in range(trials):
-                _check_time_budget(ctx)
-                _count_rollout(ctx)
-                with (fresh_scope() if fresh_scope is not None else
-                      contextlib.nullcontext()), \
-                        absolute_rollout_seed(seed), \
-                        decorrelated_rollout_seed(trial_idx):
-                    r = _one_rollout(_fresh_fn())
-                failure: Optional[str] = None
-                if r.policy_error is not None:
-                    failure = f"policy error: {r.policy_error}"
-                elif r.first_failure_idx is not None and not r.goal_reached:
-                    fs = r.steps[r.first_failure_idx]
-                    failure = (f"step {r.first_failure_idx} "
-                               f"({_fmt_option(fs.option)}): "
-                               f"{fs.failure_reason}")
-                trial_dicts.append({
-                    "goal_reached": r.goal_reached,
-                    "num_actions": r.total_actions,
-                    "failure": failure,
-                    "planner_seed": base_planner_seed + trial_idx,
-                    "inexact_start_features": [],
-                })
+            try:
+                for trial_idx in range(trials):
+                    _check_time_budget(ctx)
+                    _count_rollout(ctx)
+                    with (fresh_scope() if fresh_scope is not None else
+                          contextlib.nullcontext()), \
+                            absolute_rollout_seed(seed), \
+                            decorrelated_rollout_seed(trial_idx):
+                        r = _one_rollout(_fresh_fn())
+                    failure: Optional[str] = None
+                    if r.policy_error is not None:
+                        failure = f"policy error: {r.policy_error}"
+                    elif r.first_failure_idx is not None and \
+                            not r.goal_reached:
+                        fs = r.steps[r.first_failure_idx]
+                        failure = (f"step {r.first_failure_idx} "
+                                   f"({_fmt_option(fs.option)}): "
+                                   f"{fs.failure_reason}")
+                    trial_dicts.append({
+                        "goal_reached": r.goal_reached,
+                        "num_actions": r.total_actions,
+                        "failure": failure,
+                        "planner_seed": base_planner_seed + trial_idx,
+                        "inexact_start_features": [],
+                    })
+            except ProbeBudgetExceeded as e:
+                # Same salvage rule as ``run``: completed trials live in
+                # the return value, so a mid-loop budget stop returns the
+                # partial result instead of discarding them.
+                if not trial_dicts:
+                    raise
+                notices.append(
+                    f"time budget expired after {len(trial_dicts)}/{trials} "
+                    f"trials - the remaining trials were skipped ({e})")
             successes = sum(1 for t in trial_dicts if t["goal_reached"])
             return ProbeTrialsResult(trial_dicts, successes, fresh_scope
                                      is not None, notices)

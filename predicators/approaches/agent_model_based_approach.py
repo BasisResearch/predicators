@@ -272,6 +272,13 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
                 "is your policy's job. Sketches and subgoal annotations "
                 "remain useful for exploration (sim.run / sim.refine) "
                 "but are not the deliverable.")
+        else:
+            contract = (
+                "You DELIVER by running evaluate_option_plan with "
+                "per-step subgoals on the current task until it reaches "
+                "the goal - that captured plan is your ONLY accepted "
+                "output, so do not finish until evaluate_option_plan "
+                "reaches the goal.")
         job = ("Your job is to produce a plan - " + sketch_desc +
                " - that reaches the goal. " + contract + "\n"
                "evaluate_option_plan runs your EXACT parameters with no "
@@ -1146,6 +1153,12 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
             last_failure = None
             logging.info("Executing policy option %d/%d: %s", issued,
                          CFG.agent_policy_max_options, nxt.simple_str())
+            if not nxt.initiable(state):
+                # Same text and attribution as execute_policy_forward
+                # (option_policy_to_policy's own "Unsound option policy"
+                # raise would name the PREVIOUS option in its info).
+                raise utils.OptionExecutionFailure(
+                    "not initiable", info={"last_failed_option": nxt})
             return nxt
 
         def _fresh_inner() -> Callable[[State], Action]:

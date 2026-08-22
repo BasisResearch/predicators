@@ -1011,3 +1011,39 @@ def test_rehydrate_without_simulator_is_graceful(tmp_path, monkeypatch):
                         lambda self, base: hooks.append(base))
     obj._rehydrate_from_artifacts()
     assert hooks == [str(sandbox)]
+
+
+def test_checkpoint_cycle_counter_semantics(tmp_path, monkeypatch):
+    """``_c`` files store c even when saved after the counter advanced, and
+    loading ``_None`` resumes at cycle 0 while ``_c`` resumes at c+1."""
+    # pylint: disable=import-outside-toplevel
+    from predicators.approaches.agent_model_free_approach import \
+        AgentModelFreeApproach
+    from predicators.structs import Dataset
+    utils.reset_config({
+        "env": "cover",
+        "approach": "agent_planner",
+        "seed": 0,
+        "approach_dir": str(tmp_path),
+    })
+    obj = object.__new__(AgentModelFreeApproach)
+    obj._offline_dataset = Dataset([])
+    obj._online_trajectories = []
+    obj._run_id = "run"
+    obj._agent_session = None
+    monkeypatch.setattr(AgentModelFreeApproach, "_sync_tool_context",
+                        lambda self: None)
+    # Post-offline checkpoint: counter 0, file _None.
+    obj._online_learning_cycle = 0
+    obj.save(None)
+    # Cycle-3 checkpoint written AFTER the counter already advanced to 4
+    # (the sim-learning subclass saves post-learn): the file must still
+    # denote cycle 3.
+    obj._online_learning_cycle = 4
+    obj.save(3)
+    fresh = object.__new__(AgentModelFreeApproach)
+    fresh._agent_session = None
+    fresh.load(None)
+    assert fresh._online_learning_cycle == 0
+    fresh.load(3)
+    assert fresh._online_learning_cycle == 4

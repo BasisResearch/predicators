@@ -1575,7 +1575,7 @@ class TestCollisionDiagnosticsLogging:
 
 
 # ===========================================================================
-# 11. create_place_skill — post-release placement verification
+# 11. create_place_skill - post-release placement verification
 # ===========================================================================
 
 _PBLOCK_TYPE = Type("pblock", ["x", "y", "z", "is_held"])
