@@ -1623,6 +1623,12 @@ class GlobalSettings:
     # artifact for every test task (mirrors the sketch-file bypass). For
     # smoke tests and debugging the execution path.
     agent_policy_file = ""
+    # --auto_resume only resumes from checkpoints modified within this
+    # many hours. The checkpoint path ignores the run timestamp, so a
+    # RELAUNCH of a finished experiment under the same experiment_id
+    # would otherwise silently continue the old run; a Slurm requeue or
+    # a prompt resubmission of a live run is always recent.
+    auto_resume_max_age_hours = 36.0
     # Per-call wall-clock limit for explore_python code execution, in
     # seconds (0 disables). Enforced cooperatively at every probe sim
     # call, plus a hard async-exception watchdog for sim-free code (a

@@ -84,9 +84,6 @@ def main() -> None:
     # Log initial info
     utils.log_initial_info(str_args)
 
-    # Self-resume (Slurm requeue / resubmission of the same command).
-    _maybe_auto_resume()
-
     # Setup environment and tasks
     env, approach_train_tasks, train_tasks = setup_environment()
 
@@ -99,6 +96,10 @@ def main() -> None:
 
     # Create approach
     approach = setup_approach(env, preds, approach_train_tasks)
+
+    # Self-resume (Slurm requeue / resubmission of the same command);
+    # needs the approach for its checkpoint suffix.
+    _maybe_auto_resume(approach)
 
     # Create dataset and cognitive manager
     offline_dataset = create_offline_dataset(env, train_tasks, preds, approach)
@@ -117,11 +118,19 @@ def main() -> None:
 # ── Setup helpers ────────────────────────────────────────────────
 
 
-def _checkpoint_exists(online_learning_cycle: Optional[int]) -> bool:
+def _approach_save_suffix(cogman: CogMan) -> Optional[str]:
+    """The approach's checkpoint filename suffix, if it checkpoints."""
+    # pylint: disable-next=protected-access
+    return getattr(cogman._approach, "_save_suffix", None)
+
+
+def _checkpoint_exists(online_learning_cycle: Optional[int],
+                       suffix: Optional[str]) -> bool:
     """Whether an approach checkpoint file exists for the given cycle."""
     load_path = utils.get_approach_load_path_str()
-    return bool(
-        glob.glob(glob.escape(f"{load_path}_{online_learning_cycle}.") + "*"))
+    pattern = glob.escape(f"{load_path}_{online_learning_cycle}.") + (
+        glob.escape(suffix) if suffix else "*")
+    return bool(glob.glob(pattern))
 
 
 def _test_results_exist(online_learning_cycle: Optional[int]) -> bool:
@@ -131,19 +140,37 @@ def _test_results_exist(online_learning_cycle: Optional[int]) -> bool:
     return os.path.isfile(outfile)
 
 
-def discover_resume_cycles(load_path: str) -> Tuple[bool, Optional[int]]:
+def discover_resume_cycles(
+        load_path: str,
+        suffix: Optional[str] = None,
+        max_age_seconds: Optional[float] = None,
+        now: Optional[float] = None) -> Tuple[bool, Optional[int]]:
     """Scan for ``{load_path}_{cycle}.{suffix}`` approach checkpoints.
 
     Returns ``(found_any, max_int_cycle)``: ``max_int_cycle`` is the
     highest completed online-learning cycle with a checkpoint, or None
     when only the post-offline (``_None``) checkpoint exists.
+
+    ``suffix`` restricts the scan to files this approach class can load
+    (another approach family's checkpoints under the same config path
+    must not steer the resume). ``max_age_seconds`` ignores checkpoints
+    older than that: the checkpoint path ignores the run timestamp, so
+    without it a RELAUNCH of a finished experiment under the same
+    experiment_id would silently "resume" the old run instead of
+    starting fresh; a requeue/resubmission of a live run is recent.
     """
     found = False
     max_cycle: Optional[int] = None
     prefix_len = len(os.path.basename(load_path)) + 1
+    now_ts = time.time() if now is None else now
     for path in glob.glob(glob.escape(load_path) + "_*"):
         name = os.path.basename(path)[prefix_len:]
-        cycle_token = name.split(".", 1)[0]
+        cycle_token, _, file_suffix = name.partition(".")
+        if suffix is not None and file_suffix != suffix:
+            continue
+        if max_age_seconds is not None and \
+                now_ts - os.path.getmtime(path) > max_age_seconds:
+            continue
         if cycle_token == "None":
             found = True
             continue
@@ -156,7 +183,7 @@ def discover_resume_cycles(load_path: str) -> Tuple[bool, Optional[int]]:
     return found, max_cycle
 
 
-def _maybe_auto_resume() -> None:
+def _maybe_auto_resume(approach: BaseApproach) -> None:
     """Under ``--auto_resume``, continue from the latest checkpoint.
 
     Sets ``load_approach`` (so the offline phase loads instead of re-
@@ -169,14 +196,19 @@ def _maybe_auto_resume() -> None:
     if not getattr(CFG, "auto_resume", False):
         return
     load_path = utils.get_approach_load_path_str()
-    found, max_cycle = discover_resume_cycles(load_path)
+    suffix = getattr(approach, "_save_suffix", None)
+    max_age = CFG.auto_resume_max_age_hours * 3600.0
+    found, max_cycle = discover_resume_cycles(load_path,
+                                              suffix=suffix,
+                                              max_age_seconds=max_age)
     if not found:
         logging.info(
-            "--auto_resume: no checkpoint at %s_*; starting fresh. NOTE: "
-            "the checkpoint path ignores the run timestamp, so concurrent "
-            "launches of the same config/seed/experiment_id would "
-            "overwrite each other's checkpoints - keep experiment_id "
-            "unique per concurrent launch.", load_path)
+            "--auto_resume: no checkpoint at %s_*.%s newer than %.1f h; "
+            "starting fresh. NOTE: the checkpoint path ignores the run "
+            "timestamp, so concurrent launches of the same "
+            "config/seed/experiment_id would overwrite each other's "
+            "checkpoints - keep experiment_id unique per concurrent "
+            "launch.", load_path, suffix or "*", CFG.auto_resume_max_age_hours)
         return
     CFG.load_approach = True
     CFG.restart_learning = True
@@ -322,7 +354,8 @@ def _handle_offline_learning(
     num_offline_transitions = sum(
         len(traj.actions) for traj in offline_dataset.trajectories)
     auto_resume = bool(getattr(CFG, "auto_resume", False))
-    if CFG.load_approach and (not auto_resume or _checkpoint_exists(None)):
+    if CFG.load_approach and (not auto_resume or _checkpoint_exists(
+            None, _approach_save_suffix(cogman))):
         # Plain --load_approach stays strict (a missing file raises).
         cogman.load(online_learning_cycle=None)
         learning_time = 0.0  # ignore loading time
