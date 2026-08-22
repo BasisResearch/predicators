@@ -440,6 +440,11 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
                 # would append bogus [budget] footers and mislabel journal
                 # entries in later sessions sharing this ToolContext.
                 ctx.attempt_deadline = None
+                # Policy mode is scoped to solve attempts: left armed, it
+                # would silently disable evaluate_option_plan's capture
+                # gate for the EXPLORER's queries, which deliver sketches
+                # even in policy-mode configs.
+                ctx.policy_capture_mode = False
                 info = self._take_capture_info()
                 self._record_attempt_in_journal(attempt, max_attempts, policy,
                                                 info)

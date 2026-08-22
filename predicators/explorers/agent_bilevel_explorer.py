@@ -87,6 +87,10 @@ class AgentBilevelExplorer(BaseExplorer):
         # solve.
         self._tool_context.current_task = task
         self._tool_context.capture_goal_reaching_plans = True
+        # Exploration delivers plan sketches even in policy-mode configs:
+        # make sure a solve attempt's policy_capture_mode never bleeds
+        # into this query (it would disable the plan capture gate).
+        self._tool_context.policy_capture_mode = False
         self._tool_context.clear_plan_capture()
 
         try:
