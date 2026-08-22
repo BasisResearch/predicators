@@ -155,20 +155,23 @@ def _resolve_task_evaluator(ctx: ToolContext, task_idx: Union[int, str,
     return None
 
 
-def _ground_samplers_path(ctx: ToolContext) -> Optional[str]:
-    """Host path of the agent-editable ``ground_samplers.py``.
+def _sandbox_base(ctx: ToolContext) -> Optional[str]:
+    """Host path of the agent-editable sandbox root.
 
     Resolves the sandbox base the same way the sampler-learning mixin
     does: the local sandbox lives under ``<log_dir>/sandbox``, the
     docker sandbox at ``ctx.sandbox_dir``, else the log dir itself.
     """
     if SessionConfig.from_cfg().use_local_sandbox and ctx.log_dir:
-        base: Optional[str] = os.path.abspath(
-            os.path.join(ctx.log_dir, "sandbox"))
-    elif ctx.sandbox_dir:
-        base = ctx.sandbox_dir
-    else:
-        base = ctx.log_dir
+        return os.path.abspath(os.path.join(ctx.log_dir, "sandbox"))
+    if ctx.sandbox_dir:
+        return ctx.sandbox_dir
+    return ctx.log_dir or None
+
+
+def _ground_samplers_path(ctx: ToolContext) -> Optional[str]:
+    """Host path of the agent-editable ``ground_samplers.py``."""
+    base = _sandbox_base(ctx)
     if not base:
         return None
     return os.path.join(base, "ground_samplers.py")

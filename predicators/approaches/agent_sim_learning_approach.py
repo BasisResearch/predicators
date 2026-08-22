@@ -660,7 +660,8 @@ def _describe_git_revision() -> str:
                              timeout=10,
                              check=False)
         return out.stdout.strip() or "unknown"
-    except OSError:
+    except (OSError, subprocess.SubprocessError):
+        # TimeoutExpired is a SubprocessError, not an OSError.
         return "unknown"
 
 
@@ -1089,23 +1090,29 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     def learn_from_offline_dataset(self, dataset: Dataset) -> None:
         super().learn_from_offline_dataset(dataset)
         self._learn_simulator(self._get_all_trajectories())
-        # Re-save so the post-offline checkpoint carries the learned
-        # simulator state (super() saved before the learn ran).
+        # The single post-offline checkpoint, AFTER the simulator learn
+        # (the base hook is a no-op for this class, see below).
         self.save(None)
 
     def learn_from_interaction_results(
             self, results: Sequence[InteractionResult]) -> None:
-        # Capture the index BEFORE super() increments it: the re-save
-        # below must overwrite the same cycle's checkpoint, not the
-        # next one's.
+        # Capture the index BEFORE super() increments it: the checkpoint
+        # below must be the one this cycle's filename denotes.
         cycle = self._online_learning_cycle
         super().learn_from_interaction_results(results)
         self._learn_simulator(self._get_all_trajectories())
-        # super() saved at the end of data collection, BEFORE this
-        # cycle's simulator learning - a resumed run would silently
-        # redo (and re-pay) the whole learn. Overwrite with the
-        # post-learn state; the double write is cheap next to a cycle.
+        # The single per-cycle checkpoint, AFTER this cycle's simulator
+        # learning, so a resume never re-pays a completed learn and never
+        # mistakes a pre-learn file for a completed cycle. (The base hook
+        # that would have saved pre-learn is a no-op for this class.)
         self.save(cycle)
+
+    def _checkpoint_after_offline_learning(self) -> None:
+        """No-op: this class checkpoints after its own simulator learn."""
+
+    def _checkpoint_after_interaction_results(self, cycle: int) -> None:
+        """No-op: this class checkpoints after its own simulator learn."""
+        del cycle
 
     # ── Checkpointing ────────────────────────────────────────────
     # The base checkpoint (AgentModelFreeApproach.save/load) persists
@@ -1128,8 +1135,11 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     _CHECKPOINT_MAX_FILE_BYTES = 2 * 1024 * 1024
 
     def _checkpoint_sandbox_dir(self) -> str:
-        """The run's sandbox root (mirrors session_base's derivation)."""
-        return os.path.abspath(os.path.join(self._get_log_dir(), "sandbox"))
+        """The run's sandbox root - the SAME base the synthesis paths use,
+        so artifacts are collected from and restored to where
+        ``_rehydrate_from_artifacts`` (via ``_resolve_synthesis_paths``)
+        looks for them on every sandbox backend."""
+        return self._resolve_synthesis_paths().base
 
     def _collect_sandbox_artifacts(self) -> Dict[str, bytes]:
         """Curated sandbox files as {relative path: content} for the

@@ -117,6 +117,20 @@ def main() -> None:
 # ── Setup helpers ────────────────────────────────────────────────
 
 
+def _checkpoint_exists(online_learning_cycle: Optional[int]) -> bool:
+    """Whether an approach checkpoint file exists for the given cycle."""
+    load_path = utils.get_approach_load_path_str()
+    return bool(
+        glob.glob(glob.escape(f"{load_path}_{online_learning_cycle}.") + "*"))
+
+
+def _test_results_exist(online_learning_cycle: Optional[int]) -> bool:
+    """Whether the results pickle for a cycle's test was written."""
+    outfile = (f"{CFG.results_dir}/{utils.get_config_path_str()}__"
+               f"{online_learning_cycle}.pkl")
+    return os.path.isfile(outfile)
+
+
 def discover_resume_cycles(load_path: str) -> Tuple[bool, Optional[int]]:
     """Scan for ``{load_path}_{cycle}.{suffix}`` approach checkpoints.
 
@@ -307,9 +321,22 @@ def _handle_offline_learning(
     """Handle offline learning phase and initial evaluation."""
     num_offline_transitions = sum(
         len(traj.actions) for traj in offline_dataset.trajectories)
-    if CFG.load_approach:
+    auto_resume = bool(getattr(CFG, "auto_resume", False))
+    if CFG.load_approach and (not auto_resume or _checkpoint_exists(None)):
+        # Plain --load_approach stays strict (a missing file raises).
         cogman.load(online_learning_cycle=None)
         learning_time = 0.0  # ignore loading time
+    elif CFG.load_approach:
+        # --auto_resume over checkpoints from before the post-offline
+        # ``_None`` file existed (or a deleted one): re-run offline
+        # learning rather than crashing the resume; the online loop still
+        # loads the per-cycle checkpoint it skips to.
+        logging.warning(
+            "--auto_resume: no post-offline (_None) checkpoint found; "
+            "running offline learning instead of loading it.")
+        learning_start = time.perf_counter()
+        cogman.learn_from_offline_dataset(offline_dataset)
+        learning_time = time.perf_counter() - learning_start
     else:
         learning_start = time.perf_counter()
         cogman.learn_from_offline_dataset(offline_dataset)
@@ -367,6 +394,28 @@ def _run_online_learning_loop(
             cogman.load(online_learning_cycle=i - 1)
             if CFG.restart_learning:
                 load_approach = False
+            # A cycle's checkpoint is written at the end of its LEARN,
+            # before its test; a kill during the test phase leaves a
+            # loadable cycle i-1 with no test results. Run that test
+            # first so the resumed run loses no evaluation datapoint.
+            if (i == CFG.skip_until_cycle
+                    and not CFG.skip_test_until_last_ite_or_early_stopping
+                    and not _test_results_exist(i - 1)):
+                logging.info(
+                    "Resumed past cycle %d whose test never ran; testing "
+                    "it now before continuing.", i - 1)
+                results = _run_testing(env,
+                                       cogman,
+                                       online_learning_cycle=i - 1)
+                results.update({
+                    "num_offline_transitions": num_offline_transitions,
+                    "num_online_transitions": num_online_transitions,
+                    "query_cost": total_query_cost,
+                    "learning_time": learning_time,
+                    **offline_learning_metrics
+                })
+                _save_test_results(results, online_learning_cycle=i - 1)
+                last_test_summary = (f"cycle {i - 1}", results)
 
         # Run online interaction
         logging.info(f"\n\nONLINE LEARNING CYCLE {i}\n")

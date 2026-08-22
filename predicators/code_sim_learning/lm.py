@@ -92,7 +92,7 @@ def lm_prefit(
             lm_params = {n: float(lm_theta[i]) for i, n in enumerate(names)}
             lm_sse = sse_fn(lm_params)
             logger.info(
-                "After %s LM warm start — SSE: %.6f  log-likelihood: "
+                "After %s LM warm start - SSE: %.6f  log-likelihood: "
                 "%.2f", label, lm_sse, -0.5 * lm_sse / (noise_sigma**2))
             if warm_start_breakdown_fn is not None:
                 warm_start_breakdown_fn(lm_params)
