@@ -5,6 +5,9 @@ it reports whether any checkpoint exists and the highest completed
 online-learning cycle, from which _maybe_auto_resume derives
 load_approach / restart_learning / skip_until_cycle.
 """
+import os
+import time
+
 from predicators.main import discover_resume_cycles
 
 
@@ -45,3 +48,25 @@ def test_foreign_and_malformed_files_ignored(tmp_path):
     assert discover_resume_cycles(load_path) == (False, None)
     _touch(load_path + "_3.AgentPlanner")
     assert discover_resume_cycles(load_path) == (True, 3)
+
+
+def test_suffix_and_age_filters(tmp_path):
+    """Other approaches' checkpoints and stale ones never steer a resume."""
+    load_path = str(tmp_path / "cfg.saved")
+    _touch(load_path + "_2.AgentPlanner")  # another approach family
+    _touch(load_path + "_None.AgentSimPredInv")
+    _touch(load_path + "_1.AgentSimPredInv")
+    assert discover_resume_cycles(load_path, suffix="AgentSimPredInv") == \
+        (True, 1)
+    assert discover_resume_cycles(load_path, suffix="AgentPlanner") == \
+        (True, 2)
+    # Age filter: everything older than the window is ignored.
+    old = time.time() - 10 * 3600
+    os.utime(load_path + "_1.AgentSimPredInv", (old, old))
+    os.utime(load_path + "_None.AgentSimPredInv", (old, old))
+    assert discover_resume_cycles(load_path,
+                                  suffix="AgentSimPredInv",
+                                  max_age_seconds=3600.0) == (False, None)
+    assert discover_resume_cycles(load_path,
+                                  suffix="AgentSimPredInv",
+                                  max_age_seconds=24 * 3600.0) == (True, 1)
