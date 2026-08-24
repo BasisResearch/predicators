@@ -269,9 +269,13 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
                 "an episode: they arrive in memory['last_failure'] and "
                 "get_option is asked again, so RECOVERY (re-place a "
                 "drifted block, re-aim after a motion-planning refusal) "
-                "is your policy's job. Sketches and subgoal annotations "
-                "remain useful for exploration (sim.run / sim.refine) "
-                "but are not the deliverable.")
+                "is your policy's job. After a failure your policy MUST "
+                "change something - parameters, target, or action: "
+                "re-issuing the identical failing line "
+                f"{CFG.agent_policy_max_repeated_failures} times in a "
+                "row ends the episode as a policy bug. Sketches and "
+                "subgoal annotations remain useful for exploration "
+                "(sim.run / sim.refine) but are not the deliverable.")
         else:
             contract = (
                 "You DELIVER by running evaluate_option_plan with "
@@ -1106,13 +1110,15 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
 
         Mirrors ``execute_policy_forward``'s semantics on the real env:
         option execution failures (non-initiable, a skill raising
-        mid-execution - e.g. post-release placement verification, a
-        motion-planning refusal - or an option step-cap timeout) do NOT
-        end the episode; the failure text is surfaced to the policy via
-        ``memory['last_failure']`` and the next option is requested from
-        the current state, bounded by ``CFG.agent_policy_max_options``.
-        ``get_option`` bugs and DONE end the episode via
-        ``ApproachFailure`` (harmless when the goal already holds).
+        mid-execution - e.g. a motion-planning refusal - or an option
+        step-cap timeout) do NOT end the episode; the failure text is
+        surfaced to the policy via ``memory['last_failure']`` and the
+        next option is requested from the current state, bounded by
+        ``CFG.agent_policy_max_options`` total options and
+        ``CFG.agent_policy_max_repeated_failures`` consecutive failures
+        of one identical command (the stuck-loop guard). ``get_option``
+        bugs and DONE end the episode via ``ApproachFailure`` (harmless
+        when the goal already holds).
 
         Implementation note: each issued option still runs through
         ``utils.option_policy_to_policy`` (per-option step caps and the
@@ -1123,7 +1129,8 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         new option.
         """
         # pylint: disable-next=import-outside-toplevel
-        from predicators.agent_sdk.policy_execution import PolicyError
+        from predicators.agent_sdk.policy_execution import PolicyError, \
+            option_repeat_key, repeated_failure_message
         predicates = self._get_all_predicates()
 
         def _abstract(s: State) -> Set[GroundAtom]:
@@ -1131,12 +1138,19 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
 
         issued = 0
         last_failure: Optional[str] = None
+        repeat_key: Optional[Any] = None
+        repeat_count = 0
 
         class _PolicyFatal(utils.OptionExecutionFailure):
             """DONE / policy bug / budget: never surfaced, ends episode."""
 
         def _option_policy(state: State) -> _Option:
-            nonlocal issued, last_failure
+            nonlocal issued, last_failure, repeat_key, repeat_count
+            if last_failure is None and issued > 0:
+                # The previous option completed cleanly: the policy is
+                # making progress, so the stuck-loop counter resets.
+                repeat_key = None
+                repeat_count = 0
             if issued >= CFG.agent_policy_max_options:
                 raise _PolicyFatal(
                     "Policy exhausted its option budget "
@@ -1170,7 +1184,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         inner_box = {"inner": _fresh_inner()}
 
         def _execution_policy(state: State) -> Action:
-            nonlocal last_failure
+            nonlocal last_failure, repeat_key, repeat_count
             while True:
                 try:
                     return inner_box["inner"](state)
@@ -1184,6 +1198,23 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
                     last_failure = f"{prefix}{e}"
                     logging.info("Option failure surfaced to the policy: %s",
                                  last_failure)
+                    # Mirrors execute_policy_forward: K consecutive
+                    # failures of one identical command are a policy
+                    # bug, not recovery - end the episode attributably
+                    # instead of burning the remaining option budget.
+                    if failed is not None:
+                        key = option_repeat_key(failed)
+                        repeat_count = (repeat_count +
+                                        1 if key == repeat_key else 1)
+                        repeat_key = key
+                        if (repeat_count >=
+                                CFG.agent_policy_max_repeated_failures):
+                            raise ApproachFailure(
+                                repeated_failure_message(failed,
+                                                         repeat_count)) from e
+                    else:
+                        repeat_key = None
+                        repeat_count = 0
                     inner_box["inner"] = _fresh_inner()
 
         return _execution_policy

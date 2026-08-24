@@ -144,6 +144,66 @@ def test_unparsable_line_is_fatal():
     assert r.policy_error is not None and "unparsable" in r.policy_error
 
 
+def test_stuck_loop_identical_failures_is_fatal():
+    """K consecutive failures of one identical command end the episode as
+    a policy bug instead of burning the whole option budget."""
+    fn, task = _fn("def get_option(state, memory):\n"
+                   "    return 'Move(block0:block)[0.95]'\n")
+    model = _Model(fail_calls=set(range(1, 50)))
+    r = execute_policy_forward(task,
+                               fn,
+                               model,
+                               predicates={_ReachedHi},
+                               max_policy_options=50)
+    assert r.policy_error is not None
+    assert "re-issued the same failing option" in r.policy_error
+    assert len(r.steps) == 3  # the CFG default guard, not the 50 cap
+
+
+def test_stuck_loop_resets_on_changed_params():
+    """A policy that adapts its parameters after each failure never trips
+    the stuck-loop guard, even across many consecutive failures."""
+    fn, task = _fn('''
+def get_option(state, memory):
+    for obj in state:
+        if state.get(obj, "x") >= 0.9:
+            return None
+    n = memory.get("n", 0)
+    memory["n"] = n + 1
+    return "Move(block0:block)[0.9" + str(n) + "]"
+''')
+    model = _Model(fail_calls={1, 2, 3, 4})
+    r = execute_policy_forward(task,
+                               fn,
+                               model,
+                               predicates={_ReachedHi},
+                               max_policy_options=10)
+    assert r.goal_reached and r.policy_error is None
+    assert len(r.steps) == 5
+
+
+def test_stuck_loop_resets_on_clean_step():
+    """A success between identical failures resets the guard counter."""
+    fn, task = _fn('''
+def get_option(state, memory):
+    n = memory.get("n", 0)
+    memory["n"] = n + 1
+    if n >= 6:
+        return "Move(block0:block)[0.95]"
+    return "Move(block0:block)[0.1]"
+''')
+    # Calls 1, 3, 5 fail with the identical [0.1] command, but calls 2
+    # and 4 succeed in between: the consecutive count never reaches 3.
+    model = _Model(fail_calls={1, 3, 5})
+    r = execute_policy_forward(task,
+                               fn,
+                               model,
+                               predicates={_ReachedHi},
+                               max_policy_options=10)
+    assert r.policy_error is None
+    assert r.goal_reached
+
+
 def test_option_failure_surfaces_and_policy_recovers():
     """A failed option does not end the episode: the failure arrives in
     memory['last_failure'] and the policy retries to the goal."""

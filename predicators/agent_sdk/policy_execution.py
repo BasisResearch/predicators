@@ -23,7 +23,12 @@ when finished. This module holds the two shared pieces:
     ``memory["last_failure"]`` and ``get_option`` is asked again from
     the current state - closed-loop recovery (re-place a drifted block,
     re-aim after a motion-planning refusal) is the policy's whole
-    point. The total-options cap bounds retry loops.
+    point. The total-options cap bounds retry loops, and re-issuing the
+    SAME command (option + objects + params) that just failed, for
+    ``CFG.agent_policy_max_repeated_failures`` consecutive failures, is
+    fatal: an unchanged command fails the same way, so the loop is a
+    policy bug, not recovery (the 2026-08-22 policy-arm tests burned
+    20+ of their 50 options on one identical colliding PickBlock).
   - POLICY-code failures (``get_option`` raises, returns a line that
     does not parse or ground) are fatal: they are bugs in the agent's
     program, not recoverable world events.
@@ -39,6 +44,7 @@ import numpy as np
 from predicators import utils
 from predicators.agent_sdk.plan_execution import ForwardResult, StepOutcome
 from predicators.option_model import _OptionModelBase
+from predicators.settings import CFG
 from predicators.structs import ParameterizedOption, Predicate, State, Task, \
     Type, _Option
 
@@ -52,6 +58,32 @@ PolicyOptionFn = Callable[[State, Optional[str]], Optional[_Option]]
 
 class PolicyError(Exception):
     """Fatal error in agent-written policy code (bug, not a world event)."""
+
+
+def option_repeat_key(option: _Option) -> Tuple[str, Tuple[str, ...], bytes]:
+    """Identity of an issued option for stuck-loop detection.
+
+    Two options are "the same command" when they share the option, the
+    ground objects, and (to 1e-6) the continuous parameters. Used by
+    both executors to detect a policy that keeps re-issuing an
+    identical failing command instead of adapting.
+    """
+    return (option.name, tuple(o.name for o in option.objects),
+            np.round(np.asarray(option.params, dtype=float), 6).tobytes())
+
+
+def repeated_failure_message(option: _Option, count: int) -> str:
+    """Shared fatal-loop message for both executors.
+
+    Worded for the policy's author: the guard exists because a command
+    that just failed, re-issued unchanged, almost always fails the same
+    way, and a policy that does so K times in a row is burning its
+    option budget rather than recovering.
+    """
+    return (f"policy re-issued the same failing option {count} consecutive "
+            f"times ({option.simple_str()}) - a policy must adapt after a "
+            "surfaced failure: change the parameters or target, try a "
+            "different action, or return None (DONE)")
 
 
 def build_policy_option_fn(
@@ -180,6 +212,8 @@ def execute_policy_forward(
     actions_to_goal: Optional[int] = None
     policy_error: Optional[str] = None
     last_failure: Optional[str] = None
+    repeat_key: Optional[Tuple[str, Tuple[str, ...], bytes]] = None
+    repeat_count = 0
 
     for i in range(max_policy_options):
         try:
@@ -230,11 +264,19 @@ def execute_policy_forward(
             # best available state (a failed option may leave no
             # post-state; the world is then wherever it already was).
             last_failure = f"{option.name}: {failure_reason}"
+            key = option_repeat_key(option)
+            repeat_count = repeat_count + 1 if key == repeat_key else 1
+            repeat_key = key
+            if repeat_count >= CFG.agent_policy_max_repeated_failures:
+                policy_error = repeated_failure_message(option, repeat_count)
+                break
             if post is not None:
                 state = post
                 total_actions += num_actions
             continue
         last_failure = None
+        repeat_key = None
+        repeat_count = 0
         state = post  # type: ignore[assignment]  # non-None on clean steps
         total_actions += num_actions
         if goal_step_idx is None and task.goal_holds(state):

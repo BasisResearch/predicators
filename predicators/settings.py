@@ -1619,6 +1619,14 @@ class GlobalSettings:
     # execution): the anti-oscillation bound that converts a retry loop
     # that never progresses into a bounded, attributable failure.
     agent_policy_max_options = 50
+    # Consecutive identical failures (same option, objects, and params)
+    # after which a policy episode ends with a fatal stuck-loop error, in
+    # belief validation AND real execution. An unchanged command that
+    # just failed fails the same way; re-issuing it is a policy bug, not
+    # recovery (the 2026-08-22 policy-arm tests burned 20+ of their 50
+    # options on one identical colliding PickBlock). 3 still allows a
+    # couple of deliberate retries against stochastic motion planning.
+    agent_policy_max_repeated_failures = 3
     # LLM-free bypass: path to a prewritten policy.py used as the captured
     # artifact for every test task (mirrors the sketch-file bypass). For
     # smoke tests and debugging the execution path.
