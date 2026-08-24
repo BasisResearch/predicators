@@ -13,8 +13,12 @@ ENVS:
   bridge:
     SKIP: False
 APPROACHES:
+  # Re-enabled 2026-08-24 as the in-pipeline regression check after
+  # reverting the Place post-release verification (the reference run
+  # bridge-agent_oracle_hybrid_sim_opus solved 1/1; its exact plan
+  # replays to the goal under current code).
   agent_oracle_hybrid_sim:
-    SKIP: True
+    SKIP: False
   agent_po_predicate_invention_al:
     SKIP: False
     FLAGS:
