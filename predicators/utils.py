@@ -1862,7 +1862,10 @@ def option_policy_to_policy(
             try:
                 cur_option = option_policy(state)
             except OptionExecutionFailure as e:
-                e.info["last_failed_option"] = last_option
+                # An option policy that already attributed the failure
+                # (e.g. to the NEXT option it found non-initiable) knows
+                # better than the previous-option inference here.
+                e.info.setdefault("last_failed_option", last_option)
                 raise e
             if not cur_option.initiable(state):
                 raise OptionExecutionFailure(
