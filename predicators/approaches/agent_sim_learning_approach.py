@@ -2109,6 +2109,18 @@ Later cycles read this record before deciding what to keep. Iterate \
 with `Edit` and re-score; every successful write is snapshotted and \
 version-tagged (see the system prompt's Tools section).{probe_note}
 
+Evidence discipline for rules that WRITE physical state (poses, \
+velocities): ground them in recorded transitions the base sim \
+mispredicts. A mechanism you suspect but have never observed \
+end-to-end in the data is a HYPOTHESIS - record it in the decision \
+record with the experiment that would confirm it (so the next \
+exploration phase can run that experiment), instead of shipping a \
+speculative rule; a speculative pose-writer fabricates states the \
+environment never produces, and plans validated against it fail in \
+reality. The converse error is just as costly: do not delete a rule \
+whose mechanism you have confirmed merely because one fit metric is \
+noisy - decide from the recorded evidence either way.
+
 Separately, maintain `./strategy.md`: a natural-language DOMAIN \
 STRATEGY for solving tasks in this environment - the recommended \
 approach and step ordering, the mechanisms that matter and how to \
