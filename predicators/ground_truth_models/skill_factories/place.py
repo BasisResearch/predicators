@@ -29,8 +29,7 @@ Example::
     )
 """
 
-import logging
-from typing import Any, Dict, Optional, Sequence, Set, Tuple
+from typing import Optional, Sequence, Set, Tuple
 
 import numpy as np
 import pybullet as p
@@ -120,7 +119,6 @@ def create_place_skill(
     settle_to_contact_depth: Optional[float] = None,
     verify_xy_tol: Optional[float] = None,
     verify_max_retries: int = 2,
-    post_release_verify_xy_tol: Optional[float] = None,
 ) -> ParameterizedOption:
     """Create a multi-phase place skill that releases a held object.
 
@@ -207,22 +205,6 @@ def create_place_skill(
             aims upstream of the (repeatable) sag and lands on target
             with an unstrained servo.
         verify_max_retries: Retry budget for the verification.
-        post_release_verify_xy_tol: If set (requires ``verify_xy_tol``,
-            whose pre-release check records which object is being
-            placed), verify AFTER the release - on the skill's final
-            phase - that the released object's xy is still within this
-            many meters of the commanded target. The pre-release check
-            runs before the fingers open, but the object can drift
-            during finger-opening, retreat, and post-release settling
-            (measured 6-12 mm in the bridge test scenes), sailing
-            through the pre-release gate and silently missing the
-            placement. There is no in-skill recovery (the gripper is
-            empty and re-grasping is a planning decision): the option
-            fails honestly with a descriptive
-            ``OptionExecutionFailure`` so the executor attributes the
-            failure to THIS placement instead of diverging steps later,
-            and belief-model validation rejects drift-prone designs at
-            capture time.
 
     Returns:
         A ``ParameterizedOption`` implementing the place skill.
@@ -231,23 +213,7 @@ def create_place_skill(
         param_defs = _PLACE_PARAMS
     assert len(param_defs) == len(_PLACE_PARAMS), \
         "param_defs must keep the canonical (x, y, release_z, yaw) order"
-    if post_release_verify_xy_tol is not None:
-        assert verify_xy_tol is not None and \
-            settle_to_contact_depth is not None, \
-            ("post_release_verify_xy_tol rides on the pre-release "
-             "verification: _held_xy_on_target records WHICH object is "
-             "being placed, and after release nothing is is_held.")
     params_space, params_description = build_params_space(param_defs)
-    # Cross-phase memory for the post-release verification: the placed
-    # object's identity, recorded by the pre-release check while the
-    # object is still held (after release no object is ``is_held``, so a
-    # post-release phase cannot discover it from the state). The dict is
-    # FACTORY-scoped (shared across executions of this option), so
-    # correctness relies on every execution rewriting the entry in
-    # SettleToContact before the final phase reads it; the nothing-held
-    # branch below clears it so a stale identity from the previous
-    # execution can never leak into this one.
-    _shared: Dict[str, Any] = {}
 
     def _open_fingers_target(
         state: State,
@@ -441,18 +407,11 @@ def create_place_skill(
                         "is_held" not in obj.type.feature_names:
                     continue
                 if state.get(obj, "is_held") > 0.5:
-                    # Remember WHICH object this execution is placing,
-                    # for the post-release verification (see _shared).
-                    _shared["placed_obj"] = obj
                     err = float(
                         np.hypot(
                             state.get(obj, "x") - tx,
                             state.get(obj, "y") - ty))
                     return err <= verify_xy_tol
-            # Nothing held: clear any identity left by a previous
-            # execution so the post-release check cannot verify against
-            # a stale object.
-            _shared["placed_obj"] = None
             return True
 
         # Gentle stroke: 3 mm steps bound the post-contact overshoot
@@ -474,48 +433,6 @@ def create_place_skill(
                 retry_to_phase=("Descend" if use_move_above else "MoveToDrop"),
                 max_retries=(verify_max_retries
                              if verify_xy_tol is not None else 0)))
-    post_release_verify_fn = None
-    post_release_failure_msg = None
-    if post_release_verify_xy_tol is not None:
-
-        def _placed_object_still_on_target(
-            state: State,
-            objects: Sequence[Object],
-            params: Array,
-            cfg: SkillConfig,
-        ) -> bool:
-            # The just-released object must still sit on the commanded
-            # (x, y): it verified in-tolerance BEFORE the release, but
-            # finger-opening / retreat / settling can walk it off the
-            # target afterwards. No recorded object (this execution
-            # never verified a held object) is unverifiable: pass.
-            del objects, cfg  # unused
-            assert post_release_verify_xy_tol is not None
-            obj = _shared.get("placed_obj")
-            if obj is None or obj not in state.data:
-                return True
-            tx, ty = float(params[0]), float(params[1])
-            err = float(
-                np.hypot(state.get(obj, "x") - tx,
-                         state.get(obj, "y") - ty))
-            ok = err <= post_release_verify_xy_tol
-            if not ok:
-                logging.debug(
-                    "[Place] post-release verification: %s at "
-                    "(%.4f, %.4f), %.1f mm from the commanded "
-                    "(%.4f, %.4f).", obj.name, state.get(obj, "x"),
-                    state.get(obj, "y"), err * 1000.0, tx, ty)
-            return ok
-
-        post_release_verify_fn = _placed_object_still_on_target
-        post_release_failure_msg = (
-            "placement verification failed after release: the placed "
-            "object drifted more than "
-            f"{post_release_verify_xy_tol * 1000:.0f} mm from the "
-            "commanded (x, y) during release/retreat - the placement "
-            "is off-target; re-place this object before building on "
-            "it")
-
     if partial_release:
         phases.extend([
             Phase(
@@ -538,19 +455,11 @@ def create_place_skill(
                 finger_tol=1e-6,
             ),
             make_move_to_phase("Retreat", _above_pose, "hold"),
-            # The post-release verification rides the FINAL phase: the
-            # option-level terminal enforces a final-phase verify_fn,
-            # and with max_retries=0 plus a failure message a miss
-            # raises an honest OptionExecutionFailure on the next
-            # policy call (never a rewind - the gripper is empty).
             Phase(
                 name="FullyOpenFingers",
                 action_type=PhaseAction.CHANGE_FINGERS,
                 target_fn=_open_fingers_target,
                 finger_direction="open",
-                verify_fn=post_release_verify_fn,
-                max_retries=0,
-                verify_failure_msg=post_release_failure_msg,
             ),
         ])
     else:
@@ -561,12 +470,7 @@ def create_place_skill(
                 target_fn=_open_fingers_target,
                 finger_direction="open",
             ),
-            make_move_to_phase("Retreat",
-                               _above_pose,
-                               "open",
-                               verify_fn=post_release_verify_fn,
-                               max_retries=0,
-                               verify_failure_msg=post_release_failure_msg),
+            make_move_to_phase("Retreat", _above_pose, "open"),
         ])
 
     return PhaseSkill(name,
