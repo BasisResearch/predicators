@@ -208,16 +208,6 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
             # otherwise lift back to release_z and re-descend, aiming
             # upstream of the measured (repeatable) drift.
             verify_xy_tol=0.004,
-            # Post-release verification: the pre-release check passes,
-            # then finger-opening / retreat / settling walks the block
-            # off target (both 2026-08-20 seed-2 test episodes: span0
-            # verified in-tolerance at settle, then drifted 6-12 mm in
-            # y, missing the butt-joint weld window with no divergence
-            # until steps later). 6 mm sits above the 4 mm pre-release
-            # tolerance (no double jeopardy on a clean release) and
-            # below the observed 6-12 mm drift band; a miss fails the
-            # option honestly at THIS placement.
-            post_release_verify_xy_tol=0.006,
         )
 
         # -- MoveTo (generic move-through-pose) ------------------------------
