@@ -1877,7 +1877,19 @@ def option_policy_to_policy(
 
         num_cur_option_steps += 1
 
-        return cur_option.policy(state)
+        try:
+            return cur_option.policy(state)
+        except OptionExecutionFailure as e:
+            # A skill that refuses mid-execution (e.g. a motion-planning
+            # refusal on a phase start) raises from inside its own
+            # policy, which carries no attribution: without it the
+            # executors' stuck-loop guards cannot tell WHICH command
+            # failed and treat every such failure as unrelated, so a
+            # policy re-issuing one identical collision-refused option
+            # burns its whole option budget instead of ending after K
+            # repeats (2026-08-25 policy-arm cycle-4 test).
+            e.info.setdefault("last_failed_option", cur_option)
+            raise e
 
     return _policy
 
