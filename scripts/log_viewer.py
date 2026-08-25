@@ -124,6 +124,13 @@ VIDEO_SAVED_RE = re.compile(r"Wrote out to "
 # main.py logs this only after the pipeline returns, so it is the one
 # trustworthy "this run completed" marker; a crash or a kill leaves none.
 DONE_RE = re.compile(r"^Main script terminated in")
+# The sysID verdict of a learning cycle: the physical parameters the fit
+# recovered and handed to the planner. This is what "it learned
+# something" looks like in a log, so the replay reel shows it between
+# the rounds it separates.
+APPLIED_PARAMS_RE = re.compile(
+    r"Applied identified physical params to base env: \{(.*)\}")
+PARAM_KV_RE = re.compile(r"'([\w]+)':\s*'?(-?[\d.eE+]+)'?")
 # A live run is a main.py process whose flags name the run's log dir,
 # which utils.configure_logging builds as approach/experiment_id/seed<N>.
 PS_ARG_RE = re.compile(r"--(approach|experiment_id|seed)[= ]+(\S+)")
@@ -135,17 +142,9 @@ TEXT_EXTS = {
     ".sh", ".tex"
 }
 CODE_EXTS = {".py"}
-# Episode-grid geometry, in px. A task always gets TASK_W of space no
-# matter how many times it was retried, so its chips land at the same x in
-# every run and experiment; retries stack inside that space. MISC_W holds
-# the round's explore/learn chips, which are unbounded and so wrap too.
-TASK_W = 108
-ROUND_W = 34
-MISC_W = 3 * TASK_W
 # Fixed widths for the remaining columns of the index runs table, in the
 # order they are declared there. None is the episodes column, whose width
 # depends on the task count and is filled in at render time.
-RUN_COL_W = (30, 200, 62, 96, None, 178, 68, 132, 132, 72)
 # Episodes of one run, in file order; see _parse_episode for the fields.
 EpList = List[Dict[str, Any]]
 # A run's videos as {(task, cycle tag): [(filename, is_failure)]}.
@@ -845,6 +844,7 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
     test_round: Dict[int, int] = {}
     pending: List[int] = []
     pending_test: List[int] = []
+    fits: List[Dict[str, Any]] = []
     last_explore: Optional[int] = None
     done = False
     for line in text.splitlines():
@@ -884,6 +884,23 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
                 if verdict is not None:
                     verdict["reward"] = float(tm.group(2))
             continue
+        m = APPLIED_PARAMS_RE.search(line)
+        if m:
+            params = {k: float(v) for k, v in PARAM_KV_RE.findall(m.group(1))}
+            # Several fits can land in one cycle (the agent refits as it
+            # edits its simulator); the last one is what the planner
+            # actually carries into the next round.
+            if params:
+                if fits and fits[-1]["after_round"] == len(rounds):
+                    fits[-1]["params"] = params
+                    fits[-1]["refits"] += 1
+                else:
+                    fits.append({
+                        "after_round": len(rounds),
+                        "params": params,
+                        "refits": 1,
+                    })
+            continue
         m = SAVED_EP_RE.search(line)
         if m:
             if m.group(2) == "explore":
@@ -918,6 +935,7 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
         "rounds": rounds,
         "explore": explore,
         "test_round": test_round,
+        "fits": fits,
         "done": done,
         "video_rel": m_vid.group(1) if m_vid else "",
     }
@@ -1011,6 +1029,7 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
         "test_results": parsed.get("totals", []),
         "explore_results": _explore_results(episodes),
         "rounds": rounds,
+        "fits": parsed.get("fits", []),
         "total_cost": total_cost,
         "done": parsed.get("done", False),
     }
@@ -1683,12 +1702,6 @@ tr.runrow td:nth-child(2) a:hover { color: var(--accent); }
 /* Numbers, timestamps and seeds line up column-wise when monospaced. */
 tr.runrow td:nth-child(3), tr.runrow td:nth-last-child(-n+4) {
   font-family: var(--mono); font-size: 11px; }
-table.epgrid { border-collapse: collapse; margin: 0; table-layout: fixed; }
-table.epgrid td { border: none; padding: 1px 0; line-height: 20px;
-  vertical-align: top; }
-table.epgrid td.rnd { color: var(--muted2); font-family: var(--mono);
-  font-size: 10px; }
-
 /* ── Sidebar nav ────────────────────────────────────────────────── */
 .sidebar .nav a { display: block; padding: 3px 6px; border-radius: 4px;
   color: var(--fg); font-size: 12px; overflow: hidden;
@@ -1752,14 +1765,26 @@ pre.logview { white-space: pre-wrap; overflow-wrap: anywhere; }
   border-color: transparent; opacity: .9; }
 
 /* ── Replay reel ────────────────────────────────────────────────── */
-section.replay { border: 1px solid var(--border); border-radius: 8px;
-  background: var(--surface); padding: 14px 16px; margin: 0 0 14px;
-  max-width: 720px; }
-section.replay h3 { margin: 0 0 4px; font-size: 14px; color: var(--bright);
-  border: none; padding: 0; }
-section.replay p { margin: 0 0 10px; font-size: 12px; }
-.replay-meta { font-size: 12px; margin-bottom: 6px; font-family: var(--mono); }
-section.replay figure.vid video { max-width: 100%; }
+section.round { border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); padding: 12px 14px; margin: 0 0 14px; }
+section.round h3 { margin: 0 0 10px; font-size: 12px; color: var(--muted);
+  border: none; padding: 0; text-transform: uppercase;
+  letter-spacing: .14em; font-weight: 700; }
+/* Clips sit side by side and small: the point of this page is
+   comparing episodes across a run, which a column of full-width
+   players makes impossible without scrolling past each one. */
+.strip { display: flex; flex-wrap: wrap; gap: 12px; }
+figure.clip { margin: 0; width: 260px; }
+figure.clip .vids { margin: 0; }
+figure.clip figure.vid video { width: 260px; max-width: 260px; }
+figure.clip figure.vid figcaption { display: none; }
+figure.clip > figcaption { font-size: 11px; margin-top: 5px;
+  line-height: 1.45; }
+.fitband { margin-top: 12px; padding: 10px 12px; border-radius: 6px;
+  border: 1px solid var(--ok); background: var(--ok-dim); font-size: 12px; }
+.fitvals { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 6px 0; }
+.fitvals code { color: var(--muted); }
+.fitvals b { font-family: var(--mono); color: var(--bright); }
 a.playlink { margin-left: 6px; color: var(--muted2); font-size: 11px; }
 tr.runrow:hover a.playlink { color: var(--accent); }
 a.playlink:hover { text-decoration: none; }
@@ -1769,21 +1794,12 @@ a.watchlink { display: inline-block; height: 26px; line-height: 24px;
   font-weight: 600; }
 a.watchlink:hover { text-decoration: none; filter: brightness(1.1); }
 
-/* ── Run groups ─────────────────────────────────────────────────── */
-details.grp { border: 1px solid var(--border); border-radius: 6px;
-  margin: 8px 0; background: var(--bg); overflow: hidden; }
-details.grp > summary { cursor: pointer; padding: 7px 12px;
-  font-weight: 600; color: var(--bright); background: var(--surface); }
-details.grp > summary:hover { background: var(--surface2); }
-details.grp[open] > summary { border-bottom: 1px solid var(--border); }
-details.grp.family { border-color: var(--border2); }
-details.grp.family > summary { font-size: 13px; letter-spacing: .01em; }
-details.grp.exp > summary { font-size: 12px; }
-details.grp.exp { margin: 8px 12px; }
-details.grp > *:not(summary) { margin: 0; }
-details.grp.family > details.grp { margin: 8px 12px; }
-details.grp.hidden { display: none; }
 .muted { color: var(--muted); font-weight: 400; }
+.help { display: inline-block; width: 14px; height: 14px; margin-left: 6px;
+  border: 1px solid var(--border2); border-radius: 50%; color: var(--muted2);
+  font: 700 9px/12px var(--sans); text-align: center; cursor: help;
+  vertical-align: middle; }
+.help:hover { color: var(--accent); border-color: var(--accent); }
 
 /* ── Row action buttons ─────────────────────────────────────────── */
 button.copybtn { height: auto; padding: 0 3px; margin-left: 5px;
@@ -1798,10 +1814,6 @@ button.rowbtn { height: auto; padding: 0 5px; margin-left: 5px;
 tr.runrow:hover button.rowbtn { visibility: visible; }
 button.rowbtn:hover { color: var(--bad); border-color: var(--bad);
   background: var(--bad-dim); }
-""" + f"""
-table.epgrid td.task {{ width: {TASK_W}px; }}
-table.epgrid td.misc {{ width: {MISC_W}px; }}
-table.epgrid td.rnd {{ width: {ROUND_W}px; }}
 """
 
 JS = """
@@ -1885,63 +1897,13 @@ function setAllDetails(open) {
 }
 
 // Index page: filter + compare + collapsible groups.
-function groupKey(d) { return 'lv-grp:' + d.dataset.key; }
-function restoreGroups() {
-  $all('details.grp').forEach(function(d) {
-    var v = localStorage.getItem(groupKey(d));
-    if (v !== null) d.open = v === '1';
-  });
-}
-// The legend ships open so a first visit explains itself; someone who
-// already knows the notation closes it once and it stays closed.
-function restoreLegend() {
-  var l = $('details.legend');
-  if (!l) return;
-  var v = localStorage.getItem('lv-legend');
-  if (v !== null) l.open = v === '1';
-  l.addEventListener('toggle', function() {
-    localStorage.setItem('lv-legend', l.open ? '1' : '0');
-  });
-}
-document.addEventListener('DOMContentLoaded', restoreGroups);
-document.addEventListener('DOMContentLoaded', restoreLegend);
-document.addEventListener('toggle', function(e) {
-  var d = e.target;
-  if (d.classList && d.classList.contains('grp') && !window._filtering)
-    localStorage.setItem(groupKey(d), d.open ? '1' : '0');
-}, true);
-function setAllGroups(open) {
-  window._filtering = true;
-  $all('details.grp').forEach(function(d) {
-    d.open = open;
-    localStorage.setItem(groupKey(d), open ? '1' : '0');
-  });
-  window._filtering = false;
-}
 function filterRuns(text) {
   text = text.toLowerCase();
   sessionStorage.setItem('lv-filter', text);
-  window._filtering = true;
   $all('.runrow').forEach(function(row) {
     row.classList.toggle('hidden',
       !!text && row.dataset.key.indexOf(text) === -1);
   });
-  $all('details.grp.exp').forEach(function(d) {
-    var any = $all('.runrow', d).some(function(r) {
-      return !r.classList.contains('hidden');
-    });
-    d.classList.toggle('hidden', !any);
-    if (text) d.open = any;
-  });
-  $all('details.grp.family').forEach(function(d) {
-    var any = $all('details.grp.exp', d).some(function(x) {
-      return !x.classList.contains('hidden');
-    });
-    d.classList.toggle('hidden', !any);
-    if (text) d.open = any;
-  });
-  if (!text) restoreGroups();
-  window._filtering = false;
 }
 // Index page: sort runs by seed (the server order) or by start time.
 // Time mode interleaves each experiment's seeds newest-first; the
@@ -2163,40 +2125,32 @@ def page(title: str, topbar_extra: str, body: str) -> str:
             f"</div>{body}</body></html>")
 
 
-# The episode strip packs a run's whole history into one cell using a
-# private notation (round tags, kind chips, marks, rewards). Every chip
-# carries a tooltip, but hovering a dozen of them to learn the alphabet
-# is not reading - so the alphabet is written down, open on a first
-# visit and collapsible for readers who already know it.
+# A short reading key for the table below it. It used to explain the
+# index's chip notation; the flat table has none, so it explains the
+# columns that are actually on screen instead.
 LEGEND_HTML = (
-    "<details class='legend' open><summary>How to read a run row</summary>"
-    "<dl class='legend-grid'>"
-    "<dt><span class='chip'>r1</span></dt>"
-    "<dd>One <b>round</b> of the online loop: r1 is the pre-learning "
-    "phase, r2 the work after learning cycle 0, and so on.</dd>"
-    "<dt><span class='chip kind-explore'>001 explore \u2713 0.90</span></dt>"
-    "<dd><b>Exploration</b> episode on a train task: query number, then "
-    "the env verdict \u2713 accepted / \u2717 rejected, then its "
-    "reward.</dd>"
-    "<dt><span class='chip kind-learn'>003 learn</span></dt>"
-    "<dd><b>Learning</b> query: the agent synthesizes predicates, "
-    "simulator code, and physical params. No env verdict to show.</dd>"
-    "<dt><span class='chip ok'>004 t0 \u2713 0.80</span> "
-    "<span class='chip bad'>005 t1 \u2717</span></dt>"
-    "<dd><b>Test</b> episode on held-out task <i>t<b>N</b></i>, green "
-    "solved and red failed. This is the column that measures the "
-    "method; explore episodes do not.</dd>"
-    "<dt><span class='chip live'>running</span> "
-    "<span class='chip done'>done</span> "
-    "<span class='chip stopped'>interrupted</span></dt>"
-    "<dd>Run <b>lifecycle</b>, not verdict: <i>done</i> means info.log "
-    "ends with main.py's completion line, <i>interrupted</i> means it "
-    "does not and no process is alive.</dd>"
-    "<dt><b>test results</b></dt>"
-    "<dd>Per round, <i>solved/total</i> and the mean env reward - the "
-    "headline number for the run.</dd>"
+    "<details class='legend' open><summary>What am I looking at?"
+    "</summary><dl class='legend-grid'>"
+    "<dt><b>run</b></dt>"
+    "<dd>One execution of <code>main.py</code>, named by when it "
+    "started. Click it for the transcripts and files; click "
+    "<b>&#9654; watch</b> for the videos.</dd>"
+    "<dt><b>approach</b></dt>"
+    "<dd>The method. An <code>oracle_*</code> approach is handed the "
+    "ground-truth model and learns nothing - it is an upper bound. An "
+    "<code>agent_*</code> one has to learn.</dd>"
+    "<dt><b>experiment</b></dt>"
+    "<dd>One environment + arm configuration. Change a flag and it is "
+    "a different experiment; rerun with another seed and it is not."
+    "</dd>"
+    "<dt><b>result</b></dt>"
+    "<dd><i>solved/total</i> on held-out tasks, with the mean reward. "
+    "<b>This is the score.</b> On the domino tasks reward is 1 for a "
+    "solve minus a penalty per domino spent, so 0.90 beats 0.80.</dd>"
     "<dt><b>cost</b></dt>"
-    "<dd>Total USD the run's agent queries reported.</dd>"
+    "<dd>What the agent SDK reported those tokens would cost at API "
+    "rates. On a Claude subscription nothing is billed per query - "
+    "read it as a usage meter, not a bill.</dd>"
     "</dl></details>")
 
 
@@ -2246,83 +2200,6 @@ def explore_mark(ep: Dict[str, Any]) -> Tuple[str, str, str]:
     return mark, cls, title
 
 
-def _split_episodes(
-    episodes: EpList
-) -> Tuple[Dict[int, Dict[int, EpList]], Dict[int, EpList]]:
-    """Episodes bucketed by round, as (test-by-task, non-test)."""
-    tests: Dict[int, Dict[int, EpList]] = {}
-    misc: Dict[int, EpList] = {}
-    for ep in episodes:
-        rnd = ep.get("round", 0)
-        if ep["kind"] == "test" and ep["task"] is not None:
-            tests.setdefault(rnd, {}).setdefault(ep["task"], []).append(ep)
-        else:
-            misc.setdefault(rnd, []).append(ep)
-    return tests, misc
-
-
-def grid_layout(runs: List[EpList]) -> Dict[str, Any]:
-    """Column layout shared by every run's episode grid.
-
-    Holding the task set and the round column fixed across every run on
-    the page is what lets task t1's chips land at the same x whether the
-    run above it retried t0 twice or not, and whether it belongs to the
-    same experiment or not.
-    """
-    tasks: Set[int] = set()
-    rounds = False
-    misc = False
-    for episodes in runs:
-        by_round, misc_by_round = _split_episodes(episodes)
-        rounds = rounds or max(list(by_round) + list(misc_by_round),
-                               default=0) > 0
-        misc = misc or bool(misc_by_round)
-        for by_task in by_round.values():
-            tasks.update(by_task)
-    return {"tasks": sorted(tasks), "rounds": rounds, "misc": misc}
-
-
-def grid_width(layout: Dict[str, Any]) -> int:
-    """Pixel width of an episode grid drawn with this layout."""
-    return (len(layout["tasks"]) * TASK_W +
-            (ROUND_W if layout["rounds"] else 0) +
-            (MISC_W if layout["misc"] else 0))
-
-
-def episode_grid(episodes: EpList,
-                 layout: Optional[Dict[str, Any]] = None) -> str:
-    """Chips laid out one row per test round, one column per task.
-
-    Vertical alignment makes it easy to compare a task's outcome against
-    earlier rounds and against other runs; retries within a round stack
-    inside their task's column rather than widening it.
-    """
-    if layout is None:
-        layout = grid_layout([episodes])
-    tests, misc = _split_episodes(episodes)
-    if not tests and not misc:
-        return ""
-    n_rounds = max(list(tests) + list(misc)) + 1
-    rows = []
-    for rnd in range(n_rounds):
-        cells = []
-        if layout["rounds"]:
-            label = f"r{int(rnd + 1)}" if n_rounds > 1 else ""
-            cells.append(f"<td class='muted rnd'>{label}</td>")
-        for task in layout["tasks"]:
-            # One retry per line: two short chips would otherwise share a
-            # line while longer ones stack, making the column read ragged.
-            chips = "".join(f"<div>{_test_chip(ep)}</div>"
-                            for ep in tests.get(rnd, {}).get(task, []))
-            cells.append(f"<td class='task'>{chips}</td>")
-        if layout["misc"]:
-            chips = "".join(_misc_chip(ep) for ep in misc.get(rnd, []))
-            cells.append(f"<td class='misc'>{chips}</td>")
-        rows.append(f"<tr>{''.join(cells)}</tr>")
-    return (f"<table class='epgrid' style='width:{grid_width(layout)}px'>"
-            f"{''.join(rows)}</table>")
-
-
 def run_status(r: Dict[str, Any], summary: Dict[str, Any], live: LiveProcs,
                is_newest: bool) -> Tuple[str, str]:
     """(label, css class) for a run's lifecycle state.
@@ -2361,44 +2238,22 @@ def status_chip(r: Dict[str, Any], summary: Dict[str, Any], live: LiveProcs,
     return chip(label, cls, title)
 
 
-def _test_chip(ep: Dict[str, Any]) -> str:
-    """Chip for one test episode, e.g. "003 t1 ✓"."""
-    mark, cls, title = test_mark(ep)
-    label = f"{int(ep['num']):03} t{ep['task']}"
-    if mark:
-        label += " " + mark
-    return chip(label, cls, title)
-
-
-def _misc_chip(ep: Dict[str, Any]) -> str:
-    """Chip for one non-test episode, e.g. "002 explore ✓ 0.70"."""
-    label = f"{int(ep['num']):03} {ep['kind']}"
-    title = ""
-    if "env_accepted" in ep:
-        mark, _, title = explore_mark(ep)
-        label += " " + mark
-    return chip(label, "kind-" + ep["kind"], title)
-
-
-# ----------------------------------------------------------------- pages
-
-
-def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
-            live: LiveProcs, is_newest: bool) -> str:
-    """Table row summarizing one run for the index page."""
-    eps = summary.get("episodes", [])
+def run_row(r: Dict[str, Any], summary: Dict[str, Any], live: LiveProcs,
+            is_newest: bool) -> str:
+    """One flat row on the index: what it was, how it went, where to look."""
     tr_str = test_results_str(summary) or "-"
     cost = summary.get("total_cost", 0.0)
     fmt = "%Y-%m-%d %H:%M"
     start_ts = _run_start_ts(r["name"], r["mtime"])
     sstr = datetime.datetime.fromtimestamp(start_ts).strftime(fmt)
-    mstr = datetime.datetime.fromtimestamp(r["activity"]).strftime(fmt)
     dur_str = _fmt_duration(max(0.0, r["activity"] - start_ts))
     status, _ = run_status(r, summary, live, is_newest)
-    # The status joins the filter key, so "running" narrows to live runs.
+    fam, _, expname = r["exp"].partition("/")
+    expname = expname or fam
+    # Approach and experiment join the filter key, so what used to be a
+    # group heading is now something you type into the filter box.
     key = f"{r['exp']} {r['seed']} {r['name']} {status}".lower()
     cost_str = f"${cost:.2f}" if cost else "-"
-    # Path to paste into a terminal at the server's working directory.
     copy_path = os.path.relpath(os.path.join(LOGS_ROOT, r["rel"]))
     is_live = status == "running"
     esc_rel = esc(r["rel"])
@@ -2413,43 +2268,39 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
     live_flag = "true" if is_live else "false"
     del_btn = (f"<button class='rowbtn' title='{del_title}' "
                f"onclick='deleteRun(\"{esc_rel}\", {live_flag})'>"
-               "✕</button>")
+               "\u2715</button>")
     return ("<tr class='runrow' "
             f"data-key='{esc(key)}' data-seed='{esc(r['seed'])}' "
             f"data-start='{start_ts:.0f}'>"
             f"<td><input type='checkbox' class='cmp' value='{esc(r['rel'])}'>"
             "</td>"
+            f"<td><a class='watchlink' href='/replays?d={q(r['rel'])}'>"
+            "&#9654; watch</a></td>"
             f"<td><a href='/run?d={q(r['rel'])}'>{esc(r['name'])}</a>"
-            f"<a class='playlink' href='/replays?d={q(r['rel'])}' "
-            "title='Watch every recorded episode of this run, "
-            "oldest first'>&#9654;</a>"
             f"<button class='copybtn' data-copy='{esc(copy_path)}' "
-            f"title='Copy run path'>⧉</button>{del_btn}</td>"
+            f"title='Copy run path'>\u29c9</button>{del_btn}</td>"
+            f"<td class='muted'>{esc(fam)}</td>"
+            f"<td class='muted'>{esc(expname)}</td>"
             f"<td>{esc(r['seed'])}</td>"
             f"<td>{status_chip(r, summary, live, is_newest)}{kill_btn}</td>"
-            f"<td>{episode_grid(eps, layout)}</td>"
-            f"<td>{esc(tr_str)}</td>"
+            f"<td><b>{esc(tr_str)}</b></td>"
             f"<td>{cost_str}</td>"
             f"<td class='muted'>{sstr}</td>"
-            f"<td class='muted'>{mstr}</td>"
             f"<td class='muted'>{dur_str}</td></tr>")
 
 
 def index_page() -> str:
-    """Runs overview page grouped by family and experiment."""
+    """One flat table of every run, newest first.
+
+    This page used to nest runs two deep (approach, then experiment) in
+    collapsible groups. The hierarchy was real, but it was also the
+    first thing a reader had to fight: three levels of chrome around the
+    rows they came for. Approach and experiment are columns now -
+    visible on every row and typeable into the filter box, which is what
+    the groups were actually used for.
+    """
     runs = find_runs()
-    families: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
-    for r in runs:
-        fam, _, rest = r["exp"].partition("/")
-        families.setdefault(fam, {}).setdefault(rest or fam, []).append(r)
     summaries = {r["rel"]: run_summary(r["rel"]) or {} for r in runs}
-    # The task and round columns are laid out once for the whole page, so
-    # a task's chips line up across runs, experiments, and families. The
-    # explore/learn column sits to the right of every task column, so it
-    # can stay per-family without costing any of that alignment - which
-    # spares families that never explore its reserved width.
-    page_layout = grid_layout(
-        [s.get("episodes", []) for s in summaries.values()])
     live = live_runs(runs)
     # A process lsof could not pin owns the newest run of its experiment
     # and seed: the one it made at startup. Older runs of that key are
@@ -2467,57 +2318,36 @@ def index_page() -> str:
     if not runs:
         body.append(
             f"<p>No run_* directories found under {esc(LOGS_ROOT)}.</p>")
-    # Provenance and units live in the header tooltips rather than in
-    # the labels: the labels are read on every row, the provenance once.
-    table_head = (
-        "<tr><th></th><th>run</th><th>seed</th>"
-        "<th title='Lifecycle: done / running / interrupted'>status</th>"
-        "<th title='Every agent query this run made, by round'>"
-        "episodes</th>"
-        "<th title='Per round: solved/total and mean env reward, "
-        "parsed from info.log'>test results</th>"
-        "<th title='Total USD reported by this run&#39;s agent queries'>"
-        "cost</th><th>started</th><th>modified</th>"
-        "<th title='Wall-clock from first to last log write'>time</th>"
-        "</tr>")
-    for fam in sorted(families):
-        exps = families[fam]
-        fam_runs = [r for rs in exps.values() for r in rs]
-        fam_misc = grid_layout(
-            [summaries[r["rel"]].get("episodes", []) for r in fam_runs])
-        layout = dict(page_layout, misc=fam_misc["misc"])
-        widths = [w or grid_width(layout) for w in RUN_COL_W]
-        cols = "<colgroup>" + "".join(f"<col style='width:{w}px'>"
-                                      for w in widths) + "</colgroup>"
-        body.append(f"<details class='grp family' data-key='fam:{esc(fam)}' "
-                    f"open><summary>{esc(fam)} <span class='muted'>"
-                    f"({len(exps)} experiments, {len(fam_runs)} runs)"
-                    "</span></summary>")
-        for expname in sorted(exps):
-            rows = "".join(
-                run_row(r, summaries[r["rel"]], layout, live, newest[(
-                    r["exp"], r["seed"])][1] == r["rel"])
-                for r in exps[expname])
-            # Open by default: a first visit should land on the run
-            # table itself, not on a stack of headers hiding it. A
-            # reader who collapses one gets that remembered instead
-            # (restoreGroups reapplies localStorage on load).
-            body.append(f"<details class='grp exp' data-key='exp:{esc(fam)}/"
-                        f"{esc(expname)}' open>"
-                        f"<summary>{esc(expname)} <span class='muted'>"
-                        f"({len(exps[expname])} runs)</span></summary>"
-                        f"<table class='grid runs' "
-                        f"style='width:{sum(widths)}px'>"
-                        f"{cols}{table_head}{rows}</table></details>")
-        body.append("</details>")
+    else:
+        head = (
+            "<tr><th></th><th></th>"
+            "<th title='One execution of main.py, named by start time'>"
+            "run</th>"
+            "<th title='The method: an oracle_* approach is handed ground "
+            "truth and learns nothing, an agent_* one learns'>approach</th>"
+            "<th title='One environment + arm configuration, named "
+            "&lt;env&gt;-&lt;arm&gt;'>experiment</th>"
+            "<th title='Random seed: same config, different seed = a "
+            "repeat for statistics'>seed</th>"
+            "<th title='Lifecycle: done / running / interrupted'>status</th>"
+            "<th title='Solved/total on held-out tasks and the mean "
+            "reward - the score of the run'>result</th>"
+            "<th title='Dollar value the agent SDK reported for this "
+            "run&#39;s tokens. Nothing is billed per query on a "
+            "subscription'>cost</th>"
+            "<th>started</th>"
+            "<th title='Wall-clock from first to last log write'>time</th>"
+            "</tr>")
+        rows = "".join(
+            run_row(r, summaries[r["rel"]], live, newest[(
+                r["exp"], r["seed"])][1] == r["rel"]) for r in runs)
+        body.append(f"<table class='grid runs'>{head}{rows}</table>")
     body.append("</div>")
-    topbar = ("<input id='runfilter' placeholder='filter runs…' "
+    topbar = ("<input id='runfilter' placeholder='filter runs\u2026' "
               "oninput='filterRuns(this.value)'>"
               "<button id='sortbtn' onclick='toggleSort()' title='seed: "
               "group rows by seed, newest first within each seed; time: "
-              "newest runs first within each experiment'></button>"
-              "<button onclick='setAllGroups(true)'>expand all</button>"
-              "<button onclick='setAllGroups(false)'>collapse all</button>"
+              "newest runs first'></button>"
               "<button onclick='compareSelected()'>Compare selected"
               f"</button><span class='crumb'>{esc(LOGS_ROOT)}</span>")
     return page("runs - log viewer", topbar, "".join(body))
@@ -2595,51 +2425,96 @@ def replay_caption(ep: Dict[str, Any]) -> Tuple[str, str, str]:
     return head, why, verdict
 
 
+def _clip_card(ep: Dict[str, Any], vids: str, run_rel: str) -> str:
+    """One small captioned player in a round's filmstrip."""
+    if ep["kind"] == "test":
+        what = f"test &middot; task {ep['task']}"
+    else:
+        what = "practice"
+    solved = ep.get("env_solved", ep.get("env_accepted"))
+    if solved is None:
+        verdict = "<span class='muted'>no verdict</span>"
+    else:
+        cls, word = ("ok", "solved") if solved else ("bad", "failed")
+        reward = (f" {ep['env_reward']:.2f}" if "env_reward" in ep else "")
+        verdict = f"<span class='{cls}'>{word}</span>{reward}"
+    return (f"<figure class='clip'>{vids}"
+            f"<figcaption><b>{what}</b> &middot; {verdict}<br>"
+            f"<a class='muted' href='/run?d={q(run_rel)}"
+            f"#f={q(ep['file'])}'>transcript &rarr;</a></figcaption>"
+            "</figure>")
+
+
+def _fit_card(fit: Dict[str, Any]) -> str:
+    """The sysID verdict that separates one round from the next."""
+    rows = "".join(f"<div><code>{esc(k)}</code> &rarr; "
+                   f"<b>{v:.4g}</b></div>"
+                   for k, v in sorted(fit["params"].items()))
+    refit = (f" <span class='muted'>({int(fit['refits'])} fits this "
+             "cycle; the last one is what the planner carries "
+             "forward)</span>" if fit["refits"] > 1 else "")
+    return ("<div class='fitband'><b>&#9881; What it learned here</b>"
+            f"{refit}<div class='fitvals'>{rows}</div>"
+            "<span class='muted'>These physical parameters were "
+            "recovered from the practice episodes above and handed to "
+            "the planner for the next round.</span></div>")
+
+
 def replays_page(run_rel: str) -> Optional[str]:
-    """Every recorded episode of a run, in order, as a scrollable reel.
+    """A run's whole pipeline as a reel: practice, what it learned, test.
 
     The run page pairs each video with its agent transcript, which is
-    the right thing when reading one episode and the wrong thing when
-    the question is whether behaviour improved over the run. Here the
-    clips are simply laid out in time order with the round, the intent,
-    and the verdict beside each.
+    right for reading one episode and wrong for the question this
+    viewer gets asked most - did the robot get better? Here the clips
+    are small and side by side, grouped into the rounds of the online
+    loop, with the sysID verdict shown between the rounds it separates.
     """
     run_abs = safe_join(run_rel)
     if not run_abs or not os.path.isdir(run_abs):
         return None
     summary = run_summary(run_rel)
     assert summary is not None
-    cards = []
+    # Clips grouped by round; a replanned task's two transcripts share
+    # one video, so identical players are shown once rather than
+    # reading as two attempts that never happened.
+    by_round: Dict[int, List[str]] = {}
     seen: Set[str] = set()
     for ep in summary["episodes"]:
         vids = episode_videos(ep, run_rel)
-        if not vids:
-            continue
-        # A replanned task's two transcripts share one video; showing it
-        # twice would read as two attempts that never happened.
-        if vids in seen:
+        if not vids or vids in seen:
             continue
         seen.add(vids)
-        head, why, verdict = replay_caption(ep)
-        cards.append(f"<section class='replay'><h3>{esc(head)}</h3>"
-                     f"<div class='replay-meta'>{verdict}</div>"
-                     f"<p class='muted'>{why}</p>{vids}"
-                     f"<a class='muted' href='/run?d={q(run_rel)}"
-                     f"#f={q(ep['file'])}'>read this episode's "
-                     "transcript &rarr;</a></section>")
-    if not cards:
-        cards = [
+        rnd = int(ep.get("round", 0))
+        by_round.setdefault(rnd, []).append(_clip_card(ep, vids, run_rel))
+    fits_by_round: Dict[int, Dict[str, Any]] = {
+        int(f["after_round"]): f
+        for f in summary.get("fits", [])
+    }
+    out = []
+    for rnd in sorted(set(by_round) | set(fits_by_round)):
+        clips = by_round.get(rnd, [])
+        strip = ("<div class='strip'>" + "".join(clips) +
+                 "</div>" if clips else
+                 "<p class='muted'>No videos recorded for this round.</p>")
+        fit = fits_by_round.get(rnd)
+        band = _fit_card(fit) if fit else ""
+        out.append(f"<section class='round'><h3>Round {rnd + 1}</h3>"
+                   f"{strip}{band}</section>")
+    if not out:
+        out = [
             "<p class='muted'>This run recorded no videos. They are "
             "written when main.py runs with --make_test_videos / "
             "--make_interaction_videos.</p>"
         ]
-    intro = ("<div class='banner'><span>Every episode this run recorded, "
-             "oldest first. Practice episodes are how it gathers data; "
-             "test episodes are how it is scored. Watching top to bottom "
-             "is watching the run unfold.</span></div>")
+    intro = ("<div class='banner'><span>The whole run, oldest first. "
+             "Each round is one turn of the loop: the robot "
+             "<b>practices</b> to gather data, the fit recovers what "
+             "the world is really like, and a <b>test</b> on a held-out "
+             "task scores it. Read top to bottom to watch it "
+             "learn.</span></div>")
     body = (f"<div class='content' style='height:calc(100vh - "
             f"var(--topbar-h));overflow:auto'>{intro}"
-            f"{''.join(cards)}</div>")
+            f"{''.join(out)}</div>")
     topbar = (f"<a href='/run?d={q(run_rel)}'>&larr; run detail</a>"
               f"<span class='crumb'>{esc(run_rel)}</span>")
     return page(run_rel + " replays - log viewer", topbar, body)
@@ -2827,8 +2702,13 @@ def interaction_videos_for_run(
 
 def _video_figure(url: str, label: str) -> str:
     """One video player with its caption and raw link."""
+    # #t=0.1 makes the browser seek there and paint that frame as the
+    # poster. Without it a preload='metadata' player is a black
+    # rectangle until someone presses play, which is unreadable on the
+    # replay reel where a dozen clips sit side by side.
     return (f"<figure class='vid'><video controls preload='metadata' "
-            f"src='{url}'></video><figcaption class='muted'>{label} · "
+            f"src='{url}#t=0.1'></video>"
+            f"<figcaption class='muted'>{label} · "
             f"<a class='muted' href='{url}' target='_blank'>raw</a>"
             f"</figcaption></figure>")
 
