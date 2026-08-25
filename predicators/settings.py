@@ -30,6 +30,15 @@ class GlobalSettings:
     skip_initial_test = False
     # just for plotting
     online_learning_early_stopping_by_test_solve_rate = False
+    # Test-driven early stopping fires only after this many CONSECUTIVE
+    # test phases solved every test task. With a small test set a single
+    # perfect phase can be one lucky rollout of a stochastic
+    # environment; requiring more phases turns the criterion into
+    # evidence of reliability. The streak is re-seeded from the saved
+    # per-cycle test results on --auto_resume, so a timeout/relaunch
+    # continues the count. Only read when
+    # online_learning_early_stopping_by_test_solve_rate is True.
+    online_learning_early_stopping_consecutive_perfect_tests = 1
     # When True, every interaction request in the cycle (not just the first
     # per task) must succeed before early stopping is triggered. Catches
     # "lucky single-sample" successes that mask a buggy learned model.
