@@ -1568,6 +1568,7 @@ code, pre { font: 12px/1.45 var(--mono); }
 .topbar input:focus { outline: none; border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-dim); }
 .topbar input::placeholder { color: var(--muted2); }
+.topbar a { white-space: nowrap; font-size: 11px; font-weight: 600; }
 .topbar .crumb { color: var(--muted); font-size: 11px; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono);
   margin-left: auto; }
@@ -1749,6 +1750,24 @@ pre.logview { white-space: pre-wrap; overflow-wrap: anywhere; }
   box-shadow: 0 2px 8px rgba(0,0,0,.35); }
 #refreshpill:hover { background: var(--accent); color: #fff;
   border-color: transparent; opacity: .9; }
+
+/* ── Replay reel ────────────────────────────────────────────────── */
+section.replay { border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); padding: 14px 16px; margin: 0 0 14px;
+  max-width: 720px; }
+section.replay h3 { margin: 0 0 4px; font-size: 14px; color: var(--bright);
+  border: none; padding: 0; }
+section.replay p { margin: 0 0 10px; font-size: 12px; }
+.replay-meta { font-size: 12px; margin-bottom: 6px; font-family: var(--mono); }
+section.replay figure.vid video { max-width: 100%; }
+a.playlink { margin-left: 6px; color: var(--muted2); font-size: 11px; }
+tr.runrow:hover a.playlink { color: var(--accent); }
+a.playlink:hover { text-decoration: none; }
+a.watchlink { display: inline-block; height: 26px; line-height: 24px;
+  padding: 0 10px; border: 1px solid var(--accent); border-radius: 5px;
+  background: var(--accent-dim); color: var(--accent); font-size: 11px;
+  font-weight: 600; }
+a.watchlink:hover { text-decoration: none; filter: brightness(1.1); }
 
 /* ── Run groups ─────────────────────────────────────────────────── */
 details.grp { border: 1px solid var(--border); border-radius: 6px;
@@ -2401,6 +2420,9 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
             f"<td><input type='checkbox' class='cmp' value='{esc(r['rel'])}'>"
             "</td>"
             f"<td><a href='/run?d={q(r['rel'])}'>{esc(r['name'])}</a>"
+            f"<a class='playlink' href='/replays?d={q(r['rel'])}' "
+            "title='Watch every recorded episode of this run, "
+            "oldest first'>&#9654;</a>"
             f"<button class='copybtn' data-copy='{esc(copy_path)}' "
             f"title='Copy run path'>⧉</button>{del_btn}</td>"
             f"<td>{esc(r['seed'])}</td>"
@@ -2546,6 +2568,83 @@ def file_tree_html(run_abs: str, run_rel: str, rel: str = "") -> str:
     return "".join(out)
 
 
+def replay_caption(ep: Dict[str, Any]) -> Tuple[str, str, str]:
+    """(heading, plain-English explanation, verdict html) for one clip.
+
+    The chips elsewhere are shorthand for people who already know the
+    pipeline. Here the same facts are spelled out, because this page
+    exists for the question "what is the robot actually doing?" rather
+    than "how did this run score".
+    """
+    rnd = int(ep.get("round", 0))
+    if ep["kind"] == "test":
+        head = f"Round {rnd + 1} - test on task {ep['task']}"
+        why = ("A held-out task the robot did not practise on. This is "
+               "the episode that scores the run.")
+    else:
+        head = f"Round {rnd + 1} - practice episode"
+        why = ("The robot tries the task itself to gather data. What it "
+               "sees here is what the next round learns from.")
+    verdict = "<span class='muted'>no env verdict recorded</span>"
+    solved = ep.get("env_solved", ep.get("env_accepted"))
+    if solved is not None:
+        reward = (f" &middot; reward {ep['env_reward']:.2f}"
+                  if "env_reward" in ep else "")
+        cls, word = ("ok", "solved") if solved else ("bad", "failed")
+        verdict = f"<span class='{cls}'>{word}</span>{reward}"
+    return head, why, verdict
+
+
+def replays_page(run_rel: str) -> Optional[str]:
+    """Every recorded episode of a run, in order, as a scrollable reel.
+
+    The run page pairs each video with its agent transcript, which is
+    the right thing when reading one episode and the wrong thing when
+    the question is whether behaviour improved over the run. Here the
+    clips are simply laid out in time order with the round, the intent,
+    and the verdict beside each.
+    """
+    run_abs = safe_join(run_rel)
+    if not run_abs or not os.path.isdir(run_abs):
+        return None
+    summary = run_summary(run_rel)
+    assert summary is not None
+    cards = []
+    seen: Set[str] = set()
+    for ep in summary["episodes"]:
+        vids = episode_videos(ep, run_rel)
+        if not vids:
+            continue
+        # A replanned task's two transcripts share one video; showing it
+        # twice would read as two attempts that never happened.
+        if vids in seen:
+            continue
+        seen.add(vids)
+        head, why, verdict = replay_caption(ep)
+        cards.append(f"<section class='replay'><h3>{esc(head)}</h3>"
+                     f"<div class='replay-meta'>{verdict}</div>"
+                     f"<p class='muted'>{why}</p>{vids}"
+                     f"<a class='muted' href='/run?d={q(run_rel)}"
+                     f"#f={q(ep['file'])}'>read this episode's "
+                     "transcript &rarr;</a></section>")
+    if not cards:
+        cards = [
+            "<p class='muted'>This run recorded no videos. They are "
+            "written when main.py runs with --make_test_videos / "
+            "--make_interaction_videos.</p>"
+        ]
+    intro = ("<div class='banner'><span>Every episode this run recorded, "
+             "oldest first. Practice episodes are how it gathers data; "
+             "test episodes are how it is scored. Watching top to bottom "
+             "is watching the run unfold.</span></div>")
+    body = (f"<div class='content' style='height:calc(100vh - "
+            f"var(--topbar-h));overflow:auto'>{intro}"
+            f"{''.join(cards)}</div>")
+    topbar = (f"<a href='/run?d={q(run_rel)}'>&larr; run detail</a>"
+              f"<span class='crumb'>{esc(run_rel)}</span>")
+    return page(run_rel + " replays - log viewer", topbar, body)
+
+
 def run_page(run_rel: str) -> Optional[str]:
     """Single-run page: episode sidebar, file tree, and content pane."""
     run_abs = safe_join(run_rel)
@@ -2611,6 +2710,8 @@ def run_page(run_rel: str) -> Optional[str]:
             "overflow:hidden'>"
             f"<div class='banner' style='margin:8px 16px 0'>{banner}"
             "<span style='margin-left:auto'>"
+            f"<a class='watchlink' href='/replays?d={q(run_rel)}'>"
+            "&#9654; watch every episode</a> "
             "<button onclick='setAllDetails(true)'>expand all</button> "
             "<button onclick='setAllDetails(false)'>collapse all</button>"
             "</span></div>"
@@ -3204,6 +3305,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_html(index_page())
         elif route == "/run":
             html_text = run_page(params.get("d", ""))
+            if html_text is None:
+                self.send_html("<p>Run not found.</p>", status=404)
+            else:
+                self.send_html(html_text)
+        elif route == "/replays":
+            html_text = replays_page(params.get("d", ""))
             if html_text is None:
                 self.send_html("<p>Run not found.</p>", status=404)
             else:
