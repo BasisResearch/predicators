@@ -23,6 +23,14 @@ APPROACHES:
       skip_initial_test: True
       bilevel_plan_without_sim: True # for the demonstrator
       agent_solve_max_attempts: 1
+      # Bridge is stochastic (place scatter vs. the 12 mm bond window
+      # puts even a correct model's per-attempt success near 75%), so
+      # the train-driven all-attempts criterion from common.yaml is a
+      # coin flip that in practice never fires. Terminate on the direct
+      # evidence instead: two consecutive test phases that solved the
+      # eval task.
+      online_learning_early_stopping_by_test_solve_rate: True
+      online_learning_early_stopping_consecutive_perfect_tests: 2
       # Skip the once-per-cycle exploration-posterior emcee fit (up to 5h
       # wall per cycle at bridge scale for a ~0.1% log-prob gain over the
       # LM warm start). The info-seeking ensemble falls back to a Laplace
@@ -44,5 +52,7 @@ APPROACHES:
       bilevel_plan_without_sim: True # for the demonstrator
       agent_solve_max_attempts: 1
       agent_explorer_info_mcmc_steps: 0 # see the arm above
+      online_learning_early_stopping_by_test_solve_rate: True # ditto
+      online_learning_early_stopping_consecutive_perfect_tests: 2
     ARGS:
       - auto_resume
