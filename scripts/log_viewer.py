@@ -1695,7 +1695,7 @@ table.grid th { background: var(--surface2); color: var(--muted);
   font-size: 9px; font-weight: 700; letter-spacing: .1em;
   text-transform: uppercase; position: sticky; top: 0; z-index: 2;
   border-bottom: 1px solid var(--border2); }
-table.grid.runs { table-layout: fixed; }
+table.grid.runs { width: 100%; }
 tr.runrow:hover > td { background: var(--surface2); }
 tr.runrow td:nth-child(2) a { color: var(--bright); font-weight: 600; }
 tr.runrow td:nth-child(2) a:hover { color: var(--accent); }
@@ -1795,6 +1795,13 @@ a.watchlink { display: inline-block; height: 26px; line-height: 24px;
 a.watchlink:hover { text-decoration: none; filter: brightness(1.1); }
 
 .muted { color: var(--muted); font-weight: 400; }
+.kindbar { display: inline-flex; border: 1px solid var(--border2);
+  border-radius: 5px; overflow: hidden; flex-shrink: 0; }
+.kindbar button.kindbtn { height: 24px; border: none; border-radius: 0;
+  border-right: 1px solid var(--border2); }
+.kindbar button.kindbtn:last-child { border-right: none; }
+.kindbar button.kindbtn.on { background: var(--accent-dim);
+  color: var(--accent); }
 .help { display: inline-block; width: 14px; height: 14px; margin-left: 6px;
   border: 1px solid var(--border2); border-radius: 50%; color: var(--muted2);
   font: 700 9px/12px var(--sans); text-align: center; cursor: help;
@@ -1897,13 +1904,30 @@ function setAllDetails(open) {
 }
 
 // Index page: filter + compare + collapsible groups.
-function filterRuns(text) {
-  text = text.toLowerCase();
-  sessionStorage.setItem('lv-filter', text);
-  $all('.runrow').forEach(function(row) {
-    row.classList.toggle('hidden',
-      !!text && row.dataset.key.indexOf(text) === -1);
+function kindFilter() { return sessionStorage.getItem('lv-kind') || 'all'; }
+function setKind(k) {
+  sessionStorage.setItem('lv-kind', k);
+  paintKindBtns();
+  applyFilters();
+}
+function paintKindBtns() {
+  var k = kindFilter();
+  $all('button.kindbtn').forEach(function(b) {
+    b.classList.toggle('on', b.dataset.kind === k);
   });
+}
+function applyFilters() {
+  var text = (sessionStorage.getItem('lv-filter') || '').toLowerCase();
+  var kind = kindFilter();
+  $all('.runrow').forEach(function(row) {
+    var hide = (!!text && row.dataset.key.indexOf(text) === -1) ||
+               (kind !== 'all' && row.dataset.kind !== kind);
+    row.classList.toggle('hidden', hide);
+  });
+}
+function filterRuns(text) {
+  sessionStorage.setItem('lv-filter', text);
+  applyFilters();
 }
 // Index page: sort runs by seed (the server order) or by start time.
 // Time mode interleaves each experiment's seeds newest-first; the
@@ -2080,15 +2104,16 @@ function pollStamp() {
 document.addEventListener('DOMContentLoaded', function() {
   paintAutoBtn();
   paintThemeBtn();
+  paintKindBtns();
   paintSortBtn();
   applySort();
   pollStamp();
   setInterval(pollStamp, REFRESH_MS);
   var f = $('#runfilter');
-  if (f) {
-    f.value = sessionStorage.getItem('lv-filter') || '';
-    if (f.value) filterRuns(f.value);
-  }
+  if (f) f.value = sessionStorage.getItem('lv-filter') || '';
+  // Unconditional: a stored kind filter has to be reapplied even when
+  // the text box is empty.
+  if ($('.runrow')) applyFilters();
   var r = window._restore;
   if (r) {
     var sb = $('.sidebar');
@@ -2147,10 +2172,6 @@ LEGEND_HTML = (
     "<dd><i>solved/total</i> on held-out tasks, with the mean reward. "
     "<b>This is the score.</b> On the domino tasks reward is 1 for a "
     "solve minus a penalty per domino spent, so 0.90 beats 0.80.</dd>"
-    "<dt><b>cost</b></dt>"
-    "<dd>What the agent SDK reported those tokens would cost at API "
-    "rates. On a Claude subscription nothing is billed per query - "
-    "read it as a usage meter, not a bill.</dd>"
     "</dl></details>")
 
 
@@ -2242,7 +2263,6 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], live: LiveProcs,
             is_newest: bool) -> str:
     """One flat row on the index: what it was, how it went, where to look."""
     tr_str = test_results_str(summary) or "-"
-    cost = summary.get("total_cost", 0.0)
     fmt = "%Y-%m-%d %H:%M"
     start_ts = _run_start_ts(r["name"], r["mtime"])
     sstr = datetime.datetime.fromtimestamp(start_ts).strftime(fmt)
@@ -2253,7 +2273,10 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], live: LiveProcs,
     # Approach and experiment join the filter key, so what used to be a
     # group heading is now something you type into the filter box.
     key = f"{r['exp']} {r['seed']} {r['name']} {status}".lower()
-    cost_str = f"${cost:.2f}" if cost else "-"
+    # An oracle arm is handed the ground-truth model and learns nothing;
+    # everything else is a learner. The approach name is the only thing
+    # that says which, and it says it reliably.
+    kind = "oracle" if fam.startswith("oracle") else "learning"
     copy_path = os.path.relpath(os.path.join(LOGS_ROOT, r["rel"]))
     is_live = status == "running"
     esc_rel = esc(r["rel"])
@@ -2271,7 +2294,7 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], live: LiveProcs,
                "\u2715</button>")
     return ("<tr class='runrow' "
             f"data-key='{esc(key)}' data-seed='{esc(r['seed'])}' "
-            f"data-start='{start_ts:.0f}'>"
+            f"data-kind='{kind}' data-start='{start_ts:.0f}'>"
             f"<td><input type='checkbox' class='cmp' value='{esc(r['rel'])}'>"
             "</td>"
             f"<td><a class='watchlink' href='/replays?d={q(r['rel'])}'>"
@@ -2284,7 +2307,6 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], live: LiveProcs,
             f"<td>{esc(r['seed'])}</td>"
             f"<td>{status_chip(r, summary, live, is_newest)}{kill_btn}</td>"
             f"<td><b>{esc(tr_str)}</b></td>"
-            f"<td>{cost_str}</td>"
             f"<td class='muted'>{sstr}</td>"
             f"<td class='muted'>{dur_str}</td></tr>")
 
@@ -2332,9 +2354,6 @@ def index_page() -> str:
             "<th title='Lifecycle: done / running / interrupted'>status</th>"
             "<th title='Solved/total on held-out tasks and the mean "
             "reward - the score of the run'>result</th>"
-            "<th title='Dollar value the agent SDK reported for this "
-            "run&#39;s tokens. Nothing is billed per query on a "
-            "subscription'>cost</th>"
             "<th>started</th>"
             "<th title='Wall-clock from first to last log write'>time</th>"
             "</tr>")
@@ -2345,6 +2364,18 @@ def index_page() -> str:
     body.append("</div>")
     topbar = ("<input id='runfilter' placeholder='filter runs\u2026' "
               "oninput='filterRuns(this.value)'>"
+              "<span class='kindbar'>"
+              "<button class='kindbtn' data-kind='all' "
+              "onclick='setKind(\"all\")'>all</button>"
+              "<button class='kindbtn' data-kind='learning' "
+              "onclick='setKind(\"learning\")' title='Runs of an "
+              "agent_* approach, which has to learn its model'>"
+              "learning</button>"
+              "<button class='kindbtn' data-kind='oracle' "
+              "onclick='setKind(\"oracle\")' title='Runs of an "
+              "oracle_* approach, handed the ground-truth model - "
+              "upper bounds, no learning'>oracle</button>"
+              "</span>"
               "<button id='sortbtn' onclick='toggleSort()' title='seed: "
               "group rows by seed, newest first within each seed; time: "
               "newest runs first'></button>"
