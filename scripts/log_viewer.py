@@ -1451,104 +1451,260 @@ def ansi_to_html(text: str) -> str:
 # ------------------------------------------------------------ HTML shell
 
 CSS = """
+/* ── Design tokens ──────────────────────────────────────────────────
+   Light is the default; dark arrives either from the OS (the media
+   query, skipped when the user has explicitly chosen light) or from
+   the topbar toggle, which stamps data-theme on <html>. Every colour
+   is defined on bare :root so neither path can leave one undefined. */
 :root {
-  --bg: #ffffff; --fg: #24292f; --muted: #57606a; --border: #d0d7de;
-  --panel: #f6f8fa; --accent: #0969da; --ok: #1a7f37; --bad: #cf222e;
-  --code-bg: #f6f8fa; --add: #dafbe1; --del: #ffebe9;
+  --bg:         hsl(0, 0%, 100%);
+  --surface:    hsl(240, 5%, 97%);
+  --surface2:   hsl(240, 5%, 94%);
+  --surface3:   hsl(240, 5%, 90%);
+  --border:     hsl(240, 6%, 88%);
+  --border2:    hsl(240, 5%, 80%);
+  --fg:         hsl(222, 30%, 18%);
+  --bright:     hsl(222, 47%, 8%);
+  --muted:      hsl(220, 9%, 42%);
+  --muted2:     hsl(220, 9%, 60%);
+  --accent:     hsl(214, 90%, 38%);
+  --accent-dim: hsl(214, 100%, 94%);
+  --ok:         hsl(142, 71%, 32%);
+  --ok-dim:     hsl(142, 76%, 92%);
+  --bad:        hsl(0, 78%, 46%);
+  --bad-dim:    hsl(0, 84%, 95%);
+  --warn:       hsl(35, 91%, 36%);
+  --warn-dim:   hsl(35, 100%, 92%);
+  --violet:     hsl(266, 60%, 46%);
+  --violet-dim: hsl(266, 90%, 96%);
+  --panel:      var(--surface);
+  --code-bg:    var(--surface2);
+  --add:        hsl(142, 76%, 92%);
+  --del:        hsl(0, 84%, 95%);
+  --shadow:     0 1px 2px hsl(0 0% 0% / .06);
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", "SF Mono", ui-monospace, SFMono-Regular,
+          Menlo, Consolas, monospace;
+  --topbar-h: 44px;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0d1117; --fg: #c9d1d9; --muted: #8b949e; --border: #30363d;
-    --panel: #161b22; --accent: #58a6ff; --ok: #3fb950; --bad: #f85149;
-    --code-bg: #161b22; --add: #12261e; --del: #35181a;
+  :root:not([data-theme="light"]) {
+    --bg:         hsl(220, 8%, 7%);
+    --surface:    hsl(225, 27%, 11%);
+    --surface2:   hsl(225, 27%, 14%);
+    --surface3:   hsl(218, 30%, 18%);
+    --border:     hsl(232, 22%, 18%);
+    --border2:    hsl(232, 22%, 26%);
+    --fg:         hsl(0, 0%, 82%);
+    --bright:     hsl(0, 0%, 96%);
+    --muted:      hsl(0, 0%, 58%);
+    --muted2:     hsl(0, 0%, 40%);
+    --accent:     hsl(207, 90%, 62%);
+    --accent-dim: hsl(213, 53%, 18%);
+    --ok:         hsl(140, 70%, 50%);
+    --ok-dim:     hsl(140, 50%, 12%);
+    --bad:        hsl(348, 90%, 63%);
+    --bad-dim:    hsl(348, 40%, 15%);
+    --warn:       hsl(36, 100%, 60%);
+    --warn-dim:   hsl(36, 40%, 13%);
+    --violet:     hsl(266, 90%, 74%);
+    --violet-dim: hsl(266, 40%, 18%);
+    --add:        hsl(140, 45%, 12%);
+    --del:        hsl(348, 40%, 15%);
+    --shadow:     0 1px 2px hsl(0 0% 0% / .4);
   }
 }
+:root[data-theme="dark"] {
+  --bg:         hsl(220, 8%, 7%);
+  --surface:    hsl(225, 27%, 11%);
+  --surface2:   hsl(225, 27%, 14%);
+  --surface3:   hsl(218, 30%, 18%);
+  --border:     hsl(232, 22%, 18%);
+  --border2:    hsl(232, 22%, 26%);
+  --fg:         hsl(0, 0%, 82%);
+  --bright:     hsl(0, 0%, 96%);
+  --muted:      hsl(0, 0%, 58%);
+  --muted2:     hsl(0, 0%, 40%);
+  --accent:     hsl(207, 90%, 62%);
+  --accent-dim: hsl(213, 53%, 18%);
+  --ok:         hsl(140, 70%, 50%);
+  --ok-dim:     hsl(140, 50%, 12%);
+  --bad:        hsl(348, 90%, 63%);
+  --bad-dim:    hsl(348, 40%, 15%);
+  --warn:       hsl(36, 100%, 60%);
+  --warn-dim:   hsl(36, 40%, 13%);
+  --violet:     hsl(266, 90%, 74%);
+  --violet-dim: hsl(266, 40%, 18%);
+  --add:        hsl(140, 45%, 12%);
+  --del:        hsl(348, 40%, 15%);
+  --shadow:     0 1px 2px hsl(0 0% 0% / .4);
+}
+
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg);
-  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica,
-  Arial, sans-serif; }
+  font: 13px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
-code, pre { font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
-.topbar { position: sticky; top: 0; z-index: 10; display: flex; gap: 12px;
-  align-items: center; padding: 8px 16px; background: var(--panel);
-  border-bottom: 1px solid var(--border); }
-.topbar h1 { font-size: 15px; margin: 0; white-space: nowrap; }
-.topbar input { flex: 1; max-width: 420px; padding: 4px 10px;
-  border: 1px solid var(--border); border-radius: 6px;
-  background: var(--bg); color: var(--fg); }
-.topbar .crumb { color: var(--muted); font-size: 13px; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; }
-button { padding: 4px 10px; border: 1px solid var(--border);
-  border-radius: 6px; background: var(--bg); color: var(--fg);
-  cursor: pointer; font-size: 12px; }
-button:hover { border-color: var(--accent); }
-.layout { display: flex; height: calc(100vh - 45px); }
+code, pre { font: 12px/1.45 var(--mono); }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted2); }
+
+/* ── Topbar ─────────────────────────────────────────────────────── */
+.topbar { position: sticky; top: 0; z-index: 10; display: flex; gap: 8px;
+  align-items: center; height: var(--topbar-h); padding: 0 14px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  user-select: none; }
+.topbar h1 { font-size: 11px; margin: 0; white-space: nowrap;
+  font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.topbar h1 a { color: var(--ok); }
+.topbar h1 a:hover { text-decoration: none; opacity: .8; }
+.topbar input { flex: 1; max-width: 340px; padding: 5px 10px;
+  border: 1px solid var(--border2); border-radius: 5px;
+  background: var(--bg); color: var(--bright); font-size: 12px;
+  font-family: var(--sans); }
+.topbar input:focus { outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim); }
+.topbar input::placeholder { color: var(--muted2); }
+.topbar .crumb { color: var(--muted); font-size: 11px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono);
+  margin-left: auto; }
+.topbar .sep { width: 1px; height: 16px; background: var(--border2);
+  flex-shrink: 0; }
+button { height: 26px; padding: 0 10px; border: 1px solid transparent;
+  border-radius: 5px; background: transparent; color: var(--muted);
+  cursor: pointer; font-size: 11px; font-weight: 600;
+  font-family: var(--sans); letter-spacing: .02em; white-space: nowrap;
+  transition: color .1s, background .1s, border-color .1s; }
+button:hover { background: var(--surface2); border-color: var(--border2);
+  color: var(--bright); }
+
+/* ── Layout ─────────────────────────────────────────────────────── */
+.layout { display: flex; height: calc(100vh - var(--topbar-h)); }
 .sidebar { width: 340px; min-width: 240px; overflow-y: auto; padding: 10px;
-  border-right: 1px solid var(--border); background: var(--panel);
+  border-right: 1px solid var(--border); background: var(--surface);
   resize: horizontal; }
-.content { flex: 1; overflow-y: auto; padding: 16px 24px; }
-.content { max-width: 100%; }
+.content { flex: 1; overflow-y: auto; padding: 16px 22px; max-width: 100%; }
 .content pre.code { background: var(--code-bg); padding: 10px 12px;
   border: 1px solid var(--border); border-radius: 6px; overflow-x: auto;
   white-space: pre; }
-.content h2, .content h3 { border-bottom: 1px solid var(--border);
-  padding-bottom: 4px; }
+.content h2, .content h3 { color: var(--bright);
+  border-bottom: 1px solid var(--border); padding-bottom: 5px; }
+
+/* ── Collapsible sections ───────────────────────────────────────── */
 details.section, details.turn { border: 1px solid var(--border);
   border-radius: 6px; margin: 8px 0; background: var(--bg); }
 details.section > summary, details.turn > summary { cursor: pointer;
-  padding: 6px 12px; font-weight: 600; background: var(--panel);
-  border-radius: 6px; }
+  padding: 6px 12px; font-weight: 600; color: var(--bright);
+  background: var(--surface); border-radius: 6px; }
+details.section > summary:hover, details.turn > summary:hover {
+  background: var(--surface2); }
 details[open].section > summary, details[open].turn > summary {
-  border-bottom: 1px solid var(--border);
-  border-radius: 6px 6px 0 0; }
+  border-bottom: 1px solid var(--border); border-radius: 6px 6px 0 0; }
 details.section > *:not(summary), details.turn > *:not(summary) {
   margin-left: 12px; margin-right: 12px; }
 details.turn { margin-left: 8px; }
-summary .hint { color: var(--muted); font-weight: 400; font-size: 12px; }
-.chip { display: inline-block; padding: 0 7px; border-radius: 10px;
-  font-size: 11px; line-height: 18px; border: 1px solid var(--border);
-  color: var(--muted); margin-right: 3px; white-space: nowrap; }
-.chip.ok { color: var(--ok); border-color: var(--ok); }
-.chip.bad { color: var(--bad); border-color: var(--bad); }
-.chip.kind-explore { color: #b083f0; border-color: #b083f0; }
-.chip.kind-learn { color: #daaa3f; border-color: #daaa3f; }
+summary .hint { color: var(--muted); font-weight: 400; font-size: 11px; }
+
+/* ── Chips ──────────────────────────────────────────────────────────
+   Filled (tinted background + saturated text) rather than outline-only:
+   a run's episode strip is read at a glance, and fills separate the
+   states far faster than border colour alone. */
+.chip { display: inline-block; padding: 1px 7px; border-radius: 4px;
+  font: 600 10px/16px var(--mono); border: 1px solid var(--border2);
+  background: var(--surface2); color: var(--muted); margin-right: 3px;
+  white-space: nowrap; vertical-align: middle; }
+.chip.ok   { color: var(--ok);   border-color: var(--ok);   background: var(--ok-dim); }
+.chip.bad  { color: var(--bad);  border-color: var(--bad);  background: var(--bad-dim); }
+.chip.kind-explore { color: var(--violet); border-color: var(--violet);
+  background: var(--violet-dim); }
+.chip.kind-learn { color: var(--warn); border-color: var(--warn);
+  background: var(--warn-dim); }
+.chip.kind-test { color: var(--accent); border-color: var(--accent);
+  background: var(--accent-dim); }
 /* Lifecycle, not verdict: green and red stay reserved for env evals. */
 .chip.live { color: var(--accent); border-color: var(--accent);
+  background: var(--accent-dim); }
+.chip.live::before { content: "\\25cf"; margin-right: 4px;
   animation: pulse 1.8s ease-in-out infinite; }
-.chip.stopped { color: #daaa3f; border-color: #daaa3f; }
-@keyframes pulse { 50% { opacity: .45; } }
+.chip.done { color: var(--muted); border-color: var(--border2); }
+.chip.stopped { color: var(--warn); border-color: var(--warn);
+  background: var(--warn-dim); }
+@keyframes pulse { 50% { opacity: .3; } }
 @media (prefers-reduced-motion: reduce) {
-  .chip.live { animation: none; }
+  .chip.live::before { animation: none; }
 }
-.banner { padding: 10px 14px; border-radius: 6px; margin-bottom: 12px;
-  border: 1px solid var(--border); background: var(--panel);
-  display: flex; gap: 18px; flex-wrap: wrap; }
-.banner.warn { border-color: var(--bad); color: var(--bad);
-  font-weight: 600; }
+
+/* ── Banner / stat strip ────────────────────────────────────────── */
+.banner { padding: 9px 14px; border-radius: 6px; margin-bottom: 12px;
+  border: 1px solid var(--border); background: var(--surface);
+  display: flex; gap: 20px; flex-wrap: wrap; align-items: center;
+  font-size: 12px; }
+.banner.warn { border-color: var(--bad); background: var(--bad-dim);
+  color: var(--bad); font-weight: 600; }
+.banner b, .banner .num { font-family: var(--mono); color: var(--bright); }
 .ok { color: var(--ok); font-weight: 700; }
 .bad { color: var(--bad); font-weight: 700; }
-table.grid { border-collapse: collapse; margin: 10px 0; }
-table.grid th, table.grid td { border: 1px solid var(--border);
-  padding: 4px 10px; text-align: left; font-size: 13px; }
-table.grid th { background: var(--panel); }
+
+/* ── Legend ─────────────────────────────────────────────────────────
+   The episode strip is a dense private notation (round tags, kind
+   chips, marks, rewards). Spelling it out on the page beats making
+   every reader hover each chip for its tooltip. */
+details.legend { border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); margin: 0 0 12px; }
+details.legend > summary { cursor: pointer; padding: 7px 12px;
+  font-size: 11px; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--muted); }
+details.legend > summary:hover { color: var(--bright); }
+details.legend[open] > summary { border-bottom: 1px solid var(--border); }
+.legend-grid { display: grid; gap: 6px 14px; padding: 10px 12px;
+  grid-template-columns: max-content 1fr; align-items: baseline;
+  font-size: 12px; }
+.legend-grid dt { text-align: right; }
+.legend-grid dd { margin: 0; color: var(--muted); }
+.legend-grid dd b { color: var(--bright); font-weight: 600; }
+
+/* ── Tables ─────────────────────────────────────────────────────── */
+table.grid { border-collapse: collapse; margin: 0; }
+table.grid th, table.grid td { border-bottom: 1px solid var(--border);
+  padding: 5px 10px; text-align: left; font-size: 12px;
+  vertical-align: middle; }
+table.grid th { background: var(--surface2); color: var(--muted);
+  font-size: 9px; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; position: sticky; top: 0; z-index: 2;
+  border-bottom: 1px solid var(--border2); }
 table.grid.runs { table-layout: fixed; }
-table.epgrid { border-collapse: collapse; margin: 0;
-  table-layout: fixed; }
+tr.runrow:hover > td { background: var(--surface2); }
+tr.runrow td:nth-child(2) a { color: var(--bright); font-weight: 600; }
+tr.runrow td:nth-child(2) a:hover { color: var(--accent); }
+/* Numbers, timestamps and seeds line up column-wise when monospaced. */
+tr.runrow td:nth-child(3), tr.runrow td:nth-last-child(-n+4) {
+  font-family: var(--mono); font-size: 11px; }
+table.epgrid { border-collapse: collapse; margin: 0; table-layout: fixed; }
 table.epgrid td { border: none; padding: 1px 0; line-height: 20px;
   vertical-align: top; }
+table.epgrid td.rnd { color: var(--muted2); font-family: var(--mono);
+  font-size: 10px; }
+
+/* ── Sidebar nav ────────────────────────────────────────────────── */
 .sidebar .nav a { display: block; padding: 3px 6px; border-radius: 4px;
-  color: var(--fg); font-size: 13px; overflow: hidden;
+  color: var(--fg); font-size: 12px; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
-.sidebar .nav a:hover { background: var(--bg); text-decoration: none; }
+.sidebar .nav a:hover { background: var(--surface2);
+  text-decoration: none; }
 .sidebar .nav a.active { background: var(--accent); color: #fff; }
 .sidebar .nav a.active .chip, .sidebar .nav a.active .muted {
-  color: #fff; border-color: #fff; }
-.sidebar h3 { font-size: 12px; text-transform: uppercase;
-  letter-spacing: .5px; color: var(--muted); margin: 14px 0 4px; }
+  color: #fff; border-color: #fff; background: transparent; }
+.sidebar h3 { font-size: 9px; text-transform: uppercase;
+  letter-spacing: .14em; color: var(--muted); margin: 16px 0 5px;
+  font-weight: 700; }
 .sidebar details { margin-left: 8px; }
-.sidebar details summary { cursor: pointer; font-size: 13px;
+.sidebar details summary { cursor: pointer; font-size: 12px;
   color: var(--muted); }
+
+/* ── Media ──────────────────────────────────────────────────────── */
 .thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
 /* width/height attrs on <img> reserve layout space before lazy images
    load (needed for exact scroll restore); auto on the free axis keeps
@@ -1566,47 +1722,63 @@ figure.vid { margin: 0; }
 figure.vid video { max-width: 480px; width: 100%;
   border: 1px solid var(--border); border-radius: 6px; display: block;
   background: #000; }
-figure.vid figcaption { font-size: 11px; margin-top: 4px; }
+figure.vid figcaption { font-size: 11px; margin-top: 4px;
+  color: var(--muted); font-family: var(--mono); }
 .gallery { display: grid; gap: 8px;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
 .gallery a { text-align: center; font-size: 11px; color: var(--muted);
   overflow-wrap: anywhere; }
 .gallery img { width: 100%; height: auto; border: 1px solid var(--border);
   border-radius: 4px; }
+
+/* ── Logs and diffs ─────────────────────────────────────────────── */
 pre.logview { white-space: pre-wrap; overflow-wrap: anywhere; }
 .diff .add { background: var(--add); display: block; }
 .diff .del { background: var(--del); display: block; }
 .diff .hunk { color: var(--accent); display: block; }
+
+/* ── Overlays ───────────────────────────────────────────────────── */
 #lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.85);
   display: none; align-items: center; justify-content: center;
   z-index: 100; cursor: zoom-out; }
 #lightbox img { max-width: 96vw; max-height: 96vh; }
 .runrow.hidden { display: none; }
 #refreshpill { position: fixed; right: 18px; bottom: 18px; z-index: 50;
-  background: var(--accent); color: #fff; border: none;
+  background: var(--accent); color: #fff; border: none; height: auto;
   padding: 8px 14px; border-radius: 18px; font-weight: 600;
   box-shadow: 0 2px 8px rgba(0,0,0,.35); }
+#refreshpill:hover { background: var(--accent); color: #fff;
+  border-color: transparent; opacity: .9; }
+
+/* ── Run groups ─────────────────────────────────────────────────── */
 details.grp { border: 1px solid var(--border); border-radius: 6px;
-  margin: 8px 0; }
-details.grp > summary { cursor: pointer; padding: 6px 12px;
-  font-weight: 600; background: var(--panel); border-radius: 6px; }
-details.grp[open] > summary { border-bottom: 1px solid var(--border);
-  border-radius: 6px 6px 0 0; }
-details.grp.family > summary { font-size: 15px; }
-details.grp > *:not(summary) { margin: 8px 12px; }
+  margin: 8px 0; background: var(--bg); overflow: hidden; }
+details.grp > summary { cursor: pointer; padding: 7px 12px;
+  font-weight: 600; color: var(--bright); background: var(--surface); }
+details.grp > summary:hover { background: var(--surface2); }
+details.grp[open] > summary { border-bottom: 1px solid var(--border); }
+details.grp.family { border-color: var(--border2); }
+details.grp.family > summary { font-size: 13px; letter-spacing: .01em; }
+details.grp.exp > summary { font-size: 12px; }
+details.grp.exp { margin: 8px 12px; }
+details.grp > *:not(summary) { margin: 0; }
+details.grp.family > details.grp { margin: 8px 12px; }
 details.grp.hidden { display: none; }
-.muted { color: var(--muted); }
-button.copybtn { padding: 0 3px; margin-left: 5px; border: none;
-  background: none; color: var(--muted); font-size: 12px;
+.muted { color: var(--muted); font-weight: 400; }
+
+/* ── Row action buttons ─────────────────────────────────────────── */
+button.copybtn { height: auto; padding: 0 3px; margin-left: 5px;
+  border: none; background: none; color: var(--muted2); font-size: 12px;
   visibility: hidden; }
 tr.runrow:hover button.copybtn { visibility: visible; }
-button.copybtn:hover { color: var(--accent); }
+button.copybtn:hover { color: var(--accent); background: none; }
 button.copybtn.copied { color: var(--ok); visibility: visible; }
-button.rowbtn { padding: 0 5px; margin-left: 5px;
+button.rowbtn { height: auto; padding: 0 5px; margin-left: 5px;
   border: 1px solid transparent; border-radius: 4px; background: none;
-  color: var(--muted); font-size: 11px; visibility: hidden; }
+  color: var(--muted2); font-size: 11px; visibility: hidden; }
 tr.runrow:hover button.rowbtn { visibility: visible; }
-button.rowbtn:hover { color: var(--bad); border-color: var(--bad); }
+button.rowbtn:hover { color: var(--bad); border-color: var(--bad);
+  background: var(--bad-dim); }
 """ + f"""
 table.epgrid td.task {{ width: {TASK_W}px; }}
 table.epgrid td.misc {{ width: {MISC_W}px; }}
@@ -1616,6 +1788,28 @@ table.epgrid td.rnd {{ width: {ROUND_W}px; }}
 JS = """
 function $(s, r) { return (r || document).querySelector(s); }
 function $all(s, r) { return Array.from((r || document).querySelectorAll(s)); }
+
+// Theme: 'auto' (follow the OS) | 'light' | 'dark'. Applied here in
+// <head>, before the body paints, so a stored choice never flashes the
+// other theme first.
+function themeMode() { return localStorage.getItem('lv-theme') || 'auto'; }
+function applyTheme() {
+  var m = themeMode();
+  if (m === 'auto') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', m);
+}
+function toggleTheme() {
+  var next = {auto: 'light', light: 'dark', dark: 'auto'}[themeMode()];
+  localStorage.setItem('lv-theme', next);
+  applyTheme();
+  paintThemeBtn();
+}
+function paintThemeBtn() {
+  var b = $('#themebtn');
+  if (b) b.textContent = {auto: '\\u25d1 auto', light: '\\u2600 light',
+                          dark: '\\u263e dark'}[themeMode()];
+}
+applyTheme();
 
 // Lightbox for images.
 document.addEventListener('click', function(e) {
@@ -1679,7 +1873,19 @@ function restoreGroups() {
     if (v !== null) d.open = v === '1';
   });
 }
+// The legend ships open so a first visit explains itself; someone who
+// already knows the notation closes it once and it stays closed.
+function restoreLegend() {
+  var l = $('details.legend');
+  if (!l) return;
+  var v = localStorage.getItem('lv-legend');
+  if (v !== null) l.open = v === '1';
+  l.addEventListener('toggle', function() {
+    localStorage.setItem('lv-legend', l.open ? '1' : '0');
+  });
+}
 document.addEventListener('DOMContentLoaded', restoreGroups);
+document.addEventListener('DOMContentLoaded', restoreLegend);
 document.addEventListener('toggle', function(e) {
   var d = e.target;
   if (d.classList && d.classList.contains('grp') && !window._filtering)
@@ -1892,6 +2098,7 @@ function pollStamp() {
 }
 document.addEventListener('DOMContentLoaded', function() {
   paintAutoBtn();
+  paintThemeBtn();
   paintSortBtn();
   applySort();
   pollStamp();
@@ -1926,13 +2133,52 @@ function filterLog() {
 
 def page(title: str, topbar_extra: str, body: str) -> str:
     """Wrap body in the full HTML page shell (topbar, CSS, and JS)."""
-    return (
-        "<!doctype html><html><head><meta charset='utf-8'>"
-        f"<title>{esc(title)}</title><style>{CSS}</style>"
-        f"<script>{JS}</script></head>"
-        "<body><div class='topbar'><h1><a href='/'>log viewer</a></h1>"
-        f"{topbar_extra}<button id='arbtn' onclick='toggleAuto()'></button>"
-        f"</div>{body}</body></html>")
+    return ("<!doctype html><html><head><meta charset='utf-8'>"
+            f"<title>{esc(title)}</title><style>{CSS}</style>"
+            f"<script>{JS}</script></head>"
+            "<body><div class='topbar'><h1><a href='/'>log viewer</a></h1>"
+            f"{topbar_extra}<span class='sep'></span>"
+            "<button id='arbtn' onclick='toggleAuto()'></button>"
+            "<button id='themebtn' onclick='toggleTheme()' "
+            "title='Light / dark / follow the OS'></button>"
+            f"</div>{body}</body></html>")
+
+
+# The episode strip packs a run's whole history into one cell using a
+# private notation (round tags, kind chips, marks, rewards). Every chip
+# carries a tooltip, but hovering a dozen of them to learn the alphabet
+# is not reading - so the alphabet is written down, open on a first
+# visit and collapsible for readers who already know it.
+LEGEND_HTML = (
+    "<details class='legend' open><summary>How to read a run row</summary>"
+    "<dl class='legend-grid'>"
+    "<dt><span class='chip'>r1</span></dt>"
+    "<dd>One <b>round</b> of the online loop: r1 is the pre-learning "
+    "phase, r2 the work after learning cycle 0, and so on.</dd>"
+    "<dt><span class='chip kind-explore'>001 explore \u2713 0.90</span></dt>"
+    "<dd><b>Exploration</b> episode on a train task: query number, then "
+    "the env verdict \u2713 accepted / \u2717 rejected, then its "
+    "reward.</dd>"
+    "<dt><span class='chip kind-learn'>003 learn</span></dt>"
+    "<dd><b>Learning</b> query: the agent synthesizes predicates, "
+    "simulator code, and physical params. No env verdict to show.</dd>"
+    "<dt><span class='chip ok'>004 t0 \u2713 0.80</span> "
+    "<span class='chip bad'>005 t1 \u2717</span></dt>"
+    "<dd><b>Test</b> episode on held-out task <i>t<b>N</b></i>, green "
+    "solved and red failed. This is the column that measures the "
+    "method; explore episodes do not.</dd>"
+    "<dt><span class='chip live'>running</span> "
+    "<span class='chip done'>done</span> "
+    "<span class='chip stopped'>interrupted</span></dt>"
+    "<dd>Run <b>lifecycle</b>, not verdict: <i>done</i> means info.log "
+    "ends with main.py's completion line, <i>interrupted</i> means it "
+    "does not and no process is alive.</dd>"
+    "<dt><b>test results</b></dt>"
+    "<dd>Per round, <i>solved/total</i> and the mean env reward - the "
+    "headline number for the run.</dd>"
+    "<dt><b>cost</b></dt>"
+    "<dd>Total USD the run's agent queries reported.</dd>"
+    "</dl></details>")
 
 
 def chip(label: Any, cls: str = "", title: str = "") -> str:
@@ -2193,16 +2439,25 @@ def index_page() -> str:
         if ts >= newest.get(key, (0.0, ""))[0]:
             newest[key] = (ts, r["rel"])
     body = [
-        "<div class='content' style='height:calc(100vh - 45px);"
-        "overflow:auto'>"
+        "<div class='content' style='height:calc(100vh - var(--topbar-h));"
+        "overflow:auto'>", LEGEND_HTML
     ]
     if not runs:
         body.append(
             f"<p>No run_* directories found under {esc(LOGS_ROOT)}.</p>")
-    table_head = ("<tr><th></th><th>run</th><th>seed</th><th>status</th>"
-                  "<th>episodes</th><th>test results (info.log)</th>"
-                  "<th>cost</th><th>started</th><th>modified</th>"
-                  "<th>time</th></tr>")
+    # Provenance and units live in the header tooltips rather than in
+    # the labels: the labels are read on every row, the provenance once.
+    table_head = (
+        "<tr><th></th><th>run</th><th>seed</th>"
+        "<th title='Lifecycle: done / running / interrupted'>status</th>"
+        "<th title='Every agent query this run made, by round'>"
+        "episodes</th>"
+        "<th title='Per round: solved/total and mean env reward, "
+        "parsed from info.log'>test results</th>"
+        "<th title='Total USD reported by this run&#39;s agent queries'>"
+        "cost</th><th>started</th><th>modified</th>"
+        "<th title='Wall-clock from first to last log write'>time</th>"
+        "</tr>")
     for fam in sorted(families):
         exps = families[fam]
         fam_runs = [r for rs in exps.values() for r in rs]
@@ -2221,8 +2476,12 @@ def index_page() -> str:
                 run_row(r, summaries[r["rel"]], layout, live, newest[(
                     r["exp"], r["seed"])][1] == r["rel"])
                 for r in exps[expname])
+            # Open by default: a first visit should land on the run
+            # table itself, not on a stack of headers hiding it. A
+            # reader who collapses one gets that remembered instead
+            # (restoreGroups reapplies localStorage on load).
             body.append(f"<details class='grp exp' data-key='exp:{esc(fam)}/"
-                        f"{esc(expname)}'>"
+                        f"{esc(expname)}' open>"
                         f"<summary>{esc(expname)} <span class='muted'>"
                         f"({len(exps[expname])} runs)</span></summary>"
                         f"<table class='grid runs' "
@@ -2304,6 +2563,11 @@ def run_page(run_rel: str) -> Optional[str]:
                 mark, cls, title = test_mark(ep)
             elif "env_accepted" in ep:
                 mark, cls, title = explore_mark(ep)
+            # An episode with no env verdict (a learn query) still
+            # gets its kind colour, so the sidebar speaks the same chip
+            # vocabulary as the index's episode strip.
+            if not cls:
+                cls = "kind-" + ep["kind"]
             cost = (f"  ${ep['solve_cost']:.2f}" if "solve_cost" in ep else "")
             task_str = (f" task{ep['task']}" if ep["task"] is not None else "")
             mark_str = " " + mark if mark else ""
@@ -2805,7 +3069,7 @@ def compare_page(run_rels: List[str]) -> str:
             "total cost", lambda s: (f"${s['total_cost']:.2f}")
             if s["total_cost"] else "-"))
     rows_html = "".join(rows)
-    body = ("<div class='content' style='height:calc(100vh - 45px);"
+    body = ("<div class='content' style='height:calc(100vh - var(--topbar-h));"
             "overflow-y:auto'><h2>Run comparison</h2>"
             "<table class='grid'><tr><th></th>"
             f"{head}</tr>{rows_html}</table></div>")
