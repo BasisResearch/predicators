@@ -1225,7 +1225,7 @@ class PyBulletEnv(BaseEnv):
                     raise ValueError(
                         f"Could not reconstruct state. Mismatched "
                         f"features:\n{raise_diff}")
-                logging.warning(
+                logging.debug(
                     "Could not reconstruct state exactly in reset. "
                     "Mismatched features:\n%s", warn_diff)
                 # Structured view of the same mismatch, for combined
