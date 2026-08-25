@@ -1785,6 +1785,10 @@ figure.clip > figcaption { font-size: 11px; margin-top: 5px;
 .fitvals { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 6px 0; }
 .fitvals code { color: var(--muted); }
 .fitvals b { font-family: var(--mono); color: var(--bright); }
+a.logslink { margin-left: 10px; font-size: 10px; color: var(--muted2);
+  text-transform: uppercase; letter-spacing: .08em; white-space: nowrap; }
+tr.runrow:hover a.logslink, .topbar a.logslink:hover {
+  color: var(--accent); }
 a.playlink { margin-left: 6px; color: var(--muted2); font-size: 11px; }
 tr.runrow:hover a.playlink { color: var(--accent); }
 a.playlink:hover { text-decoration: none; }
@@ -2158,8 +2162,8 @@ LEGEND_HTML = (
     "</summary><dl class='legend-grid'>"
     "<dt><b>run</b></dt>"
     "<dd>One execution of <code>main.py</code>, named by when it "
-    "started. Click it for the transcripts and files; click "
-    "<b>&#9654; watch</b> for the videos.</dd>"
+    "started. Click it (or <b>&#9654; watch</b>) to see the robot; "
+    "<b>logs</b> opens the transcripts and files instead.</dd>"
     "<dt><b>approach</b></dt>"
     "<dd>The method. An <code>oracle_*</code> approach is handed the "
     "ground-truth model and learns nothing - it is an upper bound. An "
@@ -2299,7 +2303,9 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], live: LiveProcs,
             "</td>"
             f"<td><a class='watchlink' href='/replays?d={q(r['rel'])}'>"
             "&#9654; watch</a></td>"
-            f"<td><a href='/run?d={q(r['rel'])}'>{esc(r['name'])}</a>"
+            f"<td><a href='/replays?d={q(r['rel'])}'>{esc(r['name'])}</a>"
+            f"<a class='logslink' href='/run?d={q(r['rel'])}' "
+            "title='Transcripts, logs and files of this run'>logs</a>"
             f"<button class='copybtn' data-copy='{esc(copy_path)}' "
             f"title='Copy run path'>\u29c9</button>{del_btn}</td>"
             f"<td class='muted'>{esc(fam)}</td>"
@@ -2546,7 +2552,9 @@ def replays_page(run_rel: str) -> Optional[str]:
     body = (f"<div class='content' style='height:calc(100vh - "
             f"var(--topbar-h));overflow:auto'>{intro}"
             f"{''.join(out)}</div>")
-    topbar = (f"<a href='/run?d={q(run_rel)}'>&larr; run detail</a>"
+    topbar = ("<a href='/'>&larr; all runs</a>"
+              f"<a class='logslink' href='/run?d={q(run_rel)}'>"
+              "logs &amp; transcripts</a>"
               f"<span class='crumb'>{esc(run_rel)}</span>")
     return page(run_rel + " replays - log viewer", topbar, body)
 
@@ -2616,16 +2624,17 @@ def run_page(run_rel: str) -> Optional[str]:
             "overflow:hidden'>"
             f"<div class='banner' style='margin:8px 16px 0'>{banner}"
             "<span style='margin-left:auto'>"
-            f"<a class='watchlink' href='/replays?d={q(run_rel)}'>"
-            "&#9654; watch every episode</a> "
             "<button onclick='setAllDetails(true)'>expand all</button> "
             "<button onclick='setAllDetails(false)'>collapse all</button>"
             "</span></div>"
             f"<div class='content' id='content' data-run='{esc(run_rel)}' "
             f"data-default='{default}'><p class='muted'>Select a file.</p>"
             "</div></div></div>")
-    topbar = f"<span class='crumb'>{esc(run_rel)}</span>"
-    return page(run_rel + " - log viewer", topbar, body)
+    topbar = ("<a href='/'>&larr; all runs</a>"
+              f"<a class='logslink' href='/replays?d={q(run_rel)}'>"
+              "&#9654; watch videos</a>"
+              f"<span class='crumb'>{esc(run_rel)}</span>")
+    return page(run_rel + " logs - log viewer", topbar, body)
 
 
 # ------------------------------------------------------------- fragments
