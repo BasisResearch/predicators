@@ -12,6 +12,7 @@ Parallels ``AgentPlanExplorer`` for session plumbing and
 """
 
 import logging
+import os
 from typing import Any, Callable, Dict, List, Optional, Set
 
 import numpy as np
@@ -388,25 +389,35 @@ class AgentBilevelExplorer(BaseExplorer):
     def _build_experiment_guidance(self) -> str:
         """LLM-proposal half of active-experiment design.
 
-        When info-seeking is on, tell the agent that refinement will turn each
-        annotated step into a boundary-probing experiment, and - when an
-        ensemble scorer is wired - point it at the predicates the learned
-        model is currently most internally uncertain about. Empty string when
-        info-seeking is off, leaving the prompt unchanged.
+        Always injects the learn phase's open-questions ledger (the
+        ranked experiment specs it wrote for exploration to run) when
+        one exists in the sandbox. When info-seeking is on, additionally
+        tell the agent that refinement will turn each annotated step
+        into a boundary-probing experiment, and - when an ensemble
+        scorer is wired - point it at the predicates the learned model
+        is currently most internally uncertain about.
         """
-        if not CFG.agent_explorer_info_seeking:
-            return ""
-        base = (
-            "Refinement will actively choose continuous parameters that "
-            "straddle the learned model's decision boundaries, so each "
-            "annotated step doubles as an experiment that reveals where the "
-            "model is wrong. Prefer a sketch whose subgoal annotations "
-            "exercise the geometry/timing you are least sure the learned "
-            "model has right.")
-        disagreement = self._build_disagreement_summary()
-        parts = [base]
-        if disagreement:
-            parts.append(disagreement)
+        parts = []
+        ledger = self._read_open_questions()
+        if ledger:
+            parts.append(
+                "The learning phase left this ranked ledger of OPEN "
+                "QUESTIONS - uncertainties it could not settle from the "
+                "data collected so far, each with the experiment that "
+                "would settle it. Settling ledger entries is this "
+                "episode's highest-value use; design the episode to "
+                "cover as many as its step budget allows:\n" + ledger)
+        if CFG.agent_explorer_info_seeking:
+            parts.append(
+                "Refinement will actively choose continuous parameters "
+                "that straddle the learned model's decision boundaries, "
+                "so each annotated step doubles as an experiment that "
+                "reveals where the model is wrong. Prefer a sketch whose "
+                "subgoal annotations exercise the geometry/timing you "
+                "are least sure the learned model has right.")
+            disagreement = self._build_disagreement_summary()
+            if disagreement:
+                parts.append(disagreement)
         # System-ID gaps from the previous learn phase (synced by the
         # sim-learning approach): what the collected data could NOT
         # support, phrased as experiment objectives. Exploration is the
@@ -417,6 +428,30 @@ class AgentBilevelExplorer(BaseExplorer):
                 "The previous system-identification fit left gaps that "
                 "only new interaction data can close:\n" + sysid)
         return "\n\n".join(parts)
+
+    _MAX_OPEN_QUESTIONS_CHARS = 4000
+
+    def _read_open_questions(self) -> str:
+        """The learn phase's ./open_questions.md ledger, or "".
+
+        The ledger is ranked, so on overflow the head is kept. Read
+        directly from the sandbox instead of asking the session to go
+        find it: the explore query should START from the ledger, not
+        spend its budget rediscovering it.
+        """
+        sandbox_dir = self._tool_context.sandbox_dir
+        if not sandbox_dir:
+            return ""
+        path = os.path.join(sandbox_dir, "open_questions.md")
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                text = f.read().strip()
+        except OSError:
+            return ""
+        if len(text) > self._MAX_OPEN_QUESTIONS_CHARS:
+            text = (text[:self._MAX_OPEN_QUESTIONS_CHARS] +
+                    "\n[... ledger truncated; lower-ranked entries omitted]")
+        return text
 
     def _build_disagreement_summary(self) -> str:
         """Name the predicates the ensemble disagrees most about.
