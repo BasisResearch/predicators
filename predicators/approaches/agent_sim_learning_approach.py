@@ -1129,7 +1129,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
     _CHECKPOINT_SANDBOX_FILES = ("simulator.py", "predicates.py",
                                  "samplers.py", "ground_samplers.py",
-                                 "notes.md", "journal.md", "strategy.md")
+                                 "notes.md", "journal.md", "strategy.md",
+                                 "open_questions.md")
     _CHECKPOINT_SANDBOX_DIRS = ("simulator_versions", "predicates_versions",
                                 "samplers_versions")
     _CHECKPOINT_MAX_FILE_BYTES = 2 * 1024 * 1024
@@ -2120,6 +2121,26 @@ environment never produces, and plans validated against it fail in \
 reality. The converse error is just as costly: do not delete a rule \
 whose mechanism you have confirmed merely because one fit metric is \
 noisy - decide from the recorded evidence either way.
+
+Work through EVERY divergence this cycle's new trajectories reveal \
+in this one session: enumerate each mechanism the episodes \
+exercised, reconcile it against the model, and fix all confirmed \
+errors now - not just the one that blocked the last test or the \
+first one you find. Each error deferred to the next cycle costs a \
+full explore-learn-test round trip, which is the main thing that \
+makes learning slow.
+
+Also maintain `./open_questions.md`: a short RANKED ledger of the \
+model's remaining uncertainties - mechanisms never observed, \
+thresholds whose supporting data is one-sided or knife-edge, \
+hypotheses awaiting confirmation - each entry naming the cheapest \
+real-environment experiment that would settle it, as a concrete \
+option sequence or parameter ladder (e.g. "place pairs at spacings \
+bracketing the believed window"), plus what to measure. The next \
+exploration phase receives this file verbatim and designs its \
+episodes from it, so write entries as runnable experiment specs, \
+not prose; DELETE entries this cycle's data settles. An empty \
+ledger declares the model believed complete everywhere.
 
 Separately, maintain `./strategy.md`: a natural-language DOMAIN \
 STRATEGY for solving tasks in this environment - the recommended \
