@@ -1760,3 +1760,49 @@ def test_execution_policy_stuck_loop_resets_on_changed_params():
     with pytest.raises(ApproachFailure, match="option budget"):
         policy(_make_state())
     assert n_calls[0] == 6
+
+
+def test_execution_policy_stuck_loop_on_mid_execution_raise():
+    """The guard also counts a skill that raises from inside its own
+    policy (e.g. a motion-planning refusal), whose exception carries no
+    last_failed_option of its own: option_policy_to_policy attributes it
+    to the executing option, so K identical re-issues end the episode
+    instead of burning the option budget (2026-08-25 policy-arm cycle-4
+    test)."""
+    from predicators.approaches import ApproachFailure
+    approach, _, _ = _make_approach()
+    utils.reset_config({
+        "env": "cover",
+        "approach": "agent_bilevel",
+        "seed": 42,
+        "agent_solve_policy_mode": True,
+        "agent_bilevel_max_execution_replans": 0,
+        "agent_policy_max_options": 50,
+    })
+
+    def _refusing_policy(_s, _m, _o, _p):
+        raise utils.OptionExecutionFailure(
+            "[Broken/MoveAbove] BiRRT collision: start configuration "
+            "in collision")
+
+    refusing = ParameterizedOption(
+        "Broken",
+        types=[_block_type],
+        params_space=Box(low=np.array([0.0], dtype=np.float32),
+                         high=np.array([1.0], dtype=np.float32)),
+        policy=_refusing_policy,
+        initiable=_always_true,
+        terminal=_always_false,
+    )
+    issued = []
+
+    def option_fn(state, last_failure):
+        del state, last_failure
+        issued.append(1)
+        return refusing.ground([_block0], np.array([0.5], dtype=np.float32))
+
+    policy = approach._policy_to_execution_policy(option_fn)
+    with pytest.raises(ApproachFailure,
+                       match="re-issued the same failing option"):
+        policy(_make_state())
+    assert len(issued) == 3  # the guard default, not the 50 cap
