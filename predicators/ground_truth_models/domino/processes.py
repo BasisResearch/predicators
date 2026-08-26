@@ -167,7 +167,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
     def get_env_names(cls) -> Set[str]:
         return {
             "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real",
-            "pybullet_domino_real_geometry"
+            "pybullet_domino_real_geometry", "pybullet_domino_fan"
         }
 
     @classmethod
@@ -208,8 +208,9 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         # We would need to add it to the environment for the DominoFall
         # exogenous process
 
-        # Options
-        Push = options["Push"]
+        # Options. Push is absent in a fan env (see below), so it is
+        # looked up defensively rather than by subscript.
+        Push = options.get("Push")
         Pick = options["Pick"]
         Place = options["Place"]
         Wait = options["Wait"]
@@ -229,7 +230,6 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             option_vars = [robot]
         else:
             option_vars = [robot, domino]
-        option = Push
         condition_at_start = {
             LiftedAtom(HandEmpty, [robot]),
             LiftedAtom(StartBlock, [domino]),
@@ -244,12 +244,16 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         ignore_effects = {DominoAtPos, DominoAtRot, PosClear, AdjacentTo}
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0),
                                                    sigma=torch.tensor(0.1))
-        push_start_block_process = EndogenousProcess(
-            "PushStartBlock", parameters, condition_at_start, set(),
-            set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, _push_sampler,
-            ignore_effects)
-        processes.add(push_start_block_process)
+        if Push is not None:
+            push_start_block_process = EndogenousProcess(
+                "PushStartBlock", parameters, condition_at_start, set(), set(),
+                add_effects, delete_effects, delay_distribution,
+                torch.tensor(1.0), Push, option_vars, _push_sampler,
+                ignore_effects)
+            # Withheld in a fan env, matching the option: the wind starts
+            # the chain there, and a planner left a Push will use it and
+            # never touch a switch.
+            processes.add(push_start_block_process)
 
         # PickDomino: Position-based pick process
         robot = Variable("?robot", robot_type)
@@ -394,6 +398,88 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             delay_distribution, torch.tensor(1.0))
         processes.add(domino_tilting_delete_process)
 
+        # --- Wind, when the env has fans -------------------------------
+        # A composed env carrying a FanComponent brings switches and
+        # fans; a plain domino env does not, and its predicate dict has
+        # none of these names.
+        if "FanOn" in predicates:
+            processes |= cls._get_fan_processes(types, predicates, options)
+
+        return processes
+
+    @classmethod
+    def _get_fan_processes(
+            cls, types: Dict[str, Type], predicates: Dict[str, Predicate],
+            options: Dict[str, ParameterizedOption]) -> Set[CausalProcess]:
+        """Turning a fan on, and the wind that follows.
+
+        Two processes are enough, and that is the point. The fan env
+        needs a grid because a ball's whole trajectory is wind; a domino
+        chain's is not. Only the FIRST block is pushed by the wind -
+        ``DominoFallFromBeingInFrontOfTilting`` and
+        ``DominoTiltingDelete`` above carry the cascade from there. So
+        the wind needs exactly one bridging rule into the vocabulary the
+        chain already speaks.
+
+        Written over FANS rather than switches because that is the
+        vocabulary the env exposes: under
+        ``fan_known_controls_relation`` FanComponent hides
+        SwitchOn/SwitchOff and publishes FanOn/FanOff, and the switch is
+        an implementation detail the option resolves for itself.
+        """
+        robot_type = types["robot"]
+        domino_type = types["domino"]
+        fan_type = types["fan"]
+
+        FanOn = predicates["FanOn"]
+        FanOff = predicates["FanOff"]
+        Upright = predicates["Upright"]
+        StartBlock = predicates["InitialBlock"]
+        Tilting = predicates["Tilting"]
+
+        processes: Set[CausalProcess] = set()
+
+        # Pressing the switch. Endogenous: the robot does it.
+        robot = Variable("?robot", robot_type)
+        fan = Variable("?fan", fan_type)
+        processes.add(
+            EndogenousProcess(
+                "TurnFanOn", [robot, fan], {LiftedAtom(FanOff, [fan])}, set(),
+                set(), {LiftedAtom(FanOn, [fan])}, {LiftedAtom(FanOff, [fan])},
+                DiscreteGaussianDelay(mu=torch.tensor(1.0),
+                                      sigma=torch.tensor(0.1)),
+                torch.tensor(1.0), options["TurnFanOn"], [robot, fan],
+                null_sampler))
+
+        # The wind. Exogenous: nobody chooses it, it follows from the
+        # fan being on.
+        #
+        # Deliberately NOT conditioned on which way the fan faces, the
+        # way pybullet_fan's MoveToSide is. That needs a direction
+        # vocabulary the domino side has no use for, and the tasks are
+        # generated with the chain already laid along one fan's axis
+        # (domino_fan_aligned_tasks), so a fan press and a topple are
+        # one-to-one here. A task set where the planner had to CHOOSE a
+        # fan would need it, and this is where it would go.
+        #
+        # Effects mirror PushStartBlock exactly - Tilting added, Upright
+        # deleted - because the two are the same event reached two ways,
+        # and a rule that left Upright asserted could fire forever.
+        domino = Variable("?domino", domino_type)
+        fan2 = Variable("?fan", fan_type)
+        conds = {
+            LiftedAtom(FanOn, [fan2]),
+            LiftedAtom(StartBlock, [domino]),
+            LiftedAtom(Upright, [domino]),
+        }
+        processes.add(
+            ExogenousProcess(
+                "WindTopplesStartBlock", [domino, fan2], conds, set(), set(),
+                {LiftedAtom(Tilting, [domino])},
+                {LiftedAtom(Upright, [domino])},
+                DiscreteGaussianDelay(mu=torch.tensor(2.0),
+                                      sigma=torch.tensor(0.1)),
+                torch.tensor(1.0)))
         return processes
 
 
@@ -639,7 +725,7 @@ class PyBulletDominoGroundTruthSamplerFactory(GroundTruthSamplerFactory):
     def get_env_names(cls) -> Set[str]:
         return {
             "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real",
-            "pybullet_domino_real_geometry"
+            "pybullet_domino_real_geometry", "pybullet_domino_fan"
         }
 
     @classmethod

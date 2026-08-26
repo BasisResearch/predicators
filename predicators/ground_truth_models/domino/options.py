@@ -4,8 +4,10 @@ from dataclasses import replace
 from typing import ClassVar, Dict, Optional, Sequence, Set, Tuple
 from typing import Type as TypingType
 
+import numpy as np
 from gym.spaces import Box
 
+from predicators import utils
 from predicators.envs.pybullet_domino import PyBulletDominoEnv
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
@@ -56,7 +58,7 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
     def get_env_names(cls) -> Set[str]:
         return {
             "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real",
-            "pybullet_domino_real_geometry"
+            "pybullet_domino_real_geometry", "pybullet_domino_fan"
         }
 
     @classmethod
@@ -95,17 +97,102 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
 
         options: Set[ParameterizedOption] = set()
 
-        if CFG.domino_restricted_push:
-            options.add(
-                cls._create_sf_push_restricted(cfg, robot_type, domino_type))
-        else:
-            options.add(cls._create_sf_push(cfg, robot_type, domino_type))
+        # A fan env withholds Push on purpose. The wind is what starts
+        # the chain there, so leaving the robot a shove makes the fan
+        # decorative: the planner takes the cheaper Push every time and
+        # solves a wind task without ever touching a switch. Detected by
+        # the switch type, which only a FanComponent contributes.
+        if "switch" not in types:
+            if CFG.domino_restricted_push:
+                options.add(
+                    cls._create_sf_push_restricted(cfg, robot_type,
+                                                   domino_type))
+            else:
+                options.add(cls._create_sf_push(cfg, robot_type, domino_type))
 
         options.add(cls._create_sf_pick(cfg, robot_type, domino_type))
         options.add(cls._create_sf_place(cfg, robot_type))
         options.add(create_wait_option("Wait", cfg, robot_type))
 
+        # A composed env carrying a FanComponent brings switches with
+        # it, and without a skill to press one the fan can never be
+        # turned on: every plan in pybullet_domino_fan starts there.
+        # Absent in the plain domino envs, whose types have no switch.
+        if "switch" in types:
+            options |= cls._create_sf_switch_options(cfg, robot_type,
+                                                     types["switch"],
+                                                     types.get("fan"))
+
         return options
+
+    @classmethod
+    def _create_sf_switch_options(
+            cls, cfg: SkillConfig, robot_type: Type, switch_type: Type,
+            fan_type: Optional[Type]) -> Set[ParameterizedOption]:
+        """Press a switch on or off.
+
+        A switch is pressed by pushing at its pose, so these are plain
+        push skills with the target taken from the switch - the same
+        construction ``fan/options.py`` uses, including its yaw
+        correction: a push skill faces (sin yaw, cos yaw) while a switch
+        reports its push direction as (cos rot, sin rot), so the two
+        conventions differ by a quarter turn, and on and off are that
+        quarter turn either side.
+
+        Under ``fan_known_controls_relation`` the second argument is the
+        FAN, not the switch: the env hides SwitchOn/SwitchOff in that
+        mode and speaks only of FanOn/FanOff, so a process written over
+        fans needs an option it can share variables with. The switch is
+        then found from the fan, by the side it controls.
+        """
+        known = CFG.fan_known_controls_relation and fan_type is not None
+        control_type = fan_type if known else switch_type
+        assert control_type is not None
+        option_types = [robot_type, control_type]
+
+        def _switch_of(state: State, control: Object) -> Object:
+            if not known:
+                return control
+            switch = next(
+                (sw for sw in state.get_objects(switch_type) if state.get(
+                    sw, "controls_fan") == state.get(control, "facing_side")),
+                None)
+            if switch is None:
+                raise utils.OptionExecutionFailure(
+                    "No switch found for fan (controls_fan mismatch)")
+            return switch
+
+        def _pose(state: State, objects: Sequence[Object],
+                  sign: float) -> Tuple[float, float, float, float]:
+            _, control = objects
+            switch = _switch_of(state, control)
+            return (state.get(switch,
+                              "x"), state.get(switch,
+                                              "y"), state.get(switch, "z"),
+                    state.get(switch, "rot") + sign * np.pi / 2)
+
+        def _on_pose(state: State, objects: Sequence[Object], params: Array,
+                     config: SkillConfig) -> Tuple[float, float, float, float]:
+            del params, config
+            return _pose(state, objects, -1.0)
+
+        def _off_pose(
+                state: State, objects: Sequence[Object], params: Array,
+                config: SkillConfig) -> Tuple[float, float, float, float]:
+            del params, config
+            return _pose(state, objects, +1.0)
+
+        push_cfg = replace(cfg, transport_z=cls._transport_z_push)
+        return {
+            create_push_skill(name="TurnFanOn",
+                              types=option_types,
+                              config=push_cfg,
+                              get_target_pose_fn=_on_pose),
+            create_push_skill(name="TurnFanOff",
+                              types=option_types,
+                              config=push_cfg,
+                              get_target_pose_fn=_off_pose),
+        }
 
     @classmethod
     def _build_skill_config(

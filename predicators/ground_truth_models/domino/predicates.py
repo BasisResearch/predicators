@@ -19,7 +19,7 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
     def get_env_names(cls) -> Set[str]:
         return {
             "pybullet_domino", "pybullet_domino_real",
-            "pybullet_domino_real_geometry"
+            "pybullet_domino_real_geometry", "pybullet_domino_fan"
         }
 
     @classmethod
