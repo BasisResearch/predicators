@@ -20,7 +20,7 @@ setup(
         "torchvision>=0.17.0",
         "scipy==1.9.3",
         "tabulate==0.9.0",
-        "dill==0.3.5.1",
+        "dill==0.3.9",
         "pyperplan",
         "pathos",
         "pillow==10.3.0",
