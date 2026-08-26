@@ -25,6 +25,7 @@ import contextlib
 from typing import Any
 
 import numpy as np
+import pytest
 from gym.spaces import Box
 
 from predicators import utils
@@ -931,3 +932,47 @@ def test_plan_capture_carries_validation_summary():
     capture = ctx.take_plan_capture()
     assert capture.validation_summary == "validation: 3/3 rollouts ok"
     assert ctx.solved_plan_validation_summary is None
+
+
+def test_parallel_repeats_capture_robust_plan():
+    """With agent_validation_parallel_workers set, the validation
+    repeats run in forked children: the verdict and note are identical
+    to sequential mode, and the parent-side model counter proves the
+    repeats did NOT run in this process (fork isolation)."""
+    from predicators.agent_sdk.parallel_rollouts import \
+        parallel_rollouts_available
+    if not parallel_rollouts_available():
+        pytest.skip("fork not available on this platform")
+    model = _Model()
+    utils.reset_config({
+        "agent_plan_validation_rollouts": 3,
+        "agent_validation_parallel_workers": 2,
+    })
+    ctx = _make_ctx(model)
+    text = _call_tool(ctx)
+    assert "Captured as the current answer" in text
+    assert "Validated 3/3 rollouts" in text
+    assert ctx.solved_plan is not None
+    # Only the reported rollout ran in the parent; both repeats ran in
+    # forked children whose counter increments never propagate back.
+    assert model.num_calls == 1
+    # The parent-side rollout accounting still counts every repeat.
+    assert ctx.attempt_rollout_count >= 3
+
+
+def test_parallel_repeats_still_reject_flaky_plan():
+    """Child-side failures propagate through the result queue."""
+    from predicators.agent_sdk.parallel_rollouts import \
+        parallel_rollouts_available
+    if not parallel_rollouts_available():
+        pytest.skip("fork not available on this platform")
+    model = _Model(succeed_first_n=1)
+    utils.reset_config({
+        "agent_plan_validation_rollouts": 3,
+        "agent_validation_parallel_workers": 2,
+    })
+    ctx = _make_ctx(model)
+    text = _call_tool(ctx)
+    assert "FLAKY (plan NOT captured)" in text
+    assert "Captured as the current answer" not in text
+    assert ctx.solved_plan is None

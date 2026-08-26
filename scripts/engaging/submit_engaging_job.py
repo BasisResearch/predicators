@@ -193,8 +193,11 @@ def submit_engaging_job(entry_point: str,
             cmd += "--gres=gpu:1 "
         if requeue:
             cmd += "--requeue "
+        # 8 CPUs so agent_validation_parallel_workers has headroom:
+        # validation/margin rollouts fork up to that many children
+        # (benchmark 21336169: 3.74x at 4 workers, 4.81x at 8).
         cmd += ("--nodes=1 "
-                "--cpus-per-task=4 "
+                "--cpus-per-task=8 "
                 "--mem=16G "
                 f"--job-name={job_name} "
                 f"--array={start_seed}-{start_seed + num_seeds - 1} "

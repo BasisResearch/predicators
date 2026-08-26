@@ -27,3 +27,9 @@ APPROACHES:
       # pin (commit 1cd3cebd) rides along with the preload, matching
       # the combination the learning arms will run.
       pybullet_pin_held_weld_assemblies: True
+      # Third regression round (2026-08-26): fork-parallel validation
+      # rollouts (capture repeats + margin sweeps run as forked
+      # children; see agent_sdk/parallel_rollouts.py). Verdicts must be
+      # unchanged - this run is the E2E check before the learning arms
+      # adopt the flag. Sized to the launcher's --cpus-per-task=8.
+      agent_validation_parallel_workers: 6
