@@ -1636,6 +1636,14 @@ class GlobalSettings:
     # options on one identical colliding PickBlock). 3 still allows a
     # couple of deliberate retries against stochastic motion planning.
     agent_policy_max_repeated_failures = 3
+    # The no-effect twin of the guard above: consecutive re-issues of one
+    # identical command that keeps COMPLETING with no observable state
+    # change (e.g. a MoveTo to the pose the robot already holds). The
+    # 2026-08-26 policy-arm cycle-6 test livelocked this way, spinning
+    # 10+ of its 50 options on one completed MoveTo the failure guard
+    # cannot see (nothing fails). 3 tolerates a benign settle-in-place
+    # step without letting a livelock burn the budget.
+    agent_policy_max_repeated_noops = 3
     # LLM-free bypass: path to a prewritten policy.py used as the captured
     # artifact for every test task (mirrors the sketch-file bypass). For
     # smoke tests and debugging the execution path.
