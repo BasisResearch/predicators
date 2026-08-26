@@ -23,14 +23,11 @@ APPROACHES:
       skip_initial_test: True
       bilevel_plan_without_sim: True # for the demonstrator
       agent_solve_max_attempts: 1
-      # Bridge is stochastic (place scatter vs. the 12 mm bond window
-      # puts even a correct model's per-attempt success near 75%), so
-      # the train-driven all-attempts criterion from common.yaml is a
-      # coin flip that in practice never fires. Terminate on the direct
-      # evidence instead: two consecutive test phases that solved the
-      # eval task.
-      online_learning_early_stopping_by_test_solve_rate: True
-      online_learning_early_stopping_consecutive_perfect_tests: 2
+      # Early stopping stays train-driven (common.yaml): test tasks are
+      # evaluation-only and must never feed a training/termination
+      # decision. The path to firing the 2/2 train criterion is making
+      # attempts reliable (max-margin plans, precise skills), not
+      # peeking at test outcomes.
       # A submission must also survive the calibrated posterior members
       # of the learned rule constants: three straight test failures
       # (cycles 5-7) came from plans centered on marginal operating
@@ -58,8 +55,6 @@ APPROACHES:
       bilevel_plan_without_sim: True # for the demonstrator
       agent_solve_max_attempts: 1
       agent_explorer_info_mcmc_steps: 0 # see the arm above
-      online_learning_early_stopping_by_test_solve_rate: True # ditto
-      online_learning_early_stopping_consecutive_perfect_tests: 2
       agent_plan_validation_rule_param_margin: True # see the arm above
     ARGS:
       - auto_resume
