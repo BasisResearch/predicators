@@ -206,9 +206,18 @@ class DominoTaskGenerator(TaskGenerator):
         # would certify it at zero blue cost), and dominoes must be the only
         # dynamic component (ball/fan variants topple dominoes legitimately
         # without a robot Push, which the certificate would reject).
+        # A fan is a dynamic component, but a legitimate one: it
+        # topples dominoes only through the wind, and the certificate
+        # can score that as long as it is told the trigger is TurnFanOn
+        # rather than Push. A BALL is not - it is a second body the
+        # robot can throw at the chain - so ball variants still get no
+        # evaluator.
+        comp_names = {type(c).__name__ for c in self.additional_components}
+        fan_only = bool(comp_names) and comp_names <= {"FanComponent"}
+        trigger = "TurnFanOn" if fan_only else "Push"
         evaluator = None
         if CFG.domino_use_domino_blocks_as_target and \
-                not self.additional_components:
+                (not self.additional_components or fan_only):
             # Imported lazily: env.py imports this module at load time.
             # pylint: disable-next=import-outside-toplevel
             from predicators.envs.pybullet_domino.env import DominoEvaluator
@@ -216,7 +225,9 @@ class DominoTaskGenerator(TaskGenerator):
                 1 for obj in init_state.get_objects(self.domino.domino_type)
                 # pylint: disable-next=protected-access
                 if DominoComponent._MovableBlock_holds(init_state, [obj]))
-            evaluator = DominoEvaluator(goal_atoms, num_movables)
+            evaluator = DominoEvaluator(goal_atoms,
+                                        num_movables,
+                                        trigger_option_name=trigger)
             # State the reward structure so a rejected goal-reaching
             # attempt reads as "no solve bonus", not as a fatal
             # per-blue penalty: run_20260716_215533 burned its budget
@@ -347,7 +358,10 @@ class DominoTaskGenerator(TaskGenerator):
         change whether it cascades, and varying it keeps the task set
         from collapsing onto one line.
         """
-        side = int(rng.integers(0, 4))
+        # Only sides that actually carry a fan (see
+        # domino_fan_num_sides); aligning a chain to a fan that is not
+        # there makes the task unsolvable.
+        side = int(rng.integers(0, max(1, CFG.domino_fan_num_sides)))
         rotation = self._FAN_SIDE_TO_ROTATION[side]
         dx, dy = np.sin(rotation), np.cos(rotation)
         lead = 0.2  # fraction of the axis reserved upwind of the start

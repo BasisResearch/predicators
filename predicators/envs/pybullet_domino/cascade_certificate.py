@@ -65,9 +65,22 @@ from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
 from predicators.structs import GroundAtom, Object, State, StepOption
 
-# The name of the option through which the robot is allowed to topple
-# the green start block.
+# The name of the option through which the robot is allowed to set the
+# cascade going. "Push" is the domino env's: the robot shoves the green
+# start block itself. A fan env's is "TurnFanOn" - the robot presses a
+# switch and the WIND does the toppling - and the machinery below needs
+# nothing else to accommodate it, because the span finder already
+# admits a trigger that names no domino at all.
 _PUSH_OPTION_NAME = "Push"
+_WIND_TRIGGER_OPTION_NAME = "TurnFanOn"
+
+# Triggers that never touch a domino. The counterfactual probe (rule d)
+# is skipped for these: it exists to prove the robot's BODY did not
+# carry the cascade, and a trigger whose whole action is pressing a
+# switch metres away has no body contact to disprove. Rules (a)-(c)
+# still apply and are what reject the arm-knocked-the-target episodes
+# this env was scoring as wins.
+_BODYLESS_TRIGGERS = frozenset({_WIND_TRIGGER_OPTION_NAME})
 
 # Consecutive non-held states a domino must spend at or past
 # ``fallen_threshold`` before that counts as a topple rather than as
@@ -243,8 +256,11 @@ def _topple_onset(states: Sequence[State], domino: Object) -> Optional[int]:
 
 
 def _push_on_green_spans(
-        step_options: Sequence[StepOption], greens: Sequence[Object],
-        domino_names: Set[str]) -> Tuple[List[Tuple[int, int]], bool]:
+    step_options: Sequence[StepOption],
+    greens: Sequence[Object],
+    domino_names: Set[str],
+    trigger_option_name: str = _PUSH_OPTION_NAME
+) -> Tuple[List[Tuple[int, int]], bool]:
     """Maximal runs of consecutive action indices whose option is a Push on a
     green start block, plus whether any option label was missing.
 
@@ -261,7 +277,7 @@ def _push_on_green_spans(
             any_unknown = True
             continue
         name, object_names = step_option[0], step_option[1]
-        if name == _PUSH_OPTION_NAME and (
+        if name == trigger_option_name and (
                 green_names & set(object_names)
                 or not domino_names & set(object_names)):
             push_idxs.append(i)
@@ -314,7 +330,8 @@ def check_cascade_legitimacy(
         states: Sequence[State],
         goal: Set[GroundAtom],
         step_options: Optional[Sequence[StepOption]] = None,
-        probe: Optional[CascadeProbe] = None) -> Tuple[bool, str]:
+        probe: Optional[CascadeProbe] = None,
+        trigger_option_name: str = _PUSH_OPTION_NAME) -> Tuple[bool, str]:
     """Certify that the episode's topples are a genuine push-seeded cascade.
 
     Rules (any violation fails the whole episode):
@@ -388,7 +405,7 @@ def check_cascade_legitimacy(
             if step_option is None:
                 continue
             name, object_names = step_option[0], step_option[1]
-            if name == _PUSH_OPTION_NAME:
+            if name == trigger_option_name:
                 foreign = sorted((set(object_names) & domino_names) -
                                  {g.name
                                   for g in greens})
@@ -398,7 +415,8 @@ def check_cascade_legitimacy(
                         f"step {i}) - only the green start block may be "
                         "pushed")
         spans, any_unknown = _push_on_green_spans(step_options, greens,
-                                                  domino_names)
+                                                  domino_names,
+                                                  trigger_option_name)
         if any_unknown:
             logging.warning(
                 "[cascade certificate] some actions lack option labels; "
@@ -457,6 +475,20 @@ def check_cascade_legitimacy(
 
     # Rule (d): the counterfactual push probe, on goal-reaching episodes.
     if not all(atom.holds(states[-1]) for atom in goal):
+        return True, ""
+    if trigger_option_name in _BODYLESS_TRIGGERS:
+        # No probe for a wind trigger. The probe re-runs the robot's
+        # own skill with every link but the fingertips masked, to prove
+        # the cascade was not carried by the arm; pressing a switch
+        # metres from the chain has no such contact to disprove, and
+        # there is no push to replay. Rules (a)-(c) carry the weight
+        # here: nothing may topple before the trigger, and every
+        # non-movable must still be staged and upright when it fires.
+        #
+        # Known gap: the arm is not proven inert for the interval AFTER
+        # the trigger. The plans this env produces spend that interval
+        # in Wait, which does not move the arm, but the certificate
+        # does not enforce it - a wind probe would.
         return True, ""
     if probe is None:
         return False, (

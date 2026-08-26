@@ -29,9 +29,9 @@ the residual-command vocabulary an agent-synthesized simulator can use.
 
 **The wind stops when its target falls.** A standing domino presents
 its face to the airstream; a fallen one lies flat, out of it. Without
-this the fan goes on shoving a body that is already down. The 10-degree
-threshold is the ``Toppled`` predicate's, so the dynamics stop exactly
-where the symbol flips.
+this the fan goes on shoving a body that is already down. The threshold
+is read from ``DominoComponent`` rather than restated, so the dynamics
+stop exactly where the ``Toppled`` symbol flips.
 
 Both constants are fitted parameters, not fixed geometry: ``wind_force``
 and ``wind_lever`` are what a system-ID pass has to recover from watching
@@ -69,9 +69,10 @@ WIND_FORCE = 0.2
 # airstream meets the face, which no state feature reports.
 WIND_LEVER = 0.06
 
-# Past this roll the domino is down and out of the airstream. The
-# Toppled predicate's threshold, deliberately.
-TOPPLED_DEG = 10.0
+# Past this roll the domino is down and out of the airstream. Read
+# from DominoComponent rather than restated, so it cannot drift from
+# the Toppled predicate the way a hardcoded 10.0 did (the predicate's
+# threshold is 5 degrees).
 
 # Below this the summed wind is nothing (N). Opposing fans cancel to
 # floating-point dust rather than to exact zero -- four fans at 0.2 N
@@ -107,7 +108,10 @@ def _upright(state: State, domino: Object) -> bool:
     """
     roll = float(state.get(domino, "roll"))
     roll = (roll + np.pi / 2) % np.pi - np.pi / 2
-    return abs(roll) < np.radians(TOPPLED_DEG)
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.envs.pybullet_domino.components.domino_component import \
+        DominoComponent
+    return abs(roll) < DominoComponent.domino_roll_threshold
 
 
 def _wind_topples_start_block(state: State, updates: ResidualUpdate,

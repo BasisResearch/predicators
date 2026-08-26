@@ -373,10 +373,10 @@ ENVS:
       # cannot cascade however hard the fan blows - the task is
       # unsolvable before a planner sees it.
       domino_fan_aligned_tasks: True
-      # Calibrated for a domino, not the ball the FanComponent default
-      # (2.0 N) was set for: tipping threshold is 0.123 N, and past
-      # ~0.3 N the block stops toppling and starts flying.
-      domino_fan_wind_force: 0.2
+      # Sized so the block moves before Wait declares the scene settled
+      # (onset 7 steps at 1.5 N against Wait's ~11), not just to clear
+      # the 0.123 N tipping threshold. See settings.py.
+      domino_fan_wind_force: 1.5
       # Straight chains only. Alignment guarantees the FIRST leg runs
       # downwind; a turn puts the rest of the chain across the wind,
       # and the turn geometry was tuned for a robot push anyway.

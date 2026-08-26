@@ -64,12 +64,20 @@ class DominoEvaluator(TaskEvaluator):
 
     def __init__(self,
                  goal: Set[GroundAtom],
-                 num_movables: Optional[int] = None) -> None:
+                 num_movables: Optional[int] = None,
+                 trigger_option_name: str = "Push") -> None:
         """``num_movables`` is the number of movable (blue) dominoes staged in
         the task's scene, bounding the worst-case toppled-blue cost; it
         defaults to the min-block budget flag for the min-block / heavy task
-        families, and the plain chain generator passes its actual count."""
+        families, and the plain chain generator passes its actual count.
+
+        ``trigger_option_name`` is the one option through which the
+        robot may legitimately set the cascade going: "Push" where it
+        shoves the green itself, "TurnFanOn" in a fan env, where it
+        presses a switch and the wind does the toppling.
+        """
         super().__init__(goal)
+        self._trigger_option_name = trigger_option_name
         if num_movables is None:
             num_movables = CFG.domino_min_block_num_blues
         assert CFG.domino_block_cost * num_movables < 1.0, \
@@ -111,10 +119,12 @@ class DominoEvaluator(TaskEvaluator):
         if self._certify_memo is not None and self._certify_memo[0] == key:
             return self._certify_memo[1]
         probe = getattr(sim_env, "run_counterfactual_cascade_probe", None)
-        verdict = check_cascade_legitimacy(states,
-                                           self.goal,
-                                           step_options,
-                                           probe=probe)
+        verdict = check_cascade_legitimacy(
+            states,
+            self.goal,
+            step_options,
+            probe=probe,
+            trigger_option_name=self._trigger_option_name)
         self._certify_memo = (key, verdict)
         return verdict
 
@@ -957,6 +967,22 @@ class PyBulletDominoEnv(PyBulletDominoComposedEnv):
         return "pybullet_domino"
 
 
+# Where the domino-fan env's switch sits: in front of the robot, past
+# the far end of the chain in x and a little NEARER in y, so the arm
+# approaches it from outside the chain instead of over it. At
+# (1.05, 1.30) the press reached across a finished bridge - the switch
+# was 0.22 m from the target at the same y - and disturbed it.
+#
+# The inherited formula put it 0.41 m from the robot's base, folded in
+# against the arm, and the press never completed - IK solves there, but
+# the joint-limited arm lands centimetres short and the skill waits
+# forever for an exact arrival. A sweep over candidate positions found
+# the boundary sharp: 0.41 m never terminates, while every position
+# from 0.59 m out presses in ~30 steps. The fan env, where this has
+# always worked, presses at 0.73 m.
+DOMINO_FAN_SWITCH_XY = (1.10, 1.20)
+
+
 class PyBulletDominoFanBallEnv(PyBulletDominoComposedEnv):
     """Domino + fan + ball: the fan blows the BALL, which knocks dominoes.
 
@@ -998,9 +1024,17 @@ class PyBulletDominoFanEnv(PyBulletDominoComposedEnv):
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         bounds = self._default_workspace_bounds()
         domino_comp = self._make_domino_component(bounds)
+        # One fan, one switch. The four-sided layout is the ball task's,
+        # where the ball must be blown any of four ways across a grid; a
+        # domino chain runs one way, and the aligned generator lays it
+        # along side 0. The other three fans would be distractors the
+        # planner still has to ground, and being opposed they cancel.
         fan_comp = FanComponent(workspace_bounds=bounds,
                                 table_height=self.table_height,
-                                table_width=self.table_width)
+                                table_width=self.table_width,
+                                num_sides=CFG.domino_fan_num_sides,
+                                fans_per_side=1,
+                                switch_xy=DOMINO_FAN_SWITCH_XY)
         super().__init__(components=[domino_comp, fan_comp],
                          use_gui=use_gui,
                          **kwargs)

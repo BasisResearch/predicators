@@ -97,6 +97,24 @@ def _push_sampler(state: State, goal: Set[GroundAtom],
                     dtype=np.float32)
 
 
+def _switch_push_sampler(state: State, goal: Set[GroundAtom],
+                         rng: np.random.Generator,
+                         objs: Sequence[Object]) -> Array:
+    """Approach distance and contact offset for pressing a switch.
+
+    TurnFanOn is a push skill, so it wants the same two params every
+    push does - null_sampler hands it an empty array and the option's
+    clip against a 2-vector bounds raises. The values are
+    fan/processes.py's, measured there against this same switch model:
+    0.075 clears an end-of-row switch on the approach without stalling
+    at the arm's reach on the far-side press.
+    """
+    del state, goal, rng, objs
+    if not CFG.domino_use_skill_factories:
+        return np.array([], dtype=np.float32)
+    return np.array([0.075, 0.1], dtype=np.float32)
+
+
 def _place_sampler(state: State, goal: Set[GroundAtom],
                    rng: np.random.Generator, objs: Sequence[Object]) -> Array:
     """Return a generator-faithful placement for the open-loop oracle.
@@ -449,7 +467,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
                 DiscreteGaussianDelay(mu=torch.tensor(1.0),
                                       sigma=torch.tensor(0.1)),
                 torch.tensor(1.0), options["TurnFanOn"], [robot, fan],
-                null_sampler))
+                _switch_push_sampler))
 
         # The wind. Exogenous: nobody chooses it, it follows from the
         # fan being on.
@@ -472,12 +490,21 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(StartBlock, [domino]),
             LiftedAtom(Upright, [domino]),
         }
+        # Delay 0: the block goes the moment the fan comes on. Anything
+        # longer opens a window the planner will use - at mu=2 it
+        # ordered TurnFanOn FOURTH of six and went on placing dominoes
+        # afterwards, believing it could finish the bridge while the
+        # start block was mid-topple. It cannot: a Place runs ~19 env
+        # steps and the topple is over in a fraction of that. With no
+        # window, InFront has to already hold when the fan is switched
+        # on, which forces the press to come last - the ordering the
+        # task actually has.
         processes.add(
             ExogenousProcess(
                 "WindTopplesStartBlock", [domino, fan2], conds, set(), set(),
                 {LiftedAtom(Tilting, [domino])},
                 {LiftedAtom(Upright, [domino])},
-                DiscreteGaussianDelay(mu=torch.tensor(2.0),
+                DiscreteGaussianDelay(mu=torch.tensor(0.0),
                                       sigma=torch.tensor(0.1)),
                 torch.tensor(1.0)))
         return processes

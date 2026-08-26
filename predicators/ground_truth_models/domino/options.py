@@ -236,6 +236,14 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
             # every rollout - the cap dominated probe/validation wall
             # time in the 2026-07-17 run audits.
             wait_quiescence_eps=1e-4,
+            # A push-started cascade runs without pause, so 10 quiet
+            # steps means it is over. A WIND-started one has a lull
+            # built into it: the fan cuts out the moment the start
+            # block is down (a fallen domino is out of the airstream),
+            # and the chain then coasts on contact alone. Ten steps of
+            # that reads as settled and ends the Wait mid-cascade -
+            # measured at 35 steps against the ~70 the chain needs.
+            wait_quiescence_steps=(40 if CFG.env.endswith("_fan") else 10),
         )
 
     @classmethod

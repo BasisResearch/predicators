@@ -875,15 +875,35 @@ class GlobalSettings:
     domino_fan_aligned_tasks = False
     # Wind force (N) the fan applies to the start domino in the ball-free
     # pybullet_domino_fan env. NOT the FanComponent class default (2.0),
-    # which is the ball's: a 100 g domino 15 mm thick and 150 mm tall,
-    # pushed at 0.4 of its height, tips at m*g*(depth/2)/(0.4*height) =
-    # 0.123 N, and a measured sweep agrees - 0.05 N tips 1 of 4 tasks,
-    # 0.10 N tips 4 of 4. Above ~0.3 N the block stops toppling and
-    # starts flying: mean displacement is ~85 mm (one topple of a 150 mm
-    # block) from 0.1 to 0.3 N, 833 mm at 1.0 N and 5.5 m at 4.0 N.
-    # 0.2 N sits ~60% over the threshold, the same margin
-    # pybullet_fan's 0.06 N keeps over its ball's stiction.
-    domino_fan_wind_force = 0.2
+    # which is the ball's.
+    #
+    # The static threshold is m*g*(depth/2)/(0.4*height) = 0.123 N for a
+    # 100 g domino 15 mm thick and 150 mm tall pushed at 0.4 of its
+    # height, and 0.2 N clears it. But clearing it is not enough: what
+    # sets this value is how FAST the block has to move.
+    #
+    # Wait terminates on quiescence, and at 0.2 N the block does not
+    # visibly move until step 28 - so Wait sees a still scene, declares
+    # it settled at step 11, and the plan ends before the wind has done
+    # anything. Measured onset: 28 steps at 0.2 N, 17 at 0.4, 11 at 0.8,
+    # 7 at 1.5, 4 at 3.0. 1.5 N moves the block well inside Wait's
+    # window.
+    #
+    # Nothing is lost by the higher force now that the wind pushes above
+    # the centre of mass and stops once its target is down: the cascade
+    # it produces is the same one (final rolls [81,66,45,11] at 1.5 N
+    # against [80,66,45,11] at 0.2 N). An earlier note here warned that
+    # force above ~0.3 N sends blocks flying metres; that was measured
+    # against the centre-of-mass push and the never-ending wind, and no
+    # longer holds.
+    domino_fan_wind_force = 1.5
+    # Sides carrying a fan + switch in pybullet_domino_fan, in order
+    # left, right, down, up. One is the point of the task: the robot has
+    # a single switch to find and press. Four is the ball task's layout
+    # and only adds groundings the planner must search and fans that
+    # cancel each other. domino_fan_aligned_tasks lays every chain along
+    # one of the sides that exist.
+    domino_fan_num_sides = 1
 
     # burger env parameters
     burger_render_set_of_marks = True

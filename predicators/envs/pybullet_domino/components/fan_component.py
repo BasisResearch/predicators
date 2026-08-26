@@ -8,7 +8,7 @@ This component handles:
 - Related predicates (FanOn, FanOff, Controls, FanFacingSide)
 """
 
-from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set
+from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 import pybullet as p
@@ -34,10 +34,13 @@ class FanComponent(DominoEnvComponent):
     # =========================================================================
 
     # Fan counts per side
-    num_left_fans: ClassVar[int] = 5
-    num_right_fans: ClassVar[int] = 5
-    num_back_fans: ClassVar[int] = 5
-    num_front_fans: ClassVar[int] = 5
+    # Fans per side. Banks of five look like a wall of fans and blow as
+    # one: only fan_ids[0] is ever read for direction or wind. A single-
+    # fan env overrides these to 1 (see __init__'s fans_per_side).
+    num_left_fans: int = 5
+    num_right_fans: int = 5
+    num_back_fans: int = 5
+    num_front_fans: int = 5
 
     # Fan physical properties
     fan_scale: ClassVar[float] = 0.08
@@ -62,15 +65,44 @@ class FanComponent(DominoEnvComponent):
     def __init__(self,
                  workspace_bounds: Optional[Dict[str, float]] = None,
                  table_height: float = 0.4,
-                 table_width: float = 1.0) -> None:
+                 table_width: float = 1.0,
+                 num_sides: int = 4,
+                 fans_per_side: Optional[int] = None,
+                 switch_xy: Optional[Tuple[float, float]] = None) -> None:
         """Initialize the fan component.
 
         Args:
             workspace_bounds: Dictionary with x_lb, x_ub, y_lb, y_ub.
             table_height: Height of the table surface.
             table_width: Width of the table.
+            num_sides: How many sides carry a fan and its switch, taken
+                in order left, right, down, up. Four is the ball task's
+                layout, where the ball must be blown any of four ways
+                across a grid. A domino chain runs ONE way, so the other
+                three fans are distractors the planner still has to
+                ground - and, blowing inward from opposite sides, they
+                cancel each other exactly.
+            fans_per_side: Fan bodies in each side's bank (default keeps
+                the class values). They blow as one; only fan_ids[0] is
+                read for direction or wind, so a bank is decoration.
+            switch_xy: Where the first switch sits, overriding the
+                workspace-centre formula below. That formula assumes the
+                fan env's workspace, which is twice as deep with the
+                robot at its front edge; dropped into a shallower one
+                with a centred robot it puts the switch BEHIND the arm,
+                0.38 m from the base against the 0.73 m the fan env
+                gives it, and the press never completes (IK solves, the
+                joint-limited arm lands centimetres short, and the skill
+                waits forever for an exact arrival).
         """
         super().__init__()
+        assert 1 <= num_sides <= 4, num_sides
+        self.num_sides = num_sides
+        if fans_per_side is not None:
+            self.num_left_fans = fans_per_side
+            self.num_right_fans = fans_per_side
+            self.num_back_fans = fans_per_side
+            self.num_front_fans = fans_per_side
 
         # Store table parameters
         self.table_height = table_height
@@ -106,12 +138,17 @@ class FanComponent(DominoEnvComponent):
                          self.fan_y_len / 2 - 0.01)
 
         # Switch positioning
-        self.switch_y = (self.y_lb + self.y_ub) * 0.5 - 0.25
-        self.switch_base_x = 0.60
+        if switch_xy is None:
+            self.switch_base_x = 0.60
+            self.switch_y = (self.y_lb + self.y_ub) * 0.5 - 0.25
+        else:
+            self.switch_base_x, self.switch_y = switch_xy
         self.switch_x_spacing = 0.08
 
-        # Side names
-        self._switch_sides = ["left", "right", "down", "up"]
+        # Side names. A component built with fewer sides keeps the
+        # first N of these: side 0 (left) blows +x, and the domino-fan
+        # env's chains are laid along it.
+        self._switch_sides = ["left", "right", "down", "up"][:self.num_sides]
 
         # Create types
         self._fan_type = Type(
@@ -125,12 +162,12 @@ class FanComponent(DominoEnvComponent):
 
         # Create objects
         self._fans: List[Object] = []
-        for i in range(4):  # 4 sides
+        for i in range(self.num_sides):
             fan_obj = Object(f"fan_{i}", self._fan_type)
             self._fans.append(fan_obj)
 
         self._switches: List[Object] = []
-        for i in range(4):
+        for i in range(self.num_sides):
             switch_obj = Object(f"switch_{i}", self._switch_type)
             self._switches.append(switch_obj)
 
@@ -378,16 +415,20 @@ class FanComponent(DominoEnvComponent):
         way into the target and "solve" a bridge task with none of the
         bridge built.
 
-        Uses the same 10-degree threshold as the Toppled predicate, so
-        the physics stops exactly where the symbol flips.
+        Reads DominoComponent's own threshold rather than restating a
+        number, so the physics stops exactly where the symbol flips
+        even if that constant moves.
         """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.envs.pybullet_domino.components.domino_component \
+            import DominoComponent
         _, orn = p.getBasePositionAndOrientation(
             target_id, physicsClientId=self._physics_client_id)
         roll = p.getEulerFromQuaternion(orn)[0]
         # Fold to [-pi/2, pi/2): a box turned 180 degrees about its own
         # width axis is the same box, so roll only means anything mod pi.
         roll = (roll + np.pi / 2) % np.pi - np.pi / 2
-        return abs(roll) < np.radians(10.0)
+        return abs(roll) < DominoComponent.domino_roll_threshold
 
     def _apply_wind_force(self, fan_id: int, target_id: int) -> None:
         """Apply wind force from fan to target object."""
