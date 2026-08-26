@@ -417,3 +417,10 @@ ENVS:
       # margin turns those into unrecoverable BiRRT start/goal
       # rejections.
       pybullet_birrt_contact_margin: -0.005
+      # Kinematic pin of welded assemblies while held (commit 1cd3cebd):
+      # carried bonded beams are rigid by construction (probe: 0.00 deg
+      # / 0.0 mm joint drift vs ~9-12 deg unpinned; solver iterations
+      # bought ~25%, constraint erp nothing). Regression: oracle arm
+      # 1/1 with pin + preload together (job 21320581, 2026-08-26);
+      # seat-onto-legs disturbance ~2 mm / ~3 deg with bonds intact.
+      pybullet_pin_held_weld_assemblies: True
