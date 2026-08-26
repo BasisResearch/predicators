@@ -1784,6 +1784,10 @@ def option_policy_to_policy(
 
         # whether the noop option should terminate
         wait_terminate = False
+        # Honest per-branch reason: the backstop caps used to be logged
+        # as "atom change during Wait", which misreported episodes whose
+        # bonds never formed (2026-08-26 ep0 analysis).
+        wait_terminate_reason = "Wait terminated"
         if CFG.wait_option_terminate_on_atom_change \
                 and cur_option.name == "Wait":
             assert abstract_function is not None
@@ -1798,6 +1802,7 @@ def option_policy_to_policy(
                               f"cur_atoms: {sorted(cur_atoms)}, "
                               f"num_option_steps={num_cur_option_steps}")
                 wait_terminate = True
+                wait_terminate_reason = "Wait target atoms satisfied"
             elif result is False:
                 assert target_atoms is not None
                 if num_cur_option_steps >= CFG.wait_option_max_steps:
@@ -1815,6 +1820,8 @@ def option_policy_to_policy(
                         "backstop). Targets: %s", num_cur_option_steps,
                         target_atoms)
                     wait_terminate = True
+                    wait_terminate_reason = (
+                        "Wait step cap (target atoms NOT satisfied)")
                 elif num_cur_option_steps <= 1 or \
                         num_cur_option_steps % 25 == 0:
                     wait_debug = _format_wait_target_debug(
@@ -1832,6 +1839,7 @@ def option_policy_to_policy(
                                   f"Add: {sorted(cur_atoms-prev_atoms)} "
                                   f"Del: {sorted(prev_atoms-cur_atoms)}")
                     wait_terminate = True
+                    wait_terminate_reason = "atom change during Wait"
                 elif num_cur_option_steps >= CFG.wait_option_max_steps:
                     # Stranded-Wait bail-out: if the awaited change
                     # happened DURING the previous option, an
@@ -1844,6 +1852,7 @@ def option_policy_to_policy(
                         "%d steps (wait_option_max_steps).",
                         num_cur_option_steps)
                     wait_terminate = True
+                    wait_terminate_reason = "Wait step cap (no atom change)"
 
         last_state = state
 
@@ -1852,7 +1861,7 @@ def option_policy_to_policy(
         if wait_terminate or cur_option is DummyOption or option_terminal:
             if cur_option is not DummyOption:
                 if wait_terminate:
-                    reason = "atom change during Wait"
+                    reason = wait_terminate_reason
                 elif option_terminal:
                     reason = "option self-terminated"
                 else:
