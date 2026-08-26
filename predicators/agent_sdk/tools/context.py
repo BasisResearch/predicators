@@ -186,6 +186,26 @@ class ToolContext:
     # sweep.
     physics_margin_provider: Optional[Callable[[], List[Dict[str,
                                                              float]]]] = None
+    # Rule-parameter margin points for the capture gate: a zero-arg
+    # callable returning the calibrated rule-parameter ensemble (full
+    # fitted-param dicts drawn from the fit posterior; the same members
+    # info-seeking exploration scores with). The gate re-rolls a
+    # capture-eligible submission under each member so a plan that
+    # survives only at the point estimate of an uncertain learned
+    # constant is rejected as PARAM-SENSITIVE. Installed by
+    # AgentSimLearningApproach; consumed under
+    # agent_plan_validation_rule_param_margin.
+    rule_param_margin_provider: Optional[Callable[[],
+                                                  List[Dict[str,
+                                                            float]]]] = None
+    # Context manager applying one rule-parameter override dict for the
+    # duration of a validation rollout: swap-and-restore of the live
+    # fitted-params mapping that the learned rules and frozen predicate
+    # classifiers read through (the score_atom_disagreement pattern).
+    # The gate enters it BEFORE the fresh-env scope so anything bound at
+    # env construction sees the override too.
+    rule_param_override_scope: Optional[Callable[[Dict[str, float]],
+                                                 Any]] = None
     # Capture-task keys (see ``_capture_task_key``) that have produced a
     # FLAKY rejection in evaluate_option_plan. A flaky submission is direct
     # evidence the agent is tuning in a marginal region where a lucky

@@ -31,6 +31,12 @@ APPROACHES:
       # eval task.
       online_learning_early_stopping_by_test_solve_rate: True
       online_learning_early_stopping_consecutive_perfect_tests: 2
+      # A submission must also survive the calibrated posterior members
+      # of the learned rule constants: three straight test failures
+      # (cycles 5-7) came from plans centered on marginal operating
+      # points (a glue dab at 16 mm of the true 20 mm radius) that
+      # passed 5/5 nominal validation rollouts.
+      agent_plan_validation_rule_param_margin: True
       # Skip the once-per-cycle exploration-posterior emcee fit (up to 5h
       # wall per cycle at bridge scale for a ~0.1% log-prob gain over the
       # LM warm start). The info-seeking ensemble falls back to a Laplace
@@ -54,5 +60,6 @@ APPROACHES:
       agent_explorer_info_mcmc_steps: 0 # see the arm above
       online_learning_early_stopping_by_test_solve_rate: True # ditto
       online_learning_early_stopping_consecutive_perfect_tests: 2
+      agent_plan_validation_rule_param_margin: True # see the arm above
     ARGS:
       - auto_resume

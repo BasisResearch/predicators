@@ -250,7 +250,16 @@ def build_solve_prompt(
             "every later probe, while the recorded trajectory captures "
             "the unannotated probe's outcome regardless. Spend no steps "
             "re-demonstrating what the model already predicts well "
-            "beyond what later probes need as setup.\n")
+            "beyond what later probes need as setup.\n\n"
+            "When the belief model has learned no dynamics at all yet "
+            "(the first cycle of a fresh run), coverage beats depth: "
+            "design the episode to exercise every option and to create "
+            "every object interaction the goal description names "
+            "(contact, attachment, activation, stacking - whatever the "
+            "domain's language suggests), so the first learning phase "
+            "sees each mechanism at least once, instead of spending the "
+            "episode polishing a single goal attempt whose failure "
+            "reveals only its first missing mechanism.\n")
 
     scheduled_plans_section = ""
     if scheduled_plans:
@@ -486,6 +495,24 @@ def build_solve_prompt(
                 "(same points as the gate, one deterministic rollout each) "
                 "instead of discovering rejections one submission at a "
                 "time. ")
+        if CFG.agent_plan_validation_rule_param_margin:
+            margin_guidance += (
+                "Capture additionally re-runs the plan under the "
+                "calibrated posterior members of the LEARNED rule "
+                "parameters (the fit's honest uncertainty about the "
+                "thresholds and offsets it learned from data); failing "
+                "under any member is rejected PARAM-SENSITIVE. So design "
+                "MAX-MARGIN, not merely feasible: place every operating "
+                "point at the CENTER of its learned feasibility window "
+                "(aim an applicator at the target point itself, put a "
+                "placement mid-window, leave slack on every timing) - a "
+                "design that only works at the fitted point estimate of "
+                "an uncertain constant will fail either this gate or the "
+                "real environment, whose true constant sits somewhere in "
+                "that posterior. Before submitting, name your plan's "
+                "WEAKEST margin (the smallest distance from any step's "
+                "operating point to a learned threshold) and widen it if "
+                "it is smaller than the measured execution scatter. ")
         submit_guidance = (
             "SUBMIT via `evaluate_option_plan`: pass your full plan as text "
             "(one option per line, `Option(obj:type)[params] -> {subgoals}`, "
