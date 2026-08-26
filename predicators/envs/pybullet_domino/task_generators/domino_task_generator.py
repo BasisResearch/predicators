@@ -1,6 +1,6 @@
 """Task generator for domino-based tasks."""
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, ClassVar, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -39,6 +39,9 @@ class DominoTaskGenerator(TaskGenerator):
         self.robot = robot
         self.robot_init_state = robot_init_state
         self.additional_components = additional_components or []
+        # Fan side the last generated chain was aligned to (None when
+        # domino_fan_aligned_tasks is off, or before the first chain).
+        self.last_fan_side: Optional[int] = None
 
     def generate_tasks(
             self,
@@ -319,6 +322,45 @@ class DominoTaskGenerator(TaskGenerator):
                                goal_atoms,
                                goal_nl=goal_text.MIN_BLOCK_GOAL_NL)
 
+    # A chain's travel direction is (sin rotation, cos rotation) -- see
+    # _place_straight_domino -- so rotation is measured from +y, turning
+    # toward +x. A fan on side_idx blows along its own yaw, world
+    # (cos yaw, sin yaw): left(0) +x, right(1) -x, back(2) +y,
+    # front(3) -y. These are those two conventions reconciled, which is
+    # the only place the fan's frame and the chain's frame meet.
+    _FAN_SIDE_TO_ROTATION: ClassVar[Dict[int, float]] = {
+        0: np.pi / 2,  # left fan blows +x
+        1: -np.pi / 2,  # right fan blows -x
+        2: 0.0,  # back fan blows +y
+        3: np.pi,  # front fan blows -y
+    }
+
+    def _fan_aligned_start(self, rng: np.random.Generator, x_lb: float,
+                           x_ub: float, y_lb: float,
+                           y_ub: float) -> Tuple[float, float, float, int]:
+        """Start pose and travel direction for a wind-started chain.
+
+        Picks a fan side, points the chain downwind, and puts the start
+        block in the upwind fifth of that axis so the rest of the chain
+        has the workspace to run into. Free across the crosswind axis:
+        the wind is uniform, so where the chain sits sideways does not
+        change whether it cascades, and varying it keeps the task set
+        from collapsing onto one line.
+        """
+        side = int(rng.integers(0, 4))
+        rotation = self._FAN_SIDE_TO_ROTATION[side]
+        dx, dy = np.sin(rotation), np.cos(rotation)
+        lead = 0.2  # fraction of the axis reserved upwind of the start
+        if abs(dx) > abs(dy):  # travelling along x
+            x = (x_lb + lead * (x_ub - x_lb) if dx > 0 else x_ub - lead *
+                 (x_ub - x_lb))
+            y = rng.uniform(y_lb, y_ub)
+        else:  # travelling along y
+            x = rng.uniform(x_lb, x_ub)
+            y = (y_lb + lead * (y_ub - y_lb) if dy > 0 else y_ub - lead *
+                 (y_ub - y_lb))
+        return x, y, rotation, side
+
     def _generate_domino_sequence(self,
                                   rng: np.random.Generator,
                                   n_dominos: int,
@@ -351,10 +393,18 @@ class DominoTaskGenerator(TaskGenerator):
         def _in_bounds(nx: float, ny: float) -> bool:
             return x_lb < nx < x_ub and y_lb < ny < y_ub
 
-        # Initial position and orientation
-        x = rng.uniform(x_lb, x_ub)
-        y = rng.uniform(y_lb, y_ub)
-        rotation = rng.choice([0, np.pi / 2, -np.pi / 2])
+        # Initial position and orientation. A wind-started chain has to
+        # run downwind from the upwind edge; a robot-pushed one can start
+        # anywhere and face any of three ways (the fourth, -y, has never
+        # been in this list).
+        self.last_fan_side = None
+        if CFG.domino_fan_aligned_tasks:
+            x, y, rotation, self.last_fan_side = self._fan_aligned_start(
+                rng, x_lb, x_ub, y_lb, y_ub)
+        else:
+            x = rng.uniform(x_lb, x_ub)
+            y = rng.uniform(y_lb, y_ub)
+            rotation = rng.choice([0, np.pi / 2, -np.pi / 2])
         gap = self.domino.pos_gap
 
         # Place first domino (start block)

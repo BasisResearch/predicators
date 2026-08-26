@@ -480,7 +480,14 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                 continue
             # pylint: disable-next=protected-access
             if DominoComponent._StartBlock_holds(state, [domino]):
-                self._fan_component.set_wind_target(domino.id)
+                # Push near the top of the domino so the wind tips it
+                # rather than sliding it: 0.4 of its height above the
+                # origin is comfortably above the centre and still on
+                # the body.
+                self._fan_component.set_wind_target(
+                    domino.id,
+                    z_offset=0.4 * self._domino_component.domino_height,
+                    stop_when_toppled=True)
                 return
         logging.warning(
             "Fan env has no start (green) domino in this task; leaving the "

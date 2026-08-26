@@ -863,6 +863,16 @@ class GlobalSettings:
     # domino_min_block_num_blues); domino_min_block_tasks does not also
     # need to be set.
     domino_heavy_block_tasks = False
+    # Lay each chain out along one fan's wind axis, starting at the upwind
+    # end, for the ball-free pybullet_domino_fan env. Off, the generator
+    # picks the start pose uniformly and the travel direction at random,
+    # which is right for a task the ROBOT pushes and wrong for one the WIND
+    # starts: a chain crossing the wind cannot cascade no matter how hard
+    # the fan blows, so the task is unsolvable before a planner sees it.
+    # The chosen side is recorded per task in offline_task_metrics
+    # ("fan_side"), 0=left 1=right 2=back 3=front, matching
+    # FanComponent's side_idx.
+    domino_fan_aligned_tasks = False
 
     # burger env parameters
     burger_render_set_of_marks = True

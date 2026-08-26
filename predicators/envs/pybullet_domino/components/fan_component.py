@@ -156,6 +156,15 @@ class FanComponent(DominoEnvComponent):
 
         # Object to apply wind force to (set by composed environment)
         self._wind_target_id: Optional[int] = None
+        # Height above the target's origin at which the wind pushes. Zero
+        # for a ball, where a force through the centre is what rolls it.
+        # A domino needs a positive value or it never tips: see
+        # _apply_wind_force.
+        self._wind_target_z_offset: float = 0.0
+        # Stop pushing the target once it has fallen over (see
+        # _target_still_standing). Only meaningful for a body that can
+        # fall out of the airstream, so it travels with the z offset.
+        self._wind_stops_when_toppled: bool = False
 
     # -------------------------------------------------------------------------
     # DominoEnvComponent interface implementation
@@ -314,7 +323,9 @@ class FanComponent(DominoEnvComponent):
                             physicsClientId=self._physics_client_id,
                         )
                 # Apply force to wind target (e.g., ball)
-                if self._wind_target_id is not None:
+                if self._wind_target_id is not None and (
+                        not self._wind_stops_when_toppled
+                        or self._target_still_standing(self._wind_target_id)):
                     self._apply_wind_force(fan_obj.fan_ids[0],
                                            self._wind_target_id)
             else:
@@ -335,9 +346,41 @@ class FanComponent(DominoEnvComponent):
     # Fan-specific methods
     # -------------------------------------------------------------------------
 
-    def set_wind_target(self, target_id: int) -> None:
-        """Set the object that wind forces should be applied to."""
+    def set_wind_target(self,
+                        target_id: int,
+                        z_offset: float = 0.0,
+                        stop_when_toppled: bool = False) -> None:
+        """Set the object that wind forces should be applied to.
+
+        ``z_offset`` raises the point of application above the target's
+        origin, which is what turns a shove into a topple for a body
+        that stands on a narrow base. ``stop_when_toppled`` cuts the
+        force once the target is down.
+        """
         self._wind_target_id = target_id
+        self._wind_target_z_offset = z_offset
+        self._wind_stops_when_toppled = stop_when_toppled
+
+    def _target_still_standing(self, target_id: int) -> bool:
+        """Is the wind target still upright enough to be pushed?
+
+        A standing domino presents its face to the airstream; a fallen
+        one lies flat on the table, out of it. Without this the fan goes
+        on shoving a body that is already down and slides it across the
+        table indefinitely - which lets the start block bulldoze all the
+        way into the target and "solve" a bridge task with none of the
+        bridge built.
+
+        Uses the same 10-degree threshold as the Toppled predicate, so
+        the physics stops exactly where the symbol flips.
+        """
+        _, orn = p.getBasePositionAndOrientation(
+            target_id, physicsClientId=self._physics_client_id)
+        roll = p.getEulerFromQuaternion(orn)[0]
+        # Fold to [-pi/2, pi/2): a box turned 180 degrees about its own
+        # width axis is the same box, so roll only means anything mod pi.
+        roll = (roll + np.pi / 2) % np.pi - np.pi / 2
+        return abs(roll) < np.radians(10.0)
 
     def _apply_wind_force(self, fan_id: int, target_id: int) -> None:
         """Apply wind force from fan to target object."""
@@ -353,11 +396,21 @@ class FanComponent(DominoEnvComponent):
         world_dir = rmat.dot(local_dir)
         pos_target, _ = p.getBasePositionAndOrientation(
             target_id, physicsClientId=self._physics_client_id)
+        # Apply the force ABOVE the centre of mass, not through it. A
+        # force through the centre is pure translation: a domino under
+        # it slides across the table indefinitely and never tips, which
+        # is how a wind-driven task ends up "solved" by the start block
+        # bulldozing into the target with the chain untouched. Offset
+        # upward, the same force makes a moment about the domino's
+        # bottom edge and it falls. Zero for a ball, whose existing
+        # behaviour (roll from a central push) is what that task wants.
+        pos_apply = (pos_target[0], pos_target[1],
+                     pos_target[2] + self._wind_target_z_offset)
         force_vec = self.wind_force_magnitude * world_dir
         p.applyExternalForce(objectUniqueId=target_id,
                              linkIndex=-1,
                              forceObj=force_vec.tolist(),
-                             posObj=pos_target,
+                             posObj=pos_apply,
                              flags=p.WORLD_FRAME,
                              physicsClientId=self._physics_client_id)
 
