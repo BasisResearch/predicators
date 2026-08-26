@@ -478,6 +478,13 @@ class GlobalSettings:
     # EE yaw relative to the pushed object's yaw during Push. None (the
     # default) takes it from the robot.
     skill_push_ee_yaw_offset = None
+    # Place settle-stroke preload (N): when > 0, the guarded settle ends
+    # at this much support normal force instead of first touch, pressing
+    # the arm's position-control sag out against the support before the
+    # release (see create_place_skill's settle_preload_force). 0 keeps
+    # the first-touch behavior. Read by envs whose place skill enables
+    # the settle stroke (currently pybullet_bridge).
+    skill_place_settle_preload_force = 0.0
 
     # coffee env parameters
     coffee_num_cups_train = [1, 2]
