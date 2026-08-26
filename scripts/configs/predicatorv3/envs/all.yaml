@@ -340,6 +340,12 @@ ENVS:
   # task is a pure layout problem - arrange the chain so that switching the
   # fan on topples the target. The robot never pushes anything itself.
   #
+  # NOT RUNNABLE YET. pybullet_domino_fan has a GT residual simulator
+  # (ground_truth_models/domino_fan/) but no GT types, predicates,
+  # options or processes, so every arm - oracle included - raises
+  # NotImplementedError on the option lookup. Parked until those land;
+  # un-skipping it now only buys a crash.
+  #
   # NOTE: unlike the plain domino envs, these tasks carry NO DominoEvaluator
   # (the task generator attaches it only when dominoes are the sole dynamic
   # component). Reward is therefore plain goal-reached, with no per-blue
@@ -362,6 +368,20 @@ ENVS:
       pybullet_birrt_path_subsample_ratio: 2
       fan_known_controls_relation: True
       fan_fans_blow_opposite_direction: False
+      # Lay each chain along one fan's wind axis. Without this the
+      # generator points chains anywhere, and a chain across the wind
+      # cannot cascade however hard the fan blows - the task is
+      # unsolvable before a planner sees it.
+      domino_fan_aligned_tasks: True
+      # Calibrated for a domino, not the ball the FanComponent default
+      # (2.0 N) was set for: tipping threshold is 0.123 N, and past
+      # ~0.3 N the block stops toppling and starts flying.
+      domino_fan_wind_force: 0.2
+      # Straight chains only. Alignment guarantees the FIRST leg runs
+      # downwind; a turn puts the rest of the chain across the wind,
+      # and the turn geometry was tuned for a robot push anyway.
+      domino_test_turn_ratio: 0.0
+      domino_train_turn_ratio: 0.0
   # coffee:
   #   NAME: "pybullet_coffee"
   #   FLAGS:
