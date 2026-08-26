@@ -15,6 +15,20 @@ from predicators.settings import CFG
 from predicators.structs import EnvironmentTask, GroundAtom, Object
 
 
+def _dist_to_segment(pt: Tuple[float, float], a: Tuple[float, float],
+                     b: Tuple[float, float]) -> float:
+    """Perpendicular distance from ``pt`` to segment ``a``-``b``."""
+    px, py = pt
+    ax, ay = a
+    bx, by = b
+    dx, dy = bx - ax, by - ay
+    denom = dx * dx + dy * dy
+    if denom <= 0.0:
+        return float(np.hypot(px - ax, py - ay))
+    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / denom))
+    return float(np.hypot(px - (ax + t * dx), py - (ay + t * dy)))
+
+
 class DominoTaskGenerator(TaskGenerator):
     """Generates tasks involving domino sequences.
 
@@ -988,6 +1002,21 @@ class DominoTaskGenerator(TaskGenerator):
         candidate_xy = [(float(x), float(y)) for y in y_values
                         for x in x_values]
 
+        # The corridor the robot has to build through: the segment from
+        # the start block to the far target. A blue parked inside it is
+        # not merely untidy - it sits within the gripper's finger sweep
+        # of a bridge slot, and Place then has no collision-free
+        # descent. Whether that happens is pure luck about where the
+        # chain landed: a uniformly-placed chain usually sits to one
+        # side and leaves whole staging cells free, while a
+        # wind-ALIGNED chain starts in the upwind fifth and runs through
+        # the middle of the workspace, straight across the staging row.
+        # Measured: plain domino parks its blues at x = 0.470 / 0.575
+        # against a chain spanning 0.697-0.991 (clear), the fan env at
+        # 0.470 / 0.680 against 0.540-0.834 - the second one 66 mm from
+        # a slot, inside a 100 mm finger sweep.
+        corridor = self._chain_corridor(occupied)
+
         for obj, obj_type in intermediate_objects:
             placed = False
             for new_x, new_y in candidate_xy:
@@ -1013,6 +1042,9 @@ class DominoTaskGenerator(TaskGenerator):
                     }
                 if self._placement_collides(obj, candidate, occupied):
                     continue
+                if corridor is not None and _dist_to_segment(
+                    (new_x, new_y), *corridor) < grasp_clear_finger:
+                    continue
                 if obj_type == "domino" and self._grasp_clearance_blocked(
                         candidate, occupied, grasp_clear_hand,
                         grasp_clear_finger):
@@ -1025,6 +1057,26 @@ class DominoTaskGenerator(TaskGenerator):
                 return None
 
         return obj_dict
+
+    def _chain_corridor(
+        self, occupied: Dict[Object, Dict[str, float]]
+    ) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
+        """Endpoints of the line the chain will be built along, or None.
+
+        The fixed blocks at staging time are the start block and the
+        target(s); the bridge runs between them, so the two extreme
+        fixed positions bound the corridor. None when fewer than two
+        are present and there is nothing to keep clear of.
+        """
+        pts = [(float(d["x"]), float(d["y"])) for o, d in occupied.items()
+               if o.type == self.domino.domino_type and "x" in d]
+        if len(pts) < 2:
+            return None
+        far = max(
+            ((a, b) for i, a in enumerate(pts) for b in pts[i + 1:]),
+            key=lambda ab: np.hypot(ab[0][0] - ab[1][0], ab[0][1] - ab[1][1]),
+            default=None)
+        return far
 
     def _placement_collides(self, obj: Object, candidate: Dict[str, float],
                             occupied: Dict[Object, Dict[str, float]]) -> bool:
