@@ -1315,6 +1315,16 @@ class PyBulletBridgeEnv(PyBulletEnv):
                 frontier.append(other)
         return out
 
+    def _weld_constraint_edges(self) -> Dict[FrozenSet[int], int]:
+        """Extend the base registry with this env's native glue welds, so
+        the held-assembly pin (see PyBulletEnv._pin_welds_to_held_root)
+        covers both weld paths. Wet-glue TACKS are deliberately
+        excluded: they are weak by design (a wet joint must not carry).
+        """
+        edges = super()._weld_constraint_edges()
+        edges.update(self._weld_constraints)
+        return edges
+
     def get_welded_partner_ids(self, body_id: int) -> Set[int]:
         """All body ids rigidly welded (transitively) to ``body_id``.
 

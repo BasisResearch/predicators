@@ -74,6 +74,10 @@ def main() -> None:
     parser.add_argument("--solver-iters", type=int, default=None)
     parser.add_argument("--weld-erp", type=float, default=None)
     parser.add_argument("--pin-held", action="store_true")
+    parser.add_argument("--pin-cfg", action="store_true",
+                        help="use the PRODUCTION pin "
+                        "(pybullet_pin_held_weld_assemblies) instead of "
+                        "the probe monkeypatch")
     parser.add_argument("--seat", action="store_true",
                         help="place legs at sites and seat the beam on them")
     parser.add_argument("--preload", type=float, default=None,
@@ -83,6 +87,8 @@ def main() -> None:
     parser.add_argument("--video", action="store_true", default=True)
     args = parser.parse_args()
     flags = dict(BRIDGE_FLAGS)
+    if args.pin_cfg:
+        flags["pybullet_pin_held_weld_assemblies"] = True
     if args.preload is not None:
         flags["skill_place_settle_preload_force"] = args.preload
     utils.reset_config(flags)
