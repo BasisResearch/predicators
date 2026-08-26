@@ -340,19 +340,22 @@ ENVS:
   # task is a pure layout problem - arrange the chain so that switching the
   # fan on topples the target. The robot never pushes anything itself.
   #
-  # NOT RUNNABLE YET. pybullet_domino_fan has a GT residual simulator
-  # (ground_truth_models/domino_fan/) but no GT types, predicates,
-  # options or processes, so every arm - oracle included - raises
-  # NotImplementedError on the option lookup. Parked until those land;
-  # un-skipping it now only buys a crash.
+  # Runs: the oracle solves it 1/1 at reward 0.900 (robot bridges start
+  # to target with two blues, presses the switch, wind topples the
+  # chain). GT types/predicates/options/processes are registered in
+  # ground_truth_models/domino/, and the wind's residual dynamics -
+  # with wind_force and wind_lever as FITTED parameters - live in
+  # ground_truth_models/domino_fan/gt_simulator.py, which is what a
+  # learning arm has to recover.
   #
-  # NOTE: unlike the plain domino envs, these tasks carry NO DominoEvaluator
-  # (the task generator attaches it only when dominoes are the sole dynamic
-  # component). Reward is therefore plain goal-reached, with no per-blue
-  # cost - do not compare its rewards against a domino_* arm's.
+  # These tasks DO carry a DominoEvaluator, with TurnFanOn as the
+  # sanctioned trigger instead of Push: reward is
+  # 1[goal reached via a certified wind cascade] - 0.05 per blue used,
+  # so 0.900 is a two-blue solve. An episode where the arm knocks the
+  # target over earns no bonus. Ball variants still get no evaluator.
   domino_fan:
     NAME: "pybullet_domino_fan"
-    SKIP: True
+    SKIP: True  # un-skipped by exp_domino_fan.yaml
     FLAGS:
       max_initial_demos: 0
       excluded_objects_in_state_str: "loc,rot,angle,direction"

@@ -1,0 +1,41 @@
+# Thin launcher: the ball-free domino-fan task. The robot bridges the
+# start block to the target with blue dominoes, presses the switch, and
+# the WIND topples the chain - it never pushes a domino itself (Push is
+# withheld in this env, option and process both).
+#
+# Usage: python scripts/local/launch_simp.py -c predicatorv3/exp_domino_fan.yaml
+#
+# The learning question here is the wind. domino_fan/gt_simulator.py
+# carries it as one residual rule with wind_force and wind_lever as
+# FITTED parameters, neither observable from a single state: an agent
+# has to discover that a fan affects a domino at all, how hard, and at
+# what height on the face. Compare the learning arm against the oracle
+# below, which is handed all of it.
+#
+# Env definitions live in envs/all.yaml and approach definitions in
+# approaches/all.yaml (all parked by default); this file only un-skips
+# the env + arm(s) it runs.
+---
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ENVS:
+  domino_fan:
+    SKIP: False
+APPROACHES:
+  # Upper bound: GT everything. Measured 1/1 at reward 0.900 (a two-blue
+  # solve: 1.0 bonus minus 2 x domino_block_cost).
+  oracle:
+    SKIP: False
+  # Ours: learns the predicates, the hybrid sim, and the wind's params.
+  agent_po_predicate_invention_al:
+    SKIP: True
+    FLAGS:
+      skip_initial_test: True
+      # Surface the base sim's own source in the agent sandbox, as
+      # exp_fan.yaml does for the ball task. The wind dynamics are NOT
+      # in it - they live in the residual program the agent must
+      # rediscover - so this hands over the scene and the skills
+      # without handing over the answer.
+      agent_sim_provide_base_sim_source: True
