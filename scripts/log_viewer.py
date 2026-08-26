@@ -1785,6 +1785,8 @@ figure.clip > figcaption { font-size: 11px; margin-top: 5px;
 .fitvals { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 6px 0; }
 .fitvals code { color: var(--muted); }
 .fitvals b { font-family: var(--mono); color: var(--bright); }
+.novid { font-size: 10px; color: var(--muted2); text-transform: uppercase;
+  letter-spacing: .08em; cursor: help; white-space: nowrap; }
 a.logslink { margin-left: 10px; font-size: 10px; color: var(--muted2);
   text-transform: uppercase; letter-spacing: .08em; white-space: nowrap; }
 tr.runrow:hover a.logslink, .topbar a.logslink:hover {
@@ -2282,6 +2284,18 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], live: LiveProcs,
     # that says which, and it says it reliably.
     kind = "oracle" if fam.startswith("oracle") else "learning"
     copy_path = os.path.relpath(os.path.join(LOGS_ROOT, r["rel"]))
+    # A run with no videos gets no watch link and its name points at the
+    # logs instead: the reel would only be able to say "nothing here".
+    has_vids = run_has_videos(r["rel"])
+    if has_vids:
+        watch_cell = (f"<a class='watchlink' href='/replays?d={q(r['rel'])}'>"
+                      "&#9654; watch</a>")
+        primary = f"/replays?d={q(r['rel'])}"
+    else:
+        watch_cell = ("<span class='novid' title='This run wrote no videos. "
+                      "Pass --make_test_videos / --make_interaction_videos "
+                      "to record them.'>no video</span>")
+        primary = f"/run?d={q(r['rel'])}"
     is_live = status == "running"
     esc_rel = esc(r["rel"])
     kill_btn = ""
@@ -2301,9 +2315,8 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], live: LiveProcs,
             f"data-kind='{kind}' data-start='{start_ts:.0f}'>"
             f"<td><input type='checkbox' class='cmp' value='{esc(r['rel'])}'>"
             "</td>"
-            f"<td><a class='watchlink' href='/replays?d={q(r['rel'])}'>"
-            "&#9654; watch</a></td>"
-            f"<td><a href='/replays?d={q(r['rel'])}'>{esc(r['name'])}</a>"
+            f"<td>{watch_cell}</td>"
+            f"<td><a href='{q(primary)}'>{esc(r['name'])}</a>"
             f"<a class='logslink' href='/run?d={q(r['rel'])}' "
             "title='Transcripts, logs and files of this run'>logs</a>"
             f"<button class='copybtn' data-copy='{esc(copy_path)}' "
@@ -2671,6 +2684,23 @@ def _video_base(run_rel: str) -> Optional[str]:
         if alt and os.path.isdir(alt):
             return alt
     return None
+
+
+def run_has_videos(run_rel: str) -> bool:
+    """Does this run have any video to show?
+
+    Videos are only written when main.py runs with --make_test_videos /
+    --make_interaction_videos, so plenty of runs have none. Offering a
+    watch link for those and explaining the emptiness only after the
+    click wastes the click.
+    """
+    base = _video_base(run_rel)
+    if not base:
+        return False
+    try:
+        return any(n.endswith(".mp4") for n in os.listdir(base))
+    except OSError:
+        return False
 
 
 def video_url_rel(run_rel: str, name: str) -> str:
