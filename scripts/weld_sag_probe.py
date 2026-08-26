@@ -73,10 +73,19 @@ def main() -> None:
     parser.add_argument("--tag", required=True)
     parser.add_argument("--solver-iters", type=int, default=None)
     parser.add_argument("--weld-erp", type=float, default=None)
+    parser.add_argument("--pin-held", action="store_true")
+    parser.add_argument("--seat", action="store_true",
+                        help="place legs at sites and seat the beam on them")
+    parser.add_argument("--preload", type=float, default=None,
+                        help="skill_place_settle_preload_force value")
+    parser.add_argument("--block-mass", type=float, default=None)
     parser.add_argument("--out", required=True)
     parser.add_argument("--video", action="store_true", default=True)
     args = parser.parse_args()
-    utils.reset_config(dict(BRIDGE_FLAGS))
+    flags = dict(BRIDGE_FLAGS)
+    if args.preload is not None:
+        flags["skill_place_settle_preload_force"] = args.preload
+    utils.reset_config(flags)
     os.makedirs(args.out, exist_ok=True)
 
     env = create_new_env("pybullet_bridge", do_cache=True, use_gui=False)
@@ -97,12 +106,75 @@ def main() -> None:
                                    physicsClientId=self._physics_client_id)
 
         PyBulletBridgeEnv._create_weld = _create_weld_erp
+    if args.pin_held:
+        # Kinematic rigidity while carried: after the env's own step
+        # dynamics, re-pose every weld partner of the held body from the
+        # held root through the constraints' stored relative transforms
+        # (the exact frames the solver is supposed to enforce), and zero
+        # the partners' velocities. The constraint solver's compliance
+        # (~10 deg transients, iterations/erp immaterial) never
+        # accumulates; released assemblies are untouched.
+        from predicators.envs.pybullet_bridge import PyBulletBridgeEnv
+        orig_dss = PyBulletBridgeEnv._domain_specific_step
+
+        def _pin_welds_to_held(self):
+            held = self._held_obj_id
+            if held is None or not self._weld_constraints:
+                return
+            cid_of = dict(self._weld_constraints)
+            adj = {}
+            for key in cid_of:
+                a, b = tuple(key)
+                adj.setdefault(a, set()).add(b)
+                adj.setdefault(b, set()).add(a)
+            if held not in adj:
+                return
+            client = self._physics_client_id
+            seen = {held}
+            frontier = [held]
+            while frontier:
+                cur = frontier.pop()
+                cur_pos, cur_orn = p.getBasePositionAndOrientation(
+                    cur, physicsClientId=client)
+                for nxt in adj.get(cur, ()):
+                    if nxt in seen:
+                        continue
+                    seen.add(nxt)
+                    frontier.append(nxt)
+                    info = p.getConstraintInfo(cid_of[frozenset({cur, nxt})],
+                                               physicsClientId=client)
+                    parent, child = info[0], info[2]
+                    rel_pos, rel_orn = info[6], info[8]
+                    if parent == cur:
+                        tgt = p.multiplyTransforms(cur_pos, cur_orn, rel_pos,
+                                                   rel_orn)
+                    else:
+                        inv = p.invertTransform(rel_pos, rel_orn)
+                        tgt = p.multiplyTransforms(cur_pos, cur_orn, *inv)
+                    p.resetBasePositionAndOrientation(nxt,
+                                                      tgt[0],
+                                                      tgt[1],
+                                                      physicsClientId=client)
+                    p.resetBaseVelocity(nxt, (0, 0, 0), (0, 0, 0),
+                                        physicsClientId=client)
+
+        def _dss_with_pin(self):
+            orig_dss(self)
+            _pin_welds_to_held(self)
+
+        PyBulletBridgeEnv._domain_specific_step = _dss_with_pin
     options = {o.name: o for o in get_gt_options(env.get_name())}
     preds = {pr.name: pr for pr in env.predicates}
     state = env.reset("train", 0)
     objs = {o.name: o for o in state}
     robot = objs["robot"]
     spans = [objs["span0"], objs["span1"], objs["span2"]]
+    legs = [objs["leg0"], objs["leg1"]]
+    if args.block_mass is not None:
+        for o in spans + legs:
+            p.changeDynamics(o.id, -1, mass=args.block_mass,
+                             physicsClientId=env._physics_client_id)  # pylint: disable=protected-access
+        print(f"[{args.tag}] block mass set to {args.block_mass} kg")
 
     def g(name, objects, params):
         return options[name].ground(objects, np.array(params,
@@ -124,10 +196,23 @@ def main() -> None:
         g("PickBlock", [robot, objs["span2"]], [0.0]),
         g("Place", [robot], [SPAN_X["span2"], ROW_Y, ROW_Z, 0.0]),
         options["Wait"].ground([robot], np.array([], dtype=f32)),
-        g("PickBlock", [robot, objs["span1"]], [0.01]),
-        g("Place", [robot],
-          list(CARRY_TARGET) + [0.0]),
     ]
+    if args.seat:
+        # The c4 test's proven seat sequence: legs at the sites, then
+        # the welded beam seated across both leg tops.
+        plan += [
+            g("PickBlock", [robot, objs["leg0"]], [0.0]),
+            g("Place", [robot], [0.6500, 1.3000, 0.4600, 0.0]),
+            g("PickBlock", [robot, objs["leg1"]], [0.0]),
+            g("Place", [robot], [0.8600, 1.3000, 0.4600, 0.0]),
+            g("PickBlock", [robot, objs["span1"]], [0.01]),
+            g("Place", [robot], [0.7550, 1.3000, 0.5600, 0.0]),
+        ]
+    else:
+        plan += [
+            g("PickBlock", [robot, objs["span1"]], [0.01]),
+            g("Place", [robot], list(CARRY_TARGET) + [0.0]),
+        ]
     carry_start_opt = len(plan) - 2  # PickBlock(span1) of the carry
     # Cure Waits: explicit targets, or the rich env abstraction's
     # unrelated atom flaps (Resting/Loose churn) end the Wait instantly.
@@ -169,7 +254,7 @@ def main() -> None:
         state = env.step(act)
         t += 1
         row = {"t": t, "opt": opt_index["i"]}
-        for sp in spans:
+        for sp in spans + legs:
             for f, v in zip(POSE_FEATS, _pose(state, sp)):
                 row[f"{sp.name}_{f}"] = float(v)
         row["held"] = float(state.get(objs["span1"], "is_held"))
@@ -208,6 +293,25 @@ def main() -> None:
                   f"max angle {np.degrees(max_ang):.1f} deg, "
                   f"max relative displacement {max_pos*1000:.1f} mm "
                   f"over {len(carry)} steps")
+    if args.seat and timeline:
+        # Leg stability during the seat placement (the final Place):
+        # displacement of each leg from its position at the seat Place's
+        # start, and tilt from upright.
+        seat = [r for r in timeline if r["opt"] >= len(orig_plan)]
+        if seat:
+            ref = seat[0]
+            for leg in ("leg0", "leg1"):
+                dxy = max(
+                    float(np.hypot(r[f"{leg}_x"] - ref[f"{leg}_x"],
+                                   r[f"{leg}_y"] - ref[f"{leg}_y"]))
+                    for r in seat)
+                tilt = max(
+                    max(abs(_ang(r[f"{leg}_roll"] - ref[f"{leg}_roll"])),
+                        abs(_ang(r[f"{leg}_pitch"] - ref[f"{leg}_pitch"])))
+                    for r in seat)
+                print(f"[{args.tag}] seat: {leg} max displacement "
+                      f"{dxy*1000:.1f} mm, max tilt "
+                      f"{np.degrees(tilt):.1f} deg")
     with open(os.path.join(args.out, f"{args.tag}__timeline.csv"),
               "w",
               newline="",
