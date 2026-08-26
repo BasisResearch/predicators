@@ -397,6 +397,9 @@ def check_cascade_legitimacy(
                        "start block in the scene to seed a cascade")
 
     # Action rules (a)/(b).
+    # Whether the action rules actually ran and found the trigger. The
+    # bodyless-trigger shortcut below is only sound once they have.
+    trigger_verified = False
     pre_push_idx: Optional[int] = None
     pushed_greens: List[Object] = list(greens)
     push_params: Optional[Tuple[float, ...]] = None
@@ -425,6 +428,7 @@ def check_cascade_legitimacy(
             return False, ("dominoes toppled but the green start block was "
                            "never pushed (no Push on it in the episode)")
         first_push = spans[0][0]
+        trigger_verified = True
         pre_push_idx = first_push
         pushed_greens = _pushed_greens_in_order(step_options, greens, spans)
         push_params = _push_params_of_span(step_options, first_push)
@@ -477,19 +481,25 @@ def check_cascade_legitimacy(
     if not all(atom.holds(states[-1]) for atom in goal):
         return True, ""
     if trigger_option_name in _BODYLESS_TRIGGERS:
-        # No probe for a wind trigger. The probe re-runs the robot's
-        # own skill with every link but the fingertips masked, to prove
-        # the cascade was not carried by the arm; pressing a switch
-        # metres from the chain has no such contact to disprove, and
-        # there is no push to replay. Rules (a)-(c) carry the weight
-        # here: nothing may topple before the trigger, and every
-        # non-movable must still be staged and upright when it fires.
+        # No probe for a wind trigger: the probe re-runs the robot's own
+        # skill with every link but the fingertips masked, to prove the
+        # cascade was not carried by the arm, and pressing a switch
+        # metres from the chain has no such contact to disprove - there
+        # is no push to replay.
         #
-        # Known gap: the arm is not proven inert for the interval AFTER
-        # the trigger. The plans this env produces spend that interval
-        # in Wait, which does not move the arm, but the certificate
-        # does not enforce it - a wind probe would.
-        return True, ""
+        # Sound ONLY because rules (a) and (b) have already established
+        # that the trigger happened and that nothing toppled before it.
+        # Without option labels those rules are skipped, and passing
+        # here regardless would turn the last gate into a rubber stamp:
+        # a place-knock episode with no trigger anywhere would collect
+        # the success bonus. Fail closed instead, as the probe path
+        # does for a goal-reaching episode it cannot check.
+        if trigger_verified:
+            return True, ""
+        return False, (
+            "the episode reached the goal but carries no option labels, "
+            f"so the {trigger_option_name} trigger cannot be confirmed "
+            "and a place-knock cannot be ruled out")
     if probe is None:
         return False, (
             "the goal atoms hold, but no counterfactual push probe is "

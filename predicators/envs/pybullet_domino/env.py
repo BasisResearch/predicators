@@ -1021,6 +1021,20 @@ class PyBulletDominoFanEnv(PyBulletDominoComposedEnv):
     startup the way the ball's single body can.
     """
 
+    # A deeper workspace than the other domino envs, and the chain
+    # layout is why. The staging grid steps y by 1.5 * domino_width
+    # inside margins of 1.5 and 3 widths, so the inherited y range
+    # (1.1-1.6) leaves a domino band 0.185 m deep - room for exactly ONE
+    # staging row, at y = 1.275. A wind-aligned chain runs along x at
+    # y = 1.283, so that single row lands ON the chain: every blue is
+    # parked 8 mm from the line it has to be built into, and Place
+    # cannot reach a bridge slot without the gripper fouling a
+    # neighbour ("BiRRT collision: target configuration in collision").
+    # 1.70 gives a 0.285 m band, hence rows at 1.275 and 1.38 - one for
+    # the chain, one to park in. The far row sits 0.66 m from the
+    # robot's base, well inside the reach the switch sweep measured.
+    y_ub: ClassVar[float] = 1.70
+
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         bounds = self._default_workspace_bounds()
         domino_comp = self._make_domino_component(bounds)
