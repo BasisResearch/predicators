@@ -2039,6 +2039,31 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             gt_options_ref_path=self._tool_context.gt_options_ref_path)
         trajectory_listing = self._format_trajectory_listing(trajectories)
         prior_state_block = self._format_prior_state_block(paths.base)
+        # Start-of-session divergence report: when a prior model exists,
+        # score it (params refit to ALL data, so what remains is the
+        # structural gap) before the agent's first turn - the session
+        # then starts from "here is where the model breaks" instead of
+        # spending turns rediscovering it. The same report stays callable
+        # as `sim.residuals()` against every subsequent edit, so this is
+        # the first data point of an iteration loop, not a one-shot.
+        divergence_block = ""
+        if (prior_state_block
+                and self._tool_context.probe_residuals_provider is not None):
+            try:
+                report = self._tool_context.probe_residuals_provider(
+                    max_transitions=100000, fit_params=True)
+                divergence_block = (
+                    "## Where the prior model diverges from the data\n"
+                    "Computed just now from the prior cycle's "
+                    "`simulator.py` with its params refit to all "
+                    "trajectories above - remaining mismatches need "
+                    "structural fixes, not tuning. Re-score any edit "
+                    "with `sim.residuals()` (same report, current "
+                    "file):\n\n"
+                    f"{report}\n\n")
+            except Exception as e:  # pylint: disable=broad-except
+                logger.warning("Skipping start-of-session residual report: %s",
+                               e)
         objective_block = self._format_objective_block()
         simulator_file_for_agent = paths.simulator_file_for_agent
         # The probe rides inside run_python's namespace (one exec
@@ -2103,7 +2128,8 @@ atoms and (2) treat failed interaction trajectories as \
 counterexamples - places where your predicate or rule said "this \
 should work" but the env disagreed.
 
-{objective_block}{prior_state_block}Data-structure source code is at: \
+{objective_block}{prior_state_block}{divergence_block}Data-structure \
+source code is at: \
 {structs_ref}
 {base_sim_block}
 A residual scan between the base simulator's prediction and the \
