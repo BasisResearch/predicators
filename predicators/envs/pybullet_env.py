@@ -730,6 +730,12 @@ class PyBulletEnv(BaseEnv):
         self._step_base(action)
         if not self._skip_domain_specific_dynamics:
             self._domain_specific_step()
+        # After ALL of this step's dynamics (a domain step may have just
+        # created or re-anchored welds), and regardless of
+        # skip_domain_specific_dynamics (base-sim mode still executes
+        # rule-commanded Attach welds).
+        if CFG.pybullet_pin_held_weld_assemblies:
+            self._pin_welds_to_held_root()
         observation = self.get_observation(
             render=CFG.rgb_observation or render_obs)
         self._current_observation = observation
@@ -928,6 +934,97 @@ class PyBulletEnv(BaseEnv):
         for cid in self._cmd_weld_constraints.values():
             p.removeConstraint(cid, physicsClientId=self._physics_client_id)
         self._cmd_weld_constraints.clear()
+
+    def _weld_constraint_edges(self) -> Dict[FrozenSet[int], int]:
+        """Every live rigid-attachment constraint, as ``{frozenset({body_a,
+        body_b}): constraint id}``.
+
+        The single registry the held-assembly pin walks. Base: the
+        command-created welds (body ids read back from the constraints
+        themselves, so no name resolution can go stale); subclasses
+        with native weld machinery extend this.
+        """
+        edges: Dict[FrozenSet[int], int] = {}
+        for cid in self._cmd_weld_constraints.values():
+            info = p.getConstraintInfo(cid,
+                                       physicsClientId=self._physics_client_id)
+            edges[frozenset((info[0], info[2]))] = cid
+        return edges
+
+    def _pin_welds_to_held_root(self) -> None:
+        """Kinematically enforce weld transforms across the HELD assembly.
+
+        The rule layer's contract for an attachment is "the pair moves
+        as one rigid body" (:class:`~predicators.code_sim_learning.
+        commands.Attach`), and the motion planner poses welded partners
+        rigidly with the arm - but a JOINT_FIXED constraint is enforced
+        by capped iterative impulses, and during a carry gravity plus
+        the arm's accelerations overpower them: measured ~9-12 deg of
+        transient joint flex and mm-scale drift on a carried three-block
+        beam (scripts/weld_sag_probe.py; solver iterations bought ~25%,
+        constraint erp measurably nothing). While an assembly is held,
+        re-pose every welded partner from the held root through the
+        constraints' OWN declared frames (``parent ∘ P = child ∘ C``,
+        read live so re-anchoring is honored) and zero the partners'
+        velocities: the assembly is rigid by construction (probe:
+        exactly 0.0 deg / 0.0 mm). Resting and released assemblies are
+        untouched - the constraint solver plus any subclass re-anchoring
+        machinery keep those stable, and normal physics resumes the
+        moment the grasp ends. Static (mass-0) bodies are never re-posed
+        and never traversed through.
+        """
+        held = self._held_obj_id
+        if held is None:
+            return
+        edges = self._weld_constraint_edges()
+        if not edges:
+            return
+        adjacency: Dict[int, Set[int]] = {}
+        for key in edges:
+            body_a, body_b = tuple(key)
+            adjacency.setdefault(body_a, set()).add(body_b)
+            adjacency.setdefault(body_b, set()).add(body_a)
+        if held not in adjacency:
+            return
+        client = self._physics_client_id
+        seen = {held}
+        frontier = [held]
+        while frontier:
+            current = frontier.pop()
+            cur_pos, cur_orn = p.getBasePositionAndOrientation(
+                current, physicsClientId=client)
+            for nxt in adjacency[current]:
+                if nxt in seen:
+                    continue
+                if p.getDynamicsInfo(nxt, -1, physicsClientId=client)[0] == 0:
+                    # Static body: welding to it while held would mean
+                    # carrying the fixture; never teleport it.
+                    continue
+                seen.add(nxt)
+                frontier.append(nxt)
+                info = p.getConstraintInfo(edges[frozenset({current, nxt})],
+                                           physicsClientId=client)
+                parent = info[0]
+                pivot_p, pivot_c, orn_p, orn_c = (info[6], info[7], info[8],
+                                                  info[9])
+                if parent == current:
+                    # nxt is the child: child = current ∘ P ∘ C⁻¹.
+                    tgt = p.multiplyTransforms(
+                        *p.multiplyTransforms(cur_pos, cur_orn, pivot_p,
+                                              orn_p),
+                        *p.invertTransform(pivot_c, orn_c))
+                else:
+                    # nxt is the parent: parent = current ∘ C ∘ P⁻¹.
+                    tgt = p.multiplyTransforms(
+                        *p.multiplyTransforms(cur_pos, cur_orn, pivot_c,
+                                              orn_c),
+                        *p.invertTransform(pivot_p, orn_p))
+                p.resetBasePositionAndOrientation(nxt,
+                                                  tgt[0],
+                                                  tgt[1],
+                                                  physicsClientId=client)
+                p.resetBaseVelocity(nxt, (0.0, 0.0, 0.0), (0.0, 0.0, 0.0),
+                                    physicsClientId=client)
 
     def _apply_pending_residual_commands(self) -> None:
         """Execute the queued commands against the live PyBullet world.
