@@ -28,7 +28,12 @@ when finished. This module holds the two shared pieces:
     ``CFG.agent_policy_max_repeated_failures`` consecutive failures, is
     fatal: an unchanged command fails the same way, so the loop is a
     policy bug, not recovery (the 2026-08-22 policy-arm tests burned
-    20+ of their 50 options on one identical colliding PickBlock).
+    20+ of their 50 options on one identical colliding PickBlock). The
+    no-effect twin is fatal too: re-issuing one identical command that
+    keeps COMPLETING with no observable state change, for
+    ``CFG.agent_policy_max_repeated_noops`` consecutive completions, is
+    a livelock (the 2026-08-26 cycle-6 test spun 10+ options on one
+    completed MoveTo to a pose the robot already held).
   - POLICY-code failures (``get_option`` raises, returns a line that
     does not parse or ground) are fatal: they are bugs in the agent's
     program, not recoverable world events.
@@ -83,6 +88,36 @@ def repeated_failure_message(option: _Option, count: int) -> str:
     return (f"policy re-issued the same failing option {count} consecutive "
             f"times ({option.simple_str()}) - a policy must adapt after a "
             "surfaced failure: change the parameters or target, try a "
+            "different action, or return None (DONE)")
+
+
+def states_features_allclose(a: State, b: State) -> bool:
+    """Feature-level state equality, ignoring any simulator_state.
+
+    ``State.allclose`` refuses states that carry a simulator_state; for
+    the no-effect stuck-loop guard only the observable features matter,
+    because an option that changed nothing observable gave the policy
+    nothing new to react to.
+    """
+    if sorted(a.data) != sorted(b.data):
+        return False
+    return all(
+        np.allclose(a.data[obj], b.data[obj], atol=1e-3) for obj in a.data)
+
+
+def repeated_noop_message(option: _Option, count: int) -> str:
+    """Shared fatal message for the no-effect twin of the stuck loop.
+
+    A command that completes cleanly but changes nothing observable is a
+    no-op from this state (e.g. a MoveTo to a pose the robot already
+    holds); a policy re-issuing it unchanged K times is livelocked - the
+    2026-08-26 policy-arm cycle-6 test burned 10+ of its 50 options on
+    one identical completed MoveTo this way.
+    """
+    return (f"policy re-issued the same completed option {count} consecutive "
+            f"times with no observable state change ({option.simple_str()}) "
+            "- the command is a no-op from this state and repeating it "
+            "cannot make progress: change the parameters or target, try a "
             "different action, or return None (DONE)")
 
 
@@ -214,6 +249,8 @@ def execute_policy_forward(
     last_failure: Optional[str] = None
     repeat_key: Optional[Tuple[str, Tuple[str, ...], bytes]] = None
     repeat_count = 0
+    noop_key: Optional[Tuple[str, Tuple[str, ...], bytes]] = None
+    noop_count = 0
 
     for i in range(max_policy_options):
         try:
@@ -282,6 +319,21 @@ def execute_policy_forward(
         if goal_step_idx is None and task.goal_holds(state):
             goal_step_idx = i
             actions_to_goal = total_actions
+        # No-effect twin of the failure guard: a clean completion that
+        # changed nothing observable, re-issued unchanged K times, is a
+        # livelock (skipped once the goal holds - lingering there is
+        # harmless and DONE is the policy's call).
+        if goal_step_idx is None:
+            key = option_repeat_key(option)
+            if states_features_allclose(pre, state):
+                noop_count = noop_count + 1 if key == noop_key else 1
+                noop_key = key
+                if noop_count >= CFG.agent_policy_max_repeated_noops:
+                    policy_error = repeated_noop_message(option, noop_count)
+                    break
+            else:
+                noop_key = None
+                noop_count = 0
     else:
         # Loop exhausted without DONE/goal/policy error: the cap is the
         # anti-oscillation bound, so make it an attributable failure.

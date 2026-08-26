@@ -204,6 +204,44 @@ def get_option(state, memory):
     assert r.goal_reached
 
 
+def test_noop_livelock_identical_completions_is_fatal():
+    """K consecutive clean completions of one identical command that
+    change nothing observable end the episode as a livelock, before the
+    option budget is burned."""
+    fn, task = _fn("def get_option(state, memory):\n"
+                   "    return 'Move(block0:block)[0.5]'\n")
+    r = execute_policy_forward(task,
+                               fn,
+                               _Model(),
+                               predicates={_ReachedHi},
+                               max_policy_options=50)
+    assert r.policy_error is not None
+    assert "no observable state change" in r.policy_error
+    # Step 1 moves x to 0.5 (real progress, counter resets); steps 2-4
+    # re-complete the identical command as no-ops and the third trips
+    # the guard.
+    assert len(r.steps) == 4
+
+
+def test_noop_livelock_resets_on_state_change():
+    """Commands that keep changing the state never trip the livelock
+    guard: the episode runs to the option budget instead."""
+    fn, task = _fn('''
+def get_option(state, memory):
+    n = memory.get("n", 0)
+    memory["n"] = n + 1
+    return "Move(block0:block)[0." + str(2 + (n % 2)) + "]"
+''')
+    r = execute_policy_forward(task,
+                               fn,
+                               _Model(),
+                               predicates={_ReachedHi},
+                               max_policy_options=6)
+    assert r.policy_error is not None
+    assert "option budget" in r.policy_error
+    assert len(r.steps) == 6
+
+
 def test_option_failure_surfaces_and_policy_recovers():
     """A failed option does not end the episode: the failure arrives in
     memory['last_failure'] and the policy retries to the goal."""
