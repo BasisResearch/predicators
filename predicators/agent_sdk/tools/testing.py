@@ -691,6 +691,48 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                     "spanning +-1 sigma of the identified physical "
                     "parameters.")
 
+        # Rule-parameter margin gate: the physics sweep above perturbs
+        # identified BASE-physics params; a learned rule constant fitted
+        # near a data boundary carries its own posterior uncertainty
+        # that only the calibrated ensemble expresses. Re-run the plan
+        # under each member (swap-and-restore of the live fitted
+        # params), so a submission centered on the point estimate of an
+        # uncertain constant is rejected here instead of failing in the
+        # real environment.
+        if (validation_cfg.rule_param_margin and fresh_scope is not None
+                and ctx.rule_param_margin_provider is not None
+                and ctx.rule_param_override_scope is not None
+                and ctx.capture_goal_reaching_plans and is_current
+                and goal_achieved and not evaluator_rejected and grounded_plan
+                and diagnostic_seed is None and flaky_detail is None
+                and param_sensitive_detail is None):
+            rule_points = ctx.rule_param_margin_provider() or []
+            for member_idx, point in enumerate(rule_points):
+                ctx.attempt_rollout_count += 1
+                # Overrides enter BEFORE the fresh env so values bound at
+                # env construction also see the member.
+                with ctx.rule_param_override_scope(point), fresh_scope():
+                    ok, why, _ = _validation_rollout()
+                desc = (f"rule-param ensemble member "
+                        f"{member_idx + 1}/{len(rule_points)}")
+                if ok:
+                    margin_outcomes.append(f"{desc}: goal reached")
+                else:
+                    shown = ", ".join(f"{k}={v:.4g}"
+                                      for k, v in sorted(point.items())[:8])
+                    if len(point) > 8:
+                        shown += ", ..."
+                    margin_outcomes.append(f"{desc}: FAILED - {why}")
+                    param_sensitive_detail = (f"under {desc} ({shown}): "
+                                              f"{why}")
+                    break
+            if rule_points and param_sensitive_detail is None:
+                validation_note += (
+                    " Rule-parameter margin check passed: the plan also "
+                    f"reached the goal under all {len(rule_points)} "
+                    "calibrated posterior members of the learned rule "
+                    "parameters.")
+
         def _stash_uncaptured_submission() -> None:
             """Remember the best refused submission of this attempt.
 
@@ -1268,6 +1310,40 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                     " Physics-margin check passed: the policy also reached "
                     f"the goal at all {len(margin_outcomes)} grid points "
                     "spanning +-1 sigma of the identified physical "
+                    "parameters.")
+
+        # Rule-parameter margin gate, mirroring evaluate_option_plan:
+        # the policy must also survive the calibrated posterior members
+        # of the learned rule parameters, not just their point estimate.
+        if (validation_cfg.rule_param_margin and fresh_scope is not None
+                and ctx.rule_param_margin_provider is not None
+                and ctx.rule_param_override_scope is not None
+                and ctx.capture_goal_reaching_plans and goal_achieved
+                and not evaluator_rejected and diagnostic_seed is None
+                and flaky_detail is None and param_sensitive_detail is None):
+            rule_points = ctx.rule_param_margin_provider() or []
+            for member_idx, point in enumerate(rule_points):
+                ctx.attempt_rollout_count += 1
+                with ctx.rule_param_override_scope(point), fresh_scope():
+                    ok, why = _policy_validation_rollout()
+                desc = (f"rule-param ensemble member "
+                        f"{member_idx + 1}/{len(rule_points)}")
+                if ok:
+                    margin_outcomes.append(f"{desc}: goal reached")
+                else:
+                    shown = ", ".join(f"{k}={v:.4g}"
+                                      for k, v in sorted(point.items())[:8])
+                    if len(point) > 8:
+                        shown += ", ..."
+                    margin_outcomes.append(f"{desc}: FAILED - {why}")
+                    param_sensitive_detail = (f"under {desc} ({shown}): "
+                                              f"{why}")
+                    break
+            if rule_points and param_sensitive_detail is None:
+                validation_note += (
+                    " Rule-parameter margin check passed: the policy also "
+                    f"reached the goal under all {len(rule_points)} "
+                    "calibrated posterior members of the learned rule "
                     "parameters.")
 
         capture_outcome = _decide_capture(

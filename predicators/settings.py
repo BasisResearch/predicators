@@ -1752,6 +1752,18 @@ class GlobalSettings:
     # captures are infrequent, so density is cheap sensitivity; designs
     # with real margin pass every density identically.
     agent_plan_validation_physics_margin_points = 32
+    # Rule-parameter margin gate: after the physics points, re-run each
+    # capture-eligible submission under the calibrated rule-parameter
+    # ensemble members (the same posterior draws info-seeking
+    # exploration scores with), rejecting as PARAM-SENSITIVE a plan
+    # that survives only at the point estimate of an uncertain LEARNED
+    # constant (a gate threshold, a geometric offset). The physics
+    # sweep cannot catch these: it perturbs identified base-physics
+    # params, while a learned rule constant baked near a data boundary
+    # carries its own posterior uncertainty. No-op unless the approach
+    # installs the ensemble providers (see rule_param_margin_provider),
+    # which requires agent_explorer_info_seeking's ensemble.
+    agent_plan_validation_rule_param_margin = False
     # Agent bilevel explorer settings. Separate from the solve-path budget
     # above because the explorer runs full backtracking while looking for
     # the deepest subgoal-failure to truncate at. Denominated in

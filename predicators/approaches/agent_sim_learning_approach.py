@@ -736,6 +736,17 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # the current fit, not the one deployed when the session opened.
         self._tool_context.physics_margin_provider = \
             lambda: list(self._identified_physical_sigma_points)
+        # Rule-parameter margin points for the capture gate: the
+        # calibrated ensemble the info-seeking explorer scores with
+        # (posterior subsample / Laplace / jitter, see
+        # _select_param_ensemble) doubles as the uncertainty sweep over
+        # LEARNED rule constants - a submission must survive every
+        # member, not just the fitted point estimate. Callables so the
+        # gate always sees the latest fit's ensemble.
+        self._tool_context.rule_param_margin_provider = \
+            lambda: [dict(m) for m in self._param_ensemble]
+        self._tool_context.rule_param_override_scope = \
+            self._rule_param_override_scope
         # Env predicates surfaced to the agent (see
         # KEPT_INITIAL_PREDICATE_NAMES). Computed once here; everything
         # agent-facing flows through _get_all_predicates().
@@ -1676,6 +1687,29 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             self._fitted_params.update(saved)
         return mean_bernoulli_entropy(np.asarray(rows, dtype=bool))
 
+    @contextmanager
+    def _rule_param_override_scope(
+            self, override: Dict[str, float]) -> Iterator[None]:
+        """Swap ``_fitted_params`` to ``override`` for the duration.
+
+        The learned rules and frozen predicate classifiers read the
+        fitted params through a live view (see ``_ParamsView``), so the
+        swap changes their gates for the wrapped validation rollout and
+        the restore returns the deployed fit untouched - the same
+        pattern :meth:`score_atom_disagreement` uses for ensemble
+        scoring. Installed on the tool context as
+        ``rule_param_override_scope`` for the capture gate's
+        rule-parameter margin sweep.
+        """
+        saved = dict(self._fitted_params)
+        self._fitted_params.clear()
+        self._fitted_params.update(override)
+        try:
+            yield
+        finally:
+            self._fitted_params.clear()
+            self._fitted_params.update(saved)
+
     # ── Agent-based synthesis ────────────────────────────────────
 
     def _synthesize_with_agent(
@@ -2129,6 +2163,27 @@ errors now - not just the one that blocked the last test or the \
 first one you find. Each error deferred to the next cycle costs a \
 full explore-learn-test round trip, which is the main thing that \
 makes learning slow.
+
+Declare your uncertainty. A learned constant whose supporting data \
+leaves real doubt - a one-sided bracket, a knife-edge margin, a \
+handful of samples - must be a declared ParamSpec spanning that \
+honest range, never a bare literal baked into rule code: declared \
+params get fitted posteriors, the exploration ensemble spreads over \
+them, and the capture gate re-validates every submitted plan under \
+those posterior members, so an operating point that only works at \
+your point estimate is caught in simulation instead of failing a \
+real test episode. A literal is earned only once the data brackets \
+the constant from both sides with margin to spare.
+
+Before ending the session, run a GO/NO-GO check: refine a full \
+solve of the train task in your candidate simulator and validate \
+it with several trials (`sim.refine` / `sim.run(plan, trials=5)`). \
+Record the verdict in the decision record together with the plan's \
+WEAKEST margin - the smallest distance from any step's operating \
+point to a learned threshold - compared against the measured \
+execution scatter. NO-GO, or a margin thinner than the scatter, \
+means the next test episode will likely fail: put exactly what is \
+missing at the top of `./open_questions.md`.
 
 Also maintain `./open_questions.md`: a short RANKED ledger of the \
 model's remaining uncertainties - mechanisms never observed, \
