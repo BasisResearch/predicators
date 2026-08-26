@@ -199,6 +199,12 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
             # clearance (the seat's 20 mm) with margin; table places
             # settle only their 2-3 mm.
             settle_to_contact_depth=0.03,
+            # Optional sag-discharge preload before release (see the
+            # factory docstring); 0 = first-touch settle, the current
+            # default behavior.
+            settle_preload_force=(CFG.skill_place_settle_preload_force
+                                  if CFG.skill_place_settle_preload_force > 0
+                                  else None),
             # Verified release: the settle stroke ends at FIRST contact,
             # and plant sag (position control under gravity + payload)
             # was measured walking that contact point ~15 mm toward the
