@@ -405,7 +405,9 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             comp_bodies = comp.initialize_pybullet(self._physics_client_id)
             comp.store_pybullet_bodies(comp_bodies)
 
-        # Wire up fan -> ball connection if both present
+        # Wire up fan -> ball connection if both present. Without a
+        # ball the target is a domino, which changes per task, so it is
+        # wired on every reset by _wire_wind_target instead.
         if self._fan_component is not None and self._ball_component is not None:
             self._fan_component.set_wind_target(self._ball_component.ball_id)
 
@@ -447,6 +449,42 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
 
         if self._ball_component is not None:
             self._ball_component.set_current_state(state)
+        self._wire_wind_target(state)
+
+    def _wire_wind_target(self, state: State) -> None:
+        """Point the fan at the body it is supposed to blow, for this task.
+
+        With a ball in the scene the fan blows the ball, which is one
+        body for the life of the env and is wired at startup. Without
+        one it blows the START domino, and which body holds that role is
+        a property of the task, not of the env: the roles are colours
+        assigned per layout, so the green block is a different body id
+        from one reset to the next. Re-resolving here - after the
+        components have taken the new state - is what keeps the wind on
+        the domino the task actually starts from.
+
+        A task with no start block (none generated, or a scene where the
+        chain begins elsewhere) leaves the previous target in place
+        rather than silently blowing an arbitrary body.
+        """
+        if self._fan_component is None or self._ball_component is not None:
+            return
+        if self._domino_component is None:
+            return
+        for domino in self._domino_component.dominos:
+            # The component allocates num_dominos_max bodies once and a
+            # task instantiates a subset of them, so the tail of this
+            # list is absent from the state; reading a colour off one
+            # raises rather than returning False.
+            if domino.id is None or domino not in state:
+                continue
+            # pylint: disable-next=protected-access
+            if DominoComponent._StartBlock_holds(state, [domino]):
+                self._fan_component.set_wind_target(domino.id)
+                return
+        logging.warning(
+            "Fan env has no start (green) domino in this task; leaving the "
+            "wind target unchanged.")
 
     def _domain_specific_step(self) -> None:
         """Run component physics updates (e.g., fan wind simulation)."""
@@ -911,8 +949,13 @@ class PyBulletDominoEnv(PyBulletDominoComposedEnv):
         return "pybullet_domino"
 
 
-class PyBulletDominoFanEnv(PyBulletDominoComposedEnv):
-    """Backward-compatible domino + fan + ball environment class."""
+class PyBulletDominoFanBallEnv(PyBulletDominoComposedEnv):
+    """Domino + fan + ball: the fan blows the BALL, which knocks dominoes.
+
+    Formerly ``pybullet_domino_fan``. Renamed when the ball-free variant
+    below took that name, because which body the wind pushes is the
+    whole difference between the two tasks and the old name did not say.
+    """
 
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         bounds = self._default_workspace_bounds()
@@ -923,6 +966,34 @@ class PyBulletDominoFanEnv(PyBulletDominoComposedEnv):
         ball_comp = BallComponent(workspace_bounds=bounds,
                                   table_height=self.table_height)
         super().__init__(components=[domino_comp, fan_comp, ball_comp],
+                         use_gui=use_gui,
+                         **kwargs)
+
+    @classmethod
+    def get_name(cls) -> str:
+        return "pybullet_domino_fan_ball"
+
+
+class PyBulletDominoFanEnv(PyBulletDominoComposedEnv):
+    """Domino + fan, no ball: the fan blows the START DOMINO directly.
+
+    The task is to arrange the dominoes so that switching the fan on
+    topples the chain all the way to the target - the robot never
+    pushes anything itself, so the whole plan is in the layout.
+
+    Wind targets the green start block rather than the ball, resolved on
+    every reset (see ``_wire_wind_target``): which body carries the
+    start role changes from task to task, so it cannot be wired once at
+    startup the way the ball's single body can.
+    """
+
+    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
+        bounds = self._default_workspace_bounds()
+        domino_comp = self._make_domino_component(bounds)
+        fan_comp = FanComponent(workspace_bounds=bounds,
+                                table_height=self.table_height,
+                                table_width=self.table_width)
+        super().__init__(components=[domino_comp, fan_comp],
                          use_gui=use_gui,
                          **kwargs)
 
@@ -995,7 +1066,8 @@ if __name__ == "__main__":
     from predicators import utils
 
     # Choose which environment to test
-    # Options: "domino", "domino_fan", "domino_fan_ramp",
+    # Options: "domino", "domino_fan", "domino_fan_ball",
+    # "domino_fan_ramp",
     # "domino_fan_ramp_stairs"
     # Change this to test different environments
     test_env = "domino_fan_ramp_stairs"
@@ -1037,6 +1109,10 @@ if __name__ == "__main__":
         print("Creating PyBulletDominoFanEnv...")
         CFG.env = "pybullet_domino_fan"
         demo_env = PyBulletDominoFanEnv(use_gui=True)
+    elif test_env == "domino_fan_ball":
+        print("Creating PyBulletDominoFanBallEnv...")
+        CFG.env = "pybullet_domino_fan_ball"
+        demo_env = PyBulletDominoFanBallEnv(use_gui=True)
     elif test_env == "domino_fan_ramp":
         print("Creating PyBulletDominoFanRampEnv...")
         CFG.env = "pybullet_domino_fan_ramp"
