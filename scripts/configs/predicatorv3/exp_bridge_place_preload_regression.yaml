@@ -1,0 +1,25 @@
+# Regression check for the Place settle-preload fix (commit 1c1bb93b):
+# run ONLY the oracle_hybrid_sim bridge arm with
+# skill_place_settle_preload_force enabled at 3 N. The reference run
+# (bridge-agent_oracle_hybrid_sim_opus) solved 1/1; the same pipeline
+# must still solve with the preload release. The agent learning arms
+# stay parked here (they are un-skipped in exp_bridge.yaml, which must
+# NOT be launched concurrently with itself - this file's single arm has
+# its own experiment id, so it cannot collide with live agent runs).
+# Usage:
+#   python scripts/engaging/launch.py \
+#       -c predicatorv3/exp_bridge_place_preload_regression.yaml \
+#       -p mit_preemptable
+---
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ENVS:
+  bridge:
+    SKIP: False
+APPROACHES:
+  agent_oracle_hybrid_sim:
+    SKIP: False
+    FLAGS:
+      skill_place_settle_preload_force: 3.0
