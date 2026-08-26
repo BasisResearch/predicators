@@ -3768,40 +3768,29 @@ def save_ground_atom_dataset(ground_atom_dataset: List[GroundAtomTrajectory],
         pkl.dump(ground_atom_dataset_to_pkl, f)
 
 
-def pkl_dump_with_retry(obj: Any, f: IO[bytes]) -> None:
-    """``pkl.dump``, retried once after a collection if it raises TypeError.
+def pkl_dump_all_or_nothing(obj: Any, f: IO[bytes]) -> None:
+    """``pkl.dump``, but serialise fully before writing a single byte.
 
-    Saving a learned artifact intermittently dies with ``TypeError: cannot
-    pickle '_abc._abc_data' object``, which is the C-level cache behind an
-    abstract base class. On CI it is reproducible for a given set of tests --
-    the same failures twice on the same shard, three times over -- and it has
-    been seen from two call sites, ``nsrt_learning_approach._learn_nsrts`` and
-    ``gnn_approach.learn_from_offline_dataset``. Locally it appears at roughly
-    one run in four with the code, test order and PYTHONHASHSEED all fixed.
+    A dump that raises part-way has already written a prefix, and that
+    prefix is a pickle that only fails at LOAD time -- long after the
+    run that produced it could have been repeated. Building the whole
+    blob first means a failure leaves the file empty and raises where
+    the artifact was produced.
 
-    The root cause is NOT established. What is: an ``_abc_data`` holds WEAK
-    references, so whether dill trips over one plausibly depends on collection
-    timing, which is the one thing that varies run to run under everything
-    else being pinned. ``gc.collect()`` before retrying is aimed at exactly
-    that. **This is a mitigation on a hypothesis, not a fix on a diagnosis** --
-    if it stops the failures it is also the evidence for the hypothesis, and
-    if it does not, that rules the hypothesis out.
-
-    Serialising to bytes first rather than retrying into ``f`` matters: a dump
-    that raises part-way has already written a prefix, and a retry appending
-    to that would leave a corrupt file that only fails at load time, which is
-    much worse than the error being fixed here.
-
-    Any TypeError is retried, not only the ``_abc_data`` one. Matching on the
-    message would break silently when it is reworded, and an object that is
-    genuinely unpicklable fails the second time too and raises as it always
-    would -- so the broad catch costs one wasted attempt and hides nothing.
+    This used to carry a ``gc.collect()`` retry aimed at the
+    intermittent ``TypeError: cannot pickle '_abc._abc_data' object``
+    seen when saving learned NSRTs and GNN weights. That was a guess at
+    collection timing and it did not stop the failures. The cause was
+    the ``dill==0.3.5.1`` pin: dill serialises a class *by value* when
+    it cannot find it again at ``module.qualname``, and before 0.3.6 the
+    by-value path shipped the class ``__dict__`` verbatim -- including
+    the ``_abc_impl`` slot that ``ABCMeta`` puts on every class it
+    builds, which is an unpicklable ``_abc_data``. dill 0.3.6 added
+    ``_get_typedict_abc``, which strips ``_abc_impl`` and the ABC
+    registry caches and re-registers the subclasses on load. The pin is
+    now 0.3.9, so the retry has nothing left to retry.
     """
-    try:
-        blob = pkl.dumps(obj)
-    except TypeError:
-        gc.collect()
-        blob = pkl.dumps(obj)
+    blob = pkl.dumps(obj)
     f.write(blob)
 
 
