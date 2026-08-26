@@ -1,5 +1,6 @@
 """Testing tools, including the evaluate_option_plan capture surface."""
 import contextlib
+import functools
 import logging
 import os
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -10,6 +11,8 @@ from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig, \
     ValidationConfig
+from predicators.agent_sdk.parallel_rollouts import \
+    prefetch_parallel as _prefetch_parallel
 from predicators.agent_sdk.tools.budget import _budget_footer
 from predicators.agent_sdk.tools.capture import BestEffortReason, \
     CaptureDecision, _decide_capture
@@ -76,10 +79,18 @@ def _parameter_margin_sweep(
     if (validation_cfg.physics_margin
             and ctx.physics_margin_provider is not None):
         points = ctx.physics_margin_provider() or []
-        for point in points:
-            ctx.attempt_rollout_count += 1
+
+        def _physics_rollout(point: Dict[str, float]) -> Tuple[bool, str]:
             with fresh_scope(physical_overrides=point):
-                ok, why = rollout()
+                return rollout()
+
+        prefetched = _prefetch_parallel(
+            [functools.partial(_physics_rollout, point) for point in points],
+            f"{subject} physics margin")
+        for point_idx, point in enumerate(points):
+            ctx.attempt_rollout_count += 1
+            pre = prefetched[point_idx]
+            ok, why = pre if pre is not None else _physics_rollout(point)
             desc = ", ".join(f"{k}={v:.4g}" for k, v in sorted(point.items()))
             if ok:
                 outcomes.append(f"physics point ({desc}): goal reached")
@@ -96,10 +107,25 @@ def _parameter_margin_sweep(
             and ctx.rule_param_margin_provider is not None
             and ctx.rule_param_override_scope is not None):
         rule_points = ctx.rule_param_margin_provider() or []
+        override_scope = ctx.rule_param_override_scope
+
+        def _member_rollout(point: Dict[str, float]) -> Tuple[bool, str]:
+            assert override_scope is not None
+            with override_scope(point), fresh_scope():
+                return rollout()
+
+        # Prefetching runs every member even though the sequential loop
+        # below still breaks at the first failure - the extra results
+        # are discarded, keeping the report identical with the flag on
+        # or off (failures are rare enough that the prepaid tail is
+        # cheaper than serializing the common all-pass case).
+        member_prefetched = _prefetch_parallel(
+            [functools.partial(_member_rollout, pt) for pt in rule_points],
+            f"{subject} rule-param margin")
         for member_idx, point in enumerate(rule_points):
             ctx.attempt_rollout_count += 1
-            with ctx.rule_param_override_scope(point), fresh_scope():
-                ok, why = rollout()
+            pre = member_prefetched[member_idx]
+            ok, why = pre if pre is not None else _member_rollout(point)
             desc = (f"rule-param ensemble member "
                     f"{member_idx + 1}/{len(rule_points)}")
             if ok:
@@ -659,18 +685,29 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             # rejection) and yields a reliability estimate - a bare
             # "rollout k FAILED" left agents guessing which
             # (run_20260717_182040 seed0 turn 214).
-            for repeat_idx in range(2, n_rollouts + 1):
-                ctx.attempt_rollout_count += 1
-                # decorrelated_rollout_seed: a fresh env alone gives
-                # bit-identical repeats (motion planning reads the
-                # constant CFG.seed at call time), so without it the
-                # validation repeats re-run the capture rollout verbatim
-                # and detect nothing. The capture rollout itself keeps
-                # the base seed; repeats sample execution variability.
+            # decorrelated_rollout_seed: a fresh env alone gives
+            # bit-identical repeats (motion planning reads the
+            # constant CFG.seed at call time), so without it the
+            # validation repeats re-run the capture rollout verbatim
+            # and detect nothing. The capture rollout itself keeps
+            # the base seed; repeats sample execution variability.
+            def _repeat_rollout(
+                    repeat_idx: int
+            ) -> Tuple[bool, str, List[Optional[State]]]:
                 with (fresh_scope() if fresh_scope is not None else
                       contextlib.nullcontext()), \
                         decorrelated_rollout_seed(repeat_idx - 1):
-                    ok, why, repeat_posts = _validation_rollout()
+                    return _validation_rollout()
+
+            repeat_indices = list(range(2, n_rollouts + 1))
+            repeat_prefetched = _prefetch_parallel([
+                functools.partial(_repeat_rollout, k) for k in repeat_indices
+            ], "capture repeat rollouts")
+            for pos, repeat_idx in enumerate(repeat_indices):
+                ctx.attempt_rollout_count += 1
+                pre = repeat_prefetched[pos]
+                ok, why, repeat_posts = (pre if pre is not None else
+                                         _repeat_rollout(repeat_idx))
                 repeat_seed = base_planner_seed + repeat_idx - 1
                 if ok:
                     passing_validation_posts.append(repeat_posts)
@@ -1278,12 +1315,23 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         if (ctx.capture_goal_reaching_plans and goal_achieved
                 and not evaluator_rejected and diagnostic_seed is None
                 and n_rollouts > 1):
-            for repeat_idx in range(2, n_rollouts + 1):
-                ctx.attempt_rollout_count += 1
+
+            def _policy_repeat_rollout(repeat_idx: int) -> Tuple[bool, str]:
                 with (fresh_scope() if fresh_scope is not None else
                       contextlib.nullcontext()), \
                         decorrelated_rollout_seed(repeat_idx - 1):
-                    ok, why = _policy_validation_rollout()
+                    return _policy_validation_rollout()
+
+            repeat_indices = list(range(2, n_rollouts + 1))
+            repeat_prefetched = _prefetch_parallel([
+                functools.partial(_policy_repeat_rollout, k)
+                for k in repeat_indices
+            ], "policy repeat rollouts")
+            for pos, repeat_idx in enumerate(repeat_indices):
+                ctx.attempt_rollout_count += 1
+                pre = repeat_prefetched[pos]
+                ok, why = (pre if pre is not None else
+                           _policy_repeat_rollout(repeat_idx))
                 repeat_seed = base_planner_seed + repeat_idx - 1
                 if ok:
                     rollout_outcomes.append(
