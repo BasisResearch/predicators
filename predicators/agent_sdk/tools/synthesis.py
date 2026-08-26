@@ -1025,7 +1025,11 @@ def create_synthesis_tools(
         count, mean/max abs error, and the relative improvement over
         the no-rule baseline (negative means the rules are worse than
         not running them at all), plus the worst-N example transitions
-        per feature. Uses init_value params by default;
+        per feature, each located as (traj, step, executing option).
+        A final section lists every feature that differs from the data
+        but sits OUTSIDE the scored scope - no rule predicts it, so
+        the combined model falls back to the base prediction there;
+        each such feature is a candidate missing mechanism. Uses init_value params by default;
         ``fit_params=True`` MCMC-fits first (diagnostic only - nothing
         is published). Tolerance: ``|pred - obs| > rel_tol * |obs| +
         abs_tol``. Each call snapshots the simulator file into
@@ -1147,9 +1151,63 @@ def create_synthesis_tools(
             base_n_total[key] += 1
             base_sum_err[key] += abs(pred - obs)
 
-        if not rule_n_total:
-            return (f"[{version_tag}] RESIDUAL_FEATURES is empty; "
-                    "nothing to report.")
+        # Full-feature sweep OUTSIDE the scoped table: a feature that
+        # really changes but has no rule is exactly a mechanism the
+        # model is missing, and the scoped table cannot see it. The
+        # combined model predicts out-of-scope features with the base
+        # step alone (the declared scope IS the overwrite scope), so
+        # these are scored on the base triples.
+        in_scope = {(tn, f)
+                    for tn, fs in residual_features.items() for f in fs}
+        all_feats: Dict[str, List[str]] = {}
+        if base_pred_triples:
+            for obj in base_pred_triples[0][0]:
+                all_feats.setdefault(obj.type.name,
+                                     list(obj.type.feature_names))
+        out_scope = {
+            tn: [f for f in fs if (tn, f) not in in_scope]
+            for tn, fs in all_feats.items()
+        }
+        out_scope = {tn: fs for tn, fs in out_scope.items() if fs}
+        unmodeled_n: Dict = defaultdict(int)
+        unmodeled_total: Dict = defaultdict(int)
+        unmodeled_max: Dict = defaultdict(float)
+        unmodeled_worst: Dict = {}
+        for i, obj, tn, feat, pred, obs in iter_feature_residuals(
+                triples_base, out_scope):
+            key = (tn, feat)
+            err = abs(pred - obs)
+            unmodeled_total[key] += 1
+            if err > rel_tol * abs(obs) + abs_tol:
+                unmodeled_n[key] += 1
+                if err >= unmodeled_max[key]:
+                    unmodeled_max[key] = err
+                    unmodeled_worst[key] = (i, obj.name, pred, obs)
+
+        # Locate a flat transition index for the reader: which recorded
+        # trajectory, which step within it, and which option was
+        # executing (the flat index lines up with base_pred_triples by
+        # construction - see the truncation comment above).
+        group_lens = [len(g) for g in groups]
+
+        def _where(flat_idx: int) -> str:
+            t_idx, s_idx, rem = 0, flat_idx, flat_idx
+            for g_idx, glen in enumerate(group_lens):
+                if rem < glen:
+                    t_idx, s_idx = g_idx, rem
+                    break
+                rem -= glen
+            opt_name = ""
+            if flat_idx < len(base_pred_triples):
+                act = base_pred_triples[flat_idx][1]
+                if hasattr(act, "has_option") and act.has_option():
+                    opt_name = f", during {act.get_option().name}"
+            return f"traj {t_idx} step {s_idx}{opt_name}"
+
+        if not rule_n_total and not unmodeled_n:
+            return (f"[{version_tag}] RESIDUAL_FEATURES is empty and no "
+                    "out-of-scope feature differs from the data; nothing "
+                    "to report.")
 
         n_steps = len(triples_rules)
         perfect_steps = n_steps - len(mismatched_steps)
@@ -1160,10 +1218,14 @@ def create_synthesis_tools(
             f"tol: {rel_tol:g}*|obs| + {abs_tol:g}.",
             f"Steps with all in-scope features within tol: "
             f"{perfect_steps}/{n_steps}.",
-            "",
-            f"{'feature':<35} {'misses/total':<14} {'mean_err':<10} "
-            f"{'max_err':<10} {'vs base':<14}",
         ]
+        if rule_n_total:
+            lines.append("")
+            lines.append(f"{'feature':<35} {'misses/total':<14} "
+                         f"{'mean_err':<10} {'max_err':<10} {'vs base':<14}")
+        else:
+            lines.append("(no in-scope features - the scoped table is "
+                         "empty; see the out-of-scope section below)")
         for key in sorted(rule_n_total):
             tn, feat = key
             n_tot = rule_n_total[key]
@@ -1186,16 +1248,30 @@ def create_synthesis_tools(
 
         if n_examples > 0 and worst:
             lines.append("")
-            lines.append(f"Worst {n_examples} mismatches per feature "
-                         f"(step N = trajectory transition state[N] -> "
-                         f"state[N+1]):")
+            lines.append(f"Worst {n_examples} mismatches per feature:")
             for key in sorted(worst):
                 tn, feat = key
                 entries = sorted(worst[key], key=lambda x: x[4], reverse=True)
                 for step, oname, pred, obs, err in entries[:n_examples]:
-                    lines.append(f"  step {step:>4}  {oname}.{feat}: "
+                    lines.append(f"  {_where(step)}  {oname}.{feat}: "
                                  f"pred={pred:.6f} obs={obs:.6f} "
                                  f"err={err:.6f}")
+
+        if unmodeled_n:
+            lines.append("")
+            lines.append(
+                f"Features that differ from the data but are OUTSIDE the "
+                f"{scope_label} scope (no rule predicts them, so the "
+                "combined model uses the base prediction; each is a "
+                "candidate missing mechanism; worst transition shown):")
+            for key in sorted(unmodeled_n, key=lambda k: -unmodeled_max[k]):
+                tn, feat = key
+                i, oname, pred, obs = unmodeled_worst[key]
+                lines.append(
+                    f"  {tn + '.' + feat:<35} "
+                    f"{unmodeled_n[key]}/{unmodeled_total[key]} differ, "
+                    f"worst at {_where(i)}: {oname}.{feat} "
+                    f"base_pred={pred:.6f} obs={obs:.6f}")
 
         return "\n".join(lines)
 
