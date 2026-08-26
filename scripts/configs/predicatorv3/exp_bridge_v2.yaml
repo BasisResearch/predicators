@@ -1,0 +1,59 @@
+# Bridge learning arms for the "efficient-learning" agent generation:
+# fork-parallel validation rollouts (agent_sdk/parallel_rollouts.py)
+# plus the start-of-session divergence report and the out-of-scope
+# residual sweep in sim.residuals(). Run CONCURRENTLY with the live
+# ``bridge-...`` generation: the env key ``bridge_v2`` gives these runs
+# their own experiment ids
+# (bridge_v2-agent_po_predicate_invention_al[/_policy]), so their
+# checkpoints/results/logs cannot collide with the live arms, and the
+# shared bridge env block stays untouched. The env FLAGS below are a
+# verbatim copy of envs/all.yaml's bridge block (preload + pin are the
+# domain defaults there).
+# Usage:
+#   python scripts/engaging/launch.py -c predicatorv3/exp_bridge_v2.yaml \
+#       -p mit_preemptable
+---
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ENVS:
+  bridge_v2:
+    NAME: "pybullet_bridge"
+    SKIP: False
+    FLAGS:
+      max_initial_demos: 0
+      horizon: 3000
+      max_num_steps_interaction_request: 1000
+      skill_place_settle_preload_force: 3.0
+      process_planning_heuristic_weight: 10.0
+      process_planning_max_execution_replans: 3
+      wait_option_max_steps: 120
+      pybullet_birrt_contact_margin: -0.005
+      pybullet_pin_held_weld_assemblies: True
+APPROACHES:
+  agent_po_predicate_invention_al:
+    SKIP: False
+    FLAGS:
+      skip_initial_test: True
+      bilevel_plan_without_sim: True # for the demonstrator
+      agent_solve_max_attempts: 1
+      agent_plan_validation_rule_param_margin: True
+      agent_explorer_info_mcmc_steps: 0
+      # Fork-parallel validation/margin rollouts (E2E-validated by the
+      # third oracle regression round; benchmark 21336169: 3.74x at 4
+      # workers). Sized to the launcher's --cpus-per-task=8.
+      agent_validation_parallel_workers: 6
+    ARGS:
+      - auto_resume
+  agent_po_predicate_invention_al_policy:
+    SKIP: False
+    FLAGS:
+      skip_initial_test: True
+      bilevel_plan_without_sim: True # for the demonstrator
+      agent_solve_max_attempts: 1
+      agent_plan_validation_rule_param_margin: True
+      agent_explorer_info_mcmc_steps: 0
+      agent_validation_parallel_workers: 6 # see the arm above
+    ARGS:
+      - auto_resume
