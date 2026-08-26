@@ -307,6 +307,15 @@ def build_solve_prompt(
             "rather than inheriting them, especially from failed "
             "attempts.\n"
             "Journal protocol for this attempt:\n"
+            "- A design the journal records as having reached the goal in "
+            "the REAL environment is the INCUMBENT: reproduce it unless "
+            "the journal also records it failing since, or a model update "
+            "invalidates one of its steps. Every deviation from an "
+            "execution-validated design - reordering steps, dropping a "
+            "Wait, retargeting a parameter - is a NEW experiment carrying "
+            "first-execution risk that belief validation does NOT retire "
+            "(real option durations and placement scatter differ), so "
+            "deviate only for a recorded reason and record that reason.\n"
             "- FIRST list the journal's untried leads, then execute or "
             "explicitly retire (with a measurement) each promising lead "
             "BEFORE re-opening a family an earlier attempt already marked "
@@ -692,7 +701,11 @@ Follow the system prompt's Subgoal Annotations contract: annotate every \
 step whose effect the available predicates can express (typed obj:type \
 references in arguments and atoms alike), insert a Wait after any action \
 whose subgoal depends on a delayed process, and annotate each Wait with \
-the atoms that should end it. A step without `-> {{atoms}}` is only \
+the atoms that should end it. A delayed process needs its EXPLICIT Wait \
+even when a belief rollout completes without one: belief and real option \
+durations differ, so a plan that borrows other steps' incidental \
+duration to cover a hidden timer validates in belief and loses the \
+timing race in reality. A step without `-> {{atoms}}` is only \
 checked for "executed" - search and execution monitoring are blind there.
 
 {closing_block}"""
