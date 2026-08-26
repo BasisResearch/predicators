@@ -165,6 +165,9 @@ class FanComponent(DominoEnvComponent):
         # _target_still_standing). Only meaningful for a body that can
         # fall out of the airstream, so it travels with the z offset.
         self._wind_stops_when_toppled: bool = False
+        # Per-target force override (N). None keeps the class default,
+        # which is calibrated for the ball.
+        self._wind_force_override: Optional[float] = None
 
     # -------------------------------------------------------------------------
     # DominoEnvComponent interface implementation
@@ -349,17 +352,21 @@ class FanComponent(DominoEnvComponent):
     def set_wind_target(self,
                         target_id: int,
                         z_offset: float = 0.0,
-                        stop_when_toppled: bool = False) -> None:
+                        stop_when_toppled: bool = False,
+                        force: Optional[float] = None) -> None:
         """Set the object that wind forces should be applied to.
 
         ``z_offset`` raises the point of application above the target's
         origin, which is what turns a shove into a topple for a body
         that stands on a narrow base. ``stop_when_toppled`` cuts the
-        force once the target is down.
+        force once the target is down. ``force`` overrides the class
+        magnitude, which is calibrated for the ball and is 16x what a
+        domino needs.
         """
         self._wind_target_id = target_id
         self._wind_target_z_offset = z_offset
         self._wind_stops_when_toppled = stop_when_toppled
+        self._wind_force_override = force
 
     def _target_still_standing(self, target_id: int) -> bool:
         """Is the wind target still upright enough to be pushed?
@@ -406,7 +413,10 @@ class FanComponent(DominoEnvComponent):
         # behaviour (roll from a central push) is what that task wants.
         pos_apply = (pos_target[0], pos_target[1],
                      pos_target[2] + self._wind_target_z_offset)
-        force_vec = self.wind_force_magnitude * world_dir
+        magnitude = (self.wind_force_magnitude
+                     if self._wind_force_override is None else
+                     self._wind_force_override)
+        force_vec = magnitude * world_dir
         p.applyExternalForce(objectUniqueId=target_id,
                              linkIndex=-1,
                              forceObj=force_vec.tolist(),

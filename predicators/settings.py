@@ -873,6 +873,17 @@ class GlobalSettings:
     # ("fan_side"), 0=left 1=right 2=back 3=front, matching
     # FanComponent's side_idx.
     domino_fan_aligned_tasks = False
+    # Wind force (N) the fan applies to the start domino in the ball-free
+    # pybullet_domino_fan env. NOT the FanComponent class default (2.0),
+    # which is the ball's: a 100 g domino 15 mm thick and 150 mm tall,
+    # pushed at 0.4 of its height, tips at m*g*(depth/2)/(0.4*height) =
+    # 0.123 N, and a measured sweep agrees - 0.05 N tips 1 of 4 tasks,
+    # 0.10 N tips 4 of 4. Above ~0.3 N the block stops toppling and
+    # starts flying: mean displacement is ~85 mm (one topple of a 150 mm
+    # block) from 0.1 to 0.3 N, 833 mm at 1.0 N and 5.5 m at 4.0 N.
+    # 0.2 N sits ~60% over the threshold, the same margin
+    # pybullet_fan's 0.06 N keeps over its ball's stiction.
+    domino_fan_wind_force = 0.2
 
     # burger env parameters
     burger_render_set_of_marks = True

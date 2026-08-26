@@ -487,7 +487,8 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                 self._fan_component.set_wind_target(
                     domino.id,
                     z_offset=0.4 * self._domino_component.domino_height,
-                    stop_when_toppled=True)
+                    stop_when_toppled=True,
+                    force=CFG.domino_fan_wind_force)
                 return
         logging.warning(
             "Fan env has no start (green) domino in this task; leaving the "
