@@ -40,7 +40,8 @@ def create_predicate_synthesis_tools(
             ``_get_all_options()``, and ``_learned_predicates``.
         trajectories: Demo trajectories used for milestone reporting.
         cycle_index_provider: Callable returning the current cycle
-            (1-indexed) at snapshot time. Defaults to a constant 0.
+            (0-based; negative = the offline pass) at snapshot time.
+            Defaults to a constant 0.
     """
     # pylint: disable=import-outside-toplevel
     import traceback  # pylint: disable=redefined-outer-name,reimported

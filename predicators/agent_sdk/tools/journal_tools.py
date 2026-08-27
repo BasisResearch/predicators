@@ -61,7 +61,10 @@ def _build_journal_tools(ctx: ToolContext, _text_result: Callable,
         if not ctx.sandbox_dir:
             return _error_result("No sandbox directory in this session.")
         if ctx.learn_cycle_index is not None:
-            where = f"learning cycle {ctx.learn_cycle_index}"
+            if ctx.learn_cycle_index < 0:
+                where = "offline learning"
+            else:
+                where = f"learning cycle {ctx.learn_cycle_index}"
         elif ctx.test_task_idx is not None:
             where = f"test task {ctx.test_task_idx}"
         else:

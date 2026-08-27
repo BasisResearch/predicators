@@ -384,8 +384,9 @@ def test_test_phase_journal_archived_and_rolled_back(tmp_path):
     assert "- learning fact" in content
     assert "task 0" not in content
     # The full eval journal was archived outside the sandbox first, one
-    # copy per online-learning cycle.
-    archived = (log_dir / "journal_eval_cycle0.md").read_text()
+    # copy per evaluation phase. This first evaluation precedes any
+    # online learning, so it archives as the initial test.
+    archived = (log_dir / "journal_eval_initial.md").read_text()
     assert "- learning fact" in archived
     assert "### task 0 goal + initial state (auto)" in archived
     # Second evaluation on the same task, after a learning phase advanced
@@ -399,8 +400,10 @@ def test_test_phase_journal_archived_and_rolled_back(tmp_path):
     content = journal_mod.read_journal(str(sandbox))
     assert content.count("### task 0 goal + initial state (auto)") == 1
     approach.end_test_phase()
+    # The second evaluation ran after cycle 0's learn advanced the
+    # counter to 1, so it archives under the 0-based cycle it evaluates.
     assert sorted(p.name for p in log_dir.glob("journal_eval*.md")) == [
-        "journal_eval_cycle0.md", "journal_eval_cycle1.md"
+        "journal_eval_cycle0.md", "journal_eval_initial.md"
     ]
     assert journal_mod.read_raw(str(sandbox)) is not None
     assert "task 0" not in journal_mod.read_journal(str(sandbox))

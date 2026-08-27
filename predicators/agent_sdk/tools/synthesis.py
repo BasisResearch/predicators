@@ -162,9 +162,11 @@ def create_synthesis_tools(
             ``"/sandbox"`` for docker).  Used only when building the
             human-readable path included in the spilled-output message.
         cycle_index_provider: Callable returning the current online
-            learning cycle (1-indexed). Read at snapshot time so the
-            same tools instance reflects later cycle bumps. If ``None``,
-            cycle defaults to 0 (still valid; produces
+            learning cycle (0-based, matching the harness's "ONLINE
+            LEARNING CYCLE i"; negative = the offline pass, rendered
+            as ``offline``). Read at snapshot time so the same tools
+            instance reflects later cycle bumps. If ``None``, cycle
+            defaults to 0 (still valid; produces
             ``cycle_000_vers_YYY``).
         budget_check: Callable raising ``ProbeBudgetExceeded`` when the
             session's wall-clock budget is spent. Long-running backends
