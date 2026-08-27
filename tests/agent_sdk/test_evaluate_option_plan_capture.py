@@ -575,7 +575,8 @@ def test_rule_param_sensitive_plan_is_not_captured():
     Regression for the bridge cycles 5-7: plans centered on marginal
     operating points of uncertain learned constants (a glue dab at 16 mm
     of the true 20 mm radius) passed 5/5 nominal validation rollouts and
-    the (empty) physics sweep, then failed in the real environment."""
+    the (empty) physics sweep, then failed in the real environment.
+    """
     utils.reset_config({
         "agent_plan_validation_rollouts": 3,
         "agent_plan_validation_fresh_env": True,
@@ -935,10 +936,10 @@ def test_plan_capture_carries_validation_summary():
 
 
 def test_parallel_repeats_capture_robust_plan():
-    """With agent_validation_parallel_workers set, the validation
-    repeats run in forked children: the verdict and note are identical
-    to sequential mode, and the parent-side model counter proves the
-    repeats did NOT run in this process (fork isolation)."""
+    """With agent_validation_parallel_workers set, the validation repeats run
+    in forked children: the verdict and note are identical to sequential mode,
+    and the parent-side model counter proves the repeats did NOT run in this
+    process (fork isolation)."""
     from predicators.agent_sdk.parallel_rollouts import \
         parallel_rollouts_available
     if not parallel_rollouts_available():
@@ -976,3 +977,107 @@ def test_parallel_repeats_still_reject_flaky_plan():
     assert "FLAKY (plan NOT captured)" in text
     assert "Captured as the current answer" not in text
     assert ctx.solved_plan is None
+
+
+# ── Execution-verifiability probe ────────────────────────────────────
+# The monitor evaluates captured annotations on real observations, which
+# carry no latent. An annotation whose truth in the certifying post-state
+# depends on the belief latent (or whose classifier raises without one)
+# is excluded from the monitored sketch at capture time.
+
+
+class _LatentModel(_Model):
+    """Post-states carry a belief latent, as belief-sim rollouts do."""
+
+    def __init__(self, latent_value, **kwargs):
+        super().__init__(**kwargs)
+        self._latent_value = latent_value
+
+    def get_next_state_and_num_actions(self, state, option):
+        nxt, n = super().get_next_state_and_num_actions(state, option)
+        nxt.latent = {"_bonds": self._latent_value}
+        return nxt, n
+
+
+def _latent_only_classifier(s, o, latent=None):
+    del s, o
+    return bool((latent or {}).get("_bonds"))
+
+
+_LatentBonded = Predicate("LatentBonded", [_block_type],
+                          _latent_only_classifier)
+
+
+def _raising_without_latent(s, o, latent=None):
+    del s, o
+    return bool(latent["_bonds"])  # TypeError when latent is None
+
+
+_RaisingBond = Predicate("RaisingBond", [_block_type], _raising_without_latent)
+
+_LATENT_PLAN = ("Move(block0:block)[0.95] -> "
+                "{ReachedHi(block0:block), LatentBonded(block0:block)}")
+
+_NEG_RAISING_PLAN = (
+    "Move(block0:block)[0.5] -> {NOT RaisingBond(block0:block)}\n"
+    "Move(block0:block)[0.95] -> {ReachedHi(block0:block)}")
+
+
+def test_latent_only_annotation_excluded_from_monitoring():
+    """A positive annotation that only holds through the belief latent is
+    dropped from the captured sketch (it would read false on every real
+    observation and abort a healthy episode), and the capture message says so;
+    the observable annotation survives."""
+    model = _LatentModel({"a|b"})
+    utils.reset_config({"agent_plan_validation_rollouts": 3})
+    ctx = _make_ctx(model)
+    ctx.predicates.add(_LatentBonded)
+    text = _call_tool(ctx, _LATENT_PLAN)
+    assert "Captured as the current answer" in text
+    assert "cannot be verified from a real observation" in text
+    assert "LatentBonded" in text
+    sketch = ctx.solved_sketch
+    assert sketch is not None
+    assert {str(a) for a in sketch[0].subgoal_atoms} == \
+        {"ReachedHi(block0:block)"}
+
+
+def test_raising_negative_annotation_excluded_from_monitoring():
+    """A negative annotation whose classifier RAISES without a latent is.
+
+    dropped too - the monitor could not evaluate it on a real state.
+    """
+    # Empty bond set: RaisingBond is False with the latent, so the NOT
+    # annotation holds in the belief rollout and survives to the probe.
+    model = _LatentModel(set())
+    utils.reset_config({"agent_plan_validation_rollouts": 3})
+    ctx = _make_ctx(model)
+    ctx.predicates.add(_RaisingBond)
+    # Belief rollouts attach an initial latent to the task init (the
+    # production path does this via _attach_initial_latent); without it
+    # the classifier would raise inside the rollout itself.
+    ctx.current_task.init.latent = {"_bonds": set()}
+    text = _call_tool(ctx, _NEG_RAISING_PLAN)
+    assert "Captured as the current answer" in text
+    assert "cannot be verified from a real observation" in text
+    assert "RaisingBond" in text
+    sketch = ctx.solved_sketch
+    assert sketch is not None
+    assert not sketch[0].subgoal_neg_atoms
+
+
+def test_observation_backed_annotation_survives_probe():
+    """An annotation that holds from observable features alone is kept:
+
+    the probe only drops latent-dependent atoms.
+    """
+    model = _LatentModel({"a|b"})
+    utils.reset_config({"agent_plan_validation_rollouts": 3})
+    ctx = _make_ctx(model)
+    text = _call_tool(ctx, _PLAN_TEXT)
+    assert "Captured as the current answer" in text
+    assert "cannot be verified from a real observation" not in text
+    sketch = ctx.solved_sketch
+    assert sketch is not None
+    assert {str(a) for a in sketch[0].subgoal_atoms} == \
+        {"ReachedHi(block0:block)"}
