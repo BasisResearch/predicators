@@ -853,6 +853,30 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                         return False
                 return True
 
+            # Execution-verifiability probe. The closed-loop monitor
+            # evaluates the captured annotations on REAL observations,
+            # which carry no latent (``State.latent`` is None outside
+            # belief rollouts). An atom whose truth in the certifying
+            # post-state depends on the belief latent therefore reads
+            # false at execution no matter what physically happens, and
+            # a single such annotation aborts a healthy episode (a
+            # latent-only SeamBonded killed two runs whose bonds had in
+            # fact formed). Certify each surviving positive atom on the
+            # same post-state with the latent stripped and drop the
+            # ones that fail; a classifier that RAISES without a latent
+            # would crash the monitor, so it is dropped from either
+            # polarity the same way (a stripped negative atom that
+            # merely evaluates is kept - it cannot fire spuriously).
+            unverifiable_dropped: List[str] = []
+
+            def _probe_without_latent(atom: Any,
+                                      post: State) -> Optional[bool]:
+                stripped = State(post.data)
+                try:
+                    return bool(atom.holds(stripped))
+                except Exception:  # pylint: disable=broad-except
+                    return None
+
             for i, st in enumerate(sketch_steps):
                 post = (result.steps[i].post_state
                         if i < len(result.steps) else None)
@@ -869,6 +893,21 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                         if a not in after
                         and _held_in_passing_repeats(a, i, False)
                     }
+                    pos_drop = {
+                        a
+                        for a in pos_held
+                        if _probe_without_latent(a, post) is not True
+                    }
+                    neg_drop = {
+                        a
+                        for a in neg_held
+                        if _probe_without_latent(a, post) is None
+                    }
+                    unverifiable_dropped.extend(
+                        f"step {i} ({st.option.name}): {a}"
+                        for a in sorted(pos_drop | neg_drop, key=str))
+                    pos_held -= pos_drop
+                    neg_held -= neg_drop
                 else:
                     pos_held, neg_held = set(), set()
                 captured_sketch.append(
@@ -926,10 +965,28 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                                     "because the attempt budget is exhausted "
                                     "- it executes for its honest reward but "
                                     "may fail under the true physics)")
+            unverifiable_note = ""
+            if unverifiable_dropped:
+                dropped_lines = "\n".join(f"  {d}"
+                                          for d in unverifiable_dropped)
+                unverifiable_note = (
+                    f"\nNOTE: {len(unverifiable_dropped)} annotation(s) "
+                    "cannot be verified from a real observation (their "
+                    "truth here depends on the belief latent, which real "
+                    "env states do not carry) and were excluded from "
+                    "closed-loop monitoring - the plan still executes "
+                    "them, they just cannot trigger a replan:\n"
+                    f"{dropped_lines}\n"
+                    "Prefer annotating with predicates whose classifiers "
+                    "read observable features.")
+                logging.info(
+                    "Capture: excluded %d execution-unverifiable "
+                    "annotation(s) from the monitored sketch:\n%s",
+                    len(unverifiable_dropped), dropped_lines)
             lines.append(f"Captured as the current answer{best_effort_note}: "
                          f"{len(grounded_plan)} steps, "
                          f"{n_annot} with subgoal annotations for closed-loop "
-                         f"monitoring.{validation_note}")
+                         f"monitoring.{validation_note}{unverifiable_note}")
         elif decision is CaptureDecision.FLAKY_NO_CAPTURE:
             # Record the task so later submissions face the escalated
             # gate - flakiness here is evidence the whole parameter

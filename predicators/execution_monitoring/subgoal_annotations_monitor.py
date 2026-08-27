@@ -68,12 +68,28 @@ class SubgoalAnnotationsExecutionMonitor(BaseExecutionMonitor):
             return False
         step_idx = status.steps_initiated - 1
         step = status.sketch[step_idx]
+
+        def _holds(atom: Any) -> Optional[bool]:
+            # An atom the classifier cannot evaluate on this observation
+            # (e.g. an invented classifier that indexes a latent real
+            # states do not carry) is unverifiable, not diverged: skip
+            # it with a warning instead of crashing the episode or
+            # aborting on a claim no observation can settle.
+            try:
+                return bool(atom.holds(state))
+            except Exception as e:  # pylint: disable=broad-except
+                logging.warning(
+                    "Subgoal atom %s is unverifiable on the real "
+                    "observation (%s: %s); skipping it.", atom,
+                    type(e).__name__, e)
+                return None
+
         unsat = [
-            str(a) for a in (step.subgoal_atoms or set()) if not a.holds(state)
+            str(a) for a in (step.subgoal_atoms or set()) if _holds(a) is False
         ]
         unsat += [
             f"NOT {a}" for a in (step.subgoal_neg_atoms or set())
-            if a.holds(state)
+            if _holds(a) is True
         ]
         if not unsat:
             return False
