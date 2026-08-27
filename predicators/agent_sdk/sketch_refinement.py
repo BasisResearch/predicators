@@ -85,8 +85,10 @@ class RefineOutcome:
     Iterating an outcome yields the legacy ``(plan, success,
     total_samples)`` triple, so three-way unpacks keep working.
     """
-    # Refined grounded options: the full plan on success, the longest
-    # refined prefix on failure (see ``refine_sketch``).
+    # Refined grounded options: the full plan on success; on failure the
+    # longest refined prefix, extended (in explorer mode) with
+    # seeded-only steps past the deepest validation failure (see
+    # ``refine_sketch``).
     plan: List[_Option]
     success: bool
     # Attempts across the whole search (info-seeking pool rollouts are
@@ -103,6 +105,12 @@ class RefineOutcome:
     deepest_failure: Optional[DeepestFailure]
     # Model rollouts spent pooling info-seeking candidates.
     total_pool_rollouts: int = 0
+    # Index into ``plan`` where the seeded-only tail begins: steps from
+    # here on were grounded straight from the sketch's seeded params
+    # after the search failed, and carry NO belief-model validation
+    # (explorer mode only). ``None`` when every returned step went
+    # through the search.
+    seeded_only_from: Optional[int] = None
 
     def __iter__(self) -> Iterator[Any]:
         """Support the legacy ``plan, success, total = refine_sketch(...)``
@@ -166,8 +174,9 @@ class _RefinementState:
     # has already written plan[idx] for that attempt and the prefix
     # plan[:idx+1] reflects the exact grounded options that led to it.
     # Consumed two ways: truncate_on_subgoal_fail (explorer mode) returns
-    # the prefix, and deepest_failure reports the failing step's
-    # near-miss params/state to the caller on any failed search.
+    # the prefix extended with a seeded-only suffix, and deepest_failure
+    # reports the failing step's near-miss params/state to the caller on
+    # any failed search.
     deepest_fail_idx: int = -1
     # Within one step, failures rank by how far the candidate got before
     # failing: an unmet subgoal (0) < an unreached final goal (1) < a
@@ -293,6 +302,25 @@ def _ground(step: SketchStep, params: np.ndarray) -> _Option:
             grounded.memory["wait_target_neg_atoms"] = \
                 step.subgoal_neg_atoms
     return grounded
+
+
+def ground_seeded_step(step: SketchStep) -> Optional[_Option]:
+    """Ground a step straight from its seeded params, or ``None``.
+
+    Uses the step's proposed ``initial_params`` clipped to the option's
+    box (the same treatment ``_sample_step`` gives them); a zero-dim
+    params space needs no seed. Returns ``None`` when the step has a
+    non-trivial params space and no seed - there is nothing to execute
+    without sampling.
+    """
+    box = step.option.params_space
+    if box.shape[0] == 0:
+        return _ground(step, np.array([], dtype=np.float32))
+    if step.initial_params is None:
+        return None
+    params = np.clip(np.asarray(step.initial_params, dtype=np.float32),
+                     box.low, box.high).astype(np.float32)
+    return _ground(step, params)
 
 
 def _info_seeking_applies(ctx: _RefineContext, step: SketchStep) -> bool:
@@ -692,16 +720,23 @@ def refine_sketch(
     to exhaustion with subgoal checks enabled, then — if the search
     fails — returns the consistent plan prefix captured at the deepest
     validation failure seen during backtracking (inclusive of the
-    failing step). "Validation failure" covers both an unmet subgoal
-    atom and, when ``check_final_goal`` is on, an unreached task goal at
-    the final step; the latter captures the *whole* plan as the
-    experiment (run it in reality and observe — a goal the mental model
-    predicts won't hold is exactly the disagreement worth collecting).
-    Use this to build *experiment* plans that probe a mental-model
-    disagreement: upstream steps get their standard backtracking
-    retries, but once the deepest unresolvable step is identified,
-    subsequent sketch steps are dropped (they would be built on a false
-    mental-model state).
+    failing step), EXTENDED with the remaining sketch steps grounded
+    straight from their seeded params (``ground_seeded_step``).
+    "Validation failure" covers both an unmet subgoal atom and, when
+    ``check_final_goal`` is on, an unreached task goal at the final
+    step; the latter captures the *whole* plan as the experiment (run
+    it in reality and observe — a goal the mental model predicts won't
+    hold is exactly the disagreement worth collecting). Use this to
+    build *experiment* plans that probe a mental-model disagreement:
+    upstream steps get their standard backtracking retries, the failing
+    step runs with the exact params the model rejected, and the suffix
+    runs on the sketch author's seeds — the belief model is known-wrong
+    at the failure, so its inability to certify the suffix is a reason
+    to collect the data, not to drop it. The seeded fill stops at the
+    first step with a non-trivial params space and no seed (executing
+    past a hole would not be the designed experiment); the returned
+    outcome marks where the uncertified tail begins in
+    ``seeded_only_from``.
 
     ``max_samples_per_step`` is a per-step rollout budget per *search
     node* (the step under a fixed prefix of upstream choices;
@@ -835,7 +870,9 @@ def refine_sketch(
         f"[{run_id}] Refinement {'succeeded' if success else 'failed'}: "
         f"{total_samples} samples for {n} steps{pool_note}.")
 
-    def _outcome(refined_plan: List[_Option], ok: bool) -> RefineOutcome:
+    def _outcome(refined_plan: List[_Option],
+                 ok: bool,
+                 seeded_only_from: Optional[int] = None) -> RefineOutcome:
         return RefineOutcome(
             plan=refined_plan,
             success=ok,
@@ -845,7 +882,8 @@ def refine_sketch(
                                 if search.termination_reason else ""),
             elapsed=search.elapsed[0] if search.elapsed else 0.0,
             deepest_failure=search.deepest_failure,
-            total_pool_rollouts=search.total_pool_rollouts)
+            total_pool_rollouts=search.total_pool_rollouts,
+            seeded_only_from=seeded_only_from)
 
     if (truncate_on_subgoal_fail and not success
             and search.deepest_fail_idx >= 0):
@@ -856,11 +894,32 @@ def refine_sketch(
             fail_note = (f" Deepest failure: "
                          f"{search.deepest_failure.option.simple_str()} -> "
                          f"{search.deepest_failure.fail_reason}.")
-        logging.info(f"[{run_id}] Truncating at deepest validation failure "
-                     f"(step {search.deepest_fail_idx}): "
-                     f"{len(refined)}/{n} steps in experiment plan."
-                     f"{fail_note}")
-        return _outcome(cast(List[_Option], refined), False)
+        # Exploration must not be gated on certification by a belief
+        # model that is known-wrong where it matters: extend the plan
+        # past the failure with the sketch's own seeded params and let
+        # the real env answer the steps the model could not certify.
+        # The fill stops at the first step with nothing to execute (a
+        # non-trivial params space and no seed) - running later steps
+        # across a hole would not be the designed experiment.
+        seeded_suffix: List[_Option] = []
+        stop_note = ""
+        for idx in range(search.deepest_fail_idx + 1, n):
+            grounded = ground_seeded_step(sketch[idx])
+            if grounded is None:
+                stop_note = (f" No seeded params for step {idx} "
+                             f"({sketch[idx].option.name}); dropping "
+                             f"steps {idx}..{n - 1}.")
+                break
+            seeded_suffix.append(grounded)
+        seeded_from = len(refined) if seeded_suffix else None
+        logging.info(
+            f"[{run_id}] Refinement failed at step "
+            f"{search.deepest_fail_idx}; experiment plan = {len(refined)} "
+            f"searched steps + {len(seeded_suffix)} seeded-only steps "
+            f"({len(refined) + len(seeded_suffix)}/{n})."
+            f"{fail_note}{stop_note}")
+        return _outcome(
+            cast(List[_Option], refined) + seeded_suffix, False, seeded_from)
 
     refined = [p for p in plan if p is not None]
     return _outcome(cast(List[_Option], refined), success)
