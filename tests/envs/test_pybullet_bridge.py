@@ -692,3 +692,76 @@ def test_settle_certificate_rejects_dry_row(env_and_task):
         assert ok == expect_ok, (welded, reason)
         if not expect_ok:
             assert "did not survive settling" in reason
+
+
+def test_planning_context_sees_hidden_welds_in_po_mode():
+    """Under partial observability the attachment slots that encode glue- bond
+    welds live only in ``state.privileged``; the skills' motion- planning
+    context must carry that channel into the planning simulator.
+
+    Dropping it made BiRRT blind to every bonded follower of the held
+    object: the followers stayed in the obstacle set as static ghosts at
+    their observed poses while the real, rigidly pinned assembly swept
+    unchecked through standing bystanders (the leg-topple transits of
+    bridge_v2's 007/traj5 episodes).
+    """
+    utils.reset_config({
+        "env": "pybullet_bridge",
+        "seed": 0,
+        "num_train_tasks": 1,
+        "num_test_tasks": 0,
+        "partially_observable": True,
+        "skill_phase_use_motion_planning": True,
+    })
+    # pylint: disable=import-outside-toplevel
+    from gym.spaces import Box
+
+    from predicators.envs.pybullet_bridge import PyBulletBridgeEnv
+    from predicators.ground_truth_models.bridge.options import \
+        PyBulletBridgeGroundTruthOptionFactory
+    from predicators.ground_truth_models.skill_factories.base import \
+        _SHARED_SIMULATOR_CACHE, Phase, PhaseAction, PhaseSkill, \
+        shared_skill_robot
+
+    # The shared planning sim is cached per env class and bakes in the
+    # observability mode of whoever built it first; force a fresh PO
+    # instance and drop it afterwards so FO-mode tests never see it.
+    _SHARED_SIMULATOR_CACHE.pop(PyBulletBridgeEnv, None)
+    env = PyBulletBridgeEnv(use_gui=False)
+    try:
+        task = env._generate_train_tasks()[0]
+        env._set_state(task.init)
+        state = env._get_state()
+        span0 = next(b for b in env._blocks if b.name == "span0")
+        span1 = next(b for b in env._blocks if b.name == "span1")
+        # PO mode: the attachment slots are hidden, not features.
+        assert "attached_end_b" not in span0.type.feature_names
+        priv = state.privileged
+        assert priv is not None
+        priv[span0.name]["attached_end_b"] = \
+            float(env._block_index[span1.name])
+        priv[span1.name]["attached_end_a"] = \
+            float(env._block_index[span0.name])
+        state.set(span1, "is_held", 1.0)
+
+        config = PyBulletBridgeGroundTruthOptionFactory._build_skill_config(
+            shared_skill_robot(PyBulletBridgeEnv))
+        assert config.simulator is not None
+        skill = PhaseSkill(
+            "probe", [], Box(0.0, 1.0, (0, )), config,
+            [Phase("noop", PhaseAction.CHANGE_FINGERS, target_fn=None)])
+        _, collision_bodies, _, held_id, attachments = \
+            skill._sim_collision_context(state)
+
+        sim = config.simulator
+        sim_ids = {b.name: b.id for b in sim._blocks}
+        assert held_id == sim_ids["span1"]
+        # The bonded follower travels with the grasp...
+        assert sim_ids["span0"] in attachments
+        # ...instead of standing in the obstacle set as a static ghost.
+        assert sim_ids["span0"] not in collision_bodies
+        # An unbonded block stays an ordinary obstacle.
+        assert sim_ids["span2"] in collision_bodies
+    finally:
+        _SHARED_SIMULATOR_CACHE.pop(PyBulletBridgeEnv, None)
+        p.disconnect(env._physics_client_id)
