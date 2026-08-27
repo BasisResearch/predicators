@@ -506,14 +506,21 @@ def _expand_stdout_path(stdout: str, job_id: str, task_id: str, plain_id: str,
 # codes and all, which pins the job to one run_<timestamp> exactly.
 _LOGGING_TO_RE = re.compile(
     r"Logging to \S*?([^\s/]+/[^\s/]+/seed\d+/run_\d{8}_\d{6})/")
-# Positive pins per stdout path. The announcement is in the first lines
-# of the file and never changes, so a hit is cacheable forever; a miss
-# is retried every render, since the file may simply not be there yet.
-_stdout_pin_cache: Dict[str, str] = {}
+# Per stdout path: (bytes scanned so far, last announced run). Requeued
+# jobs APPEND to their stdout (sbatch --open-mode=append), so the file
+# holds one announcement per incarnation and only the LAST names the run
+# the job is writing now - taking the first pinned a live job to its
+# pre-preemption run, showing the dead run as running and the live
+# successor as interrupted. The scan is incremental (only new bytes are
+# read each render, with a small overlap in case an announcement line
+# straddles a scan boundary); a shrunken file means the log was
+# truncated, which restarts the scan.
+_stdout_pin_cache: Dict[str, Tuple[int, str]] = {}
+_PIN_SCAN_OVERLAP = 4096
 
 
 def _job_run_rel(stdout: str) -> str:
-    """The run (rel to LOGS_ROOT) a Slurm job's stdout file announces.
+    """The run (rel to LOGS_ROOT) a Slurm job's stdout file last announced.
 
     Returns "" when the file is unreadable (e.g. the viewer host does
     not share the cluster filesystem) or does not name a run, in which
@@ -522,19 +529,22 @@ def _job_run_rel(stdout: str) -> str:
     """
     if not stdout:
         return ""
-    hit = _stdout_pin_cache.get(stdout)
-    if hit is not None:
-        return hit
+    pos, rel = _stdout_pin_cache.get(stdout, (0, ""))
     try:
-        with open(stdout, "r", encoding="utf-8", errors="replace") as f:
-            head = f.read(65536)
+        size = os.path.getsize(stdout)
+        if size < pos:  # truncated log: forget the old scan entirely
+            pos, rel = 0, ""
+        if size > pos:
+            with open(stdout, "rb") as f:
+                f.seek(max(0, pos - _PIN_SCAN_OVERLAP))
+                chunk = f.read().decode("utf-8", errors="replace")
+            for m in _LOGGING_TO_RE.finditer(chunk):
+                rel = m.group(1)
+            pos = size
     except OSError:
-        return ""
-    m = _LOGGING_TO_RE.search(head)
-    if not m:
-        return ""
-    _stdout_pin_cache[stdout] = m.group(1)
-    return m.group(1)
+        return rel
+    _stdout_pin_cache[stdout] = (pos, rel)
+    return rel
 
 
 def _slurm_owned(
