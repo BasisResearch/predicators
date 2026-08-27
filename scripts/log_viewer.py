@@ -1963,6 +1963,31 @@ function paintAutoBtn() {
   var b = $('#arbtn');
   if (b) b.textContent = 'auto-refresh: ' + (autoOn() ? 'on' : 'off');
 }
+// Displayed timezone: the server (and every run/session NAME) lives in
+// MIT time, but the viewer may not. Times rendered through .ts spans
+// carry raw epochs and are formatted client-side in the chosen zone;
+// the uk <-> mit choice is remembered per browser. Run and session
+// names remain raw MIT wall-clock identifiers either way.
+var TZ_ZONES = { uk: 'Europe/London', mit: 'America/New_York' };
+function tzPref() {
+  var v = localStorage.getItem('lv-tz');
+  return (v === 'mit' || v === 'uk') ? v : 'uk';
+}
+function toggleTz() {
+  localStorage.setItem('lv-tz', tzPref() === 'uk' ? 'mit' : 'uk');
+  renderTimes();
+}
+function renderTimes() {
+  var zone = TZ_ZONES[tzPref()];
+  document.querySelectorAll('.ts[data-ts]').forEach(function(el) {
+    var d = new Date(parseFloat(el.dataset.ts) * 1000);
+    el.textContent = d.toLocaleString('sv-SE', {
+      timeZone: zone, year: 'numeric', month: '2-digit',
+      day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  });
+  var b = $('#tzbtn');
+  if (b) b.textContent = 'tz: ' + tzPref();
+}
 function showRefreshPill() {
   if ($('#refreshpill')) return;
   var p = document.createElement('button');
@@ -1986,6 +2011,7 @@ function pollStamp() {
 }
 document.addEventListener('DOMContentLoaded', function() {
   paintAutoBtn();
+  renderTimes();
   paintSortBtn();
   applySort();
   pollStamp();
@@ -2020,13 +2046,16 @@ function filterLog() {
 
 def page(title: str, topbar_extra: str, body: str) -> str:
     """Wrap body in the full HTML page shell (topbar, CSS, and JS)."""
-    return (
-        "<!doctype html><html><head><meta charset='utf-8'>"
-        f"<title>{esc(title)}</title><style>{CSS}</style>"
-        f"<script>{JS}</script></head>"
-        "<body><div class='topbar'><h1><a href='/'>log viewer</a></h1>"
-        f"{topbar_extra}<button id='arbtn' onclick='toggleAuto()'></button>"
-        f"</div>{body}</body></html>")
+    return ("<!doctype html><html><head><meta charset='utf-8'>"
+            f"<title>{esc(title)}</title><style>{CSS}</style>"
+            f"<script>{JS}</script></head>"
+            "<body><div class='topbar'><h1><a href='/'>log viewer</a></h1>"
+            f"{topbar_extra}<button id='tzbtn' onclick='toggleTz()' "
+            "title='Displayed timezone: uk = Europe/London, mit = "
+            "America/New_York (server local; run names stay MIT wall "
+            "clock)'></button>"
+            "<button id='arbtn' onclick='toggleAuto()'></button>"
+            f"</div>{body}</body></html>")
 
 
 def chip(label: Any, cls: str = "", title: str = "") -> str:
@@ -2263,8 +2292,15 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
     cost = summary.get("total_cost", 0.0)
     fmt = "%Y-%m-%d %H:%M"
     start_ts = _run_start_ts(r["name"], r["mtime"])
-    sstr = datetime.datetime.fromtimestamp(start_ts).strftime(fmt)
-    mstr = datetime.datetime.fromtimestamp(r["activity"]).strftime(fmt)
+    # Server-local (MIT) text is only the no-JS fallback: renderTimes()
+    # re-renders every .ts span client-side in the viewer's chosen
+    # timezone (uk/mit toggle in the topbar).
+    sstr = (
+        f"<span class='ts' data-ts='{start_ts:.0f}'>"
+        f"{datetime.datetime.fromtimestamp(start_ts).strftime(fmt)}</span>")
+    mstr = (f"<span class='ts' data-ts='{r['activity']:.0f}'>"
+            f"{datetime.datetime.fromtimestamp(r['activity']).strftime(fmt)}"
+            "</span>")
     dur_str = _fmt_duration(max(0.0, r["activity"] - start_ts))
     status, _ = run_status(r, summary, live, is_newest)
     # The status joins the filter key, so "running" narrows to live runs.
