@@ -1,3 +1,8 @@
+# DEPRECATED (2026-08-27): agent_validation_parallel_workers is now in
+# exp_bridge.yaml - the standard config IS the v2 stack. This file only
+# remains so the LIVE bridge_v2-* generation's TIMEOUT auto-relaunch
+# keeps working; delete it once that generation terminates.
+#
 # Bridge learning arms for the "efficient-learning" agent generation:
 # fork-parallel validation rollouts (agent_sdk/parallel_rollouts.py)
 # plus the start-of-session divergence report and the out-of-scope
