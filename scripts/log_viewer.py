@@ -2337,9 +2337,14 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
     """Table row summarizing one run for the index page."""
     eps = summary.get("episodes", [])
     tr_str = test_results_str(summary) or "-"
+    # Auto-resumed run: mark the RUN cell with the cycle it continued at
+    # (it describes the run's lifecycle, not its test outcomes).
+    resume_mark = ""
     if summary.get("resume_cycle") is not None:
-        # Auto-resumed run: mark the row with the cycle it continued at.
-        tr_str = f"↻c{summary['resume_cycle']} {tr_str}"
+        resume_mark = (
+            " <span class='muted' title='auto-resumed run: continued at "
+            f"cycle {summary['resume_cycle']} from the previous run&#39;s "
+            f"checkpoints'>↻c{summary['resume_cycle']}</span>")
     cost = summary.get("total_cost", 0.0)
     fmt = "%Y-%m-%d %H:%M"
     start_ts = _run_start_ts(r["name"], r["mtime"])
@@ -2379,6 +2384,7 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
             f"<td><input type='checkbox' class='cmp' value='{esc(r['rel'])}'>"
             "</td>"
             f"<td><a href='/run?d={q(r['rel'])}'>{esc(r['name'])}</a>"
+            f"{resume_mark}"
             f"<button class='copybtn' data-copy='{esc(copy_path)}' "
             f"title='Copy run path'>⧉</button>{del_btn}</td>"
             f"<td>{esc(r['seed'])}</td>"
