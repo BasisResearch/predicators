@@ -43,6 +43,91 @@ _PARTITION_TIME_LIMITS = {
 # redo.
 _PREEMPTABLE_PARTITIONS = {"mit_preemptable"}
 
+# Requeue-enabled jobs also heal wall-time expiry without an external
+# watcher: sbatch's --signal delivers SIGUSR1 to the batch shell this many
+# seconds before the limit, and the generated script's trap requeues the
+# still-running task (see _SELF_REQUEUE_BLOCK). Slurm only guarantees
+# delivery within about a minute of the requested lead.
+_TIMEOUT_SIGNAL_LEAD_SECS = 600
+# A run that keeps exhausting its wall time requeues itself at most this
+# many times. Preemption requeues share SLURM_RESTART_COUNT, so a heavily
+# preempted run spends the same budget - generous on purpose.
+_MAX_SELF_REQUEUES = 8
+
+# Bash appended to the batch script when requeue is enabled. The trap makes
+# a TIMEOUT behave exactly like a preemption: the task requeues itself
+# (same job id, same command) and --auto_resume restores the latest
+# checkpoint on restart. Without this, --requeue only covers preemption and
+# a TIMEOUT silently ends the run.
+_SELF_REQUEUE_BLOCK = """\
+# Self-requeue on imminent wall-time expiry (--signal sends USR1 before
+# the limit). If python is still running then, requeue this task; on
+# restart --auto_resume restores the latest per-cycle checkpoint - the
+# same healing path a preemption requeue already uses.
+_MAX_RESTARTS={max_restarts}
+_PY_PID=""
+_requeue_on_timeout() {{
+  if [ -z "$_PY_PID" ] || ! kill -0 "$_PY_PID" 2>/dev/null; then
+    return  # python already finished; exit normally
+  fi
+  if [ "${{SLURM_RESTART_COUNT:-0}}" -ge "$_MAX_RESTARTS" ]; then
+    echo "[self-requeue] restart cap $_MAX_RESTARTS reached; not requeueing"
+    return
+  fi
+  if [ -n "$SLURM_ARRAY_JOB_ID" ]; then
+    _TASK_ID="${{SLURM_ARRAY_JOB_ID}}_${{SLURM_ARRAY_TASK_ID}}"
+  else
+    _TASK_ID="$SLURM_JOB_ID"
+  fi
+  echo "[self-requeue] wall limit imminent (restart" \\
+       "${{SLURM_RESTART_COUNT:-0}}); requeueing $_TASK_ID"
+  scontrol requeue "$_TASK_ID"
+}}
+trap _requeue_on_timeout USR1
+{run_cmd} &
+_PY_PID=$!
+# A trapped signal interrupts the first wait; wait again to reap python
+# (after a requeue Slurm kills this run shortly, so the second wait just
+# collects the status; with the cap reached it lets python use the rest
+# of the wall time).
+wait "$_PY_PID"
+_RC=$?
+if [ "$_RC" -gt 128 ]; then
+  wait "$_PY_PID"
+  _RC=$?
+fi
+exit "$_RC"
+"""
+
+
+def _build_batch_script(entry_point: str, args_and_flags_str: str,
+                        requeue: bool) -> str:
+    """Compose the batch script sbatch runs for every array task.
+
+    With ``requeue``, the script backgrounds python and installs the
+    self-requeue trap (see ``_SELF_REQUEUE_BLOCK``); without it, the
+    python command simply runs in the foreground.
+    """
+    header = [
+        "#!/bin/bash -l",  # -l => login shell, so /etc/profile.d (module) loads
+        # main.py asserts on this. sbatch propagates the submitting shell's
+        # environment, so inheriting it works only if whoever submits happens
+        # to have it exported; set it here so the job is self-contained. This
+        # matches what scripts/local/launch.py writes into its run scripts.
+        "export PYTHONHASHSEED=0",
+        f"module load {_MINIFORGE_MODULE}",
+        f"conda activate {_CONDA_ENV}",
+        f"cd {_REPO_ROOT}",
+    ]
+    run_cmd = (f"python predicators/{entry_point} "
+               f"{args_and_flags_str} --seed $SLURM_ARRAY_TASK_ID")
+    if not requeue:
+        return "\n".join(header + [run_cmd])
+    block = _SELF_REQUEUE_BLOCK.format(max_restarts=_MAX_SELF_REQUEUES,
+                                       run_cmd=run_cmd)
+    return "\n".join(header + ["", block])
+
+
 # Overrides for callers that do not go through launch.py (e.g. running this
 # module directly), where predicators' own arg parser owns the command line.
 _PARTITION_ENV_VAR = "PREDICATORS_ENGAGING_PARTITION"
@@ -165,20 +250,7 @@ def submit_engaging_job(entry_point: str,
     time_limit = _clamp_time_limit(_GPU_TIME if use_gpu else _CPU_TIME,
                                    partition)
 
-    bash_strs = [
-        "#!/bin/bash -l",  # -l => login shell, so /etc/profile.d (module) loads
-        # main.py asserts on this. sbatch propagates the submitting shell's
-        # environment, so inheriting it works only if whoever submits happens
-        # to have it exported; set it here so the job is self-contained. This
-        # matches what scripts/local/launch.py writes into its run scripts.
-        "export PYTHONHASHSEED=0",
-        f"module load {_MINIFORGE_MODULE}",
-        f"conda activate {_CONDA_ENV}",
-        f"cd {_REPO_ROOT}",
-        f"python predicators/{entry_point} "
-        f"{args_and_flags_str} --seed $SLURM_ARRAY_TASK_ID",
-    ]
-    mystr = "\n".join(bash_strs)
+    mystr = _build_batch_script(entry_point, args_and_flags_str, requeue)
     # A unique name per submission, so that a leftover file from a crashed
     # launch cannot block later ones and so concurrent launches cannot race.
     fd, temp_run_file = tempfile.mkstemp(prefix="temp_run_file_",
@@ -192,7 +264,12 @@ def submit_engaging_job(entry_point: str,
         if use_gpu:
             cmd += "--gres=gpu:1 "
         if requeue:
-            cmd += "--requeue "
+            # --signal feeds the script's self-requeue trap (TIMEOUT heals
+            # like a preemption); --open-mode=append keeps a requeued
+            # task's log instead of truncating it on restart.
+            cmd += ("--requeue "
+                    f"--signal=B:USR1@{_TIMEOUT_SIGNAL_LEAD_SECS} "
+                    "--open-mode=append ")
         # 8 CPUs so agent_validation_parallel_workers has headroom:
         # validation/margin rollouts fork up to that many children
         # (benchmark 21336169: 3.74x at 4 workers, 4.81x at 8).
