@@ -523,6 +523,11 @@ def create_synthesis_tools(
         sandbox_dir=sandbox_dir,
         sandbox_dir_for_agent=sandbox_dir_for_agent,
         text_result=_text,
+        # Standalone hard cap (no solve ToolContext here): generous
+        # enough for legitimate candidate-sim work, but a runaway
+        # in-call sweep is stopped with its partial output returned
+        # instead of silently eating hours of the learn session.
+        call_timeout_s=CFG.agent_sdk_synthesis_python_call_timeout,
     )
 
     # ── run_fit (the ``sim.fit`` backend) ───────────────────────
