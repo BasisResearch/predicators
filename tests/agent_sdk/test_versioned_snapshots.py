@@ -53,6 +53,29 @@ def test_finalize_versioned_snapshot_creates_first_snapshot(tmp_path):
             "cycle_001_vers_001_simulator.py").read_text() == "# v1\n"
 
 
+def test_finalize_versioned_snapshot_offline_label(tmp_path):
+    """A negative cycle index (the offline pass) renders as ``offline``,
+    keeping it distinct from cycle 0's online snapshots."""
+    live = tmp_path / "simulator.py"
+    versions = tmp_path / "simulator_versions"
+    live.write_text("# offline\n")
+    tag = finalize_versioned_snapshot(str(live),
+                                      str(versions),
+                                      cycle_idx=-1,
+                                      artifact_name="simulator")
+    assert tag == "cycle_offline_vers_001"
+    assert sorted(p.name for p in versions.iterdir()) == [
+        "cycle_offline_vers_001_simulator.py"
+    ]
+    # Cycle 0's online pass gets its own prefix and version counter.
+    live.write_text("# cycle 0\n")
+    tag = finalize_versioned_snapshot(str(live),
+                                      str(versions),
+                                      cycle_idx=0,
+                                      artifact_name="simulator")
+    assert tag == "cycle_000_vers_001"
+
+
 def test_finalize_versioned_snapshot_dedup_on_unchanged_file(tmp_path):
     """A no-op finalize on unchanged content reuses the prior tag."""
     live = tmp_path / "predicates.py"

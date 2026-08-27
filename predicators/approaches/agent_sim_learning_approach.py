@@ -988,13 +988,16 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     # _synthesize_with_agent.
 
     def _learning_cycle_index(self) -> int:
-        """1-indexed cycle number used in versioned snapshot filenames.
+        """0-based cycle index used in versioned snapshot filenames.
 
-        Offline learning is cycle 1; ``_online_learning_cycle`` is
-        incremented before each online learn call, so adding 1 keeps the
-        offline pass and the first online pass on different indices.
+        Matches main.py's "ONLINE LEARNING CYCLE i" numbering exactly:
+        ``_online_learning_cycle`` is incremented before this class's
+        online simulator learn runs, so subtracting 1 recovers the
+        cycle the session belongs to. The offline (pre-cycle-0) learn
+        yields -1, which the snapshot/journal formatters render as
+        "offline" - keeping it distinct from cycle 0's online pass.
         """
-        return self._online_learning_cycle + 1
+        return self._online_learning_cycle - 1
 
     def _compute_extra_synthesis_paths(self, base: str) -> Dict[str, str]:
         """Return extra path bindings for the synthesis sandbox."""

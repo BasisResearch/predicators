@@ -6,6 +6,17 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 # ── Sim-learning tools ───────────────────────────────────────────
 
 
+def format_cycle_label(cycle_idx: int) -> str:
+    """Render a cycle index for snapshot filenames and version tags.
+
+    Online cycles use the harness's 0-based "ONLINE LEARNING CYCLE i"
+    numbering, zero-padded (``000``, ``001``, ...). A negative index
+    denotes the offline (pre-cycle-0) learning pass and renders as
+    ``offline`` so it can never be mistaken for cycle 0's online pass.
+    """
+    return "offline" if cycle_idx < 0 else f"{cycle_idx:03d}"
+
+
 class _SnapshotTarget:  # pylint: disable=too-few-public-methods
     """One file to watch for write-time snapshots."""
 
@@ -96,7 +107,9 @@ def finalize_versioned_snapshot(
     Args:
         live_file: Host path to the file (e.g. simulator.py).
         versions_dir: Directory containing the per-call snapshots.
-        cycle_idx: Current cycle (1-indexed) — used to find the highest
+        cycle_idx: Current cycle (0-based, matching the harness's
+            "ONLINE LEARNING CYCLE i"; negative = the offline pass,
+            rendered as ``offline``) — used to find the highest
             existing ``vers_YYY`` for this cycle and to name the new
             snapshot.
         artifact_name: Stem used in the filename, e.g. ``"simulator"``
@@ -111,7 +124,8 @@ def finalize_versioned_snapshot(
         live_raw = f.read()
     live_digest = hashlib.sha256(live_raw).hexdigest()
 
-    prefix = f"cycle_{cycle_idx:03d}_vers_"
+    cycle_label = format_cycle_label(cycle_idx)
+    prefix = f"cycle_{cycle_label}_vers_"
     suffix = f"_{artifact_name}.py"
     highest_vers = 0
     highest_path: Optional[str] = None
@@ -132,16 +146,16 @@ def finalize_versioned_snapshot(
         with open(highest_path, "rb") as f:
             existing_digest = hashlib.sha256(f.read()).hexdigest()
         if existing_digest == live_digest:
-            return f"cycle_{cycle_idx:03d}_vers_{highest_vers:03d}"
+            return f"cycle_{cycle_label}_vers_{highest_vers:03d}"
 
     os.makedirs(versions_dir, exist_ok=True)
     new_vers = highest_vers + 1
     snap_path = os.path.join(
         versions_dir,
-        f"cycle_{cycle_idx:03d}_vers_{new_vers:03d}_{artifact_name}.py")
+        f"cycle_{cycle_label}_vers_{new_vers:03d}_{artifact_name}.py")
     with open(snap_path, "wb") as f:
         f.write(live_raw)
-    return f"cycle_{cycle_idx:03d}_vers_{new_vers:03d}"
+    return f"cycle_{cycle_label}_vers_{new_vers:03d}"
 
 
 class _ArtifactSnapshotter:
@@ -206,15 +220,15 @@ class _ArtifactSnapshotter:
         with open(target, "rb") as f:
             raw = f.read()
         digest = hashlib.sha256(raw).hexdigest()
-        cycle_idx = self.current_cycle()
+        cycle_label = format_cycle_label(self.current_cycle())
         if digest != self._last_digest:
             self._version_count += 1
             os.makedirs(self._versions_dir, exist_ok=True)
             snap_path = os.path.join(
-                self._versions_dir, f"cycle_{cycle_idx:03d}_vers_"
+                self._versions_dir, f"cycle_{cycle_label}_vers_"
                 f"{self._version_count:03d}_{self._artifact_name}.py")
             with open(snap_path, "wb") as f:
                 f.write(raw)
             self._last_digest = digest
-        return raw, (f"cycle_{cycle_idx:03d}_vers_"
+        return raw, (f"cycle_{cycle_label}_vers_"
                      f"{self._version_count:03d}"), None

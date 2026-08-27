@@ -698,12 +698,16 @@ and update before doing anything else.**"""
         try:
             content = journal_mod.read_raw(sandbox_dir)
             if content is not None:
-                # One archive per online-learning cycle; the cycle counter
-                # advances with each learning phase, so evaluations map to
-                # distinct files (a same-cycle re-eval overwrites its own).
-                archive_path = os.path.join(
-                    self._get_log_dir(),
-                    f"journal_eval_cycle{self._online_learning_cycle}.md")
+                # One archive per evaluation phase, named by the 0-based
+                # cycle whose learning it evaluates (matching main.py's
+                # "ONLINE LEARNING CYCLE i"). The counter has already
+                # advanced past that cycle's learn, so subtract 1; the
+                # pre-learning initial test archives as "initial". A
+                # same-cycle re-eval overwrites its own file.
+                eval_cycle = self._online_learning_cycle - 1
+                label = "initial" if eval_cycle < 0 else f"cycle{eval_cycle}"
+                archive_path = os.path.join(self._get_log_dir(),
+                                            f"journal_eval_{label}.md")
                 with open(archive_path, "w", encoding="utf-8") as f:
                     f.write(content)
                 logging.info(

@@ -194,6 +194,19 @@ def test_record_journal_tool_stamps_learning_cycle(tmp_path):
     assert "### Agent notes (learning cycle 2)" in content
 
 
+def test_record_journal_tool_stamps_offline_learning(tmp_path):
+    """A negative cycle index (the offline pass) is labeled ``offline
+    learning``, not a numeric cycle."""
+    utils.reset_config({"agent_solve_use_journal": True})
+    ctx = _make_ctx(sandbox_dir=str(tmp_path))
+    ctx.learn_cycle_index = -1
+    text = _call(_get_tool(ctx, "record_journal"),
+                 {"entry": "- demo shows the latch closing"})
+    assert "Recorded" in text
+    content = journal_mod.read_journal(str(tmp_path))
+    assert "### Agent notes (offline learning)" in content
+
+
 def test_record_journal_tool_rejects_empty(tmp_path):
     """An empty entry is an error, not a silent no-op."""
     utils.reset_config({"agent_solve_use_journal": True})
