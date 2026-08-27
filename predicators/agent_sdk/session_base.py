@@ -21,11 +21,15 @@ the in-container Docker runner can use them too.  They are pure
 functions of their arguments - no ``CFG`` reads - because the container
 receives all settings explicitly via the pickled ``query_input``.
 """
+import asyncio
+import datetime
 import json
 import logging
 import os
+import re
 import time
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 from predicators.agent_sdk.config import SessionConfig
 from predicators.agent_sdk.log_formatter import truncate
@@ -55,7 +59,74 @@ _FATAL_RESPONSE_PATTERNS = (
     "oauth token has expired",
     "please run /login",
     "authentication_error",
+    # Usage limits are fatal-shaped (one turn, $0, no tool call) but
+    # transient; _run_streamed_query waits them out and retries before
+    # they can reach the consecutive-fatal terminator.
+    "hit your session limit",
+    "hit your usage limit",
 )
+
+# Account usage/session limits are TRANSIENT: the banner states its own
+# reset time ("You've hit your session limit · resets 5:10pm
+# (America/New_York)"), so the right response is to wait it out and
+# retry the query, not to terminate the run. A 2026-08-27 limit killed
+# all six bridge jobs at once AND silently burned both surviving arms'
+# cycle-1 learn phases (one-turn $0 sessions the loop treated as
+# completed learns). Matched case-insensitively against the fatal
+# reason.
+_USAGE_LIMIT_PATTERNS = ("hit your session limit", "hit your usage limit")
+_LIMIT_RESET_RE = re.compile(
+    r"resets\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(([^)]+)\)", re.IGNORECASE)
+# Fallback wait when the banner carries no parseable reset time, and the
+# slack added past the stated reset (limits lift within a minute or two
+# of the advertised time, not exactly on it).
+_LIMIT_DEFAULT_WAIT_SECS = 1800.0
+_LIMIT_RESET_SLACK_SECS = 180.0
+# Never sleep longer than this per attempt: a mis-parsed far-future
+# reset must not turn the job into a silent day-long zombie.
+_LIMIT_MAX_WAIT_SECS = 6 * 3600.0
+# Retries per query on a usage-limit response. Two waits cover a reset
+# that lands mid-retry; a limit that persists past them falls through
+# to the ordinary fatal-query termination.
+_LIMIT_MAX_RETRIES = 2
+
+
+def usage_limit_wait_seconds(reason: Optional[str],
+                             now: Optional[float] = None) -> Optional[float]:
+    """Seconds to wait before retrying a usage-limited query, or None.
+
+    Returns ``None`` when ``reason`` is not a usage/session-limit
+    banner. When it is, the wait runs to the banner's stated reset time
+    (next occurrence of that wall-clock time in its zone, plus slack),
+    clamped to ``_LIMIT_MAX_WAIT_SECS``; an unparseable banner gets the
+    default wait.
+    """
+    if reason is None:
+        return None
+    low = reason.lower()
+    if not any(p in low for p in _USAGE_LIMIT_PATTERNS):
+        return None
+    m = _LIMIT_RESET_RE.search(reason)
+    if m is None:
+        return _LIMIT_DEFAULT_WAIT_SECS
+    hour = int(m.group(1)) % 12
+    if m.group(3).lower() == "pm":
+        hour += 12
+    minute = int(m.group(2) or 0)
+    try:
+        tz = ZoneInfo(m.group(4).strip())
+    except Exception:  # pylint: disable=broad-except
+        return _LIMIT_DEFAULT_WAIT_SECS
+    now_ts = time.time() if now is None else now
+    now_dt = datetime.datetime.fromtimestamp(now_ts, tz)
+    reset_dt = now_dt.replace(hour=hour,
+                              minute=minute,
+                              second=0,
+                              microsecond=0)
+    if reset_dt <= now_dt:
+        reset_dt += datetime.timedelta(days=1)
+    wait = (reset_dt - now_dt).total_seconds() + _LIMIT_RESET_SLACK_SECS
+    return min(wait, _LIMIT_MAX_WAIT_SECS)
 
 
 class AgentSessionFatalError(Exception):
@@ -493,15 +564,30 @@ class BaseAgentSessionManager:
             flush = _flush
 
         start = time.perf_counter()
-        collected = await stream_agent_response(
-            self._client,
-            message,
-            log_label=self._log_label,
-            on_entry=on_entry,
-            on_result=self._account_result,
-            flush=flush,
-            on_error=self._recover_session,
-        )
+        # A query the backend refuses with a usage/session-limit banner
+        # is retried after the banner's own reset time instead of being
+        # handed to the caller as a dead response: the phase that issued
+        # it (a learn, a solve attempt) would otherwise consume the
+        # failure and permanently skip its work on a transient outage.
+        for attempt in range(_LIMIT_MAX_RETRIES + 1):
+            collected = await stream_agent_response(
+                self._client,
+                message,
+                log_label=self._log_label,
+                on_entry=on_entry,
+                on_result=self._account_result,
+                flush=flush,
+                on_error=self._recover_session,
+            )
+            reason = query_fatal_error(collected)
+            wait = usage_limit_wait_seconds(reason)
+            if wait is None or attempt >= _LIMIT_MAX_RETRIES:
+                break
+            logger.warning(
+                "%s query hit a usage limit (%s); waiting %.0f s for the "
+                "stated reset, then retrying (%d/%d).", self._log_label,
+                reason, wait, attempt + 1, _LIMIT_MAX_RETRIES)
+            await asyncio.sleep(wait)
         elapsed = time.perf_counter() - start
         logger.info("[agent-interaction] kind=%s took %.2fs (%d messages)",
                     kind, elapsed, len(collected))
