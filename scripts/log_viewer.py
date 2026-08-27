@@ -858,6 +858,7 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
     round_cycles: List[Optional[int]] = []
     current: Dict[int, Dict[str, Any]] = {}
     explore: Dict[int, Dict[str, Any]] = {}
+    session_cycles: Dict[int, Optional[int]] = {}
     test_round: Dict[int, int] = {}
     pending: List[int] = []
     pending_test: List[int] = []
@@ -934,6 +935,15 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
                     continue
                 m = SAVED_EP_RE.search(line)
                 if m:
+                    # Every session's transcript-save line appears while
+                    # its true cycle's banner is still active (explores
+                    # save before their episodes run, learn saves before
+                    # the closing test, the test saves before the next
+                    # banner), so this map is the authoritative
+                    # session -> cycle assignment; None = saved before
+                    # the first banner (offline learning / pre-loop
+                    # eval).
+                    session_cycles[int(m.group(1))] = cycle
                     if m.group(2) == "explore":
                         pending.append(int(m.group(1)))
                     elif m.group(2) == "learn":
@@ -973,6 +983,8 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
         "round_cycles": round_cycles,
         "explore": explore,
         "test_round": test_round,
+        "session_cycles": session_cycles,
+        "last_cycle": cycle,
         "resume_cycle": resume_cycle,
         "done": done,
         "video_rel": video_rel,
@@ -1028,10 +1040,10 @@ def test_results_str(summary: Dict[str, Any]) -> str:
     """The run's test phases as e.g. "c3 0/1 (r 0.00) → c4 1/1 (r 0.90)".
 
     Each phase is prefixed with its true learning-cycle id from the
-    log's cycle banners ("init" for the pre-learning test), so an
-    auto-resumed run reads c3, c4, ... rather than looking like a fresh
-    run's first rounds. The prefix is omitted for logs without banners
-    (and the reward tag for logs that predate avg_test_reward).
+    log's cycle banners ("init" for the pre-learning test), so an auto-
+    resumed run reads c3, c4, ... rather than looking like a fresh run's
+    first rounds. The prefix is omitted for logs without banners (and
+    the reward tag for logs that predate avg_test_reward).
     """
     parts = []
     cycles = summary.get("test_cycles", [])
@@ -1057,16 +1069,50 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
     round_cycles = parsed.get("round_cycles", [])
     explore_verdicts = parsed.get("explore", {})
     test_round = parsed.get("test_round", {})
-    # ep["round"] (learn episodes seen so far) drives only the grid-row
-    # layout; env verdicts pair by the stream-order test_round map, since
-    # the learn count offset from the round index varies per config.
-    # ep["cycle_tag"] is the authoritative video-name cycle tag from the
-    # log's ONLINE LEARNING CYCLE banners; the learn count is only its
-    # fallback (see episode_videos), being wrong for auto-resumed runs.
+    # ep["round"] drives only the grid-row layout; env verdicts pair by
+    # the stream-order test_round map. With cycle banners in the log a
+    # row IS one true learning cycle - its explores, its learn, and the
+    # eval that closes it (each session's save line falls inside its
+    # cycle's banner; see the parser) - and a pre-loop/offline eval,
+    # saved before the first banner, gets its own top row. The legacy
+    # learns-seen-so-far rule (which wrongly grouped a cycle's closing
+    # eval with the NEXT cycle's explores) remains only for banner-less
+    # logs. ep["cycle_tag"] is the authoritative video-name cycle tag;
+    # the learn count is only its fallback (see episode_videos), being
+    # wrong for auto-resumed runs.
+    session_cycles = parsed.get("session_cycles", {})
+    tagged_cycles = sorted(
+        {c
+         for c in session_cycles.values() if c is not None})
+    use_cycle_rows = bool(tagged_cycles)
+    cycle_rank = {c: k for k, c in enumerate(tagged_cycles)}
+    has_init_row = any(c is None for c in session_cycles.values())
+    row_offset = 1 if has_init_row else 0
+    last_cycle = parsed.get("last_cycle")
+
+    def _cycle_row(ep: Dict[str, Any]) -> Optional[int]:
+        if not use_cycle_rows:
+            return None
+        if ep["num"] in session_cycles:
+            c = session_cycles[ep["num"]]
+        else:
+            # No save line yet: the session is still running, so it
+            # belongs to the newest banner's cycle.
+            c = last_cycle
+        if c is None:
+            return 0
+        if c not in cycle_rank:
+            return len(cycle_rank) + row_offset
+        return cycle_rank[c] + row_offset
+
     learn_seen = 0
     interactions_seen = 0
     for ep in episodes:
-        ep["round"] = learn_seen
+        cycle_row = _cycle_row(ep)
+        ep["round"] = cycle_row if cycle_row is not None else learn_seen
+        if cycle_row is not None and "cycle_tag" not in ep:
+            c = session_cycles.get(ep["num"], last_cycle)
+            ep["cycle_tag"] = "cycleNone" if c is None else f"cycle{c}"
         if ep["kind"] == "learn":
             learn_seen += 1
             interactions_seen = 0
@@ -2149,11 +2195,14 @@ def grid_width(layout: Dict[str, Any]) -> int:
 
 def episode_grid(episodes: EpList,
                  layout: Optional[Dict[str, Any]] = None) -> str:
-    """Chips laid out one row per test round, one column per task.
+    """Chips laid out one row per learning cycle (explores, learn, then the
+    closing eval), one column per task; a pre-loop/offline eval gets its own
+    top row.
 
     Vertical alignment makes it easy to compare a task's outcome against
-    earlier rounds and against other runs; retries within a round stack
-    inside their task's column rather than widening it.
+    earlier cycles and against other runs; retries within a cycle stack
+    inside their task's column rather than widening it. (Banner-less
+    logs fall back to learns-seen-so-far rows.)
     """
     if layout is None:
         layout = grid_layout([episodes])
@@ -2184,15 +2233,17 @@ def episode_grid(episodes: EpList,
                     label = f"c{tag[5:]}"
                     break
             cells.append(f"<td class='muted rnd'>{label}</td>")
+        # Within a row, phases read in their temporal order: the cycle's
+        # explore/learn sessions first, then the eval that closes it.
+        if layout["misc"]:
+            chips = "".join(_misc_chip(ep) for ep in misc.get(rnd, []))
+            cells.append(f"<td class='misc'>{chips}</td>")
         for task in layout["tasks"]:
             # One retry per line: two short chips would otherwise share a
             # line while longer ones stack, making the column read ragged.
             chips = "".join(f"<div>{_test_chip(ep)}</div>"
                             for ep in tests.get(rnd, {}).get(task, []))
             cells.append(f"<td class='task'>{chips}</td>")
-        if layout["misc"]:
-            chips = "".join(_misc_chip(ep) for ep in misc.get(rnd, []))
-            cells.append(f"<td class='misc'>{chips}</td>")
         rows.append(f"<tr>{''.join(cells)}</tr>")
     return (f"<table class='epgrid' style='width:{grid_width(layout)}px'>"
             f"{''.join(rows)}</table>")
