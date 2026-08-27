@@ -150,14 +150,22 @@ CODE_EXTS = {".py"}
 # Episode-grid geometry, in px. A task always gets TASK_W of space no
 # matter how many times it was retried, so its chips land at the same x in
 # every run and experiment; retries stack inside that space. MISC_W holds
-# the round's explore/learn chips, which are unbounded and so wrap too.
+# a cycle's explore/learn chips: sized so the standard trio (two explore
+# chips with their reward mark, one learn chip) fits on one line, with
+# space-joined chips wrapping onto further lines for busier cycles
+# instead of overflowing the fixed-layout column (the overflow used to
+# spill under the neighboring test-results text).
 TASK_W = 108
 ROUND_W = 34
-MISC_W = 3 * TASK_W
+MISC_W = 390
 # Fixed widths for the remaining columns of the index runs table, in the
-# order they are declared there. None is the episodes column, whose width
-# depends on the task count and is filled in at render time.
-RUN_COL_W = (30, 200, 62, 96, None, 178, 68, 132, 132, 72)
+# order they are declared there: checkbox, run (merged with seed, plus
+# the resume lineage marker), status, episodes (None: width depends on
+# the task count and is filled in at render time), test results, cost,
+# started, modified, time. MUST match the column count of table_head and
+# run_row - a stale entry shifts every later column's width one slot
+# over and the fixed-layout table collapses into overlapping cells.
+RUN_COL_W = (30, 240, 96, None, 178, 68, 132, 132, 72)
 # Episodes of one run, in file order; see _parse_episode for the fields.
 EpList = List[Dict[str, Any]]
 # A run's videos as {(task, cycle tag): [(filename, is_failure)]}.
@@ -2236,7 +2244,10 @@ def episode_grid(episodes: EpList,
         # Within a row, phases read in their temporal order: the cycle's
         # explore/learn sessions first, then the eval that closes it.
         if layout["misc"]:
-            chips = "".join(_misc_chip(ep) for ep in misc.get(rnd, []))
+            # Space-joined: adjacent inline-block chips provide no break
+            # opportunity on their own, so without the separator a long
+            # chip run cannot wrap and overflows the fixed column.
+            chips = " ".join(_misc_chip(ep) for ep in misc.get(rnd, []))
             cells.append(f"<td class='misc'>{chips}</td>")
         for task in layout["tasks"]:
             # One retry per line: two short chips would otherwise share a
