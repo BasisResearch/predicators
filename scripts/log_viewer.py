@@ -2351,17 +2351,17 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
     # run's lifecycle, not its test outcomes).
     resume_mark = ""
     if summary.get("resume_cycle") is not None:
-        src = ""
         prev_rel = _prev_run_rel(r["rel"])
         if prev_rel is not None:
+            # The cycle it continued at is already visible as the grid's
+            # first row label, so the marker only names the lineage.
             prev_name = os.path.basename(prev_rel)
-            src = (f" (re. <a href='/run?d={q(prev_rel)}'>"
-                   f"{esc(_display_run_id(prev_name))}/"
-                   f"{esc(r['seed'])}</a>)")
-        resume_mark = (
-            " <span class='muted' title='auto-resumed run: continued at "
-            f"cycle {summary['resume_cycle']} from the previous run&#39;s "
-            f"checkpoints'>↻c{summary['resume_cycle']}{src}</span>")
+            resume_mark = (
+                " <span class='muted' title='auto-resumed run: continued "
+                f"at cycle {summary['resume_cycle']} from this run&#39;s "
+                f"checkpoints'>(re. <a href='/run?d={q(prev_rel)}'>"
+                f"{esc(_display_run_id(prev_name))}/"
+                f"{esc(r['seed'])}</a>)</span>")
     cost = summary.get("total_cost", 0.0)
     fmt = "%Y-%m-%d %H:%M"
     start_ts = _run_start_ts(r["name"], r["mtime"])
