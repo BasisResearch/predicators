@@ -268,11 +268,15 @@ def build_solve_prompt(
             "Ledger upkeep is part of the deliverable. Record "
             "measurements with record_journal as you go (entries are "
             "size-capped, so lead with the numbers), and when a result "
-            "settles an open question, opens a new one, or changes a "
-            "recipe, edit open_questions.md / strategy.md directly "
-            "with the file tools - the next learning phase designs its "
-            "work from those files, and a result that only lives in a "
-            "truncated journal entry is a result lost.\n")
+            "settles an open question or opens a new one, edit "
+            "open_questions.md directly with the file tools - the next "
+            "learning phase designs its work from that file, and a "
+            "result that only lives in a truncated journal entry is a "
+            "result lost. Do NOT edit strategy.md: it is the learning "
+            "phase's curated document, and one exploration episode's "
+            "evidence does not overturn it - when your measurements "
+            "contradict a recipe, record the contradiction as an open "
+            "question instead.\n")
 
     scheduled_plans_section = ""
     if scheduled_plans:
