@@ -1819,7 +1819,7 @@ function setAllDetails(open) {
   $all('.content details').forEach(function(d) { d.open = open; });
 }
 
-// Index page: filter + compare + collapsible groups.
+// Index page: filter + selected-only toggle + collapsible groups.
 function groupKey(d) { return 'lv-grp:' + d.dataset.key; }
 function restoreGroups() {
   $all('details.grp').forEach(function(d) {
@@ -1841,30 +1841,77 @@ function setAllGroups(open) {
   });
   window._filtering = false;
 }
-function filterRuns(text) {
-  text = text.toLowerCase();
-  sessionStorage.setItem('lv-filter', text);
+// Run selection: checkbox state is persisted per tab (sessionStorage)
+// so the auto-refresh reloads keep it; it drives the show-selected
+// toggle. Runs stay inside their experiment groups, so each visible
+// row keeps its experiment tag as the group header.
+function selStored() {
+  try {
+    return JSON.parse(sessionStorage.getItem('lv-selected') || '[]');
+  } catch (e) { return []; }
+}
+function selChanged(cb) {
+  var rels = selStored().filter(function(r) { return r !== cb.value; });
+  if (cb.checked) rels.push(cb.value);
+  sessionStorage.setItem('lv-selected', JSON.stringify(rels));
+  paintSelBtn();
+  if (selOnly()) applyRunVisibility();
+}
+function restoreSelection() {
+  var sel = {};
+  selStored().forEach(function(r) { sel[r] = true; });
+  $all('input.sel').forEach(function(cb) { cb.checked = !!sel[cb.value]; });
+  paintSelBtn();
+}
+function selOnly() { return sessionStorage.getItem('lv-selonly') === '1'; }
+function toggleSelOnly() {
+  if (!selOnly() && !$all('input.sel:checked').length) {
+    alert('Select at least one run first.');
+    return;
+  }
+  sessionStorage.setItem('lv-selonly', selOnly() ? '0' : '1');
+  paintSelBtn();
+  applyRunVisibility();
+}
+function paintSelBtn() {
+  var b = $('#selbtn');
+  if (!b) return;
+  var n = $all('input.sel:checked').length;
+  b.textContent = selOnly() ? 'show: selected (' + n + ')' : 'show: all';
+}
+function applyRunVisibility() {
+  var text = (sessionStorage.getItem('lv-filter') || '').toLowerCase();
+  var only = selOnly();
+  var narrowing = !!text || only;
   window._filtering = true;
   $all('.runrow').forEach(function(row) {
-    row.classList.toggle('hidden',
-      !!text && row.dataset.key.indexOf(text) === -1);
+    var hide = !!text && row.dataset.key.indexOf(text) === -1;
+    if (!hide && only) {
+      var cb = row.querySelector('input.sel');
+      hide = !(cb && cb.checked);
+    }
+    row.classList.toggle('hidden', hide);
   });
   $all('details.grp.exp').forEach(function(d) {
     var any = $all('.runrow', d).some(function(r) {
       return !r.classList.contains('hidden');
     });
     d.classList.toggle('hidden', !any);
-    if (text) d.open = any;
+    if (narrowing) d.open = any;
   });
   $all('details.grp.family').forEach(function(d) {
     var any = $all('details.grp.exp', d).some(function(x) {
       return !x.classList.contains('hidden');
     });
     d.classList.toggle('hidden', !any);
-    if (text) d.open = any;
+    if (narrowing) d.open = any;
   });
-  if (!text) restoreGroups();
+  if (!narrowing) restoreGroups();
   window._filtering = false;
+}
+function filterRuns(text) {
+  sessionStorage.setItem('lv-filter', text.toLowerCase());
+  applyRunVisibility();
 }
 // Index page: sort runs by seed (the server order) or by start time.
 // Time mode interleaves each experiment's seeds newest-first; the
@@ -1893,12 +1940,6 @@ function applySort() {
     rows.forEach(function(r) { tbody.appendChild(r); });
   });
 }
-function compareSelected() {
-  var sel = $all('input.cmp:checked').map(function(c) { return c.value; });
-  if (sel.length < 2) { alert('Select at least two runs to compare.'); return; }
-  location.href = '/compare?runs=' + encodeURIComponent(sel.join(';'));
-}
-
 // Kill / delete buttons on index run rows. POST only, so the auto-
 // refresh GETs can never trip these; reload shortly after success so
 // the status chip reflects the process actually exiting.
@@ -2073,7 +2114,8 @@ document.addEventListener('DOMContentLoaded', function() {
   var f = $('#runfilter');
   if (f) {
     f.value = sessionStorage.getItem('lv-filter') || '';
-    if (f.value) filterRuns(f.value);
+    restoreSelection();
+    applyRunVisibility();
   }
   var r = window._restore;
   if (r) {
@@ -2409,8 +2451,9 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
     return ("<tr class='runrow' "
             f"data-key='{esc(key)}' data-seed='{esc(r['seed'])}' "
             f"data-start='{start_ts:.0f}'>"
-            f"<td><input type='checkbox' class='cmp' value='{esc(r['rel'])}'>"
-            "</td>"
+            f"<td><input type='checkbox' class='sel' value='{esc(r['rel'])}' "
+            "onchange='selChanged(this)' title='Select this run for the "
+            "show-selected toggle'></td>"
             f"<td><a href='/run?d={q(r['rel'])}'>"
             f"{esc(_display_run_id(r['name']))}/{esc(r['seed'])}</a>"
             f"{resume_mark}"
@@ -2495,8 +2538,10 @@ def index_page() -> str:
               "newest runs first within each experiment'></button>"
               "<button onclick='setAllGroups(true)'>expand all</button>"
               "<button onclick='setAllGroups(false)'>collapse all</button>"
-              "<button onclick='compareSelected()'>Compare selected"
-              f"</button><span class='crumb'>{esc(LOGS_ROOT)}</span>")
+              "<button id='selbtn' onclick='toggleSelOnly()' title='Show "
+              "only the checked runs (grouped under their experiment "
+              "tags; the selection survives refresh)'></button>"
+              f"<span class='crumb'>{esc(LOGS_ROOT)}</span>")
     return page("runs - log viewer", topbar, "".join(body))
 
 
@@ -3020,88 +3065,6 @@ def gallery_fragment(run_rel: str, dir_rel: str) -> str:
     return "".join(out)
 
 
-def compare_page(run_rels: List[str]) -> str:
-    """Side-by-side comparison table across several runs."""
-    summaries: List[Tuple[str, Dict[str, Any]]] = []
-    for rel in run_rels:
-        s = run_summary(rel)
-        if s:
-            summaries.append((rel, s))
-    if len(summaries) < 2:
-        return page(
-            "compare", "", "<div class='content'>"
-            "<p>Need at least two valid runs.</p></div>")
-    all_tasks = sorted({
-        ep["task"]
-        for _, s in summaries for ep in s["episodes"]
-        if ep["kind"] == "test" and ep["task"] is not None
-    })
-    head = "".join(
-        f"<th><a href='/run?d={q(rel)}'>{esc(rel.split('/')[-1])}</a><br>"
-        f"<span class='muted'>{esc('/'.join(rel.split('/')[:-1]))}</span></th>"
-        for rel, _ in summaries)
-
-    def _verdict_mark(v: Dict[str, Any]) -> str:
-        mark = "✓" if v["solved"] else "✗"
-        if v.get("reward") is not None:
-            mark += f" {v['reward']:.2f}"
-        cls = "ok" if v["solved"] else "bad"
-        return f"<span class='{cls}' title='{esc(v['msg'])}'>{mark}</span>"
-
-    rows = []
-    for task in all_tasks:
-        cells = []
-        for _, s in summaries:
-            verdicts = [r[task] for r in s.get("rounds", []) if task in r]
-            if verdicts:
-                marks = " → ".join(_verdict_mark(v) for v in verdicts)
-            else:
-                attempts = [
-                    ep for ep in s["episodes"]
-                    if ep["kind"] == "test" and ep["task"] == task
-                ]
-                mark_parts = []
-                for ep in attempts:
-                    if ep.get("goal"):
-                        cls, mk = "ok", "(✓)"
-                    elif ep.get("goal") is False:
-                        cls, mk = "bad", "(✗)"
-                    else:
-                        cls, mk = "muted", "?"
-                    mark_parts.append(f"<span class='{cls}'>{mk}</span>")
-                marks = "".join(mark_parts)
-                if marks:
-                    marks += " <span class='muted'>agent-reported</span>"
-            cells.append(f"<td>{marks or '-'}</td>")
-        rows.append(f"<tr><th>task {int(task)}</th>{''.join(cells)}</tr>")
-
-    def stat_row(label: str, fn: Callable[[Dict[str, Any]], str]) -> str:
-        cols = "".join(f"<td>{fn(s)}</td>" for _, s in summaries)
-        return f"<tr><th>{label}</th>{cols}</tr>"
-
-    rows.append(
-        stat_row("test results", lambda s: esc(test_results_str(s) or "-")))
-    rows.append(
-        stat_row("explore results",
-                 lambda s: esc(explore_results_str(s) or "-")))
-    rows.append(stat_row("episodes", lambda s: str(len(s["episodes"]))))
-    rows.append(
-        stat_row(
-            "explore / learn", lambda s:
-            f"{sum(1 for e in s['episodes'] if e['kind'] == 'explore')} / "
-            f"{sum(1 for e in s['episodes'] if e['kind'] == 'learn')}"))
-    rows.append(
-        stat_row(
-            "total cost", lambda s: (f"${s['total_cost']:.2f}")
-            if s["total_cost"] else "-"))
-    rows_html = "".join(rows)
-    body = ("<div class='content' style='height:calc(100vh - 45px);"
-            "overflow-y:auto'><h2>Run comparison</h2>"
-            "<table class='grid'><tr><th></th>"
-            f"{head}</tr>{rows_html}</table></div>")
-    return page("compare - log viewer", "", body)
-
-
 # ------------------------------------------------------------ HTTP layer
 
 
@@ -3243,9 +3206,6 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/gallery":
             self.send_html(
                 gallery_fragment(params.get("d", ""), params.get("p", "")))
-        elif route == "/compare":
-            rels = [r for r in params.get("runs", "").split(";") if r]
-            self.send_html(compare_page(rels))
         elif route == "/stamp":
             d = params.get("d", "")
             self.send_text(run_stamp(d) if d else index_stamp())
