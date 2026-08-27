@@ -1682,8 +1682,16 @@ class GlobalSettings:
     # returned (partial results + a cost lesson) instead of blocking the
     # session for hours. Synthesis sessions (candidate-simulator probes,
     # whose rollouts are far slower and whose reset can trigger a
-    # refit) are exempt.
+    # refit) are exempt from THIS cap and get the generous one below.
     agent_sdk_explore_python_call_timeout = 600.0
+    # Standalone hard cap on one synthesis-session run_python call.
+    # Sized for legitimate slow work (candidate-sim rollouts, refits)
+    # while still killing runaway in-call sweeps: run_20260826_151728's
+    # cycle-1 learn spent 2+ hours inside ONE uncapped ~670-point grid
+    # sweep, silent in the logs, headed for the job's wall. The watchdog
+    # returns the call's printed output so partial sweep results
+    # survive. 0 disables.
+    agent_sdk_synthesis_python_call_timeout = 1800.0
     # Test-time closed-loop recovery. After each option in the refined plan
     # finishes, the subgoal_annotations execution monitor checks the
     # sketch's subgoal annotation for that step against the REAL state; on

@@ -21,6 +21,7 @@ def _make_python_exec_tool(
     sandbox_dir_for_agent: Optional[str] = None,
     text_result: Callable[[str], Dict[str, Any]],
     budget_ctx: Optional[ToolContext] = None,
+    call_timeout_s: Optional[float] = None,
 ) -> Any:
     """Build a code-execution MCP tool over a persistent namespace.
 
@@ -38,6 +39,14 @@ def _make_python_exec_tool(
     refused with a submit-now message, and every result carries a
     ``[budget]`` footer (attempt time + rollout counts) so sweeps have a
     visible price.
+
+    ``call_timeout_s`` is a standalone per-call hard cap for tools with
+    NO solve ToolContext (the synthesis ``run_python``): it arms only
+    the watchdog, so a runaway in-call sweep is stopped with its
+    partial output returned. Sized generously by its caller - candidate-
+    simulator rollouts are slow and a legitimate single call can take
+    minutes (run_20260826_151728: one uncapped synthesis grid sweep ran
+    2+ hours of a learn session before the fix).
     """
     # pylint: disable=import-outside-toplevel
     import io
@@ -127,19 +136,21 @@ def _make_python_exec_tool(
 
         # Hard watchdog for pure-Python code that never reaches a probe
         # checkpoint (see _arm_budget_watchdog): armed to the nearest of
-        # the per-call and attempt deadlines.
+        # the per-call, attempt, and standalone deadlines.
         watchdog_disarm: Optional[Callable[[], None]] = None
+        wd_deadlines = []
         if budget_ctx is not None:
-            wd_deadlines = []
             if budget_ctx.explore_call_deadline is not None:
                 wd_deadlines.append(budget_ctx.explore_call_deadline)
             if (budget_ctx.attempt_deadline is not None
                     and not budget_ctx.capture_best_effort_plan):
                 wd_deadlines.append(budget_ctx.attempt_deadline)
-            if wd_deadlines:
-                remaining = min(wd_deadlines) - time.monotonic()
-                if remaining > 0:
-                    watchdog_disarm = _arm_budget_watchdog(remaining)
+        if call_timeout_s is not None and call_timeout_s > 0:
+            wd_deadlines.append(time.monotonic() + call_timeout_s)
+        if wd_deadlines:
+            remaining = min(wd_deadlines) - time.monotonic()
+            if remaining > 0:
+                watchdog_disarm = _arm_budget_watchdog(remaining)
 
         old_stdout = sys.stdout
         sys.stdout = captured = io.StringIO()
