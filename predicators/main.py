@@ -133,6 +133,97 @@ def _checkpoint_exists(online_learning_cycle: Optional[int],
     return bool(glob.glob(pattern))
 
 
+def _inflight_interactions_path(cycle: int) -> str:
+    """Path of the mid-cycle interaction-episodes stash for ``cycle``.
+
+    The cycle token in the name ("inflight_interactions_<i>") is
+    deliberately non-integer, so ``_scan_checkpoints`` ignores these
+    files when deciding which cycle to resume at.
+    """
+    load_path = utils.get_approach_load_path_str()
+    return f"{load_path}_inflight_interactions_{cycle}.pkl"
+
+
+def _save_inflight_interactions(cycle: int, cogman: CogMan,
+                                interaction_results: List[InteractionResult],
+                                task_idxs: List[int],
+                                task_solved_status: List[bool],
+                                query_cost: float) -> None:
+    """Persist a cycle's completed interaction episodes before LEARN.
+
+    The per-cycle checkpoint is only written at the END of learn, so
+    dying during the (hours-long) learn used to discard the cycle's
+    real episodes and force the resumed run to redo the cycle's whole
+    exploration (run_20260827_032234 re-ran both of cycle 2's explores
+    after the 12h wall killed its learn 16 minutes in). With this stash
+    the resume reuses the episodes and jumps straight to learn.
+    Best-effort: failures are logged, never fatal.
+    """
+    if _approach_save_suffix(cogman) is None:
+        # Non-checkpointing approach: a resume never skips cycles, so
+        # the stash could never be consulted.
+        return
+    path = _inflight_interactions_path(cycle)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            utils.pkl_dump_all_or_nothing(
+                {
+                    "cycle": cycle,
+                    "interaction_results": interaction_results,
+                    "task_idxs": task_idxs,
+                    "task_solved_status": task_solved_status,
+                    "query_cost": query_cost,
+                }, f)
+        logging.info(
+            "Saved %d in-flight interaction episode(s) to %s (reused if "
+            "this cycle's learn dies before its checkpoint).",
+            len(interaction_results), path)
+    except Exception as e:  # pylint: disable=broad-except
+        logging.warning("Could not save in-flight interactions: %s", e)
+
+
+def _load_inflight_interactions(cycle: int,
+                                cogman: CogMan) -> Optional[Dict[str, Any]]:
+    """Reload the resumed-into cycle's persisted episodes, if fresh.
+
+    Returns ``None`` when there is nothing (or nothing trustworthy) to
+    reuse; freshness uses the same ``auto_resume_max_age_hours`` gate as
+    the checkpoint scan, so a relaunch of a long-finished experiment
+    cannot silently replay stale episodes.
+    """
+    if _approach_save_suffix(cogman) is None:
+        return None
+    path = _inflight_interactions_path(cycle)
+    if not os.path.exists(path):
+        return None
+    if time.time() - os.path.getmtime(path) > \
+            CFG.auto_resume_max_age_hours * 3600.0:
+        return None
+    try:
+        with open(path, "rb") as f:
+            data = pkl.load(f)
+    except Exception as e:  # pylint: disable=broad-except
+        logging.warning("Could not load in-flight interactions at %s: %s",
+                        path, e)
+        return None
+    if data.get("cycle") != cycle:
+        return None
+    return data
+
+
+def _discard_inflight_interactions(cycle: int, cogman: CogMan) -> None:
+    """Drop the stash once its cycle's episodes are consumed."""
+    if _approach_save_suffix(cogman) is None:
+        return
+    try:
+        path = _inflight_interactions_path(cycle)
+        if os.path.exists(path):
+            os.remove(path)
+    except OSError:
+        pass
+
+
 def _test_results_exist(online_learning_cycle: Optional[int]) -> bool:
     """Whether the results pickle for a cycle's test was written."""
     outfile = (f"{CFG.results_dir}/{utils.get_config_path_str()}__"
@@ -142,8 +233,8 @@ def _test_results_exist(online_learning_cycle: Optional[int]) -> bool:
 
 def _load_test_solve_rate(
         online_learning_cycle: Optional[int]) -> Optional[float]:
-    """num_solved / num_total from a cycle's saved test results, or None if
-    the cycle has no saved results (or an empty test set)."""
+    """num_solved / num_total from a cycle's saved test results, or None if the
+    cycle has no saved results (or an empty test set)."""
     outfile = (f"{CFG.results_dir}/{utils.get_config_path_str()}__"
                f"{online_learning_cycle}.pkl")
     if not os.path.isfile(outfile):
@@ -161,8 +252,8 @@ def _perfect_test_streak_from_disk(newest_cycle: int) -> int:
 
     Walks the per-cycle results pickles backward from ``newest_cycle``,
     so an --auto_resume relaunch continues the consecutive-perfect-test
-    count that test-driven early stopping requires instead of
-    restarting it. A fresh run (newest_cycle -1) seeds 0.
+    count that test-driven early stopping requires instead of restarting
+    it. A fresh run (newest_cycle -1) seeds 0.
     """
     streak = 0
     for cycle in range(newest_cycle, -1, -1):
@@ -535,25 +626,44 @@ def _run_online_learning_loop(
                     f"{_format_test_results_line(test_results)}")
             break
 
-        interaction_requests = cogman.get_interaction_requests()
-        if not interaction_requests:
+        # A resumed-into cycle whose previous incarnation died during
+        # LEARN reuses the episodes persisted just before that learn
+        # (see _save_inflight_interactions) instead of re-exploring.
+        inflight: Optional[Dict[str, Any]] = None
+        if getattr(CFG, "auto_resume", False) and i == CFG.skip_until_cycle:
+            inflight = _load_inflight_interactions(i, cogman)
+        if inflight is not None:
+            interaction_results = inflight["interaction_results"]
+            task_idxs = inflight["task_idxs"]
+            task_solved_status = inflight["task_solved_status"]
+            query_cost = inflight["query_cost"]
             logging.info(
-                "Did not receive any interaction requests, terminating")
-            break
+                "Resuming cycle %d from %d persisted interaction "
+                "episode(s); skipping this cycle's exploration and "
+                "going straight to learning.", i, len(interaction_results))
+        else:
+            interaction_requests = cogman.get_interaction_requests()
+            if not interaction_requests:
+                logging.info(
+                    "Did not receive any interaction requests, terminating")
+                break
 
-        (interaction_results, query_cost,
-         task_solved_status) = \
-            _generate_interaction_results(
-                cogman, env, teacher,
-                interaction_requests, i)
+            (interaction_results, query_cost,
+             task_solved_status) = \
+                _generate_interaction_results(
+                    cogman, env, teacher,
+                    interaction_requests, i)
+            task_idxs = [req.train_task_idx for req in interaction_requests]
+            _save_inflight_interactions(i, cogman, interaction_results,
+                                        task_idxs, task_solved_status,
+                                        query_cost)
 
         # Track every solve attempt per task. The first attempt is used for
         # the legacy solve-rate metric; the full list is used when
         # online_learning_early_stopping_require_all_attempts is on.
         task_first_solve_attempts: Dict[int, bool] = {}
         task_all_solve_attempts: Dict[int, List[bool]] = {}
-        for request, solved in zip(interaction_requests, task_solved_status):
-            task_idx = request.train_task_idx
+        for task_idx, solved in zip(task_idxs, task_solved_status):
             task_all_solve_attempts.setdefault(task_idx, []).append(solved)
             if task_idx not in task_first_solve_attempts:
                 task_first_solve_attempts[task_idx] = solved
@@ -676,6 +786,9 @@ def _run_online_learning_loop(
             cogman.learn_from_interaction_results(interaction_results)
             learning_time += time.perf_counter() - learning_start
             model_has_learned = True
+        # The cycle's episodes are consumed (and, when learning ran, the
+        # per-cycle checkpoint was written inside it): drop the stash.
+        _discard_inflight_interactions(i, cogman)
 
         # Evaluate if needed
         if should_run_testing:

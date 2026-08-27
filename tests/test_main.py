@@ -15,10 +15,14 @@ from predicators.cogman import CogMan
 from predicators.envs.cover import CoverEnv
 from predicators.execution_monitoring import create_execution_monitor
 from predicators.ground_truth_models import get_gt_options
-from predicators.main import _early_stop_below_bar_msg, \
-    _load_test_solve_rate, _perfect_test_streak_from_disk, _run_testing, \
-    _save_test_results, main
+from predicators.main import _discard_inflight_interactions, \
+    _early_stop_below_bar_msg, _inflight_interactions_path, \
+    _load_inflight_interactions, _load_test_solve_rate, \
+    _perfect_test_streak_from_disk, _run_testing, \
+    _save_inflight_interactions, _save_test_results, discover_resume_cycles, \
+    main
 from predicators.perception import create_perceiver
+from predicators.settings import CFG
 from predicators.structs import Action, DefaultState, EnvironmentTask, State, \
     Task
 
@@ -380,3 +384,60 @@ def test_perfect_test_streak_from_disk():
     _save_test_results(_fake_results(0, 0), online_learning_cycle=5)
     assert _perfect_test_streak_from_disk(5) == 0
     shutil.rmtree(results_dir)
+
+
+def test_inflight_interactions_roundtrip(tmp_path):
+    """A cycle's episodes persisted before LEARN survive a mid-learn death:
+    reloadable at the same cycle, invisible to the checkpoint scanner,
+    ignored when stale, and gone once discarded."""
+    import time as time_module
+
+    utils.reset_config({
+        "env": "cover",
+        "approach": "random_actions",
+        "seed": 0,
+        "approach_dir": str(tmp_path),
+    })
+
+    class _FakeApproach:
+        _save_suffix = "test_ckpt"
+
+    class _FakeCogman:
+        _approach = _FakeApproach()
+
+    cogman = _FakeCogman()
+    results = [{"episode": 1}, {"episode": 2}]  # picklable stand-ins
+    _save_inflight_interactions(3, cogman, results, [0, 0], [True, False], 1.5)
+    # Wrong cycle finds nothing.
+    assert _load_inflight_interactions(2, cogman) is None
+    data = _load_inflight_interactions(3, cogman)
+    assert data is not None
+    assert data["interaction_results"] == results
+    assert data["task_idxs"] == [0, 0]
+    assert data["task_solved_status"] == [True, False]
+    assert data["query_cost"] == 1.5
+    # The checkpoint scanner must not mistake the stash for a checkpoint
+    # (its cycle token is non-integer by construction).
+    load_path = utils.get_approach_load_path_str()
+    found, max_cycle = discover_resume_cycles(load_path)
+    assert not found
+    assert max_cycle is None
+    # A stale stash (older than the auto-resume gate) is ignored.
+    path = _inflight_interactions_path(3)
+    old_ts = time_module.time() - CFG.auto_resume_max_age_hours * 3600.0 - 10
+    os.utime(path, (old_ts, old_ts))
+    assert _load_inflight_interactions(3, cogman) is None
+    os.utime(path, None)
+    assert _load_inflight_interactions(3, cogman) is not None
+    # Discard removes it.
+    _discard_inflight_interactions(3, cogman)
+    assert _load_inflight_interactions(3, cogman) is None
+
+    # A non-checkpointing approach neither saves nor loads a stash.
+    class _NoCkptApproach:
+        _save_suffix = None
+
+    cogman_nockpt = _FakeCogman()
+    cogman_nockpt._approach = _NoCkptApproach()
+    _save_inflight_interactions(4, cogman_nockpt, results, [0], [True], 0.0)
+    assert not os.path.exists(_inflight_interactions_path(4))
