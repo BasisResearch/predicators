@@ -1058,10 +1058,10 @@ def test_results_str(summary: Dict[str, Any]) -> str:
     """The run's test phases as e.g. "c3 0/1 (r 0.00) → c4 1/1 (r 0.90)".
 
     Each phase is prefixed with its true learning-cycle id from the
-    log's cycle banners ("init" for the pre-learning test), so an auto-
-    resumed run reads c3, c4, ... rather than looking like a fresh run's
-    first rounds. The prefix is omitted for logs without banners (and
-    the reward tag for logs that predate avg_test_reward).
+    log's cycle banners ("off" for the offline pre-learning test), so an
+    auto-resumed run reads c3, c4, ... rather than looking like a fresh
+    run's first rounds. The prefix is omitted for logs without banners
+    (and the reward tag for logs that predate avg_test_reward).
     """
     parts = []
     cycles = summary.get("test_cycles", [])
@@ -1071,7 +1071,7 @@ def test_results_str(summary: Dict[str, Any]) -> str:
         if reward is not None:
             s += f" (r {reward:.2f})"
         if i < len(cycles):
-            s = ("init " if cycles[i] is None else f"c{cycles[i]} ") + s
+            s = ("off " if cycles[i] is None else f"c{cycles[i]} ") + s
         parts.append(s)
     return " → ".join(parts)
 
@@ -1102,11 +1102,17 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
     tagged_cycles = sorted(
         {c
          for c in session_cycles.values() if c is not None})
-    use_cycle_rows = bool(tagged_cycles)
     cycle_rank = {c: k for k, c in enumerate(tagged_cycles)}
     has_init_row = any(c is None for c in session_cycles.values())
     row_offset = 1 if has_init_row else 0
     last_cycle = parsed.get("last_cycle")
+    # Cycle rows engage as soon as the log shows ANY cycle banner, not
+    # only once a session has closed under one: early in a run whose
+    # only closed session is the offline learn (saved before the first
+    # banner) the still-open cycle-0 explore would otherwise fall back
+    # to bare r-labels while a sibling arm a few minutes ahead already
+    # shows off/c0. Banner-less legacy logs keep the fallback.
+    use_cycle_rows = bool(tagged_cycles) or last_cycle is not None
 
     def _cycle_row(ep: Dict[str, Any]) -> Optional[int]:
         if not use_cycle_rows:
@@ -2275,8 +2281,9 @@ def episode_grid(episodes: EpList,
         cells = []
         if layout["rounds"]:
             # Label the row with its episodes' true learning-cycle id
-            # ("c3", or "init" for the pre-learning test) so a resumed
-            # run reads c3, c4, ... rather than restarting at r1. Test
+            # ("c3", or "off" for the offline phase before cycle 0: the
+            # demo learn and/or the pre-learning test) so a resumed run
+            # reads c3, c4, ... rather than restarting at r1. Test
             # episodes name the row when present (the grid's columns are
             # theirs); the in-log row index is the fallback for rows
             # whose episodes carry no cycle tag (e.g. learn-only rows of
@@ -2287,7 +2294,7 @@ def episode_grid(episodes: EpList,
             for ep in row_eps:
                 tag = ep.get("cycle_tag", "")
                 if tag == "cycleNone":
-                    label = "init"
+                    label = "off"
                     break
                 if tag.startswith("cycle"):
                     label = f"c{tag[5:]}"
