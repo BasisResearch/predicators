@@ -1712,14 +1712,21 @@ def strip_wait_annotations(text: str) -> str:
 
 def _format_wait_target_debug(
         state: State, target_atoms: Set[GroundAtom],
+        neg_target_atoms: Set[GroundAtom],
         abstract_function: Callable[[State], Set[GroundAtom]]) -> str:
-    """Format state details for debugging why Wait has not terminated."""
+    """Format state details for debugging why Wait has not terminated.
+
+    ``target_atoms`` must become true and ``neg_target_atoms`` must
+    become false; either set may be empty (a cure Wait is often
+    annotated with only NOT atoms).
+    """
     cur_atoms = abstract_function(state)
     missing_targets = target_atoms - cur_atoms
+    lingering_targets = neg_target_atoms & cur_atoms
     target_objects = sorted(
         {
             ent
-            for atom in target_atoms
+            for atom in target_atoms | neg_target_atoms
             for ent in atom.entities if isinstance(ent, Object)
         },
         key=lambda o: o.name)
@@ -1735,8 +1742,10 @@ def _format_wait_target_debug(
             feature_values.append(f"{feature_name}={value_str}")
         object_details.append(f"{obj}: " + ", ".join(feature_values))
     details = [
-        f"Targets: {sorted(target_atoms)}",
+        f"Targets: {sorted(target_atoms)} "
+        f"NOT {sorted(neg_target_atoms)}",
         f"Missing: {sorted(missing_targets)}",
+        f"Lingering (must become false): {sorted(lingering_targets)}",
         f"cur_atoms: {sorted(cur_atoms)}",
     ]
     if object_details:
@@ -1792,19 +1801,30 @@ def option_policy_to_policy(
                 and cur_option.name == "Wait":
             assert abstract_function is not None
             assert last_state is not None
-            target_atoms = cur_option.memory.get("wait_target_atoms")
+            # A Wait may be annotated with positive targets, negative
+            # (NOT ...) targets, or both; check_wait_target_atoms
+            # supports every combination, so this caller must too. A
+            # negative-only cure Wait (-> {NOT GlueEndB(...)}, the
+            # recommended consumption-signature pattern) used to trip
+            # an assert on the missing positive set here and kill the
+            # whole episode (2026-08-27, bridge_demo1 job 21395978).
+            target_atoms = \
+                cur_option.memory.get("wait_target_atoms") or set()
+            neg_target_atoms = \
+                cur_option.memory.get("wait_target_neg_atoms") or set()
+            targets_desc = (f"{sorted(map(str, target_atoms))} "
+                            f"NOT {sorted(map(str, neg_target_atoms))}")
             result = check_wait_target_atoms(cur_option, state,
                                              abstract_function)
             if result is True:
                 cur_atoms = abstract_function(state)
                 logging.debug("Wait terminating: target atoms satisfied. "
-                              f"Targets: {target_atoms}, "
+                              f"Targets: {targets_desc}, "
                               f"cur_atoms: {sorted(cur_atoms)}, "
                               f"num_option_steps={num_cur_option_steps}")
                 wait_terminate = True
                 wait_terminate_reason = "Wait target atoms satisfied"
             elif result is False:
-                assert target_atoms is not None
                 if num_cur_option_steps >= CFG.wait_option_max_steps:
                     # Backstop: a target atom the world never produces
                     # (e.g. a learned predicate that is unevaluable on
@@ -1818,14 +1838,15 @@ def option_policy_to_policy(
                         "Wait terminating: target atoms not satisfied "
                         "within %d steps (wait_option_max_steps "
                         "backstop). Targets: %s", num_cur_option_steps,
-                        target_atoms)
+                        targets_desc)
                     wait_terminate = True
                     wait_terminate_reason = (
                         "Wait step cap (target atoms NOT satisfied)")
                 elif num_cur_option_steps <= 1 or \
                         num_cur_option_steps % 25 == 0:
                     wait_debug = _format_wait_target_debug(
-                        state, target_atoms, abstract_function)
+                        state, target_atoms, neg_target_atoms,
+                        abstract_function)
                     logging.debug(
                         "Wait continuing: target atoms not yet satisfied. "
                         "%s, num_option_steps=%d", wait_debug,
