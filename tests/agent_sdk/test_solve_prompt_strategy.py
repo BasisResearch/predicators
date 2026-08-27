@@ -138,7 +138,7 @@ def test_explore_mode_opening_focuses_on_information_gathering() -> None:
 def test_explore_mode_early_stop_note_credits_exploration_plans() -> None:
     """The early-stop note attributes loop conclusion to the exploration plans
     solving training (goal reached for real AND validated in the belief model),
-    and it states the refine-then-truncate mechanism."""
+    and it states the refine-then-seeded-fallback mechanism."""
     utils.reset_config({
         "seed":
         0,
@@ -151,7 +151,9 @@ def test_explore_mode_early_stop_note_credits_exploration_plans() -> None:
     assert ("The loop concludes early once the exploration plans solve "
             "training") in prompt
     assert "learned model solves training" not in prompt
-    assert "the plan is truncated just after that step" in prompt
+    assert "the plan still runs in full" in prompt
+    assert "falls back to the explicit parameters you proposed" in prompt
+    assert "truncated just after that step" not in prompt
 
 
 def test_domain_strategy_block_is_advisory() -> None:
