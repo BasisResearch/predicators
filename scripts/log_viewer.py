@@ -2338,13 +2338,20 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
     eps = summary.get("episodes", [])
     tr_str = test_results_str(summary) or "-"
     # Auto-resumed run: mark the RUN cell with the cycle it continued at
-    # (it describes the run's lifecycle, not its test outcomes).
+    # and the run whose checkpoints it continued from (it describes the
+    # run's lifecycle, not its test outcomes).
     resume_mark = ""
     if summary.get("resume_cycle") is not None:
+        src = ""
+        prev_rel = _prev_run_rel(r["rel"])
+        if prev_rel is not None:
+            prev_name = os.path.basename(prev_rel)
+            src = (f" (re. <a href='/run?d={q(prev_rel)}'>"
+                   f"{esc(prev_name)}/{esc(r['seed'])}</a>)")
         resume_mark = (
             " <span class='muted' title='auto-resumed run: continued at "
             f"cycle {summary['resume_cycle']} from the previous run&#39;s "
-            f"checkpoints'>↻c{summary['resume_cycle']}</span>")
+            f"checkpoints'>↻c{summary['resume_cycle']}{src}</span>")
     cost = summary.get("total_cost", 0.0)
     fmt = "%Y-%m-%d %H:%M"
     start_ts = _run_start_ts(r["name"], r["mtime"])
@@ -2383,11 +2390,11 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
             f"data-start='{start_ts:.0f}'>"
             f"<td><input type='checkbox' class='cmp' value='{esc(r['rel'])}'>"
             "</td>"
-            f"<td><a href='/run?d={q(r['rel'])}'>{esc(r['name'])}</a>"
+            f"<td><a href='/run?d={q(r['rel'])}'>{esc(r['name'])}/"
+            f"{esc(r['seed'])}</a>"
             f"{resume_mark}"
             f"<button class='copybtn' data-copy='{esc(copy_path)}' "
             f"title='Copy run path'>⧉</button>{del_btn}</td>"
-            f"<td>{esc(r['seed'])}</td>"
             f"<td>{status_chip(r, summary, live, is_newest)}{kill_btn}</td>"
             f"<td>{episode_grid(eps, layout)}</td>"
             f"<td>{esc(tr_str)}</td>"
@@ -2429,7 +2436,7 @@ def index_page() -> str:
     if not runs:
         body.append(
             f"<p>No run_* directories found under {esc(LOGS_ROOT)}.</p>")
-    table_head = ("<tr><th></th><th>run</th><th>seed</th><th>status</th>"
+    table_head = ("<tr><th></th><th>run</th><th>status</th>"
                   "<th>episodes</th><th>test results (info.log)</th>"
                   "<th>cost</th><th>started</th><th>modified</th>"
                   "<th>time</th></tr>")
