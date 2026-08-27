@@ -12,7 +12,7 @@ import numpy as np
 from gym.spaces import Box
 
 from predicators.agent_sdk.plan_execution import _fmt_state_features
-from predicators.agent_sdk.sketch_refinement import \
+from predicators.agent_sdk.sketch_refinement import ground_seeded_step, \
     refine_and_validate_report, refine_sketch
 from predicators.agent_sdk.sketch_types import SketchStep
 from predicators.structs import Action, GroundAtom, Object, \
@@ -171,23 +171,27 @@ def test_report_omits_deepest_failure_when_none_recorded():
     assert "Deepest failure" not in report
 
 
-def test_truncate_on_subgoal_fail_behavior_unchanged():
-    """Explorer-mode truncation still returns the deepest consistent prefix
-    (inclusive of the failing step), with or without a holder attached."""
+def test_explorer_mode_failure_returns_prefix_with_failing_step():
+    """Explorer mode returns the deepest consistent prefix (inclusive of the
+    failing step), with or without a holder attached.
+
+    With no seedable suffix past the failure, no tail is appended and
+    ``seeded_only_from`` stays None.
+    """
     sketch = [_step(subgoal_pred=_Reached), _step(subgoal_pred=_ReachedTwo)]
-    plan_no_holder, success, _ = refine_sketch(
-        _task(),
-        sketch,
-        _FakeOptionModel(),
-        predicates={_ReachedTwo, _Reached},
-        timeout=10.0,
-        rng=np.random.default_rng(0),
-        max_samples_per_step=5,
-        check_subgoals=True,
-        check_final_goal=False,
-        truncate_on_subgoal_fail=True)
-    assert not success
-    assert len(plan_no_holder) == 2  # prefix includes the failing step
+    outcome = refine_sketch(_task(),
+                            sketch,
+                            _FakeOptionModel(),
+                            predicates={_ReachedTwo, _Reached},
+                            timeout=10.0,
+                            rng=np.random.default_rng(0),
+                            max_samples_per_step=5,
+                            check_subgoals=True,
+                            check_final_goal=False,
+                            truncate_on_subgoal_fail=True)
+    assert not outcome.success
+    assert len(outcome.plan) == 2  # prefix includes the failing step
+    assert outcome.seeded_only_from is None
     holder = []
     plan_with_holder, success, _ = _refine(sketch,
                                            holder,
@@ -195,6 +199,78 @@ def test_truncate_on_subgoal_fail_behavior_unchanged():
     assert not success
     assert len(plan_with_holder) == 2
     assert holder[0].step_idx == 1
+
+
+def test_explorer_mode_failure_extends_with_seeded_suffix():
+    """Steps past the deepest failure run on their seeded params.
+
+    The middle step's subgoal is unsatisfiable, so the search fails
+    there; the two suffix steps carry seeds and are appended verbatim
+    (clipped), marked by ``seeded_only_from``. The failing step itself
+    keeps the exact params the model rejected (its searched attempt),
+    not its seed.
+    """
+    sketch = [
+        _step(subgoal_pred=_Reached),
+        _step(subgoal_pred=_ReachedTwo),
+        SketchStep(option=_Move,
+                   objects=[_block],
+                   subgoal_atoms=None,
+                   initial_params=np.array([0.25], dtype=np.float32)),
+        SketchStep(option=_Move,
+                   objects=[_block],
+                   subgoal_atoms=None,
+                   initial_params=np.array([7.0], dtype=np.float32)),
+    ]
+    outcome = _refine(sketch, [], truncate_on_subgoal_fail=True)
+    assert not outcome.success
+    assert len(outcome.plan) == 4
+    assert outcome.seeded_only_from == 2
+    assert np.isclose(float(outcome.plan[2].params[0]), 0.25)
+    # Out-of-box seeds are clipped, mirroring _sample_step.
+    assert np.isclose(float(outcome.plan[3].params[0]), 1.0)
+
+
+def test_explorer_mode_seeded_fill_stops_at_unseeded_step():
+    """The fill stops at the first suffix step with no seed to execute:
+
+    later steps are dropped even if they carry seeds themselves.
+    """
+    sketch = [
+        _step(subgoal_pred=_ReachedTwo),
+        SketchStep(option=_Move,
+                   objects=[_block],
+                   subgoal_atoms=None,
+                   initial_params=None),
+        SketchStep(option=_Move,
+                   objects=[_block],
+                   subgoal_atoms=None,
+                   initial_params=np.array([0.5], dtype=np.float32)),
+    ]
+    outcome = _refine(sketch, [], truncate_on_subgoal_fail=True)
+    assert not outcome.success
+    assert len(outcome.plan) == 1  # just the failing step's attempt
+    assert outcome.seeded_only_from is None
+
+
+def test_ground_seeded_step_zero_dim_needs_no_seed():
+    """A zero-dim params space grounds without a seed; a non-trivial one
+    without a seed returns None."""
+    zero_dim = ParameterizedOption(
+        "NoParams",
+        types=[_block_type],
+        params_space=Box(low=np.zeros(0, dtype=np.float32),
+                         high=np.zeros(0, dtype=np.float32)),
+        policy=_noop_policy,
+        initiable=lambda _s, _m, _o, _p: True,
+        terminal=lambda _s, _m, _o, _p: False,
+    )
+    grounded = ground_seeded_step(
+        SketchStep(option=zero_dim, objects=[_block], subgoal_atoms=None))
+    assert grounded is not None
+    assert grounded.name == "NoParams"
+    assert ground_seeded_step(
+        SketchStep(option=_Move, objects=[_block], subgoal_atoms=None)) is None
 
 
 def test_fmt_state_features_object_filter():

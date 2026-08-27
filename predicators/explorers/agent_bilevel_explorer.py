@@ -184,14 +184,15 @@ class AgentBilevelExplorer(BaseExplorer):
             # Explorer mode: keep BOTH subgoal and final-goal validation ON so
             # the mental model reports the deepest step it cannot predict - a
             # per-step subgoal it can't establish, or (at the final step) the
-            # task goal it predicts won't hold. Then truncate the plan at that
-            # deepest failing step (inclusive) instead of backtracking past it:
-            # steps beyond the disagreement are built on a false mental-model
-            # state. A final-goal failure captures the *whole* plan as the
-            # experiment - running it in reality and seeing whether the goal
-            # actually holds is exactly the disagreement we want to collect
-            # (e.g. a model that predicts WaterBoiled drops after
-            # SwitchBurnerOff, when reality keeps it). `success` now honestly
+            # task goal it predicts won't hold. On failure the returned plan
+            # keeps the searched prefix (the failing step runs with the exact
+            # params the model rejected) and CONTINUES with the sketch's
+            # seeded params for the suffix: exploration exists because the
+            # belief model is known-wrong, so its inability to certify later
+            # steps is a reason to collect the data, not to drop the tail of
+            # the designed experiment (a truncation here once discarded the
+            # blocking bond test of a bridge episode and cost the next learn
+            # session hours of belief-sim guesswork). `success` honestly
             # reflects whether the mental model could reach the goal, so a
             # model that merely executes-but-mispredicts is distinguishable
             # from one that truly solves the task.
@@ -255,14 +256,35 @@ class AgentBilevelExplorer(BaseExplorer):
             logging.info(
                 f"agent_bilevel explorer: sketch has {len(sketch)} steps, "
                 f"refined {len(plan)} (mental model {mm_status}).")
+            seeded_from = outcome.seeded_only_from
             if plan:
                 plan_strs = []
                 for i, opt in enumerate(plan):
                     obj_s = ", ".join(o.name for o in opt.objects)
                     par_s = ", ".join(f"{p:.4f}" for p in opt.params)
-                    plan_strs.append(f"  {i}: {opt.name}({obj_s})[{par_s}]")
+                    mark = (" [seeded-only]" if seeded_from is not None
+                            and i >= seeded_from else "")
+                    plan_strs.append(
+                        f"  {i}: {opt.name}({obj_s})[{par_s}]{mark}")
                 logging.info("agent_bilevel explorer: experiment plan:\n%s",
                              "\n".join(plan_strs))
+            # Keep the scheduled-plan record honest for the cycle's next
+            # explore query: say which steps run without belief-model
+            # certification, and whether any sketch tail was dropped for
+            # lack of seeds.
+            record_notes = []
+            if seeded_from is not None:
+                record_notes.append(
+                    f"steps {seeded_from}..{len(plan) - 1} execute on the "
+                    "sketch's seeded params without belief-model "
+                    "certification")
+            if len(plan) < len(sketch):
+                record_notes.append(
+                    f"only the first {len(plan)}/{len(sketch)} sketch steps "
+                    "execute (later steps lacked seeded params)")
+            if record_notes:
+                self._tool_context.cycle_scheduled_plans[-1] += (
+                    "\n  NOTE: " + "; ".join(record_notes) + ".")
 
             if plan:
                 policy = utils.option_plan_to_policy(
