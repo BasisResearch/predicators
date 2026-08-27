@@ -2309,6 +2309,15 @@ def _misc_chip(ep: Dict[str, Any]) -> str:
 # ----------------------------------------------------------------- pages
 
 
+def _display_run_id(run_name: str) -> str:
+    """Run dir name for display: the constant ``run_`` prefix dropped.
+
+    Display only - links, copy paths, and filter keys keep the real dir
+    name.
+    """
+    return run_name[4:] if run_name.startswith("run_") else run_name
+
+
 def _prev_run_rel(run_rel: str) -> Optional[str]:
     """The same experiment's most recent earlier run dir, if any.
 
@@ -2347,7 +2356,8 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
         if prev_rel is not None:
             prev_name = os.path.basename(prev_rel)
             src = (f" (re. <a href='/run?d={q(prev_rel)}'>"
-                   f"{esc(prev_name)}/{esc(r['seed'])}</a>)")
+                   f"{esc(_display_run_id(prev_name))}/"
+                   f"{esc(r['seed'])}</a>)")
         resume_mark = (
             " <span class='muted' title='auto-resumed run: continued at "
             f"cycle {summary['resume_cycle']} from the previous run&#39;s "
@@ -2390,8 +2400,8 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
             f"data-start='{start_ts:.0f}'>"
             f"<td><input type='checkbox' class='cmp' value='{esc(r['rel'])}'>"
             "</td>"
-            f"<td><a href='/run?d={q(r['rel'])}'>{esc(r['name'])}/"
-            f"{esc(r['seed'])}</a>"
+            f"<td><a href='/run?d={q(r['rel'])}'>"
+            f"{esc(_display_run_id(r['name']))}/{esc(r['seed'])}</a>"
             f"{resume_mark}"
             f"<button class='copybtn' data-copy='{esc(copy_path)}' "
             f"title='Copy run path'>⧉</button>{del_btn}</td>"
