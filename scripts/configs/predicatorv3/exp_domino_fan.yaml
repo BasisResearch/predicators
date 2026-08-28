@@ -5,16 +5,42 @@
 #
 # Usage: python scripts/local/launch_simp.py -c predicatorv3/exp_domino_fan.yaml
 #
-# The learning question here is the wind. domino_fan/gt_simulator.py
-# carries it as one residual rule with wind_force and wind_lever as
-# FITTED parameters, neither observable from a single state: an agent
-# has to discover that a fan affects a domino at all, how hard, and at
-# what height on the face. Compare the learning arm against the oracle
-# below, which is handed all of it.
+# THE LADDER. Each rung hands the agent less. Exactly one arm should be
+# un-skipped at a time (launch_simp runs the ENVS x APPROACHES
+# cross-product, so two un-skipped arms means two runs).
 #
-# Env definitions live in envs/all.yaml and approach definitions in
-# approaches/all.yaml (all parked by default); this file only un-skips
-# the env + arm(s) it runs.
+#   rung 1  oracle                      GT processes + GT predicates,
+#                                       process planning. Proves the task
+#                                       is solvable and sets the reward
+#                                       ceiling. MEASURED: 1/1 at 0.900.
+#   rung 2a agent_model_based_planning  GT monolithic sim + GT predicates,
+#                                       the AGENT plans. The gentler entry
+#                                       to rung 2 - no sketch scaffolding.
+#   rung 2b agent_oracle_hybrid_sim     GT hybrid sim + GT params + GT
+#                                       predicates, agent plans.
+#   rung 3  agent_param_learning        GT sim STRUCTURE, params fitted:
+#                                       told the wind exists, must recover
+#                                       how strong it is and where it acts.
+#                                       Isolates system-ID from structure
+#                                       discovery.
+#   rung 4  agent_po_predicate_invention_al
+#                                       Base sim only. Must discover the
+#                                       wind exists, write a model of it,
+#                                       and invent predicates. Partially
+#                                       observable. This is "ours".
+#                                       (agent_predicate_invention is the
+#                                       fully-observable variant.)
+#
+# NOT agent_oracle_mono_sim for rung 2: its
+# agent_bilevel_plan_sketch_file points at a BOIL env sketch
+# (tests/approaches/test_data/boil_plan_sketch.txt), which names objects
+# this env does not have. It needs a domino-fan sketch written first.
+#
+# Reward scale, so a curve is not misread: train tasks are 1-blue
+# bridges (best possible 0.95), test tasks 2-blue (best possible 0.900),
+# since reward = 1[certified wind cascade] - 0.05 per blue used. A run
+# going 0.95 on train and 0.900 on test is at ceiling on both, not
+# declining.
 ---
 includes:
   - common.yaml
@@ -24,18 +50,25 @@ ENVS:
   domino_fan:
     SKIP: False
 APPROACHES:
-  # Upper bound: GT everything. Measured 1/1 at reward 0.900 (a two-blue
-  # solve: 1.0 bonus minus 2 x domino_block_cost).
+  # rung 1 - the baseline. Fast (~1 min), no LLM.
   oracle:
     SKIP: False
-  # Ours: learns the predicates, the hybrid sim, and the wind's params.
+  # rung 2a
+  agent_model_based_planning:
+    SKIP: True
+  # rung 2b
+  agent_oracle_hybrid_sim:
+    SKIP: True
+  # rung 3
+  agent_param_learning:
+    SKIP: True
+  # rung 4 - ours
   agent_po_predicate_invention_al:
     SKIP: True
     FLAGS:
       skip_initial_test: True
-      # Surface the base sim's own source in the agent sandbox, as
-      # exp_fan.yaml does for the ball task. The wind dynamics are NOT
-      # in it - they live in the residual program the agent must
-      # rediscover - so this hands over the scene and the skills
-      # without handing over the answer.
+      # Hands over the scene and the skills the way exp_fan.yaml does
+      # for the ball task. The WIND dynamics are not in that source -
+      # they live in the residual program the agent must rediscover -
+      # so this is not handing over the answer.
       agent_sim_provide_base_sim_source: True
