@@ -1,8 +1,10 @@
-"""Tests for the info.log parser of scripts/log_viewer.py."""
+"""Tests for the info.log parser and the resume-lineage rows of
+scripts/log_viewer.py."""
 
 from pathlib import Path
+from typing import Any, Dict
 
-from scripts.log_viewer import _parse_info_log
+from scripts.log_viewer import _parse_info_log, chain_summary, resume_chains
 
 _SAVE = ("INFO: Saved local sandbox query/response to logs/x/sandbox/"
          "session_logs/{name}.md")
@@ -72,3 +74,156 @@ def test_catch_up_line_never_overrides_a_real_banner(tmp_path: Path) -> None:
     parsed = _parse_info_log(path)
     assert parsed["session_cycles"] == {1: 2}
     assert parsed["round_cycles"] == [2]
+
+
+def _run(name: str, seed: str = "seed0") -> dict:
+    return {
+        "exp": "fam/exp",
+        "seed": seed,
+        "name": name,
+        "rel": f"fam/exp/{seed}/{name}",
+        "mtime": 0.0,
+        "activity": 0.0,
+    }
+
+
+def test_resume_chains_join_resumed_runs_to_their_predecessor() -> None:
+    """A resumed run joins the chain of its chronological predecessor of the
+    same seed; fresh runs and other seeds open their own chains."""
+    a, b, c = _run("run_20260827_121109"), _run("run_20260827_150302"), _run(
+        "run_20260827_171610")
+    fresh = _run("run_20260828_090000")
+    other = _run("run_20260827_121111", seed="seed1")
+    summaries: Dict[str, Dict[str, Any]] = {
+        a["rel"]: {
+            "resume_cycle": None
+        },
+        b["rel"]: {
+            "resume_cycle": 0
+        },
+        c["rel"]: {
+            "resume_cycle": 1
+        },
+        fresh["rel"]: {
+            "resume_cycle": None
+        },
+        other["rel"]: {
+            "resume_cycle": 2
+        },  # nothing before it: own chain
+    }
+    chains = resume_chains([c, other, a, fresh, b], summaries)
+    assert [[r["name"] for r in ch] for ch in chains] == [
+        [a["name"], b["name"], c["name"]],
+        [fresh["name"]],
+        [other["name"]],
+    ]
+
+
+def test_chain_summary_merges_episodes_by_cycle_and_tests_by_newest() -> None:
+    """Episodes re-bucket by true cycle across runs; the newest run wins a
+    cycle's test result; costs sum."""
+    a, b = _run("run_20260827_121109"), _run("run_20260827_150302")
+    summaries: Dict[str, Dict[str, Any]] = {
+        a["rel"]: {
+            "episodes": [
+                {
+                    "num": 1,
+                    "kind": "learn",
+                    "task": None,
+                    "round": 0,
+                    "cycle_tag": "cycleNone"
+                },
+                {
+                    "num": 2,
+                    "kind": "explore",
+                    "task": None,
+                    "round": 1,
+                    "cycle_tag": "cycle0",
+                    "env_reward": 0.0,
+                    "env_accepted": False
+                },
+                {
+                    "num": 3,
+                    "kind": "test",
+                    "task": 0,
+                    "round": 1,
+                    "cycle_tag": "cycle0"
+                },  # killed mid-test: no verdict
+            ],
+            "test_results": [],
+            "test_cycles": [0],
+            "total_cost":
+            1.5,
+            "resume_cycle":
+            None,
+            "done":
+            False,
+        },
+        b["rel"]: {
+            "episodes": [
+                {
+                    "num": 1,
+                    "kind": "test",
+                    "task": 0,
+                    "round": 0,
+                    "cycle_tag": "cycle0",
+                    "env_solved": True
+                },
+                {
+                    "num": 2,
+                    "kind": "explore",
+                    "task": None,
+                    "round": 1,
+                    "cycle_tag": "cycle1",
+                    "env_reward": 1.0,
+                    "env_accepted": True
+                },
+            ],
+            "test_results": [(1, 1, 1.0)],
+            "test_cycles": [0],
+            "total_cost":
+            2.0,
+            "resume_cycle":
+            1,
+            "done":
+            False,
+        },
+    }
+    merged = chain_summary([a, b], summaries)
+    rows = [(ep["run_id"], ep["num"], ep["round"], ep["superseded"])
+            for ep in merged["episodes"]]
+    # off -> row 0, c0 -> row 1 (a's killed test and b's re-test share
+    # it), c1 -> row 2.
+    assert rows == [
+        ("20260827_121109", 1, 0, True),
+        ("20260827_121109", 2, 1, True),
+        ("20260827_121109", 3, 1, True),
+        ("20260827_150302", 1, 1, False),
+        ("20260827_150302", 2, 2, False),
+    ]
+    assert merged["test_results"] == [(1, 1, 1.0)]
+    assert merged["test_cycles"] == [0]
+    assert merged["explore_results"] == [(0, 0, 1, 0.0), (1, 1, 1, 1.0)]
+    assert merged["total_cost"] == 3.5
+    assert merged["resume_cycle"] == 1
+
+
+def test_chain_summary_single_run_keeps_rows() -> None:
+    """A one-run chain keeps the run's own grid rows."""
+    a = _run("run_20260827_121109")
+    summaries: Dict[str, Dict[str, Any]] = {
+        a["rel"]: {
+            "episodes": [{
+                "num": 1,
+                "kind": "learn",
+                "task": None,
+                "round": 4
+            }],
+            "test_results": [],
+            "test_cycles": [],
+            "total_cost": 0.0,
+        }
+    }
+    merged = chain_summary([a], summaries)
+    assert merged["episodes"][0]["round"] == 4
+    assert merged["episodes"][0]["superseded"] is False
