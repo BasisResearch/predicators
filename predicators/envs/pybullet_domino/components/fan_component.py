@@ -468,14 +468,23 @@ class FanComponent(DominoEnvComponent):
     def _position_fans_on_sides(self) -> None:
         """Position all PyBullet fan bodies on their respective sides."""
         assert self._physics_client_id is not None
-        left_coords = np.linspace(self.fan_y_lb, self.fan_y_ub,
-                                  self.num_left_fans)
-        right_coords = np.linspace(self.fan_y_lb, self.fan_y_ub,
-                                   self.num_right_fans)
-        front_coords = np.linspace(self.fan_x_lb, self.fan_x_ub,
-                                   self.num_front_fans)
-        back_coords = np.linspace(self.fan_x_lb, self.fan_x_ub,
-                                  self.num_back_fans)
+
+        # np.linspace(a, b, 1) returns [a], not the midpoint - so a
+        # single-fan side lands at the LOW end of its rail while the
+        # state still reports the centre. Harmless to the oracle, whose
+        # wind is computed from the fan's orientation and never its
+        # position, but a learning agent reasons about "how far
+        # downstream of the fan the beam still reaches", and a body 0.42
+        # m from its reported coordinate corrupts exactly that.
+        def _rail(lo: float, hi: float, n: int) -> Any:
+            if n == 1:
+                return np.array([(lo + hi) / 2.0])
+            return np.linspace(lo, hi, n)
+
+        left_coords = _rail(self.fan_y_lb, self.fan_y_ub, self.num_left_fans)
+        right_coords = _rail(self.fan_y_lb, self.fan_y_ub, self.num_right_fans)
+        front_coords = _rail(self.fan_x_lb, self.fan_x_ub, self.num_front_fans)
+        back_coords = _rail(self.fan_x_lb, self.fan_x_ub, self.num_back_fans)
 
         for fan_obj in self._fans:
             side_idx = fan_obj.side_idx
