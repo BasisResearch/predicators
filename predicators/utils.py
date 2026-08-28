@@ -1610,6 +1610,99 @@ class EnvironmentFailure(ExceptionWithInfo):
         return repr(self)
 
 
+def real_episode_step_budget(phase: Optional[str]) -> int:
+    """Low-level steps a real episode of this ``phase`` may use.
+
+    Explore (interaction-request) episodes are capped by
+    ``max_num_steps_interaction_request`` on top of the horizon; test
+    and any other episodes by ``horizon`` alone. The belief tools quote
+    this number to the agent so its plans are sized for the budget the
+    real executor enforces (a 1000-step explore cap once went unstated
+    while the tools quoted the 3000-step horizon, and half the bridge
+    experiments were cut mid-plan).
+    """
+    if phase == "explore":
+        return int(min(CFG.horizon, CFG.max_num_steps_interaction_request))
+    return int(CFG.horizon)
+
+
+class _LatentAccessProbe:
+    """Stand-in for a State that records whether ``latent`` was read.
+
+    Every other attribute (``data``, ``get``, ``simulator_state``, ...)
+    is delegated to the wrapped state, so a classifier runs normally
+    while ``latent`` reads back ``None`` exactly as on a real
+    observation. Used to find annotations a real executor could never
+    see satisfied (see :func:`predicate_reads_latent`).
+    """
+
+    def __init__(self, state: State) -> None:
+        object.__setattr__(self, "_state", state)
+        object.__setattr__(self, "read", False)
+
+    def __getattr__(self, name: str) -> Any:
+        if name == "latent":
+            object.__setattr__(self, "read", True)
+            return None
+        return getattr(object.__getattribute__(self, "_state"), name)
+
+
+def predicate_reads_latent(pred: Predicate, state: State,
+                           objects: Sequence[Object]) -> bool:
+    """Whether ``pred``'s classifier consults ``state.latent`` on these
+    arguments.
+
+    Invented predicates that read the belief's latent block (a bond set,
+    a cure counter) are unconditionally False on real observations,
+    where ``latent`` is ``None``; anything that waits for or monitors
+    such an atom on the real robot waits forever. The probe runs the
+    classifier against a proxy whose ``latent`` reads back ``None`` and
+    reports whether it was touched; a classifier that raises after
+    touching it (``None.get``) counts as reading it, one that raises
+    before does not.
+    """
+    probe = _LatentAccessProbe(state)
+    try:
+        pred.holds(cast(State, probe), objects)
+    except Exception:  # pylint: disable=broad-except
+        pass
+    return bool(probe.read)
+
+
+def strip_latent_wait_targets(options: Sequence[_Option],
+                              state: State) -> List[str]:
+    """Drop Wait targets that read the belief's latent block.
+
+    A real executor observes no latent, so a positive target on such an
+    atom never becomes True (the Wait burns its whole step cap) and a
+    negative one is trivially satisfied (the Wait ends at once). Both
+    are removed from every Wait's ``memory`` in place; with no targets
+    left the Wait falls back to any-atom-change termination. Returns a
+    description per dropped target for logging. Mirrors the capture's
+    execution-verifiability filter on subgoal annotations.
+    """
+    dropped: List[str] = []
+    for i, option in enumerate(options):
+        if option.name != "Wait":
+            continue
+        for key in ("wait_target_atoms", "wait_target_neg_atoms"):
+            atoms = option.memory.get(key)
+            if not atoms:
+                continue
+            keep = set()
+            for atom in atoms:
+                if predicate_reads_latent(atom.predicate, state, atom.objects):
+                    polarity = "NOT " if key.endswith("neg_atoms") else ""
+                    dropped.append(f"step {i}: {polarity}{atom}")
+                else:
+                    keep.add(atom)
+            if keep:
+                option.memory[key] = keep
+            else:
+                del option.memory[key]
+    return dropped
+
+
 def check_wait_target_atoms(
     option: _Option,
     state: State,
@@ -2052,6 +2145,11 @@ def process_plan_to_greedy_option_policy(
         cur_option = cur_process.sample_option(state, goal, rng)
         if atoms_seq is not None:
             inject_wait_targets_for_option(cur_option, step_idx, atoms_seq)
+            for desc in strip_latent_wait_targets([cur_option], state):
+                logging.info(
+                    "Wait target %s reads the belief's latent block and "
+                    "cannot be observed by the real executor; skipping it.",
+                    desc)
         step_idx += 1
         logging.debug(f"Using option {cur_option.name}{cur_option.objects}"
                       f"{cur_option.params} from process plan.")

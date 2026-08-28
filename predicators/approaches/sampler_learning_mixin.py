@@ -25,6 +25,8 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, cast
 
+from predicators.agent_sdk.session_base import AgentSessionFatalError, \
+    query_fatal_error
 from predicators.agent_sdk.tools import _SnapshotTarget, \
     create_sampler_synthesis_tools, create_synthesis_tools, \
     finalize_versioned_snapshot
@@ -406,7 +408,15 @@ samples-to-refine feedback signal)."""
         message = message + "\n\n" + self._sampler_synthesis_message(paths)
 
         try:
-            self._query_agent_sync(message, kind="learn")
+            responses = self._query_agent_sync(message, kind="learn")
+            dead = query_fatal_error(responses)
+            if dead is not None:
+                # Nothing was synthesized: stop before this cycle is
+                # checkpointed as learned (see the simulator learn).
+                raise AgentSessionFatalError(
+                    "The sampler-synthesis session died without the agent "
+                    f"doing any work ({dead}); refusing to checkpoint this "
+                    "cycle as learned.")
         finally:
             self._tool_context.extra_session_hooks = {}
             self._tool_context.extra_mcp_tools = []

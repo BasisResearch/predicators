@@ -30,7 +30,8 @@ import numpy as np
 
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
-from predicators.agent_sdk.session_base import AgentSessionFatalError
+from predicators.agent_sdk.session_base import AgentSessionFatalError, \
+    query_fatal_error
 from predicators.agent_sdk.sketch_types import SketchStep as _SketchStep
 from predicators.agent_sdk.tools import BUILTIN_TOOLS, \
     explore_python_replaces_tools, load_ground_sampler_fns
@@ -771,6 +772,14 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         else:
             prompt = self._build_solve_prompt(task)
             responses = self._query_agent_sync(prompt, kind="test")
+            dead = query_fatal_error(responses)
+            if dead is not None:
+                # An outage is not a failed attempt: recording 0/1 here
+                # would write a bogus eval datapoint. Stop the run; the
+                # relaunch re-runs this cycle's test.
+                raise AgentSessionFatalError(
+                    "test query died without the agent doing any work "
+                    f"({dead}); not recording this attempt as a failure.")
             # Record cap-exhaustion before parsing: a capped session usually
             # has no final text, so the "empty plan text" failure below is
             # still attributable to the turn cap by _attempt_end_reason.
@@ -1010,7 +1019,13 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         self._tool_context.attempt_deadline = None
         self._tool_context.capture_best_effort_plan = True
         try:
-            self._query_agent_sync(nudge, kind="test")
+            nudge_responses = self._query_agent_sync(nudge, kind="test")
+            dead = query_fatal_error(nudge_responses)
+            if dead is not None:
+                raise AgentSessionFatalError(
+                    "final-submission nudge died without the agent doing "
+                    f"any work ({dead}); not recording this attempt as a "
+                    "failure.")
         except AgentSessionFatalError:
             raise
         except Exception as e:  # pylint: disable=broad-except

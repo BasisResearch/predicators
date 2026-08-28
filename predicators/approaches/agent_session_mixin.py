@@ -63,6 +63,10 @@ class AgentSessionMixin:
     # under a different phase closes and rebuilds the session so the
     # saved prompt, tools, and CLAUDE.md always match the active phase.
     _agent_session_phase: Optional[str] = None
+    # Session-transcript count an auto-resumed run inherits from its
+    # checkpoint (see AgentSimLearningApproach._extra_save_state), so
+    # transcript ids continue across the lineage.
+    _resume_query_count: int = 0
     _types: Set[Type]
     _action_space: Box
     _train_tasks: List[Any]
@@ -142,6 +146,10 @@ class AgentSessionMixin:
         """
         phase = ("synthesis" if self._learning_mode else
                  "explore" if self._explore_phase else "solve")
+        # The tools read the phase for phase-dependent facts such as
+        # the real episode's step budget (explore episodes are capped by
+        # max_num_steps_interaction_request, tests by the horizon).
+        self._tool_context.phase = phase
         if self._agent_session is not None:
             if self._agent_session_phase == phase:
                 return
@@ -231,6 +239,7 @@ class AgentSessionMixin:
                 extra_reference_files=self._get_sandbox_reference_files(),
                 phase=phase,
                 config=config,
+                query_count_floor=self._resume_query_count,
             )
         else:
             from claude_agent_sdk import \

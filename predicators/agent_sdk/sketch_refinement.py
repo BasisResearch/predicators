@@ -938,11 +938,34 @@ def refine_sketch(
             f"seeded-only steps "
             f"({len(refined) + len(seeded_suffix)}/{n})."
             f"{fail_note}{stop_note}")
-        return _outcome(
-            cast(List[_Option], refined) + seeded_suffix, False, seeded_from)
+        experiment = cast(List[_Option], refined) + seeded_suffix
+        _strip_latent_wait_targets(experiment, task.init, run_id)
+        return _outcome(experiment, False, seeded_from)
 
     refined = [p for p in plan if p is not None]
+    _strip_latent_wait_targets(cast(List[_Option], refined), task.init, run_id)
     return _outcome(cast(List[_Option], refined), success)
+
+
+def _strip_latent_wait_targets(plan: List[_Option], state: State,
+                               run_id: str) -> None:
+    """Remove Wait targets the real executor can never observe.
+
+    The sketch's subgoal annotations were checked in the belief, where
+    the latent block exists; grounding copied them into each Wait's
+    memory as its termination targets. A target on a latent-reading
+    predicate (a bond flag, a cure counter) is False on every real
+    observation, so the Wait would run to its step cap regardless of
+    what happened (~120 steps per Wait on the bridge, three Waits a
+    plan). Dropped here, after the belief search, so refinement itself
+    still validated the annotated subgoals.
+    """
+    dropped = utils.strip_latent_wait_targets(plan, state)
+    if dropped:
+        logging.info(
+            f"[{run_id}] Dropped {len(dropped)} Wait target(s) that read the "
+            "belief's latent block and cannot be observed by the real "
+            f"executor: {'; '.join(dropped)}.")
 
 
 def resolve_refine_timeout(
