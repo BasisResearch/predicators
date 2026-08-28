@@ -892,6 +892,8 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
             run_id=self._run_id,
             parameterized_samplers=self._get_all_samplers(),
             on_step_fail=on_step_fail,
+            strip_latent_wait_targets=(
+                not self._tool_context.latent_tracking_available),
         )
         return outcome.plan, outcome.success
 

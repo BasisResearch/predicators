@@ -1815,6 +1815,7 @@ class BeliefProbe:
             check_final_goal=require_goal,
             run_id="probe",
             parameterized_samplers=ctx.parameterized_samplers or None,
+            strip_latent_wait_targets=not ctx.latent_tracking_available,
             solved_check=solved_check)
         refined_plan, success = outcome.plan, outcome.success
         total_samples = outcome.total_samples

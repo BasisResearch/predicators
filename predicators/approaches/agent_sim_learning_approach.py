@@ -57,6 +57,8 @@ from predicators.code_sim_learning.fitting import FIT_NOISE_SIGMA, \
     fit_rule_parameters_latent, log_param_changes, log_sse_breakdown
 from predicators.code_sim_learning.identifiability import Verdict, \
     format_identifiability, physics_sigma_points
+from predicators.code_sim_learning.latent_tracker import LatentTracker, \
+    make_latent_tracker
 from predicators.code_sim_learning.orchestrator import run_rollout_sysid
 from predicators.code_sim_learning.physical_sysid import fit_params_rollout
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
@@ -3063,6 +3065,27 @@ earlier advice, rather than appending contradictions."""
         super()._sync_tool_context()
         self._tool_context.sysid_diagnostics = (self._last_sysid_diagnostics
                                                 or None)
+        self._tool_context.latent_tracking_available = \
+            self._latent_tracking_available()
+
+    def _latent_tracking_available(self) -> bool:
+        """Whether episodes will run with an execution-time latent tracker (the
+        loaded simulator threads a latent block)."""
+        rules = self._residual_rules
+        if not rules:
+            return False
+        return has_latent_rules(rules)
+
+    def make_latent_tracker(self) -> Optional[LatentTracker]:
+        """A fresh tracker over the current rules, params, and latent init (see
+        ``code_sim_learning.latent_tracker``), or None for a fully- observable
+        simulator.
+
+        Parameters are passed by reference, as the belief simulator's
+        closure does, so a later in-place fit is seen.
+        """
+        return make_latent_tracker(self._residual_rules, self._fitted_params,
+                                   self._latent_init)
 
     # ── Partial-observability (latent) support ───────────────────
     # Reached only when the loaded rules use the recurrent 5-arg
