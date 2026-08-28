@@ -122,6 +122,14 @@ CYCLE_HEADER_RE = re.compile(r"^ONLINE LEARNING CYCLE (\d+)\b")
 RESUME_RE = re.compile(
     r"--auto_resume: checkpoint\(s\) found at .* resuming with "
     r"load_approach \+ restart_learning, skip_until_cycle=(\d+)\.")
+# main.py's announcement, logged BEFORE the resumed run's first cycle
+# banner, that it is first re-running the test of the last completed
+# cycle (whose checkpoint exists but whose test the previous incarnation
+# never finished). The test sessions it saves belong to that cycle, not
+# to the offline phase, so the parser treats the line as that cycle's
+# banner.
+RESUMED_TEST_RE = re.compile(
+    r"Resumed past cycle (\d+) whose test never ran; testing it now")
 # The transcript save line each agent session leaves in info.log; it pairs
 # explore sessions with the interaction episodes that execute their
 # requests (see _parse_info_log).
@@ -853,8 +861,10 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
     "test_round": {episode_num: round_idx, ...},
     "round_cycles": [cycle_id|None, ...] parallel to rounds -- the
     ONLINE LEARNING CYCLE banner in effect when each round closed (None
-    for the pre-learning test), which is the id main.py stamps into that
-    round's video names and stays correct across auto-resume,
+    for the pre-learning test; a resumed run's catch-up test of its last
+    completed cycle counts that cycle's "Resumed past cycle N" line as
+    its banner), which is the id main.py stamps into that round's video
+    names and stays correct across auto-resume,
     "resume_cycle": int|None -- the cycle an --auto_resume run continued
     at (its true first cycle), None for fresh runs} where each round is
     one test phase, closed by a "Tasks solved: X / Y" line.
@@ -914,6 +924,14 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
                     m = RESUME_RE.search(line)
                     if m:
                         resume_cycle = int(m.group(1))
+                        continue
+                if cycle is None:
+                    # A resumed run's catch-up test of its last completed
+                    # cycle runs before that run's first banner; without
+                    # this it would read as the offline pre-loop test.
+                    m = RESUMED_TEST_RE.search(line)
+                    if m:
+                        cycle = int(m.group(1))
                         continue
                 if "Test results:" in line:
                     ms, mt = NUM_SOLVED_RE.search(line), NUM_TOTAL_RE.search(
