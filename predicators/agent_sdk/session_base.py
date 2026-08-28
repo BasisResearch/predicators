@@ -129,6 +129,32 @@ def usage_limit_wait_seconds(reason: Optional[str],
     return min(wait, _LIMIT_MAX_WAIT_SECS)
 
 
+# Session transcript file names: ``NNN_<kind>[_taskK]_<ts>.md`` (group 1)
+# or the legacy ``<kind>_NNN_<ts>.md`` (group 2).
+SESSION_LOG_FILENAME_RE = re.compile(
+    r"^(?:(\d{3})_[a-z][a-z_]*(?:_task\d+)?|[a-z][a-z_]*_(\d{3}))"
+    r"_\d{8}_\d{6}\.md$")
+
+
+def max_session_log_number(log_dir: Optional[str]) -> int:
+    """Highest ``NNN`` among the session transcripts in ``log_dir``.
+
+    0 for a missing or empty directory. Sessions number their
+    transcripts continuously from this, and a checkpoint records it so
+    an auto-resumed run keeps counting where its predecessor stopped
+    instead of restarting at 001.
+    """
+    if not log_dir or not os.path.isdir(log_dir):
+        return 0
+    max_n = 0
+    for name in os.listdir(log_dir):
+        m = SESSION_LOG_FILENAME_RE.match(name)
+        if m:
+            # Exactly one of the two groups matches per file.
+            max_n = max(max_n, int(m.group(1) or m.group(2)))
+    return max_n
+
+
 class AgentSessionFatalError(Exception):
     """The agent session backend is failing in a way no retry can fix.
 

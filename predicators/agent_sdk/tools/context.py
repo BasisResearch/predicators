@@ -118,6 +118,10 @@ class ToolContext:
     # mental-model subgoals against real trajectories.
     # TODO(sim-learning): consume these in learn_from_interaction_results.
     last_sketch_subgoals: Optional[Any] = None
+    # Agent-session phase the tools are serving: "explore", "solve"
+    # (test-time) or "synthesis" (learn). Set by the session mixin when
+    # it builds the session; None before any session exists.
+    phase: Optional[str] = None
     last_sketch_options: Optional[Any] = None
     # Set by AgentBilevelExplorer per request: did the mental model reach
     # the task goal during refinement? Read by get_interaction_requests to

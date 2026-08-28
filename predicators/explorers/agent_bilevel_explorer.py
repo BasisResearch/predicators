@@ -21,7 +21,8 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.rendering import save_task_state_image
-from predicators.agent_sdk.session_base import AgentSessionFatalError
+from predicators.agent_sdk.session_base import AgentSessionFatalError, \
+    query_fatal_error
 from predicators.agent_sdk.session_manager import SessionManagerProtocol, \
     run_query_sync
 from predicators.agent_sdk.tools import ToolContext, agent_render_resolution, \
@@ -120,6 +121,16 @@ class AgentBilevelExplorer(BaseExplorer):
             responses = run_query_sync(self._agent_session,
                                        prompt,
                                        kind="explore")
+            dead = query_fatal_error(responses)
+            if dead is not None:
+                # The session backend refused the query (usage limit,
+                # auth, transport): a random-options episode here would
+                # be junk data that the cycle then learns from (2026-08-28
+                # run_20260827_171610 cycle 3). Terminate the run instead;
+                # the relaunch re-explores this cycle.
+                raise AgentSessionFatalError(
+                    "explore query died without the agent doing any work "
+                    f"({dead}); not falling back to random exploration.")
             plan_text = self._extract_option_plan_text(responses)
             if not plan_text:
                 raise ValueError("agent returned empty plan text")
