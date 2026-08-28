@@ -249,6 +249,8 @@ class AgentBilevelExplorer(BaseExplorer):
                 check_subgoals=True,
                 check_final_goal=True,
                 truncate_on_subgoal_fail=True,
+                strip_latent_wait_targets=(
+                    not self._tool_context.latent_tracking_available),
                 log_state=CFG.agent_bilevel_log_state,
                 run_id="agent_bilevel_explorer",
                 info_scorer=info_scorer,

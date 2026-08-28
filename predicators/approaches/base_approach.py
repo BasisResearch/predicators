@@ -62,6 +62,19 @@ class BaseApproach(abc.ABC):
         """
         return []
 
+    def make_latent_tracker(self) -> Optional[Any]:
+        """An execution-time latent tracker for the coming episode, or None.
+
+        CogMan calls this at every episode reset. An approach whose
+        learned simulator threads a latent block (see
+        ``code_sim_learning.latent_tracker``) returns a fresh
+        ``LatentTracker`` so the states handed to its policy, the
+        termination function, and the execution monitor carry the
+        belief's latent; everything else returns None and executes on
+        bare observations as before.
+        """
+        return None
+
     def reset_for_new_episode(self) -> None:
         """Called by CogMan at the start of each episode, before the initial
         solve() for that episode.

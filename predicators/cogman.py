@@ -13,7 +13,7 @@ import logging
 import time
 import traceback
 from collections import defaultdict
-from typing import Callable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, List, Optional, Sequence, Set, Tuple
 from typing import Type as TypingType
 
 from predicators import utils
@@ -45,12 +45,26 @@ class CogMan:
         self._episode_action_history: List[Action] = []
         self._episode_images: Video = []
         self._episode_num = -1
+        # Execution-time latent tracker for the current episode (see
+        # BaseApproach.make_latent_tracker); None = bare observations.
+        self._latent_tracker: Optional[Any] = None
 
     def reset(self, env_task: EnvironmentTask) -> None:
         """Start a new episode of environment interaction."""
         logging.info("[CogMan] Reset called.")
         self._episode_num += 1
         self._approach.reset_for_new_episode()
+        # getattr: CogMan is also driven by duck-typed stand-in approaches
+        # (tests, wrappers) that predate the hook.
+        make_tracker = getattr(self._approach, "make_latent_tracker", None)
+        self._latent_tracker = (make_tracker()
+                                if make_tracker is not None else None)
+        if self._latent_tracker is not None:
+            self._latent_tracker.reset()
+            logging.info(
+                "[CogMan] Latent tracking on: %d rule(s) thread the "
+                "belief's latent over real observations this episode.",
+                self._latent_tracker.num_rules)
         task = self._perceiver.reset(env_task)
         self._current_env_task = env_task
         self._current_solve_task = task
@@ -73,11 +87,19 @@ class CogMan:
             imgs = self._perceiver.render_mental_images(
                 state, self._current_env_task)
             self._episode_images.extend(imgs)
-        # Replace the first step because the state was already added in reset().
+        # The history keeps the raw observation (learning data must
+        # never carry a belief); everything that acts on the state this
+        # step gets the latent-tracked view when a tracker is active.
+        prev_action = (self._episode_action_history[-1]
+                       if self._episode_action_history else None)
         if not self._episode_action_history:
+            # Replace the first step because the state was already added
+            # in reset().
             self._episode_state_history[0] = state
         else:
             self._episode_state_history.append(state)
+        if self._latent_tracker is not None:
+            state = self._latent_tracker.attach(state, prev_action)
         if self._termination_fn is not None and self._termination_fn(state):
             logging.info("[CogMan] Termination triggered.")
             logging.debug("[CogMan] step returning None: termination_fn fired")
@@ -86,9 +108,10 @@ class CogMan:
         if self._exec_monitor.step(state):
             logging.info("[CogMan] Replanning triggered.")
             assert self._current_solve_task is not None
-            # Re-solve the episode's task from the current state; every
-            # non-init Task field (goal, goal_nl, evaluator) must survive
-            # a mid-episode replan.
+            # Re-solve the episode's task from the current state (with
+            # its tracked latent, so the belief continues from the
+            # executor's estimate); every non-init Task field (goal,
+            # goal_nl, evaluator) must survive a mid-episode replan.
             task = dataclasses.replace(self._current_solve_task, init=state)
             self._reset_policy(task)
             self._exec_monitor.reset(task)

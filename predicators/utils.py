@@ -2145,11 +2145,15 @@ def process_plan_to_greedy_option_policy(
         cur_option = cur_process.sample_option(state, goal, rng)
         if atoms_seq is not None:
             inject_wait_targets_for_option(cur_option, step_idx, atoms_seq)
-            for desc in strip_latent_wait_targets([cur_option], state):
-                logging.info(
-                    "Wait target %s reads the belief's latent block and "
-                    "cannot be observed by the real executor; skipping it.",
-                    desc)
+            # A state without a latent block is a bare observation (no
+            # execution-time latent tracker): targets that read latent
+            # can never fire there, so drop them.
+            if state.latent is None:
+                for desc in strip_latent_wait_targets([cur_option], state):
+                    logging.info(
+                        "Wait target %s reads the belief's latent block and "
+                        "cannot be observed by the real executor; skipping "
+                        "it.", desc)
         step_idx += 1
         logging.debug(f"Using option {cur_option.name}{cur_option.objects}"
                       f"{cur_option.params} from process plan.")
