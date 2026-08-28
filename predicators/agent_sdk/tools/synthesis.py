@@ -708,6 +708,14 @@ def create_synthesis_tools(
             lines.append(f"  {name:<30} {init_val:.4f} -> "
                          f"{fit_val:.4f}  (delta={delta:+.4f}, "
                          f"{ppct:+.1f}%)")
+        if fit_result.lm_notes:
+            lines.append("")
+            lines.append(
+                "Zero-gradient (threshold/gate) parameters - the LM fit "
+                "cannot move these, so a bracket search over each box ran "
+                "instead; a parameter reported as NOT fit from data keeps "
+                "whatever value you gave it:")
+            lines.extend(f"  {note}" for note in fit_result.lm_notes)
 
         return "\n".join(lines)
 
