@@ -444,6 +444,13 @@ and update before doing anything else.**"""
         finally:
             self._explore_phase = False
 
+    def restore_interaction_requests(self, train_task_idxs: List[int]) -> None:
+        # A resume that reuses the cycle's persisted episodes never calls
+        # get_interaction_requests, which is what pairs each result with
+        # its train task below (run_20260828_173451 asserted here after a
+        # preemption mid-learn).
+        self._requests_train_task_idxs = list(train_task_idxs)
+
     def learn_from_interaction_results(
             self, results: Sequence[InteractionResult]) -> None:
         assert self._requests_train_task_idxs is not None

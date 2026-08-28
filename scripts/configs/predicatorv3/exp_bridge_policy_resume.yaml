@@ -1,0 +1,13 @@
+# Resume wrapper: the policy-mode bridge arm only, seed 0. Used to
+# resubmit that single job (auto_resume picks up its latest checkpoint
+# and in-flight episode stash) without duplicating the sibling arm that
+# is still running.
+# Usage:
+#   python scripts/engaging/launch.py -c predicatorv3/exp_bridge_policy_resume.yaml \
+#       -p mit_preemptable
+---
+includes:
+  - exp_bridge.yaml
+APPROACHES:
+  agent_po_predicate_invention_al:
+    SKIP: True

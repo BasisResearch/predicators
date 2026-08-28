@@ -3,7 +3,9 @@ import os
 import shutil
 import sys
 import tempfile
-from typing import Callable
+import time
+from collections import defaultdict
+from typing import Callable, Dict, List
 
 import pytest
 
@@ -11,6 +13,8 @@ import predicators.ground_truth_models
 from predicators import utils
 from predicators.approaches import ApproachFailure, ApproachTimeout, \
     BaseApproach, create_approach
+from predicators.approaches.agent_model_free_approach import \
+    AgentModelFreeApproach
 from predicators.cogman import CogMan
 from predicators.envs.cover import CoverEnv
 from predicators.execution_monitoring import create_execution_monitor
@@ -345,10 +349,9 @@ def test_skip_initial_test():
 
 
 def test_perfect_test_streak_from_disk():
-    """Test-driven early stopping's consecutive-perfect-test streak is
-    re-derived from the saved per-cycle results, so an --auto_resume
-    relaunch continues the count instead of restarting it."""
-    from collections import defaultdict
+    """Test-driven early stopping's consecutive-perfect-test streak is re-
+    derived from the saved per-cycle results, so an --auto_resume relaunch
+    continues the count instead of restarting it."""
     parent_dir = os.path.dirname(__file__)
     results_dir = os.path.join(parent_dir, "_fake_results_streak")
     utils.reset_config({
@@ -359,7 +362,7 @@ def test_perfect_test_streak_from_disk():
     })
 
     def _fake_results(num_solved: int, num_total: int) -> dict:
-        results = defaultdict(float)
+        results: Dict[str, float] = defaultdict(float)
         results["num_solved"] = num_solved
         results["num_total"] = num_total
         return results
@@ -388,10 +391,10 @@ def test_perfect_test_streak_from_disk():
 
 def test_inflight_interactions_roundtrip(tmp_path):
     """A cycle's episodes persisted before LEARN survive a mid-learn death:
-    reloadable at the same cycle, invisible to the checkpoint scanner,
-    ignored when stale, and gone once discarded."""
-    import time as time_module
 
+    reloadable at the same cycle, invisible to the checkpoint scanner,
+    ignored when stale, and gone once discarded.
+    """
     utils.reset_config({
         "env": "cover",
         "approach": "random_actions",
@@ -406,7 +409,11 @@ def test_inflight_interactions_roundtrip(tmp_path):
         _approach = _FakeApproach()
 
     cogman = _FakeCogman()
-    results = [{"episode": 1}, {"episode": 2}]  # picklable stand-ins
+    results: List[Dict[str, int]] = [{
+        "episode": 1
+    }, {
+        "episode": 2
+    }]  # picklable stand-ins
     _save_inflight_interactions(3, cogman, results, [0, 0], [True, False], 1.5)
     # Wrong cycle finds nothing.
     assert _load_inflight_interactions(2, cogman) is None
@@ -424,7 +431,7 @@ def test_inflight_interactions_roundtrip(tmp_path):
     assert max_cycle is None
     # A stale stash (older than the auto-resume gate) is ignored.
     path = _inflight_interactions_path(3)
-    old_ts = time_module.time() - CFG.auto_resume_max_age_hours * 3600.0 - 10
+    old_ts = time.time() - CFG.auto_resume_max_age_hours * 3600.0 - 10
     os.utime(path, (old_ts, old_ts))
     assert _load_inflight_interactions(3, cogman) is None
     os.utime(path, None)
@@ -438,6 +445,33 @@ def test_inflight_interactions_roundtrip(tmp_path):
         _save_suffix = None
 
     cogman_nockpt = _FakeCogman()
-    cogman_nockpt._approach = _NoCkptApproach()
+    cogman_nockpt._approach = _NoCkptApproach()  # pylint: disable=protected-access
     _save_inflight_interactions(4, cogman_nockpt, results, [0], [True], 0.0)
     assert not os.path.exists(_inflight_interactions_path(4))
+
+
+def test_stash_resume_restores_request_bookkeeping():
+    """A resume that reuses a cycle's persisted episodes never calls
+    get_interaction_requests, so the result->train-task pairing that
+    learn_from_interaction_results needs must come from
+    restore_interaction_requests (run_20260828_173451 asserted on it)."""
+    # The model-free family records the pairing in get_interaction_requests
+    # and asserts on it in learn_from_interaction_results.
+    approach = object.__new__(AgentModelFreeApproach)
+    approach._requests_train_task_idxs = None  # pylint: disable=protected-access
+    approach.restore_interaction_requests([0, 0])
+    assert approach._requests_train_task_idxs == [0, 0]  # pylint: disable=protected-access
+
+    # CogMan forwards to whatever approach it wraps.
+    class _RecordingApproach:
+        restored = None
+
+        def restore_interaction_requests(self, train_task_idxs):
+            """Record what CogMan forwarded."""
+            self.restored = list(train_task_idxs)
+
+    rec = _RecordingApproach()
+    cogman = CogMan(rec, create_perceiver("trivial"),
+                    create_execution_monitor("trivial"))
+    cogman.restore_interaction_requests([1, 0])
+    assert rec.restored == [1, 0]

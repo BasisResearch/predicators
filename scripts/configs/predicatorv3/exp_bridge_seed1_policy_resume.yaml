@@ -1,0 +1,10 @@
+# Resume wrapper: the policy-mode bridge arm only, seed 1 (see
+# exp_bridge_policy_resume.yaml).
+# Usage:
+#   python scripts/engaging/launch.py -c predicatorv3/exp_bridge_seed1_policy_resume.yaml \
+#       -p mit_preemptable
+---
+includes:
+  - exp_bridge_policy_resume.yaml
+START_SEED: 1
+NUM_SEEDS: 1

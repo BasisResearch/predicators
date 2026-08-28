@@ -111,6 +111,10 @@ class OnlineProcessLearningAndPlanningApproach(
             requests.append(req)
         return requests
 
+    def restore_interaction_requests(self, train_task_idxs: List[int]) -> None:
+        # See BaseApproach: a stash resume skips get_interaction_requests.
+        self._requests_train_task_idxs = list(train_task_idxs)
+
     def learn_from_interaction_results(
             self, results: Sequence[InteractionResult]) -> None:
         """Learn from interaction results.

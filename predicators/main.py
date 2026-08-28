@@ -637,6 +637,9 @@ def _run_online_learning_loop(
             task_idxs = inflight["task_idxs"]
             task_solved_status = inflight["task_solved_status"]
             query_cost = inflight["query_cost"]
+            # get_interaction_requests is skipped, so hand the approach
+            # the result->train-task pairing it would have recorded.
+            cogman.restore_interaction_requests(task_idxs)
             logging.info(
                 "Resuming cycle %d from %d persisted interaction "
                 "episode(s); skipping this cycle's exploration and "
