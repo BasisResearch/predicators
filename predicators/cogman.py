@@ -167,6 +167,10 @@ class CogMan:
         """See BaseApproach docstring."""
         return self._approach.get_interaction_requests()
 
+    def restore_interaction_requests(self, train_task_idxs: List[int]) -> None:
+        """See BaseApproach docstring."""
+        return self._approach.restore_interaction_requests(train_task_idxs)
+
     def learn_from_interaction_results(
             self, results: Sequence[InteractionResult]) -> None:
         """See BaseApproach docstring."""
