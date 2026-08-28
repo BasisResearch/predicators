@@ -16,7 +16,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import numpy as np
 
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
-    fit_space_bounds, from_fit_space, to_fit_space
+    fit_space_bounds, from_fit_space, scalar_from_fit_space, to_fit_space
 from predicators.settings import CFG
 
 logger = logging.getLogger(__name__)
@@ -108,6 +108,7 @@ def lm_point_fit_result(
     prior_sigma: np.ndarray,
     label: str,
     scales: Optional[List[str]] = None,
+    lm_notes: Optional[List[str]] = None,
 ) -> FitResult:
     """Single-point ``FitResult`` for the ``num_steps == 0`` short-circuit.
 
@@ -134,7 +135,116 @@ def lm_point_fit_result(
                      jacobian=lm_jac,
                      noise_sigma=noise_sigma,
                      prior_sigma=prior_sigma,
-                     scales=scales)
+                     scales=scales,
+                     lm_notes=list(lm_notes or []))
+
+
+# Bracket search for zero-gradient (threshold/gate) parameters: grid
+# points across the box per parameter, golden-section refinements
+# between the best point's neighbours, and the relative SSE change
+# below which a box counts as flat / a move as no improvement.
+_GATE_GRID_POINTS = 9
+_GATE_REFINE_ITERS = 6
+_GATE_MIN_REL_IMPROVEMENT = 1e-6
+
+
+def zero_jacobian_columns(jac: np.ndarray) -> List[int]:
+    """Indices of parameters whose Jacobian column is identically zero."""
+    if jac.ndim != 2 or jac.size == 0:
+        return []
+    return [j for j in range(jac.shape[1]) if not np.any(jac[:, j] != 0.0)]
+
+
+def bracket_search_zero_gradient_params(
+    sse_fn: Callable[[np.ndarray], float],
+    z: np.ndarray,
+    lo: np.ndarray,
+    hi: np.ndarray,
+    cols: List[int],
+    param_specs: List[ParamSpec],
+    label: str,
+) -> Tuple[np.ndarray, float, List[str]]:
+    """Coordinate-wise bracket search (fit space) for the parameters in
+    ``cols``, holding every other parameter fixed.
+
+    A threshold or gate parameter (a bond-gap tolerance, a contact
+    distance, a cure delay) changes the residuals only when it crosses
+    a data point, so its finite-difference LM gradient is exactly zero
+    almost everywhere and LM "converges" in one evaluation without
+    moving it - on the 2026-08-27 bridge runs every parameter of every
+    cycle's fit stayed at its init this way, and all calibration fell
+    to hand-bracketing by the agent. This search evaluates the SSE on
+    a grid across the parameter's box, refines around the best grid
+    point by golden section, and keeps a move only when it lowers the
+    SSE. Returns ``(z, sse, notes)`` with one note per parameter
+    saying what happened, in external units, for the agent-facing
+    report.
+    """
+    z = np.array(z, dtype=float)
+    sse = float(sse_fn(z))
+    notes: List[str] = []
+    for j in cols:
+        spec = param_specs[j]
+        init_ext = scalar_from_fit_space(spec, float(z[j]))
+        if not (np.isfinite(lo[j]) and np.isfinite(hi[j])) or hi[j] <= lo[j]:
+            notes.append(f"{spec.name}: LM gradient is zero and its box is "
+                         "unbounded, so no bracket search ran; kept at "
+                         f"{init_ext:.4g} (NOT fit from data).")
+            continue
+        grid = np.linspace(lo[j], hi[j], _GATE_GRID_POINTS)
+        vals = []
+        for g in grid:
+            zz = z.copy()
+            zz[j] = g
+            vals.append(float(sse_fn(zz)))
+        span = max(vals) - min(vals)
+        if span <= _GATE_MIN_REL_IMPROVEMENT * max(sse, 1e-12):
+            notes.append(f"{spec.name}: SSE is flat across its whole box "
+                         f"({_GATE_GRID_POINTS} points), so the data do not "
+                         f"constrain it; kept at {init_ext:.4g} (NOT fit "
+                         "from data).")
+            continue
+        best = int(np.argmin(vals))
+        best_z, best_sse = float(grid[best]), vals[best]
+        a = float(grid[max(best - 1, 0)])
+        b = float(grid[min(best + 1, _GATE_GRID_POINTS - 1)])
+        phi = (np.sqrt(5.0) - 1.0) / 2.0
+        x1 = b - phi * (b - a)
+        x2 = a + phi * (b - a)
+
+        def _eval(x: float, col: int = j) -> float:
+            zz = z.copy()
+            zz[col] = x
+            return float(sse_fn(zz))
+
+        f1, f2 = _eval(x1), _eval(x2)
+        for _ in range(_GATE_REFINE_ITERS):
+            if f1 < f2:
+                b, x2, f2 = x2, x1, f1
+                x1 = b - phi * (b - a)
+                f1 = _eval(x1)
+            else:
+                a, x1, f1 = x1, x2, f2
+                x2 = a + phi * (b - a)
+                f2 = _eval(x2)
+        for x, f in ((x1, f1), (x2, f2)):
+            if f < best_sse:
+                best_z, best_sse = x, f
+        if best_sse < sse * (1.0 - _GATE_MIN_REL_IMPROVEMENT):
+            new_ext = scalar_from_fit_space(spec, best_z)
+            notes.append(f"{spec.name}: LM gradient is zero (threshold-like); "
+                         f"bracket search over its box moved it "
+                         f"{init_ext:.4g} -> {new_ext:.4g} (SSE {sse:.4g} -> "
+                         f"{best_sse:.4g}).")
+            z[j] = best_z
+            sse = best_sse
+        else:
+            notes.append(f"{spec.name}: LM gradient is zero; bracket search "
+                         f"over its box found nothing better than "
+                         f"{init_ext:.4g} (SSE {sse:.4g}); kept.")
+    logger.info("%s bracket search on %d zero-gradient parameter(s):\n  %s",
+                label, len(cols), "\n  ".join(notes))
+    return z, sse, notes
 
 
 def solve_lm(
@@ -143,6 +253,7 @@ def solve_lm(
     max_nfev: int,
     label: str,
     diff_step: Optional[float] = None,
+    notes_out: Optional[List[str]] = None,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """Shared Levenberg-Marquardt core for the per-transition, recurrent, and
     rollout (``physical_sysid``) MAP fits.
@@ -173,6 +284,14 @@ def solve_lm(
     ``diff_step`` also becomes a *multiplicative* theta perturbation
     for log params, so the finite-difference gradient stays equally
     informative across decades instead of vanishing at the low end.
+
+    Parameters whose Jacobian column at the LM optimum is identically
+    zero (threshold/gate parameters, whose finite-difference gradient
+    exists only where a data point is crossed) get a coordinate-wise
+    bracket search over their box (:func:`bracket_search_zero_gradient_
+    params`); if any moves, LM is re-run from the new point so the
+    smooth parameters re-adapt. ``notes_out`` collects one line per
+    such parameter for the agent-facing fit report.
     """
     from scipy.optimize import \
         least_squares  # pylint: disable=import-outside-toplevel
@@ -210,19 +329,54 @@ def solve_lm(
         return from_fit_space(param_specs, init), None
 
     sse_lm = float(2.0 * result.cost)
+    logger.info("%s LM fit: SSE %.4f -> %.4f in %d fn-evals (status=%d, %s).",
+                label, sse_init, sse_lm, result.nfev, result.status,
+                "converged" if result.success else "max-evals")
+
+    jac = np.asarray(result.jac, dtype=float)
+    zero_cols = zero_jacobian_columns(jac)
+    if zero_cols:
+
+        def _sse(z: np.ndarray) -> float:
+            return float(np.sum(internal_residuals(z)**2))
+
+        z_new, sse_new, notes = bracket_search_zero_gradient_params(
+            _sse, result.x, lo, hi, zero_cols, param_specs, label)
+        if notes_out is not None:
+            notes_out.extend(notes)
+        if sse_new < sse_lm:
+            # The moved gates may have given the smooth parameters a
+            # gradient: polish from the new point. A failure here keeps
+            # the searched point (better than the LM one by construction).
+            try:
+                polished = least_squares(internal_residuals,
+                                         z_new,
+                                         method='trf',
+                                         bounds=(lo, hi),
+                                         diff_step=diff_step,
+                                         max_nfev=max_nfev)
+                if float(2.0 * polished.cost) <= sse_new:
+                    result = polished
+                    jac = np.asarray(result.jac, dtype=float)
+                else:
+                    result.x = z_new
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.warning(
+                    "%s LM polish after bracket search raised "
+                    "%s; keeping the searched point.", label, exc)
+                result.x = z_new
+            sse_lm = min(float(2.0 * result.cost), sse_new)
+            logger.info("%s LM fit after bracket search: SSE %.4f.", label,
+                        sse_lm)
+
     x_ext = from_fit_space(param_specs, result.x)
     delta = {
         names[i]: float(x_ext[i] - init_ext[i])
         for i in range(len(names))
     }
-    logger.info("%s LM fit: SSE %.4f -> %.4f in %d fn-evals (status=%d, %s).",
-                label, sse_init, sse_lm, result.nfev, result.status,
-                "converged" if result.success else "max-evals")
     logger.info("%s LM theta_map - init: %s", label,
                 {k: f"{v:+.4f}"
                  for k, v in delta.items()})
-
-    jac = np.asarray(result.jac, dtype=float)
     if jac.size == 0:
         return x_ext, None
     return x_ext, jac

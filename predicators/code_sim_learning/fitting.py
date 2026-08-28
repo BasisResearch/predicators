@@ -188,9 +188,14 @@ def fit_params_recurrent(
     # Optional one-shot recurrent LM fit (see lm_prefit for its three
     # uses). Each residual eval here is a full set of per-trajectory
     # rollouts, so it is only paid when one of the gating flags is set.
+    lm_notes: List[str] = []
     walker_center, lm_theta, lm_jac = lm_prefit(
-        lambda: fit_map_lm_recurrent(rules, trajectories, param_specs,
-                                     latent_init, residual_features),
+        lambda: fit_map_lm_recurrent(rules,
+                                     trajectories,
+                                     param_specs,
+                                     latent_init,
+                                     residual_features,
+                                     notes_out=lm_notes),
         lambda p: compute_sse_recurrent(rules, trajectories, p, latent_init,
                                         residual_features),
         names,
@@ -208,7 +213,8 @@ def fit_params_recurrent(
                                    noise_sigma,
                                    prior_sigma,
                                    "recurrent",
-                                   scales=scales)
+                                   scales=scales,
+                                   lm_notes=lm_notes)
 
     logger.info("Running emcee (recurrent): %d walkers, %d steps, %d burn-in.",
                 max(num_walkers, 2 * len(param_specs) + 2), num_steps,
@@ -233,7 +239,8 @@ def fit_params_recurrent(
                        jacobian=lm_jac,
                        noise_sigma=noise_sigma,
                        prior_sigma=prior_sigma,
-                       scales=scales)
+                       scales=scales,
+                       lm_notes=lm_notes)
     logger.info("emcee (recurrent) done. Posterior mean: %s",
                 {k: f"{v:.4f}"
                  for k, v in result.point_estimate.items()})
@@ -456,6 +463,7 @@ def fit_map_lm(
     param_specs: List[ParamSpec],
     residual_features: Dict[str, List[str]],
     max_nfev: int = 200,
+    notes_out: Optional[List[str]] = None,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """Find a MAP estimate via Levenberg-Marquardt (trust-region reflective).
 
@@ -496,7 +504,11 @@ def fit_map_lm(
         return compute_residuals(simulator_fn, transitions, params,
                                  residual_features)
 
-    return solve_lm(residuals_fn, param_specs, max_nfev, "per-transition")
+    return solve_lm(residuals_fn,
+                    param_specs,
+                    max_nfev,
+                    "per-transition",
+                    notes_out=notes_out)
 
 
 def fit_map_lm_recurrent(
@@ -506,6 +518,7 @@ def fit_map_lm_recurrent(
     latent_init: Any,
     residual_features: Dict[str, List[str]],
     max_nfev: int = 200,
+    notes_out: Optional[List[str]] = None,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """Levenberg-Marquardt MAP fit for the recurrent (latent-threaded) sim.
 
@@ -538,7 +551,11 @@ def fit_map_lm_recurrent(
         return compute_residuals_recurrent(rules, trajectories, params,
                                            latent_init, residual_features)
 
-    return solve_lm(residuals_fn, param_specs, max_nfev, "recurrent")
+    return solve_lm(residuals_fn,
+                    param_specs,
+                    max_nfev,
+                    "recurrent",
+                    notes_out=notes_out)
 
 
 def fit_params(
@@ -590,9 +607,13 @@ def fit_params(
     prior_sigma = prior_widths(param_specs, prior_sigma_scale)
 
     # Optional one-shot LM fit (see lm_prefit for its three uses).
+    lm_notes: List[str] = []
     walker_center, lm_theta, lm_jac = lm_prefit(
-        lambda: fit_map_lm(simulator_fn, transitions, param_specs,
-                           residual_features),
+        lambda: fit_map_lm(simulator_fn,
+                           transitions,
+                           param_specs,
+                           residual_features,
+                           notes_out=lm_notes),
         lambda p: compute_sse(simulator_fn, transitions, p, residual_features),
         names,
         init_values,
@@ -615,7 +636,8 @@ def fit_params(
                                    noise_sigma,
                                    prior_sigma,
                                    "per-transition",
-                                   scales=scales)
+                                   scales=scales,
+                                   lm_notes=lm_notes)
 
     logger.info("Running emcee: %d walkers, %d steps, %d burn-in.",
                 max(num_walkers, 2 * len(param_specs) + 2), num_steps,
@@ -640,7 +662,8 @@ def fit_params(
                        jacobian=lm_jac,
                        noise_sigma=noise_sigma,
                        prior_sigma=prior_sigma,
-                       scales=scales)
+                       scales=scales,
+                       lm_notes=lm_notes)
 
     logger.info("emcee done. Posterior mean: %s",
                 {k: f"{v:.4f}"
@@ -780,4 +803,6 @@ def fit_rule_parameters_latent(
                                      residual_features)
     logger.info("Recurrent fit - post-SSE: %.6f", post_sse)
     log_param_changes(init_params, fitted_params)
+    for note in result.lm_notes:
+        logger.info("Recurrent fit - zero-gradient parameter: %s", note)
     return result, post_sse
