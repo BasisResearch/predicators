@@ -21,7 +21,7 @@ ENVS:
     FLAGS:
       max_initial_demos: 1
       horizon: 3000
-      max_num_steps_interaction_request: 3000
+      max_num_steps_interaction_request: 2000
       skill_place_settle_preload_force: 3.0
       process_planning_heuristic_weight: 10.0
       process_planning_max_execution_replans: 3

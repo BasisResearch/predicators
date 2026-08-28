@@ -388,10 +388,13 @@ ENVS:
     FLAGS:
       max_initial_demos: 0
       horizon: 3000
-      # A full assembly plan runs well past the common 500-step cap
-      # (12 of 19 options already cost ~483 steps), so give explore
-      # episodes enough room to finish an experiment.
-      max_num_steps_interaction_request: 3000
+      # A full assembly plan runs well past the common 500-step cap:
+      # successful real episodes take 600-950 low-level steps (2026-08
+      # runs) and a 1000 cap cut plans two options from done. 2000 gives
+      # a 20-25 option plan plus Waits headroom while still bounding a
+      # looping policy's junk data (the test horizon stays 3000). The
+      # belief tools quote this cap to the agent in the explore phase.
+      max_num_steps_interaction_request: 2000
       # Place release preload (commit 1c1bb93b): press 3 N into the
       # support before opening, discharging the arm's position-control
       # sag into the table instead of the released block (post-release
