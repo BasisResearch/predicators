@@ -69,7 +69,7 @@ def load_learned_samplers(
 ) -> Tuple[Dict[str, Any], List[str], Optional[str]]:
     """Exec sampler code and validate its ``LEARNED_SAMPLERS`` dict.
 
-    The single loader behind both the ``evaluate_sampler`` tool and
+    The single loader behind both ``sim.samplers()`` and
     ``SamplerLearningMixin._load_samplers_from_module_file``, so the
     two cannot drift. Keys must be known option names.
     """

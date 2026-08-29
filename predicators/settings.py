@@ -2144,7 +2144,7 @@ class GlobalSettings:
     # sketch step's subgoal, instead of bilevel refinement drawing them
     # uniformly from the option's box. The agent authors a versioned
     # ``samplers.py`` (LEARNED_SAMPLERS keyed by option name) and tunes it
-    # with the ``evaluate_sampler`` tool. Sampler learning rides along in
+    # with ``sim.samplers()``. Sampler learning rides along in
     # the sim/predicate synthesis session when one runs
     # (oracle_sim_program=False); when no synthesis session runs
     # (oracle_sim_program=True) it gets a dedicated session of its own.

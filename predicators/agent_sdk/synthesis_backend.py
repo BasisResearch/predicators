@@ -2,8 +2,8 @@
 
 :class:`SynthesisBackend` declares exactly the approach surface that the
 synthesis tool factories in :mod:`predicators.agent_sdk.tools`
-(``create_synthesis_tools``, ``create_predicate_synthesis_tools``,
-``create_sampler_synthesis_tools``) and the approach-layer validation
+(``create_synthesis_tools``, ``make_predicate_quality_loader``,
+``make_sampler_loader``) and the approach-layer validation
 glue in :mod:`predicators.approaches.synthesis_validation` dereference.
 It exists so those modules can be typed against the contract instead of
 importing the concrete ``AgentSimLearningApproach`` - the import that
@@ -142,7 +142,7 @@ class SynthesisBackend(Protocol):
 
 
 class PredicateSynthesisBackend(SynthesisBackend, Protocol):
-    """The extra surface ``create_predicate_synthesis_tools`` needs.
+    """The extra surface ``make_predicate_quality_loader`` needs.
 
     Only the predicate-invention subclass provides these, so they live
     off the core protocol.
@@ -157,7 +157,7 @@ class PredicateSynthesisBackend(SynthesisBackend, Protocol):
 
 
 class SamplerSynthesisBackend(Protocol):
-    """The narrow surface ``create_sampler_synthesis_tools`` needs.
+    """The narrow surface ``make_sampler_loader`` needs.
 
     ``SamplerLearningMixin`` satisfies this directly (its declared host-
     class contract covers every member), so the mixin can pass ``self``

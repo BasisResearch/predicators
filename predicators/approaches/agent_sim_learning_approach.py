@@ -37,9 +37,9 @@ from predicators import utils
 from predicators.agent_sdk.session_base import AgentSessionFatalError, \
     max_session_log_number, query_fatal_error
 from predicators.agent_sdk.tools import JOURNAL_TOOL_NAMES, \
-    SAMPLER_SYNTHESIS_TOOL_NAMES, SYNTHESIS_TOOL_NAMES, _SnapshotTarget, \
-    create_synthesis_tools, evaluate_states_with, \
-    finalize_versioned_snapshot, make_write_snapshot_hook
+    SYNTHESIS_TOOL_NAMES, _SnapshotTarget, create_synthesis_tools, \
+    evaluate_states_with, finalize_versioned_snapshot, \
+    make_write_snapshot_hook
 from predicators.agent_sdk.tools.digests import render_options_digest, \
     render_trajectory_digest, render_types_digest
 from predicators.approaches.agent_model_based_approach import \
@@ -987,10 +987,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         ctx.option_model, which there IS the deployed belief model.
         """
         names: List[str] = list(SYNTHESIS_TOOL_NAMES)
-        # When the agent is learning samplers in this session (not using
-        # ground-truth ones), expose the evaluate_sampler tool.
-        if self._do_synthesize_samplers:
-            names += list(SAMPLER_SYNTHESIS_TOOL_NAMES)
         # The run's solve journal is also writable from learn sessions:
         # what the learn phase discovers about the domain is exactly what
         # future fresh-context solve attempts need (agents were already
@@ -1023,16 +1019,21 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         del base
         return {}
 
-    def _extra_synthesis_tools(
+    def _install_extra_synthesis_surfaces(
         self,
         exec_ns: Dict[str, Any],
         base_pred_triples: List[Tuple[State, Action, State]],
         inferred_hint: Dict[str, List[str]],
         extra_paths: Dict[str, str],
-    ) -> List[Any]:
-        """Return additional MCP tools to append to the synthesis tool list."""
+    ) -> None:
+        """Install per-arm probe surfaces for the synthesis session.
+
+        Subclasses register loaders in
+        ``self._tool_context.probe_artifact_loaders`` (the backends of
+        ``sim.predicates()`` / ``sim.samplers()``); the base arm has
+        none.
+        """
         del exec_ns, base_pred_triples, inferred_hint, extra_paths
-        return []
 
     def _extra_synthesis_message(self, extra_paths: Dict[str, str]) -> str:
         """Return text to append to the agent's first synthesis message.
@@ -1933,6 +1934,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         finally:
             self._tool_context.extra_session_hooks = {}
             self._tool_context.extra_mcp_tools = []
+            self._tool_context.probe_artifact_loaders.clear()
             self._tool_context.probe_option_model_provider = None
             self._tool_context.probe_fit_provider = None
             self._tool_context.probe_param_status = None
@@ -2062,11 +2064,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             budget_check=lambda: _check_time_budget(self._tool_context),
         )
         tools = list(toolkit.tools)
-        tools.extend(
-            self._extra_synthesis_tools(exec_ns, base_pred_triples,
-                                        inferred_hint, extra_paths))
+        self._install_extra_synthesis_surfaces(exec_ns, base_pred_triples,
+                                               inferred_hint, extra_paths)
         if self._do_synthesize_samplers:
-            tools.extend(self._make_sampler_tools(sampler_paths))
+            self._install_sampler_surface(sampler_paths)
         declared = set(self._get_synthesis_tool_names() or ())
         self._tool_context.extra_mcp_tools = [
             t for t in tools if getattr(t, "name", "") in declared
@@ -3299,12 +3300,12 @@ earlier advice, rather than appending contradictions."""
     ) -> List[Optional[Dict[str, Any]]]:
         """Roll a trajectory through the rules; return per-step latent.
 
-        Used by :func:`evaluate_predicate_quality` so latent-aware
-        predicates can be scored against meaningful latent values.
-        Returned list aligns with ``traj.states``; entry ``i`` is the
-        latent *before* predicates are evaluated at state ``i``. If no
-        rules are loaded, every entry is ``None`` so latent-aware
-        classifiers fall back to their default branch.
+        Used by ``sim.predicates()`` so latent-aware predicates can be
+        scored against meaningful latent values. Returned list aligns
+        with ``traj.states``; entry ``i`` is the latent *before*
+        predicates are evaluated at state ``i``. If no rules are loaded,
+        every entry is ``None`` so latent-aware classifiers fall back to
+        their default branch.
         """
         if not self._residual_rules:
             return [None] * len(traj.states)
