@@ -84,6 +84,12 @@ class AsyncRollout:
     value on success and ``error`` the failure reason otherwise. ``tag``
     is caller-provided context stamped at launch (e.g. the model version
     the rollout ran under).
+
+    Every accessor pumps the registry's scheduler first, so a caller
+    that waits by polling ``done()`` still gets queued launches forked
+    into freed worker slots (queued jobs are only forked from caller
+    threads, never from the reaper). ``gather`` remains the preferred
+    wait: it also bounds the wait and reports staleness.
     """
 
     def __init__(self, index: int, registry: "AsyncRolloutRegistry",
@@ -92,26 +98,31 @@ class AsyncRollout:
         self.tag = tag
         self._registry = registry
 
+    def _entry(self) -> Tuple[bool, bool, Any]:
+        """(done, ok, payload), pumping queued launches first."""
+        self._registry.poll()
+        return self._registry.entry(self.index)
+
     def done(self) -> bool:
         """Whether the rollout has finished (successfully or not)."""
-        return self._registry.entry(self.index)[0]
+        return self._entry()[0]
 
     @property
     def ok(self) -> bool:
         """Whether the child returned a result (False while pending)."""
-        entry = self._registry.entry(self.index)
+        entry = self._entry()
         return entry[0] and entry[1]
 
     @property
     def result(self) -> Any:
         """The child's return value, or None while pending / on failure."""
-        entry = self._registry.entry(self.index)
+        entry = self._entry()
         return entry[2] if entry[0] and entry[1] else None
 
     @property
     def error(self) -> Optional[str]:
         """The failure reason, or None while pending / on success."""
-        entry = self._registry.entry(self.index)
+        entry = self._entry()
         return entry[2] if entry[0] and not entry[1] else None
 
 

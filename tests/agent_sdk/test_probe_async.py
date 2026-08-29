@@ -72,6 +72,32 @@ def test_parallel_launch_and_gather(monkeypatch):
     sim._async_registry.shutdown()
 
 
+def test_polling_done_forks_queued_launches(monkeypatch):
+    """More launches than workers, waited on with done() only.
+
+    Queued jobs are forked only from caller threads, so a poll loop
+    that never calls gather must still drive the scheduler.
+    """
+
+    def _run(self, plan_text, **kwargs):
+        del self, kwargs
+        time.sleep(0.1)
+        return f"ran {plan_text}"
+
+    workers = 2
+    sim = _probe(monkeypatch, workers, _run)
+    handles = [sim.run_async(f"PLAN{i}") for i in range(workers + 2)]
+    assert sim._async_registry.poll()[2] == 2  # two still queued
+    deadline = time.monotonic() + 30
+    while not all(h.done() for h in handles):
+        assert time.monotonic() < deadline, "queued launches never ran"
+        time.sleep(0.02)
+    assert sorted(h.result for h in handles) == [
+        f"ran PLAN{i}" for i in range(workers + 2)
+    ]
+    sim._async_registry.shutdown()
+
+
 def test_child_failure_lands_on_its_handle(monkeypatch):
     """A raising run fails only its own handle; gather names it."""
 
