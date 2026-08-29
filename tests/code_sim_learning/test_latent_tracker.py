@@ -191,3 +191,40 @@ def test_cogman_hands_tracked_states_to_the_policy(
     assert seen_by_termination == _TrackingApproach.seen_latents
     cogman.finish_episode(obs)
     assert all(s.latent is None for s in cogman.get_current_history().states)
+
+
+def test_init_latent_never_aliases_the_declared_latent_init():
+    """``init_latent`` hands each rollout its own containers: mutating the
+    returned latent in place (what rules do) must not touch LATENT_INIT."""
+    from predicators.code_sim_learning.utils import \
+        init_latent  # pylint: disable=import-outside-toplevel
+    latent_init = {"bonds": [], "slots": {"span0": {"c": 0.0}}}
+    lat = init_latent(latent_init, {})
+    lat["bonds"].append(["span0", "span1"])
+    lat["slots"]["span0"]["c"] = 5.0
+    assert latent_init == {"bonds": [], "slots": {"span0": {"c": 0.0}}}
+    assert init_latent(latent_init, {})["bonds"] == []
+
+
+def test_tracker_episode_does_not_pollute_latent_init():
+    """A real episode tracked with an in-place-mutating rule leaves the
+    approach's LATENT_INIT untouched, so the next belief rollout starts clean
+    (the policy-seed1 "welds everything at t=0" leak)."""
+
+    def _bond_rule(observation, latent, history, updates, params):
+        del observation, history, params
+        latent.setdefault("bonds", []).append(["span0", "span1"])
+        return updates
+
+    latent_init = {"bonds": []}
+    tracker = LatentTracker([_bond_rule], {}, latent_init)
+    blk = Object("b0", _block)
+    state = State({blk: np.array([0.0], dtype=np.float32)})
+    tracker.reset()
+    tracked = tracker.attach(state, None)
+    tracked = tracker.attach(state, Action(np.zeros(1, dtype=np.float32)))
+    assert tracked.latent["bonds"] == [["span0",
+                                        "span1"]]  # type: ignore[index]
+    assert latent_init == {"bonds": []}
+    tracker.reset()
+    assert tracker.latent["bonds"] == []  # type: ignore[index]
