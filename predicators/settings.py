@@ -1589,7 +1589,7 @@ class GlobalSettings:
     # submission nudge.
     agent_solve_max_attempts = 1
     # Wall-clock budget per solve attempt, in seconds (0 disables). The
-    # turn cap bounds turns, not compute - one explore_python sweep hid
+    # turn cap bounds turns, not compute - one run_python sweep hid
     # 47k rollouts (~7 h) inside a single turn. On expiry, exploration
     # tools refuse with a submit-now message and the approach runs the
     # same best-effort submission flow as turn-cap exhaustion.
@@ -1649,7 +1649,7 @@ class GlobalSettings:
     # would otherwise silently continue the old run; a Slurm requeue or
     # a prompt resubmission of a live run is always recent.
     auto_resume_max_age_hours = 36.0
-    # Per-call wall-clock limit for explore_python code execution, in
+    # Per-call wall-clock limit for solve-session run_python calls, in
     # seconds (0 disables). Enforced cooperatively at every probe sim
     # call, plus a hard async-exception watchdog for sim-free code (a
     # pure-Python loop blocks the event loop, so nothing else can stop
@@ -1658,7 +1658,7 @@ class GlobalSettings:
     # session for hours. Synthesis sessions (candidate-simulator probes,
     # whose rollouts are far slower and whose reset can trigger a
     # refit) are exempt from THIS cap and get the generous one below.
-    agent_sdk_explore_python_call_timeout = 600.0
+    agent_sdk_python_call_timeout = 600.0
     # Standalone hard cap on one synthesis-session run_python call.
     # Sized for legitimate slow work (candidate-sim rollouts, refits)
     # while still killing runaway in-call sweeps: run_20260826_151728's

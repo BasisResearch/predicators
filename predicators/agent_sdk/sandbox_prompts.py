@@ -59,8 +59,8 @@ _CLAUDE_MD_RULES = """\
 
 ## Rules
 - Do NOT attempt to read or browse files outside the sandbox directory.
-  This is enforced for the file tools AND for Bash and the Python
-  execution tools (run_python / explore_python): commands or code
+  This is enforced for the file tools AND for Bash and the run_python
+  tool: commands or code
   containing absolute or `../` paths that leave the sandbox (or source
   introspection) are blocked. Use relative paths inside the sandbox.
 - Do NOT modify files in ./reference/ — they are for reading only
@@ -89,9 +89,9 @@ _CLAUDE_MD_SOLVE_STRATEGY = """\
   different region.
 """
 
-# The solve strategy's visualization pointer: explore_python's
+# The solve strategy's visualization pointer: run_python's
 # sim.reset staging + sim.render overlays are the visualization surface.
-_VISUALIZE_HINT_PROBE = ("use explore_python (`sim.reset(mods={...})`, "
+_VISUALIZE_HINT_PROBE = ("use run_python (`sim.reset(mods={...})`, "
                          "then `sim.render(...)`).")
 
 _CLAUDE_MD_SYNTHESIS_STRATEGY = """\

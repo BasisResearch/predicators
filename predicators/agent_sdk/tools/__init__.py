@@ -15,7 +15,7 @@ This package replaces the former single-module ``tools.py``. Layout:
   shared by the prompts and the probe.
 - ``snapshots``: versioned write-time snapshots of agent-edited files.
 - ``python_exec``: shared python-exec core (run_python /
-  explore_python).
+  run_python).
 - ``synthesis`` / ``params_view`` / ``predicate_synthesis`` /
   ``sampler_synthesis``: synthesis-session tool factories.
 

@@ -87,7 +87,7 @@ def test_tool_use_multiline_code_gets_python_fence():
         "assistant",
         "content": [{
             "type": "tool_use",
-            "name": "explore_python",
+            "name": "run_python",
             "id": "toolu_9",
             "input": {
                 "code": "x = 1\nprint(x)",
@@ -96,7 +96,7 @@ def test_tool_use_multiline_code_gets_python_fence():
         }],
     }]
     md = format_conversation_markdown(collected)
-    assert "**Tool Call:** `explore_python` (id: `toolu_9`)" in md
+    assert "**Tool Call:** `run_python` (id: `toolu_9`)" in md
     assert "*code:*" in md
     assert "```python\nx = 1\nprint(x)\n```" in md
     # The remaining scalar goes into a compact JSON block.

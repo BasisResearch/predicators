@@ -211,7 +211,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
 
     def _get_agent_system_prompt(self) -> str:
         propose = CFG.agent_bilevel_use_llm_initial_params
-        refine_ref = "sim.refine (in explore_python)"
+        refine_ref = "sim.refine (in run_python)"
         # What a sketch step consists of (shared between modes).
         if propose:
             sketch_desc = (

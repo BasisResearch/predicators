@@ -122,7 +122,7 @@ def _arm_budget_watchdog(seconds: float) -> Callable[[], None]:
     """Schedule a ProbeBudgetExceeded in the CALLING thread after ``seconds``;
     returns an idempotent disarm callable.
 
-    ``explore_python``'s exec() runs on the event-loop thread, so
+    ``run_python``'s exec() runs on the event-loop thread, so
     pure-Python code that never reaches a probe checkpoint blocks every
     cooperative deadline check AND the sandbox's message-stream
     interrupt backstop - an async exception from a watchdog timer is the

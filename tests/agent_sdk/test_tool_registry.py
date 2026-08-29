@@ -139,12 +139,12 @@ def test_list_session_tool_names_filters_and_combines() -> None:
     """Filtered MCP names drop unknowns; ``extra_mcp_tools`` pass through."""
     fake = SimpleNamespace(name="run_python")
     grouped = list_session_tool_names(
-        mcp_filter=["evaluate_option_plan", "not_a_tool", "explore_python"],
+        mcp_filter=["evaluate_option_plan", "not_a_tool", "run_python"],
         extra_mcp_tools=[fake],
         include_builtin=False,
     )
     assert grouped == {
-        "mcp": ["evaluate_option_plan", "explore_python"],
+        "mcp": ["evaluate_option_plan", "run_python"],
         "extra": ["run_python"],
     }
 
@@ -163,14 +163,14 @@ def test_solve_and_synthesis_tool_names_are_independent() -> None:
     class _Approach(AgentSessionMixin):
 
         def _get_solve_tool_names(self) -> Optional[List[str]]:
-            return ["explore_python", "evaluate_option_plan"]
+            return ["run_python", "evaluate_option_plan"]
 
         def _get_synthesis_tool_names(self) -> Optional[List[str]]:
             return ["run_python"]
 
     obj = _Approach()
     assert obj._get_solve_tool_names() == [
-        "explore_python", "evaluate_option_plan"
+        "run_python", "evaluate_option_plan"
     ]
     assert obj._get_synthesis_tool_names() == ["run_python"]
 
@@ -333,15 +333,15 @@ def test_agent_render_resolution() -> None:
         assert CFG.pybullet_camera_width == 900
 
 
-def test_synthesis_tool_names_explore_python() -> None:
-    """Synthesis sessions never surface explore_python: the probe rides inside
-    run_python's namespace (one exec namespace per session) and the inspect
-    digests are prompt-injected.
+def test_synthesis_tool_names_run_python() -> None:
+    """Every session offers one ``run_python``: the synthesis roster carries
+    its own instance (fit data + the candidate-simulator probe in one
+    namespace), the solve roster the probe over the deployed belief model.
 
     Fitting, residual reports, plan validation, and scene work are probe
     methods (``sim.fit`` / ``sim.residuals`` / ``sim.refine`` /
     ``sim.run`` / ``sim.reset`` + ``sim.render``), not tools, so the
-    roster carries only ``run_python`` (+ per-arm evaluators).
+    synthesis roster carries only ``run_python`` (+ per-arm evaluators).
     """
     from predicators import utils
     from predicators.approaches.agent_sim_learning_approach import \
@@ -356,10 +356,9 @@ def test_synthesis_tool_names_explore_python() -> None:
 
     utils.reset_config({})
     names = _required_names(sim_learn._get_synthesis_tool_names())
-    assert "explore_python" not in names  # probe rides inside run_python
-    assert "run_python" in names
+    assert names.count("run_python") == 1
     names = _required_names(invention._get_synthesis_tool_names())
-    assert "explore_python" not in names
+    assert names.count("run_python") == 1
     assert "evaluate_predicate_quality" in names
 
     # On the solve side every arm with a simulator gets the same surface:
@@ -371,7 +370,7 @@ def test_synthesis_tool_names_explore_python() -> None:
         "agent_planner_use_simulator": True,
     })
     names = _required_names(invention._get_solve_tool_names())
-    assert "explore_python" in names
+    assert names.count("run_python") == 1
     assert "evaluate_option_plan" in names
 
     # Without a simulator there is nothing to probe or validate against.
@@ -381,5 +380,21 @@ def test_synthesis_tool_names_explore_python() -> None:
         "agent_planner_use_simulator": False,
     })
     names = _required_names(invention._get_solve_tool_names())
-    assert "explore_python" not in names
+    assert "run_python" not in names
     assert "evaluate_option_plan" not in names
+
+
+def test_attached_run_python_replaces_the_static_instance() -> None:
+    """A session that attaches its own ``run_python`` (synthesis) gets.
+
+    exactly that instance from ``create_mcp_tools`` - the solve-phase
+    probe instance is neither built nor offered alongside it.
+    """
+    fake = SimpleNamespace(name="run_python", handler=None)
+    ctx = ToolContext()
+    ctx.extra_mcp_tools = [fake]
+    tools = create_mcp_tools(ctx, tool_names=["run_python"])
+    assert tools == [fake]
+    tools = create_mcp_tools(ctx)
+    assert [t for t in tools
+            if getattr(t, "name", "") == "run_python"] == [fake]

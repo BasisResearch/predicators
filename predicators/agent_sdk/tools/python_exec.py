@@ -1,7 +1,7 @@
-"""Shared python-exec tool core behind run_python and explore_python."""
+"""The ``run_python`` tool core, shared by the solve and synthesis sessions."""
 import os
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from predicators.agent_sdk.config import ToolSurfaceConfig
 from predicators.agent_sdk.tools.budget import _arm_budget_watchdog, \
@@ -9,6 +9,27 @@ from predicators.agent_sdk.tools.budget import _arm_budget_watchdog, \
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.sandbox_guard import \
     _screen_text_for_sandbox_escape, _scrub_host_paths
+
+
+def _resolve_sandbox_file(
+        path: str, sandbox_dir: Optional[str]) -> Tuple[str, Optional[str]]:
+    """Resolve a ``path`` argument to a readable file inside the sandbox.
+
+    Relative paths resolve against the sandbox (the agent's working
+    directory); with a sandbox the resolved file must lie inside it (the
+    PreToolUse hook that confines Read/Write does not see MCP calls).
+    Returns ``(host_path, None)`` or ``("", error_message)``.
+    """
+    base = sandbox_dir or os.getcwd()
+    host = path if os.path.isabs(path) else os.path.join(base, path)
+    resolved = os.path.realpath(host)
+    if sandbox_dir is not None:
+        root = os.path.realpath(sandbox_dir)
+        if resolved != root and not resolved.startswith(root + os.sep):
+            return "", f"`path` must stay inside the sandbox: {path}"
+    if not os.path.isfile(resolved):
+        return "", f"`path` is not a file: {path}"
+    return resolved, None
 
 
 def _make_python_exec_tool(
@@ -25,16 +46,19 @@ def _make_python_exec_tool(
 ) -> Any:
     """Build a code-execution MCP tool over a persistent namespace.
 
-    Shared core behind the synthesis-phase ``run_python`` (namespace =
-    trajectory data) and the solve-phase ``explore_python`` (namespace =
-    the ``BeliefProbe`` exploration facade): sandbox-escape screening, in-
-    process ``exec`` with stdout capture, and oversize-output spill to
+    One tool, two namespaces: the solve-phase instance binds the
+    ``BeliefProbe`` facade over the deployed belief model, the synthesis
+    instance binds the fit data plus the probe over the candidate
+    simulator. Shared here: sandbox-escape screening, in-process ``exec``
+    with stdout capture, and oversize-output spill to
     ``<sandbox_dir>/tool_outputs/<name>/``. The namespace persists
-    across calls, so agents can define helpers once and reuse them.
+    across calls, so agents can define helpers once and reuse them;
+    ``path`` runs a ``.py`` file from the sandbox in that same namespace,
+    so helpers and sweeps can be developed as files with Write/Edit.
 
     ``budget_ctx`` (the solve session's ToolContext) opts the tool into
     wall-clock budgeting: each call arms the per-call deadline
-    (``agent_sdk_explore_python_call_timeout``) that probe sim calls
+    (``agent_sdk_python_call_timeout``) that probe sim calls
     enforce cooperatively, a call arriving after the attempt deadline is
     refused with a submit-now message, and every result carries a
     ``[budget]`` footer (attempt time + rollout counts) so sweeps have a
@@ -83,15 +107,34 @@ def _make_python_exec_tool(
                 "code": {
                     "type": "string",
                     "description": "Python code to execute.",
-                }
+                },
+                "path": {
+                    "type":
+                    "string",
+                    "description":
+                    ("Path of a .py file inside the sandbox to execute in "
+                     "the same persistent namespace (instead of `code`)."),
+                },
             },
-            "required": ["code"],
         },
     )
     async def python_exec(args: Dict[str, Any]) -> Dict[str, Any]:
         # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk.belief_probe import ProbeBudgetExceeded
-        code = args["code"]
+        code = args.get("code") or ""
+        path = args.get("path") or ""
+        if bool(code) == bool(path):
+            return text_result(
+                "Error: pass exactly one of `code` (inline Python) or "
+                "`path` (a .py file inside the sandbox).")
+        label = f"<{name}>"
+        if path:
+            resolved, err = _resolve_sandbox_file(path, sandbox_dir)
+            if err is not None:
+                return text_result(f"Error: {err}")
+            with open(resolved, encoding="utf-8") as f:
+                code = f.read()
+            label = path
         # The code execs in-process with full filesystem access, and the
         # sandbox's PreToolUse file-path hook does not cover MCP tools, so
         # screen the code here for out-of-sandbox reads / source
@@ -117,8 +160,7 @@ def _make_python_exec_tool(
                     "best plan NOW via evaluate_option_plan on the current "
                     "task (omit task_idx)." +
                     _budget_footer(budget_ctx, rollouts_before))
-            call_timeout = ToolSurfaceConfig.from_cfg(
-            ).explore_python_call_timeout
+            call_timeout = ToolSurfaceConfig.from_cfg().python_call_timeout
             if budget_ctx.probe_option_model_provider is not None:
                 # Synthesis sessions probe the CANDIDATE simulator, whose
                 # rollouts are far slower than belief-sim ones and whose
@@ -126,8 +168,8 @@ def _make_python_exec_tool(
                 # can exceed the solve-tuned cap, so synthesis is exempt
                 # from the per-call limit.
                 call_timeout = 0.0
-            budget_ctx.explore_call_deadline = (time.monotonic() + call_timeout
-                                                if call_timeout > 0 else None)
+            budget_ctx.python_call_deadline = (time.monotonic() + call_timeout
+                                               if call_timeout > 0 else None)
 
         def _footer() -> str:
             if budget_ctx is None:
@@ -140,8 +182,8 @@ def _make_python_exec_tool(
         watchdog_disarm: Optional[Callable[[], None]] = None
         wd_deadlines = []
         if budget_ctx is not None:
-            if budget_ctx.explore_call_deadline is not None:
-                wd_deadlines.append(budget_ctx.explore_call_deadline)
+            if budget_ctx.python_call_deadline is not None:
+                wd_deadlines.append(budget_ctx.python_call_deadline)
             if (budget_ctx.attempt_deadline is not None
                     and not budget_ctx.capture_best_effort_plan):
                 wd_deadlines.append(budget_ctx.attempt_deadline)
@@ -155,7 +197,7 @@ def _make_python_exec_tool(
         old_stdout = sys.stdout
         sys.stdout = captured = io.StringIO()
         try:
-            exec(code, exec_ns)  # pylint: disable=exec-used
+            exec(compile(code, label, "exec"), exec_ns)  # pylint: disable=exec-used
         except ProbeBudgetExceeded as e:
             partial = captured.getvalue()
             prefix = f"{partial}\n" if partial else ""
@@ -177,7 +219,7 @@ def _make_python_exec_tool(
                 watchdog_disarm()
             sys.stdout = old_stdout
             if budget_ctx is not None:
-                budget_ctx.explore_call_deadline = None
+                budget_ctx.python_call_deadline = None
 
         output = captured.getvalue()
         if not output:

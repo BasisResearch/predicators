@@ -199,9 +199,16 @@ class AgentSessionMixin:
                 "[%s] %s session tool surface: ALL static MCP tools "
                 "(no subset declared).", approach_name, phase)
         else:
-            static = sorted(n for n in tool_names if n in set(ALL_TOOL_NAMES))
-            dynamic = sorted(n for n in tool_names
-                             if n not in set(ALL_TOOL_NAMES))
+            attached_names = {
+                getattr(t, "name", "")
+                for t in (self._tool_context.extra_mcp_tools or ())
+            }
+            static = sorted(
+                n for n in tool_names
+                if n in set(ALL_TOOL_NAMES) and n not in attached_names)
+            dynamic = sorted(
+                n for n in tool_names
+                if n not in set(ALL_TOOL_NAMES) or n in attached_names)
             lines = [
                 f"[{approach_name}] {phase} session tool surface "
                 f"({len(tool_names)} total):"

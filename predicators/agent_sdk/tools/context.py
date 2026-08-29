@@ -42,7 +42,7 @@ class ToolContext:
     online_trajectories: List[LowLevelTrajectory] = field(default_factory=list)
     example_state: Optional[State] = None
     option_model: Optional[_OptionModelBase] = None
-    # Synthesis-session override for the explore_python probe: a lazy
+    # Synthesis-session override for the run_python probe: a lazy
     # builder over the CANDIDATE simulator.py (fresh MCMC fit, cached
     # until the file changes). When set, BeliefProbe executes against it
     # instead of ``option_model`` - which during synthesis is the stale
@@ -256,7 +256,7 @@ class ToolContext:
     # Restart-loop attempt bookkeeping, set by AgentModelBasedApproach._solve
     # around each attempt. ``attempt_start``/``attempt_deadline`` are
     # time.monotonic() values; the deadline is enforced cooperatively by
-    # the probe (every sim call) and explore_python, and surfaced in tool
+    # the probe (every sim call) and run_python, and surfaced in tool
     # results as a budget footer. None ⇒ no attempt in flight / no wall
     # clock. The deadline is cleared before the final-submission nudge so
     # nothing blocks the submission itself.
@@ -275,10 +275,10 @@ class ToolContext:
     # instead of the attempt's work vanishing with its context.
     best_uncaptured_plan_lines: Optional[List[str]] = None
     best_uncaptured_reward: Optional[float] = None
-    # Per-call deadline for the explore_python call currently executing
-    # (agent_sdk_explore_python_call_timeout); enforced at the same
+    # Per-call deadline for the run_python call currently executing
+    # (agent_sdk_python_call_timeout); enforced at the same
     # probe checkpoints as attempt_deadline. None ⇒ no call in flight.
-    explore_call_deadline: Optional[float] = None
+    python_call_deadline: Optional[float] = None
 
     def begin_attempt(self, index: int, wall_clock: float) -> None:
         """Start restart-loop bookkeeping for solve attempt ``index``.

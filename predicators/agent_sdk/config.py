@@ -120,7 +120,7 @@ class ToolSurfaceConfig:
     image sizing.
     """
     use_base_simulator: bool
-    explore_python_call_timeout: float
+    python_call_timeout: float
     image_max_px: int
 
     @classmethod
@@ -129,7 +129,6 @@ class ToolSurfaceConfig:
         # Flags keep their names for experiment-yaml compatibility.
         return cls(
             use_base_simulator=CFG.agent_planner_use_base_simulator,
-            explore_python_call_timeout=(
-                CFG.agent_sdk_explore_python_call_timeout),
+            python_call_timeout=(CFG.agent_sdk_python_call_timeout),
             image_max_px=CFG.agent_sdk_image_max_px,
         )

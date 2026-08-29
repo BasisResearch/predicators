@@ -362,11 +362,11 @@ and update before doing anything else.**"""
     def _get_solve_tool_names(self) -> Optional[List[str]]:
         # Type / option digests are static per session, so the solve
         # prompt injects them directly (see _build_solve_prompt); the
-        # trajectory and task digests live in explore_python's namespace
+        # trajectory and task digests live in run_python's namespace
         # (`trajectories` / `describe_trajectory` / `sim.task()`).
         # Every remaining tool needs a simulator: evaluate_option_plan
         # rolls fully-specified plans out through the option model and
-        # explore_python probes it, so a planner without a simulator
+        # run_python probes it, so a planner without a simulator
         # gets neither.
         tools = []
         if CFG.agent_planner_use_simulator:
@@ -376,7 +376,7 @@ and update before doing anything else.**"""
             # probe but no longer captures).
             if CFG.agent_solve_policy_mode:
                 tools.append("evaluate_policy")
-            tools.append("explore_python")
+            tools.append("run_python")
         if CFG.agent_solve_use_journal:
             tools.append("record_journal")
         return tools
@@ -759,11 +759,11 @@ and update before doing anything else.**"""
     def _solve_prompt_visualize_line(self) -> str:
         """The stuck-step visualization bullet: the probe's staging + render is
         the only visualization surface, so the bullet appears only when
-        explore_python is offered."""
+        run_python is offered."""
         if CFG.agent_planner_use_simulator:
             return (
-                "- **Use explore_python when stuck** - after 3+ failures on "
-                "the same step, STOP testing and use explore_python "
+                "- **Use run_python when stuck** - after 3+ failures on "
+                "the same step, STOP testing and use run_python "
                 "(`sim.reset(mods={...})`, then `sim.render(...)`) to move "
                 "the object to several candidate positions and "
                 "orientations. It's free (no physics). Find the right "
@@ -1078,10 +1078,10 @@ Output ONLY the option plan lines at the end, after any analysis."""
     def _sync_tool_context(self) -> None:
         """Push current approach state into the shared ToolContext.
 
-        The MCP tools (evaluate_option_plan, explore_python, etc.) read
-        from the ToolContext dataclass, not the approach directly. This
-        keeps them in sync after mutations (e.g. new trajectories
-        collected, options added). Called before each solve and learning
+        The MCP tools (evaluate_option_plan, run_python, etc.) read from
+        the ToolContext dataclass, not the approach directly. This keeps
+        them in sync after mutations (e.g. new trajectories collected,
+        options added). Called before each solve and learning
         interaction. Subclasses should call super() and then set
         additional fields (e.g. skill_factory_context).
         """
