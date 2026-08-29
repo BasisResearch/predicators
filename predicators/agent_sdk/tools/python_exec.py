@@ -157,7 +157,7 @@ def _make_python_exec_tool(
                 return text_result(
                     "The attempt's wall-clock exploration budget is "
                     "exhausted - this call was not run. Submit your single "
-                    "best plan NOW via evaluate_option_plan on the current "
+                    "best plan NOW via submit_plan on the current "
                     "task (omit task_idx)." +
                     _budget_footer(budget_ctx, rollouts_before))
             call_timeout = ToolSurfaceConfig.from_cfg().python_call_timeout

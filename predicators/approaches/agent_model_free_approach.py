@@ -215,7 +215,7 @@ class AgentModelFreeApproach(AgentSessionMixin, BaseApproach):
         Honors two CFG knobs:
 
         * ``agent_planner_use_simulator`` -- when False, returns ``None``
-          so the agent gets no ``evaluate_option_plan`` rollouts and must
+          so the agent gets no ``submit_plan`` rollouts and must
           plan open-loop from data + LLM reasoning (the model-free
           baseline).
         * ``agent_planner_use_base_simulator`` -- when True (and a
@@ -258,9 +258,9 @@ class AgentModelFreeApproach(AgentSessionMixin, BaseApproach):
 ## Scratchpad - CRITICAL
 You MUST maintain `./notes.md` as your working memory. \
 **Read it at the very start of the session** and **read it \
-again before every evaluate_option_plan call** to remind yourself \
+again before every submit_plan call** to remind yourself \
 what you already tried. **Update it immediately after every \
-evaluate_option_plan call** - no exceptions.
+submit_plan call** - no exceptions.
 
 Use this exact format for each option you are tuning:
 
@@ -302,7 +302,7 @@ and update before doing anything else.**"""
         if use_scratchpad:
             steps.append(
                 "**Read `./notes.md` before every test**, then **update it "
-                "immediately after every evaluate_option_plan call**. Record "
+                "immediately after every submit_plan call**. Record "
                 "what you tried, what happened, and what you learned. "
                 "This is your memory - without it you will repeat failures.")
         steps += [
@@ -365,18 +365,18 @@ and update before doing anything else.**"""
         # prompt injects them directly (see _build_solve_prompt); the
         # trajectory and task digests live in run_python's namespace
         # (`trajectories` / `describe_trajectory` / `sim.task()`).
-        # Every remaining tool needs a simulator: evaluate_option_plan
+        # Every remaining tool needs a simulator: submit_plan
         # rolls fully-specified plans out through the option model and
         # run_python probes it, so a planner without a simulator
         # gets neither.
         tools = []
         if CFG.agent_planner_use_simulator:
-            tools.append("evaluate_option_plan")
+            tools.append("submit_plan")
             # Closed-loop policy mode: the delivery gate for the
-            # agent-written policy.py (evaluate_option_plan stays as a
+            # agent-written policy.py (submit_plan stays as a
             # probe but no longer captures).
             if CFG.agent_solve_policy_mode:
-                tools.append("evaluate_policy")
+                tools.append("submit_policy")
             tools.append("run_python")
         return tools
 
@@ -787,7 +787,7 @@ and update before doing anything else.**"""
         if CFG.agent_planner_use_scratchpad:
             return (
                 "- **Read `./notes.md` before every "
-                "evaluate_option_plan call** "
+                "submit_plan call** "
                 "and **update it immediately after each call** - append a "
                 "row to the parameter table and update the explored-ranges "
                 "summary. If you realize you forgot to update, STOP and "
@@ -1090,8 +1090,8 @@ Output ONLY the option plan lines at the end, after any analysis."""
     def _sync_tool_context(self) -> None:
         """Push current approach state into the shared ToolContext.
 
-        The MCP tools (evaluate_option_plan, run_python, etc.) read from
-        the ToolContext dataclass, not the approach directly. This keeps
+        The MCP tools (submit_plan, run_python, etc.) read from the
+        ToolContext dataclass, not the approach directly. This keeps
         them in sync after mutations (e.g. new trajectories collected,
         options added). Called before each solve and learning
         interaction. Subclasses should call super() and then set

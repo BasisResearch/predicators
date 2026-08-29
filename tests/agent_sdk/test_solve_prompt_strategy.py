@@ -115,7 +115,7 @@ def test_explore_mode_experiment_delivery_contract() -> None:
     assert "This is an EXPLORE query" in prompt
     solve_prompt = _render(_make_task(None))
     assert "This is an EXPLORE query" not in solve_prompt
-    assert "do NOT finish until evaluate_option_plan CONFIRMS" in solve_prompt
+    assert "do NOT finish until submit_plan CONFIRMS" in solve_prompt
     # The contract must survive param-free sketch mode too (the search
     # finds continuous params, but the delivery semantics are the same).
     sketch_prompt = _render_explore(_make_task(None), propose_params=False)

@@ -3866,7 +3866,7 @@ files to see exactly which rules and predicates produced each failed plan.
         session env is never touched.
 
         Installed as ``ToolContext.validation_env_scope`` so
-        ``evaluate_option_plan``'s capture-validation rollouts each sample
+        ``submit_plan``'s capture-validation rollouts each sample
         a fresh physics world. The shared ``_base_env``'s reset cannot
         reconstruct state exactly (solver warm-start state, velocity
         residuals, near-matching bodies skipped by the reconstruction diff

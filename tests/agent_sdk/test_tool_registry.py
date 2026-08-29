@@ -119,12 +119,12 @@ def test_list_session_tool_names_filters_and_combines() -> None:
     """Filtered MCP names drop unknowns; ``extra_mcp_tools`` pass through."""
     fake = SimpleNamespace(name="run_python")
     grouped = list_session_tool_names(
-        mcp_filter=["evaluate_option_plan", "not_a_tool", "run_python"],
+        mcp_filter=["submit_plan", "not_a_tool", "run_python"],
         extra_mcp_tools=[fake],
         include_builtin=False,
     )
     assert grouped == {
-        "mcp": ["evaluate_option_plan", "run_python"],
+        "mcp": ["submit_plan", "run_python"],
         "extra": ["run_python"],
     }
 
@@ -143,15 +143,13 @@ def test_solve_and_synthesis_tool_names_are_independent() -> None:
     class _Approach(AgentSessionMixin):
 
         def _get_solve_tool_names(self) -> Optional[List[str]]:
-            return ["run_python", "evaluate_option_plan"]
+            return ["run_python", "submit_plan"]
 
         def _get_synthesis_tool_names(self) -> Optional[List[str]]:
             return ["run_python"]
 
     obj = _Approach()
-    assert obj._get_solve_tool_names() == [
-        "run_python", "evaluate_option_plan"
-    ]
+    assert obj._get_solve_tool_names() == ["run_python", "submit_plan"]
     assert obj._get_synthesis_tool_names() == ["run_python"]
 
 
@@ -160,13 +158,13 @@ def test_get_allowed_tool_list_passes_dynamic_names_through() -> None:
     list is the single source of truth, with no silent filtering against
     ``ALL_TOOL_NAMES``."""
     allowed = get_allowed_tool_list([
-        "evaluate_option_plan",  # static
+        "submit_plan",  # static
         "run_python",  # dynamic synthesis tool
         "my_dynamic_tool",  # a dynamic tool the roster never lists
     ])
     prefix = f"mcp__{MCP_SERVER_NAME}__"
     assert allowed == [
-        f"{prefix}evaluate_option_plan",
+        f"{prefix}submit_plan",
         f"{prefix}run_python",
         f"{prefix}my_dynamic_tool",
     ]
@@ -351,7 +349,7 @@ def test_synthesis_tool_names_run_python() -> None:
     })
     names = _required_names(invention._get_solve_tool_names())
     assert names.count("run_python") == 1
-    assert "evaluate_option_plan" in names
+    assert "submit_plan" in names
 
     # Without a simulator there is nothing to probe or validate against.
     utils.reset_config({
@@ -361,7 +359,7 @@ def test_synthesis_tool_names_run_python() -> None:
     })
     names = _required_names(invention._get_solve_tool_names())
     assert "run_python" not in names
-    assert "evaluate_option_plan" not in names
+    assert "submit_plan" not in names
 
 
 def test_attached_run_python_replaces_the_static_instance() -> None:

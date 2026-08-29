@@ -50,7 +50,7 @@ Read to review your earlier attempts when debugging:
     Read ./session_logs/001_learn_*.md
 
 ## Scene Images
-`evaluate_option_plan` automatically saves scene images to ./test_images/
+`submit_plan` automatically saves scene images to ./test_images/
 after each step. You can Read them to inspect the spatial state of
 the environment.
 """
@@ -81,7 +81,7 @@ _CLAUDE_MD_SOLVE_STRATEGY = """\
 - **Visualize liberally** — {visualize_hint} It's free (no physics, no
   failure modes). When stuck on a step, STOP testing and visualize the
   object at several candidate positions and orientations to find the
-  right region before spending more evaluate_option_plan calls.
+  right region before spending more submit_plan calls.
 - **Vary all parameters** — orientation and other non-position params
   affect both the outcome and whether the action succeeds.
 - **Search coarse-to-fine** — spread initial attempts across the full

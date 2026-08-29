@@ -1536,7 +1536,7 @@ class TestTurnCapHandling:
 
         def _fake_query(message, **kwargs):
             del message, kwargs  # unused
-            # Simulate evaluate_option_plan's best-effort capture.
+            # Simulate submit_plan's best-effort capture.
             assert approach._tool_context.capture_best_effort_plan
             approach._tool_context.solved_plan = plan
             approach._tool_context.solved_sketch = sketch

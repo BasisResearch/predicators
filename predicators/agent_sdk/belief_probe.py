@@ -4,14 +4,14 @@
 already use - ``parse_sketch_from_text`` (plan grammar),
 ``execute_plan_forward`` (forward executor over the option model), the
 tools' state-modification and rendering helpers - so probe rollouts
-behave identically to ``evaluate_option_plan`` rollouts. What it adds is
+behave identically to ``submit_plan`` rollouts. What it adds is
 composability: the agent can set the sim to any task state (or a
 modified copy), read full-precision features, run partial plans, render,
 snapshot/restore, and write sweep loops in one ``run_python`` call
 instead of one tool round-trip per experiment.
 
 By construction nothing the probe executes can be captured as the
-answer - submission happens only through ``evaluate_option_plan`` on the
+answer - submission happens only through ``submit_plan`` on the
 true initial state. The task evaluator is reachable, but only as a
 read-only preview: ``run(trials>=2, solved=True)`` and
 ``refine(require_solved=True)`` score rollouts through the same gate the
@@ -83,7 +83,7 @@ def _check_time_budget(ctx: "ToolContext") -> None:
         raise ProbeBudgetExceeded(
             "the attempt's wall-clock exploration budget is exhausted. Stop "
             "exploring NOW and submit your single best plan via "
-            "evaluate_option_plan on the current task (omit task_idx).")
+            "submit_plan on the current task (omit task_idx).")
     call_dl = ctx.python_call_deadline
     if call_dl is not None and now > call_dl:
         call_timeout = ToolSurfaceConfig.from_cfg().python_call_timeout
@@ -201,7 +201,7 @@ class _StrLikeResult:
 class ProbeResult(_StrLikeResult):
     """Outcome of one ``BeliefProbe.run`` call.
 
-    Attributes mirror the ``evaluate_option_plan`` report: ``steps`` is
+    Attributes mirror the ``submit_plan`` report: ``steps`` is
     a list of per-step dicts (``option``, ``num_actions``, ``failure``,
     ``added``, ``deleted``, ``subgoals_missing`` - the step's ``->
     {atoms}`` annotations that did NOT hold in the post-state (the
@@ -413,7 +413,7 @@ class ProbeRefineResult(_StrLikeResult):
     as more than it means. ``plan_lines`` holds one line per sketch
     step with the refined params filled in (``[?]`` for steps the
     search never refined) - paste them into ``sim.run`` or
-    ``evaluate_option_plan``. ``near_miss`` is the deepest validation
+    ``submit_plan``. ``near_miss`` is the deepest validation
     failure (step index, the exact params that got furthest, and why
     they failed), also populated on timeout/exhaustion. ``note``
     carries caveats.
@@ -516,7 +516,7 @@ class BeliefProbe:
 
     The "current state" is just a ``State`` object; ``run`` executes from
     it (the option model resets the sim env from that state, exactly as
-    ``evaluate_option_plan`` does from a task init) and advances it to
+    ``submit_plan`` does from a task init) and advances it to
     the rollout's final state.
     """
 
@@ -921,8 +921,8 @@ class BeliefProbe:
         the probe task starts at the current state and carries no
         evaluator, and ``notices`` lists parse caveats to surface (e.g.
         region annotations ignored because ground samplers are off).
-        Same grammar and parser as ``evaluate_option_plan`` (``~ [w]``
-        search regions included).
+        Same grammar and parser as ``submit_plan`` (``~ [w]`` search
+        regions included).
         """
         # pylint: disable=import-outside-toplevel
         from predicators.agent_sdk import bilevel_sketch
@@ -1005,7 +1005,7 @@ class BeliefProbe:
     ) -> Union[ProbeResult, ProbeTrialsResult, ProbeSweepResult]:
         """Execute an option plan from the current state.
 
-        ``plan_text`` uses the same grammar as ``evaluate_option_plan``:
+        ``plan_text`` uses the same grammar as ``submit_plan``:
         one option per line, ``Option(obj:type, ...)[params]`` with
         exact continuous params (``[]`` for none); ``-> {atoms}``
         subgoal annotations are optional but CHECKED - each step's
@@ -1016,7 +1016,7 @@ class BeliefProbe:
         diverges here means a rule is more permissive than the env).
         Advances the current state
         to the rollout's final state (``restore`` a snapshot to rewind).
-        Like ``evaluate_option_plan``, each step's post-state is
+        Like ``submit_plan``, each step's post-state is
         rendered to a saved image whose path lands in the step report;
         pass ``render=False`` inside tight sweep loops to skip that.
         Exploratory only: results are never captured.
@@ -1037,7 +1037,7 @@ class BeliefProbe:
         ``solved``/``reward``. Reaching the goal atoms is NOT the same as
         being scored a solve - the evaluator can reject a goal-reaching
         route - so check ``solved`` counts here BEFORE submitting via
-        ``evaluate_option_plan`` instead of discovering rejections one
+        ``submit_plan`` instead of discovering rejections one
         submission at a time.
 
         ``contacts=True`` (single-run mode only, ``trials=1``) records
@@ -1071,7 +1071,7 @@ class BeliefProbe:
         ``seed=S`` overrides the base motion-planner seed for this call.
         Trials report the planner seed each ran at (trial ``i`` runs at
         ``S + i``; without ``seed=`` at ``base + i``), and
-        ``evaluate_option_plan``'s validation rollouts report theirs the
+        ``submit_plan``'s validation rollouts report theirs the
         same way. A single run (``trials=1``) executes entirely at
         ``S``; a physics sweep runs every point at ``S`` instead of the
         base.
@@ -1255,7 +1255,7 @@ class BeliefProbe:
             # Fresh physics per trial when the session provides the scope
             # (solve sessions do; a synthesis probe's candidate model has
             # its own env, which the scope does not manage). Same CFG gate
-            # as evaluate_option_plan's validation rollouts, so the two
+            # as submit_plan's validation rollouts, so the two
             # surfaces sample the same distribution.
             fresh_scope = (ctx.validation_env_scope
                            if ValidationConfig.from_cfg().fresh_env
@@ -1457,7 +1457,7 @@ class BeliefProbe:
                         f"state exactly (features: {feats}) - a failure "
                         "here may partly reflect start-state "
                         "reconstruction error, not plan margin.")
-            # Same per-step audit image evaluate_option_plan saves; the
+            # Same per-step audit image submit_plan saves; the
             # env already sits at the post-step state here.
             img = render_scene_image(
                 ctx,
@@ -1550,7 +1550,7 @@ class BeliefProbe:
         Policy-mode counterpart of ``run``: loads the sandbox's
         ``policy.py`` fresh (or executes ``source`` directly) and drives
         its ``get_option(state, memory)`` through the belief model with
-        the same failure-surfacing semantics as ``evaluate_policy`` and
+        the same failure-surfacing semantics as ``submit_policy`` and
         the real executor - option failures land in
         ``memory['last_failure']`` and the policy is asked again;
         get_option bugs end the episode.
@@ -1560,7 +1560,7 @@ class BeliefProbe:
         and check that the policy RECOVERS from off-nominal states, not
         just the initial one. ``trials=N`` repeats the rollout from the
         SAME current state on fresh envs (fresh policy memory per
-        trial). Never captures - deliver via ``evaluate_policy``. Also
+        trial). Never captures - deliver via ``submit_policy``. Also
         available in learn sessions (probing a candidate simulator);
         there it runs against the candidate model.
         """
@@ -1871,7 +1871,7 @@ class BeliefProbe:
                require_solved: bool = False) -> "ProbeRefineResult":
         """Backtracking parameter search for a sketch FROM THE CURRENT STATE.
 
-        Same grammar as ``evaluate_option_plan``, and composable:
+        Same grammar as ``submit_plan``, and composable:
         refine a plan *suffix* from a snapshot where the
         prefix already executed, so the search budget goes to the step
         that matters instead of re-descending through the whole plan.
@@ -1919,7 +1919,7 @@ class BeliefProbe:
             evaluator = self._require_solved_evaluator("require_solved")
             # Same gate (and therefore same accept policy: coarse and
             # evaluator errors never block, non-terminated never blocks)
-            # as evaluate_option_plan, so identical params can't get
+            # as submit_plan, so identical params can't get
             # contradictory verdicts across the two surfaces.
             inner_check = make_solved_check(
                 evaluator, getattr(self._option_model(), "sim_env", None))

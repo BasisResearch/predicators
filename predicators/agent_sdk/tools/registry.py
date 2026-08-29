@@ -21,11 +21,11 @@ BUILTIN_TOOLS = [
 ]
 
 TESTING_TOOL_NAMES = [
-    "evaluate_option_plan",
+    "submit_plan",
     # Closed-loop policy mode (agent_solve_policy_mode): validates and
     # captures the agent-written policy.py. Only offered on solve
     # rosters when the mode is on.
-    "evaluate_policy",
+    "submit_policy",
 ]
 # The one code-execution tool. Solve sessions get the static instance
 # built by ``create_mcp_tools`` (namespace = the BeliefProbe facade over

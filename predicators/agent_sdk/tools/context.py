@@ -107,7 +107,7 @@ class ToolContext:
     # main.py's ``test_task_idx``. None outside the test phase. Threaded into
     # the saved session-log filename so test queries are attributable to a task.
     test_task_idx: Optional[int] = None
-    test_call_id: int = 0  # incremented per evaluate_option_plan call
+    test_call_id: int = 0  # incremented per submit_plan call
     # 0-based learning cycle (matching main.py's "ONLINE LEARNING CYCLE i";
     # -1 = the offline pass) while a synthesis (learn) session is active,
     # None otherwise. Set/cleared around the synthesis query so tools that
@@ -164,7 +164,7 @@ class ToolContext:
     # so the next exploration targets the gaps. None ⇒ no fit ran yet
     # (or it had no weak spots).
     sysid_diagnostics: Optional[str] = None
-    # Set by evaluate_option_plan / evaluate_policy when a plan is verified
+    # Set by submit_plan / submit_policy when a plan is verified
     # to reach the goal on the CURRENT solve task: the simulator-verified plan
     # (grounded options with found params) and the parallel subgoal sketch.
     # The bilevel approach returns this directly instead of re-refining, so
@@ -179,11 +179,11 @@ class ToolContext:
     solved_plan_reached_goal: Optional[bool] = None
     # Gate for the above: only approaches that consume captured plans
     # (AgentModelBasedApproach) set this True. Keeps the open-loop
-    # planner, which also uses evaluate_option_plan, from recording
+    # planner, which also uses submit_plan, from recording
     # spurious captures.
     capture_goal_reaching_plans: bool = False
     # Set (with capture_goal_reaching_plans) only for the final-submission
-    # nudge after an attempt exhausted its turn budget: evaluate_option_plan
+    # nudge after an attempt exhausted its turn budget: submit_plan
     # then captures the agent's submitted plan on the current task even if it
     # does not reach the goal, is scored a non-solve by the task evaluator,
     # or is flaky, so the approach executes the best-effort plan (for its
@@ -209,7 +209,7 @@ class ToolContext:
     # ascending; empty when no fit with nonzero posterior width is
     # deployed). A callable rather than a stored list so the points
     # always track the LATEST applied fit. Installed by
-    # AgentSimLearningApproach; consumed by evaluate_option_plan under
+    # AgentSimLearningApproach; consumed by submit_plan under
     # agent_plan_validation_physics_margin and by the sim.run physics
     # sweep.
     physics_margin_provider: Optional[Callable[[], List[Dict[str,
@@ -235,7 +235,7 @@ class ToolContext:
     rule_param_override_scope: Optional[Callable[[Dict[str, float]],
                                                  Any]] = None
     # Capture-task keys (see ``_capture_task_key``) that have produced a
-    # FLAKY rejection in evaluate_option_plan. A flaky submission is direct
+    # FLAKY rejection in submit_plan. A flaky submission is direct
     # evidence the agent is tuning in a marginal region where a lucky
     # streak can pass the base rollout gate (run_20260717_182321: a
     # 20/20-swept placement validated 3/3, then failed the real episode),
@@ -252,14 +252,14 @@ class ToolContext:
     # auto-entry. Cleared together with solved_plan.
     solved_plan_validation_summary: Optional[str] = None
     # Closed-loop policy mode (CFG.agent_solve_policy_mode): the captured
-    # policy.py source, SNAPSHOTTED at evaluate_policy call time so a
+    # policy.py source, SNAPSHOTTED at submit_policy call time so a
     # later edit of the file cannot swap unvalidated code into the
     # executed artifact. Mutually exclusive with solved_plan; cleared
     # together with it.
     solved_policy_source: Optional[str] = None
     # True while the current solve attempt's deliverable is a policy:
-    # evaluate_option_plan keeps its probing role but its CAPTURE gate is
-    # disabled, and evaluate_policy requires it. Set by _solve_attempt.
+    # submit_plan keeps its probing role but its CAPTURE gate is
+    # disabled, and submit_policy requires it. Set by _solve_attempt.
     policy_capture_mode: bool = False
     # Restart-loop attempt bookkeeping, set by AgentModelBasedApproach._solve
     # around each attempt. ``attempt_start``/``attempt_deadline`` are
@@ -276,7 +276,7 @@ class ToolContext:
     # the budget footer so sweeps carry a visible price.
     attempt_rollout_count: int = 0
     # Best submission on the current task this attempt that
-    # evaluate_option_plan evaluated but refused to capture (evaluator
+    # submit_plan evaluated but refused to capture (evaluator
     # scored it a non-solve, or it was flaky), ranked by evaluator
     # reward. Reset per attempt; the journal auto-entry records it so a
     # later attempt (or the final best-effort nudge) can resubmit it

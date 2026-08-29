@@ -290,7 +290,7 @@ def _make_captured(pick_params, place_params):
 
 
 def test_recovers_captured_plan_when_final_text_unparseable():
-    """Agent validates a plan via evaluate_option_plan but ends in prose:
+    """Agent validates a plan via submit_plan but ends in prose:
 
     explorer recovers the captured plan instead of falling back to
     random and executes it at the captured continuous params.

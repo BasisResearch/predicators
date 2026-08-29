@@ -16,7 +16,7 @@ class _EvalStateCollector:
     """Per-step states + option labels of one rollout, for evaluator verdicts.
 
     The single collector behind every surface that scores a belief-sim
-    rollout (``evaluate_option_plan``'s first and validation rollouts,
+    rollout (``submit_plan``'s first and validation rollouts,
     ``_belief_rollout_verdict``). The cascade certificate needs per-step
     states (topple-onset analysis); option-boundary states give garbage
     verdicts, so prefer the option model's ``last_trajectory`` and flag
