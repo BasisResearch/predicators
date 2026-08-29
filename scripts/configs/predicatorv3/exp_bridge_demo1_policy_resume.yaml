@@ -8,5 +8,5 @@
 includes:
   - exp_bridge_demo1.yaml
 APPROACHES:
-  agent_po_predicate_invention_al:
+  sim_predicator:
     SKIP: True

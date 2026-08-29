@@ -1769,7 +1769,7 @@ class GlobalSettings:
     # installs a fresh-env scope (perturbing the shared env would leak)
     # and a fit with nonzero posterior width has been applied. Default
     # False so existing arms keep their behavior; the main arm
-    # (approaches/all.yaml agent_po_predicate_invention_al)
+    # (approaches/all.yaml sim_predicator)
     # turns it on.
     agent_plan_validation_physics_margin = False
     # Number of grid points the margin gate (and the sim.run physics

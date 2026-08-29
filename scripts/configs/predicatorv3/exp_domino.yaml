@@ -28,7 +28,7 @@ APPROACHES:
     SKIP: True
     FLAGS:
       agent_sim_learn_kept_predicates_names: ["Holding", "HandEmpty"]
-  agent_po_predicate_invention_al:
+  sim_predicator:
     SKIP: False
     FLAGS:
       skip_initial_test: True

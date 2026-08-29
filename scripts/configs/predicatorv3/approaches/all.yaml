@@ -35,7 +35,7 @@ APPROACHES:
   # switches the synthesis prompt to the recurrent 5-arg rule form and
   # the env / GT-simulator dispatch to their PO variants); there is no
   # separate PO approach class.
-  agent_po_predicate_invention_al:
+  sim_predicator:
     NAME: "agent_sim_predicate_invention"
     SKIP: True
     FLAGS:
@@ -65,7 +65,7 @@ APPROACHES:
   # plan: option failures are surfaced to the policy, which owns
   # recovery - so the sketch-divergence replan machinery is off
   # (mutually exclusive by construction).
-  agent_po_predicate_invention_al_policy:
+  sim_predicator_policy:
     NAME: "agent_sim_predicate_invention"
     SKIP: True
     FLAGS:
@@ -236,7 +236,7 @@ APPROACHES:
       code_sim_learning_num_mcmc_steps: 0
   # Oracle / fully-observable ablation of OURS: sees full state, no GT models;
   # learn predicates, hybrid sim, and params.
-  agent_predicate_invention:
+  agent_fo_predicate_invention:
     NAME: "agent_sim_predicate_invention"
     SKIP: True
     FLAGS:
