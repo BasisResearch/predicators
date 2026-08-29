@@ -36,10 +36,9 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.agent_sdk.session_base import AgentSessionFatalError, \
     max_session_log_number, query_fatal_error
-from predicators.agent_sdk.tools import JOURNAL_TOOL_NAMES, \
-    SYNTHESIS_TOOL_NAMES, _SnapshotTarget, create_synthesis_tools, \
-    evaluate_states_with, finalize_versioned_snapshot, \
-    make_write_snapshot_hook
+from predicators.agent_sdk.tools import SYNTHESIS_TOOL_NAMES, \
+    _SnapshotTarget, create_synthesis_tools, evaluate_states_with, \
+    finalize_versioned_snapshot, make_write_snapshot_hook
 from predicators.agent_sdk.tools.digests import render_options_digest, \
     render_trajectory_digest, render_types_digest
 from predicators.approaches.agent_model_based_approach import \
@@ -987,14 +986,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         ctx.option_model, which there IS the deployed belief model.
         """
         names: List[str] = list(SYNTHESIS_TOOL_NAMES)
-        # The run's solve journal is also writable from learn sessions:
-        # what the learn phase discovers about the domain is exactly what
-        # future fresh-context solve attempts need (agents were already
-        # appending to journal.md by hand, bypassing the size cap and the
-        # facts-only guidance). The flag name reads "solve" but gates the
-        # run's journal channel as a whole.
-        if CFG.agent_solve_use_journal:
-            names += list(JOURNAL_TOOL_NAMES)
         return names
 
     # ── Subclass hooks ──────────────────────────────────────────
@@ -1163,8 +1154,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
     _CHECKPOINT_SANDBOX_FILES = ("simulator.py", "predicates.py",
                                  "samplers.py", "ground_samplers.py",
-                                 "notes.md", "journal.md", "strategy.md",
-                                 "open_questions.md")
+                                 "notes.md", "journal.md", "attempts.md",
+                                 "strategy.md", "open_questions.md")
     _CHECKPOINT_SANDBOX_DIRS = ("simulator_versions", "predicates_versions",
                                 "samplers_versions")
     _CHECKPOINT_MAX_FILE_BYTES = 2 * 1024 * 1024
@@ -2082,7 +2073,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         Everything installed here is cleared by the caller's ``finally``
         once the session query returns.
         """
-        # Label tool output (e.g. record_journal headers) with the
+        # Label tool output (e.g. attempt-log headers) with the
         # learning cycle for the duration of this session.
         self._tool_context.learn_cycle_index = self._learning_cycle_index()
         # Build dynamic synthesis tools and attach them to the tool
@@ -2391,7 +2382,9 @@ trigger them, parameter formulas expressed relative to the scene \
 (never hard-coded to one task's coordinates), and known pitfalls. \
 Future solve sessions read it as advisory reference (clearly framed \
 as possibly wrong), so state uncertainty honestly. Unlike the \
-append-only journal, strategy.md is a LIVING document: REWRITE it \
+journal (`./journal.md`, an append-only log of facts and \
+measurements that you may also add to), strategy.md is a LIVING \
+document: REWRITE it \
 freely this cycle wherever new evidence corrects or supersedes \
 earlier advice, rather than appending contradictions."""
 

@@ -9,7 +9,7 @@ This package replaces the former single-module ``tools.py``. Layout:
 - ``budget``: solve-attempt budget footer and watchdog.
 - ``scene``: scene rendering and state-manipulation helpers.
 - ``verdicts``: task-evaluator verdicts and ground-sampler loading.
-- ``testing`` / ``exploration`` / ``journal_tools``: the static MCP
+- ``testing`` / ``exploration``: the static MCP
   tool builders, assembled by ``assembly.create_mcp_tools``.
 - ``digests``: the type / option / task / trajectory digest renderers
   shared by the prompts and the probe.
@@ -31,9 +31,9 @@ from predicators.agent_sdk.tools.params_view import _ParamsView
 from predicators.agent_sdk.tools.predicate_synthesis import \
     make_predicate_quality_loader
 from predicators.agent_sdk.tools.registry import ALL_TOOL_NAMES, \
-    BUILTIN_TOOLS, EXPLORATION_TOOL_NAMES, JOURNAL_TOOL_NAMES, \
-    MCP_SERVER_NAME, SYNTHESIS_TOOL_NAMES, TESTING_TOOL_NAMES, \
-    get_allowed_tool_list, list_session_tool_names
+    BUILTIN_TOOLS, EXPLORATION_TOOL_NAMES, MCP_SERVER_NAME, \
+    SYNTHESIS_TOOL_NAMES, TESTING_TOOL_NAMES, get_allowed_tool_list, \
+    list_session_tool_names
 from predicators.agent_sdk.tools.results import _make_coercing_tool, \
     _make_spilling_text_result, session_log_filename
 from predicators.agent_sdk.tools.sampler_synthesis import make_sampler_loader
@@ -53,7 +53,6 @@ __all__ = [
     "ALL_TOOL_NAMES",
     "BUILTIN_TOOLS",
     "EXPLORATION_TOOL_NAMES",
-    "JOURNAL_TOOL_NAMES",
     "MCP_SERVER_NAME",
     "SANDBOX_HIDDEN_MODULES_PATTERN",
     "SANDBOX_INTROSPECTION",

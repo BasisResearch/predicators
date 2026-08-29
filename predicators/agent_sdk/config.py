@@ -88,7 +88,7 @@ class ValidationConfig:
 
     Consumed at handler entry by ``evaluate_option_plan`` (tools.py) and
     the probe's ``run(trials=N)`` (belief_probe.py); ``use_journal``
-    gates the ``record_journal`` tool.
+    gates the journal / attempt-log channel.
     """
     rollouts: int
     rollouts_after_flaky: int

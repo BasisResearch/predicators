@@ -1,13 +1,14 @@
 """Tests for the solve journal and the wall-clock exploration budgets.
 
-Covers the journal module (entry caps, prompt-injection trimming), the
-``record_journal`` MCP tool, the cooperative probe deadline
+Covers the journal module (entry caps, prompt-injection trimming, the
+harness-owned attempt log), the cooperative probe deadline
 (:class:`ProbeBudgetExceeded`), and ``run_python``'s budget handling
 (refusal after the attempt deadline, per-call timeout with partial
 output, ``[budget]`` footer).
 """
 # pylint: disable=protected-access
 import asyncio
+import os
 import time
 from typing import Any
 
@@ -20,6 +21,8 @@ from predicators.agent_sdk.belief_probe import BeliefProbe, ProbeBudgetExceeded
 from predicators.agent_sdk.tools import ToolContext, create_mcp_tools
 from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
     Object, ParameterizedOption, Predicate, State, Task, Type
+
+_A = journal_mod.ATTEMPTS_FILENAME  # the harness writer's file
 
 _block_type = Type("block", ["x"])
 _block = Object("block0", _block_type)
@@ -106,7 +109,8 @@ def test_journal_append_and_read(tmp_path):
     assert journal_mod.read_journal(sandbox) == ""
     assert journal_mod.append_entry(sandbox, "task 0 attempt 1 (auto)",
                                     "- outcome: no capture") is None
-    content = journal_mod.read_journal(sandbox)
+    content = journal_mod.read_journal(sandbox,
+                                       filename=journal_mod.ATTEMPTS_FILENAME)
     assert "### task 0 attempt 1 (auto)" in content
     assert "- outcome: no capture" in content
 
@@ -116,7 +120,7 @@ def test_journal_entry_truncated_at_cap(tmp_path):
     sandbox = str(tmp_path)
     note = journal_mod.append_entry(sandbox, "big", "x" * 10000)
     assert note is not None and "truncated" in note
-    content = journal_mod.read_journal(sandbox, max_chars=10**6)
+    content = journal_mod.read_journal(sandbox, max_chars=10**6, filename=_A)
     assert "[entry truncated at the per-entry size cap]" in content
     assert len(content) < 5000
 
@@ -127,7 +131,7 @@ def test_journal_read_trims_head_at_entry_boundary(tmp_path):
     for i in range(20):
         journal_mod.append_entry(sandbox, f"entry {i}",
                                  f"body {i} " + "y" * 500)
-    content = journal_mod.read_journal(sandbox, max_chars=2000)
+    content = journal_mod.read_journal(sandbox, max_chars=2000, filename=_A)
     assert content.startswith("[journal truncated")
     assert "### entry 19" in content
     assert "### entry 0" not in content
@@ -145,82 +149,54 @@ def test_journal_read_raw_and_restore(tmp_path):
     """read_raw snapshots faithfully and restore rolls entries back."""
     sandbox = str(tmp_path)
     assert journal_mod.read_raw(None) is None
-    assert journal_mod.read_raw(sandbox) is None
+    assert journal_mod.read_raw(sandbox, filename=_A) is None
     journal_mod.append_entry(sandbox, "Agent notes (pre-test phase)",
                              "- learning fact")
-    snapshot = journal_mod.read_raw(sandbox)
+    snapshot = journal_mod.read_raw(sandbox, filename=_A)
     assert snapshot is not None and "- learning fact" in snapshot
     journal_mod.append_entry(sandbox, "Agent notes (test task 0)",
                              "- test-phase fact")
-    journal_mod.restore(sandbox, snapshot)
-    assert journal_mod.read_raw(sandbox) == snapshot
+    journal_mod.restore(sandbox, snapshot, filename=_A)
+    assert journal_mod.read_raw(sandbox, filename=_A) == snapshot
     # A None snapshot means no journal file existed: restore deletes.
-    journal_mod.restore(sandbox, None)
-    assert journal_mod.read_raw(sandbox) is None
+    journal_mod.restore(sandbox, None, filename=_A)
+    assert journal_mod.read_raw(sandbox, filename=_A) is None
     # Deleting an already-absent journal is a no-op, not an error.
-    journal_mod.restore(sandbox, None)
+    journal_mod.restore(sandbox, None, filename=_A)
 
 
 # ---------------------------------------------------------------------------
-# record_journal tool
+# attempt log (harness-owned file next to the agent's journal)
 # ---------------------------------------------------------------------------
 
 
-def test_record_journal_tool_writes_stamped_entry(tmp_path):
-    """The tool appends an entry stamped with task and attempt."""
-    utils.reset_config({"agent_solve_use_journal": True})
-    ctx = _make_ctx(sandbox_dir=str(tmp_path))
-    ctx.test_task_idx = 0
-    ctx.attempt_index = 2
-    text = _call(_get_tool(ctx, "record_journal"),
-                 {"entry": "- tried yaw 0-15 deg, all stopped short"})
-    assert "Recorded" in text
-    content = journal_mod.read_journal(str(tmp_path))
-    assert "### Agent notes (test task 0, attempt 2)" in content
-    assert "tried yaw 0-15 deg" in content
-
-
-def test_record_journal_tool_stamps_learning_cycle(tmp_path):
-    """During a synthesis session the header names the learning cycle."""
-    utils.reset_config({"agent_solve_use_journal": True})
-    ctx = _make_ctx(sandbox_dir=str(tmp_path))
-    ctx.learn_cycle_index = 2
-    # learn_cycle_index wins even if a stale test_task_idx is set.
-    ctx.test_task_idx = 0
-    text = _call(_get_tool(ctx, "record_journal"),
-                 {"entry": "- glue latch needs 3 in-zone steps"})
-    assert "Recorded" in text
-    content = journal_mod.read_journal(str(tmp_path))
-    assert "### Agent notes (learning cycle 2)" in content
-
-
-def test_record_journal_tool_stamps_offline_learning(tmp_path):
-    """A negative cycle index (the offline pass) is labeled ``offline
-    learning``, not a numeric cycle."""
-    utils.reset_config({"agent_solve_use_journal": True})
-    ctx = _make_ctx(sandbox_dir=str(tmp_path))
-    ctx.learn_cycle_index = -1
-    text = _call(_get_tool(ctx, "record_journal"),
-                 {"entry": "- demo shows the latch closing"})
-    assert "Recorded" in text
-    content = journal_mod.read_journal(str(tmp_path))
-    assert "### Agent notes (offline learning)" in content
-
-
-def test_record_journal_tool_rejects_empty(tmp_path):
-    """An empty entry is an error, not a silent no-op."""
-    utils.reset_config({"agent_solve_use_journal": True})
-    ctx = _make_ctx(sandbox_dir=str(tmp_path))
-    text = _call(_get_tool(ctx, "record_journal"), {"entry": "  "})
-    assert "required" in text
-
-
-def test_record_journal_tool_absent_when_disabled(tmp_path):
-    """With the journal flag off, the tool is not built at all."""
-    utils.reset_config({"agent_solve_use_journal": False})
-    ctx = _make_ctx(sandbox_dir=str(tmp_path))
-    tools = {t.name for t in create_mcp_tools(ctx, ["record_journal"])}
-    assert "record_journal" not in tools
+def test_attempt_log_is_a_separate_file(tmp_path):
+    """Harness entries land in attempts.md; the agent's journal.md is a plain
+    file the harness never writes, and each is read, snapshotted and restored
+    on its own."""
+    sandbox = str(tmp_path)
+    assert journal_mod.append_entry(sandbox, "task 0 attempt 1/1 (auto)",
+                                    "- outcome: no capture") is None
+    assert not os.path.isfile(journal_mod.journal_path(sandbox))
+    assert os.path.isfile(journal_mod.attempts_path(sandbox))
+    assert journal_mod.read_journal(sandbox) == ""
+    attempts = journal_mod.read_journal(sandbox,
+                                        filename=journal_mod.ATTEMPTS_FILENAME)
+    assert "### task 0 attempt 1/1 (auto)" in attempts
+    # The agent writes its journal with the file tools.
+    with open(journal_mod.journal_path(sandbox), "w", encoding="utf-8") as f:
+        f.write("### task 0 attempt 1\n- tried x=0.5: stopped 3 cm short\n")
+    assert "stopped 3 cm short" in journal_mod.read_journal(sandbox)
+    snapshot = journal_mod.read_raw(sandbox,
+                                    filename=journal_mod.ATTEMPTS_FILENAME)
+    journal_mod.append_entry(sandbox, "task 1 attempt 1/1 (auto)",
+                             "- outcome: captured")
+    journal_mod.restore(sandbox,
+                        snapshot,
+                        filename=journal_mod.ATTEMPTS_FILENAME)
+    assert "task 1" not in journal_mod.read_journal(
+        sandbox, filename=journal_mod.ATTEMPTS_FILENAME)
+    assert "stopped 3 cm short" in journal_mod.read_journal(sandbox)
 
 
 # ---------------------------------------------------------------------------
@@ -420,15 +396,21 @@ def test_solve_prompt_includes_journal_section():
     prompt = build_solve_prompt(task,
                                 all_predicates={_ReachedHi},
                                 all_options={_Move},
-                                journal=journal_text)
-    assert "## Solve Journal" in prompt
+                                journal="### notes\n- tried x=0.5",
+                                attempts=journal_text)
+    assert "## Attempt Log" in prompt
     assert "- outcome: no capture" in prompt
+    assert "## Solve Journal" in prompt
+    assert "- tried x=0.5" in prompt
     assert "treat any recorded conclusion skeptically" in prompt
+    assert "./journal.md" in prompt
+    assert "record_journal" not in prompt
     # Without journal content the section is absent entirely.
     prompt_no_journal = build_solve_prompt(task,
                                            all_predicates={_ReachedHi},
                                            all_options={_Move})
     assert "## Solve Journal" not in prompt_no_journal
+    assert "## Attempt Log" not in prompt_no_journal
 
 
 def test_read_strategy_absent_present_and_truncated(tmp_path):

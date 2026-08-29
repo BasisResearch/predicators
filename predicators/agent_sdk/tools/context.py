@@ -111,7 +111,7 @@ class ToolContext:
     # 0-based learning cycle (matching main.py's "ONLINE LEARNING CYCLE i";
     # -1 = the offline pass) while a synthesis (learn) session is active,
     # None otherwise. Set/cleared around the synthesis query so tools that
-    # label output by phase (e.g. record_journal headers) can attribute
+    # label output by phase (e.g. attempt-log headers) can attribute
     # entries to the learning cycle instead of "pre-test phase".
     learn_cycle_index: Optional[int] = None
     # Managed by AgentSessionMixin: populated from

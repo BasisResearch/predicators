@@ -37,15 +37,7 @@ TESTING_TOOL_NAMES = [
 EXPLORATION_TOOL_NAMES = [
     "run_python",
 ]
-# Solve-journal writing (agent_solve_use_journal): agent-authored
-# lessons for future fresh-context attempts. Read side is prompt
-# injection, so this is the only journal tool.
-JOURNAL_TOOL_NAMES = [
-    "record_journal",
-]
-
-ALL_TOOL_NAMES = (TESTING_TOOL_NAMES + EXPLORATION_TOOL_NAMES +
-                  JOURNAL_TOOL_NAMES)
+ALL_TOOL_NAMES = TESTING_TOOL_NAMES + EXPLORATION_TOOL_NAMES
 
 # Name of the tool ``create_synthesis_tools`` builds for a synthesis
 # session (the same ``run_python`` name as the solve-phase instance -

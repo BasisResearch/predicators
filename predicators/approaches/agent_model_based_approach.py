@@ -338,11 +338,15 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         """Build prompt asking for a plan sketch without continuous params."""
         journal_text = ""
         strategy_text = ""
+        attempts_text = ""
         if CFG.agent_solve_use_journal:
             # pylint: disable-next=import-outside-toplevel
             from predicators.agent_sdk import journal as journal_mod
             journal_text = journal_mod.read_journal(
                 self._tool_context.sandbox_dir)
+            attempts_text = journal_mod.read_journal(
+                self._tool_context.sandbox_dir,
+                filename=journal_mod.ATTEMPTS_FILENAME)
             strategy_text = journal_mod.read_strategy(
                 self._tool_context.sandbox_dir)
         return bilevel_sketch.build_solve_prompt(
@@ -357,6 +361,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
             ground_samplers=CFG.agent_bilevel_ground_samplers,
             journal=journal_text,
             strategy=strategy_text,
+            attempts=attempts_text,
             physics_margin=CFG.agent_plan_validation_physics_margin,
             policy_mode=CFG.agent_solve_policy_mode,
         )
@@ -539,7 +544,8 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
                 sandbox_dir,
                 header,
                 "\n".join(body_lines),
-                max_chars=journal_mod.MAX_AUTO_ENTRY_CHARS)
+                max_chars=journal_mod.MAX_AUTO_ENTRY_CHARS,
+                filename=journal_mod.ATTEMPTS_FILENAME)
         except OSError as e:
             logging.warning("Journal entry %r failed: %s", header, e)
             return False
@@ -581,12 +587,12 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
     def _record_attempt_in_journal(self, attempt: int, max_attempts: int,
                                    policy: Optional[Any],
                                    info: Optional[_CaptureInfo]) -> None:
-        """Auto-append this attempt's factual record to the solve journal.
+        """Auto-append this attempt's factual record to the attempt log.
 
         The harness-written record (outcome, budget spent, captured or
-        best refused plan) guarantees the journal's essentials even when
-        the agent records nothing; agent-authored lessons arrive
-        separately via the record_journal tool.
+        best refused plan) guarantees the essentials of every attempt
+        are on record even when the agent writes nothing; the agent's
+        own lessons live in journal.md, which it edits directly.
         """
         if not self._journal_active():
             return
@@ -982,15 +988,14 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         nudge = (_FINAL_SUBMIT_POLICY_NUDGE
                  if CFG.agent_solve_policy_mode else _FINAL_SUBMIT_NUDGE)
         if CFG.agent_solve_use_journal:
-            nudge += (
-                " If an earlier attempt's entry in the Solve Journal "
-                "records a better plan (captured or refused) than "
-                "anything from this attempt, resubmit that plan instead."
-                " After the submission, call record_journal ONCE with a "
-                "short factual entry for later fresh-context attempts and "
-                "tasks: what you tried (exact parameters), the key "
-                "measurements, and what to try differently - facts and "
-                "measurements only, no verdicts like 'impossible'.")
+            nudge += (" If an earlier attempt's entry in the Attempt Log "
+                      "records a better plan (captured or refused) than "
+                      "anything from this attempt, resubmit that plan instead."
+                      " After the submission, append ONE short factual entry "
+                      "to ./journal.md for later fresh-context attempts and "
+                      "tasks: what you tried (exact parameters), the key "
+                      "measurements, and what to try differently - facts and "
+                      "measurements only, no verdicts like 'impossible'.")
         # SUSPEND (not clear) the attempt deadline for the nudge query:
         # its cooperative refusals and the sandbox interrupt backstop
         # must not block the submission (or the journal entry) itself.

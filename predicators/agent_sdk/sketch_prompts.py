@@ -28,6 +28,7 @@ def build_solve_prompt(
     ground_samplers: bool = False,
     journal: str = "",
     strategy: str = "",
+    attempts: str = "",
     physics_margin: bool = False,
     policy_mode: bool = False,
 ) -> str:
@@ -67,11 +68,11 @@ def build_solve_prompt(
     proving such a mechanism's absence instead of submitting the
     experiment that would let it be learned.
 
-    ``journal`` is the run's solve-journal content (see
-    ``predicators/agent_sdk/journal.py``): the curated record of earlier
-    attempts' outcomes and lessons, injected so fresh-context sessions
-    inherit what worked (and what was already swept) without inheriting
-    failed attempts' conclusions.
+    ``journal`` is the agent's own notebook (``journal.md``) and
+    ``attempts`` the harness's attempt log (``attempts.md``); see
+    ``predicators/agent_sdk/journal.py``. Both are injected so
+    fresh-context sessions inherit what worked (and what was already
+    swept) without inheriting failed attempts' conclusions.
 
     ``strategy`` is the learn-phase-maintained domain strategy document
     (``strategy.md``): the learn agent's best current natural-language
@@ -276,9 +277,9 @@ def build_solve_prompt(
             "sees each mechanism at least once, instead of spending the "
             "episode polishing a single goal attempt whose failure "
             "reveals only its first missing mechanism.\n\n"
-            "Ledger upkeep is part of the deliverable. Record "
-            "measurements with record_journal as you go (entries are "
-            "size-capped, so lead with the numbers), and when a result "
+            "Ledger upkeep is part of the deliverable. Append "
+            "measurements to ./journal.md as you go (a short entry per "
+            "experiment - lead with the numbers), and when a result "
             "settles an open question or opens a new one, edit "
             "open_questions.md directly with the file tools - the next "
             "learning phase designs its work from that file, and a "
@@ -322,28 +323,39 @@ def build_solve_prompt(
             "depart from it whenever your own measurements disagree.\n\n"
             f"{strategy}\n")
 
+    attempts_section = ""
+    if attempts:
+        attempts_section = (
+            "\n## Attempt Log (recorded by the harness)\n"
+            "Outcomes of earlier solve attempts and tasks in this run, "
+            "recorded automatically in ./attempts.md (do not edit it): "
+            "each task's goal and initial state, and per attempt the "
+            "outcome, the budget spent, and the captured or best refused "
+            "plan. Facts, not advice.\n\n"
+            f"{attempts}\n")
     journal_section = ""
-    if journal:
+    if journal or attempts:
         journal_section = (
-            "\n## Solve Journal (record of earlier attempts)\n"
-            "You start with fresh context. The journal below is this run's "
-            "persistent record from earlier solve attempts and tasks: "
-            "auto-recorded outcomes (captured plans, rewards, budgets) "
-            "plus agent-recorded lessons. Use it - reproduce what worked, "
-            "do not repeat parameter sweeps it already covers - but treat "
-            "any recorded conclusion skeptically: re-verify cheap claims "
-            "rather than inheriting them, especially from failed "
-            "attempts.\n"
+            "\n## Solve Journal (./journal.md)\n"
+            "You start with fresh context. The journal is this run's "
+            "persistent notebook, written by earlier solve and learning "
+            "sessions with the file tools; with the attempt log it is "
+            "the record of what was tried. Use it - reproduce what "
+            "worked, do not repeat parameter sweeps it already covers - "
+            "but treat any recorded conclusion skeptically: re-verify "
+            "cheap claims rather than inheriting them, especially from "
+            "failed attempts.\n"
             "Journal protocol for this attempt:\n"
-            "- A design the journal records as having reached the goal in "
-            "the REAL environment is the INCUMBENT: reproduce it unless "
-            "the journal also records it failing since, or a model update "
-            "invalidates one of its steps. Every deviation from an "
-            "execution-validated design - reordering steps, dropping a "
-            "Wait, retargeting a parameter - is a NEW experiment carrying "
-            "first-execution risk that belief validation does NOT retire "
-            "(real option durations and placement scatter differ), so "
-            "deviate only for a recorded reason and record that reason.\n"
+            "- A design the attempt log records as having reached the "
+            "goal in the REAL environment is the INCUMBENT: reproduce it "
+            "unless the record also shows it failing since, or a model "
+            "update invalidates one of its steps. Every deviation from "
+            "an execution-validated design - reordering steps, dropping "
+            "a Wait, retargeting a parameter - is a NEW experiment "
+            "carrying first-execution risk that belief validation does "
+            "NOT retire (real option durations and placement scatter "
+            "differ), so deviate only for a recorded reason and record "
+            "that reason.\n"
             "- FIRST list the journal's untried leads, then execute or "
             "explicitly retire (with a measurement) each promising lead "
             "BEFORE re-opening a family an earlier attempt already marked "
@@ -358,9 +370,13 @@ def build_solve_prompt(
             "recommends it), BOTH demote to open questions: design the "
             "cheap experiment that decides between them instead of "
             "silently trusting either.\n"
-            "Add your own lessons for future attempts with the "
-            "record_journal tool (facts and measurements only).\n\n"
-            f"{journal}\n")
+            "Add your own lessons for future attempts by appending a "
+            "short entry to ./journal.md with the file tools: a `### ` "
+            "header naming the task and attempt, then a few bullets of "
+            "facts and measurements only - exact parameters, what was "
+            "measured, what to try differently; no verdicts like "
+            "'impossible'.\n\n"
+            f"{journal or '(no journal entries yet)'}\n")
 
     goal_nl_section = ""
     if task.goal_nl:
@@ -709,7 +725,8 @@ def build_solve_prompt(
 
 ## Available Predicates (for subgoal annotations)
 {chr(10).join(pred_strs)}
-{trajectory_summary}{tools_str}{strategy_section}{journal_section}\
+{trajectory_summary}{tools_str}{strategy_section}{attempts_section}\
+{journal_section}\
 {scheduled_plans_section}
 ## Instructions
 Use your available tools to inspect the environment before producing the plan.
