@@ -4,7 +4,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterator, List, Optional, Set
 
-from predicators.agent_sdk.proposal_exec import ProposalBundle
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import CausalProcess, LowLevelTrajectory, \
@@ -86,9 +85,6 @@ class ToolContext:
     parameterized_samplers: Dict[str, ParameterizedSampler] = field(
         default_factory=dict)
     current_task: Optional[Task] = None
-    iteration_proposals: ProposalBundle = field(default_factory=ProposalBundle)
-    planning_results: Dict[str, Any] = field(default_factory=dict)
-    iteration_history: List[Dict[str, Any]] = field(default_factory=list)
     skill_factory_context: Dict[str, Any] = field(default_factory=dict)
     proposals_disabled: bool = False  # set True during test-time solving
     log_dir: Optional[str] = None
@@ -160,7 +156,7 @@ class ToolContext:
     # so the next exploration targets the gaps. None ⇒ no fit ran yet
     # (or it had no weak spots).
     sysid_diagnostics: Optional[str] = None
-    # Set by refine_plan_sketch / evaluate_option_plan when a plan is verified
+    # Set by evaluate_option_plan / evaluate_policy when a plan is verified
     # to reach the goal on the CURRENT solve task: the simulator-verified plan
     # (grounded options with found params) and the parallel subgoal sketch.
     # The bilevel approach returns this directly instead of re-refining, so

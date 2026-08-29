@@ -102,10 +102,8 @@ class AgentPlanExplorer(BaseExplorer):
         # Goal atoms
         goal_strs = [str(a) for a in sorted(task.goal, key=str)]
 
-        # Available options with signatures, including just-proposed ones.
-        all_options = (self._options
-                       |
-                       self._tool_context.iteration_proposals.proposed_options)
+        # Available options with signatures.
+        all_options = self._options
         option_strs = []
         for opt in sorted(all_options, key=lambda o: o.name):
             type_sig = ", ".join(t.name for t in opt.types)
@@ -125,16 +123,6 @@ class AgentPlanExplorer(BaseExplorer):
 
         # Trajectory summary
         traj_summary = self._build_trajectory_summary()
-
-        # Planning results
-        planning_info = ""
-        if self._tool_context.planning_results:
-            pr = self._tool_context.planning_results
-            planning_info = (
-                f"\n## Recent Planning Results\n"
-                f"Success rate: {pr.get('success_str', 'N/A')}\n"
-                f"Avg nodes expanded: {pr.get('avg_nodes_expanded', 'N/A')}\n"
-                f"Failures: {pr.get('failure_summaries', 'None')}\n")
 
         # Available tools
         tools_str = ""
@@ -159,7 +147,7 @@ class AgentPlanExplorer(BaseExplorer):
 
 ## Available Options
 {chr(10).join(option_strs)}
-{traj_summary}{planning_info}{tools_str}
+{traj_summary}{tools_str}
 ## Instructions
 Use your available tools to inspect the environment and test your plan before committing to it.
 
@@ -226,9 +214,7 @@ Output ONLY the option plan lines at the end, after any analysis."""
     def _parse_and_ground_plan(self, plan_text: str, task: Task) -> list:
         """Parse option plan text and ground into executable options."""
         objects = list(task.init)
-        all_options = (self._options
-                       |
-                       self._tool_context.iteration_proposals.proposed_options)
+        all_options = self._options
         parsed = utils.parse_model_output_into_option_plan(
             plan_text,
             objects,

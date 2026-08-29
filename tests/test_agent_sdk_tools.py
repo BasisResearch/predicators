@@ -1,14 +1,12 @@
 """Tests for agent SDK tool enhancements.
 
 Validates:
-1. inspect_options with option_name saves source code to sandbox
-2. evaluate_option_plan always saves scene images
-3. evaluate_option_plan shows "Missing goal atoms" when goal not achieved
-4. evaluate_option_plan shows object poses on failure
-5. propose_options saves code to sandbox/proposed_code/
-6. format_object_poses helper
-7. render_scene_image helper
-8. _sync_tool_context sets ctx.env from option model
+1. evaluate_option_plan always saves scene images
+2. evaluate_option_plan shows "Missing goal atoms" when goal not achieved
+3. evaluate_option_plan shows object poses on failure
+4. format_object_poses helper
+5. render_scene_image helper
+6. _sync_tool_context sets ctx.env from option model
 
 Usage:
     python tests/test_agent_sdk_tools.py
@@ -21,7 +19,6 @@ import os
 import tempfile
 from typing import Any
 
-import numpy as np
 import pytest
 
 # Bootstrap circular imports
@@ -43,8 +40,6 @@ _CFG_OVERRIDES = {
     "num_test_tasks": 1,
     "skill_phase_use_motion_planning": True,
     "pybullet_ik_validate": False,
-    "agent_sdk_propose_options": True,
-    "agent_planner_use_explore_python": True,
     # Match the experiment configs: without this, an option whose
     # first action no-ops against residual env state (wrist drift
     # from earlier tests) is killed as "stuck", making the
@@ -85,10 +80,6 @@ def _setup(sandbox_dir: str | None = None) -> tuple[Any, Any]:
     # Extract env from option model (same as _sync_tool_context does)
     if hasattr(option_model, '_simulator'):
         ctx.env = getattr(option_model._simulator, '__self__', None)
-
-    # Create sandbox subdirectories
-    if sandbox_dir:
-        os.makedirs(os.path.join(sandbox_dir, "proposed_code"), exist_ok=True)
 
     return ctx, env
 
@@ -132,111 +123,6 @@ def ctx() -> Any:
 
 
 # ===== Tests =====
-
-
-def test_inspect_options_list_all(ctx: Any) -> None:
-    """inspect_options with no args lists all options."""
-    tools = _make_tools(ctx, ["inspect_options"])
-    result = _run(tools["inspect_options"]({}))
-    text = result["content"][0]["text"]
-    assert "Current options:" in text
-    assert "Pick" in text or "Place" in text or "Push" in text
-    print("  PASS: inspect_options (list all)")
-
-
-def test_inspect_options_detail(ctx: Any) -> None:
-    """inspect_options with option_name saves source to sandbox."""
-    tools = _make_tools(ctx, ["inspect_options"])
-
-    # Pick an option that exists
-    opt_names = [o.name for o in ctx.options]
-    test_name = opt_names[0]
-
-    result = _run(tools["inspect_options"]({"option_name": test_name}))
-    text = result["content"][0]["text"]
-
-    # Should have the option header
-    assert f"## {test_name}" in text
-    # Should have params info
-    assert "params_dim" in text
-
-    if ctx.sandbox_dir:
-        # Should point to the saved file
-        assert f"./proposed_code/{test_name}.py" in text
-        # File should exist in sandbox
-        saved_path = os.path.join(ctx.sandbox_dir, "proposed_code",
-                                  f"{test_name}.py")
-        assert os.path.exists(saved_path), \
-            f"Expected file at {saved_path}"
-        # File should have content
-        with open(saved_path, encoding='utf-8') as f:
-            content = f.read()
-        assert len(content) > 0
-        print(f"  PASS: inspect_options (detail for '{test_name}', "
-              f"saved to sandbox)")
-    else:
-        # Fallback: should inline source code
-        assert "Source Code" in text
-        print(f"  PASS: inspect_options (detail for '{test_name}', "
-              f"inlined — no sandbox)")
-
-
-def test_inspect_options_unknown(ctx: Any) -> None:
-    """inspect_options with unknown option_name returns error."""
-    tools = _make_tools(ctx, ["inspect_options"])
-    result = _run(tools["inspect_options"]({
-        "option_name": "NonExistentOption"
-    }))
-    assert result.get("is_error", False)
-    assert "Unknown option" in result["content"][0]["text"]
-    print("  PASS: inspect_options (unknown option)")
-
-
-def test_inspect_options_proposed_code(ctx: Any) -> None:
-    """inspect_options returns path for option with code saved to sandbox."""
-    from predicators.agent_sdk.tools.results import _save_option_to_sandbox
-
-    # Save proposal code to sandbox
-    proposal_code = "# test proposal code\nx = 1"
-    _save_option_to_sandbox(ctx, "TestOpt", proposal_code)
-
-    # Create a dummy option with that name
-    from gym.spaces import Box
-
-    from predicators.structs import ParameterizedOption
-    dummy_opt = ParameterizedOption(
-        name="TestOpt",
-        types=[],
-        params_space=Box(low=np.array([]), high=np.array([])),
-        policy=lambda s, m, o, p: None,  # type: ignore[arg-type, return-value]
-        initiable=lambda s, m, o, p: True,
-        terminal=lambda s, m, o, p: True,
-    )
-    ctx.options = ctx.options | {dummy_opt}
-
-    tools = _make_tools(ctx, ["inspect_options"])
-    result = _run(tools["inspect_options"]({"option_name": "TestOpt"}))
-    text = result["content"][0]["text"]
-
-    if ctx.sandbox_dir:
-        assert "./proposed_code/TestOpt.py" in text
-        # Verify file content
-        saved_path = os.path.join(ctx.sandbox_dir, "proposed_code",
-                                  "TestOpt.py")
-        with open(saved_path, encoding='utf-8') as f:
-            assert "# test proposal code" in f.read()
-    else:
-        # No sandbox — source inlined
-        assert "Source Code" in text
-
-    # Clean up
-    ctx.options = {o for o in ctx.options if o.name != "TestOpt"}
-    if ctx.sandbox_dir:
-        saved_path = os.path.join(ctx.sandbox_dir, "proposed_code",
-                                  "TestOpt.py")
-        if os.path.exists(saved_path):
-            os.remove(saved_path)
-    print("  PASS: inspect_options (proposed code in sandbox)")
 
 
 def _get_valid_option_plan_step(ctx: Any) -> dict[str, Any] | None:
@@ -328,23 +214,12 @@ def test_option_plan_missing_goal_atoms(ctx: Any) -> None:
 
 
 def test_option_plan_description_submission_split(ctx: Any) -> None:
-    """With explore_python on, evaluate_option_plan's description routes
-    exploration to the probe and frames this tool as the submission path; with
-    it off, the description is unchanged."""
+    """evaluate_option_plan's description routes exploration to the probe and
+    frames this tool as the submission path."""
     from predicators.agent_sdk.tools import create_mcp_tools
-    prior = CFG.agent_planner_use_explore_python
-    try:
-        pred_utils.update_config({"agent_planner_use_explore_python": True})
-        tool_obj = create_mcp_tools(ctx,
-                                    tool_names=["evaluate_option_plan"])[0]
-        desc = getattr(tool_obj, "description", "")
-        assert "explore_python" in desc and "SUBMIT" in desc
-        pred_utils.update_config({"agent_planner_use_explore_python": False})
-        tool_obj = create_mcp_tools(ctx,
-                                    tool_names=["evaluate_option_plan"])[0]
-        assert "explore_python" not in getattr(tool_obj, "description", "")
-    finally:
-        pred_utils.update_config({"agent_planner_use_explore_python": prior})
+    tool_obj = create_mcp_tools(ctx, tool_names=["evaluate_option_plan"])[0]
+    desc = getattr(tool_obj, "description", "")
+    assert "explore_python" in desc and "SUBMIT" in desc
     print("  PASS: evaluate_option_plan (submission-split description)")
 
 
@@ -824,59 +699,6 @@ def test_render_scene_no_env(ctx: Any) -> None:
     print("  PASS: render_scene_image (no env → None)")
 
 
-def test_propose_options_saves_to_sandbox(ctx: Any) -> None:
-    """propose_options saves proposal code to sandbox/proposed_code/."""
-    tools = _make_tools(ctx, ["propose_options"])
-
-    # Get type names for a valid proposal
-    type_names = {t.name: t for t in ctx.types}
-    robot_type_name = "robot" if "robot" in type_names else list(type_names)[0]
-
-    code = f"""\
-from gym.spaces import Box
-import numpy as np
-
-proposed_options = [
-    ParameterizedOption(
-        name="TestProposed",
-        types=[{robot_type_name}_type],
-        params_space=Box(low=np.array([0.0]), high=np.array([1.0])),
-        policy=lambda s, m, o, p: Action(np.zeros(s.get(o[0], "x").shape if hasattr(s.get(o[0], "x"), "shape") else (1,))),
-        initiable=lambda s, m, o, p: True,
-        terminal=lambda s, m, o, p: True,
-    )
-]
-"""
-
-    result = _run(tools["propose_options"]({
-        "code":
-        code,
-        "description":
-        "Test option for unit test",
-    }))
-    text = result["content"][0]["text"]
-
-    if "Successfully proposed" in text:
-        if ctx.sandbox_dir:
-            saved_path = os.path.join(ctx.sandbox_dir, "proposed_code",
-                                      "TestProposed.py")
-            assert os.path.exists(saved_path), \
-                f"Expected file at {saved_path}"
-            with open(saved_path, encoding='utf-8') as f:
-                content = f.read()
-            assert "proposed_options" in content
-            print("  PASS: propose_options (code saved to sandbox)")
-            os.remove(saved_path)
-        else:
-            print("  PASS: propose_options (no sandbox, code not saved)")
-
-        # Clean up
-        ctx.options = {o for o in ctx.options if o.name != "TestProposed"}
-    else:
-        # Code execution might fail due to env-specific types
-        print(f"  SKIP: propose_options (code failed: {text[:100]})")
-
-
 def test_sync_tool_context_sets_env() -> None:
     """_sync_tool_context extracts env from option model."""
     pred_utils.reset_config(_CFG_OVERRIDES)
@@ -919,32 +741,21 @@ def main() -> None:
 
         print("=== Tool Enhancement Tests ===\n")
 
-        # inspect_options tests
-        print("1. inspect_options tests:")
-        test_inspect_options_list_all(ctx)
-        test_inspect_options_detail(ctx)
-        test_inspect_options_unknown(ctx)
-        test_inspect_options_proposed_code(ctx)
-
         # evaluate_option_plan tests
-        print("\n2. evaluate_option_plan tests:")
+        print("1. evaluate_option_plan tests:")
         test_option_plan_missing_goal_atoms(ctx)
         test_option_plan_not_initiable_shows_poses(ctx)
         test_option_plan_saves_images(ctx)
         test_option_plan_failure_shows_poses(ctx)
 
         # Helper function tests
-        print("\n3. Helper function tests:")
+        print("\n2. Helper function tests:")
         testformat_object_poses(ctx)
         testrender_scene_image(ctx)
         test_render_scene_no_env(ctx)
 
-        # propose_options test
-        print("\n4. propose_options tests:")
-        test_propose_options_saves_to_sandbox(ctx)
-
         # _sync_tool_context test (creates fresh env)
-        print("\n5. Context sync tests:")
+        print("\n3. Context sync tests:")
         test_sync_tool_context_sets_env()
 
         print("\n=== All tests passed! ===")

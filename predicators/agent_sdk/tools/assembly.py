@@ -3,11 +3,7 @@ from typing import List, Optional
 
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.exploration import _build_exploration_tools
-from predicators.agent_sdk.tools.inspection import _build_inspection_tools
 from predicators.agent_sdk.tools.journal_tools import _build_journal_tools
-from predicators.agent_sdk.tools.planning import _build_planning_tools
-from predicators.agent_sdk.tools.proposals import _build_proposal_tools, \
-    _build_retraction_tools
 from predicators.agent_sdk.tools.results import _make_coercing_tool, \
     _make_spilling_text_result
 from predicators.agent_sdk.tools.testing import _build_testing_tools
@@ -35,11 +31,7 @@ def create_mcp_tools(ctx: ToolContext,
     _text_result = _make_spilling_text_result(ctx.sandbox_dir)
 
     _all = {
-        **_build_inspection_tools(ctx, _text_result, tool),
-        **_build_proposal_tools(ctx, _text_result, tool),
-        **_build_retraction_tools(ctx, _text_result, tool),
         **_build_testing_tools(ctx, _text_result, tool),
-        **_build_planning_tools(ctx, _text_result, tool),
         **_build_exploration_tools(ctx, _text_result, tool),
         **_build_journal_tools(ctx, _text_result, tool),
     }

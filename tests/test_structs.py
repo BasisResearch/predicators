@@ -577,7 +577,7 @@ def test_option_ground_clamps_float_precision_boundary():
 
     Regression: an agent-parsed yaw of pi stored as float32 exceeds the
     float64 pi upper bound (float32(pi) > pi) and crashed
-    refine_plan_sketch with a raw ValueError (run_20260707_112310).
+    sketch refinement with a raw ValueError (run_20260707_112310).
     """
     params_space = Box(np.array([-np.pi]), np.array([np.pi]), dtype=np.float64)
 

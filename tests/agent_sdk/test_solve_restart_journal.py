@@ -309,7 +309,7 @@ def test_probe_counts_rollouts():
 
 def test_explore_python_refuses_after_attempt_deadline(tmp_path):
     """A call arriving past the attempt deadline is refused unrun."""
-    utils.reset_config({"agent_planner_use_explore_python": True})
+    utils.reset_config({})
     ctx = _make_ctx(sandbox_dir=str(tmp_path))
     ctx.attempt_start = time.monotonic() - 10.0
     ctx.attempt_deadline = time.monotonic() - 1.0
@@ -323,7 +323,6 @@ def test_explore_python_refuses_after_attempt_deadline(tmp_path):
 def test_explore_python_call_timeout_returns_partial_output(tmp_path):
     """A per-call timeout stops the sweep and returns printed output."""
     utils.reset_config({
-        "agent_planner_use_explore_python": True,
         "agent_sdk_explore_python_call_timeout": 1e-9,
     })
     ctx = _make_ctx(sandbox_dir=str(tmp_path))
@@ -338,7 +337,6 @@ def test_explore_python_call_timeout_returns_partial_output(tmp_path):
 def test_explore_python_budget_footer(tmp_path):
     """Results carry the [budget] footer with rollout deltas."""
     utils.reset_config({
-        "agent_planner_use_explore_python": True,
         "agent_sdk_explore_python_call_timeout": 0,
     })
     ctx = _make_ctx(sandbox_dir=str(tmp_path))
@@ -360,7 +358,6 @@ def test_explore_python_watchdog_stops_sim_free_code(tmp_path):
     preemption that reaches a sim-free loop.
     """
     utils.reset_config({
-        "agent_planner_use_explore_python": True,
         "agent_sdk_explore_python_call_timeout": 0.3,
     })
     ctx = _make_ctx(sandbox_dir=str(tmp_path))
@@ -382,7 +379,6 @@ def test_explore_python_call_timeout_exempts_synthesis_sessions(tmp_path):
     """Synthesis probes (candidate simulator; slower rollouts, refits) are
     exempt from the per-call cap."""
     utils.reset_config({
-        "agent_planner_use_explore_python": True,
         "agent_sdk_explore_python_call_timeout": 0.1,
     })
     ctx = _make_ctx(sandbox_dir=str(tmp_path))
@@ -400,7 +396,6 @@ def test_explore_python_call_timeout_exempts_synthesis_sessions(tmp_path):
 def test_explore_python_no_footer_outside_attempt(tmp_path):
     """No attempt in flight (e.g. exploration phase): no footer noise."""
     utils.reset_config({
-        "agent_planner_use_explore_python": True,
         "agent_sdk_explore_python_call_timeout": 0,
     })
     ctx = _make_ctx(sandbox_dir=str(tmp_path))

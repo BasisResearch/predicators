@@ -40,7 +40,7 @@ from predicators.agent_sdk.tools import JOURNAL_TOOL_NAMES, \
     SAMPLER_SYNTHESIS_TOOL_NAMES, SYNTHESIS_TOOL_NAMES, _SnapshotTarget, \
     create_synthesis_tools, evaluate_states_with, \
     finalize_versioned_snapshot, make_write_snapshot_hook
-from predicators.agent_sdk.tools.inspection import render_options_digest, \
+from predicators.agent_sdk.tools.digests import render_options_digest, \
     render_trajectory_digest, render_types_digest
 from predicators.approaches.agent_model_based_approach import \
     AgentModelBasedApproach
@@ -1995,8 +1995,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             "ParamSpec":
             ParamSpec,
         }
-        # Curated per-trajectory digest (same renderer the old
-        # inspect_trajectories tool used), for a first look before
+        # Curated per-trajectory digest, for a first look before
         # ad-hoc exploration over the raw ``trajectories`` objects.
         all_predicates = self._get_all_predicates()
 
@@ -2130,9 +2129,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         n_interaction = n_trajs - n_demos
         predicate_listing = self._format_predicate_signatures(
             self._get_all_predicates())
-        # Static per-session digests, injected instead of offering the
-        # inspect_types / inspect_options tools (same renderers, zero
-        # turns; see the roster note in _get_synthesis_tool_names).
+        # Static per-session digests, injected instead of costing a tool
+        # turn (see the roster note in _get_synthesis_tool_names).
         types_digest = render_types_digest(self._tool_context.types)
         options_digest = render_options_digest(
             self._tool_context.options,
@@ -2186,19 +2184,17 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # `sim` forward-rolls the CANDIDATE simulator. One sentence so
         # the two are not conflated; details live in the tool
         # description.
-        probe_note = ""
-        if CFG.agent_planner_use_explore_python:
-            probe_note = (
-                "\n\nThe `sim` probe inside `run_python` forward-rolls "
-                "the CANDIDATE simulator you are editing at the params "
-                "of your last `sim.fit()` - it never fits on its own, so "
-                "after a structural edit its results are marked UNFITTED "
-                "until you run `sim.fit()` on the current file; pass "
-                "task_idx explicitly to `sim.reset`, `sim.task(task_idx)` "
-                "for a task digest). Its rollouts "
-                "are candidate predictions - do not mix them up with the "
-                "recorded real `trajectories`. Usage and the validation "
-                "protocol are in the system prompt's Tools section.")
+        probe_note = (
+            "\n\nThe `sim` probe inside `run_python` forward-rolls "
+            "the CANDIDATE simulator you are editing at the params "
+            "of your last `sim.fit()` - it never fits on its own, so "
+            "after a structural edit its results are marked UNFITTED "
+            "until you run `sim.fit()` on the current file; pass "
+            "task_idx explicitly to `sim.reset`, `sim.task(task_idx)` "
+            "for a task digest). Its rollouts "
+            "are candidate predictions - do not mix them up with the "
+            "recorded real `trajectories`. Usage and the validation "
+            "protocol are in the system prompt's Tools section.")
         # Tool surface of the (just-opened) synthesis session, rendered
         # the same way the solve/explore prompts list theirs.
         # ``tool_names`` already merges the sandbox built-ins with the

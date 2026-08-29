@@ -190,20 +190,6 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
             kind=kind,
             on_entry=_maybe_interrupt_on_deadline)
 
-        # Log proposals (matches Docker sandbox logging)
-        proposals = self._tool_context.iteration_proposals
-        if proposals.proposed_options or proposals.retract_option_names:
-            logger.info(
-                "Local sandbox proposals: proposed_options=%s, "
-                "retract=%s",
-                [o.name for o in proposals.proposed_options],
-                sorted(proposals.retract_option_names),
-            )
-            logger.info(
-                "After local sandbox query: tool_context.options=%s",
-                sorted(o.name for o in self._tool_context.options),
-            )
-
         return collected
 
     def _session_info_extras(self) -> Dict[str, Any]:

@@ -84,8 +84,8 @@ class AgentBilevelExplorer(BaseExplorer):
             self._tool_context.last_mental_model_solved = True
             return self._certified_plan_strategy(certified)
 
-        # Point the agent's interactive tools (refine_plan_sketch,
-        # evaluate_option_plan, the sim probe) at the EXPLORE task. They
+        # Point the agent's interactive tools (evaluate_option_plan, the
+        # sim probe) at the EXPLORE task. They
         # default to ctx.current_task when the agent omits task_idx, and
         # test-time _solve leaves current_task on the last TEST task.
         # Without this the agent tunes/validates its exploration plan against
@@ -95,7 +95,7 @@ class AgentBilevelExplorer(BaseExplorer):
         #
         # Enable the capture path too (keyed to current_task == this explore
         # task): the agent often submits + simulator-validates a goal-reaching
-        # plan via evaluate_option_plan / refine_plan_sketch but ends with a
+        # plan via evaluate_option_plan but ends with a
         # prose summary whose final text doesn't parse into a sketch. Without
         # capture that productive solve is lost to the random-options fallback;
         # with it we recover the captured plan below (see _sketch_from_capture)
@@ -150,7 +150,7 @@ class AgentBilevelExplorer(BaseExplorer):
             plan_text = self._extract_option_plan_text(responses)
             # The session's tool capture: a goal-reaching plan the agent
             # validated in the belief through the capture gate
-            # (evaluate_option_plan / refine_plan_sketch, N fresh
+            # (evaluate_option_plan, N fresh
             # rollouts). ``reached_goal`` is the gate's verdict.
             capture = self._tool_context.take_plan_capture()
             if CFG.agent_explorer_replay_certified_plan and capture.plan \
@@ -203,7 +203,7 @@ class AgentBilevelExplorer(BaseExplorer):
             if not sketch:
                 # Final message didn't parse into a sketch, but the agent may
                 # have submitted + simulator-validated a goal-reaching plan via
-                # evaluate_option_plan / refine_plan_sketch (captured into
+                # evaluate_option_plan (captured into
                 # solved_plan / solved_sketch). Recover it as the sketch,
                 # carrying its continuous params as initial_params so they seed
                 # the info-gain search below rather than replaying verbatim.
@@ -383,16 +383,16 @@ class AgentBilevelExplorer(BaseExplorer):
             capture: PlanCapture) -> Optional[List[bilevel_sketch.SketchStep]]:
         """Rebuild a sketch from a captured, tool-validated plan, or None.
 
-        ``evaluate_option_plan`` / ``refine_plan_sketch`` stash a
-        forward-validated, goal-reaching plan on the explore task into
-        ``solved_plan`` (grounded options with continuous params) and
-        ``solved_sketch`` (the option skeleton plus the subgoals that
-        actually held). We reconstruct a sketch from that skeleton and
-        graft each captured option's continuous params onto the step's
-        ``initial_params``, so the info-gain refinement below seeds them
-        as the first candidate in each step's pool (see
-        ``_sample_info_seeking``) rather than replaying them verbatim.
-        The capture was already taken (consumed) by the caller.
+        ``evaluate_option_plan`` stashes a forward-validated, goal-
+        reaching plan on the explore task into ``solved_plan`` (grounded
+        options with continuous params) and ``solved_sketch`` (the
+        option skeleton plus the subgoals that actually held). We
+        reconstruct a sketch from that skeleton and graft each captured
+        option's continuous params onto the step's ``initial_params``,
+        so the info-gain refinement below seeds them as the first
+        candidate in each step's pool (see ``_sample_info_seeking``)
+        rather than replaying them verbatim. The capture was already
+        taken (consumed) by the caller.
         """
         plan = capture.plan
         captured_sketch = capture.sketch

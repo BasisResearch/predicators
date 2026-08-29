@@ -147,7 +147,7 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
             "`sim.refine(sketch_text, timeout=60, require_goal=False, "
             "require_solved=False)` runs "
             "backtracking parameter search FROM THE CURRENT STATE (same "
-            "grammar/search as refine_plan_sketch"
+            "grammar as evaluate_option_plan"
             f"{_region_syntax_blurb()}; "
             "success = each step establishes its `-> {subgoals}` "
             "annotation, and the result's Verdict line states what it "
@@ -171,16 +171,12 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
     plan grammar, same option-model executor, same renderer) but
     carries no scoring surface - nothing run here can be captured as
     the answer, so it is safe to hand the agent as a freely composable
-    physics probe. Built only when the session's config opts in: the
-    ``tool_names=None`` legacy surface would otherwise grant every
-    default-configured session an in-process exec tool. Synthesis
-    sessions do not surface this tool at all - there the same facade is
+    physics probe. Synthesis sessions do not surface this tool at all -
+    there the same facade is
     merged into ``run_python``'s namespace (one exec namespace per
     session; see ``_get_synthesis_tool_names``).
     """
     surface_cfg = ToolSurfaceConfig.from_cfg()
-    if not surface_cfg.use_explore_python:
-        return {}
     # pylint: disable-next=import-outside-toplevel
     from predicators.agent_sdk.belief_probe import build_probe_namespace
 

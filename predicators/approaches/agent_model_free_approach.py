@@ -31,9 +31,8 @@ from predicators import utils
 from predicators.agent_sdk.rendering import save_task_state_image
 from predicators.agent_sdk.session_base import AgentSessionFatalError, \
     query_fatal_error
-from predicators.agent_sdk.tools import agent_render_resolution, \
-    explore_python_replaces_tools
-from predicators.agent_sdk.tools.inspection import render_options_digest, \
+from predicators.agent_sdk.tools import agent_render_resolution
+from predicators.agent_sdk.tools.digests import render_options_digest, \
     render_types_digest
 from predicators.approaches import ApproachFailure
 from predicators.approaches.agent_session_mixin import AgentSessionMixin
@@ -361,26 +360,15 @@ and update before doing anything else.**"""
         return files
 
     def _get_solve_tool_names(self) -> Optional[List[str]]:
-        # inspect_types / inspect_options are never offered: their
-        # digests are static per session, so the solve prompt injects
-        # them directly (same renderers - see _build_solve_prompt);
-        # a zero-turn prompt section beats a one-turn tool call that
-        # every fresh-context attempt would re-pay.
+        # Type / option digests are static per session, so the solve
+        # prompt injects them directly (see _build_solve_prompt); the
+        # trajectory and task digests live in explore_python's namespace
+        # (`trajectories` / `describe_trajectory` / `sim.task()`).
+        # Every remaining tool needs a simulator: evaluate_option_plan
+        # rolls fully-specified plans out through the option model and
+        # explore_python probes it, so a planner without a simulator
+        # gets neither.
         tools = []
-        # When the probe is present it subsumes the remaining inspect
-        # tools too: `trajectories` / `describe_trajectory` in
-        # explore_python's namespace and `sim.task()`. The extra
-        # use_simulator guard keeps them for (hypothetical) sim-free
-        # configs where explore_python itself is never offered below.
-        probe_subsumes = (CFG.agent_planner_use_simulator
-                          and explore_python_replaces_tools())
-        if not probe_subsumes:
-            tools += ["inspect_trajectories", "inspect_train_tasks"]
-        # The remaining tools require a simulator: evaluate_option_plan
-        # rolls fully-specified plans out through the option model.
-        # None are offered when the planner has no simulator.
-        # (refine_plan_sketch, which backtracking-refines a param-free sketch,
-        # is exposed only by AgentModelBasedApproach.)
         if CFG.agent_planner_use_simulator:
             tools.append("evaluate_option_plan")
             # Closed-loop policy mode: the delivery gate for the
@@ -388,8 +376,7 @@ and update before doing anything else.**"""
             # probe but no longer captures).
             if CFG.agent_solve_policy_mode:
                 tools.append("evaluate_policy")
-            if CFG.agent_planner_use_explore_python:
-                tools.append("explore_python")
+            tools.append("explore_python")
         if CFG.agent_solve_use_journal:
             tools.append("record_journal")
         return tools
@@ -773,8 +760,7 @@ and update before doing anything else.**"""
         """The stuck-step visualization bullet: the probe's staging + render is
         the only visualization surface, so the bullet appears only when
         explore_python is offered."""
-        if CFG.agent_planner_use_simulator and \
-                CFG.agent_planner_use_explore_python:
+        if CFG.agent_planner_use_simulator:
             return (
                 "- **Use explore_python when stuck** - after 3+ failures on "
                 "the same step, STOP testing and use explore_python "
@@ -816,9 +802,8 @@ and update before doing anything else.**"""
             if a.predicate in visible_preds
         ]
 
-        # Types and options: the same digests the inspect_types /
-        # inspect_options tools would serve, injected here so those
-        # tools need not be offered (see _get_solve_tool_names).
+        # Types and options: static per-session digests, injected here
+        # instead of costing a tool turn (see _get_solve_tool_names).
         types_digest = render_types_digest(self._tool_context.types)
         options_digest = render_options_digest(
             self._get_all_options(),
@@ -1093,7 +1078,7 @@ Output ONLY the option plan lines at the end, after any analysis."""
     def _sync_tool_context(self) -> None:
         """Push current approach state into the shared ToolContext.
 
-        The MCP tools (inspect_options, evaluate_option_plan, etc.) read
+        The MCP tools (evaluate_option_plan, explore_python, etc.) read
         from the ToolContext dataclass, not the approach directly. This
         keeps them in sync after mutations (e.g. new trajectories
         collected, options added). Called before each solve and learning

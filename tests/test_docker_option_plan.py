@@ -119,7 +119,7 @@ def _run_option_plan(ctx: Any,
         plan = OPTION_PLAN
 
     task = ctx.current_task
-    all_options = ctx.options | ctx.iteration_proposals.proposed_options
+    all_options = ctx.options
     opt_map = {o.name: o for o in all_options}
 
     state = task.init

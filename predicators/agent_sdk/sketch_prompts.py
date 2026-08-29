@@ -398,20 +398,15 @@ def build_solve_prompt(
             line += f" — {pred.natural_language_assertion(names)}"
         pred_strs.append(line)
 
-    # Tool-availability-aware references: when explore_python replaces
-    # the standalone refine tool (see
-    # agent_planner_explore_python_keep_replaced_tools), guidance must
-    # point at the probe equivalents instead of tools the session lacks.
-    # ``tool_names=None`` keeps the legacy all-tools wording.
+    # Tool-availability-aware references: guidance must not name a
+    # capability the session lacks (a simulator-free session has no
+    # probe). ``tool_names=None`` means the full surface.
     tool_set = set(tool_names) if tool_names is not None else None
 
     def _has_tool(name: str) -> bool:
         return tool_set is None or name in tool_set
 
-    probe_refine = (not _has_tool("refine_plan_sketch")
-                    and _has_tool("explore_python"))
-    refine_ref = ("`sim.refine` (in `explore_python`)"
-                  if probe_refine else "`refine_plan_sketch`")
+    refine_ref = "`sim.refine` (in `explore_python`)"
     if _has_tool("explore_python"):
         visualize_advice = (
             "- Use `explore_python` (`sim.reset(mods={...})`, then "

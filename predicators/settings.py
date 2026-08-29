@@ -1512,17 +1512,11 @@ class GlobalSettings:
     agent_sdk_image_max_px = 512
     # Max size (bytes) of a single newline-delimited JSON message the agent SDK
     # subprocess transport will buffer. The SDK default is 1 MB, which a tool
-    # result embedding a base64 scene image (e.g. inspect_train_tasks with
-    # include_image=True at 900x900) can exceed -> "JSON message exceeded
+    # result embedding a base64 scene image (e.g. a sim.render() at
+    # 900x900) can exceed -> "JSON message exceeded
     # maximum buffer size". 20 MB comfortably fits full-res scene images.
     agent_sdk_max_buffer_size = 20 * 1024 * 1024
     agent_sdk_resume_session = True  # resume previous session if available
-    agent_sdk_propose_types = True
-    agent_sdk_propose_predicates = True
-    agent_sdk_propose_objects = True
-    agent_sdk_propose_processes = True
-    agent_sdk_propose_options = True
-    agent_sdk_auto_select_predicates = True  # run hill-climbing after proposals
     agent_sdk_max_trajectories_in_context = 3
     agent_sdk_log_agent_responses = True
 
@@ -1538,21 +1532,6 @@ class GlobalSettings:
 
     # Agent planner approach settings
     agent_planner_use_scratchpad = False  # include notes.md scratchpad
-    # Include the solve-phase explore_python tool: a persistent Python
-    # namespace over the BeliefProbe exploration facade (set the sim to any task
-    # state or a modified copy, run option plans from it, read full-precision
-    # features, render, snapshot/restore) so the agent writes sweep loops in
-    # one call instead of one evaluate_option_plan round-trip per probe.
-    # Exploratory only: nothing run through it can be captured as the answer.
-    agent_planner_use_explore_python = False
-    # When explore_python is on, whether the tools it subsumes
-    # (refine_plan_sketch -> sim.refine; inspect_trajectories /
-    # inspect_train_tasks -> trajectories / describe_trajectory /
-    # sim.task() in the probe namespace) are STILL offered alongside it.
-    # Default False: one surface per capability, so the agent's habits
-    # don't split across redundant tools. No effect when
-    # agent_planner_use_explore_python is False.
-    agent_planner_explore_python_keep_replaced_tools = False
     # Whether the planner is given a simulator to test candidate plans with
     # (the evaluate_option_plan tool / option-model rollouts). When False, the
     # agent must plan open-loop from trajectory data and LLM reasoning alone
@@ -1568,10 +1547,6 @@ class GlobalSettings:
 
     # Agent bilevel approach settings
     agent_bilevel_max_samples_per_step = 50  # param samples per step
-    # Total refine_plan_sketch attempts (fresh rng each) when a refined
-    # plan reaches the goal atoms but the task evaluator scores it as a
-    # non-solve; all attempts share the one tool-call timeout budget.
-    agent_bilevel_refine_evaluator_attempts = 3
     agent_bilevel_check_subgoals = True  # check subgoal atoms after each step
     # When True, the agent proposes per-step continuous parameters inside the
     # plan sketch (`Option(obj:type)[p1, p2] -> {subgoals}`). Refinement tries
@@ -1726,8 +1701,8 @@ class GlobalSettings:
     # under scripts/; the file may be a bare name or an absolute path.
     agent_bilevel_plan_sketch_dir = "plan_sketches"
     agent_bilevel_plan_sketch_file = ""
-    # When refine_plan_sketch is called without an explicit timeout,
-    # the tool computes
+    # When a sketch refinement runs without an explicit timeout, the
+    # caller computes
     #   max(_min, _per_step * len(sketch))
     # so plans with more steps automatically get more wall-clock budget.
     agent_bilevel_refinement_timeout_per_step = 30.0  # seconds per step
@@ -1856,7 +1831,7 @@ class GlobalSettings:
     agent_explorer_pin_proposed_params = True
     agent_explorer_pinned_step_retries = 3
     # A plan the explore session validated through the capture gate
-    # (evaluate_option_plan / refine_plan_sketch: goal reached in
+    # (evaluate_option_plan: goal reached in
     # agent_plan_validation_rollouts fresh belief rollouts) is executed
     # verbatim as the episode's solve attempt with mental_model_solved=
     # True, and the cycle's remaining requests on that task replay it

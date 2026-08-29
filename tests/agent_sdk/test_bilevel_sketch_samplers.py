@@ -728,8 +728,8 @@ def test_execute_plan_forward_not_initiable_stops():
 def test_refine_and_validate_report_returns_plan():
     """refine_and_validate_report yields (success, report, plan).
 
-    The grounded plan is what refine_plan_sketch captures so the
-    approach can return the simulator-verified answer directly.
+    The grounded plan is what the refinement captures so the approach
+    can return the simulator-verified answer directly.
     """
     step = SketchStep(option=_Move,
                       objects=[_block],

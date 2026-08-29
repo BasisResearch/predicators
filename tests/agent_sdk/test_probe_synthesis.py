@@ -181,7 +181,7 @@ def test_probe_descriptions_follow_phase() -> None:
     carries the belief-simulator + evaluate_option_plan wording, while in
     synthesis the probe rides inside run_python, whose description carries the
     candidate-simulator + evaluate_plan_refinement wording."""
-    utils.reset_config({"agent_planner_use_explore_python": True})
+    utils.reset_config({})
 
     def _desc(ctx: ToolContext) -> str:
         (tool, ) = (t for t in create_mcp_tools(ctx, ["explore_python"])
@@ -219,8 +219,6 @@ def test_probe_descriptions_follow_phase() -> None:
     # The fit/refine/forward-run protocol replaced the old validation
     # tool, and the probe is unconditional in synthesis sessions.
     assert "evaluate_plan_refinement" not in synth_desc
-    utils.reset_config({"agent_planner_use_explore_python": False})
-    assert "CANDIDATE simulator" in _run_python_desc()
 
 
 def test_probe_namespace_contract() -> None:
