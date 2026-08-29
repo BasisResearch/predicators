@@ -1692,6 +1692,15 @@ class GlobalSettings:
     # returns the call's printed output so partial sweep results
     # survive. 0 disables.
     agent_sdk_synthesis_python_call_timeout = 1800.0
+    # Wall-clock cap for one canonical ``sim.fit()``. The fit owns its
+    # budget: the enclosing run_python call's cap is paused for its
+    # duration (see agent_sdk.tools.budget.suspend_budget_watchdog), so
+    # a long rollout system-ID fit is never stopped mid-way by the
+    # per-call limit. Probes never fit implicitly: after an edit they run
+    # the candidate at the last fit's values (declared init values for
+    # new params) and report UNFITTED until the agent fits the current
+    # file. 0 disables the cap.
+    agent_sdk_fit_call_timeout = 3600.0
     # Test-time closed-loop recovery. After each option in the refined plan
     # finishes, the subgoal_annotations execution monitor checks the
     # sketch's subgoal annotation for that step against the REAL state; on

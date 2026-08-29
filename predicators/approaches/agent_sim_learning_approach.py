@@ -1508,6 +1508,45 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 lambda s: utils.abstract(s, self._get_all_predicates()))
         return model
 
+    def _probe_model_cache(self) -> Dict[str, Any]:
+        """The candidate probe model cache (content digest -> model)."""
+        cache = getattr(self, "_probe_model_cache_store", None)
+        if cache is None:
+            cache = {}
+            setattr(self, "_probe_model_cache_store", cache)
+        return cache
+
+    def _probe_fit_state(self) -> Dict[str, Any]:
+        """Which simulator.py content the last canonical fit deployed."""
+        state = getattr(self, "_probe_fit_state_store", None)
+        if state is None:
+            state = {}
+            setattr(self, "_probe_fit_state_store", state)
+        return state
+
+    def _publish_probe_fit(self, params: Dict[str, float], version_tag: str,
+                           simulator_file: str) -> None:
+        """Deploy a canonical ``sim.fit`` result to the candidate probe.
+
+        Publishes the fitted values in place (invented predicates hold a
+        live view over ``_fitted_params``), records the fitted file
+        content, and drops the cached probe model so the next probe
+        rebuilds at these values without fitting again.
+        """
+        self._fitted_params.clear()
+        self._fitted_params.update(params)
+        digest = None
+        if os.path.isfile(simulator_file):
+            with open(simulator_file, "rb") as f:
+                digest = hashlib.sha256(f.read()).hexdigest()
+        state = self._probe_fit_state()
+        state["digest"] = digest
+        state["version"] = version_tag
+        self._probe_model_cache().clear()
+        self._tool_context.probe_param_status = f"fitted ({version_tag})"
+        logger.info("Synthesis probe: sim.fit deployed %d params (%s).",
+                    len(params), version_tag)
+
     def _make_candidate_probe_model_provider(
         self,
         simulator_file: str,
@@ -1520,20 +1559,21 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         The returned callable is installed as
         ``ctx.probe_option_model_provider`` for the synthesis session:
         on first use, and again after every content change of
-        ``simulator_file``, it loads the candidate simulator, MCMC-fits
-        its params, and builds the combined option model through the
-        :func:`build_candidate_option_model` path, publishing the fit
-        exactly as ``sim.fit`` reports it. ``sim.run`` / ``sim.refine``
-        therefore always exercise the candidate at deployed (fitted)
-        params. Content-hash caching keeps
-        sweep loops cheap: an unchanged file never refits.
+        ``simulator_file``, it loads the candidate simulator and builds
+        the combined option model at the last fit's values (declared
+        init values for new params) - it never fits. A canonical
+        ``sim.fit`` publishes through :meth:`_publish_probe_fit`, which
+        marks the fitted content and drops the cache so the next probe
+        runs at the fitted values. ``ctx.probe_param_status`` tells the
+        agent which of the two it is looking at. Content-hash caching
+        keeps sweep loops cheap: an unchanged file is never rebuilt.
 
         Raises ``RuntimeError`` (surfaced in the tool output) when no
         loadable candidate exists yet - the probe must never fall back
         to the pre-synthesis option model, which on cycle 1 wraps the
         real env (a live-physics leak into learning).
         """
-        cache: Dict[str, Any] = {}
+        cache = self._probe_model_cache()
 
         def _provider() -> _OracleOptionModel:
             if not os.path.isfile(simulator_file):
@@ -1545,6 +1585,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 digest = hashlib.sha256(f.read()).hexdigest()
             if cache.get("digest") == digest:
                 return cache["model"]
+            fit_state = self._probe_fit_state()
             rules, specs, features, ns = \
                 self._load_simulator_from_module_file(
                     simulator_file, trajectories)
@@ -1557,16 +1598,35 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                                  if features is not None else inferred_hint)
             latent_init = read_latent_init(ns) if isinstance(ns,
                                                              dict) else None
-            model, _, fit_sse = build_candidate_option_model(
+            # Never fit here: fitting is the agent's explicit ``sim.fit``
+            # (its own budget, its own report). The candidate runs at
+            # the last published fit's values (declared init values for
+            # new params) and every probe result says so until the
+            # agent fits the current file - so a rollout never silently
+            # runs a fit it may not afford (sketch seed1 learn 011: an
+            # implicit refit inside a probe hit the call cap and came
+            # back as an empty "param fitting failed:").
+            model, params, _ = build_candidate_option_model(
                 self,
                 rules,
                 specs,
                 residual_features,
                 base_pred_triples,
-                latent_init=latent_init)
+                latent_init=latent_init,
+                fit=False)
+            if fit_state.get("digest") == digest:
+                status = f"fitted ({fit_state.get('version')})"
+            else:
+                status = (
+                    "UNFITTED for the current simulator.py - the candidate "
+                    "runs at the last fit's values where a param still "
+                    "exists (declared init values otherwise); run "
+                    "sim.fit() to fit and deploy the current file before "
+                    "trusting quantitative results or a GO verdict")
+            self._tool_context.probe_param_status = status
             logger.info(
-                "Synthesis probe: candidate model rebuilt from %s "
-                "(post-fit SSE %.6f).", simulator_file, fit_sse)
+                "Synthesis probe: candidate model rebuilt from %s (%d "
+                "params, %s).", simulator_file, len(params), status)
             cache["digest"] = digest
             cache["model"] = model
             return model
@@ -1874,6 +1934,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             self._tool_context.extra_mcp_tools = []
             self._tool_context.probe_option_model_provider = None
             self._tool_context.probe_fit_provider = None
+            self._tool_context.probe_param_status = None
             self._tool_context.probe_residuals_provider = None
             self._tool_context.learn_cycle_index = None
             self._learning_mode = False
@@ -2129,9 +2190,12 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         if CFG.agent_planner_use_explore_python:
             probe_note = (
                 "\n\nThe `sim` probe inside `run_python` forward-rolls "
-                "the CANDIDATE simulator you are editing (auto-refit on "
-                "file change; pass task_idx explicitly to `sim.reset`, "
-                "`sim.task(task_idx)` for a task digest). Its rollouts "
+                "the CANDIDATE simulator you are editing at the params "
+                "of your last `sim.fit()` - it never fits on its own, so "
+                "after a structural edit its results are marked UNFITTED "
+                "until you run `sim.fit()` on the current file; pass "
+                "task_idx explicitly to `sim.reset`, `sim.task(task_idx)` "
+                "for a task digest). Its rollouts "
                 "are candidate predictions - do not mix them up with the "
                 "recorded real `trajectories`. Usage and the validation "
                 "protocol are in the system prompt's Tools section.")
@@ -2255,8 +2319,10 @@ your point estimate is caught in simulation instead of failing a \
 real test episode. A literal is earned only once the data brackets \
 the constant from both sides with margin to spare.
 
-Before ending the session, run a GO/NO-GO check: refine a full \
-solve of the train task in your candidate simulator and validate \
+Before ending the session, run `sim.fit()` on the final file (the \
+deployed model is fit from exactly that file; a GO verdict on \
+UNFITTED values is worthless) and then a GO/NO-GO check: refine a \
+full solve of the train task in your candidate simulator and validate \
 it with several trials (`sim.refine` / `sim.run(plan, trials=5)`). \
 Record the verdict in the decision record together with the plan's \
 WEAKEST margin - the smallest distance from any step's operating \
