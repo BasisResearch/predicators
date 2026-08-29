@@ -19,7 +19,7 @@ ENVS:
 APPROACHES:
   agent_oracle_hybrid_sim:
     SKIP: True
-  agent_po_predicate_invention_al:
+  sim_predicator:
     SKIP: False
     FLAGS:
       skip_initial_test: True

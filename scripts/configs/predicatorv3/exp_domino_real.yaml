@@ -165,7 +165,7 @@ ENVS:
 APPROACHES:
   agent_oracle_hybrid_sim:
     SKIP: True
-  agent_po_predicate_invention_al:
+  sim_predicator:
     SKIP: False
     FLAGS:
       # Replay one fixed plan every episode instead of planning. What is
