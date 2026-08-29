@@ -1,29 +1,9 @@
 """Safe execution and validation of agent-generated code proposals."""
 import traceback
-from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 from predicators import utils
-from predicators.structs import CausalProcess, ParameterizedOption, \
-    Predicate, State, Task, Type
-
-
-@dataclass
-class ProposalBundle:
-    """Accumulates proposals made by the agent during a single iteration."""
-    proposed_types: Set[Type] = field(default_factory=set)
-    proposed_predicates: Set[Predicate] = field(default_factory=set)
-    augment_task_fn: Optional[Callable[[Task], Task]] = None
-    augment_task_code: Optional[str] = None
-    proposed_processes: Set[CausalProcess] = field(default_factory=set)
-    proposed_options: Set[ParameterizedOption] = field(default_factory=set)
-    errors: List[str] = field(default_factory=list)
-    # Retractions: names of previously-proposed abstractions to remove
-    retract_type_names: Set[str] = field(default_factory=set)
-    retract_predicate_names: Set[str] = field(default_factory=set)
-    retract_task_augmentor: bool = False
-    retract_process_names: Set[str] = field(default_factory=set)
-    retract_option_names: Set[str] = field(default_factory=set)
+from predicators.structs import ParameterizedOption, Predicate, State, Type
 
 
 def exec_code_safely(code: str, context: Dict[str, Any],

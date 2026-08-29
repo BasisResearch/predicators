@@ -30,7 +30,7 @@ from predicators.agent_sdk.session_base import AgentSessionFatalError, \
 from predicators.agent_sdk.tools import _SnapshotTarget, \
     create_sampler_synthesis_tools, create_synthesis_tools, \
     finalize_versioned_snapshot
-from predicators.agent_sdk.tools.inspection import render_options_digest
+from predicators.agent_sdk.tools.digests import render_options_digest
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.ground_truth_models import get_gt_samplers
 from predicators.settings import CFG

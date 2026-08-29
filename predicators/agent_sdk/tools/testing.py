@@ -9,8 +9,7 @@ import numpy as np
 
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
-from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig, \
-    ValidationConfig
+from predicators.agent_sdk.config import RefinementConfig, ValidationConfig
 from predicators.agent_sdk.parallel_rollouts import \
     prefetch_parallel as _prefetch_parallel
 from predicators.agent_sdk.tools.budget import _budget_footer
@@ -163,109 +162,31 @@ def _parameter_margin_sweep(
 
 def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                          tool: Callable) -> Dict[str, Any]:
-    """Evaluation tools (run predicates / option plans against tasks)."""
-
-    @tool(
-        "evaluate_predicate_on_trajectory",
-        "Evaluate a predicate's truth value across timesteps in a trajectory",
-        {
-            "type": "object",
-            "properties": {
-                "predicate_name": {
-                    "type": "string",
-                    "description": "Name of the predicate to test"
-                },
-                "traj_idx": {
-                    "type": "integer",
-                    "description": "Trajectory index"
-                },
-                "object_names": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "description": "Object names to ground the predicate on"
-                },
-            },
-            "required": ["predicate_name", "traj_idx", "object_names"],
-        },
-    )
-    async def evaluate_predicate_on_trajectory(
-            args: Dict[str, Any]) -> Dict[str, Any]:
-        pred_name = args["predicate_name"]
-        traj_idx = args["traj_idx"]
-        object_names = args["object_names"]
-
-        # Find the predicate
-        all_preds = ctx.predicates | ctx.iteration_proposals.proposed_predicates
-        pred = None
-        for p in all_preds:
-            if p.name == pred_name:
-                pred = p
-                break
-        if pred is None:
-            return _error_result(f"Predicate '{pred_name}' not found.")
-
-        all_trajs = ctx.offline_trajectories + ctx.online_trajectories
-        if not all_trajs:
-            return _error_result("No trajectories available yet.")
-        if traj_idx < 0 or traj_idx >= len(all_trajs):
-            return _error_result(f"Invalid traj_idx {traj_idx}. "
-                                 f"Available: 0-{len(all_trajs)-1}")
-
-        traj = all_trajs[traj_idx]
-
-        # Find objects by name
-        objects = []
-        for name in object_names:
-            found = None
-            for obj in traj.states[0]:
-                if obj.name == name:
-                    found = obj
-                    break
-            if found is None:
-                avail = [o.name for o in sorted(traj.states[0], key=str)]
-                return _error_result(f"Object '{name}' not found in "
-                                     f"trajectory {traj_idx}. "
-                                     f"Available: {avail}")
-            objects.append(found)
-
-        results = []
-        for t_step, state in enumerate(traj.states):
-            try:
-                val = pred.holds(state, objects)
-                results.append(f"t={t_step}: {val}")
-            except Exception as e:  # pylint: disable=broad-except
-                results.append(f"t={t_step}: ERROR ({e})")
-
-        return _text_result(
-            f"Predicate {pred_name}({', '.join(object_names)}) "
-            f"over trajectory {traj_idx}:\n" + "\n".join(results))
+    """Evaluation tools (option plans / policies against tasks)."""
 
     # Tool descriptions bake config values at BUILD time (session open);
     # the handlers below re-read config at CALL time.
     _gs_eval_doc = (
         "Runs your exact params with NO sampling (a `~` ground-sampler "
         "annotation - `~ [w1, w2]` region or `~ my_sampler` - is accepted "
-        "but IGNORED here; only refine_plan_sketch uses it). "
+        "but IGNORED here; only `sim.refine` uses it). "
         if RefinementConfig.from_cfg().ground_samplers else
         "Runs your exact params with NO sampling. ")
 
-    # When the session carries explore_python, the two surfaces divide
-    # cleanly: exploration (modified states, partial plans, sweeps)
-    # belongs in the probe, and this tool is the SUBMISSION path.
+    # The two surfaces divide cleanly: exploration (modified states,
+    # partial plans, sweeps) belongs in the probe, and this tool is the
+    # SUBMISSION path.
     _probe_split_doc = (
         " This tool always runs from the task's TRUE initial state and is "
         "the ONLY path that captures an answer: do your exploration "
         "(modified states, partial plans, parameter sweeps) in "
-        "explore_python, then validate and SUBMIT the final plan here."
-        if ToolSurfaceConfig.from_cfg().use_explore_python else "")
+        "explore_python, then validate and SUBMIT the final plan here.")
 
     @tool(
         "evaluate_option_plan",
         "Execute a fully-specified plan on a task via the option model and "
         "report the result at each step. `plan` is text — one option per "
-        "line, same grammar as refine_plan_sketch: "
+        "line, same grammar as `sim.refine`: "
         "`Option(obj1:type1, obj2:type2)[param1, param2] -> {Atom(obj:type), "
         "...}` (typed object refs; EXACT continuous params in `[]`, `[]` for "
         "none; optional `-> {atoms}` subgoals, prefix NOT to require false). "
@@ -369,9 +290,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         if ctx.option_model is None:
             return _error_result("No option model available in ToolContext.")
 
-        # Sync the option model's option map with all current options
-        # (GT + proposed) so it stays in sync after propose/retract.
-        all_options = ctx.options | ctx.iteration_proposals.proposed_options
+        all_options = ctx.options
         opt_map = {o.name: o for o in all_options}
         model = ctx.option_model
         model._name_to_parameterized_option = (  # type: ignore[attr-defined]  # pylint: disable=protected-access
@@ -402,13 +321,12 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         lines = [f"Testing option plan on task {task_label}:"]
         saved_image_paths: List[str] = []
 
-        all_predicates = (ctx.predicates
-                          | ctx.iteration_proposals.proposed_predicates)
+        all_predicates = ctx.predicates
 
         if not plan_text:
             return _error_result("`plan` is required (option plan text).")
         # Parse the text plan into a sketch (options + objects + exact params +
-        # subgoals) using the SAME grammar/parser as refine_plan_sketch.
+        # subgoals) using the SAME grammar/parser as sim.refine.
         types = set(ctx.types)
         for opt in all_options:
             types.update(opt.types)
@@ -1192,7 +1110,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 "evaluate_option_plan instead.")
         if ctx.option_model is None:
             return _error_result("No option model available in ToolContext.")
-        all_options = ctx.options | ctx.iteration_proposals.proposed_options
+        all_options = ctx.options
         model = ctx.option_model
         model._name_to_parameterized_option = (  # type: ignore[attr-defined]  # pylint: disable=protected-access
             {o.name: o
@@ -1224,8 +1142,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         with open(policy_path, "r", encoding="utf-8") as f:
             policy_source = f.read()
 
-        all_predicates = (ctx.predicates
-                          | ctx.iteration_proposals.proposed_predicates)
+        all_predicates = ctx.predicates
         types = set(ctx.types)
         for opt in all_options:
             types.update(opt.types)
@@ -1526,7 +1443,6 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                             _budget_footer(ctx, rollouts_before))
 
     return {
-        "evaluate_predicate_on_trajectory": evaluate_predicate_on_trajectory,
         "evaluate_option_plan": evaluate_option_plan,
         "evaluate_policy": evaluate_policy,
     }

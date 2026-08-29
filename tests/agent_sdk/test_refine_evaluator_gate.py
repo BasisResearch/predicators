@@ -1,22 +1,19 @@
-"""Evaluator gating tests for the ``refine_plan_sketch`` tool.
+"""Evaluator gating tests for ``sim.refine(require_solved=True)``.
 
-Drives the real MCP tool handler with a fake option model (no
-PyBullet). When the task has an evaluator, refinement success is gated
-on its scoring: a parameterization that reaches the goal atoms but
-scores as a non-solve is discarded and the search resamples with a
-fresh rng; if every attempt scores as a non-solve the report is demoted
-to FAILURE: SCORED_NON_SOLVE. The report speaks only in (terminated,
-reward) terms - the certificate's reason strings never reach the agent.
+Drives the probe with a fake option model (no PyBullet). When the
+task has an evaluator, refinement success is gated on its scoring: a
+parameterization that reaches the goal atoms but scores as a non-solve
+is discarded and the search keeps sampling; if no candidate is ever
+certified the result is a FAILURE. The report speaks only in verdict
+terms - the certificate's reason strings never reach the agent.
 """
-
-import asyncio
-from typing import Any
 
 import numpy as np
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.agent_sdk.tools import ToolContext, create_mcp_tools
+from predicators.agent_sdk.belief_probe import BeliefProbe
+from predicators.agent_sdk.tools import ToolContext
 from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
     Object, ParameterizedOption, Predicate, State, Task, TaskEvaluator, Type
 
@@ -41,7 +38,7 @@ _Move = ParameterizedOption(
     terminal=lambda _s, _m, _o, _p: False,
 )
 
-_SKETCH_TEXT = "Move(block0:block) -> {ReachedHi(block0:block)}"
+_SKETCH_TEXT = "Move(block0:block)[] -> {ReachedHi(block0:block)}"
 
 
 class _Model:
@@ -83,9 +80,8 @@ class _BandEvaluator(TaskEvaluator):
         return False, "band: outside the certified interval"
 
 
-def _run_refine(evaluator, attempts=3):
+def _run_refine(evaluator):
     utils.reset_config({
-        "agent_bilevel_refine_evaluator_attempts": attempts,
         "agent_bilevel_max_samples_per_step": 50,
         "agent_bilevel_use_llm_initial_params": False,
     })
@@ -103,46 +99,35 @@ def _run_refine(evaluator, attempts=3):
         option_model=model,
         current_task=task,
     )
-    tools = {
-        t.name: t.handler
-        for t in create_mcp_tools(ctx, tool_names=["refine_plan_sketch"])
-    }
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    result: Any = loop.run_until_complete(tools["refine_plan_sketch"]({
-        "plan":
-        _SKETCH_TEXT,
-        "timeout":
-        10,
-    }))
-    return result["content"][0]["text"]
+    probe = BeliefProbe(ctx).reset(task_idx=0)
+    return probe.refine(_SKETCH_TEXT,
+                        timeout=10,
+                        require_goal=True,
+                        require_solved=True)
 
 
 def test_certified_refinement_reports_success():
     """A wide certification band accepts the first goal-reaching params."""
     goal = {GroundAtom(_ReachedHi, [_block])}
-    text = _run_refine(_BandEvaluator(goal, 0.9, 1.0))
+    res = _run_refine(_BandEvaluator(goal, 0.9, 1.0))
+    text = str(res)
+    assert res.success
     assert "SUCCESS" in text
-    assert "Parameters found" in text
-    assert "reward=" in text
-    assert "solved=True" in text
-    assert "SCORED_NON_SOLVE" not in text
+    assert "evaluator-solved" in res.verdict
+    assert 0.9 <= float(res.plan_lines[0].split("[")[1].split("]")[0])
     assert "legitimate" not in text
 
 
 def test_all_non_solve_attempts_demote_to_failure():
     """An empty certification band makes every goal-reaching rollout a
-    non-solve: the report is demoted, params are withheld, and no reason
+    non-solve: the search fails, no params are certified, and no reason
     string leaks."""
     goal = {GroundAtom(_ReachedHi, [_block])}
-    text = _run_refine(_BandEvaluator(goal, 2.0, 3.0))
-    assert "FAILURE: SCORED_NON_SOLVE" in text
-    assert "scored every such rollout as a non-solve" in text
-    assert "change the sketch" in text
-    assert "Parameters found" not in text
+    res = _run_refine(_BandEvaluator(goal, 2.0, 3.0))
+    text = str(res)
+    assert not res.success
+    assert "FAILURE" in text
+    assert not res.verdict
     assert "band: outside the certified interval" not in text
     assert "legitimate" not in text
 
@@ -154,8 +139,8 @@ class _RejectFirstParamEvaluator(TaskEvaluator):
     Keyed on rollout content, not call count: ``reward()`` re-invokes
     ``_certify`` within one scoring pass, so a call counter would give
     inconsistent verdicts inside a single evaluation. Deterministically
-    exercises the resample path: attempt 1 reaches the goal atoms but
-    scores as a non-solve, attempt 2 (fresh rng, a different accepted
+    exercises the resample path: the first candidate reaches the goal
+    atoms but scores as a non-solve, a later draw (a different accepted
     parameter) is certified.
     """
 
@@ -173,13 +158,13 @@ class _RejectFirstParamEvaluator(TaskEvaluator):
 
 
 def test_non_solve_attempt_recovered_by_resampling():
-    """A discarded first attempt is resampled; the report notes the discard and
-    still withholds the reason string."""
+    """A discarded first candidate is resampled past; the result is a certified
+    SUCCESS that still withholds the reason string."""
     goal = {GroundAtom(_ReachedHi, [_block])}
-    text = _run_refine(_RejectFirstParamEvaluator(goal))
-    assert "SUCCESS" in text
-    assert "Parameters found" in text
-    assert "1 earlier parameterization(s) reached the goal atoms" in text
-    assert "were discarded" in text
+    res = _run_refine(_RejectFirstParamEvaluator(goal))
+    text = str(res)
+    assert res.success
+    assert "evaluator-solved" in res.verdict
+    assert res.total_samples >= 2
     assert "stub: first parameterization rejected" not in text
     assert "legitimate" not in text

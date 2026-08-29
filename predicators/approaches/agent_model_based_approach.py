@@ -5,7 +5,7 @@ subgoal atoms after each step, and continuous parameters, and must
 DELIVER it as an ``evaluate_option_plan`` capture on the current task -
 nothing it did not validate in the simulator (the model) is ever
 executed. A backtracking parameter search remains available to the agent
-as a tool (``refine_plan_sketch`` / ``sim.refine``) and to mid-episode
+as a probe method (``sim.refine``) and to mid-episode
 suffix replans, but there is no approach-side refinement of unvalidated
 sketches.
 
@@ -33,8 +33,7 @@ from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.session_base import AgentSessionFatalError, \
     query_fatal_error
 from predicators.agent_sdk.sketch_types import SketchStep as _SketchStep
-from predicators.agent_sdk.tools import BUILTIN_TOOLS, \
-    explore_python_replaces_tools, load_ground_sampler_fns
+from predicators.agent_sdk.tools import BUILTIN_TOOLS, load_ground_sampler_fns
 from predicators.approaches import ApproachFailure
 from predicators.approaches.agent_model_free_approach import \
     AgentModelFreeApproach
@@ -206,31 +205,13 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         """No synthesis phase in this approach - declare an empty set."""
         return []
 
-    def _get_solve_tool_names(self) -> Optional[List[str]]:
-        # Bilevel solving hands continuous refinement to a search, so the
-        # agent also gets refine_plan_sketch (backtracking refinement +
-        # forward validation on a param-free sketch). Needs a simulator.
-        # explore_python's sim.refine subsumes it (same search core, from
-        # any state); when explore_python is on, the standalone tool is
-        # offered only if the keep-replaced-tools flag asks for both.
-        tools = list(super()._get_solve_tool_names() or [])
-        if CFG.agent_planner_use_simulator and \
-                not explore_python_replaces_tools():
-            tools.append("refine_plan_sketch")
-        return tools
-
     # ------------------------------------------------------------------ #
     # System prompt (simplified - no parameter tuning workflow)
     # ------------------------------------------------------------------ #
 
     def _get_agent_system_prompt(self) -> str:
         propose = CFG.agent_bilevel_use_llm_initial_params
-        # When explore_python replaces the standalone refine tool, every
-        # guidance mention must point at the probe equivalent instead of
-        # a tool the session lacks.
-        probe_replaces = explore_python_replaces_tools()
-        refine_ref = ("sim.refine (in explore_python)"
-                      if probe_replaces else "refine_plan_sketch")
+        refine_ref = "sim.refine (in explore_python)"
         # What a sketch step consists of (shared between modes).
         if propose:
             sketch_desc = (
@@ -704,14 +685,14 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
             raise
         except Exception as e:  # pylint: disable=broad-except
             # The agent may have validated a working plan via
-            # refine_plan_sketch even if its final text didn't parse.
+            # evaluate_option_plan even if its final text didn't parse.
             policy = self._consume_validated_plan()
             if policy is not None:
                 return policy
             logging.warning("[%s] Solve query failed: %s", self._run_id, e)
         else:
             # Fast path: the agent already refined + forward-validated
-            # a plan on this task via refine_plan_sketch - return it
+            # a plan on this task via evaluate_option_plan - return it
             # directly instead of re-refining the (possibly different)
             # final-text sketch.
             policy = self._consume_validated_plan()

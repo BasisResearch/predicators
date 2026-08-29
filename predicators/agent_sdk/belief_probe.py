@@ -663,7 +663,7 @@ class BeliefProbe:
         ``reset(task_idx)`` + ``render()`` for the scene image.
         """
         # pylint: disable-next=import-outside-toplevel
-        from predicators.agent_sdk.tools.inspection import render_task_digest
+        from predicators.agent_sdk.tools.digests import render_task_digest
         ctx = self._ctx
         if task_idx is None and ctx.probe_option_model_provider is not None:
             raise ValueError(
@@ -816,8 +816,7 @@ class BeliefProbe:
     def atoms(self) -> List[str]:
         """Sorted ground atoms true in the current state."""
         cur = self._require_state()
-        preds = (self._ctx.predicates
-                 | self._ctx.iteration_proposals.proposed_predicates)
+        preds = self._ctx.predicates
         return [str(a) for a in sorted(utils.abstract(cur, preds))]
 
     def render(
@@ -880,8 +879,8 @@ class BeliefProbe:
         the probe task starts at the current state and carries no
         evaluator, and ``notices`` lists parse caveats to surface (e.g.
         region annotations ignored because ground samplers are off).
-        Same grammar and parser as ``evaluate_option_plan`` /
-        ``refine_plan_sketch`` (``~ [w]`` search regions included).
+        Same grammar and parser as ``evaluate_option_plan`` (``~ [w]``
+        search regions included).
         """
         # pylint: disable=import-outside-toplevel
         from predicators.agent_sdk import bilevel_sketch
@@ -894,9 +893,8 @@ class BeliefProbe:
                                          init=cur,
                                          evaluator=None)
 
-        all_options = ctx.options | ctx.iteration_proposals.proposed_options
-        all_predicates = (ctx.predicates
-                          | ctx.iteration_proposals.proposed_predicates)
+        all_options = ctx.options
+        all_predicates = ctx.predicates
         types = set(ctx.types)
         for opt in all_options:
             types.update(opt.types)
@@ -1551,9 +1549,8 @@ class BeliefProbe:
         probe_task = dataclasses.replace(self._base_task,
                                          init=cur,
                                          evaluator=None)
-        all_options = ctx.options | ctx.iteration_proposals.proposed_options
-        all_predicates = (ctx.predicates
-                          | ctx.iteration_proposals.proposed_predicates)
+        all_options = ctx.options
+        all_predicates = ctx.predicates
         types = set(ctx.types)
         for opt in all_options:
             types.update(opt.types)
@@ -1832,8 +1829,8 @@ class BeliefProbe:
                require_solved: bool = False) -> "ProbeRefineResult":
         """Backtracking parameter search for a sketch FROM THE CURRENT STATE.
 
-        Same grammar and search core as ``refine_plan_sketch``, but
-        composable: refine a plan *suffix* from a snapshot where the
+        Same grammar as ``evaluate_option_plan``, and composable:
+        refine a plan *suffix* from a snapshot where the
         prefix already executed, so the search budget goes to the step
         that matters instead of re-descending through the whole plan.
         Annotate each step's ``-> {subgoals}`` - success means every
@@ -1880,7 +1877,7 @@ class BeliefProbe:
             evaluator = self._require_solved_evaluator("require_solved")
             # Same gate (and therefore same accept policy: coarse and
             # evaluator errors never block, non-terminated never blocks)
-            # as refine_plan_sketch, so identical params can't get
+            # as evaluate_option_plan, so identical params can't get
             # contradictory verdicts across the two surfaces.
             inner_check = make_solved_check(
                 evaluator, getattr(self._option_model(), "sim_env", None))
@@ -1905,8 +1902,8 @@ class BeliefProbe:
             max_samples_per_step = \
                 RefinementConfig.from_cfg().max_samples_per_step
         self._refine_calls += 1
-        # Deterministic but distinct from refine_plan_sketch's
-        # CFG.seed + attempt streams and from other probe instances, so
+        # Deterministic but distinct from the solver's CFG.seed + attempt
+        # streams and from other probe instances, so
         # "try a different random search" does not replay failed draws.
         rng = np.random.default_rng(CFG.seed + 100003 *
                                     (self._instance_id + 1) +
@@ -2026,7 +2023,7 @@ def build_probe_namespace(ctx: "ToolContext") -> Dict[str, Any]:
     import numpy as np
 
     # pylint: disable-next=import-outside-toplevel
-    from predicators.agent_sdk.tools.inspection import render_trajectory_digest
+    from predicators.agent_sdk.tools.digests import render_trajectory_digest
     all_trajs = list(ctx.offline_trajectories) + list(ctx.online_trajectories)
 
     def describe_trajectory(traj_idx: int,

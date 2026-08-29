@@ -9,9 +9,10 @@ This package replaces the former single-module ``tools.py``. Layout:
 - ``budget``: solve-attempt budget footer and watchdog.
 - ``scene``: scene rendering and state-manipulation helpers.
 - ``verdicts``: task-evaluator verdicts and ground-sampler loading.
-- ``inspection`` / ``proposals`` / ``testing`` / ``planning`` /
-  ``exploration`` / ``journal_tools``: the static MCP tool builders,
-  assembled by ``assembly.create_mcp_tools``.
+- ``testing`` / ``exploration`` / ``journal_tools``: the static MCP
+  tool builders, assembled by ``assembly.create_mcp_tools``.
+- ``digests``: the type / option / task / trajectory digest renderers
+  shared by the prompts and the probe.
 - ``snapshots``: versioned write-time snapshots of agent-edited files.
 - ``python_exec``: shared python-exec core (run_python /
   explore_python).
@@ -29,15 +30,12 @@ from predicators.agent_sdk.tools.params_view import _ParamsView
 from predicators.agent_sdk.tools.predicate_synthesis import \
     create_predicate_synthesis_tools
 from predicators.agent_sdk.tools.registry import ALL_TOOL_NAMES, \
-    BUILTIN_TOOLS, EXPLORATION_TOOL_NAMES, INSPECTION_TOOL_NAMES, \
-    JOURNAL_TOOL_NAMES, MCP_SERVER_NAME, PLANNING_TOOL_NAMES, \
-    PREDICATE_SYNTHESIS_TOOL_NAMES, PROPOSAL_TOOL_NAMES, \
-    RETRACTION_TOOL_NAMES, SAMPLER_SYNTHESIS_TOOL_NAMES, \
-    SYNTHESIS_TOOL_NAMES, TESTING_TOOL_NAMES, explore_python_replaces_tools, \
+    BUILTIN_TOOLS, EXPLORATION_TOOL_NAMES, JOURNAL_TOOL_NAMES, \
+    MCP_SERVER_NAME, PREDICATE_SYNTHESIS_TOOL_NAMES, \
+    SAMPLER_SYNTHESIS_TOOL_NAMES, SYNTHESIS_TOOL_NAMES, TESTING_TOOL_NAMES, \
     get_allowed_tool_list, list_session_tool_names
 from predicators.agent_sdk.tools.results import _make_coercing_tool, \
-    _make_spilling_text_result, _save_option_to_sandbox, \
-    session_log_filename
+    _make_spilling_text_result, session_log_filename
 from predicators.agent_sdk.tools.sampler_synthesis import \
     create_sampler_synthesis_tools
 from predicators.agent_sdk.tools.sandbox_guard import \
@@ -56,13 +54,9 @@ __all__ = [
     "ALL_TOOL_NAMES",
     "BUILTIN_TOOLS",
     "EXPLORATION_TOOL_NAMES",
-    "INSPECTION_TOOL_NAMES",
     "JOURNAL_TOOL_NAMES",
     "MCP_SERVER_NAME",
-    "PLANNING_TOOL_NAMES",
     "PREDICATE_SYNTHESIS_TOOL_NAMES",
-    "PROPOSAL_TOOL_NAMES",
-    "RETRACTION_TOOL_NAMES",
     "SAMPLER_SYNTHESIS_TOOL_NAMES",
     "SANDBOX_HIDDEN_MODULES_PATTERN",
     "SANDBOX_INTROSPECTION",
@@ -79,7 +73,6 @@ __all__ = [
     "create_synthesis_tools",
     "draw_pybullet_annotation",
     "evaluate_states_with",
-    "explore_python_replaces_tools",
     "finalize_versioned_snapshot",
     "format_object_poses",
     "get_allowed_tool_list",
