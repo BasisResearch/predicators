@@ -14,7 +14,7 @@ from predicators.approaches.bridge_policy_approach import \
     BridgePolicyApproach, RLBridgePolicyApproach
 from predicators.bridge_policies import BridgePolicyDone
 from predicators.cogman import CogMan
-from predicators.envs import get_or_create_env
+from predicators.envs import create_new_env
 from predicators.execution_monitoring import create_execution_monitor
 from predicators.ground_truth_models import get_gt_options
 from predicators.perception import create_perceiver
@@ -42,7 +42,7 @@ def test_bridge_policy_approach():
         "num_test_tasks": 1,
     }
     utils.reset_config(args)
-    env = get_or_create_env(CFG.env)
+    env = create_new_env(CFG.env)
     train_tasks = [t.task for t in env.get_train_tasks()]
     test_tasks = [t.task for t in env.get_test_tasks()]
     approach = BridgePolicyApproach(env.predicates,
@@ -131,7 +131,7 @@ def test_bridge_policy_approach():
         "num_test_tasks": 1,
     }
     utils.reset_config(args)
-    env = get_or_create_env(CFG.env)
+    env = create_new_env(CFG.env)
     train_tasks = [t.task for t in env.get_train_tasks()]
     test_tasks = [t.task for t in env.get_test_tasks()]
     approach = BridgePolicyApproach(env.predicates,
@@ -163,7 +163,7 @@ def test_bridge_policy_approach():
         "num_test_tasks": 1,
     }
     utils.reset_config(args)
-    env = get_or_create_env(CFG.env)
+    env = create_new_env(CFG.env)
     train_tasks = [t.task for t in env.get_train_tasks()]
     test_tasks = [t.task for t in env.get_test_tasks()]
     approach = BridgePolicyApproach(env.predicates,
@@ -253,7 +253,7 @@ def test_rl_bridge_policy_approach():
         "max_initial_demos": 0
     }
     utils.reset_config(args)
-    env = get_or_create_env(CFG.env)
+    env = create_new_env(CFG.env)
     train_tasks = [t.task for t in env.get_train_tasks()]
     approach = RLBridgePolicyApproach(env.predicates,
                                       get_gt_options(env.get_name()),
