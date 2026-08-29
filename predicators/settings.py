@@ -1533,7 +1533,7 @@ class GlobalSettings:
     # Agent planner approach settings
     agent_planner_use_scratchpad = False  # include notes.md scratchpad
     # Whether the planner is given a simulator to test candidate plans with
-    # (the evaluate_option_plan tool / option-model rollouts). When False, the
+    # (the submit_plan tool / option-model rollouts). When False, the
     # agent must plan open-loop from trajectory data and LLM reasoning alone
     # -- the genuinely model-free baseline.
     agent_planner_use_simulator = True
@@ -1611,7 +1611,7 @@ class GlobalSettings:
     # Closed-loop policy mode: the solve agent's deliverable is a per-task
     # PROGRAM (<sandbox>/policy.py with get_option(state, memory) -> next
     # plan line or None) validated in the belief model via the
-    # evaluate_policy tool and executed at test time WITHOUT an LLM in
+    # submit_policy tool and executed at test time WITHOUT an LLM in
     # the loop. Option failures are surfaced to the policy (via
     # memory["last_failure"]) instead of ending the episode, so recovery
     # (re-place a drifted block, re-aim after a BiRRT refusal) is the
@@ -1708,7 +1708,7 @@ class GlobalSettings:
     agent_bilevel_refinement_timeout_per_step = 30.0  # seconds per step
     agent_bilevel_refinement_timeout_min = 30.0  # floor on auto-scaled timeout
     # Total number of belief-sim rollouts a goal-reaching plan must pass in
-    # evaluate_option_plan before it is captured as the agent's answer. The
+    # submit_plan before it is captured as the agent's answer. The
     # shared sim env is nondeterministic across repeats (motion-planner
     # sampling, physics-solver state), so repeats sample the same execution
     # variability the real rollout will - a flaky plan is reported to the
@@ -1815,7 +1815,7 @@ class GlobalSettings:
     # (every candidate scores 0) and reduces to first-feasible.
     agent_explorer_info_ensemble_size = 6
     # A plan the explore session validated through the capture gate
-    # (evaluate_option_plan: goal reached in
+    # (submit_plan: goal reached in
     # agent_plan_validation_rollouts fresh belief rollouts) is executed
     # verbatim as the episode's solve attempt with mental_model_solved=
     # True, and the cycle's remaining requests on that task replay it

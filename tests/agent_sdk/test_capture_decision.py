@@ -1,6 +1,6 @@
 """Direct unit tests for the pure ``_decide_capture`` function.
 
-The e2e harness (``test_evaluate_option_plan_capture.py``) drives the
+The e2e harness (``test_submit_plan_capture.py``) drives the
 same policy through the real tool handler; these tests pin the decision
 table itself, one test per :class:`CaptureDecision` case, including
 guard combinations the e2e tests do not reach:

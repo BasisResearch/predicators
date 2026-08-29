@@ -53,7 +53,7 @@ def build_solve_prompt(
     ``[...]`` per step; the search refines them and samples on failure".
 
     ``require_tool_validation`` tells the agent it MUST submit a
-    goal-reaching ``evaluate_option_plan`` run on the current task (the
+    goal-reaching ``submit_plan`` run on the current task (the
     captured, validated plan is the only output) - used when the approach
     has no refinement fallback. When False, validation is merely
     encouraged.
@@ -82,8 +82,8 @@ def build_solve_prompt(
     re-verify rather than inherit.
 
     ``policy_mode`` (``CFG.agent_solve_policy_mode``): the deliverable
-    becomes a closed-loop ./policy.py validated via ``evaluate_policy``
-    instead of a fixed evaluate_option_plan capture; the submit and
+    becomes a closed-loop ./policy.py validated via ``submit_policy``
+    instead of a fixed submit_plan capture; the submit and
     closing guidance swap to the policy contract.
 
     ``physics_margin`` is the caller-threaded value of
@@ -98,7 +98,7 @@ def build_solve_prompt(
         "explore_mode accepts an uncaptured experiment sketch, which "
         "contradicts the hard capture gate of require_tool_validation")
     assert not policy_mode or require_tool_validation, (
-        "policy_mode is a hard capture gate (evaluate_policy), so it "
+        "policy_mode is a hard capture gate (submit_policy), so it "
         "requires require_tool_validation")
 
     init_state = task.init
@@ -174,7 +174,7 @@ def build_solve_prompt(
                 "not certify does not count. Once the belief model can "
                 "validate a goal-reaching plan, submitting it (even "
                 "unchanged) is how the loop concludes." +
-                (" A plan that passes evaluate_option_plan's validation "
+                (" A plan that passes submit_plan's validation "
                  "gate (goal reached in every fresh belief rollout) is "
                  "executed VERBATIM as this episode's solve attempt and "
                  "replayed for the cycle's remaining episodes; only an "
@@ -227,7 +227,7 @@ def build_solve_prompt(
             "from the option's box - so propose explicit parameters for "
             "every step. Validate in the belief model yourself where it "
             "supports the plan (`sim.run`, `sim.refine`, then "
-            "`evaluate_option_plan` to submit), and follow each "
+            "`submit_plan` to submit), and follow each "
             "uncertified step with a step whose outcome reveals whether "
             "the mechanism worked - a short plan that exercises the "
             "unknown beats a long one that spends the episode's steps "
@@ -429,7 +429,7 @@ def build_solve_prompt(
     # change the skeleton.
     deep_tune_advice = (
         "deep-tune just that step (it needs precise values from you), then "
-        "re-test it. When deep-tuning a step with `evaluate_option_plan`:\n"
+        "re-test it. When deep-tuning a step with `submit_plan`:\n"
         "- Inspect the rendered images in `./test_images/` to see what "
         "actually happened.\n"
         "- For a failure like an IK error or collision, use the image and "
@@ -552,16 +552,16 @@ def build_solve_prompt(
                 "operating point to a learned threshold) and widen it if "
                 "it is smaller than the measured execution scatter. ")
         submit_guidance = (
-            "SUBMIT via `evaluate_option_plan`: pass your full plan as text "
+            "SUBMIT via `submit_plan`: pass your full plan as text "
             "(one option per line, `Option(obj:type)[params] -> {subgoals}`, "
             "with EXACT params) and run it on the CURRENT task (omit "
             "task_idx). When it reaches the goal, that plan is captured as "
-            "your answer, so do NOT finish until evaluate_option_plan "
+            "your answer, so do NOT finish until submit_plan "
             "CONFIRMS the capture. A goal-reaching plan is re-run several "
             "times before capture (simulation varies across runs; each "
             "rollout reports the motion-planner seed it ran at); if it is "
             "reported FLAKY, reproduce the failed rollout exactly (pass "
-            "its reported seed as rollout_seed to evaluate_option_plan, or "
+            "its reported seed as rollout_seed to submit_plan, or "
             "`sim.run(plan_text, seed=...)` in run_python) to see WHY, "
             "then add margin to the fragile step and resubmit. For a plan "
             "you suspect is marginal, request a stricter gate up front "
@@ -585,8 +585,8 @@ def build_solve_prompt(
             "It runs your EXACT parameters with no sampling. To find "
             f"working parameters you MAY use {refine_ref} (it searches "
             "but is slower); read the parameters it reports and submit them "
-            "via evaluate_option_plan. If a step does not reach its subgoal, "
-            + stuck_advice)
+            "via submit_plan. If a step does not reach its subgoal, " +
+            stuck_advice)
     elif propose_params:
         submit_guidance = (
             f"You may validate with {refine_ref} (it tries your "
@@ -642,7 +642,7 @@ def build_solve_prompt(
             f"{CFG.agent_policy_max_repeated_noops} times in a row also "
             "ends the episode - if your stage logic is not advancing, "
             "fix the stage test, do not re-send the same command.\n"
-            "SUBMIT via `evaluate_policy` on the CURRENT task until it "
+            "SUBMIT via `submit_policy` on the CURRENT task until it "
             "reaches the goal across all validation rollouts - the "
             "validated policy.py snapshot (taken at call time; later "
             "edits need a new call) is your ONLY accepted output. Test "
@@ -653,7 +653,7 @@ def build_solve_prompt(
             "the initial one. " + margin_guidance)
         closing_block = (
             "Your answer is ONLY accepted from a goal-reaching "
-            "`evaluate_policy` run on the CURRENT task; final text alone "
+            "`submit_policy` run on the CURRENT task; final text alone "
             "is discarded, so never finish without that validated run. "
             "After the goal-reaching run, summarize the policy's strategy "
             "as your final text.")
@@ -665,7 +665,7 @@ def build_solve_prompt(
         # text sketch and finish, wasting the whole attempt.
         closing_block = (
             "Your answer is ONLY accepted from a goal-reaching "
-            "`evaluate_option_plan` run on the CURRENT task; final text "
+            "`submit_plan` run on the CURRENT task; final text "
             "alone is discarded, so never finish without that validated "
             "run. Tool calls are permitted on every turn of this "
             "conversation. If an earlier context summary says a turn was "

@@ -178,8 +178,8 @@ def test_candidate_probe_model_provider_glue(tmp_path, monkeypatch) -> None:
 
 def test_probe_descriptions_follow_phase() -> None:
     """The probe surface follows the session: the solve-phase run_python
-    carries the belief-simulator + evaluate_option_plan wording, while the
-    synthesis run_python's description carries the candidate-simulator +
+    carries the belief-simulator + submit_plan wording, while the synthesis
+    run_python's description carries the candidate-simulator +
     evaluate_plan_refinement wording."""
     utils.reset_config({})
 
@@ -192,7 +192,7 @@ def test_probe_descriptions_follow_phase() -> None:
 
     solve_desc = _desc(ToolContext())
     assert "belief simulator" in solve_desc
-    assert "evaluate_option_plan" in solve_desc
+    assert "submit_plan" in solve_desc
     # The solve namespace also carries the recorded real trajectories.
     assert "trajectories" in solve_desc
     assert "describe_trajectory" in solve_desc

@@ -97,7 +97,7 @@ APPROACHES:
   # Oracle: GT monolithic sim as world model + GT predicates. Even with
   # use_llm_initial_params False the LLM delivers a full, concrete,
   # exact-parameter plan and validates it in the sim via
-  # evaluate_option_plan -- there is no approach-side backtracking
+  # submit_plan -- there is no approach-side backtracking
   # fallback. On top of plain agent_planner it has sim.refine (an
   # agent-invokable per-step backtracking parameter search) plus
   # the sketch / per-step-subgoal scaffolding.

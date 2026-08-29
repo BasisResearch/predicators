@@ -515,10 +515,10 @@ def test_probe_refine_rejects_bad_region():
         _probe_refine("Move(block0:block)[0.85] ~ [0.1, 0.2]")
 
 
-def test_evaluate_option_plan_ignores_region():
-    """evaluate_option_plan runs the exact center; the region is inert."""
+def test_submit_plan_ignores_region():
+    """submit_plan runs the exact center; the region is inert."""
     text = _run_tool(
-        "evaluate_option_plan", {
+        "submit_plan", {
             "plan": ("Move(block0:block)[0.95] ~ [0.05] -> "
                      "{ReachedHi(block0:block)}"),
             "include_states":

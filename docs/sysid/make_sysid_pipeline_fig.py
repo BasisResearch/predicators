@@ -84,7 +84,7 @@ BOXES = [
     ("D1", 3, 7.0, "Belief env", "applied to base env for planning;\n"
      "fresh validation envs re-apply;\n"
      "dropped params revert to registry", None),
-    ("D2", 3, 10.0, "Capture gate", "evaluate_option_plan: parse ->\n"
+    ("D2", 3, 10.0, "Capture gate", "submit_plan: parse ->\n"
      "legitimacy -> 3x/6x decorrelated\n"
      "validation -> 32-pt hull sweep\n"
      "-> PARAM-SENSITIVE on failure", None),

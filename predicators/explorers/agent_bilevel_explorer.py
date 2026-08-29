@@ -4,7 +4,7 @@ written.
 Queries a Claude agent for a fully parameterized plan sketch and rolls
 it out for real exactly as written. The agent refines and validates
 in-session against the currently-learned belief model (``sim.refine``,
-``sim.run``, ``evaluate_option_plan``); a plan that passed the capture
+``sim.run``, ``submit_plan``); a plan that passed the capture
 gate executes as a belief-certified solve attempt, anything else
 executes as an experiment with no harness-side parameter search or
 substitution. When the belief model disagrees with reality (e.g. a
@@ -89,7 +89,7 @@ class AgentBilevelExplorer(BaseExplorer):
             self._tool_context.last_mental_model_solved = True
             return self._certified_plan_strategy(certified)
 
-        # Point the agent's interactive tools (evaluate_option_plan, the
+        # Point the agent's interactive tools (submit_plan, the
         # sim probe) at the EXPLORE task. They
         # default to ctx.current_task when the agent omits task_idx, and
         # test-time _solve leaves current_task on the last TEST task.
@@ -100,7 +100,7 @@ class AgentBilevelExplorer(BaseExplorer):
         #
         # Enable the capture path too (keyed to current_task == this explore
         # task): the agent often submits + simulator-validates a goal-reaching
-        # plan via evaluate_option_plan but ends with a
+        # plan via submit_plan but ends with a
         # prose summary whose final text doesn't parse into a sketch. Without
         # capture that productive solve is lost to the random-options fallback;
         # with it we recover the captured plan below (see _sketch_from_capture)
@@ -155,7 +155,7 @@ class AgentBilevelExplorer(BaseExplorer):
             plan_text = self._extract_option_plan_text(responses)
             # The session's tool capture: a goal-reaching plan the agent
             # validated in the belief through the capture gate
-            # (evaluate_option_plan, N fresh
+            # (submit_plan, N fresh
             # rollouts). ``reached_goal`` is the gate's verdict.
             capture = self._tool_context.take_plan_capture()
             if CFG.agent_explorer_replay_certified_plan and capture.plan \
@@ -218,7 +218,7 @@ class AgentBilevelExplorer(BaseExplorer):
             # The agent's sketch IS the experiment: it runs in the real
             # environment exactly as written. The harness does no belief
             # refinement of it - the agent refines and validates
-            # in-session (sim.refine / sim.run / evaluate_option_plan),
+            # in-session (sim.refine / sim.run / submit_plan),
             # and only a capture-gate-certified plan (handled above)
             # counts as a belief-validated solve for early stopping.
             plan = self._ground_sketch_verbatim(sketch)
@@ -258,14 +258,14 @@ class AgentBilevelExplorer(BaseExplorer):
             capture: PlanCapture) -> Optional[List[bilevel_sketch.SketchStep]]:
         """Rebuild a sketch from a captured, tool-validated plan, or None.
 
-        ``evaluate_option_plan`` stashes a forward-validated plan on the
-        explore task into ``solved_plan`` (grounded options with
-        continuous params) and ``solved_sketch`` (the option skeleton
-        plus the subgoals that actually held). We reconstruct a sketch
-        from that skeleton and graft each captured option's continuous
-        params onto the step's ``initial_params``, so the plan executes
-        at exactly the values the agent validated. The capture was
-        already taken (consumed) by the caller.
+        ``submit_plan`` stashes a forward-validated plan on the explore
+        task into ``solved_plan`` (grounded options with continuous
+        params) and ``solved_sketch`` (the option skeleton plus the
+        subgoals that actually held). We reconstruct a sketch from that
+        skeleton and graft each captured option's continuous params onto
+        the step's ``initial_params``, so the plan executes at exactly
+        the values the agent validated. The capture was already taken
+        (consumed) by the caller.
         """
         plan = capture.plan
         captured_sketch = capture.sketch

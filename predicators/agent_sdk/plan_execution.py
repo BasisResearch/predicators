@@ -127,7 +127,7 @@ def execute_plan_forward(
     """Execute a fully-grounded plan step by step through the option model.
 
     Shared forward-execution core behind ``validate_plan_forward`` (used
-    by ``BeliefProbe.refine``) and the ``evaluate_option_plan`` tool.
+    by ``BeliefProbe.refine``) and the ``submit_plan`` tool.
     State carries forward across options — matching how the real env
     executes. Per step it mirrors ``run_backtracking_refinement``'s
     fixed-plan path: check ``initiable``, call

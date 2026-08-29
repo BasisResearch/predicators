@@ -55,8 +55,8 @@ class SessionConfig:
 class RefinementConfig:
     """Plan-sketch refinement: search budgets, gates, and ground samplers.
 
-    Consumed at handler entry by ``evaluate_option_plan``
-    (tools/testing.py) and by the probe's ``refine`` (belief_probe.py).
+    Consumed at handler entry by ``submit_plan`` (tools/testing.py) and
+    by the probe's ``refine`` (belief_probe.py).
     """
     ground_samplers: bool
     refinement_timeout_per_step: float
@@ -86,9 +86,9 @@ class RefinementConfig:
 class ValidationConfig:
     """Capture-validation rollouts and the cross-attempt journal.
 
-    Consumed at handler entry by ``evaluate_option_plan`` (tools.py) and
-    the probe's ``run(trials=N)`` (belief_probe.py); ``use_journal``
-    gates the journal / attempt-log channel.
+    Consumed at handler entry by ``submit_plan`` (tools.py) and the
+    probe's ``run(trials=N)`` (belief_probe.py); ``use_journal`` gates
+    the journal / attempt-log channel.
     """
     rollouts: int
     rollouts_after_flaky: int

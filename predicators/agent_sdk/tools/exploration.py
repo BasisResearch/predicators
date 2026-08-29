@@ -89,7 +89,7 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
             "`sim.run(plan_text, render=True, trials=1, solved=False, "
             "contacts=False)` executes an option "
             "plan FROM THE CURRENT "
-            "STATE (same grammar as evaluate_option_plan; print the result "
+            "STATE (same grammar as submit_plan; print the result "
             "for per-step outcomes incl. saved per-step scene-image paths - "
             "view them with the Read tool; pass render=False inside tight "
             "sweep loops) and advances the state; `-> {subgoals}` "
@@ -147,7 +147,7 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
             "`sim.refine(sketch_text, timeout=60, require_goal=False, "
             "require_solved=False)` runs "
             "backtracking parameter search FROM THE CURRENT STATE (same "
-            "grammar as evaluate_option_plan"
+            "grammar as submit_plan"
             f"{_region_syntax_blurb()}; "
             "success = each step establishes its `-> {subgoals}` "
             "annotation, and the result's Verdict line states what it "
@@ -167,7 +167,7 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
     The namespace is the probe facade, numpy, and the collected real
     trajectories as read-only evidence (see ``build_probe_namespace`` -
     nothing evaluator-shaped beyond the probe's gated paths): the probe
-    reuses the exact machinery behind ``evaluate_option_plan`` (same
+    reuses the exact machinery behind ``submit_plan`` (same
     plan grammar, same option-model executor, same renderer) but
     carries no scoring surface - nothing run here can be captured as
     the answer, so it is safe to hand the agent as a freely composable
@@ -184,7 +184,7 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
         "EXPLORATORY "
         "ONLY: nothing run here is captured as your answer - preview "
         "the evaluator's verdict with sim.run(solved=True), then "
-        "validate and submit the final plan via evaluate_option_plan "
+        "validate and submit the final plan via submit_plan "
         "from the true initial state.")
     run_python = _make_python_exec_tool(
         tool,
