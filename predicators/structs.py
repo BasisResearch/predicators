@@ -2564,7 +2564,8 @@ class InteractionRequest:
     # explorers); online learning treats ``False`` as not-solved for
     # early stopping even if real-env execution happens to reach the
     # goal, so a model that executes-but-mispredicts isn't certified as
-    # trained. See AgentBilevelExplorer / main._generate_interaction_results.
+    # trained. See AgentBilevelExplorer /
+    # run.online_learning.generate_interaction_results.
     mental_model_solved: Optional[bool] = None
 
 

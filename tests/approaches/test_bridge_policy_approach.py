@@ -17,8 +17,8 @@ from predicators.cogman import CogMan
 from predicators.envs import get_or_create_env
 from predicators.execution_monitoring import create_execution_monitor
 from predicators.ground_truth_models import get_gt_options
-from predicators.main import _generate_interaction_results
 from predicators.perception import create_perceiver
+from predicators.run.online_learning import generate_interaction_results
 from predicators.settings import CFG
 from predicators.structs import Action, DemonstrationResponse, DummyOption, \
     InteractionResult, LowLevelTrajectory, STRIPSOperator
@@ -199,7 +199,7 @@ def test_bridge_policy_approach():
         perceiver = create_perceiver("trivial")
         exec_monitor = create_execution_monitor("trivial")
         cogman = CogMan(approach, perceiver, exec_monitor)
-        interaction_results, _, _ = _generate_interaction_results(
+        interaction_results, _, _ = generate_interaction_results(
             cogman, env, teacher, interaction_requests)
     real_result = interaction_results[0]
     # Add additional interaction result with no queries.
@@ -267,7 +267,7 @@ def test_rl_bridge_policy_approach():
     total_query_cost = 0
     # Run online interaction once.
     interaction_requests = cogman.get_interaction_requests()
-    interaction_results, query_cost, _ = _generate_interaction_results(
+    interaction_results, query_cost, _ = generate_interaction_results(
         cogman, env, teacher=None, requests=interaction_requests, cycle_num=0)
     num_online_transitions += sum(
         len(result.actions) for result in interaction_results)
