@@ -215,14 +215,35 @@ class DominoTaskGenerator(TaskGenerator):
             target_word, target_verb = "the purple domino", "is"
         else:
             target_word, target_verb = "the purple dominoes", "are"
-        goal_nl = (f"Arrange the blue dominoes as needed (possibly none) such "
-                   f"that when the green domino is pushed, {target_word} "
-                   f"{target_verb} toppled. Only the blue dominoes may be "
-                   f"rearranged: the green and purple dominoes must stay "
-                   f"untouched at their staged poses, upright and never "
-                   f"held, until the green is pushed, and nothing may "
-                   f"topple before that push. Only the green domino may "
-                   f"ever be pushed.")
+        # What starts the cascade, and so what the goal text must ask
+        # for. In a fan env the robot has no Push skill at all and the
+        # certificate demands a TurnFanOn step, so the push wording
+        # would be asking for something the agent cannot do and must
+        # not do -- an instruction it can only fail.
+        comp_names = {type(c).__name__ for c in self.additional_components}
+        fan_only = bool(comp_names) and comp_names <= {"FanComponent"}
+        trigger = "TurnFanOn" if fan_only else "Push"
+        if fan_only:
+            goal_nl = (
+                f"Arrange the blue dominoes as needed (possibly none) such "
+                f"that when the fan is switched on, the wind topples the "
+                f"green domino and {target_word} {target_verb} toppled. "
+                f"Only the blue dominoes may be rearranged: the green and "
+                f"purple dominoes must stay untouched at their staged "
+                f"poses, upright and never held, until the fan is switched "
+                f"on, and nothing may topple before that. The robot must "
+                f"never push a domino - the only way to start the cascade "
+                f"is to press the fan's switch.")
+        else:
+            goal_nl = (
+                f"Arrange the blue dominoes as needed (possibly none) such "
+                f"that when the green domino is pushed, {target_word} "
+                f"{target_verb} toppled. Only the blue dominoes may be "
+                f"rearranged: the green and purple dominoes must stay "
+                f"untouched at their staged poses, upright and never "
+                f"held, until the green is pushed, and nothing may "
+                f"topple before that push. Only the green domino may "
+                f"ever be pushed.")
 
         # Cascade-legitimacy evaluator (reward = certified success minus a
         # per-toppled-blue cost), same as the min-block tasks. Attached only
@@ -238,9 +259,6 @@ class DominoTaskGenerator(TaskGenerator):
         # rather than Push. A BALL is not - it is a second body the
         # robot can throw at the chain - so ball variants still get no
         # evaluator.
-        comp_names = {type(c).__name__ for c in self.additional_components}
-        fan_only = bool(comp_names) and comp_names <= {"FanComponent"}
-        trigger = "TurnFanOn" if fan_only else "Push"
         evaluator = None
         if CFG.domino_use_domino_blocks_as_target and \
                 (not self.additional_components or fan_only):
@@ -267,7 +285,8 @@ class DominoTaskGenerator(TaskGenerator):
             # Same reasoning for the legitimacy rule (see
             # goal_text.CASCADE_VERIFICATION_NL): an arm-assisted layout
             # otherwise fails with verdicts the agent cannot explain.
-            goal_nl += goal_text.CASCADE_VERIFICATION_NL
+            goal_nl += (goal_text.WIND_VERIFICATION_NL
+                        if fan_only else goal_text.CASCADE_VERIFICATION_NL)
 
         return EnvironmentTask(init_state,
                                goal_atoms,

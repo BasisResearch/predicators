@@ -19,6 +19,19 @@ CASCADE_VERIFICATION_NL = (
     "fingertips made intangible, and the built layout must still cascade "
     "to the goal - topples that needed the arm's body earn nothing.")
 
+# The wind variant of the same rule. There is no counterfactual replay
+# to describe: the probe exists to prove the arm's body did not carry a
+# cascade its push started, and a switch pressed metres from the chain
+# has no such contact to disprove. What is enforced instead is that a
+# TurnFanOn step is actually on the record -- otherwise an episode that
+# reached the goal by knocking the chain over while placing a block
+# would certify.
+WIND_VERIFICATION_NL = (
+    " A solve only counts if the wind starts the cascade: the episode "
+    "must carry a TurnFanOn step, nothing may topple before it, and an "
+    "episode that reaches the goal with no TurnFanOn on the record is "
+    "rejected.")
+
 MIN_BLOCK_GOAL_NL = (
     "Arrange the blue dominoes so that when the green domino is pushed, "
     "the purple domino is toppled -- using AS FEW blue dominoes as "

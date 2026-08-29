@@ -1805,10 +1805,32 @@ a.watchlink { display: inline-block; height: 26px; line-height: 24px;
 a.watchlink:hover { text-decoration: none; filter: brightness(1.1); }
 
 .muted { color: var(--muted); font-weight: 400; }
-.launchbar { align-items: center; }
-.launchlbl { padding: 0 8px; font-size: 9px; font-weight: 700;
-  letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
-  border-right: 1px solid var(--border2); cursor: help; }
+/* The "what is happening right now" panel above the run table. */
+.livepanel { border: 1px solid var(--border); border-radius: 8px;
+  background: var(--panel); padding: 12px 14px; margin: 0 0 14px; }
+.livehead { display: flex; gap: 10px; align-items: baseline;
+  margin-bottom: 2px; }
+.liverow { display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  padding: 8px 0; border-top: 1px solid var(--border); margin-top: 8px; }
+.liverow .prog { color: var(--muted); font-family: var(--mono);
+  font-size: 11px; }
+/* A pulse, because a still dot beside "running" is exactly what a
+   stalled page also shows. */
+.liverow .dot { width: 8px; height: 8px; border-radius: 50%;
+  background: var(--ok); flex-shrink: 0; animation: pulse 1.6s infinite; }
+@keyframes pulse { 50% { opacity: .25; } }
+.launchrow { display: flex; gap: 8px; align-items: center;
+  flex-wrap: wrap; margin-top: 10px; }
+button.rungbtn { height: 26px; padding: 0 12px; font-weight: 600; }
+button.rungbtn[disabled] { opacity: .4; cursor: not-allowed; }
+/* Armed: one more click starts it. Warn-coloured, because the click
+   after this one spends real time and real tokens. */
+button.rungbtn.armed { border-color: var(--warn); color: var(--warn);
+  background: var(--warn-dim); }
+.lmsg { font-size: 11px; color: var(--muted); }
+.lmsg.warn { color: var(--warn); }
+.lmsg.ok { color: var(--ok); }
+.lmsg.bad { color: var(--bad); }
 .kindbar { display: inline-flex; border: 1px solid var(--border2);
   border-radius: 5px; overflow: hidden; flex-shrink: 0; }
 .kindbar button.kindbtn { height: 24px; border: none; border-radius: 0;
@@ -1918,17 +1940,69 @@ function setAllDetails(open) {
 }
 
 // Index page: filter + compare + collapsible groups.
+// No native dialogs anywhere in this page.
+// This used to use confirm()/alert(). A browser that has been told to
+// block a page's dialogs -- one checkbox on any earlier alert, and
+// Chrome offers it -- makes confirm() return false with no UI at all,
+// so buttons silently did nothing and there was nowhere to read why.
+// ask() and toast() are ordinary DOM, so they cannot be suppressed.
+function toast(text, cls) {
+  var t = $('#toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'toast';
+    document.body.appendChild(t);
+  }
+  t.className = cls || '';
+  t.textContent = text;
+  t.hidden = false;
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(function() { t.hidden = true; }, 8000);
+}
+function askOpen() { return !!$('#askbar'); }
+function closeAsk() {
+  var b = $('#askbar');
+  if (b) b.remove();
+}
+function ask(msg, yesLabel, onYes) {
+  closeAsk();
+  var bar = document.createElement('div');
+  bar.id = 'askbar';
+  var t = document.createElement('span');
+  t.className = 'askmsg';
+  t.textContent = msg;
+  var yes = document.createElement('button');
+  yes.className = 'askyes';
+  yes.textContent = yesLabel;
+  yes.onclick = function() { closeAsk(); onYes(); };
+  var no = document.createElement('button');
+  no.textContent = 'cancel';
+  no.onclick = closeAsk;
+  bar.appendChild(t);
+  bar.appendChild(yes);
+  bar.appendChild(no);
+  document.body.appendChild(bar);
+  yes.focus();
+}
+function setLaunchMsg(cls, text) {
+  var m = $('#launchmsg');
+  if (!m) return;
+  m.className = 'lmsg ' + cls;
+  m.textContent = text;
+}
 function launchRung(n) {
-  if (!confirm('Start rung ' + n + '?\n\nRung 1 takes ~2 minutes. '
-               + 'Rungs 2-4 call Claude and can run for an hour or more; '
-               + 'stop one with the kill button on its row.')) return;
-  fetch('/launch?rung=' + n, {method: 'POST'}).then(function(r) {
-    return r.text().then(function(t) {
-      alert(t);
-      // The row appears once the run makes its log dir.
-      if (r.ok) setTimeout(function() { location.reload(); }, 6000);
-    });
-  }).catch(function(e) { alert('launch failed: ' + e); });
+  var btn = $('button.rungbtn[data-rung="' + n + '"]');
+  var what = btn ? btn.dataset.warn : '';
+  ask('Start rung ' + n + '? ' + what, 'start rung ' + n, function() {
+    setLaunchMsg('', 'starting rung ' + n + '\u2026');
+    fetch('/launch?rung=' + n, {method: 'POST'}).then(function(r) {
+      return r.text().then(function(t) {
+        setLaunchMsg(r.ok ? 'ok' : 'bad', t);
+        // The row appears once the run makes its log dir.
+        if (r.ok) setTimeout(function() { location.reload(); }, 6000);
+      });
+    }).catch(function(e) { setLaunchMsg('bad', 'launch failed: ' + e); });
+  });
 }
 function kindFilter() { return sessionStorage.getItem('lv-kind') || 'all'; }
 function setKind(k) {
@@ -1984,33 +2058,37 @@ function applySort() {
 }
 function compareSelected() {
   var sel = $all('input.cmp:checked').map(function(c) { return c.value; });
-  if (sel.length < 2) { alert('Select at least two runs to compare.'); return; }
+  if (sel.length < 2) {
+    toast('Tick at least two runs to compare them.', 'warn');
+    return;
+  }
   location.href = '/compare?runs=' + encodeURIComponent(sel.join(';'));
 }
 
 // Kill / delete buttons on index run rows. POST only, so the auto-
 // refresh GETs can never trip these; reload shortly after success so
 // the status chip reflects the process actually exiting.
-function postRun(url, msg) {
-  if (!confirm(msg)) return;
-  fetch(url, {method: 'POST'}).then(function(r) {
-    r.text().then(function(t) {
-      if (!r.ok) { alert(t); return; }
-      setTimeout(function() { location.reload(); }, 600);
-    });
-  }).catch(function(e) { alert('request failed: ' + e); });
+function postRun(url, msg, yesLabel) {
+  ask(msg, yesLabel, function() {
+    fetch(url, {method: 'POST'}).then(function(r) {
+      r.text().then(function(t) {
+        if (!r.ok) { toast(t, 'bad'); return; }
+        setTimeout(function() { location.reload(); }, 600);
+      });
+    }).catch(function(e) { toast('request failed: ' + e, 'bad'); });
+  });
 }
 function killRun(rel) {
   postRun('/kill?d=' + encodeURIComponent(rel),
-          'Kill the live process of\\n' + rel + ' ?');
+          'Stop the running process of ' + rel + '?', 'stop it');
 }
 function deleteRun(rel, live) {
   var msg = live
-    ? 'This run appears LIVE:\\n' + rel +
-      '\\nKill its process AND delete its log dir (and videos)?'
-    : 'Delete the log dir (and videos) of\\n' + rel + ' ?';
+    ? 'This run is LIVE: ' + rel +
+      ' - stop its process AND delete its log dir and videos?'
+    : 'Delete the log dir and videos of ' + rel + '?';
   postRun('/delete?d=' + encodeURIComponent(rel) + (live ? '&kill=1' : ''),
-          msg);
+          msg, live ? 'stop and delete' : 'delete');
 }
 
 // Run page: hash routing into the content pane.
@@ -2123,7 +2201,10 @@ function pollStamp() {
     if (window._stamp === undefined) { window._stamp = s; return; }
     if (s !== window._stamp) {
       window._stamp = s;
-      if (autoOn()) { location.reload(); } else { showRefreshPill(); }
+      // Never reload with a question on screen: the reader would lose
+      // the click they were about to make.
+      if (autoOn() && !askOpen()) { location.reload(); }
+      else { showRefreshPill(); }
     }
   }).catch(function() {});
 }
@@ -2192,8 +2273,8 @@ LEGEND_HTML = (
     "process planner plans. 2: same, but the AGENT plans. 3: the "
     "simulator's structure only, its parameters fitted from data. 4: "
     "the base simulator alone - it must find the wind, model it, and "
-    "invent predicates. Hover a badge for that rung's line. Start one "
-    "with <b>run rung</b> in the top bar.</dd>"
+    "invent predicates. Hover a badge for that rung's line. Start "
+    "one with the buttons at the top of this page.</dd>"
     "<dt><b>approach</b></dt>"
     "<dd>The method. An <code>oracle_*</code> approach is handed the "
     "ground-truth model and learns nothing - it is an upper bound. An "
@@ -2345,6 +2426,98 @@ def launch_rung(rung: str) -> Tuple[bool, str]:
                   "creates its log dir (a few seconds)")
 
 
+# Each rung's one-line warning, shown when its button is armed. The
+# cost of a click is the thing a reader most needs before making it.
+_RUNG_BLURB = {
+    "1": "Oracle: ground-truth simulator and predicates, the process "
+         "planner plans. ~2 minutes, no LLM calls.",
+    "2": "Ground-truth simulator and predicates, but the AGENT plans. "
+         "Calls Claude; usually a few minutes.",
+    "3": "The simulator's structure only - the agent must fit the wind "
+         "parameters from data. Calls Claude; can run for an hour.",
+    "4": "Base simulator alone - find the wind, model it, invent "
+         "predicates. Calls Claude; the longest rung, hours.",
+}
+
+
+def _live_progress(summary: Dict[str, Any]) -> str:
+    """What a running run has got through so far, in a few words."""
+    eps = summary.get("episodes", [])
+    n_test = sum(1 for e in eps if e["kind"] == "test")
+    n_exp = sum(1 for e in eps if e["kind"] == "explore")
+    n_fit = len(summary.get("fits", []))
+    bits = []
+    if n_exp:
+        bits.append(f"{n_exp} practice")
+    if n_test:
+        bits.append(f"{n_test} test")
+    if n_fit:
+        bits.append(f"{n_fit} fit" + ("s" if n_fit != 1 else ""))
+    # No episode has been logged yet: the run is in setup (importing
+    # pybullet, building the env), which takes tens of seconds.
+    return " \u00b7 ".join(bits) if bits else "starting up"
+
+
+def live_panel(runs: List[Dict[str, Any]], summaries: Dict[str, Dict[str,
+                                                                    Any]],
+               live: LiveProcs, newest: Dict[Tuple[str, str],
+                                             Tuple[float, str]]) -> str:
+    """What is running right now, and the buttons to start something.
+
+    The first question anyone brings to this page is "is it running?",
+    and it used to be answerable only by finding the right row in a
+    table sorted by something else. So the live runs come first, with
+    their elapsed time and how far they have got, and the ladder
+    buttons sit beside them - where the answer to "can I start one?"
+    is visible at the moment of asking.
+    """
+    now = time.time()
+    cards = []
+    for r in runs:
+        summary = summaries.get(r["rel"], {})
+        is_newest = newest.get((r["exp"], r["seed"]), (0.0, ""))[1] == r["rel"]
+        status, _ = run_status(r, summary, live, is_newest)
+        if status != "running":
+            continue
+        start_ts = _run_start_ts(r["name"], r["mtime"])
+        _, _, expname = r["exp"].partition("/")
+        expname = expname or r["exp"]
+        esc_rel = esc(r["rel"])
+        cards.append(
+            f"<div class='liverow'><span class='dot'></span>"
+            f"{rung_badge(r['exp'])}<b>{esc(expname)}</b>"
+            f"<span class='muted'>{esc(r['seed'])}</span>"
+            f"<span class='muted'>running {_fmt_duration(now - start_ts)}"
+            f"</span>"
+            f"<span class='prog'>{_live_progress(summary)}</span>"
+            f"<a class='logslink' href='/run?d={q(r['rel'])}'>logs</a>"
+            f"<a class='logslink' href='/replays?d={q(r['rel'])}'>watch</a>"
+            f"<button class='rowbtn' onclick='killRun(\"{esc_rel}\")'>"
+            "stop</button></div>")
+    if cards:
+        head = ("<div class='livehead'><b>Running now</b>"
+                "<span class='muted'>updates on its own; the run keeps "
+                "going if you close this page</span></div>")
+        state = head + "".join(cards)
+        # The server refuses a second run anyway (two PyBullet servers at
+        # once is how the machine ends up thrashing); saying so on the
+        # buttons beats saying it in an error after the click.
+        btn_note = " disabled title='Stop the running one first'"
+    else:
+        state = ("<div class='livehead'><b>Nothing running</b>"
+                 "<span class='muted'>start a rung of the domino-fan "
+                 "ladder below</span></div>")
+        btn_note = ""
+    btns = "".join(
+        f"<button class='rungbtn' data-rung='{n}' "
+        f"data-warn='{esc(_RUNG_BLURB[n])}' "
+        f"onclick='launchRung(\"{n}\")'{btn_note}>rung {n}</button>"
+        for n in ("1", "2", "3", "4"))
+    return ("<section class='livepanel'>" + state +
+            f"<div class='launchrow'>{btns}"
+            "<span id='launchmsg' class='lmsg'></span></div></section>")
+
+
 def rung_badge(exp: str) -> str:
     """"RUNG n" chip for a domino-fan experiment, else empty."""
     key = exp.split("/")[-1]
@@ -2445,7 +2618,8 @@ def index_page() -> str:
             newest[key] = (ts, r["rel"])
     body = [
         "<div class='content' style='height:calc(100vh - var(--topbar-h));"
-        "overflow:auto'>", LEGEND_HTML
+        "overflow:auto'>",
+        live_panel(runs, summaries, live, newest), LEGEND_HTML
     ]
     if not runs:
         body.append(
@@ -2474,22 +2648,6 @@ def index_page() -> str:
     body.append("</div>")
     topbar = ("<input id='runfilter' placeholder='filter runs\u2026' "
               "oninput='filterRuns(this.value)'>"
-              "<span class='kindbar launchbar'>"
-              "<span class='launchlbl' title='Run one rung of the "
-              "domino-fan ladder. It appears below as a live row.'>"
-              "run rung</span>"
-              "<button class='kindbtn' onclick='launchRung(1)' "
-              "title='Oracle: GT sim + GT predicates, process planner "
-              "plans. ~2 min, no LLM.'>1</button>"
-              "<button class='kindbtn' onclick='launchRung(2)' "
-              "title='GT sim + GT predicates, the AGENT plans.'>2</button>"
-              "<button class='kindbtn' onclick='launchRung(3)' "
-              "title='GT sim structure; must fit the wind parameters.'>"
-              "3</button>"
-              "<button class='kindbtn' onclick='launchRung(4)' "
-              "title='Base sim only: find the wind, model it, invent "
-              "predicates.'>4</button>"
-              "</span>"
               "<span class='kindbar'>"
               "<button class='kindbtn' data-kind='all' "
               "onclick='setKind(\"all\")'>all</button>"
