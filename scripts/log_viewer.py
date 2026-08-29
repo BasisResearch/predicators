@@ -2636,13 +2636,20 @@ def replays_page(run_rel: str) -> Optional[str]:
     # reading as two attempts that never happened.
     by_round: Dict[int, List[str]] = {}
     seen: Set[str] = set()
+    claimed: Set[str] = set()
     for ep in summary["episodes"]:
+        names = episode_video_names(ep, run_rel)
+        claimed.update(n for n, _ in names)
         vids = episode_videos(ep, run_rel)
         if not vids or vids in seen:
             continue
         seen.add(vids)
         rnd = int(ep.get("round", 0))
         by_round.setdefault(rnd, []).append(_clip_card(ep, vids, run_rel))
+    # Videos no transcript owns still belong on the reel; an oracle run
+    # has nothing BUT those.
+    for rnd, cards in _orphan_clips(run_rel, summary, claimed).items():
+        by_round.setdefault(rnd, []).extend(cards)
     fits_by_round: Dict[int, Dict[str, Any]] = {
         int(f["after_round"]): f
         for f in summary.get("fits", [])
@@ -2663,12 +2670,20 @@ def replays_page(run_rel: str) -> Optional[str]:
             "written when main.py runs with --make_test_videos / "
             "--make_interaction_videos.</p>"
         ]
+    # An approach with no learning loop -- an oracle handed the true
+    # model -- has one round and nothing to learn between rounds, so the
+    # "watch it learn" reading would be a lie about what is on screen.
+    learns = bool(summary.get("fits")) or len(by_round) > 1
     intro = ("<div class='banner'><span>The whole run, oldest first. "
              "Each round is one turn of the loop: the robot "
              "<b>practices</b> to gather data, the fit recovers what "
              "the world is really like, and a <b>test</b> on a held-out "
              "task scores it. Read top to bottom to watch it "
-             "learn.</span></div>")
+             "learn.</span></div>" if learns else
+             "<div class='banner'><span>This approach does not learn: "
+             "it is handed the ground-truth model and solves the "
+             "held-out tasks once. What follows is that "
+             "<b>test</b>.</span></div>")
     body = (f"<div class='content' style='height:calc(100vh - "
             f"var(--topbar-h));overflow:auto'>{intro}"
             f"{''.join(out)}</div>")
@@ -2890,8 +2905,13 @@ def _video_figure(url: str, label: str) -> str:
             f"</figcaption></figure>")
 
 
-def episode_videos(ep: Dict[str, Any], run_rel: str) -> str:
-    """Players for the env episode this transcript belongs to.
+def episode_video_names(ep: Dict[str, Any],
+                        run_rel: str) -> List[Tuple[str, str]]:
+    """(filename, label) of the videos the env episode of this
+    transcript owns.
+
+    Split out from the rendering so the replay reel can tell which of a
+    run's videos no transcript claims -- see _orphan_clips.
 
     main.py names a test video by task and learning cycle rather than by
     query, so the two transcripts of a replanned task (001/002
@@ -2905,9 +2925,8 @@ def episode_videos(ep: Dict[str, Any], run_rel: str) -> str:
     if ep["kind"] == "test" and ep["task"] is not None:
         key = (int(ep["task"]), _cycle_tag(int(ep.get("round", 0))))
         for name, is_failure in videos_for_run(run_rel).get(key, []):
-            url = "/rawvideo?p=" + q(video_url_rel(run_rel, name))
             label = "failure video" if is_failure else "test video"
-            out.append(_video_figure(url, label))
+            out.append((name, label))
     elif ep["kind"] == "explore":
         # Interaction videos are stamped with the 0-based learning cycle
         # directly (no cycleNone offset like test rounds), and an explore
@@ -2921,9 +2940,87 @@ def episode_videos(ep: Dict[str, Any], run_rel: str) -> str:
                 label = "interaction video"
             else:
                 continue  # another explore session's episode
-            url = "/rawvideo?p=" + q(video_url_rel(run_rel, name))
-            out.append(_video_figure(url, label))
-    return f"<div class='vids'>{''.join(out)}</div>" if out else ""
+            out.append((name, label))
+    return out
+
+
+def episode_videos(ep: Dict[str, Any], run_rel: str) -> str:
+    """Players for the env episode this transcript belongs to."""
+    figs = [
+        _video_figure("/rawvideo?p=" + q(video_url_rel(run_rel, name)), label)
+        for name, label in episode_video_names(ep, run_rel)
+    ]
+    return f"<div class='vids'>{''.join(figs)}</div>" if figs else ""
+
+
+def _round_of_tag(tag: str, is_test: bool) -> int:
+    """The reel round a video's cycle tag belongs to.
+
+    The inverse of _cycle_tag for test videos, whose round r>0 carries
+    the tag of learning cycle r-1. Interaction videos are stamped with
+    their cycle directly, so for those the tag IS the round.
+    """
+    if tag in ("cycleNone", "cycle"):
+        return 0
+    try:
+        cycle = int(tag[len("cycle"):])
+    except ValueError:
+        return 0
+    return cycle + 1 if is_test else cycle
+
+
+def _orphan_clips(run_rel: str, summary: Dict[str, Any],
+                  claimed: Set[str]) -> Dict[int, List[str]]:
+    """Cards for a run's videos that no transcript claims.
+
+    An oracle run writes no agent transcripts at all -- there is no LLM
+    in the loop to write them -- so every one of its videos is an
+    orphan, and a reel built only from transcripts showed such a run as
+    "recorded no videos" while the mp4 sat on disk. The env verdict
+    still comes from info.log, which oracle runs do write.
+    """
+    rounds = summary.get("rounds", [])
+    out: Dict[int, List[str]] = {}
+    for (task, tag), entries in sorted(videos_for_run(run_rel).items()):
+        rnd = _round_of_tag(tag, is_test=True)
+        for name, is_failure in entries:
+            if name in claimed:
+                continue
+            verdict = None
+            if rnd < len(rounds):
+                verdict = rounds[rnd].get(task)
+            what = f"test &middot; task {task}"
+            label = "failure video" if is_failure else "test video"
+            out.setdefault(rnd, []).append(
+                _orphan_card(run_rel, name, label, what, verdict))
+    for tag, ivs in sorted(interaction_videos_for_run(run_rel).items()):
+        rnd = _round_of_tag(tag, is_test=False)
+        for _, name in ivs:
+            if name in claimed:
+                continue
+            out.setdefault(rnd, []).append(
+                _orphan_card(run_rel, name, "interaction video", "practice",
+                             None))
+    return out
+
+
+def _orphan_card(run_rel: str, name: str, label: str, what: str,
+                 verdict: Optional[Dict[str, Any]]) -> str:
+    """One filmstrip card for a video with no transcript behind it."""
+    url = "/rawvideo?p=" + q(video_url_rel(run_rel, name))
+    vids = f"<div class='vids'>{_video_figure(url, label)}</div>"
+    if verdict is None:
+        note = "<span class='muted'>no verdict</span>"
+    else:
+        cls, word = ("ok", "solved") if verdict["solved"] else ("bad",
+                                                                "failed")
+        reward = ("" if verdict.get("reward") is None else
+                  f" {verdict['reward']:.2f}")
+        note = f"<span class='{cls}'>{word}</span>{reward}"
+    return (f"<figure class='clip'>{vids}"
+            f"<figcaption><b>{what}</b> &middot; {note}<br>"
+            "<span class='muted'>no transcript &mdash; this approach "
+            "writes none</span></figcaption></figure>")
 
 
 def episode_banner(ep: Dict[str, Any], n_rounds: int = 0) -> str:
