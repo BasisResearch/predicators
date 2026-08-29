@@ -1785,6 +1785,10 @@ figure.clip > figcaption { font-size: 11px; margin-top: 5px;
 .fitvals { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 6px 0; }
 .fitvals code { color: var(--muted); }
 .fitvals b { font-family: var(--mono); color: var(--bright); }
+.rung { display: inline-block; margin-right: 7px; padding: 1px 6px;
+  border-radius: 4px; background: var(--violet-dim); color: var(--violet);
+  border: 1px solid var(--violet); font: 700 9px/15px var(--mono);
+  letter-spacing: .06em; white-space: nowrap; cursor: help; }
 .novid { font-size: 10px; color: var(--muted2); text-transform: uppercase;
   letter-spacing: .08em; cursor: help; white-space: nowrap; }
 a.logslink { margin-left: 10px; font-size: 10px; color: var(--muted2);
@@ -1801,6 +1805,10 @@ a.watchlink { display: inline-block; height: 26px; line-height: 24px;
 a.watchlink:hover { text-decoration: none; filter: brightness(1.1); }
 
 .muted { color: var(--muted); font-weight: 400; }
+.launchbar { align-items: center; }
+.launchlbl { padding: 0 8px; font-size: 9px; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+  border-right: 1px solid var(--border2); cursor: help; }
 .kindbar { display: inline-flex; border: 1px solid var(--border2);
   border-radius: 5px; overflow: hidden; flex-shrink: 0; }
 .kindbar button.kindbtn { height: 24px; border: none; border-radius: 0;
@@ -1910,6 +1918,18 @@ function setAllDetails(open) {
 }
 
 // Index page: filter + compare + collapsible groups.
+function launchRung(n) {
+  if (!confirm('Start rung ' + n + '?\n\nRung 1 takes ~2 minutes. '
+               + 'Rungs 2-4 call Claude and can run for an hour or more; '
+               + 'stop one with the kill button on its row.')) return;
+  fetch('/launch?rung=' + n, {method: 'POST'}).then(function(r) {
+    return r.text().then(function(t) {
+      alert(t);
+      // The row appears once the run makes its log dir.
+      if (r.ok) setTimeout(function() { location.reload(); }, 6000);
+    });
+  }).catch(function(e) { alert('launch failed: ' + e); });
+}
 function kindFilter() { return sessionStorage.getItem('lv-kind') || 'all'; }
 function setKind(k) {
   sessionStorage.setItem('lv-kind', k);
@@ -2166,6 +2186,14 @@ LEGEND_HTML = (
     "<dd>One execution of <code>main.py</code>, named by when it "
     "started. Click it (or <b>&#9654; watch</b>) to see the robot; "
     "<b>logs</b> opens the transcripts and files instead.</dd>"
+    "<dt><span class='rung'>RUNG n</span></dt>"
+    "<dd>Where a domino-fan run sits on the ladder - each rung hands "
+    "the agent less. 1: ground-truth simulator and predicates, the "
+    "process planner plans. 2: same, but the AGENT plans. 3: the "
+    "simulator's structure only, its parameters fitted from data. 4: "
+    "the base simulator alone - it must find the wind, model it, and "
+    "invent predicates. Hover a badge for that rung's line. Start one "
+    "with <b>run rung</b> in the top bar.</dd>"
     "<dt><b>approach</b></dt>"
     "<dd>The method. An <code>oracle_*</code> approach is handed the "
     "ground-truth model and learns nothing - it is an upper bound. An "
@@ -2177,7 +2205,9 @@ LEGEND_HTML = (
     "<dt><b>result</b></dt>"
     "<dd><i>solved/total</i> on held-out tasks, with the mean reward. "
     "<b>This is the score.</b> On the domino tasks reward is 1 for a "
-    "solve minus a penalty per domino spent, so 0.90 beats 0.80.</dd>"
+    "certified solve minus a penalty per domino spent, so a run using "
+    "fewer blocks scores higher: on domino-fan 0.950 is a one-block "
+    "solve and 0.900 a two-block one.</dd>"
     "</dl></details>")
 
 
@@ -2265,6 +2295,66 @@ def status_chip(r: Dict[str, Any], summary: Dict[str, Any], live: LiveProcs,
     return chip(label, cls, title)
 
 
+# The domino-fan ladder, keyed by the arm that experiment_id carries.
+# Each rung hands the agent less; the label says what it must supply, so
+# a row reads as a rung of the experiment rather than an approach name.
+_RUNG_BY_ARM = {
+    "domino_fan-oracle": (1, "GT sim + GT predicates, process planner plans"),
+    "domino_fan-agent_model_based_planning":
+    (2, "GT sim + GT predicates, the AGENT plans"),
+    "domino_fan-agent_param_learning":
+    (3, "GT sim structure; must fit the wind's parameters"),
+    "domino_fan-agent_po_predicate_invention_al":
+    (4, "base sim only; must find the wind, model it, invent predicates"),
+}
+
+
+def launch_rung(rung: str) -> Tuple[bool, str]:
+    """Start scripts/domino_fan/run_rung.sh for one rung, detached.
+
+    Detached on purpose: the run outlives this request (rungs 3 and 4
+    are hour-scale), and its output goes to the run's own log dir, which
+    the dashboard is already watching - so progress shows up as the rows
+    and episode chips it draws anyway, with no plumbing of its own.
+
+    Refuses to start a second one. Two PyBullet runs at once is how a
+    laptop ends up with a dozen physics servers open, and the dashboard
+    would have no way to say which row belongs to which.
+    """
+    if rung not in {"1", "2", "3", "4"}:
+        return False, f"unknown rung: {rung!r}"
+    # LOGS_ROOT is <repo>/logs; the script sits beside it.
+    repo_root = os.path.dirname(os.path.abspath(LOGS_ROOT))
+    script = os.path.join(repo_root, "scripts", "domino_fan", "run_rung.sh")
+    if not os.path.isfile(script):
+        return False, f"missing {script}"
+    if _live_proc_matches():
+        return False, ("a run is already going - stop it first with the "
+                       "kill button on its row")
+    env = dict(os.environ, PYTHONHASHSEED="0")
+    with open(os.devnull, "wb") as devnull:
+        subprocess.Popen(  # pylint: disable=consider-using-with
+            ["/bin/bash", script, rung],
+            cwd=repo_root,
+            stdout=devnull,
+            stderr=subprocess.STDOUT,
+            stdin=devnull,
+            start_new_session=True,
+            env=env)
+    return True, (f"rung {rung} started - its row appears once the run "
+                  "creates its log dir (a few seconds)")
+
+
+def rung_badge(exp: str) -> str:
+    """"RUNG n" chip for a domino-fan experiment, else empty."""
+    key = exp.split("/")[-1]
+    entry = _RUNG_BY_ARM.get(key)
+    if entry is None:
+        return ""
+    num, what = entry
+    return f"<span class='rung' title='{esc(what)}'>RUNG {num}</span>"
+
+
 def run_row(r: Dict[str, Any], summary: Dict[str, Any], live: LiveProcs,
             is_newest: bool) -> str:
     """One flat row on the index: what it was, how it went, where to look."""
@@ -2322,7 +2412,8 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], live: LiveProcs,
             f"<button class='copybtn' data-copy='{esc(copy_path)}' "
             f"title='Copy run path'>\u29c9</button>{del_btn}</td>"
             f"<td class='muted'>{esc(fam)}</td>"
-            f"<td class='muted'>{esc(expname)}</td>"
+            f"<td>{rung_badge(r['exp'])}"
+            f"<span class='muted'>{esc(expname)}</span></td>"
             f"<td>{esc(r['seed'])}</td>"
             f"<td>{status_chip(r, summary, live, is_newest)}{kill_btn}</td>"
             f"<td><b>{esc(tr_str)}</b></td>"
@@ -2383,6 +2474,22 @@ def index_page() -> str:
     body.append("</div>")
     topbar = ("<input id='runfilter' placeholder='filter runs\u2026' "
               "oninput='filterRuns(this.value)'>"
+              "<span class='kindbar launchbar'>"
+              "<span class='launchlbl' title='Run one rung of the "
+              "domino-fan ladder. It appears below as a live row.'>"
+              "run rung</span>"
+              "<button class='kindbtn' onclick='launchRung(1)' "
+              "title='Oracle: GT sim + GT predicates, process planner "
+              "plans. ~2 min, no LLM.'>1</button>"
+              "<button class='kindbtn' onclick='launchRung(2)' "
+              "title='GT sim + GT predicates, the AGENT plans.'>2</button>"
+              "<button class='kindbtn' onclick='launchRung(3)' "
+              "title='GT sim structure; must fit the wind parameters.'>"
+              "3</button>"
+              "<button class='kindbtn' onclick='launchRung(4)' "
+              "title='Base sim only: find the wind, model it, invent "
+              "predicates.'>4</button>"
+              "</span>"
               "<span class='kindbar'>"
               "<button class='kindbtn' data-kind='all' "
               "onclick='setKind(\"all\")'>all</button>"
@@ -3212,7 +3319,9 @@ class Handler(BaseHTTPRequestHandler):
                 k: v[0]
                 for k, v in urllib.parse.parse_qs(parsed.query).items()
             }
-            if parsed.path == "/kill":
+            if parsed.path == "/launch":
+                ok, msg = launch_rung(params.get("rung", ""))
+            elif parsed.path == "/kill":
                 ok, msg = kill_run(params.get("d", ""))
             elif parsed.path == "/delete":
                 ok, msg = delete_run(params.get("d", ""),
