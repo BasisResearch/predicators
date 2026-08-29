@@ -9,8 +9,8 @@ from predicators.datasets import create_dataset
 from predicators.envs.cover import CoverEnv
 from predicators.execution_monitoring import create_execution_monitor
 from predicators.ground_truth_models import get_gt_options
-from predicators.main import _generate_interaction_results
 from predicators.perception import create_perceiver
+from predicators.run.online_learning import generate_interaction_results
 from predicators.settings import CFG
 from predicators.structs import Dataset
 from predicators.teacher import Teacher
@@ -52,7 +52,7 @@ def test_online_pg3_approach():
     perceiver = create_perceiver("trivial")
     exec_monitor = create_execution_monitor("trivial")
     cogman = CogMan(approach, perceiver, exec_monitor)
-    interaction_results, _, _ = _generate_interaction_results(
+    interaction_results, _, _ = generate_interaction_results(
         cogman, env, teacher, interaction_requests)
     approach.learn_from_interaction_results(interaction_results)
     approach.load(online_learning_cycle=0)

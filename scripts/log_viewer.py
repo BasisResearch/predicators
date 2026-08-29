@@ -36,7 +36,8 @@ Format contracts, continued:
     in its info.log recover the actual video dir (see _video_base)
   * video names ...__task<K+1>[_failure]__cycle<C>.mp4 from main.py _save_video
   * interaction video names ...__ep<i>__cycle<C>.mp4 (no __task part) from
-    main.py _generate_interaction_results under CFG.make_interaction_videos;
+    run/online_learning.py generate_interaction_results under
+    CFG.make_interaction_videos;
     one per interaction episode, <i> its 0-based index within the cycle
     (older runs wrote one ...__cycle<C>.mp4 concatenating the whole cycle)
 
@@ -70,7 +71,7 @@ EPISODE_RE = re.compile(r"^(\d{3})_([a-z]+)(?:_task(\d+))?_(\d{8}_\d{6})\.md$")
 # Tail of a test video written by main.py _save_video, whose task number is
 # 1-based (task_idx+1) unlike the 0-based task in an episode filename.
 VIDEO_RE = re.compile(r"__task(\d+)(_failure)?__cycle([^.]*)\.mp4$")
-# Tail of an interaction video from _generate_interaction_results (under
+# Tail of an interaction video from generate_interaction_results (under
 # CFG.make_interaction_videos): one per interaction episode, no __task
 # part. Test videos also end in __cycle<C>.mp4, so check VIDEO_RE first.
 INTERACTION_VIDEO_RE = re.compile(r"__ep(\d+)__cycle([^.]*)\.mp4$")
@@ -100,7 +101,8 @@ TASK_VERDICT_RE = re.compile(
     r"^INFO: (?:\[main\.py\] )?Task (\d+) / (\d+): (.+)$")
 TASKS_SOLVED_RE = re.compile(r"Tasks solved: (\d+) / (\d+)")
 # Env evaluator verdict for one explore (train) interaction episode, from
-# main.py _generate_interaction_results, plus its optional follow-up lines
+# run/online_learning.py generate_interaction_results, plus its optional
+# follow-up lines
 # naming a rejection reason or the below-early-stop-bar caveat.
 INTERACTION_RE = re.compile(
     r"^INFO: Interaction episode on train task \d+: reward=(-?[\d.]+), "
