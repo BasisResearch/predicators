@@ -1830,6 +1830,27 @@ button.rungbtn[disabled] { opacity: .4; cursor: not-allowed; }
    after this one spends real time and real tokens. */
 button.rungbtn.armed { border-color: var(--warn); color: var(--warn);
   background: var(--warn-dim); }
+/* The confirm bar and the toast. Both are appended to <body>, which
+   sits behind a content div of height 100vh - topbar: without fixed
+   positioning they render below the fold and a click looks like it did
+   nothing at all. */
+#askbar { position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: 22px; z-index: 200; display: flex; gap: 10px;
+  align-items: center; max-width: min(760px, 92vw);
+  padding: 12px 14px; border: 1px solid var(--warn);
+  border-radius: 8px; background: var(--panel);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .35); }
+#askbar .askmsg { font-size: 12px; line-height: 1.4; }
+#askbar button { height: 28px; padding: 0 12px; flex-shrink: 0; }
+#askbar button.askyes { border-color: var(--warn); color: var(--warn);
+  background: var(--warn-dim); font-weight: 600; }
+#toast { position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: 22px; z-index: 200; max-width: min(760px, 92vw);
+  padding: 10px 14px; border: 1px solid var(--border2);
+  border-radius: 8px; background: var(--panel); font-size: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .35); }
+#toast.bad { border-color: var(--bad); color: var(--bad); }
+#toast.warn { border-color: var(--warn); color: var(--warn); }
 .lmsg { font-size: 11px; color: var(--muted); }
 .lmsg.warn { color: var(--warn); }
 .lmsg.ok { color: var(--ok); }
@@ -1980,7 +2001,10 @@ function ask(msg, yesLabel, onYes) {
   yes.onclick = function() { closeAsk(); onYes(); };
   var no = document.createElement('button');
   no.textContent = 'cancel';
-  no.onclick = closeAsk;
+  no.onclick = function() {
+    closeAsk();
+    setLaunchMsg('', '');
+  };
   bar.appendChild(t);
   bar.appendChild(yes);
   bar.appendChild(no);
@@ -1996,6 +2020,11 @@ function setLaunchMsg(cls, text) {
 function launchRung(n) {
   var btn = $('button.rungbtn[data-rung="' + n + '"]');
   var what = btn ? btn.dataset.warn : '';
+  // Also say it in the panel, which is inside the scrolling content and
+  // certain to be on screen. The ask bar is fixed-positioned and the
+  // click has to leave SOME visible trace even if that ever breaks.
+  setLaunchMsg('warn', 'Confirm at the bottom of the page to start rung '
+               + n + '.');
   ask('Start rung ' + n + '? ' + what, 'start rung ' + n, function() {
     setLaunchMsg('', 'starting rung ' + n + '\u2026');
     fetch('/launch?rung=' + n, {method: 'POST'}).then(function(r) {
