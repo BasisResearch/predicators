@@ -1526,14 +1526,26 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             setattr(self, "_probe_fit_state_store", state)
         return state
 
-    def _publish_probe_fit(self, params: Dict[str, float], version_tag: str,
-                           simulator_file: str) -> None:
+    def _publish_probe_fit(
+        self,
+        params: Dict[str, float],
+        version_tag: str,
+        simulator_file: str,
+        fit_result: Optional[FitResult] = None,
+        sse: float = float("nan"),
+        applied_physical: Optional[Dict[str, float]] = None,
+    ) -> None:
         """Deploy a canonical ``sim.fit`` result to the candidate probe.
 
         Publishes the fitted values in place (invented predicates hold a
         live view over ``_fitted_params``), records the fitted file
         content, and drops the cached probe model so the next probe
-        rebuilds at these values without fitting again.
+        rebuilds at these values without fitting again. The full
+        ``fit_result`` (point estimate plus the Laplace bundle the
+        exploration ensemble is calibrated from), its ``sse``, and the
+        physical values actually applied to the planning env are kept
+        so the cycle's deployed model can be exactly this fit (see
+        :meth:`_published_fit_for_file`).
         """
         self._fitted_params.clear()
         self._fitted_params.update(params)
@@ -1544,10 +1556,40 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         state = self._probe_fit_state()
         state["digest"] = digest
         state["version"] = version_tag
+        state["fit_result"] = fit_result
+        state["sse"] = sse
+        state["applied_physical"] = dict(applied_physical or {})
         self._probe_model_cache().clear()
         self._tool_context.probe_param_status = f"fitted ({version_tag})"
         logger.info("Synthesis probe: sim.fit deployed %d params (%s).",
                     len(params), version_tag)
+
+    def _published_fit_for_file(
+        self,
+        simulator_file: str,
+        expected_names: Collection[str],
+    ) -> Optional[Tuple[FitResult, float, str]]:
+        """The agent's last canonical ``sim.fit`` of exactly this file.
+
+        Returns ``(fit_result, sse, version_tag)`` when the last
+        published fit ran on the current content of ``simulator_file``
+        and over exactly ``expected_names``; ``None`` when nothing was
+        published, the file changed after the fit (an UNFITTED edit), or
+        the parameter set differs (a spec added or dropped after the
+        fit).
+        """
+        state = self._probe_fit_state()
+        fit = state.get("fit_result")
+        if fit is None or not os.path.isfile(simulator_file):
+            return None
+        with open(simulator_file, "rb") as f:
+            digest = hashlib.sha256(f.read()).hexdigest()
+        if state.get("digest") != digest:
+            return None
+        if set(fit.names) != set(expected_names):
+            return None
+        return fit, float(state.get("sse",
+                                    float("nan"))), str(state.get("version"))
 
     def _make_candidate_probe_model_provider(
         self,
@@ -2317,8 +2359,9 @@ your point estimate is caught in simulation instead of failing a \
 real test episode. A literal is earned only once the data brackets \
 the constant from both sides with margin to spare.
 
-Before ending the session, run `sim.fit()` on the final file (the \
-deployed model is fit from exactly that file; a GO verdict on \
+Before ending the session, run `sim.fit()` on the final file (that \
+fit IS the model deployed for this cycle - end without one and the \
+harness fits on its own and logs the deviation; a GO verdict on \
 UNFITTED values is worthless) and then a GO/NO-GO check: refine a \
 full solve of the train task in your candidate simulator and validate \
 it with several trials (`sim.refine` / `sim.run(plan, trials=5)`). \
@@ -2457,25 +2500,51 @@ earlier advice, rather than appending contradictions."""
             self._last_fit_result = None
             self._fit_sse = float("inf")
         else:
-            # This is the solver/test-time fit. It deliberately follows
-            # CFG.code_sim_learning_num_mcmc_steps; any extra
-            # info-seeking MCMC is run below and is not published into
-            # _fitted_params.
-            if self._physical_param_specs or has_physics_rules(rules):
-                # System ID: physical + rule params fit jointly against
-                # free-running rollouts (teacher-forced triples cannot
-                # see physical params - no velocities in State - and
-                # cannot see physics-command rules either, whose effects
-                # only exist through engine stepping).
-                fit_result, self._fit_sse = (
-                    self._fit_parameters_joint_rollout(rules, specs,
-                                                       residual_features))
-            elif has_latent_rules(rules):
-                fit_result, self._fit_sse = self._fit_parameters_recurrent(
-                    rules, specs, base_pred_triples, residual_features)
+            # The deployed model is the agent's own canonical sim.fit of
+            # the final simulator.py: the values its GO/NO-GO check
+            # validated, with the Laplace bundle the exploration ensemble
+            # is calibrated from. The harness fits only when no such fit
+            # exists (session ended UNFITTED, ran out of turns, or an
+            # oracle sim program with no session at all), and says so.
+            expected = [s.name for s in self._physical_param_specs
+                        ] + [s.name for s in specs]
+            published = None
+            if self._probe_fit_state().get("fit_result") is not None:
+                published = self._published_fit_for_file(
+                    self._resolve_synthesis_paths().simulator_file, expected)
+            if published is not None:
+                fit_result, self._fit_sse, version = published
+                logger.info(
+                    "Deploying the agent's published sim.fit (%s) of the "
+                    "final simulator.py: %d params, SSE %.6f.", version,
+                    len(expected), self._fit_sse)
+                applied = self._probe_fit_state().get("applied_physical")
+                if self._physical_param_specs and applied:
+                    self._apply_identified_physical_params(dict(applied))
             else:
-                fit_result, self._fit_sse = fit_rule_parameters(
-                    rules, specs, base_pred_triples, residual_features)
+                if CFG.agent_sim_learn_oracle_sim_program:
+                    logger.info("Oracle sim program: fitting its "
+                                "parameters on the harness side.")
+                else:
+                    logger.warning(
+                        "FIT FALLBACK: the learn session ended without a "
+                        "canonical sim.fit() of the final simulator.py "
+                        "(last published fit: %s). Fitting on the "
+                        "harness side - the deployed parameters were "
+                        "never validated by the agent's GO check.",
+                        self._probe_fit_state().get("version") or "none")
+                if self._physical_param_specs or has_physics_rules(rules):
+                    fit_result, self._fit_sse = (
+                        self._fit_parameters_joint_rollout(
+                            rules, specs, residual_features))
+                elif has_latent_rules(rules):
+                    fit_result, self._fit_sse = \
+                        self._fit_parameters_recurrent(
+                            rules, specs, base_pred_triples,
+                            residual_features)
+                else:
+                    fit_result, self._fit_sse = fit_rule_parameters(
+                        rules, specs, base_pred_triples, residual_features)
             self._last_fit_result = fit_result
             self._fitted_params.clear()
             self._fitted_params.update(fit_result.point_estimate)

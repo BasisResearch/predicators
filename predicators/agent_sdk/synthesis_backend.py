@@ -64,8 +64,15 @@ class SynthesisBackend(Protocol):
     _residual_rules: Optional[List]
     _latent_init: Any
 
-    def _publish_probe_fit(self, params: Dict[str, float], version_tag: str,
-                           simulator_file: str) -> None:
+    def _publish_probe_fit(
+        self,
+        params: Dict[str, float],
+        version_tag: str,
+        simulator_file: str,
+        fit_result: Optional[FitResult] = None,
+        sse: float = float("nan"),
+        applied_physical: Optional[Dict[str, float]] = None,
+    ) -> None:
         """Deploy a canonical ``sim.fit`` result to the candidate probe."""
 
     # ── Vocabulary / engine accessors ────────────────────────────
