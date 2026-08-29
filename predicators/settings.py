@@ -1834,6 +1834,27 @@ class GlobalSettings:
     # Ensemble size used to estimate disagreement. 1 disables scoring
     # (every candidate scores 0) and reduces to first-feasible.
     agent_explorer_info_ensemble_size = 6
+    # Exploration keeps the agent's explicit continuous parameters: a
+    # proposed value is a decision, not a seed. Refinement re-proposes a
+    # pinned step's own params on each attempt (the belief's motion
+    # planning and physics vary per rollout) and never samples a
+    # replacement for it; info-seeking boundary probing is limited to
+    # steps the agent left unspecified. Off restores seed-then-search
+    # (run_20260828_173502 traj8: a proposed [0.827, 1.148, 0.44, 0]
+    # butt Place executed as a sampled [1.081, 1.218, 0.484, -1.59];
+    # the agents then stripped their SeatedOn/LegAtSite annotations to
+    # keep refinement from wandering, blinding the divergence monitor).
+    agent_explorer_pin_proposed_params = True
+    agent_explorer_pinned_step_retries = 3
+    # A plan the explore session validated through the capture gate
+    # (evaluate_option_plan / refine_plan_sketch: goal reached in
+    # agent_plan_validation_rollouts fresh belief rollouts) is executed
+    # verbatim as the episode's solve attempt with mental_model_solved=
+    # True, and the cycle's remaining requests on that task replay it
+    # without a new query - so a certified plan that solves for real on
+    # every attempt satisfies the train-driven early-stop rule. Off
+    # feeds the capture into the experiment search as seeds instead.
+    agent_explorer_replay_certified_plan = True
     # Per-parameter jitter as a fraction of the ParamSpec box width, for
     # the uniform-fallback ensemble only (see calibrated flag below).
     agent_explorer_info_perturb_frac = 0.15

@@ -155,6 +155,12 @@ class _RefineContext:
     parameterized_samplers: Optional[Dict[str, ParameterizedSampler]]
     solved_check: Optional[Callable[[List[State], List[Any], bool],
                                     Tuple[bool, str]]]
+    # Proposed continuous params are decisions, not seeds: a step that
+    # carries ``initial_params`` re-proposes them on every attempt (up
+    # to ``pinned_step_retries``), is never re-sampled, and is never an
+    # info-seeking probe. Only unspecified steps are searched.
+    pin_proposed_params: bool
+    pinned_step_retries: int
 
 
 @dataclasses.dataclass
@@ -331,7 +337,14 @@ def _info_seeking_applies(ctx: _RefineContext, step: SketchStep) -> bool:
     # steps fall through to the plain single-sample path unchanged.
     return (ctx.info_scorer is not None and ctx.info_n_feasible_target > 1
             and step.option.params_space.shape[0] > 0
-            and step.subgoal_atoms is not None)
+            and step.subgoal_atoms is not None and not _is_pinned(ctx, step))
+
+
+def _is_pinned(ctx: _RefineContext, step: SketchStep) -> bool:
+    """Whether the step's proposed params are kept verbatim (see
+    ``refine_sketch``'s ``pin_proposed_params``)."""
+    return (ctx.pin_proposed_params and step.initial_params is not None
+            and step.option.params_space.shape[0] > 0)
 
 
 def _is_deterministic(ctx: _RefineContext, step: SketchStep) -> bool:
@@ -535,6 +548,18 @@ def _sample_step(search: _RefinementState, ctx: _RefineContext, idx: int,
     # {LLM guess} ∪ sampled draws instead of the guess pre-empting it.
     if _info_seeking_applies(ctx, step):
         return _sample_info_seeking(search, ctx, step, state, rng_, idx)
+    # Pinned step: the proposal IS the decision. Every attempt re-proposes
+    # it (the belief's motion planning and physics vary across rollouts,
+    # so a retry is a fresh sample of execution variability), and the
+    # step is never re-sampled: an executed pose the agent never chose
+    # is not an experiment it designed (run_20260828_173502 traj8 - a
+    # proposed [0.827, 1.148, 0.44, 0] butt Place ran as a sampled
+    # [1.081, 1.218, 0.484, -1.59] and lost the episode).
+    if _is_pinned(ctx, step):
+        box = step.option.params_space
+        params = np.clip(np.asarray(step.initial_params, dtype=np.float32),
+                         box.low, box.high).astype(np.float32)
+        return _ground(step, params)
     # Plain path: on the first arrival at this step, try the LLM-proposed
     # params (if any) before any sampling. Clipping avoids ground()'s
     # out-of-box ValueError; arity is already validated by the parser.
@@ -681,6 +706,8 @@ def refine_sketch(
     strip_latent_wait_targets: bool = True,
     solved_check: Optional[Callable[[List[State], List[Any], bool],
                                     Tuple[bool, str]]] = None,
+    pin_proposed_params: bool = False,
+    pinned_step_retries: int = 3,
 ) -> RefineOutcome:
     """Backtracking search over continuous parameters for a plan sketch.
 
@@ -691,6 +718,13 @@ def refine_sketch(
     what used to be out-holder parameters: per-step cumulative sample
     counts, the termination reason, the elapsed wall-clock time, and the
     deepest validation near-miss.
+
+    ``pin_proposed_params`` makes a step's proposed ``initial_params`` a
+    decision rather than a seed: the step re-proposes them on every
+    attempt (``pinned_step_retries`` attempts, each a fresh rollout of
+    the belief's execution variability), is never re-sampled, and is
+    never an info-seeking probe; only steps without a proposal are
+    searched. Off (the default) keeps seed-then-search semantics.
 
     ``solved_check`` is a caller-threaded task-evaluator gate (this
     module stays free of evaluator/CFG coupling): called only for a
@@ -799,7 +833,9 @@ def refine_sketch(
                          info_scorer=info_scorer,
                          info_n_feasible_target=info_n_feasible_target,
                          parameterized_samplers=parameterized_samplers,
-                         solved_check=solved_check)
+                         solved_check=solved_check,
+                         pin_proposed_params=pin_proposed_params,
+                         pinned_step_retries=max(1, pinned_step_retries))
     search = _RefinementState(step_pools=[None] * n,
                               step_trajs=[None] * n,
                               step_samples_cumulative=[0] * n)
@@ -818,6 +854,8 @@ def refine_sketch(
             max_tries.append(1)
         elif _is_deterministic(ctx, _step):
             max_tries.append(1)
+        elif _is_pinned(ctx, _step):
+            max_tries.append(ctx.pinned_step_retries)
         elif _info_seeking_applies(ctx, _step):
             max_tries.append(info_n_feasible_target)
         else:
