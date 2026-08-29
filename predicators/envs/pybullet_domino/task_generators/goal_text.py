@@ -41,6 +41,20 @@ MIN_BLOCK_GOAL_NL = (
     "may topple before that push. Only the green domino may ever be "
     "pushed." + CASCADE_VERIFICATION_NL)
 
+# The min-block instruction for a wind-triggered env. Nothing pairs
+# domino_min_block_tasks with a fan today, but the two flags are
+# independent and the push wording is unfollowable in a fan env, so the
+# builder picks between them rather than leaving a trap set.
+MIN_BLOCK_WIND_GOAL_NL = (
+    "Arrange the blue dominoes so that when the fan is switched on, the "
+    "wind topples the green domino and the purple domino is toppled -- "
+    "using AS FEW blue dominoes as possible (possibly none). Only the "
+    "blue dominoes may be rearranged: the green and purple dominoes must "
+    "stay untouched at their staged poses, upright and never held, until "
+    "the fan is switched on, and nothing may topple before that. The "
+    "robot must never push a domino - the only way to start the cascade "
+    "is to press the fan's switch." + WIND_VERIFICATION_NL)
+
 HEAVY_GOAL_NL = (
     "Arrange the blue dominoes so that when the green domino is pushed, "
     "the purple domino is toppled -- using AS FEW blue dominoes as "

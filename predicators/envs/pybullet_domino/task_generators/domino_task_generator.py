@@ -105,6 +105,21 @@ class DominoTaskGenerator(TaskGenerator):
 
         return tasks
 
+    def _wind_triggered(self) -> bool:
+        """True when the cascade is started by wind, not by a push.
+
+        A fan is the only additional component that can start a cascade
+        legitimately without the arm touching a domino, so it decides
+        both the trigger the certificate sanctions and what the goal
+        text may ask for. Those two must never disagree: an agent told
+        to push the green in a fan env has no Push skill to push with,
+        and every episode it runs is rejected for having no TurnFanOn
+        on the record. A ball is a second body the robot can throw at
+        the chain, so ball variants are not wind-triggered.
+        """
+        comp_names = {type(c).__name__ for c in self.additional_components}
+        return bool(comp_names) and comp_names <= {"FanComponent"}
+
     def _generate_single_task(
             self,
             task_idx: int,
@@ -215,13 +230,7 @@ class DominoTaskGenerator(TaskGenerator):
             target_word, target_verb = "the purple domino", "is"
         else:
             target_word, target_verb = "the purple dominoes", "are"
-        # What starts the cascade, and so what the goal text must ask
-        # for. In a fan env the robot has no Push skill at all and the
-        # certificate demands a TurnFanOn step, so the push wording
-        # would be asking for something the agent cannot do and must
-        # not do -- an instruction it can only fail.
-        comp_names = {type(c).__name__ for c in self.additional_components}
-        fan_only = bool(comp_names) and comp_names <= {"FanComponent"}
+        fan_only = self._wind_triggered()
         trigger = "TurnFanOn" if fan_only else "Push"
         if fan_only:
             goal_nl = (
@@ -376,7 +385,9 @@ class DominoTaskGenerator(TaskGenerator):
                 goal_atoms.add(GroundAtom(self.domino.Toppled, [domino_obj]))
         return EnvironmentTask(init_state,
                                goal_atoms,
-                               goal_nl=goal_text.MIN_BLOCK_GOAL_NL)
+                               goal_nl=(goal_text.MIN_BLOCK_WIND_GOAL_NL
+                                        if self._wind_triggered() else
+                                        goal_text.MIN_BLOCK_GOAL_NL))
 
     # A chain's travel direction is (sin rotation, cos rotation) -- see
     # _place_straight_domino -- so rotation is measured from +y, turning
