@@ -28,8 +28,6 @@ APPROACHES:
     SKIP: True
     FLAGS:
       agent_sim_learn_kept_predicates_names: ["Holding", "HandEmpty"]
-  agent_oracle_hybrid_sim_ground_sampler:
-    SKIP: True
   agent_po_predicate_invention_al:
     SKIP: False
     FLAGS:
