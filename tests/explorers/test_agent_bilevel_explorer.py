@@ -143,7 +143,6 @@ def _reset_config(**overrides):
         "num_test_tasks": 1,
         "seed": 42,
         "agent_bilevel_max_samples_per_step": 5,
-        "agent_bilevel_explorer_max_samples_per_step": 5,
         "agent_bilevel_check_subgoals": True,
         "agent_bilevel_log_state": False,
         "agent_explorer_fallback_to_random": True,
@@ -213,93 +212,65 @@ def test_happy_path_returns_policy_and_stashes_subgoals():
     assert query.await_count == 1
 
 
-def test_wait_memory_injection_on_refine():
-    """Wait step with subgoal should have wait_target_atoms injected."""
+def test_wait_memory_injection_on_grounding():
+    """A Wait step's annotated subgoal rides on the grounded option as
+    ``wait_target_atoms`` so WaitOption terminates on the intended atoms."""
     _reset_config()
-
-    captured: list = []
-
-    def side_effect(_state, option):
-        captured.append(option)
-        return (_make_state({_block0: [0.5, 0.6, 0.0]}), 3)
-
-    option_model = MagicMock()
-    option_model.get_next_state_and_num_actions.side_effect = side_effect
-
-    plan_text = ("Wait(robot0:robot) -> {On(block0:block, block1:block)}\n")
-    query = AsyncMock(return_value=_assistant_response(plan_text))
-    explorer, _ = _make_explorer(option_model, query)
-
-    explorer._get_exploration_strategy(0, timeout=5)
-    assert captured, "option_model was not invoked"
-    wait_opt = captured[0]
-    assert wait_opt.name == "Wait"
-    assert "wait_target_atoms" in wait_opt.memory
-    assert wait_opt.memory["wait_target_atoms"] == {
+    explorer, _ = _make_explorer(MagicMock(), None)
+    step = SketchStep(option=_Wait,
+                      objects=[_robot],
+                      subgoal_atoms={GroundAtom(_On, [_block0, _block1])})
+    plan = explorer._ground_sketch_verbatim([step])
+    assert len(plan) == 1 and plan[0].name == "Wait"
+    assert plan[0].memory["wait_target_atoms"] == {
         GroundAtom(_On, [_block0, _block1])
     }
 
 
-def test_plan_truncates_at_deepest_subgoal_failure_after_backtracking():
-    """Regression: explorer returns the prefix up to (and including) the
-    deepest step whose subgoal backtracking couldn't satisfy.
-
-    Reproduces the boil-task bug: the agent sketches ``Pick → Wait(Holding)
-    → Place`` and the mental model's Wait does NOT produce ``Holding``.
-    Backtracking runs normally — it retries Pick with different params
-    and re-runs Wait each time — but since the mental model simply can't
-    produce Holding under any params, Wait's subgoal keeps failing.
-    After exhaustion, the explorer returns ``[Pick, Wait]`` with the last
-    grounded attempts. Place is NEVER executed because refinement never
-    gets past Wait.
-    """
-    _reset_config()
-
-    # Mental model post-state: Holding(block0) NEVER holds (held=0).
-    no_holding_state = _make_state({_block0: [0.1, 0.2, 0.0]})
+def test_sketch_executes_verbatim_without_belief_refinement():
+    """The agent's explicit parameters execute exactly as written: the belief
+    model is never rolled, the verdict is not-certified, and the cycle record
+    shows the executed values."""
+    _reset_config(agent_bilevel_use_llm_initial_params=True)
     option_model = MagicMock()
-    option_model.get_next_state_and_num_actions.return_value = (
-        no_holding_state, 3)
-
-    plan_text = ("Pick(block0:block)\n"
-                 "Wait(robot0:robot) -> {Holding(block0:block)}\n"
-                 "Place(block0:block, block1:block) -> "
-                 "{On(block0:block, block1:block)}\n")
+    plan_text = ("```\nPick(block0:block)[0.42] -> {Holding(block0:block)}\n"
+                 "Place(block0:block, block1:block)[0.11, 0.22] -> "
+                 "{On(block0:block, block1:block)}\n```")
     query = AsyncMock(return_value=_assistant_response(plan_text))
     explorer, tool_context = _make_explorer(option_model, query)
-
-    policy, _ = explorer._get_exploration_strategy(0, timeout=5)
-    assert callable(policy)
-
-    # All three sketch steps recorded in metadata — the SKETCH is the full
-    # agent output; the TRUNCATION only applies to the refined plan.
+    policy, term_fn = explorer._get_exploration_strategy(0, timeout=5)
+    assert callable(policy) and term_fn(_make_state()) is False
+    assert not option_model.get_next_state_and_num_actions.called
+    assert tool_context.last_mental_model_solved is False
+    record = tool_context.cycle_scheduled_plans[-1]
+    assert "Pick(block0)[0.4200]" in record
+    assert "Place(block0, block1)[0.1100, 0.2200]" in record
+    assert "-> {On(block0:block, block1:block)}" in record
+    assert "without belief-model certification" in record
     assert tool_context.last_sketch_options == [
         ("Pick", ["block0"]),
-        ("Wait", ["robot0"]),
         ("Place", ["block0", "block1"]),
     ]
 
-    executed_names = [
-        call.args[1].name
-        for call in option_model.get_next_state_and_num_actions.call_args_list
+
+def test_missing_params_get_one_draw_from_the_box():
+    """A step the agent left without parameters is grounded on one uniform.
+
+    draw from the option's box - no search, and no crash.
+    """
+    _reset_config(agent_bilevel_use_llm_initial_params=True)
+    explorer, _ = _make_explorer(MagicMock(), None)
+    steps = [
+        SketchStep(option=_Pick, objects=[_block0], subgoal_atoms=None),
+        SketchStep(option=_Place,
+                   objects=[_block0, _block1],
+                   subgoal_atoms=None,
+                   initial_params=np.array([0.5], dtype=np.float32)),
     ]
-    # Pick and Wait were each executed at least once (backtracking likely
-    # retried Pick multiple times).
-    assert "Pick" in executed_names
-    assert "Wait" in executed_names
-    # Place must NEVER be executed in the mental model: backtracking never
-    # got past the Wait subgoal failure, so Place never reached sample_fn.
-    assert "Place" not in executed_names, (
-        "Place must not be executed in the mental model — refinement "
-        f"should have stalled at Wait's unsatisfiable subgoal, got "
-        f"{executed_names}")
-    # Pick has params (5 max_samples_per_step in test config), Wait has none.
-    # Each backtracking cycle runs Pick + Wait once, so we expect roughly
-    # 2 * max_samples_per_step mental-model calls — confirm backtracking
-    # actually exercised the upstream retries (at least 2 Picks).
-    assert executed_names.count("Pick") >= 2, (
-        "Backtracking should have retried Pick at least twice before "
-        f"giving up, got {executed_names}")
+    plan = explorer._ground_sketch_verbatim(steps)
+    assert plan[0].params.shape == (1, ) and 0.0 <= plan[0].params[0] <= 1.0
+    # Wrong arity counts as missing.
+    assert plan[1].params.shape == (2, )
 
 
 def _make_captured(pick_params, place_params):
@@ -322,17 +293,12 @@ def test_recovers_captured_plan_when_final_text_unparseable():
     """Agent validates a plan via evaluate_option_plan but ends in prose:
 
     explorer recovers the captured plan instead of falling back to
-    random, and seeds the captured continuous params into refinement.
+    random and executes it at the captured continuous params.
     """
     _reset_config()
-
-    goal_state = _make_state({_block0: [0.5, 0.6, 0.0]})
     option_model = MagicMock()
-    option_model.get_next_state_and_num_actions.return_value = (goal_state, 3)
-
     pick_params, place_params = [0.42], [0.11, 0.22]
     grounded_plan, captured_sketch = _make_captured(pick_params, place_params)
-
     explorer, tool_context = _make_explorer(option_model, None)
 
     async def query_impl(_msg, **_kw):
@@ -344,9 +310,7 @@ def test_recovers_captured_plan_when_final_text_unparseable():
         return _assistant_response("Solved it. Plan: 1. pick 2. place. Done.")
 
     explorer._agent_session.query = query_impl
-
     policy, term_fn = explorer._get_exploration_strategy(0, timeout=5)
-
     # Recovered (not random fallback): subgoals/options come from the capture.
     assert callable(policy)
     assert term_fn(_make_state()) is False
@@ -357,58 +321,11 @@ def test_recovers_captured_plan_when_final_text_unparseable():
     # The capture was consumed (cleared) so it can't leak into a later solve.
     assert tool_context.solved_plan is None
     assert tool_context.solved_sketch is None
-    # Captured params were seeded as initial_params: the option model is
-    # invoked with them (Pick tries them first; Place's are pooled).
-    called = [
-        c.args[1]
-        for c in option_model.get_next_state_and_num_actions.call_args_list
-    ]
-    pick_calls = [o for o in called if o.name == "Pick"]
-    place_calls = [o for o in called if o.name == "Place"]
-    assert pick_calls and place_calls
-    np.testing.assert_allclose(pick_calls[0].params, pick_params)
-    assert any(
-        np.allclose(o.params, place_params) for o in place_calls), \
-        "captured Place params were not seeded into refinement"
-
-
-def test_captured_params_seed_info_gain_search():
-    """With info-seeking ON, the recovered capture's continuous params are
-    seeded as candidates in the info-gain pool (not replayed verbatim)."""
-    _reset_config(agent_explorer_info_seeking=True,
-                  agent_explorer_info_n_feasible_target=2,
-                  agent_bilevel_explorer_max_samples_per_step=4)
-
-    goal_state = _make_state({_block0: [0.5, 0.6, 0.0]})
-    option_model = MagicMock()
-    option_model.get_next_state_and_num_actions.return_value = (goal_state, 3)
-
-    place_params = [0.33, 0.44]
-    grounded_plan, captured_sketch = _make_captured([0.42], place_params)
-
-    explorer, tool_context = _make_explorer(option_model, None)
-    # Wire a trivial ensemble scorer so info-seeking engages on annotated
-    # steps; constant score means the seeded candidate is chosen.
-    tool_context.atom_disagreement_fn = lambda _s, _atoms: 0.0
-
-    async def query_impl(_msg, **_kw):
-        tool_context.solved_plan = grounded_plan
-        tool_context.solved_sketch = captured_sketch
-        return _assistant_response("Done — summary only, no sketch block.")
-
-    explorer._agent_session.query = query_impl
-
-    policy, _ = explorer._get_exploration_strategy(0, timeout=5)
-    assert callable(policy)
-    # Place is the subgoal-annotated step that info-seeking pools; its captured
-    # params must appear among the candidates the pool evaluated.
-    place_calls = [
-        c.args[1]
-        for c in option_model.get_next_state_and_num_actions.call_args_list
-        if c.args[1].name == "Place"
-    ]
-    assert any(np.allclose(o.params, place_params) for o in place_calls), \
-        "captured Place params were not seeded into the info-gain pool"
+    # The captured params execute verbatim; the belief is not re-rolled.
+    assert not option_model.get_next_state_and_num_actions.called
+    record = tool_context.cycle_scheduled_plans[-1]
+    assert "Pick(block0)[0.4200]" in record
+    assert "Place(block0, block1)[0.1100, 0.2200]" in record
 
 
 def test_fallback_when_query_fails_and_flag_on():
@@ -492,9 +409,7 @@ def test_certified_capture_executes_verbatim_and_is_replayed():
     True) is executed verbatim as a solve attempt with a True mental-model
     verdict; the cycle's next request on the task replays it with no new
     query."""
-    _reset_config(agent_explorer_info_seeking=True,
-                  agent_explorer_info_n_feasible_target=2,
-                  agent_bilevel_explorer_max_samples_per_step=4)
+    _reset_config(agent_explorer_info_seeking=True)
     option_model = MagicMock()
     option_model.get_next_state_and_num_actions.return_value = (_make_state(
         {_block0: [0.5, 0.6, 0.0]}), 3)
@@ -536,13 +451,12 @@ def test_certified_capture_executes_verbatim_and_is_replayed():
     assert tool_context.last_mental_model_solved is True
 
 
-def test_uncertified_capture_still_seeds_the_search():
-    """A capture whose gate verdict is not True (best-effort, flaky) keeps the
-    seed-then-search path and a non-True verdict."""
+def test_uncertified_capture_executes_its_plan_verbatim():
+    """A capture whose gate verdict is not True (best-effort, flaky) is not
+    certified: it executes at its captured params as an experiment, with a
+    False mental-model verdict and no replay for the cycle."""
     _reset_config()
-    goal_state = _make_state({_block0: [0.5, 0.6, 0.0]})
     option_model = MagicMock()
-    option_model.get_next_state_and_num_actions.return_value = (goal_state, 3)
     grounded_plan, captured_sketch = _make_captured([0.42], [0.11, 0.22])
     explorer, tool_context = _make_explorer(option_model, None)
 
@@ -555,40 +469,6 @@ def test_uncertified_capture_still_seeds_the_search():
     explorer._agent_session.query = query_impl
     policy, _ = explorer._get_exploration_strategy(0, timeout=5)
     assert callable(policy)
-    assert option_model.get_next_state_and_num_actions.called
+    assert not option_model.get_next_state_and_num_actions.called
     assert 0 not in tool_context.cycle_certified_plans
-    assert tool_context.last_mental_model_solved is not None
-
-
-def test_pinned_params_run_verbatim_in_the_experiment_search():
-    """With agent_explorer_pin_proposed_params the sketch's explicit params are
-    re-proposed on retry and never replaced, even with info-seeking on and an
-    ensemble that disagrees everywhere."""
-    _reset_config(agent_explorer_info_seeking=True,
-                  agent_explorer_info_n_feasible_target=3,
-                  agent_bilevel_explorer_max_samples_per_step=6,
-                  agent_explorer_pinned_step_retries=2,
-                  agent_bilevel_use_llm_initial_params=True)
-    goal_state = _make_state({_block0: [0.5, 0.6, 0.0]})
-    option_model = MagicMock()
-    option_model.get_next_state_and_num_actions.return_value = (goal_state, 3)
-    explorer, tool_context = _make_explorer(option_model, None)
-    tool_context.atom_disagreement_fn = lambda _s, _atoms: 1.0
-
-    async def query_impl(_msg, **_kw):
-        return _assistant_response(
-            "```\nPick(block0:block)[0.42] -> {Holding(block0:block)}\n"
-            "Place(block0:block, block1:block)[0.11, 0.22] -> "
-            "{On(block0:block, block1:block)}\n```")
-
-    explorer._agent_session.query = query_impl
-    policy, _ = explorer._get_exploration_strategy(0, timeout=5)
-    assert callable(policy)
-    called = [
-        c.args[1]
-        for c in option_model.get_next_state_and_num_actions.call_args_list
-    ]
-    assert called, "refinement never rolled the sketch out"
-    for opt in called:
-        expected = [0.42] if opt.name == "Pick" else [0.11, 0.22]
-        np.testing.assert_allclose(opt.params, expected)
+    assert tool_context.last_mental_model_solved is False

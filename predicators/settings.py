@@ -1803,33 +1803,17 @@ class GlobalSettings:
     # option-model rollouts per search node: plain steps spend one per
     # backtracking attempt (classic semantics); info-seeking steps spend
     # the same budget pooling candidates (see refine_sketch).
-    agent_bilevel_explorer_max_samples_per_step = 50
 
-    # Active-experiment-design exploration: refinement picks the feasible
-    # continuous parameters the learned model is most *uncertain* about
-    # (ensemble disagreement on the step's subgoal atoms) instead of the
-    # first feasible sample, pushing probes toward learned decision
-    # boundaries. Off ⇒ identical to plain feasibility search.
+    # Active-experiment-design exploration: build the learned model's
+    # parameter ensemble so the agent can rank candidate probes by the
+    # ensemble's disagreement on a step's subgoal atoms
+    # (sim.suggest_probes) and the capture gate can sweep the rule-param
+    # margin. The agent decides what to run; the harness never moves
+    # its parameters. Off => no ensemble is built.
     agent_explorer_info_seeking = False
-    # Feasible candidates pooled per step before proposing the most
-    # informative; the pool doubles as the node's ranked retry stock and
-    # attempt cap (see bilevel_sketch.refine_sketch). 1 disables.
-    agent_explorer_info_n_feasible_target = 8
     # Ensemble size used to estimate disagreement. 1 disables scoring
     # (every candidate scores 0) and reduces to first-feasible.
     agent_explorer_info_ensemble_size = 6
-    # Exploration keeps the agent's explicit continuous parameters: a
-    # proposed value is a decision, not a seed. Refinement re-proposes a
-    # pinned step's own params on each attempt (the belief's motion
-    # planning and physics vary per rollout) and never samples a
-    # replacement for it; info-seeking boundary probing is limited to
-    # steps the agent left unspecified. Off restores seed-then-search
-    # (run_20260828_173502 traj8: a proposed [0.827, 1.148, 0.44, 0]
-    # butt Place executed as a sampled [1.081, 1.218, 0.484, -1.59];
-    # the agents then stripped their SeatedOn/LegAtSite annotations to
-    # keep refinement from wandering, blinding the divergence monitor).
-    agent_explorer_pin_proposed_params = True
-    agent_explorer_pinned_step_retries = 3
     # A plan the explore session validated through the capture gate
     # (evaluate_option_plan: goal reached in
     # agent_plan_validation_rollouts fresh belief rollouts) is executed
