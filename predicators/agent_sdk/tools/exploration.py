@@ -21,10 +21,11 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
     if synthesis_probe:
         sim_desc = (
             "`sim` (a BeliefProbe over the CANDIDATE simulator: your current "
-            "simulator.py with freshly MCMC-fitted params, rebuilt "
-            "automatically when the file changes - so probes always "
-            "exercise what you just wrote; errors until a loadable "
-            "simulator.py exists)")
+            "simulator.py, rebuilt automatically when the file changes, at "
+            "the params of your last `sim.fit()` - it never fits on its "
+            "own, and results carry a PARAMS UNFITTED notice until you fit "
+            "the current file; errors until a loadable simulator.py "
+            "exists)")
         reset_desc = (
             "`sim.reset(task_idx, mods=None)` sets the current state "
             "to a train task's init (task_idx is required in this "
@@ -137,6 +138,12 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
             "`sim.restore(id)` bank and rewind states (use to re-try "
             "different actions from one setup, or resume after a fixed "
             "plan prefix without re-running it); "
+            "`sim.suggest_probes(sketch_text, max_draws=20, top_k=3)` rolls "
+            "your sketch forward on your own parameters and, per `-> "
+            "{subgoals}`-annotated step with continuous params, ranks "
+            "feasible alternatives by the learned model's ensemble "
+            "disagreement on those atoms (advice only: what you submit "
+            "runs as written); "
             "`sim.refine(sketch_text, timeout=60, require_goal=False, "
             "require_solved=False)` runs "
             "backtracking parameter search FROM THE CURRENT STATE (same "

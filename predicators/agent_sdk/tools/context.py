@@ -60,6 +60,12 @@ class ToolContext:
     # sessions - the deployed belief model is fixed there, so the probe
     # rejects ``fit`` calls.
     probe_fit_provider: Optional[Callable[..., str]] = None
+    # Synthesis sessions: which parameter values the candidate probe
+    # model is running with - "fitted (<version>)" after a canonical
+    # ``sim.fit`` of the current simulator.py, or an UNFITTED notice
+    # (carried-over / declared init values) that every probe result
+    # surfaces until the agent fits the file. None outside synthesis.
+    probe_param_status: Optional[str] = None
     # Synthesis-session ``sim.residuals`` backend: computes the
     # per-feature residual report for the current simulator.py rules
     # (see ``SynthesisToolkit.residuals_runner``). None in solve

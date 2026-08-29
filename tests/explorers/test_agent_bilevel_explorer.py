@@ -445,7 +445,7 @@ def test_experiment_guidance_gated_by_info_seeking():
     _reset_config(agent_explorer_info_seeking=True)
     explorer, _ = _make_explorer(MagicMock(), MagicMock())
     guidance = explorer._build_experiment_guidance()  # pylint: disable=protected-access
-    assert "straddle the learned model's decision boundaries" in guidance
+    assert "sim.suggest_probes" in guidance
     # Off => section absent entirely.
     _reset_config(agent_explorer_info_seeking=False)
     assert explorer._build_experiment_guidance() == ""  # pylint: disable=protected-access
@@ -471,7 +471,7 @@ def test_experiment_guidance_injects_open_questions_ledger(tmp_path):
     _reset_config(agent_explorer_info_seeking=True)
     guidance = explorer._build_experiment_guidance()  # pylint: disable=protected-access
     assert ledger in guidance
-    assert "straddle the learned model's decision boundaries" in guidance
+    assert "sim.suggest_probes" in guidance
     # Oversized ledger: head survives, truncation is announced.
     head = "TOP-RANKED ENTRY"
     (tmp_path / "open_questions.md").write_text(head + "x" * 10000,

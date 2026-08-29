@@ -356,6 +356,52 @@ class ProbeSweepResult(_StrLikeResult):
 
 
 @dataclasses.dataclass(repr=False)
+class ProbeSuggestResult(_StrLikeResult):
+    """Outcome of ``BeliefProbe.suggest_probes``: per annotated step, the
+    agent's own parameters' ensemble disagreement and the top alternatives."""
+    suggestions: List[Any]
+    notes: List[str]
+
+    def __repr__(self) -> str:
+        lines = [
+            "Probe suggestions - ensemble disagreement on each step's "
+            "subgoal atoms (0 = every posterior member agrees on the "
+            "outcome, 1 = the members split; higher = a measurement that "
+            "teaches the model more). These are SUGGESTIONS: your "
+            "submitted parameters execute exactly as written, so adopt an "
+            "alternative only by writing it into your sketch, and only on "
+            "a step whose failure the episode can afford."
+        ]
+        for s in self.suggestions:
+            objs = ", ".join(s.objects)
+            head = f"  step {s.step_idx} {s.option_name}({objs}) -> " \
+                f"{{{', '.join(s.subgoal_atoms)}}}:"
+            if s.nominal_params is None:
+                head += " no proposal;"
+            elif not s.nominal_feasible:
+                head += (f" proposed {_fmt_params(s.nominal_params)} does "
+                         "NOT establish the subgoal;")
+            else:
+                per = ", ".join(f"{a}={v:.2f}"
+                                for a, v in s.nominal_per_atom.items())
+                head += (f" proposed {_fmt_params(s.nominal_params)} "
+                         f"disagreement {s.nominal_score:.2f} ({per});")
+            head += f" {s.n_feasible}/{s.n_draws} draws feasible"
+            lines.append(head)
+            if not s.candidates:
+                lines.append("      no feasible alternative found")
+            for rank, (params, score, per_atom) in enumerate(s.candidates, 1):
+                per = ", ".join(f"{a}={v:.2f}" for a, v in per_atom.items())
+                lines.append(f"      alt {rank}: {_fmt_params(params)} "
+                             f"disagreement {score:.2f} ({per})")
+        if not self.suggestions:
+            lines.append("  (no annotated step with continuous parameters)")
+        for note in self.notes:
+            lines.append(f"  NOTE: {note}")
+        return "\n".join(lines)
+
+
+@dataclasses.dataclass(repr=False)
 class ProbeRefineResult(_StrLikeResult):
     """Outcome of one ``BeliefProbe.refine`` call.
 
@@ -878,6 +924,9 @@ class BeliefProbe:
                 "Parsed empty plan. Each line must be "
                 "`Option(obj:type, ...)[params]` with a known option, typed "
                 "object refs, and exact params in `[]`.")
+        status = ctx.probe_param_status
+        if status and status.startswith("UNFITTED"):
+            notices.append(f"PARAMS {status}.")
         return probe_task, sketch_steps, all_predicates, notices
 
     def _require_solved_evaluator(self, flag: str) -> Any:
@@ -1715,6 +1764,65 @@ class BeliefProbe:
                                  pending=pending,
                                  stale=stale,
                                  current_tag=current)
+
+    def suggest_probes(self,
+                       sketch_text: str,
+                       max_draws: int = 20,
+                       top_k: int = 3) -> "ProbeSuggestResult":
+        """Rank alternative continuous parameters by what they would teach.
+
+        Rolls ``sketch_text`` forward FROM THE CURRENT STATE on your own
+        parameters and, at every step annotated with ``-> {subgoals}``
+        that has continuous parameters, draws up to ``max_draws``
+        alternatives, keeps the ones that still establish the subgoal,
+        and ranks them by the learned model's ensemble disagreement on
+        those atoms (the posterior members' split on whether the
+        subgoal holds). Returns the top ``top_k`` per step next to your
+        proposal's own score. Pure advice: nothing you submit is
+        changed by this - write an alternative into your sketch to run
+        it. Needs the info-seeking ensemble (solve/explore sessions
+        with ``agent_explorer_info_seeking``); otherwise the result
+        says so.
+        """
+        # pylint: disable=import-outside-toplevel
+        import numpy as np
+
+        from predicators.agent_sdk import bilevel_sketch
+        from predicators.settings import CFG
+
+        # pylint: enable=import-outside-toplevel
+        ctx = self._ctx
+        _check_time_budget(ctx)
+        scorer = ctx.atom_disagreement_fn
+        if scorer is None:
+            return ProbeSuggestResult([], [
+                "no ensemble disagreement scorer is available in this "
+                "session (info-seeking ensemble not installed), so "
+                "alternatives cannot be ranked."
+            ])
+        probe_task, sketch_steps, all_predicates, notices = \
+            self._parse_sketch(sketch_text)
+        self._refine_calls += 1
+        rng = np.random.default_rng(CFG.seed + 100003 *
+                                    (self._instance_id + 1) +
+                                    self._refine_calls)
+
+        def _on_rollout() -> None:
+            _check_time_budget(ctx)
+            _count_rollout(ctx)
+
+        suggestions, notes = bilevel_sketch.suggest_probes(
+            probe_task,
+            sketch_steps,
+            self._option_model(),
+            predicates=all_predicates,
+            info_scorer=scorer,
+            rng=rng,
+            max_draws=max(1, int(max_draws)),
+            top_k=max(1, int(top_k)),
+            parameterized_samplers=ctx.parameterized_samplers or None,
+            on_rollout=_on_rollout)
+        return ProbeSuggestResult(suggestions, list(notices) + notes)
 
     def refine(self,
                sketch_text: str,

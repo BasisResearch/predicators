@@ -83,8 +83,12 @@ def test_probe_reset_requires_task_idx_during_synthesis() -> None:
 
 
 def test_candidate_probe_model_provider_glue(tmp_path, monkeypatch) -> None:
-    """The provider gates on a loadable simulator.py, caches by content hash
-    (no refit for an unchanged file), and rebuilds on change.
+    """The provider gates on a loadable simulator.py, caches by content hash,
+    rebuilds on change, and NEVER fits: the candidate runs at carried-over.
+
+    / declared values (status UNFITTED) until a canonical ``sim.fit``
+    publishes through ``_publish_probe_fit``, after which the next probe
+    runs at the fitted values (status fitted).
 
     Exercises the real ``_make_candidate_probe_model_provider`` and the
     real file loader; only the fit/build layer below
@@ -94,6 +98,7 @@ def test_candidate_probe_model_provider_glue(tmp_path, monkeypatch) -> None:
     approach = object.__new__(AgentSimLearningApproach)
     approach._fitted_params = {}
     approach._latent_init = None
+    approach._tool_context = ToolContext()
     fit_calls = {"n": 0}
 
     def _fake_fit(rules, specs, triples, features):
@@ -135,19 +140,40 @@ def test_candidate_probe_model_provider_glue(tmp_path, monkeypatch) -> None:
     with open(simulator_file, "w", encoding="utf-8") as f:
         f.write(valid)
     model = provider()
-    assert fit_calls["n"] == 1
+    # No implicit fit: declared init value, and the status says so.
+    assert fit_calls["n"] == 0
     assert approach._fitted_params == {"k": 1.0}
+    status = approach._tool_context.probe_param_status
+    assert status is not None and status.startswith("UNFITTED")
 
-    # Unchanged content: cached, no refit.
+    # Unchanged content: cached, no rebuild.
     assert provider() is model
-    assert fit_calls["n"] == 1
 
-    # Changed content: rebuilt.
+    # A canonical sim.fit publishes: the next probe runs at the fitted
+    # value without fitting again, and the status flips.
+    approach._publish_probe_fit({"k": 1.7}, "cycle_000_vers_002",
+                                simulator_file)
+    model2 = provider()
+    assert model2 is not model
+    assert approach._fitted_params == {"k": 1.7}
+    assert approach._tool_context.probe_param_status == \
+        "fitted (cycle_000_vers_002)"
+    assert fit_calls["n"] == 0
+
+    # Changed content: rebuilt UNFITTED, carrying the last fit's value
+    # for a param that still exists inside its box.
     with open(simulator_file, "w", encoding="utf-8") as f:
         f.write(valid.replace("1.0, lo", "1.5, lo"))
-    assert provider() is not model
-    assert fit_calls["n"] == 2
-    assert approach._fitted_params == {"k": 1.5}
+    assert provider() is not model2
+    assert approach._fitted_params == {"k": 1.7}
+    status = approach._tool_context.probe_param_status
+    assert status is not None and status.startswith("UNFITTED")
+
+    # A param renamed away falls back to its declared init value.
+    with open(simulator_file, "w", encoding="utf-8") as f:
+        f.write(valid.replace("'k'", "'k2'").replace("1.0, lo", "0.3, lo"))
+    provider()
+    assert approach._fitted_params == {"k2": 0.3}
 
 
 def test_probe_descriptions_follow_phase() -> None:

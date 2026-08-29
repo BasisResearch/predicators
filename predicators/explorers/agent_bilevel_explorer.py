@@ -518,12 +518,16 @@ class AgentBilevelExplorer(BaseExplorer):
                 "cover as many as its step budget allows:\n" + ledger)
         if CFG.agent_explorer_info_seeking:
             parts.append(
-                "Refinement will actively choose continuous parameters "
-                "that straddle the learned model's decision boundaries, "
-                "so each annotated step doubles as an experiment that "
-                "reveals where the model is wrong. Prefer a sketch whose "
-                "subgoal annotations exercise the geometry/timing you "
-                "are least sure the learned model has right.")
+                "Your explicit continuous parameters execute exactly as "
+                "written. To find the parameters a step could be run at "
+                "to teach the model most, call "
+                "`sim.suggest_probes(plan_text)`: it rolls your sketch "
+                "forward on your own parameters and, per annotated step, "
+                "ranks feasible alternatives by the learned model's "
+                "ensemble disagreement on the step's subgoal atoms. Adopt "
+                "one by writing it into your sketch, only on a step whose "
+                "failure the episode can afford; annotate steps with the "
+                "geometry/timing you are least sure the model has right.")
             disagreement = self._build_disagreement_summary()
             if disagreement:
                 parts.append(disagreement)

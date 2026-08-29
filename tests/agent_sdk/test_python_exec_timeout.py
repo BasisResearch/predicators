@@ -7,8 +7,14 @@ arms only the hard watchdog and returns the call's partial output.
 """
 
 import asyncio
+import time
 from types import SimpleNamespace
 
+import pytest
+
+from predicators.agent_sdk.belief_probe import ProbeBudgetExceeded
+from predicators.agent_sdk.tools.budget import _arm_budget_watchdog, \
+    suspend_budget_watchdog
 from predicators.agent_sdk.tools.python_exec import _make_python_exec_tool
 
 
@@ -66,3 +72,30 @@ def test_zero_cap_disables_watchdog(tmp_path):
     t = _make(tmp_path, timeout=0.0)
     out = _run(t.handler, "print('unbounded ok')")
     assert "unbounded ok" in out
+
+
+def test_suspend_budget_watchdog_pauses_and_resumes():
+    """A block that owns its budget (a canonical fit) pauses the enclosing
+    call's watchdog and gives it back its remaining time afterwards."""
+    disarm = _arm_budget_watchdog(0.4)
+    try:
+        with suspend_budget_watchdog():
+            time.sleep(0.7)  # longer than the cap: no exception while paused
+            for _ in range(10000):
+                pass  # bytecode boundaries where an async exception lands
+        # Resumed with ~0.4 s left: the cap fires within it.
+        with pytest.raises(ProbeBudgetExceeded):
+            t0 = time.monotonic()
+            while time.monotonic() - t0 < 3.0:
+                time.sleep(0.01)
+    finally:
+        disarm()
+
+
+def test_suspend_budget_watchdog_own_timeout():
+    """The block can carry its own cap."""
+    with pytest.raises(ProbeBudgetExceeded):
+        with suspend_budget_watchdog(own_timeout=0.2):
+            t0 = time.monotonic()
+            while time.monotonic() - t0 < 3.0:
+                time.sleep(0.01)

@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import numpy as np
 
 from predicators.agent_sdk.synthesis_backend import SynthesisBackend
+from predicators.agent_sdk.tools.budget import suspend_budget_watchdog
 from predicators.agent_sdk.tools.python_exec import _make_python_exec_tool
 from predicators.agent_sdk.tools.results import _make_coercing_tool, \
     _make_spilling_text_result
@@ -337,26 +338,27 @@ def create_synthesis_tools(
             approach._base_env,  # pylint: disable=protected-access
             physical_specs)
         try:
-            outcome = run_rollout_sysid(
-                fit_env,
-                rollouts,
-                physical_specs,
-                residual_features,
-                rules=rules,
-                rule_specs=rule_specs,
-                latent_init=latent_init,
-                anchors=anchors,
-                # The phase-shared caches key trajectory identity by
-                # segment lengths only - exact when every fit sees the
-                # full recording set, but two different traj_idxs
-                # subsets with equal-length segments would collide and
-                # cross-assign verdicts. Exploratory subset fits
-                # therefore never share them.
-                rms_cache=(None if exploratory else getattr(
-                    approach, "_explainability_cache", None)),
-                fit_cache=(None if exploratory else getattr(
-                    approach, "_sysid_fit_cache", None)),
-                fit_cache_key=version_tag)
+            with suspend_budget_watchdog(CFG.agent_sdk_fit_call_timeout):
+                outcome = run_rollout_sysid(
+                    fit_env,
+                    rollouts,
+                    physical_specs,
+                    residual_features,
+                    rules=rules,
+                    rule_specs=rule_specs,
+                    latent_init=latent_init,
+                    anchors=anchors,
+                    # The phase-shared caches key trajectory identity by
+                    # segment lengths only - exact when every fit sees the
+                    # full recording set, but two different traj_idxs
+                    # subsets with equal-length segments would collide and
+                    # cross-assign verdicts. Exploratory subset fits
+                    # therefore never share them.
+                    rms_cache=(None if exploratory else getattr(
+                        approach, "_explainability_cache", None)),
+                    fit_cache=(None if exploratory else getattr(
+                        approach, "_sysid_fit_cache", None)),
+                    fit_cache_key=version_tag)
         except Exception as e:  # pylint: disable=broad-except
             return (
                 f"[{version_tag}] Error: rollout system-ID fit failed:\n{e}")
@@ -389,6 +391,15 @@ def create_synthesis_tools(
         pre_sse, post_sse = outcome.pre_sse, outcome.post_sse
         if not exploratory:
             approach._apply_identified_physical_params(applied)  # pylint: disable=protected-access
+            # Deploy the rule params to the candidate probe (physical
+            # params were applied to the planning base env above).
+            rule_names = {s.name for s in rule_specs}
+            approach._publish_probe_fit(  # pylint: disable=protected-access
+                {
+                    n: v
+                    for n, v in outcome.fit_result.point_estimate.items()
+                    if n in rule_names
+                }, version_tag, simulator_file)
             if hasattr(approach, "_record_sysid_diagnostics"):
                 approach._record_sysid_diagnostics(  # pylint: disable=protected-access
                     ident_report, physical_names, outcome.num_survivors,
@@ -680,16 +691,21 @@ def create_synthesis_tools(
                 "the score at the pinned values.")
             return "\n".join(lines)
         try:
-            if latent_mode:
-                fit_result, post_sse = fit_rule_parameters_latent(
-                    fit_rules, fit_specs, groups, latent_init,
-                    residual_features)
-            else:
-                fit_result, post_sse = fit_rule_parameters(
-                    fit_rules, fit_specs, triples, residual_features)
+            with suspend_budget_watchdog(CFG.agent_sdk_fit_call_timeout):
+                if latent_mode:
+                    fit_result, post_sse = fit_rule_parameters_latent(
+                        fit_rules, fit_specs, groups, latent_init,
+                        residual_features)
+                else:
+                    fit_result, post_sse = fit_rule_parameters(
+                        fit_rules, fit_specs, triples, residual_features)
             fitted_params = fit_result.point_estimate
         except Exception as e:  # pylint: disable=broad-except
             return f"[{version_tag}] Error: fit_params failed:\n{e}"
+        if canonical and approach is not None:
+            # Deploy: the probe runs at exactly these values from now on.
+            approach._publish_probe_fit(  # pylint: disable=protected-access
+                dict(fitted_params), version_tag, p)
         if pre_sse > 0:
             pct = (pre_sse - post_sse) / pre_sse * 100
             pct_str = f"({pct:+.1f}% vs init)"

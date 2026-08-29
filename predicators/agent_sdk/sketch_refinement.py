@@ -1012,6 +1012,175 @@ def _strip_latent_wait_targets(plan: List[_Option], state: State,
             f"executor: {'; '.join(dropped)}.")
 
 
+@dataclasses.dataclass
+class StepProbeSuggestion:
+    """What ``suggest_probes`` found for one annotated, parameterised step.
+
+    ``candidates`` are ``(params, disagreement, per_atom)`` triples of
+    feasible alternatives (the step's subgoal holds under the point
+    model), best first. ``nominal_*`` describe the agent's own proposal
+    (``nominal_params`` None when the step carried no proposal).
+    """
+    step_idx: int
+    option_name: str
+    objects: List[str]
+    subgoal_atoms: List[str]
+    nominal_params: Optional[List[float]]
+    nominal_feasible: Optional[bool]
+    nominal_score: Optional[float]
+    nominal_per_atom: Dict[str, float]
+    candidates: List[Tuple[List[float], float, Dict[str, float]]]
+    n_draws: int
+    n_feasible: int
+
+
+def suggest_probes(
+    task: Task,
+    sketch: List[SketchStep],
+    option_model: _OptionModelBase,
+    *,
+    predicates: Set[Predicate],
+    info_scorer: InfoScorer,
+    rng: np.random.Generator,
+    max_draws: int = 20,
+    top_k: int = 3,
+    parameterized_samplers: Optional[Dict[str, ParameterizedSampler]] = None,
+    on_rollout: Optional[Callable[[], None]] = None,
+) -> Tuple[List[StepProbeSuggestion], List[str]]:
+    """Rank alternative parameters by ensemble disagreement, as a suggestion.
+
+    The active-experiment half of info-seeking, decoupled from execution:
+    the sketch is rolled forward on the agent's OWN parameters, and at
+    every step that carries a subgoal annotation and continuous params
+    up to ``max_draws`` alternatives are drawn (ground sampler, learned
+    sampler, uniform - the refinement precedence), kept when they still
+    establish the step's subgoal under the point model, and scored by
+    ``info_scorer`` (ensemble disagreement on the subgoal atoms). The
+    top ``top_k`` come back per step; nothing is chosen for the agent,
+    which writes an alternative into its sketch or not. Rolling stops
+    at the first step whose nominal parameters do not establish their
+    subgoal (a note says so): later suggestions would be conditioned on
+    a prefix the model already refutes.
+    """
+    ctx = _RefineContext(task=task,
+                         sketch=sketch,
+                         option_model=option_model,
+                         predicates=predicates,
+                         max_samples_per_step=max_draws,
+                         check_subgoals=True,
+                         check_final_goal=False,
+                         log_state=False,
+                         run_id="suggest_probes",
+                         on_step_fail=None,
+                         deepest_failure_holder=None,
+                         info_scorer=info_scorer,
+                         info_n_feasible_target=1,
+                         parameterized_samplers=parameterized_samplers,
+                         solved_check=None,
+                         pin_proposed_params=True,
+                         pinned_step_retries=1)
+    search = _RefinementState(step_pools=[None] * len(sketch),
+                              step_trajs=[None] * len(sketch),
+                              step_samples_cumulative=[0] * len(sketch))
+    suggestions: List[StepProbeSuggestion] = []
+    notes: List[str] = []
+    state = task.init
+
+    def _roll(grounded: _Option) -> Optional[State]:
+        if on_rollout is not None:
+            on_rollout()
+        if not grounded.initiable(state):
+            return None
+        try:
+            nxt, num_actions = option_model.get_next_state_and_num_actions(
+                state, grounded)
+        except Exception:  # pylint: disable=broad-except
+            return None
+        return nxt if num_actions > 0 else None
+
+    for idx, step in enumerate(sketch):
+        atoms = step.subgoal_atoms or set()
+        has_params = step.option.params_space.shape[0] > 0
+        nominal: Optional[_Option] = None
+        if step.initial_params is not None or not has_params:
+            box = step.option.params_space
+            params = (np.clip(
+                np.asarray(step.initial_params, dtype=np.float32), box.low,
+                box.high).astype(np.float32) if step.initial_params is not None
+                      else np.array([], dtype=np.float32))
+            nominal = _ground(step, params)
+        nominal_next = _roll(nominal) if nominal is not None else None
+        nominal_ok: Optional[bool] = None
+        nominal_score: Optional[float] = None
+        nominal_per_atom: Dict[str, float] = {}
+        if nominal is not None:
+            nominal_ok = (nominal_next is not None and atoms.issubset(
+                utils.abstract(nominal_next, predicates)))
+            if nominal_ok and atoms and nominal_next is not None:
+                nominal_score = float(info_scorer(nominal_next, atoms))
+                nominal_per_atom = {
+                    str(a): float(info_scorer(nominal_next, {a}))
+                    for a in sorted(atoms, key=str)
+                }
+        candidates: List[Tuple[List[float], float, Dict[str, float]]] = []
+        n_draws = 0
+        best_next: Optional[State] = None
+        if has_params and atoms:
+            for _ in range(max_draws):
+                grounded = _ground(step,
+                                   _draw_params(search, ctx, step, state, rng))
+                n_draws += 1
+                nxt = _roll(grounded)
+                if nxt is None or not atoms.issubset(
+                        utils.abstract(nxt, predicates)):
+                    continue
+                score = float(info_scorer(nxt, atoms))
+                per_atom = {
+                    str(a): float(info_scorer(nxt, {a}))
+                    for a in sorted(atoms, key=str)
+                }
+                candidates.append(
+                    (grounded.params.astype(float).tolist(), score, per_atom))
+                if best_next is None:
+                    best_next = nxt
+            candidates.sort(key=lambda c: c[1], reverse=True)
+            suggestions.append(
+                StepProbeSuggestion(
+                    step_idx=idx,
+                    option_name=step.option.name,
+                    objects=[o.name for o in step.objects],
+                    subgoal_atoms=sorted(str(a) for a in atoms),
+                    nominal_params=(nominal.params.astype(float).tolist()
+                                    if nominal is not None else None),
+                    nominal_feasible=nominal_ok,
+                    nominal_score=nominal_score,
+                    nominal_per_atom=nominal_per_atom,
+                    candidates=candidates[:top_k],
+                    n_draws=n_draws,
+                    n_feasible=len(candidates)))
+        # Advance on the agent's own parameters; a proposal-free step
+        # advances on its first feasible draw.
+        if nominal is not None:
+            if not nominal_ok:
+                notes.append(
+                    f"step {idx} ({step.option.name}): the proposed "
+                    f"parameters do not establish "
+                    f"{{{', '.join(sorted(str(a) for a in atoms))}}} in "
+                    "the belief, so later steps were not analysed - fix "
+                    "the plan (or the belief) first.")
+                break
+            assert nominal_next is not None
+            state = nominal_next
+        elif best_next is not None:
+            state = best_next
+        else:
+            notes.append(
+                f"step {idx} ({step.option.name}): no proposal and no "
+                "feasible draw, so later steps were not analysed.")
+            break
+    return suggestions, notes
+
+
 def resolve_refine_timeout(
     timeout: Optional[float],
     n_steps: int,
