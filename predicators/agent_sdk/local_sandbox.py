@@ -162,7 +162,7 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
             await self.start_session()
 
         # Wall-clock backstop for the solve attempt deadline: the probe
-        # and explore_python enforce it cooperatively (tool calls refuse
+        # and run_python enforce it cooperatively (tool calls refuse
         # past the deadline), so normally the agent wraps up on its own;
         # interrupt only if the turn stream is still going long after.
         # The approach clears attempt_deadline before its final-submission

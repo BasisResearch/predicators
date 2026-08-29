@@ -116,7 +116,7 @@ APPROACHES:
   # Oracle (upper bound): GT hybrid sim + GT base-sim physical params
   # (true friction), as if all learning had already succeeded.
   # Includes the 200-turn sandbox budget (2026-07-15 sweeps: every failed
-  # test episode exhausted the default 50-turn budget), explore_python,
+  # test episode exhausted the default 50-turn budget), run_python,
   # and the solve restart loop: up to 5 time-boxed (45 min) attempts,
   # each on a fresh conversation, with cross-attempt knowledge travelling
   # through the solve journal (run_20260717_23xx family split: the same

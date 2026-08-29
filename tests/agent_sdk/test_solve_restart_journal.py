@@ -2,7 +2,7 @@
 
 Covers the journal module (entry caps, prompt-injection trimming), the
 ``record_journal`` MCP tool, the cooperative probe deadline
-(:class:`ProbeBudgetExceeded`), and ``explore_python``'s budget handling
+(:class:`ProbeBudgetExceeded`), and ``run_python``'s budget handling
 (refusal after the attempt deadline, per-call timeout with partial
 output, ``[budget]`` footer).
 """
@@ -303,54 +303,54 @@ def test_probe_counts_rollouts():
 
 
 # ---------------------------------------------------------------------------
-# explore_python budgets
+# run_python budgets
 # ---------------------------------------------------------------------------
 
 
-def test_explore_python_refuses_after_attempt_deadline(tmp_path):
+def test_run_python_refuses_after_attempt_deadline(tmp_path):
     """A call arriving past the attempt deadline is refused unrun."""
     utils.reset_config({})
     ctx = _make_ctx(sandbox_dir=str(tmp_path))
     ctx.attempt_start = time.monotonic() - 10.0
     ctx.attempt_deadline = time.monotonic() - 1.0
-    text = _call(_get_tool(ctx, "explore_python"),
+    text = _call(_get_tool(ctx, "run_python"),
                  {"code": "print('should not run')"})
     assert "wall-clock exploration budget" in text
     assert "should not run" not in text
     assert "[budget]" in text
 
 
-def test_explore_python_call_timeout_returns_partial_output(tmp_path):
+def test_python_call_timeout_returns_partial_output(tmp_path):
     """A per-call timeout stops the sweep and returns printed output."""
     utils.reset_config({
-        "agent_sdk_explore_python_call_timeout": 1e-9,
+        "agent_sdk_python_call_timeout": 1e-9,
     })
     ctx = _make_ctx(sandbox_dir=str(tmp_path))
     ctx.attempt_start = time.monotonic()
-    text = _call(_get_tool(ctx, "explore_python"),
+    text = _call(_get_tool(ctx, "run_python"),
                  {"code": "print('partial results'); sim.reset()"})
     assert "partial results" in text
     assert "TIME BUDGET" in text
     assert "exceeded its" in text
 
 
-def test_explore_python_budget_footer(tmp_path):
+def test_run_python_budget_footer(tmp_path):
     """Results carry the [budget] footer with rollout deltas."""
     utils.reset_config({
-        "agent_sdk_explore_python_call_timeout": 0,
+        "agent_sdk_python_call_timeout": 0,
     })
     ctx = _make_ctx(sandbox_dir=str(tmp_path))
     ctx.attempt_start = time.monotonic()
     ctx.attempt_deadline = ctx.attempt_start + 2700
     code = "sim.reset(); print(sim.run('Move(block0:block)[0.95]', " \
            "render=False).goal_reached)"
-    text = _call(_get_tool(ctx, "explore_python"), {"code": code})
+    text = _call(_get_tool(ctx, "run_python"), {"code": code})
     assert "[budget] attempt time" in text
     assert "/45 min" in text
     assert "sim rollouts this attempt: 1 (+1 this call)" in text
 
 
-def test_explore_python_watchdog_stops_sim_free_code(tmp_path):
+def test_run_python_watchdog_stops_sim_free_code(tmp_path):
     """Pure-Python code that never touches the probe is hard-stopped.
 
     exec() blocks the event loop, so cooperative checks and the sandbox
@@ -358,7 +358,7 @@ def test_explore_python_watchdog_stops_sim_free_code(tmp_path):
     preemption that reaches a sim-free loop.
     """
     utils.reset_config({
-        "agent_sdk_explore_python_call_timeout": 0.3,
+        "agent_sdk_python_call_timeout": 0.3,
     })
     ctx = _make_ctx(sandbox_dir=str(tmp_path))
     code = ("import time\n"
@@ -368,18 +368,18 @@ def test_explore_python_watchdog_stops_sim_free_code(tmp_path):
             "    pass\n"
             "print('done')\n")
     t0 = time.monotonic()
-    text = _call(_get_tool(ctx, "explore_python"), {"code": code})
+    text = _call(_get_tool(ctx, "run_python"), {"code": code})
     assert time.monotonic() - t0 < 5.0
     assert "start" in text
     assert "TIME BUDGET" in text
     assert "done" not in text
 
 
-def test_explore_python_call_timeout_exempts_synthesis_sessions(tmp_path):
+def test_python_call_timeout_exempts_synthesis_sessions(tmp_path):
     """Synthesis probes (candidate simulator; slower rollouts, refits) are
     exempt from the per-call cap."""
     utils.reset_config({
-        "agent_sdk_explore_python_call_timeout": 0.1,
+        "agent_sdk_python_call_timeout": 0.1,
     })
     ctx = _make_ctx(sandbox_dir=str(tmp_path))
     ctx.probe_option_model_provider = lambda: ctx.option_model
@@ -388,18 +388,18 @@ def test_explore_python_call_timeout_exempts_synthesis_sessions(tmp_path):
             "while time.monotonic() - t0 < 0.3:\n"
             "    pass\n"
             "print('done')\n")
-    text = _call(_get_tool(ctx, "explore_python"), {"code": code})
+    text = _call(_get_tool(ctx, "run_python"), {"code": code})
     assert "done" in text
     assert "TIME BUDGET" not in text
 
 
-def test_explore_python_no_footer_outside_attempt(tmp_path):
+def test_run_python_no_footer_outside_attempt(tmp_path):
     """No attempt in flight (e.g. exploration phase): no footer noise."""
     utils.reset_config({
-        "agent_sdk_explore_python_call_timeout": 0,
+        "agent_sdk_python_call_timeout": 0,
     })
     ctx = _make_ctx(sandbox_dir=str(tmp_path))
-    text = _call(_get_tool(ctx, "explore_python"), {"code": "print('hi')"})
+    text = _call(_get_tool(ctx, "run_python"), {"code": "print('hi')"})
     assert "[budget]" not in text
 
 
@@ -445,3 +445,44 @@ def test_read_strategy_absent_present_and_truncated(tmp_path):
     assert content.startswith("HEADLINE")
     assert "[strategy truncated at the prompt cap" in content
     assert len(content) < 4300
+
+
+# ---------------------------------------------------------------------------
+# run_python path argument
+# ---------------------------------------------------------------------------
+
+
+def test_run_python_path_runs_a_sandbox_file_in_the_namespace(tmp_path):
+    """``path`` executes a sandbox .py file in the same persistent namespace as
+    inline ``code``, so helpers developed as files are reusable."""
+    utils.reset_config({"agent_sdk_python_call_timeout": 0})
+    (tmp_path / "helpers.py").write_text(
+        "def double(v):\n    return 2 * v\n\nprint('loaded')\n",
+        encoding="utf-8")
+    ctx = _make_ctx(sandbox_dir=str(tmp_path))
+    tool = _get_tool(ctx, "run_python")
+    text = _call(tool, {"path": "helpers.py"})
+    assert "loaded" in text
+    text = _call(tool, {"code": "print(double(21))"})
+    assert "42" in text
+
+
+def test_run_python_path_stays_inside_the_sandbox(tmp_path):
+    """A ``path`` that resolves outside the sandbox is refused unrun, as is a
+    call that passes neither or both arguments."""
+    utils.reset_config({"agent_sdk_python_call_timeout": 0})
+    sandbox = tmp_path / "sandbox"
+    sandbox.mkdir()
+    (tmp_path / "outside.py").write_text("print('escaped')\n",
+                                         encoding="utf-8")
+    ctx = _make_ctx(sandbox_dir=str(sandbox))
+    tool = _get_tool(ctx, "run_python")
+    text = _call(tool, {"path": "../outside.py"})
+    assert "must stay inside the sandbox" in text
+    assert "escaped" not in text
+    text = _call(tool, {"path": "missing.py"})
+    assert "not a file" in text
+    text = _call(tool, {})
+    assert "exactly one of" in text
+    text = _call(tool, {"code": "print(1)", "path": "missing.py"})
+    assert "exactly one of" in text

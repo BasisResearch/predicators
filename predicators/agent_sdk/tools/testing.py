@@ -180,7 +180,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         " This tool always runs from the task's TRUE initial state and is "
         "the ONLY path that captures an answer: do your exploration "
         "(modified states, partial plans, parameter sweeps) in "
-        "explore_python, then validate and SUBMIT the final plan here.")
+        "run_python, then validate and SUBMIT the final plan here.")
 
     @tool(
         "evaluate_option_plan",
@@ -669,7 +669,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # Diagnostic trials: rollout_seed combined with
         # validation_rollouts=N runs N rollouts at planner seeds
         # S, S+1, ..., S+N-1 (rollout 1, reported step by step above,
-        # ran at S) - the same contract as explore_python's
+        # ran at S) - the same contract as run_python's
         # ``sim.run(plan, trials=N, seed=S)``. Reported only: a seeded
         # run never captures and never arms the flaky escalation.
         if (diagnostic_seed is not None and grounded_plan
@@ -1065,7 +1065,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         "`validation_rollouts` requests a stricter gate; `rollout_seed` "
         "runs one diagnostic rollout at that planner seed (never "
         "captured). Test recovery behavior first with sim.run_policy() in "
-        "explore_python, which runs ./policy.py from the CURRENT probe "
+        "run_python, which runs ./policy.py from the CURRENT probe "
         "state (including perturbed or mid-plan states).",
         {
             "type": "object",

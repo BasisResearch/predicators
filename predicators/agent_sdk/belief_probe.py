@@ -1,4 +1,4 @@
-"""Exploration probe API exposed to agents via ``explore_python``.
+"""Exploration probe API exposed to agents via ``run_python``.
 
 ``BeliefProbe`` is a thin facade over the machinery the curated tools
 already use - ``parse_sketch_from_text`` (plan grammar),
@@ -7,7 +7,7 @@ tools' state-modification and rendering helpers - so probe rollouts
 behave identically to ``evaluate_option_plan`` rollouts. What it adds is
 composability: the agent can set the sim to any task state (or a
 modified copy), read full-precision features, run partial plans, render,
-snapshot/restore, and write sweep loops in one ``explore_python`` call
+snapshot/restore, and write sweep loops in one ``run_python`` call
 instead of one tool round-trip per experiment.
 
 By construction nothing the probe executes can be captured as the
@@ -61,8 +61,8 @@ class ProbeBudgetExceeded(Exception):
     """A probe call ran past a wall-clock budget.
 
     Raised cooperatively at probe checkpoints (every sim call) when the
-    explore_python per-call limit or the solve attempt's wall clock has
-    expired. ``explore_python`` catches it specially: the code's printed
+    run_python per-call limit or the solve attempt's wall clock has
+    expired. ``run_python`` catches it specially: the code's printed
     output so far is returned with the budget message appended, so a
     stopped sweep still hands the agent its partial results.
     """
@@ -84,11 +84,11 @@ def _check_time_budget(ctx: "ToolContext") -> None:
             "the attempt's wall-clock exploration budget is exhausted. Stop "
             "exploring NOW and submit your single best plan via "
             "evaluate_option_plan on the current task (omit task_idx).")
-    call_dl = ctx.explore_call_deadline
+    call_dl = ctx.python_call_deadline
     if call_dl is not None and now > call_dl:
-        call_timeout = ToolSurfaceConfig.from_cfg().explore_python_call_timeout
+        call_timeout = ToolSurfaceConfig.from_cfg().python_call_timeout
         raise ProbeBudgetExceeded(
-            f"this explore_python call exceeded its "
+            f"this run_python call exceeded its "
             f"{call_timeout:.0f}s time limit "
             "and was stopped between sim calls; output printed so far is "
             "returned above. Large sweeps are expensive - narrow the "
@@ -2005,7 +2005,7 @@ class BeliefProbe:
 
 
 def build_probe_namespace(ctx: "ToolContext") -> Dict[str, Any]:
-    """The persistent ``explore_python`` namespace (solve sessions).
+    """The persistent ``run_python`` namespace (solve sessions).
 
     The probe facade, numpy, and the collected REAL trajectories as
     read-only evidence (``trajectories`` plus a ``describe_trajectory``

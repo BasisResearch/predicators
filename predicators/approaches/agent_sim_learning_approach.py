@@ -975,10 +975,11 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         No inspect tools: the type/option digests are injected into the
         learn message (see :meth:`_build_synthesis_learn_message`) and
         trajectory access lives in ``run_python`` (``trajectories`` +
-        ``describe_trajectory``). No ``explore_python`` either: in
-        synthesis sessions the probe rides inside ``run_python``'s
-        namespace as ``sim`` (one exec namespace per session - a helper
-        defined next to the data is visible to probe sweeps). In the
+        ``describe_trajectory``). The probe rides inside that same
+        ``run_python`` namespace as ``sim`` (one exec namespace per
+        session - a helper defined next to the data is visible to probe
+        sweeps; the solve-phase instance of the tool is not built when
+        this one is attached). In the
         agent-synthesis session the probe runs against the CANDIDATE
         simulator.py via ctx.probe_option_model_provider (installed in
         _synthesize_with_agent); in the oracle-sim-program sampler
@@ -1554,7 +1555,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         base_pred_triples: List[Tuple[State, Action, State]],
         inferred_hint: Dict[str, List[str]],
     ) -> Callable[[], _OracleOptionModel]:
-        """Lazy option-model builder behind the synthesis explore_python.
+        """Lazy option-model builder behind the synthesis run_python.
 
         The returned callable is installed as
         ``ctx.probe_option_model_provider`` for the synthesis session:
@@ -1578,7 +1579,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         def _provider() -> _OracleOptionModel:
             if not os.path.isfile(simulator_file):
                 raise RuntimeError(
-                    "explore_python probe: no candidate simulator yet - "
+                    "run_python probe: no candidate simulator yet - "
                     "write ./simulator.py (RESIDUAL_RULES / PARAM_SPECS / "
                     "RESIDUAL_FEATURES) first; the probe runs against it.")
             with open(simulator_file, "rb") as f:
@@ -1591,7 +1592,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                     simulator_file, trajectories)
             if rules is None or specs is None:
                 raise RuntimeError(
-                    "explore_python probe: ./simulator.py failed to load "
+                    "run_python probe: ./simulator.py failed to load "
                     "(exec error, or RESIDUAL_RULES / PARAM_SPECS missing) - "
                     "fix the file and probe again.")
             residual_features = (features
@@ -2075,8 +2076,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # wraps the real env), then merge the probe facade into
         # run_python's namespace: synthesis sessions offer ONE exec
         # namespace, so helpers defined next to the data are visible to
-        # probe sweeps (no explore_python tool here - the roster method
-        # documents the policy). Unconditional: with fit / refine /
+        # probe sweeps (create_mcp_tools skips the solve-phase instance
+        # when this one is attached). Unconditional: with fit / refine /
         # forward-validation all living on ``sim``, the probe IS the
         # validation surface, so a synthesis session without it would
         # have no way to test what it writes. Only ``sim``/``BeliefProbe``

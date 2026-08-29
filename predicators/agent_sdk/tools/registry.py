@@ -27,14 +27,15 @@ TESTING_TOOL_NAMES = [
     # rosters when the mode is on.
     "evaluate_policy",
 ]
-# Solve-phase exploration: ``explore_python`` over the BeliefProbe facade
-# (predicators/agent_sdk/belief_probe.py). Named distinctly from the
-# synthesis-phase ``run_python`` (same execution core, different
-# namespace) so sessions, transcripts, and log greps never conflate the
-# two capabilities. Offered to every session that has a simulator to
-# probe (see ``AgentModelFreeApproach._get_solve_tool_names``).
+# The one code-execution tool. Solve sessions get the static instance
+# built by ``create_mcp_tools`` (namespace = the BeliefProbe facade over
+# the deployed belief model, predicators/agent_sdk/belief_probe.py);
+# synthesis sessions attach their own instance under the same name
+# (fit data + the probe over the candidate simulator), which replaces
+# the static one at assembly. Offered to every session that has a
+# simulator to probe (see ``AgentModelFreeApproach._get_solve_tool_names``).
 EXPLORATION_TOOL_NAMES = [
-    "explore_python",
+    "run_python",
 ]
 # Solve-journal writing (agent_solve_use_journal): agent-authored
 # lessons for future fresh-context attempts. Read side is prompt

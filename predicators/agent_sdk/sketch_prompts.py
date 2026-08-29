@@ -406,10 +406,10 @@ def build_solve_prompt(
     def _has_tool(name: str) -> bool:
         return tool_set is None or name in tool_set
 
-    refine_ref = "`sim.refine` (in `explore_python`)"
-    if _has_tool("explore_python"):
+    refine_ref = "`sim.refine` (in `run_python`)"
+    if _has_tool("run_python"):
         visualize_advice = (
-            "- Use `explore_python` (`sim.reset(mods={...})`, then "
+            "- Use `run_python` (`sim.reset(mods={...})`, then "
             "`sim.render(...)`) to move objects to candidate positions and "
             "orientations for free (no physics) and find the right region "
             "visually before testing.\n")
@@ -523,7 +523,7 @@ def build_solve_prompt(
                 "physical parameter - a design can pass just above and "
                 "just below a value and fail exactly at it - so tune "
                 "designs that pass the WHOLE range: pre-check with "
-                "`sim.run(plan_text, physics_sweep=True)` in explore_python "
+                "`sim.run(plan_text, physics_sweep=True)` in run_python "
                 "(same points as the gate, one deterministic rollout each) "
                 "instead of discovering rejections one submission at a "
                 "time. ")
@@ -556,7 +556,7 @@ def build_solve_prompt(
             "rollout reports the motion-planner seed it ran at); if it is "
             "reported FLAKY, reproduce the failed rollout exactly (pass "
             "its reported seed as rollout_seed to evaluate_option_plan, or "
-            "`sim.run(plan_text, seed=...)` in explore_python) to see WHY, "
+            "`sim.run(plan_text, seed=...)` in run_python) to see WHY, "
             "then add margin to the fragile step and resubmit. For a plan "
             "you suspect is marginal, request a stricter gate up front "
             "with validation_rollouts=N (more repeats; never fewer than "
@@ -602,7 +602,7 @@ def build_solve_prompt(
             "    def get_option(state, memory):\n"
             "        ...\n\n"
             "- `state`: the current State object (read-only copy). Same "
-            "API as explore_python: `state.get(obj, 'feature')`, iterate "
+            "API as run_python: `state.get(obj, 'feature')`, iterate "
             "objects with `for obj in state`, `obj.name`, `obj.type`.\n"
             "- `memory`: a dict, initially empty, persisting across calls "
             "within ONE episode (phase flags, counters, cached "
@@ -640,7 +640,7 @@ def build_solve_prompt(
             "reaches the goal across all validation rollouts - the "
             "validated policy.py snapshot (taken at call time; later "
             "edits need a new call) is your ONLY accepted output. Test "
-            "recovery behavior first: in explore_python, "
+            "recovery behavior first: in run_python, "
             "`sim.run_policy()` runs ./policy.py from the CURRENT probe "
             "state (including perturbed or mid-plan states), so check "
             "that the policy recovers from off-nominal states, not just "
