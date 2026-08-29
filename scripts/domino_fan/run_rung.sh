@@ -58,13 +58,27 @@ lines = [
 ]
 for a in arms:
     lines += [f"  {a}:", f"    SKIP: {a != arm}"]
-    if a == arm and a == "agent_model_based_planning":
+    if a != arm:
+        continue
+    flags = [
+        # approaches/all.yaml sets option_model_use_gui: True on
+        # agent_param_learning (and on agent_sim_learning and
+        # agent_oracle_mono_sim). That opens a REAL PyBullet GUI client
+        # per option-model env, and this ladder rebuilds that env many
+        # times over a run: rung 3 had ten 1024x796 windows open in one
+        # process before it was half done. Useful when a person is
+        # watching a rollout, pure cost for a batch run started from a
+        # script or a dashboard button, where nobody is.
+        "      option_model_use_gui: False",
+    ]
+    if a == "agent_model_based_planning":
         # Nothing to learn with a GT model, so online cycles only
         # re-derive a solved plan at ~$2/cycle. Matches what
         # agent_oracle_hybrid_sim already does.
-        lines += ["    FLAGS:", "      num_online_learning_cycles: 0"]
-    elif a == arm and a.startswith("agent_p"):
-        lines += ["    FLAGS:", "      skip_initial_test: True"]
+        flags.append("      num_online_learning_cycles: 0")
+    elif a.startswith("agent_p"):
+        flags.append("      skip_initial_test: True")
+    lines += ["    FLAGS:"] + flags
 print("\n".join(lines))
 PYEOF
 
