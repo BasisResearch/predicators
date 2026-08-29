@@ -93,7 +93,7 @@ AVG_TEST_REWARD_RE = re.compile(r"'avg_test_reward': (-?[\d.]+)")
 # One task's entry in main.py's "Per-task rewards: task0=0.95, ..." line,
 # logged right after the "Tasks solved" line that closes a test round.
 PER_TASK_REWARD_RE = re.compile(r"task(\d+)=(-?[\d.]+)")
-# Env-side verdict lines from predicators/main.py _run_testing, e.g.
+# Env-side verdict lines from predicators/run/testing.py run_testing, e.g.
 # "INFO: Task 2 / 5: Policy failed to reach goal" or
 # "INFO: [main.py] Task 1 / 5: approach failed with error: ..."
 TASK_VERDICT_RE = re.compile(

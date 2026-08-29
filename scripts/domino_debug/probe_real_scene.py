@@ -5,7 +5,7 @@ This is a sim-only debug harness. It reproduces the stock config
 geometry and scene match a real run exactly, grounds a hand-specified skill
 sketch (Pick / Place / Push / Wait) with the domino oracle samplers, then
 rolls it out through the env via ``env.step`` -- the same path
-``_run_testing`` uses to render its test videos -- capturing one frame per
+``run_testing`` uses to render its test videos -- capturing one frame per
 low-level action into an MP4.
 
 Use it to watch a skill's arm motion + physics on the real scene and iterate on
