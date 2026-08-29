@@ -399,7 +399,12 @@ def create_synthesis_tools(
                     n: v
                     for n, v in outcome.fit_result.point_estimate.items()
                     if n in rule_names
-                }, version_tag, simulator_file)
+                },
+                version_tag,
+                simulator_file,
+                fit_result=outcome.fit_result,
+                sse=post_sse,
+                applied_physical=dict(applied))
             if hasattr(approach, "_record_sysid_diagnostics"):
                 approach._record_sysid_diagnostics(  # pylint: disable=protected-access
                     ident_report, physical_names, outcome.num_survivors,
@@ -706,7 +711,11 @@ def create_synthesis_tools(
         if canonical and approach is not None:
             # Deploy: the probe runs at exactly these values from now on.
             approach._publish_probe_fit(  # pylint: disable=protected-access
-                dict(fitted_params), version_tag, p)
+                dict(fitted_params),
+                version_tag,
+                p,
+                fit_result=fit_result,
+                sse=post_sse)
         if pre_sse > 0:
             pct = (pre_sse - post_sse) / pre_sse * 100
             pct_str = f"({pct:+.1f}% vs init)"
