@@ -110,7 +110,7 @@ def test_evaluate_sampler_warns_non_callable(tmp_path):
 def test_evaluate_sampler_reports_exec_error(tmp_path):
     """A samplers.py that raises at import time reports the traceback."""
     text, approach = _run_sampler_loader(tmp_path,
-                                           "raise RuntimeError('boom')")
+                                         "raise RuntimeError('boom')")
     assert "Error executing" in text
     assert "boom" in text
     assert not approach._synthesized_samplers  # pylint: disable=protected-access
