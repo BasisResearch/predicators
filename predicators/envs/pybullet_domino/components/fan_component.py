@@ -205,6 +205,10 @@ class FanComponent(DominoEnvComponent):
         # Per-target force override (N). None keeps the class default,
         # which is calibrated for the ball.
         self._wind_force_override: Optional[float] = None
+        # Lateral position the single fan is aimed at, along the axis it
+        # does NOT blow down: y for a left/right fan, x for front/back.
+        # None keeps the rail's centre. See set_lateral_alignment.
+        self._lateral_alignment: Optional[float] = None
 
     # -------------------------------------------------------------------------
     # DominoEnvComponent interface implementation
@@ -405,6 +409,37 @@ class FanComponent(DominoEnvComponent):
         self._wind_stops_when_toppled = stop_when_toppled
         self._wind_force_override = force
 
+    def set_lateral_alignment(self, lateral: Optional[float]) -> None:
+        """Aim the fan across its blowing axis, at ``lateral``.
+
+        The wind force is computed from a fan's ORIENTATION alone, so
+        the sim happily blows a domino over from a fan parked anywhere -
+        which is how this env ended up with its fan 0.34 m to the side
+        of the chain, on a rail whose centre (y=1.708) is outside the
+        domino workspace (y<=1.49) altogether. It looked wrong because
+        it WAS wrong: no real fan there blows down that line.
+
+        It also matters beyond looks. A learning agent reads the fan's
+        coordinates and reasons about how far downstream its beam
+        reaches; a fan that is not where the physics pretends it is
+        makes that inference unlearnable.
+
+        Called per reset by the composed env, which knows where the
+        task's chain was laid. None restores the rail's centre.
+        """
+        self._lateral_alignment = lateral
+        if self._physics_client_id is not None:
+            self._position_fans_on_sides()
+
+    def _aligned_lateral(self, side_idx: int, default: float) -> float:
+        """``default``, unless this side has been aimed at a chain."""
+        if self._lateral_alignment is None:
+            return default
+        # Sides 0/1 (left/right) blow along x, so their free axis is y;
+        # sides 2/3 (back/front) blow along y and are free in x.
+        del side_idx  # both cases read the same stored scalar
+        return self._lateral_alignment
+
     def _target_still_standing(self, target_id: int) -> bool:
         """Is the wind target still upright enough to be pushed?
 
@@ -493,7 +528,7 @@ class FanComponent(DominoEnvComponent):
             if side_idx == 0:  # left
                 for i, fan_id in enumerate(fan_ids):
                     px = self.left_fan_x
-                    py = left_coords[i]
+                    py = self._aligned_lateral(0, left_coords[i])
                     pz = self.table_height + self.fan_z_len / 2
                     rot = [0.0, 0.0, 0.0]
                     update_object(fan_id,
@@ -504,7 +539,7 @@ class FanComponent(DominoEnvComponent):
             elif side_idx == 1:  # right
                 for i, fan_id in enumerate(fan_ids):
                     px = self.right_fan_x
-                    py = right_coords[i]
+                    py = self._aligned_lateral(1, right_coords[i])
                     pz = self.table_height + self.fan_z_len / 2
                     rot = [0.0, 0.0, np.pi]
                     update_object(fan_id,
@@ -514,7 +549,7 @@ class FanComponent(DominoEnvComponent):
 
             elif side_idx == 2:  # back
                 for i, fan_id in enumerate(fan_ids):
-                    px = back_coords[i]
+                    px = self._aligned_lateral(2, back_coords[i])
                     py = self.down_fan_y
                     pz = self.table_height + self.fan_z_len / 2
                     rot = [0.0, 0.0, np.pi / 2]
@@ -525,7 +560,7 @@ class FanComponent(DominoEnvComponent):
 
             elif side_idx == 3:  # front
                 for i, fan_id in enumerate(fan_ids):
-                    px = front_coords[i]
+                    px = self._aligned_lateral(3, front_coords[i])
                     py = self.up_fan_y
                     pz = self.table_height + self.fan_z_len / 2
                     rot = [0.0, 0.0, -np.pi / 2]
@@ -613,16 +648,24 @@ class FanComponent(DominoEnvComponent):
         for fan_obj in self._fans:
             side_idx = fan_obj.side_idx
             if side_idx == 0:  # left
-                px, py = self.left_fan_x, (self.fan_y_lb + self.fan_y_ub) / 2
+                px = self.left_fan_x
+                py = self._aligned_lateral(0,
+                                           (self.fan_y_lb + self.fan_y_ub) / 2)
                 rot = 0.0
             elif side_idx == 1:  # right
-                px, py = self.right_fan_x, (self.fan_y_lb + self.fan_y_ub) / 2
+                px = self.right_fan_x
+                py = self._aligned_lateral(1,
+                                           (self.fan_y_lb + self.fan_y_ub) / 2)
                 rot = np.pi
             elif side_idx == 2:  # back
-                px, py = (self.fan_x_lb + self.fan_x_ub) / 2, self.down_fan_y
+                px = self._aligned_lateral(2,
+                                           (self.fan_x_lb + self.fan_x_ub) / 2)
+                py = self.down_fan_y
                 rot = np.pi / 2
             else:  # front
-                px, py = (self.fan_x_lb + self.fan_x_ub) / 2, self.up_fan_y
+                px = self._aligned_lateral(3,
+                                           (self.fan_x_lb + self.fan_x_ub) / 2)
+                py = self.up_fan_y
                 rot = -np.pi / 2
 
             init_dict[fan_obj] = {

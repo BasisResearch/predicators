@@ -494,6 +494,15 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                 # rather than sliding it: 0.4 of its height above the
                 # origin is comfortably above the centre and still on
                 # the body.
+                # Aim the fan down the chain, not merely in its
+                # direction. Wind force is computed from orientation
+                # alone, so a misplaced fan still topples the block -
+                # which let this env ship with its fan 0.34 m to the
+                # side of the chain, on a rail whose centre sits outside
+                # the domino workspace. Correct in the picture and in
+                # the state an agent reads.
+                lateral = float(state.get(domino, "y"))
+                self._fan_component.set_lateral_alignment(lateral)
                 self._fan_component.set_wind_target(
                     domino.id,
                     z_offset=0.4 * self._domino_component.domino_height,

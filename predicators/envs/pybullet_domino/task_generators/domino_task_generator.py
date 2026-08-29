@@ -179,6 +179,18 @@ class DominoTaskGenerator(TaskGenerator):
 
         init_dict.update(obj_dict)
 
+        # Aim the fan down the chain BEFORE it reports its own init
+        # state. Doing it at reset instead leaves the task carrying the
+        # fan's un-aimed coordinate and the reset check comparing two
+        # different positions ("fan_0.y: requested=1.708000
+        # reconstructed=1.386534"). The chain's lateral coordinate is
+        # known here and nowhere earlier.
+        chain_lateral = self._chain_lateral(obj_dict)
+        for component in self.additional_components:
+            if chain_lateral is not None and hasattr(component,
+                                                     "set_lateral_alignment"):
+                component.set_lateral_alignment(chain_lateral)
+
         # Add entries from additional components
         for component in self.additional_components:
             if hasattr(component, 'get_init_dict_entries'):
@@ -1057,6 +1069,24 @@ class DominoTaskGenerator(TaskGenerator):
                 return None
 
         return obj_dict
+
+    def _chain_lateral(self, obj_dict: Dict) -> Optional[float]:
+        """The y the chain was laid at, or None if there is no chain.
+
+        Only meaningful for a wind-aligned layout, where every block
+        shares one lateral coordinate; the staged blues sit on their own
+        row and are excluded by taking the START block's.
+        """
+        for obj, data in obj_dict.items():
+            if obj.type != self.domino.domino_type or "y" not in data:
+                continue
+            eps = 1e-3
+            if all(
+                    abs(data.get(c, 0.0) -
+                        self.domino.start_domino_color[i]) < eps
+                    for i, c in enumerate(("r", "g", "b"))):
+                return float(data["y"])
+        return None
 
     def _chain_corridor(
         self, occupied: Dict[Object, Dict[str, float]]

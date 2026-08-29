@@ -52,7 +52,7 @@ ENVS:
 APPROACHES:
   # rung 1 - the baseline. Fast (~1 min), no LLM.
   oracle:
-    SKIP: False
+    SKIP: True
   # rung 2a
   agent_model_based_planning:
     SKIP: True
@@ -61,7 +61,7 @@ APPROACHES:
     SKIP: True
   # rung 3
   agent_param_learning:
-    SKIP: True
+    SKIP: False
   # rung 4 - ours
   agent_po_predicate_invention_al:
     SKIP: True
