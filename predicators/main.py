@@ -34,7 +34,6 @@ To run grammar search predicate invention (example):
         --seed 0 --excluded_predicates all
 """
 
-import glob
 import logging
 import os
 import sys
@@ -57,6 +56,9 @@ from predicators.ground_truth_models import get_gt_options, \
     parse_config_included_options
 from predicators.perception import create_perceiver
 from predicators.pybullet_helpers.real_robot_executor import attach_real_robot
+from predicators.run.checkpoints import ApproachCheckpoints, \
+    InflightInteractions, maybe_auto_resume, perfect_test_streak_from_disk, \
+    test_results_exist, test_results_path
 from predicators.settings import CFG, get_allowed_query_type_names
 from predicators.structs import Action, Dataset, EnvironmentTask, \
     InteractionRequest, InteractionResult, Metrics, Observation, Response, \
@@ -99,7 +101,7 @@ def main() -> None:
 
     # Self-resume (Slurm requeue / resubmission of the same command);
     # needs the approach for its checkpoint suffix.
-    _maybe_auto_resume(approach)
+    maybe_auto_resume(approach)
 
     # Create dataset and cognitive manager
     offline_dataset = create_offline_dataset(env, train_tasks, preds, approach)
@@ -116,231 +118,6 @@ def main() -> None:
 
 
 # ── Setup helpers ────────────────────────────────────────────────
-
-
-def _approach_save_suffix(cogman: CogMan) -> Optional[str]:
-    """The approach's checkpoint filename suffix, if it checkpoints."""
-    # pylint: disable-next=protected-access
-    return getattr(cogman._approach, "_save_suffix", None)
-
-
-def _checkpoint_exists(online_learning_cycle: Optional[int],
-                       suffix: Optional[str]) -> bool:
-    """Whether an approach checkpoint file exists for the given cycle."""
-    load_path = utils.get_approach_load_path_str()
-    pattern = glob.escape(f"{load_path}_{online_learning_cycle}.") + (
-        glob.escape(suffix) if suffix else "*")
-    return bool(glob.glob(pattern))
-
-
-def _inflight_interactions_path(cycle: int) -> str:
-    """Path of the mid-cycle interaction-episodes stash for ``cycle``.
-
-    The cycle token in the name ("inflight_interactions_<i>") is
-    deliberately non-integer, so ``_scan_checkpoints`` ignores these
-    files when deciding which cycle to resume at.
-    """
-    load_path = utils.get_approach_load_path_str()
-    return f"{load_path}_inflight_interactions_{cycle}.pkl"
-
-
-def _save_inflight_interactions(cycle: int, cogman: CogMan,
-                                interaction_results: List[InteractionResult],
-                                task_idxs: List[int],
-                                task_solved_status: List[bool],
-                                query_cost: float) -> None:
-    """Persist a cycle's completed interaction episodes before LEARN.
-
-    The per-cycle checkpoint is only written at the END of learn, so
-    dying during the (hours-long) learn used to discard the cycle's
-    real episodes and force the resumed run to redo the cycle's whole
-    exploration (run_20260827_032234 re-ran both of cycle 2's explores
-    after the 12h wall killed its learn 16 minutes in). With this stash
-    the resume reuses the episodes and jumps straight to learn.
-    Best-effort: failures are logged, never fatal.
-    """
-    if _approach_save_suffix(cogman) is None:
-        # Non-checkpointing approach: a resume never skips cycles, so
-        # the stash could never be consulted.
-        return
-    path = _inflight_interactions_path(cycle)
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "wb") as f:
-            utils.pkl_dump_all_or_nothing(
-                {
-                    "cycle": cycle,
-                    "interaction_results": interaction_results,
-                    "task_idxs": task_idxs,
-                    "task_solved_status": task_solved_status,
-                    "query_cost": query_cost,
-                }, f)
-        logging.info(
-            "Saved %d in-flight interaction episode(s) to %s (reused if "
-            "this cycle's learn dies before its checkpoint).",
-            len(interaction_results), path)
-    except Exception as e:  # pylint: disable=broad-except
-        logging.warning("Could not save in-flight interactions: %s", e)
-
-
-def _load_inflight_interactions(cycle: int,
-                                cogman: CogMan) -> Optional[Dict[str, Any]]:
-    """Reload the resumed-into cycle's persisted episodes, if fresh.
-
-    Returns ``None`` when there is nothing (or nothing trustworthy) to
-    reuse; freshness uses the same ``auto_resume_max_age_hours`` gate as
-    the checkpoint scan, so a relaunch of a long-finished experiment
-    cannot silently replay stale episodes.
-    """
-    if _approach_save_suffix(cogman) is None:
-        return None
-    path = _inflight_interactions_path(cycle)
-    if not os.path.exists(path):
-        return None
-    if time.time() - os.path.getmtime(path) > \
-            CFG.auto_resume_max_age_hours * 3600.0:
-        return None
-    try:
-        with open(path, "rb") as f:
-            data = pkl.load(f)
-    except Exception as e:  # pylint: disable=broad-except
-        logging.warning("Could not load in-flight interactions at %s: %s",
-                        path, e)
-        return None
-    if data.get("cycle") != cycle:
-        return None
-    return data
-
-
-def _discard_inflight_interactions(cycle: int, cogman: CogMan) -> None:
-    """Drop the stash once its cycle's episodes are consumed."""
-    if _approach_save_suffix(cogman) is None:
-        return
-    try:
-        path = _inflight_interactions_path(cycle)
-        if os.path.exists(path):
-            os.remove(path)
-    except OSError:
-        pass
-
-
-def _test_results_exist(online_learning_cycle: Optional[int]) -> bool:
-    """Whether the results pickle for a cycle's test was written."""
-    outfile = (f"{CFG.results_dir}/{utils.get_config_path_str()}__"
-               f"{online_learning_cycle}.pkl")
-    return os.path.isfile(outfile)
-
-
-def _load_test_solve_rate(
-        online_learning_cycle: Optional[int]) -> Optional[float]:
-    """num_solved / num_total from a cycle's saved test results, or None if the
-    cycle has no saved results (or an empty test set)."""
-    outfile = (f"{CFG.results_dir}/{utils.get_config_path_str()}__"
-               f"{online_learning_cycle}.pkl")
-    if not os.path.isfile(outfile):
-        return None
-    with open(outfile, "rb") as f:
-        results = pkl.load(f)["results"]
-    if results["num_total"] <= 0:
-        return None
-    return results["num_solved"] / results["num_total"]
-
-
-def _perfect_test_streak_from_disk(newest_cycle: int) -> int:
-    """Consecutive test phases ending at ``newest_cycle`` whose saved results
-    solved every test task.
-
-    Walks the per-cycle results pickles backward from ``newest_cycle``,
-    so an --auto_resume relaunch continues the consecutive-perfect-test
-    count that test-driven early stopping requires instead of restarting
-    it. A fresh run (newest_cycle -1) seeds 0.
-    """
-    streak = 0
-    for cycle in range(newest_cycle, -1, -1):
-        rate = _load_test_solve_rate(cycle)
-        if rate is None or rate < 1.0:
-            break
-        streak += 1
-    return streak
-
-
-def discover_resume_cycles(
-        load_path: str,
-        suffix: Optional[str] = None,
-        max_age_seconds: Optional[float] = None,
-        now: Optional[float] = None) -> Tuple[bool, Optional[int]]:
-    """Scan for ``{load_path}_{cycle}.{suffix}`` approach checkpoints.
-
-    Returns ``(found_any, max_int_cycle)``: ``max_int_cycle`` is the
-    highest completed online-learning cycle with a checkpoint, or None
-    when only the post-offline (``_None``) checkpoint exists.
-
-    ``suffix`` restricts the scan to files this approach class can load
-    (another approach family's checkpoints under the same config path
-    must not steer the resume). ``max_age_seconds`` ignores checkpoints
-    older than that: the checkpoint path ignores the run timestamp, so
-    without it a RELAUNCH of a finished experiment under the same
-    experiment_id would silently "resume" the old run instead of
-    starting fresh; a requeue/resubmission of a live run is recent.
-    """
-    found = False
-    max_cycle: Optional[int] = None
-    prefix_len = len(os.path.basename(load_path)) + 1
-    now_ts = time.time() if now is None else now
-    for path in glob.glob(glob.escape(load_path) + "_*"):
-        name = os.path.basename(path)[prefix_len:]
-        cycle_token, _, file_suffix = name.partition(".")
-        if suffix is not None and file_suffix != suffix:
-            continue
-        if max_age_seconds is not None and \
-                now_ts - os.path.getmtime(path) > max_age_seconds:
-            continue
-        if cycle_token == "None":
-            found = True
-            continue
-        try:
-            cycle = int(cycle_token)
-        except ValueError:
-            continue
-        found = True
-        max_cycle = cycle if max_cycle is None else max(max_cycle, cycle)
-    return found, max_cycle
-
-
-def _maybe_auto_resume(approach: BaseApproach) -> None:
-    """Under ``--auto_resume``, continue from the latest checkpoint.
-
-    Sets ``load_approach`` (so the offline phase loads instead of re-
-    learning), ``restart_learning`` (without it the online loop's
-    learning gate skips learning on EVERY cycle of a loaded run), and
-    ``skip_until_cycle`` past the last completed cycle. A run with no
-    checkpoint starts fresh. This makes a Slurm requeue / resubmission
-    of the identical command self-resuming.
-    """
-    if not getattr(CFG, "auto_resume", False):
-        return
-    load_path = utils.get_approach_load_path_str()
-    suffix = getattr(approach, "_save_suffix", None)
-    max_age = CFG.auto_resume_max_age_hours * 3600.0
-    found, max_cycle = discover_resume_cycles(load_path,
-                                              suffix=suffix,
-                                              max_age_seconds=max_age)
-    if not found:
-        logging.info(
-            "--auto_resume: no checkpoint at %s_*.%s newer than %.1f h; "
-            "starting fresh. NOTE: the checkpoint path ignores the run "
-            "timestamp, so concurrent launches of the same "
-            "config/seed/experiment_id would overwrite each other's "
-            "checkpoints - keep experiment_id unique per concurrent "
-            "launch.", load_path, suffix or "*", CFG.auto_resume_max_age_hours)
-        return
-    CFG.load_approach = True
-    CFG.restart_learning = True
-    CFG.skip_until_cycle = 0 if max_cycle is None else max_cycle + 1
-    logging.info(
-        "--auto_resume: checkpoint(s) found at %s_* (last completed "
-        "cycle: %s); resuming with load_approach + restart_learning, "
-        "skip_until_cycle=%d.", load_path, max_cycle, CFG.skip_until_cycle)
 
 
 def setup_environment() -> Tuple[BaseEnv, List[Task], List[Task]]:
@@ -478,8 +255,9 @@ def _handle_offline_learning(
     num_offline_transitions = sum(
         len(traj.actions) for traj in offline_dataset.trajectories)
     auto_resume = bool(getattr(CFG, "auto_resume", False))
-    if CFG.load_approach and (not auto_resume or _checkpoint_exists(
-            None, _approach_save_suffix(cogman))):
+    if CFG.load_approach and (
+            not auto_resume
+            or ApproachCheckpoints.for_cogman(cogman).exists(None)):
         # Plain --load_approach stays strict (a missing file raises).
         cogman.load(online_learning_cycle=None)
         learning_time = 0.0  # ignore loading time
@@ -527,9 +305,9 @@ def _run_online_learning_loop(
     # that solved every test task -- the evidence test-driven early
     # stopping requires. Seeded from the saved per-cycle results so a
     # resumed run continues its streak.
+    checkpoints = ApproachCheckpoints.for_cogman(cogman)
     newest_completed_cycle = CFG.skip_until_cycle - 1
-    perfect_test_streak = _perfect_test_streak_from_disk(
-        newest_completed_cycle)
+    perfect_test_streak = perfect_test_streak_from_disk(newest_completed_cycle)
     # Train-driven early stopping certifies the *learned* model, so it is
     # only eligible once the scored attempts were generated by a model that
     # has actually learned: from offline demos, a loaded approach, or a
@@ -563,7 +341,7 @@ def _run_online_learning_loop(
             # first so the resumed run loses no evaluation datapoint.
             if (i == CFG.skip_until_cycle
                     and not CFG.skip_test_until_last_ite_or_early_stopping
-                    and not _test_results_exist(i - 1)):
+                    and not test_results_exist(i - 1)):
                 logging.info(
                     "Resumed past cycle %d whose test never ran; testing "
                     "it now before continuing.", i - 1)
@@ -582,7 +360,7 @@ def _run_online_learning_loop(
                 # Cycle i-1's result now completes the on-disk record, so
                 # re-derive the streak from it (the pre-loop seed stopped
                 # at the then-missing cycle).
-                perfect_test_streak = _perfect_test_streak_from_disk(i - 1)
+                perfect_test_streak = perfect_test_streak_from_disk(i - 1)
 
         # Run online interaction
         logging.info(f"\n\nONLINE LEARNING CYCLE {i}\n")
@@ -628,15 +406,15 @@ def _run_online_learning_loop(
 
         # A resumed-into cycle whose previous incarnation died during
         # LEARN reuses the episodes persisted just before that learn
-        # (see _save_inflight_interactions) instead of re-exploring.
-        inflight: Optional[Dict[str, Any]] = None
+        # (see ApproachCheckpoints.save_inflight) instead of re-exploring.
+        inflight: Optional[InflightInteractions] = None
         if getattr(CFG, "auto_resume", False) and i == CFG.skip_until_cycle:
-            inflight = _load_inflight_interactions(i, cogman)
+            inflight = checkpoints.load_inflight(i)
         if inflight is not None:
-            interaction_results = inflight["interaction_results"]
-            task_idxs = inflight["task_idxs"]
-            task_solved_status = inflight["task_solved_status"]
-            query_cost = inflight["query_cost"]
+            interaction_results = inflight.interaction_results
+            task_idxs = inflight.task_idxs
+            task_solved_status = inflight.task_solved_status
+            query_cost = inflight.query_cost
             # get_interaction_requests is skipped, so hand the approach
             # the result->train-task pairing it would have recorded.
             cogman.restore_interaction_requests(task_idxs)
@@ -657,9 +435,12 @@ def _run_online_learning_loop(
                     cogman, env, teacher,
                     interaction_requests, i)
             task_idxs = [req.train_task_idx for req in interaction_requests]
-            _save_inflight_interactions(i, cogman, interaction_results,
-                                        task_idxs, task_solved_status,
-                                        query_cost)
+            checkpoints.save_inflight(
+                InflightInteractions(cycle=i,
+                                     interaction_results=interaction_results,
+                                     task_idxs=task_idxs,
+                                     task_solved_status=task_solved_status,
+                                     query_cost=query_cost))
 
         # Track every solve attempt per task. The first attempt is used for
         # the legacy solve-rate metric; the full list is used when
@@ -791,7 +572,7 @@ def _run_online_learning_loop(
             model_has_learned = True
         # The cycle's episodes are consumed (and, when learning ran, the
         # per-cycle checkpoint was written inside it): drop the stash.
-        _discard_inflight_interactions(i, cogman)
+        checkpoints.discard_inflight(i)
 
         # Evaluate if needed
         if should_run_testing:
@@ -1456,8 +1237,7 @@ def _save_test_results(results: Metrics,
     logging.info(f"Per-task rewards: {_format_per_task_rewards(results)}")
     logging.info(f"Average time for successes: {avg_suc_time:.5f} seconds")
     os.makedirs(CFG.results_dir, exist_ok=True)
-    outfile = (f"{CFG.results_dir}/{utils.get_config_path_str()}__"
-               f"{online_learning_cycle}.pkl")
+    outfile = test_results_path(online_learning_cycle)
     # Save CFG alongside results.
     outdata = {
         "config": CFG,
