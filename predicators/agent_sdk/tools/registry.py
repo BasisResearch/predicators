@@ -47,16 +47,13 @@ JOURNAL_TOOL_NAMES = [
 ALL_TOOL_NAMES = (TESTING_TOOL_NAMES + EXPLORATION_TOOL_NAMES +
                   JOURNAL_TOOL_NAMES)
 
-# Names of tools returned by ``create_synthesis_tools`` (sim-learning)
-# and ``create_predicate_synthesis_tools`` (predicate invention). These
-# tools are produced by ``AgentSessionMixin._build_synthesis_mcp_tools``
-# and joined to the static MCP set at session-open time; the constants
-# exist so callers / tests can refer to them without typing the strings
-# twice. ``tests/agent_sdk/test_tool_registry.py`` asserts that the
-# factory outputs match these tuples.
+# Name of the tool ``create_synthesis_tools`` builds for a synthesis
+# session (the same ``run_python`` name as the solve-phase instance -
+# see EXPLORATION_TOOL_NAMES). ``tests/agent_sdk/test_tool_registry.py``
+# asserts that the factory output matches this tuple. Predicate and
+# sampler drafts are loaded through the probe (``sim.predicates()`` /
+# ``sim.samplers()``), not through tools.
 SYNTHESIS_TOOL_NAMES = ("run_python", )
-PREDICATE_SYNTHESIS_TOOL_NAMES = ("evaluate_predicate_quality", )
-SAMPLER_SYNTHESIS_TOOL_NAMES = ("evaluate_sampler", )
 
 
 def get_allowed_tool_list(tool_names: Optional[List[str]] = None) -> List[str]:

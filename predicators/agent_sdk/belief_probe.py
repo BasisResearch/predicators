@@ -721,6 +721,48 @@ class BeliefProbe:
                 "during learning; the solve-time belief model is fixed.")
         return provider(path=path, traj_idxs=traj_idxs, fixed=fixed)
 
+    def predicates(self,
+                   max_trajectories: int = 10,
+                   max_groundings_per_predicate: int = 4) -> str:
+        """Reload ``predicates.py`` and report milestone behaviour.
+
+        Predicate-invention synthesis sessions only. Loads
+        ``LEARNED_PREDICATES`` fresh from the file (snapshotting it into
+        ``predicates_versions/``), validates each entry, installs the
+        set so ``run`` / ``refine`` abstract with the draft, and
+        reports, per predicate x grounding over the recorded
+        trajectories: coverage (ever-true / ever-false), flip counts,
+        and monotonicity (a milestone flips False->True once and
+        stays true). Call it after every edit of ``predicates.py``.
+        """
+        loader = self._artifact_loader("predicates")
+        return loader(
+            max_trajectories=max_trajectories,
+            max_groundings_per_predicate=max_groundings_per_predicate)
+
+    def samplers(self) -> str:
+        """Reload ``samplers.py`` and install its per-skill samplers.
+
+        Sampler-synthesis sessions only. Loads ``LEARNED_SAMPLERS``
+        fresh from the file (snapshotting it into
+        ``samplers_versions/``), validates the option-name -> callable
+        map, installs it so ``refine`` draws from the draft samplers,
+        and reports a per-option sanity check (return shape, in-box
+        draws) on a representative train-task state. Call it after every
+        edit of ``samplers.py``.
+        """
+        return self._artifact_loader("samplers")()
+
+    def _artifact_loader(self, name: str) -> Callable[..., str]:
+        ctx = self._ctx
+        _check_time_budget(ctx)
+        loader = ctx.probe_artifact_loaders.get(name)
+        if loader is None:
+            raise RuntimeError(
+                f"sim.{name} is unavailable in this session: it has no "
+                f"{name}.py surface to load.")
+        return loader
+
     def residuals(self,
                   max_transitions: int = 100,
                   abs_tol: float = 1e-4,

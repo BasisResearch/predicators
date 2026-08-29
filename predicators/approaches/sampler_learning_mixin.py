@@ -28,8 +28,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, cast
 from predicators.agent_sdk.session_base import AgentSessionFatalError, \
     query_fatal_error
 from predicators.agent_sdk.tools import _SnapshotTarget, \
-    create_sampler_synthesis_tools, create_synthesis_tools, \
-    finalize_versioned_snapshot
+    create_synthesis_tools, finalize_versioned_snapshot, make_sampler_loader
 from predicators.agent_sdk.tools.digests import render_options_digest
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.ground_truth_models import get_gt_samplers
@@ -164,14 +163,15 @@ class SamplerLearningMixin:
             "samplers_file_for_agent": samplers_file_for_agent,
         }
 
-    def _make_sampler_tools(self, paths: Dict[str, str]) -> List[Any]:
-        """Build the evaluate_sampler MCP tool for a synthesis session."""
-        return create_sampler_synthesis_tools(
-            samplers_file=paths["samplers_file"],
-            samplers_versions_dir=paths["samplers_versions_dir"],
-            approach=self,
-            cycle_index_provider=self._learning_cycle_index,
-        )
+    def _install_sampler_surface(self, paths: Dict[str, str]) -> None:
+        """Register the ``sim.samplers()`` loader for a synthesis session."""
+        self._tool_context.probe_artifact_loaders["samplers"] = \
+            make_sampler_loader(
+                samplers_file=paths["samplers_file"],
+                samplers_versions_dir=paths["samplers_versions_dir"],
+                approach=self,
+                cycle_index_provider=self._learning_cycle_index,
+            )
 
     def _sampler_snapshot_target(self, paths: Dict[str,
                                                    str]) -> _SnapshotTarget:
@@ -231,7 +231,7 @@ jitter); do NOT just return uniform draws. Read the option signatures \
 from the Options digest in your prompt and the predicate classifiers \
 (for the subgoal geometry) with the predicate listing above.
 
-Workflow: write `{path}`, call `evaluate_sampler` (snapshots + installs \
+Workflow: write `{path}`, call `sim.samplers()` (snapshots + installs \
 them and sanity-checks shape/box), then call `sim.refine` \
 with a sketch using those options — the samples-to-refine count should \
 drop sharply versus uniform. Iterate with `Edit` and re-run. Every \
@@ -263,7 +263,7 @@ as `cycle_XXX_vers_YYY_samplers.py`."""
         Mirrors ``_load_predicates_from_module_file``. Returns an empty
         dict on missing file or exec failure (samplers are optional).
         Validation (unknown option names, non-callables) is shared with
-        the ``evaluate_sampler`` tool via ``load_learned_samplers``.
+        ``sim.samplers()`` via ``load_learned_samplers``.
         """
         # pylint: disable=import-outside-toplevel
         from predicators.agent_sdk.proposal_exec import build_exec_context, \
@@ -354,7 +354,7 @@ as `cycle_XXX_vers_YYY_samplers.py`."""
             budget_check=lambda: _check_time_budget(self._tool_context),
         )
         tools = list(toolkit.tools)
-        tools.extend(self._make_sampler_tools(paths))
+        self._install_sampler_surface(paths)
         # Use the same declared surface as the mixin will assert against
         # (_get_synthesis_tool_names already includes the sampler tool since
         # _do_synthesize_samplers is True here). The rule-fitting surface is
@@ -420,6 +420,7 @@ samples-to-refine feedback signal)."""
         finally:
             self._tool_context.extra_session_hooks = {}
             self._tool_context.extra_mcp_tools = []
+            self._tool_context.probe_artifact_loaders.clear()
             self._tool_context.probe_fit_provider = None
             self._tool_context.probe_residuals_provider = None
             self._learning_mode = False

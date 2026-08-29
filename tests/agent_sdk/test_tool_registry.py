@@ -12,8 +12,7 @@ from types import SimpleNamespace
 from typing import Any, Iterable, List, Optional, Set, cast
 
 from predicators.agent_sdk.tools import ALL_TOOL_NAMES, BUILTIN_TOOLS, \
-    MCP_SERVER_NAME, PREDICATE_SYNTHESIS_TOOL_NAMES, SYNTHESIS_TOOL_NAMES, \
-    ToolContext, create_mcp_tools, create_predicate_synthesis_tools, \
+    MCP_SERVER_NAME, SYNTHESIS_TOOL_NAMES, ToolContext, create_mcp_tools, \
     create_synthesis_tools, get_allowed_tool_list, list_session_tool_names
 from predicators.approaches.agent_session_mixin import AgentSessionMixin
 
@@ -114,19 +113,6 @@ def test_sysid_fit_gate_traj_idxs_vs_fixed(tmp_path) -> None:
     assert "traj_idxs is empty" in out
 
 
-def test_create_predicate_synthesis_tools_matches_constant(tmp_path) -> None:
-    """Predicate-synthesis builder matches the predicate-synthesis name
-    tuple."""
-    approach_stub = SimpleNamespace(_fitted_params={})
-    tools = create_predicate_synthesis_tools(
-        predicates_file=str(tmp_path / "predicates.py"),
-        predicates_versions_dir=str(tmp_path / "predicates_versions"),
-        approach=approach_stub,
-        trajectories=[],
-    )
-    assert _names(tools) == set(PREDICATE_SYNTHESIS_TOOL_NAMES)
-
-
 def test_list_session_tool_names_defaults() -> None:
     """Default ``list_session_tool_names`` returns all MCP + builtin tools."""
     grouped = list_session_tool_names()
@@ -182,13 +168,13 @@ def test_get_allowed_tool_list_passes_dynamic_names_through() -> None:
     allowed = get_allowed_tool_list([
         "evaluate_option_plan",  # static
         "run_python",  # dynamic synthesis tool
-        "evaluate_predicate_quality",  # dynamic predicate-synthesis
+        "my_dynamic_tool",  # a dynamic tool the roster never lists
     ])
     prefix = f"mcp__{MCP_SERVER_NAME}__"
     assert allowed == [
         f"{prefix}evaluate_option_plan",
         f"{prefix}run_python",
-        f"{prefix}evaluate_predicate_quality",
+        f"{prefix}my_dynamic_tool",
     ]
 
 
@@ -359,7 +345,7 @@ def test_synthesis_tool_names_run_python() -> None:
     assert names.count("run_python") == 1
     names = _required_names(invention._get_synthesis_tool_names())
     assert names.count("run_python") == 1
-    assert "evaluate_predicate_quality" in names
+    assert "evaluate_predicate_quality" not in names  # sim.predicates()
 
     # On the solve side every arm with a simulator gets the same surface:
     # the probe (trajectories in its namespace, sim.task for the task

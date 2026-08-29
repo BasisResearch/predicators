@@ -59,6 +59,14 @@ class ToolContext:
     # sessions - the deployed belief model is fixed there, so the probe
     # rejects ``fit`` calls.
     probe_fit_provider: Optional[Callable[..., str]] = None
+    # Synthesis-session loaders behind ``sim.predicates()`` and
+    # ``sim.samplers()``: each reloads the agent-authored file fresh
+    # (predicates.py / samplers.py), installs the result into the
+    # approach so refinement sees the draft, and returns the report
+    # text. Empty in sessions that do not offer the artifact.
+    probe_artifact_loaders: Dict[str,
+                                 Callable[...,
+                                          str]] = field(default_factory=dict)
     # Synthesis sessions: which parameter values the candidate probe
     # model is running with - "fitted (<version>)" after a canonical
     # ``sim.fit`` of the current simulator.py, or an UNFITTED notice
