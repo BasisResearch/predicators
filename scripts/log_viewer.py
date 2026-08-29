@@ -1805,6 +1805,9 @@ a.watchlink { display: inline-block; height: 26px; line-height: 24px;
 a.watchlink:hover { text-decoration: none; filter: brightness(1.1); }
 
 .muted { color: var(--muted); font-weight: 400; }
+/* The compare column: an unlabeled checkbox is a question, not a
+   control. Small and grey, but named. */
+th.cmphdr { font-size: 9px; letter-spacing: .08em; cursor: help; }
 /* The "what is happening right now" panel above the run table. */
 .livepanel { border: 1px solid var(--border); border-radius: 8px;
   background: var(--panel); padding: 12px 14px; margin: 0 0 14px; }
@@ -2056,6 +2059,15 @@ function applySort() {
     rows.forEach(function(r) { tbody.appendChild(r); });
   });
 }
+function paintCompare() {
+  var n = $all('input.cmp:checked').length;
+  var b = $('#cmpbtn');
+  if (!b) return;
+  b.disabled = n < 2;
+  b.textContent = n ? 'Compare ' + n + ' runs' : 'Compare';
+  b.title = n < 2 ? 'Tick two or more runs in the cmp column'
+                  : 'Line these runs up side by side';
+}
 function compareSelected() {
   var sel = $all('input.cmp:checked').map(function(c) { return c.value; });
   if (sel.length < 2) {
@@ -2212,6 +2224,7 @@ document.addEventListener('DOMContentLoaded', function() {
   paintAutoBtn();
   paintThemeBtn();
   paintKindBtns();
+  paintCompare();
   paintSortBtn();
   applySort();
   pollStamp();
@@ -2576,7 +2589,9 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], live: LiveProcs,
     return ("<tr class='runrow' "
             f"data-key='{esc(key)}' data-seed='{esc(r['seed'])}' "
             f"data-kind='{kind}' data-start='{start_ts:.0f}'>"
-            f"<td><input type='checkbox' class='cmp' value='{esc(r['rel'])}'>"
+            f"<td><input type='checkbox' class='cmp' onchange='paintCompare()' "
+            f"title='Tick this run to compare it with another' "
+            f"value='{esc(r['rel'])}'>"
             "</td>"
             f"<td>{watch_cell}</td>"
             f"<td><a href='{q(primary)}'>{esc(r['name'])}</a>"
@@ -2626,7 +2641,10 @@ def index_page() -> str:
             f"<p>No run_* directories found under {esc(LOGS_ROOT)}.</p>")
     else:
         head = (
-            "<tr><th></th><th></th>"
+            "<tr><th class='cmphdr' title='Tick two or more runs, then "
+            "press Compare selected: their per-task results line up "
+            "side by side, so a rung can be read against the oracle "
+            "or against its own earlier run'>cmp</th><th></th>"
             "<th title='One execution of main.py, named by start time'>"
             "run</th>"
             "<th title='The method: an oracle_* approach is handed ground "
@@ -2663,8 +2681,10 @@ def index_page() -> str:
               "<button id='sortbtn' onclick='toggleSort()' title='seed: "
               "group rows by seed, newest first within each seed; time: "
               "newest runs first'></button>"
-              "<button onclick='compareSelected()'>Compare selected"
-              f"</button><span class='crumb'>{esc(LOGS_ROOT)}</span>")
+              "<button id='cmpbtn' onclick='compareSelected()' disabled "
+              "title='Tick two or more runs in the cmp column'>"
+              "Compare</button>"
+              f"<span class='crumb'>{esc(LOGS_ROOT)}</span>")
     return page("runs - log viewer", topbar, "".join(body))
 
 
@@ -2775,6 +2795,67 @@ def _fit_card(fit: Dict[str, Any]) -> str:
             "the planner for the next round.</span></div>")
 
 
+def _is_oracle(run_rel: str) -> bool:
+    """True for an oracle_* approach: handed ground truth, learns nothing.
+
+    Read off the approach family in the path rather than off how much
+    the run happened to log. A learner killed in its first round has no
+    fits and one round too, and calling that "does not learn" describes
+    the interruption as if it were the method.
+    """
+    return run_rel.split("/")[0].startswith("oracle")
+
+
+def _reel_intro(run_rel: str, summary: Dict[str, Any]) -> str:
+    """The one line above the reel, saying what kind of run this is."""
+    if _is_oracle(run_rel):
+        return ("This approach does not learn: it is handed the "
+                "ground-truth model and solves the held-out tasks once. "
+                "What follows is that <b>test</b>.")
+    if not summary.get("fits"):
+        # An agent arm with no online learning cycles: it still has to
+        # plan and act, it just never refits a model mid-run.
+        return ("The agent plans and acts here with the model it was "
+                "given - this run has no online learning cycles, so "
+                "there is no fit between rounds. What follows is its "
+                "<b>test</b>.")
+    return ("The whole run, oldest first. Each round is one turn of the "
+            "loop: the robot <b>practices</b> to gather data, the fit "
+            "recovers what the world is really like, and a <b>test</b> "
+            "on a held-out task scores it. Read top to bottom to watch "
+            "it learn.")
+
+
+def _no_videos_reason(run_rel: str, summary: Dict[str, Any]) -> str:
+    """Why an empty reel is empty.
+
+    "No videos" has three quite different causes and only one of them
+    is about flags: a run still going has not written any yet, and a
+    killed one never will. Saying the flag line to all three sends a
+    reader to change a config that was already correct.
+    """
+    if not summary.get("done"):
+        runs = find_runs()
+        live = live_runs(runs)
+        r = next((x for x in runs if x["rel"] == run_rel), None)
+        if r is not None:
+            newest = max(
+                (y for y in runs
+                 if (y["exp"], y["seed"]) == (r["exp"], r["seed"])),
+                key=lambda y: _run_start_ts(y["name"], y["mtime"]))
+            status, _ = run_status(r, summary, live,
+                                   newest["rel"] == run_rel)
+            if status == "running":
+                return ("This run is still going. Clips appear here as "
+                        "its episodes finish - the page refreshes "
+                        "itself.")
+            return ("This run was stopped before it recorded a video. "
+                    "Its transcripts and logs are still there under "
+                    "<b>logs &amp; transcripts</b>.")
+    return ("This run recorded no videos. They are written when main.py "
+            "runs with --make_test_videos / --make_interaction_videos.")
+
+
 def replays_page(run_rel: str) -> Optional[str]:
     """A run's whole pipeline as a reel: practice, what it learned, test.
 
@@ -2823,25 +2904,9 @@ def replays_page(run_rel: str) -> Optional[str]:
         out.append(f"<section class='round'><h3>Round {rnd + 1}</h3>"
                    f"{strip}{band}</section>")
     if not out:
-        out = [
-            "<p class='muted'>This run recorded no videos. They are "
-            "written when main.py runs with --make_test_videos / "
-            "--make_interaction_videos.</p>"
-        ]
-    # An approach with no learning loop -- an oracle handed the true
-    # model -- has one round and nothing to learn between rounds, so the
-    # "watch it learn" reading would be a lie about what is on screen.
-    learns = bool(summary.get("fits")) or len(by_round) > 1
-    intro = ("<div class='banner'><span>The whole run, oldest first. "
-             "Each round is one turn of the loop: the robot "
-             "<b>practices</b> to gather data, the fit recovers what "
-             "the world is really like, and a <b>test</b> on a held-out "
-             "task scores it. Read top to bottom to watch it "
-             "learn.</span></div>" if learns else
-             "<div class='banner'><span>This approach does not learn: "
-             "it is handed the ground-truth model and solves the "
-             "held-out tasks once. What follows is that "
-             "<b>test</b>.</span></div>")
+        out = [f"<p class='muted'>{_no_videos_reason(run_rel, summary)}</p>"]
+    intro = f"<div class='banner'><span>{_reel_intro(run_rel, summary)}"\
+             "</span></div>"
     body = (f"<div class='content' style='height:calc(100vh - "
             f"var(--topbar-h));overflow:auto'>{intro}"
             f"{''.join(out)}</div>")
