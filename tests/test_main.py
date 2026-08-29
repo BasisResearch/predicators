@@ -19,12 +19,13 @@ from predicators.cogman import CogMan
 from predicators.envs.cover import CoverEnv
 from predicators.execution_monitoring import create_execution_monitor
 from predicators.ground_truth_models import get_gt_options
-from predicators.main import _run_testing, _save_test_results, main
+from predicators.main import main
 from predicators.perception import create_perceiver
 from predicators.run.checkpoints import ApproachCheckpoints, \
     InflightInteractions, discover_resume_cycles, load_test_solve_rate, \
     perfect_test_streak_from_disk
 from predicators.run.early_stopping import below_reward_bar_msg
+from predicators.run.testing import run_testing, save_test_results
 from predicators.settings import CFG
 from predicators.structs import Action, DefaultState, EnvironmentTask, State, \
     Task
@@ -247,7 +248,7 @@ def test_bilevel_planning_approach_failure_and_timeout():
     perceiver = create_perceiver("trivial")
     exec_monitor = create_execution_monitor("trivial")
     cogman = CogMan(approach, perceiver, exec_monitor)
-    _run_testing(env, cogman)
+    run_testing(env, cogman)
 
     approach = _DummySolveTimeoutApproach(env.predicates,
                                           get_gt_options(env.get_name()),
@@ -257,7 +258,7 @@ def test_bilevel_planning_approach_failure_and_timeout():
     perceiver = create_perceiver("trivial")
     exec_monitor = create_execution_monitor("trivial")
     cogman = CogMan(approach, perceiver, exec_monitor)
-    _run_testing(env, cogman)
+    run_testing(env, cogman)
 
     approach = _DummyExecutionTimeoutApproach(env.predicates,
                                               get_gt_options(env.get_name()),
@@ -267,7 +268,7 @@ def test_bilevel_planning_approach_failure_and_timeout():
     perceiver = create_perceiver("trivial")
     exec_monitor = create_execution_monitor("trivial")
     cogman = CogMan(approach, perceiver, exec_monitor)
-    _run_testing(env, cogman)
+    run_testing(env, cogman)
 
 
 def testbelow_reward_bar_msg():
@@ -322,7 +323,7 @@ def test_env_failure():
     perceiver = create_perceiver("trivial")
     exec_monitor = create_execution_monitor("trivial")
     cogman = CogMan(approach, perceiver, exec_monitor)
-    _run_testing(env, cogman)
+    run_testing(env, cogman)
 
 
 def test_skip_initial_test():
@@ -371,19 +372,19 @@ def testperfect_test_streak_from_disk():
     assert perfect_test_streak_from_disk(2) == 0
     assert load_test_solve_rate(0) is None
     # Cycle 0 imperfect, cycles 1-2 perfect: the walk stops at cycle 0.
-    _save_test_results(_fake_results(0, 1), online_learning_cycle=0)
-    _save_test_results(_fake_results(1, 1), online_learning_cycle=1)
-    _save_test_results(_fake_results(1, 1), online_learning_cycle=2)
+    save_test_results(_fake_results(0, 1), online_learning_cycle=0)
+    save_test_results(_fake_results(1, 1), online_learning_cycle=1)
+    save_test_results(_fake_results(1, 1), online_learning_cycle=2)
     assert load_test_solve_rate(0) == 0.0
     assert load_test_solve_rate(1) == 1.0
     assert perfect_test_streak_from_disk(2) == 2
     assert perfect_test_streak_from_disk(1) == 1
     assert perfect_test_streak_from_disk(0) == 0
     # A missing cycle (3) breaks the streak even with cycle 4 perfect.
-    _save_test_results(_fake_results(1, 1), online_learning_cycle=4)
+    save_test_results(_fake_results(1, 1), online_learning_cycle=4)
     assert perfect_test_streak_from_disk(4) == 1
     # An empty test set never counts as perfect.
-    _save_test_results(_fake_results(0, 0), online_learning_cycle=5)
+    save_test_results(_fake_results(0, 0), online_learning_cycle=5)
     assert perfect_test_streak_from_disk(5) == 0
     shutil.rmtree(results_dir)
 

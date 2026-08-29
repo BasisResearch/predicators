@@ -38,15 +38,10 @@ import logging
 import os
 import sys
 import time
-from collections import defaultdict
-from pathlib import Path
-from typing import Any, List, Optional, Sequence, Tuple, Union
-
-import dill as pkl
+from typing import List, Optional, Sequence, Tuple
 
 from predicators import utils
-from predicators.approaches import ApproachFailure, ApproachTimeout, \
-    create_approach
+from predicators.approaches import create_approach
 from predicators.approaches.base_approach import BaseApproach
 from predicators.cogman import CogMan, run_episode_and_get_observations
 from predicators.datasets import create_dataset
@@ -57,13 +52,13 @@ from predicators.ground_truth_models import get_gt_options, \
 from predicators.perception import create_perceiver
 from predicators.pybullet_helpers.real_robot_executor import attach_real_robot
 from predicators.run.checkpoints import ApproachCheckpoints, \
-    InflightInteractions, maybe_auto_resume, test_results_exist, \
-    test_results_path
+    InflightInteractions, maybe_auto_resume, test_results_exist
 from predicators.run.early_stopping import EarlyStopping, below_reward_bar_msg
+from predicators.run.testing import format_test_results_line, run_testing, \
+    save_test_results
 from predicators.settings import CFG, get_allowed_query_type_names
-from predicators.structs import Action, Dataset, EnvironmentTask, \
-    InteractionRequest, InteractionResult, Metrics, Observation, Response, \
-    Task
+from predicators.structs import Dataset, InteractionRequest, \
+    InteractionResult, Metrics, Response, Task
 from predicators.teacher import Teacher, TeacherInteractionMonitorWithVideo
 
 assert os.environ.get("PYTHONHASHSEED") == "0", \
@@ -222,7 +217,7 @@ def _run_pipeline(env: BaseEnv,
         if CFG.skip_until_cycle < 0 and \
            not CFG.skip_test_until_last_ite_or_early_stopping and \
            not CFG.skip_initial_test:
-            results = _run_testing(env, cogman, online_learning_cycle=None)
+            results = run_testing(env, cogman, online_learning_cycle=None)
             results.update({
                 "num_offline_transitions": num_offline_trans,
                 "num_online_transitions": num_online_trans,
@@ -230,7 +225,7 @@ def _run_pipeline(env: BaseEnv,
                 "learning_time": learning_time,
                 **offline_metrics
             })
-            _save_test_results(results, online_learning_cycle=None)
+            save_test_results(results, online_learning_cycle=None)
             initial_test_summary = ("the pre-loop test", results)
 
         # Run online learning loop
@@ -239,14 +234,14 @@ def _run_pipeline(env: BaseEnv,
                                   initial_test_summary)
     else:
         # Handle non-learning case
-        results = _run_testing(env, cogman, online_learning_cycle=None)
+        results = run_testing(env, cogman, online_learning_cycle=None)
         results.update({
             "num_offline_transitions": 0,
             "num_online_transitions": 0,
             "query_cost": 0.0,
             "learning_time": 0.0
         })
-        _save_test_results(results, online_learning_cycle=None)
+        save_test_results(results, online_learning_cycle=None)
 
 
 def _handle_offline_learning(
@@ -318,7 +313,7 @@ def _run_online_learning_loop(
 
     def _test_and_save(cycle: int) -> None:
         """Test the current model as ``cycle``'s evaluation and record it."""
-        results = _run_testing(env, cogman, online_learning_cycle=cycle)
+        results = run_testing(env, cogman, online_learning_cycle=cycle)
         results.update({
             "num_offline_transitions": num_offline_transitions,
             "num_online_transitions": num_online_transitions,
@@ -326,14 +321,14 @@ def _run_online_learning_loop(
             "learning_time": learning_time,
             **offline_learning_metrics
         })
-        _save_test_results(results, online_learning_cycle=cycle)
+        save_test_results(results, online_learning_cycle=cycle)
         early_stopping.record_test(f"cycle {cycle}", results)
 
     def _log_last_test() -> None:
         if early_stopping.last_test_summary is not None:
             label, test_results = early_stopping.last_test_summary
             logging.info(f"Early stopping: last test evaluation ({label}): "
-                         f"{_format_test_results_line(test_results)}")
+                         f"{format_test_results_line(test_results)}")
 
     # Create teacher if needed
     teacher = Teacher(train_tasks) if get_allowed_query_type_names() else None
@@ -537,7 +532,7 @@ def _generate_interaction_results(
             solved = False
         task_solved_status.append(solved)
 
-        # Debug final state (mirrors _run_testing). Lets us inspect the real
+        # Debug final state (mirrors run.testing). Lets us inspect the real
         # env state at the end of the rollout — e.g. whether SwitchBurnerOff
         # actually flipped the burner — separately from what the agent's
         # mental model believes happened.
@@ -608,466 +603,6 @@ def _generate_interaction_results(
             outfile = f"{save_prefix}__ep{episode_idx}__cycle{cycle_num}.mp4"
             utils.save_video(outfile, monitor.get_video())
     return results, query_cost, task_solved_status
-
-
-def _run_testing(env: BaseEnv,
-                 cogman: CogMan,
-                 online_learning_cycle: Optional[int] = None) -> Metrics:
-    """Run testing on the environment's test tasks using the cogman approach,
-    measuring both solve and execution metrics, and recording
-    successes/failures.
-
-    ``online_learning_cycle`` is the cycle this test round belongs to (``None``
-    for the pre-learning baseline, ``i`` for the test after cycle ``i``). It is
-    woven into the saved image/video filenames so successive test rounds do NOT
-    overwrite each other -- matching how ``_save_test_results`` already suffixes
-    the metrics pkl with the cycle.
-
-    Returns a Metrics object populated with aggregated statistics.
-    """
-    test_tasks = env.get_test_tasks()
-    if CFG.approach != "oracle":
-        test_tasks = [task.replace_goal_with_alt_goal() for task in test_tasks]
-
-    # Initialize counters and per-run metrics
-    cogman.reset_metrics()
-    save_prefix = utils.get_config_path_str()
-    # Per-cycle tag so each test round's rendered artifacts are distinct.
-    cycle_tag = f"__cycle{online_learning_cycle}"
-    metrics: Metrics = defaultdict(float)
-
-    num_found_policy = 0
-    num_solved = 0
-    # Sum of per-task episode rewards. Tasks that never execute (solve
-    # failure/timeout) contribute 0.0, so the average below is over ALL
-    # test tasks.
-    total_test_reward = 0.0
-    total_suc_time = 0.0
-    total_low_level_action_cost = 0.0
-
-    # Summaries for approach/execution failures
-    total_num_solve_timeouts = 0
-    total_num_solve_failures = 0
-    total_num_execution_timeouts = 0
-    total_num_execution_failures = 0
-
-    # Track the running totals for nodes created/expanded
-    curr_num_nodes_created = 0.0
-    curr_num_nodes_expanded = 0.0
-
-    # --------------------------------------------------------------------------
-    # Helper functions
-    # --------------------------------------------------------------------------
-    def _save_video(monitor: Optional[utils.LoggingMonitor], is_failure: bool,
-                    task_idx: int) -> None:
-        """Save a video from the monitor if the current config calls for it."""
-        if monitor is None:
-            return
-        if CFG.use_counterfactual_dataset_path_name:
-            suffix = ""
-        else:
-            suffix = "_failure" if is_failure else ""
-        outfile = f"{save_prefix}__task{task_idx+1}{suffix}{cycle_tag}.mp4"
-        if isinstance(monitor, utils.StreamingVideoMonitor):
-            monitor.finalize(outfile)
-        else:
-            assert isinstance(monitor, utils.VideoMonitor)
-            utils.save_video(outfile, monitor.get_video())
-
-    def _save_images(monitor: Optional[utils.LoggingMonitor], is_failure: bool,
-                     task_idx: int) -> None:
-        """Save images from the monitor if the current config calls for it."""
-        if monitor is None:
-            return
-        assert isinstance(monitor, utils.VideoMonitor)
-        video = monitor.get_video()
-        if CFG.use_counterfactual_dataset_path_name:
-            experiment_id = CFG.experiment_id.split("-")[0]
-            outfile = (f"{experiment_id}/seed{CFG.seed}/query/"
-                       f"cycle{online_learning_cycle}/task{task_idx+1}/")
-        else:
-            suffix = "_failure" if is_failure else ""
-            outfile = f"{save_prefix}__task{task_idx+1}{suffix}{cycle_tag}"
-        utils.save_images(outfile, video)
-
-    def _handle_solve_exception(
-        e: Union[ApproachTimeout, ApproachFailure],
-        task_idx: int,
-        partial_refinements: Any,
-    ) -> Tuple[int, int]:
-        """Handle approach exceptions during the solve step, returning
-        (updated_num_solve_timeouts, updated_num_solve_failures)."""
-        nonlocal total_num_solve_timeouts, total_num_solve_failures
-        if isinstance(e, ApproachTimeout):
-            total_num_solve_timeouts += 1
-        else:
-            total_num_solve_failures += 1
-
-        # Optionally save partial-refinement-based video
-        if (CFG.make_failure_videos or CFG.make_failure_images) and\
-              partial_refinements:
-            logging.info("Creating video from partial "
-                         "refinements...")
-            video = utils.create_video_from_partial_refinements(
-                partial_refinements, env, "test", task_idx, CFG.horizon)
-            if CFG.make_failure_images:
-                experiment_id = CFG.experiment_id.split("-")[0]
-                outfile = f"{experiment_id}/seed{CFG.seed}/query/"+\
-                            f"cycle{online_learning_cycle}/task{task_idx+1}/"
-                utils.save_images(outfile, video)
-            if CFG.make_failure_videos:
-                outfile = (f"{save_prefix}__task{task_idx+1}_failure"
-                           f"{cycle_tag}.mp4")
-                utils.save_video(outfile, video)
-
-        if CFG.crash_on_failure:
-            raise e
-        return total_num_solve_timeouts, total_num_solve_failures
-
-    def _solve_task(_task_idx: int, env_task: EnvironmentTask) -> float:
-        """Try to solve the given env_task using cogman, returning the solve
-        time."""
-        solve_start = time.perf_counter()
-        logging.debug(f"[main.py] Solving task w. goal: {env_task.goal}")
-        cogman.reset(env_task)  # May raise ApproachTimeout or ApproachFailure
-        return time.perf_counter() - solve_start
-
-    def _execute_policy(
-        task_idx: int,
-        env_task: EnvironmentTask,
-        episode_env: BaseEnv,
-        monitor: Optional[utils.LoggingMonitor] = None
-    ) -> Tuple[bool, bool, float, int, Tuple[List[Observation], List[Action]]]:
-        """Execute the cogman policy in ``episode_env`` to see if the goal is
-        solved.
-
-        Returns:
-            (solved, caught_exception, exec_time,
-             num_options_executed, low_level_action_cost)
-        """
-        solved = False
-        caught_exception = False
-        exec_time = 0.0
-        num_options_executed = 0
-
-        try:
-            traj, solved, execution_metrics = run_episode_and_get_observations(
-                cogman,
-                episode_env,
-                "test",
-                task_idx,
-                max_num_steps=CFG.horizon,
-                monitor=monitor,
-                terminate_on_goal_reached=CFG.terminate_on_goal_reached)
-            exec_time = execution_metrics["policy_call_time"]
-            num_options_executed = int(
-                execution_metrics["num_options_executed"])
-
-            # Optionally save a successful trajectory
-            if CFG.save_eval_trajs:
-                os.makedirs(CFG.eval_trajectories_dir, exist_ok=True)
-                traj_file = f"{save_prefix}__task{task_idx+1}.traj"
-                traj_file_path = Path(CFG.eval_trajectories_dir) / traj_file
-                traj_data = {
-                    "task": env_task,
-                    "trajectory": traj,
-                    "pybullet_robot": CFG.pybullet_robot
-                }
-                with open(traj_file_path, "wb") as f:
-                    pkl.dump(traj_data, f)
-        except utils.EnvironmentFailure as e:
-            logging.info(f"Environment failed with error: {e}")
-            caught_exception = True
-        except (ApproachTimeout, ApproachFailure) as e:
-            logging.info(f"Approach failed at execution time with error: {e}")
-            if isinstance(e, ApproachTimeout):
-                nonlocal total_num_execution_timeouts
-                total_num_execution_timeouts += 1
-            else:
-                nonlocal total_num_execution_failures
-                total_num_execution_failures += 1
-            caught_exception = True
-
-        # Debug final state
-        # pylint: disable=protected-access
-        if hasattr(cogman._approach, "_get_current_predicates"):
-            abstract_state = utils.abstract(
-                episode_env.get_observation(),
-                cogman._approach._get_current_predicates())
-            # pylint: enable=protected-access
-            logging.debug(f"Final abstract state:\n{abstract_state}")
-        logging.debug(
-            f"Final state:\n{episode_env.get_observation().pretty_str()}")
-
-        # if traj is defined
-        if 'traj' not in locals():
-            traj = ([], [])
-
-        return solved, caught_exception, exec_time, num_options_executed, traj
-
-    # --------------------------------------------------------------------------
-    # Main testing loop
-    # --------------------------------------------------------------------------
-    cogman._approach.begin_test_phase()  # pylint: disable=protected-access
-    for test_task_idx, env_task in enumerate(test_tasks):
-        # ---------------------
-        # 1) Solve phase
-        # ---------------------
-        try:
-            logging.info(f"[main.py] Solving task {test_task_idx+1}/"
-                         f"{len(test_tasks)}...")
-            solve_time = _solve_task(test_task_idx, env_task)
-        except (ApproachTimeout, ApproachFailure) as e:
-            # Handle solve failure/timeouts
-            partial_refinements = getattr(e, "info",
-                                          {}).get("partial_refinements")
-            logging.info(f"[main.py] Task {test_task_idx+1} / "
-                         f"{len(test_tasks)}: approach failed with error: {e}")
-            _handle_solve_exception(e, test_task_idx, partial_refinements)
-            # Handle impossible goals here
-            if CFG.env_has_impossible_goals:
-                task_solvable = env.is_task_solvable(env_task)
-                if not task_solvable:
-                    if "not dr-reachable" in str(e):
-                        logging.info("[main.py] Task is unsolvable and is "
-                                     "recognized")
-                        num_solved += 1
-                        logging.info(f"Task {test_task_idx+1} / "
-                                     f"{len(test_tasks)}: SOLVED")
-            continue
-
-        # Update solve-time metrics
-        metrics[f"PER_TASK_task{test_task_idx}_solve_time"] = solve_time
-        created = cogman.metrics["total_num_nodes_created"]
-        expanded = cogman.metrics["total_num_nodes_expanded"]
-        metrics[
-            f"PER_TASK_task{test_task_idx}_nodes_created"] = created - \
-                curr_num_nodes_created
-        metrics[
-            f"PER_TASK_task{test_task_idx}_nodes_expanded"] = expanded - \
-                curr_num_nodes_expanded
-        curr_num_nodes_created, curr_num_nodes_expanded = created, expanded
-
-        num_found_policy += 1
-
-        # ---------------------
-        # 2) Execution phase
-        # ---------------------
-        # Run the episode in a fresh env instance when the env supports
-        # it (see BaseEnv.make_fresh_test_instance): a long-lived
-        # PyBullet world carries history that state-level resets do not
-        # clear, so the episode's physics would depend on everything the
-        # run executed before it.
-        episode_env: BaseEnv = env
-        fresh_env: Optional[BaseEnv] = None
-        if CFG.test_fresh_env_per_episode:
-            fresh_env = env.make_fresh_test_instance()
-            if fresh_env is not None:
-                episode_env = fresh_env
-            else:
-                logging.info(
-                    "test_fresh_env_per_episode: env does not support a "
-                    "fresh instance here (GUI/real-robot/base env); "
-                    "executing in the shared long-lived env.")
-
-        monitor: Optional[utils.LoggingMonitor] = None
-        try:
-            # Decide if we need to record video. Image saving needs the
-            # raw frames after the episode, so it gets the buffering
-            # monitor; video-only runs stream frames to disk as they are
-            # rendered, keeping peak memory at one frame instead of a
-            # whole episode.
-            need_images = CFG.make_test_images or CFG.make_failure_images
-            need_video = CFG.make_test_videos or CFG.make_failure_videos
-            if need_images:
-                monitor = utils.VideoMonitor(episode_env.render)
-            elif need_video:
-                monitor = utils.StreamingVideoMonitor(episode_env.render)
-
-            logging.info("Executing policy...")
-            solved, caught_exception, exec_time, num_opts, traj = \
-                _execute_policy(test_task_idx, env_task, episode_env, monitor)
-
-            # Record execution metrics
-            metrics[f"PER_TASK_task{test_task_idx}_exec_time"] = exec_time
-            metrics[
-                f"PER_TASK_task{test_task_idx}_options_executed"] = num_opts
-
-            # Task-evaluator verdict + offline metrics (e.g. domino
-            # k_used), plus per-task oracle quantities (e.g. domino
-            # k_star) stored on the EnvironmentTask. Offline-only:
-            # reported in results, never agent-visible.
-            if traj[0]:
-                episode_eval = episode_env.evaluate_episode(traj[0], traj[1])
-                metrics[f"PER_TASK_task{test_task_idx}_reward"] = \
-                    episode_eval.reward
-                total_test_reward += episode_eval.reward
-                for metric_name, value in episode_eval.offline_metrics.items():
-                    metrics[
-                        f"PER_TASK_task{test_task_idx}_{metric_name}"] = value
-                for metric_name, value in env_task.offline_task_metrics.items(
-                ):
-                    metrics[
-                        f"PER_TASK_task{test_task_idx}_{metric_name}"] = value
-
-            # Add cost for low-level actions if configured
-            if CFG.refinement_data_include_execution_cost:
-                total_low_level_action_cost += (
-                    len(traj[1]) *
-                    CFG.refinement_data_low_level_execution_cost)
-
-            # ---------------------
-            # 3) Post-execution handling
-            # ---------------------
-            if solved and not caught_exception:
-                # The plan reached the goal
-                log_msg = "SOLVED"
-                num_solved += 1
-                total_suc_time += (solve_time + exec_time)
-                # If solved, we may want to save a video if
-                # make_test_videos is True
-                if CFG.make_test_videos:
-                    _save_video(monitor,
-                                is_failure=False,
-                                task_idx=test_task_idx)
-                if CFG.make_test_images:
-                    _save_images(monitor,
-                                 is_failure=False,
-                                 task_idx=test_task_idx)
-                # Count how many steps we took
-                # (We rely on the last trajectory from
-                # run_episode_and_get_observations)
-                # If you need the real trajectory, you'd store
-                # it as in `_execute_policy`.
-                # Suppose we do that here (execution_metrics / logging):
-                metrics[f"PER_TASK_task{test_task_idx}_num_steps"] = len(
-                    traj[1])
-            else:
-                # The plan did not reach the goal, or an exception occurred
-                if not caught_exception:
-                    log_msg = "Policy failed to reach goal"
-                else:
-                    log_msg = "Policy/Env encountered an exception"
-                if CFG.crash_on_failure:
-                    raise RuntimeError(log_msg)
-                if CFG.make_failure_videos:
-                    _save_video(monitor,
-                                is_failure=True,
-                                task_idx=test_task_idx)
-                if CFG.make_failure_images:
-                    _save_images(monitor,
-                                 is_failure=True,
-                                 task_idx=test_task_idx)
-
-        finally:
-            # Drop the streamed clip when no branch above finalized it
-            # (a solved episode with only make_failure_videos on, or an
-            # exception past the save calls); no-op otherwise. In the
-            # finally so a raise inside the try cannot leak the
-            # monitor's temp file and open writer.
-            if isinstance(monitor, utils.StreamingVideoMonitor):
-                monitor.discard()
-            if fresh_env is not None:
-                fresh_env.dispose()
-
-        logging.info(f"Task {test_task_idx+1} / {len(test_tasks)}: {log_msg}")
-
-    cogman._approach.end_test_phase()  # pylint: disable=protected-access
-
-    # --------------------------------------------------------------------------
-    # Aggregate final metrics
-    # --------------------------------------------------------------------------
-    metrics["num_solved"] = num_solved
-    metrics["num_total"] = len(test_tasks)
-    metrics["avg_test_reward"] = (total_test_reward /
-                                  len(test_tasks) if test_tasks else 0.0)
-    metrics["avg_suc_time"] = (total_suc_time /
-                               num_solved if num_solved > 0 else float("inf"))
-    metrics["avg_ref_cost"] = ((total_low_level_action_cost +
-                                cogman.metrics["total_refinement_time"]) /
-                               num_solved if num_solved > 0 else float("inf"))
-
-    # Skeleton / sample info
-    metrics["min_num_samples"] = (
-        cogman.metrics["min_num_samples"]
-        if cogman.metrics["min_num_samples"] < float("inf") else 0)
-    metrics["max_num_samples"] = cogman.metrics["max_num_samples"]
-    metrics["min_skeletons_optimized"] = (
-        cogman.metrics["min_num_skeletons_optimized"]
-        if cogman.metrics["min_num_skeletons_optimized"] < float("inf") else 0)
-    metrics["max_skeletons_optimized"] = cogman.metrics[
-        "max_num_skeletons_optimized"]
-
-    # Failure/timeouts
-    metrics["num_solve_timeouts"] = total_num_solve_timeouts
-    metrics["num_solve_failures"] = total_num_solve_failures
-    metrics["num_execution_timeouts"] = total_num_execution_timeouts
-    metrics["num_execution_failures"] = total_num_execution_failures
-
-    # Compute averages of certain CogMan metrics wrt # of found policies
-    for metric_name in [
-            "num_samples", "num_skeletons_optimized", "num_nodes_expanded",
-            "num_nodes_created", "num_nsrts", "num_preds", "plan_length",
-            "num_failures_discovered"
-    ]:
-        total = cogman.metrics[f"total_{metric_name}"]
-        metrics[f"avg_{metric_name}"] = (
-            total / num_found_policy if num_found_policy > 0 else float("inf"))
-
-    return metrics
-
-
-def _format_per_task_rewards(results: Metrics) -> str:
-    """Comma-joined per-task episode rewards of one test round.
-
-    Tasks that never executed (solve failure/timeout) have no reward
-    entry and show as ``n/a``.
-    """
-    parts = []
-    for i in range(int(results["num_total"])):
-        reward = results.get(f"PER_TASK_task{i}_reward")
-        parts.append(
-            f"task{i}={reward:.2f}" if reward is not None else f"task{i}=n/a")
-    return ", ".join(parts)
-
-
-def _format_test_results_line(results: Metrics) -> str:
-    """Summarize a test round: solve rate, average reward, per-task rewards."""
-    num_solved = int(results["num_solved"])
-    num_total = int(results["num_total"])
-    rate = num_solved / num_total if num_total else 0.0
-    return (f"solve rate {rate:.3f} ({num_solved} / {num_total}), "
-            f"avg reward {results['avg_test_reward']:.3f}, "
-            f"per-task rewards: {_format_per_task_rewards(results)}")
-
-
-def _save_test_results(results: Metrics,
-                       online_learning_cycle: Optional[int]) -> None:
-    num_solved = results["num_solved"]
-    num_total = results["num_total"]
-    avg_suc_time = results["avg_suc_time"]
-    logging.info(f"Tasks solved: {num_solved} / {num_total}")
-    logging.info(f"Average test reward: {results['avg_test_reward']:.3f}")
-    logging.info(f"Per-task rewards: {_format_per_task_rewards(results)}")
-    logging.info(f"Average time for successes: {avg_suc_time:.5f} seconds")
-    os.makedirs(CFG.results_dir, exist_ok=True)
-    outfile = test_results_path(online_learning_cycle)
-    # Save CFG alongside results.
-    outdata = {
-        "config": CFG,
-        "results": results.copy(),
-        "git_commit_hash": utils.get_git_commit_hash()
-    }
-    # Dump the CFG, results, and git commit hash to a pickle file.
-    with open(outfile, "wb") as f:
-        pkl.dump(outdata, f)
-    # Before printing the results, filter out keys that start with the
-    # special prefix "PER_TASK_", to prevent an annoyingly long printout.
-    del_keys = [k for k in results if k.startswith("PER_TASK_")]
-    for k in del_keys:
-        del results[k]
-    logging.info(f"Test results: {results}")
-    logging.info(f"Wrote out test results to {outfile}")
 
 
 if __name__ == "__main__":  # pragma: no cover
