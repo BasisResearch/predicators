@@ -1,4 +1,5 @@
-"""Tests for --auto_resume checkpoint discovery (main.discover_resume_cycles).
+"""Tests for --auto_resume checkpoint discovery
+(run.checkpoints.discover_resume_cycles).
 
 The discovery function is pure: given the config's checkpoint load path,
 it reports whether any checkpoint exists and the highest completed
@@ -8,7 +9,7 @@ load_approach / restart_learning / skip_until_cycle.
 import os
 import time
 
-from predicators.main import discover_resume_cycles
+from predicators.run.checkpoints import discover_resume_cycles
 
 
 def _touch(path):
