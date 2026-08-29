@@ -172,7 +172,13 @@ def build_solve_prompt(
                 "model - a lucky real success from a plan the model could "
                 "not certify does not count. Once the belief model can "
                 "validate a goal-reaching plan, submitting it (even "
-                "unchanged) is how the loop concludes.")
+                "unchanged) is how the loop concludes." +
+                (" A plan that passes evaluate_option_plan's validation "
+                 "gate (goal reached in every fresh belief rollout) is "
+                 "executed VERBATIM as this episode's solve attempt and "
+                 "replayed for the cycle's remaining episodes; only an "
+                 "unvalidated sketch is treated as an experiment."
+                 if CFG.agent_explorer_replay_certified_plan else ""))
         elif CFG.online_learning_early_stopping_by_test_solve_rate:
             n_perfect = (
                 CFG.online_learning_early_stopping_consecutive_perfect_tests)
@@ -214,7 +220,12 @@ def build_solve_prompt(
             "plan the model cannot produce is wasted budget. An "
             "experiment's information comes from the steps the belief "
             "model cannot predict. Before running, your sketch's "
-            "continuous parameters are refined in the belief model. "
+            "continuous parameters are refined in the belief model. " +
+            ("Every explicit parameter you propose executes exactly as "
+             "written (a step whose proposal fails a belief rollout is "
+             "retried, never re-sampled); refinement searches only the "
+             "steps you leave without parameters. "
+             if CFG.agent_explorer_pin_proposed_params else "") +
             "When refinement cannot establish a step's annotated "
             "subgoals the plan still runs in full: the refined prefix "
             "executes as searched, the failing step executes its "

@@ -452,9 +452,9 @@ def test_experiment_guidance_gated_by_info_seeking():
 
 
 def test_experiment_guidance_injects_open_questions_ledger(tmp_path):
-    """The learn phase's open_questions.md ledger reaches the explore
-    query verbatim, independent of the info-seeking flag, and an
-    oversized ledger keeps its head (the ranking's top)."""
+    """The learn phase's open_questions.md ledger reaches the explore query
+    verbatim, independent of the info-seeking flag, and an oversized ledger
+    keeps its head (the ranking's top)."""
     _reset_config(agent_explorer_info_seeking=False)
     explorer, tool_context = _make_explorer(MagicMock(), MagicMock())
     # No sandbox / no file => no section (and no crash).
@@ -479,3 +479,116 @@ def test_experiment_guidance_injects_open_questions_ledger(tmp_path):
     guidance = explorer._build_experiment_guidance()  # pylint: disable=protected-access
     assert head in guidance
     assert "ledger truncated" in guidance
+
+
+def _make_certified_capture(pick_params, place_params):
+    """A capture as the belief's validation gate leaves it: goal reached."""
+    grounded_plan, captured_sketch = _make_captured(pick_params, place_params)
+    return grounded_plan, captured_sketch
+
+
+def test_certified_capture_executes_verbatim_and_is_replayed():
+    """A plan the session validated through the capture gate (reached_goal
+    True) is executed verbatim as a solve attempt with a True mental-model
+    verdict; the cycle's next request on the task replays it with no new
+    query."""
+    _reset_config(agent_explorer_info_seeking=True,
+                  agent_explorer_info_n_feasible_target=2,
+                  agent_bilevel_explorer_max_samples_per_step=4)
+    option_model = MagicMock()
+    option_model.get_next_state_and_num_actions.return_value = (_make_state(
+        {_block0: [0.5, 0.6, 0.0]}), 3)
+    pick_params, place_params = [0.42], [0.11, 0.22]
+    grounded_plan, captured_sketch = _make_certified_capture(
+        pick_params, place_params)
+    explorer, tool_context = _make_explorer(option_model, None)
+    tool_context.atom_disagreement_fn = lambda _s, _atoms: 1.0
+    queries = []
+
+    async def query_impl(msg, **_kw):
+        queries.append(msg)
+        tool_context.solved_plan = grounded_plan
+        tool_context.solved_sketch = captured_sketch
+        tool_context.solved_plan_reached_goal = True
+        tool_context.solved_plan_validation_summary = "5/5 rollouts ok"
+        return _assistant_response("Validated 5/5; submitting.")
+
+    explorer._agent_session.query = query_impl
+    policy, term_fn = explorer._get_exploration_strategy(0, timeout=5)
+    assert callable(policy) and term_fn(_make_state()) is False
+    # Verbatim: no refinement rollouts, verdict True, capture consumed.
+    assert not option_model.get_next_state_and_num_actions.called
+    assert tool_context.last_mental_model_solved is True
+    assert tool_context.solved_plan is None
+    assert tool_context.cycle_certified_plans[0] is not None
+    assert "belief-certified" in tool_context.cycle_scheduled_plans[-1]
+    assert tool_context.last_sketch_options == [("Pick", ["block0"]),
+                                                ("Place", ["block0",
+                                                           "block1"])]
+    # The policy runs the captured options with their captured params.
+    act = policy(_make_state())
+    assert isinstance(act, Action)
+    # Second request of the cycle on the same task: replay, no query.
+    tool_context.last_mental_model_solved = None
+    policy2, _ = explorer._get_exploration_strategy(0, timeout=5)
+    assert callable(policy2)
+    assert len(queries) == 1
+    assert tool_context.last_mental_model_solved is True
+
+
+def test_uncertified_capture_still_seeds_the_search():
+    """A capture whose gate verdict is not True (best-effort, flaky) keeps the
+    seed-then-search path and a non-True verdict."""
+    _reset_config()
+    goal_state = _make_state({_block0: [0.5, 0.6, 0.0]})
+    option_model = MagicMock()
+    option_model.get_next_state_and_num_actions.return_value = (goal_state, 3)
+    grounded_plan, captured_sketch = _make_captured([0.42], [0.11, 0.22])
+    explorer, tool_context = _make_explorer(option_model, None)
+
+    async def query_impl(_msg, **_kw):
+        tool_context.solved_plan = grounded_plan
+        tool_context.solved_sketch = captured_sketch
+        tool_context.solved_plan_reached_goal = False
+        return _assistant_response("Best effort only, no sketch block.")
+
+    explorer._agent_session.query = query_impl
+    policy, _ = explorer._get_exploration_strategy(0, timeout=5)
+    assert callable(policy)
+    assert option_model.get_next_state_and_num_actions.called
+    assert 0 not in tool_context.cycle_certified_plans
+    assert tool_context.last_mental_model_solved is not None
+
+
+def test_pinned_params_run_verbatim_in_the_experiment_search():
+    """With agent_explorer_pin_proposed_params the sketch's explicit params are
+    re-proposed on retry and never replaced, even with info-seeking on and an
+    ensemble that disagrees everywhere."""
+    _reset_config(agent_explorer_info_seeking=True,
+                  agent_explorer_info_n_feasible_target=3,
+                  agent_bilevel_explorer_max_samples_per_step=6,
+                  agent_explorer_pinned_step_retries=2,
+                  agent_bilevel_use_llm_initial_params=True)
+    goal_state = _make_state({_block0: [0.5, 0.6, 0.0]})
+    option_model = MagicMock()
+    option_model.get_next_state_and_num_actions.return_value = (goal_state, 3)
+    explorer, tool_context = _make_explorer(option_model, None)
+    tool_context.atom_disagreement_fn = lambda _s, _atoms: 1.0
+
+    async def query_impl(_msg, **_kw):
+        return _assistant_response(
+            "```\nPick(block0:block)[0.42] -> {Holding(block0:block)}\n"
+            "Place(block0:block, block1:block)[0.11, 0.22] -> "
+            "{On(block0:block, block1:block)}\n```")
+
+    explorer._agent_session.query = query_impl
+    policy, _ = explorer._get_exploration_strategy(0, timeout=5)
+    assert callable(policy)
+    called = [
+        c.args[1]
+        for c in option_model.get_next_state_and_num_actions.call_args_list
+    ]
+    assert called, "refinement never rolled the sketch out"
+    for opt in called:
+        expected = [0.42] if opt.name == "Pick" else [0.11, 0.22]
+        np.testing.assert_allclose(opt.params, expected)
