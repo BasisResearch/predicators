@@ -206,7 +206,7 @@ def test_pin_held_weld_assembly_is_rigid():
         act = Action(np.array(env._pybullet_robot.initial_joint_positions))
 
         # Weld the chain (re-emitted every action) and settle one step.
-        def emit():
+        def emit(env=env, span0=span0, span1=span1, span2=span2):
             buf = CommandBuffer()
             buf.attach(span0, span1)
             buf.attach(span1, span2)
@@ -220,7 +220,7 @@ def test_pin_held_weld_assembly_is_rigid():
         ref12 = _rel_transform(env, span1, span2)
         # Violent carry: teleport the held root 4 cm up/sideways per
         # action for several actions (gravity acts on the partners).
-        for k in range(6):
+        for _ in range(6):
             pos, orn = p.getBasePositionAndOrientation(
                 span1.id, physicsClientId=env._physics_client_id)
             p.resetBasePositionAndOrientation(
@@ -250,8 +250,8 @@ def test_pin_held_weld_assembly_is_rigid():
 
 
 def test_pin_never_moves_static_bodies_or_idle_assemblies():
-    """The pin is a no-op without a held root, and never re-poses a
-    static (mass-0) body welded into the held assembly."""
+    """The pin is a no-op without a held root, and never re-poses a static
+    (mass-0) body welded into the held assembly."""
     env = _make_env(skip_residual_dynamics=True)
     utils.update_config({"pybullet_pin_held_weld_assemblies": True})
     state, span0, span1 = _side_by_side_state(env)
@@ -302,4 +302,60 @@ def test_bridge_weld_edges_merge_native_and_command_welds():
     assert frozenset({span0.id, span1.id}) in edges
     assert frozenset({span1.id, span2.id}) in edges
     assert len(edges) == 2
+    p.disconnect(env._physics_client_id)
+
+
+def test_command_welds_round_trip_through_state():
+    """A live command weld is part of the State (``simulator_state.
+
+    ["command_welds"]``, by object name) and a restore on ANOTHER env
+    instance rebuilds it at the restored relative pose, so the skills'
+    planning simulator sees the rule's assembly as one rigid body.
+    """
+    env = _make_env(skip_residual_dynamics=True)
+    state, span0, span1 = _side_by_side_state(env)
+    env._set_state(state)
+    act = Action(np.array(env._pybullet_robot.initial_joint_positions))
+    assert "command_welds" not in env._get_state().simulator_state
+    for _ in range(3):
+        buf = CommandBuffer()
+        buf.attach(span0, span1)
+        env.queue_residual_commands(buf.commands)
+        env.step(act)
+    welded = env._get_state()
+    assert welded.simulator_state["command_welds"] == [("span0", "span1")]
+    assert env.get_welded_partner_ids(span0.id) == {span1.id}
+
+    other = PyBulletBridgeEnv(use_gui=False, skip_residual_dynamics=True)
+    try:
+        assert not other._cmd_weld_constraints
+        other._set_state(welded)
+        o_span0 = next(b for b in other._spans if b.name == "span0")
+        o_span1 = next(b for b in other._spans if b.name == "span1")
+        assert other.get_welded_partner_ids(o_span0.id) == {o_span1.id}
+        assert other.get_welded_partner_ids(o_span1.id) == {o_span0.id}
+        # The frozen frame is the restored relative pose: span1 sits one
+        # span length (+2 mm) along span0's x axis.
+        (rel_pos,
+         _), = other.get_welded_partner_transforms(o_span0.id).values()
+        expected = 2 * env.span_half_extents[0] + 0.002
+        assert abs(rel_pos[0] - expected) < 0.003
+        assert abs(rel_pos[1]) < 0.003 and abs(rel_pos[2]) < 0.003
+        # A State without the record clears the weld again.
+        other._set_state(state)
+        assert not other._cmd_weld_constraints
+        assert not other.get_welded_partner_ids(o_span0.id)
+        # During stepping the emitting rule stays the authority: a
+        # restored weld that is not re-emitted is dropped by the
+        # per-action reconcile, a re-emitted one is kept.
+        other._set_state(welded)
+        buf = CommandBuffer()
+        buf.attach(o_span0, o_span1)
+        other.queue_residual_commands(buf.commands)
+        other.step(act)
+        assert len(other._cmd_weld_constraints) == 1
+        other.step(act)
+        assert not other._cmd_weld_constraints
+    finally:
+        p.disconnect(other._physics_client_id)
     p.disconnect(env._physics_client_id)

@@ -1275,73 +1275,17 @@ class PyBulletBridgeEnv(PyBulletEnv):
                                  1,
                                  physicsClientId=self._physics_client_id)
 
-    def get_welded_partner_transforms(
-        self, body_id: int
-    ) -> Dict[int, Tuple[Tuple[float, ...], Tuple[float, ...]]]:
-        """Ideal ``(position, orientation)`` of every transitively welded
-        partner RELATIVE to ``body_id``, chained from the weld constraints'
-        snapped frames.
-
-        Consumed by the skill-factory motion planner to pose welded
-        partners of the held object. The constraint frames are the
-        settled geometry the physical assembly returns to; live partner
-        poses instead snapshot whatever pendulum transient the carried
-        assembly is mid-swing through (an outer span was captured 19 mm
-        low right after a lift), which poisons every collision check
-        that reuses the capture.
-        """
-        out: Dict[int, Tuple[Tuple[float, ...], Tuple[float, ...]]] = {}
-        identity = ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
-        frontier: List[int] = [body_id]
-        transforms = {body_id: identity}
-        while frontier:
-            current = frontier.pop()
-            for key, cid in self._weld_constraints.items():
-                if current not in key:
-                    continue
-                (other, ) = key - {current}
-                if other in transforms:
-                    continue
-                info = p.getConstraintInfo(
-                    cid, physicsClientId=self._physics_client_id)
-                parent_id, rel = info[0], (info[6], info[8])
-                step_tf = rel if current == parent_id else \
-                    p.invertTransform(rel[0], rel[1])
-                base = transforms[current]
-                tf = p.multiplyTransforms(base[0], base[1], step_tf[0],
-                                          step_tf[1])
-                transforms[other] = tf
-                out[other] = tf
-                frontier.append(other)
-        return out
-
     def _weld_constraint_edges(self) -> Dict[FrozenSet[int], int]:
-        """Extend the base registry with this env's native glue welds, so
-        the held-assembly pin (see PyBulletEnv._pin_welds_to_held_root)
-        covers both weld paths. Wet-glue TACKS are deliberately
+        """Extend the base registry with this env's native glue welds, so the
+        held-assembly pin (see PyBulletEnv._pin_welds_to_held_root) covers both
+        weld paths.
+
+        Wet-glue TACKS are deliberately
         excluded: they are weak by design (a wet joint must not carry).
         """
         edges = super()._weld_constraint_edges()
         edges.update(self._weld_constraints)
         return edges
-
-    def get_welded_partner_ids(self, body_id: int) -> Set[int]:
-        """All body ids rigidly welded (transitively) to ``body_id``.
-
-        Consumed by the skill-factory motion planner to exclude welded
-        partners of the held object from the collision set.
-        """
-        partners: Set[int] = set()
-        frontier = [body_id]
-        while frontier:
-            current = frontier.pop()
-            for key in self._weld_constraints:
-                if current in key:
-                    (other, ) = key - {current}
-                    if other != body_id and other not in partners:
-                        partners.add(other)
-                        frontier.append(other)
-        return partners
 
     # -------------------------------------------------------------------------
     # Domain dynamics
