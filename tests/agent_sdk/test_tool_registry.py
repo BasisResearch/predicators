@@ -31,21 +31,15 @@ def _names(tools: Iterable[Any]) -> Set[str]:
 def test_create_mcp_tools_matches_all_tool_names() -> None:
     """``create_mcp_tools`` exposes exactly the ``ALL_TOOL_NAMES`` names.
 
-    That holds when the config opts into every conditionally-built tool;
-    without the opt-in the surface must NOT carry it. Conditionally-
-    built tools MUST still appear in ``ALL_TOOL_NAMES``: the session-
-    open sanity check classifies any declared name outside it as a
-    dynamic tool and asserts when no builder attached it
-    (run_20260718_124622 failed every solve query because
-    ``record_journal`` was missing from the roster).
+    The session-open sanity check classifies any declared name outside
+    ``ALL_TOOL_NAMES`` as a dynamic tool and asserts when no builder
+    attached it, so a static tool missing from the roster fails every
+    query (run_20260718_124622 lost the whole solve phase that way).
     """
     from predicators import utils
-    utils.reset_config({"agent_solve_use_journal": True})
+    utils.reset_config({})
     tools = create_mcp_tools(ToolContext())
     assert _names(tools) == set(ALL_TOOL_NAMES)
-    utils.reset_config({"agent_solve_use_journal": False})
-    tools = create_mcp_tools(ToolContext())
-    assert _names(tools) == set(ALL_TOOL_NAMES) - {"record_journal"}
 
 
 def test_create_synthesis_tools_matches_constant(tmp_path) -> None:

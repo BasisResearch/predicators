@@ -3,7 +3,6 @@ from typing import List, Optional
 
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.exploration import _build_exploration_tools
-from predicators.agent_sdk.tools.journal_tools import _build_journal_tools
 from predicators.agent_sdk.tools.results import _make_coercing_tool, \
     _make_spilling_text_result
 from predicators.agent_sdk.tools.testing import _build_testing_tools
@@ -40,7 +39,6 @@ def create_mcp_tools(ctx: ToolContext,
         **_build_testing_tools(ctx, _text_result, tool),
         **({} if "run_python" in extra_names else _build_exploration_tools(
                ctx, _text_result, tool)),
-        **_build_journal_tools(ctx, _text_result, tool),
     }
     if tool_names is None:
         tools = list(_all.values())

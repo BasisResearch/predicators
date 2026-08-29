@@ -1600,10 +1600,10 @@ class GlobalSettings:
     # raw transcript history, which also carries the *wrong* conclusions
     # of failed attempts.
     agent_solve_fresh_context = False
-    # Persistent per-run solve journal (<sandbox>/journal.md): the harness
-    # auto-records each attempt's outcome + captured plan, the agent adds
-    # lessons via the record_journal tool, and the journal is injected
-    # into every solve prompt. Entries are capped and guided to record
+    # Persistent per-run solve journal: the harness logs each attempt's
+    # outcome + captured plan to <sandbox>/attempts.md, the agent keeps
+    # its own lessons in <sandbox>/journal.md with the file tools, and
+    # both are injected into every solve prompt. The prompts ask for
     # facts/measurements rather than verdicts, so failed attempts steer
     # later ones away from repeated sweeps without re-importing their
     # anchoring mistakes.

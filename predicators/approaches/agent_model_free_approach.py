@@ -117,6 +117,7 @@ class AgentModelFreeApproach(AgentSessionMixin, BaseApproach):
         # entries persist across cycles while one evaluation's test-task
         # entries never leak into the next evaluation.
         self._pre_test_journal: Optional[str] = None
+        self._pre_test_attempts: Optional[str] = None
         self._pre_test_journal_valid = False
         # Scene renders attempted this episode. The first is the true initial
         # state; later ones come from mid-episode replans and get distinct
@@ -377,8 +378,6 @@ and update before doing anything else.**"""
             if CFG.agent_solve_policy_mode:
                 tools.append("evaluate_policy")
             tools.append("run_python")
-        if CFG.agent_solve_use_journal:
-            tools.append("record_journal")
         return tools
 
     # ------------------------------------------------------------------ #
@@ -646,21 +645,24 @@ and update before doing anything else.**"""
                     and self._tool_context.sandbox_dir)
 
     def _snapshot_journal_for_test_phase(self) -> None:
-        """Capture the learning-only journal content at test-phase entry.
+        """Capture the learning-only journal and attempt log at test start.
 
-        The snapshot is what ``end_test_phase`` rolls the journal back
+        The snapshots are what ``end_test_phase`` rolls both files back
         to. A failed capture leaves ``_pre_test_journal_valid`` False so
         the rollback is skipped rather than destroying learning entries.
         """
         self._pre_test_journal = None
+        self._pre_test_attempts = None
         self._pre_test_journal_valid = False
         if not self._journal_active():
             return
         # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk import journal as journal_mod
+        sandbox_dir = self._tool_context.sandbox_dir
         try:
-            self._pre_test_journal = journal_mod.read_raw(
-                self._tool_context.sandbox_dir)
+            self._pre_test_journal = journal_mod.read_raw(sandbox_dir)
+            self._pre_test_attempts = journal_mod.read_raw(
+                sandbox_dir, filename=journal_mod.ATTEMPTS_FILENAME)
             self._pre_test_journal_valid = True
         except OSError as e:
             logging.warning(
@@ -669,21 +671,25 @@ and update before doing anything else.**"""
                 self._run_id, e)
 
     def _archive_and_rollback_test_journal(self) -> None:
-        """Archive the test-phase journal, then roll it back.
+        """Archive the test-phase journal and attempt log, then roll back.
 
         Each evaluation must be independent of previous evaluations:
-        entries recorded while solving test tasks (harness auto-entries
-        and agent notes) would otherwise leak this evaluation's test
-        tasks into the next one. Learning entries - the pre-test
-        snapshot - persist across cycles. Before the rollback, the full
-        journal (learning + this evaluation's additions) is copied to
-        the run's log dir, which lives outside the sandbox so the agent
-        cannot read it, for later inspection.
+        content written while solving test tasks (harness attempt-log
+        entries and the agent's own journal notes) would otherwise leak
+        this evaluation's test tasks into the next one. Learning content
+        - the pre-test snapshots - persists across cycles. Before the
+        rollback, both files (learning + this evaluation's additions)
+        are copied to the run's log dir, which lives outside the sandbox
+        so the agent cannot read them, for later inspection.
         """
         if not self._pre_test_journal_valid:
             return
-        snapshot = self._pre_test_journal
+        snapshots = {
+            "journal": self._pre_test_journal,
+            "attempts": self._pre_test_attempts,
+        }
         self._pre_test_journal = None
+        self._pre_test_attempts = None
         self._pre_test_journal_valid = False
         sandbox_dir = self._tool_context.sandbox_dir
         if not self._journal_active():
@@ -691,25 +697,31 @@ and update before doing anything else.**"""
         assert sandbox_dir is not None
         # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk import journal as journal_mod
+        filenames = {
+            "journal": journal_mod.JOURNAL_FILENAME,
+            "attempts": journal_mod.ATTEMPTS_FILENAME,
+        }
+        # One archive per evaluation phase, named by the 0-based cycle
+        # whose learning it evaluates (matching main.py's "ONLINE
+        # LEARNING CYCLE i"). The counter has already advanced past that
+        # cycle's learn, so subtract 1; the pre-learning initial test
+        # archives as "initial". A same-cycle re-eval overwrites its own
+        # file.
+        eval_cycle = self._online_learning_cycle - 1
+        label = "initial" if eval_cycle < 0 else f"cycle{eval_cycle}"
         try:
-            content = journal_mod.read_raw(sandbox_dir)
-            if content is not None:
-                # One archive per evaluation phase, named by the 0-based
-                # cycle whose learning it evaluates (matching main.py's
-                # "ONLINE LEARNING CYCLE i"). The counter has already
-                # advanced past that cycle's learn, so subtract 1; the
-                # pre-learning initial test archives as "initial". A
-                # same-cycle re-eval overwrites its own file.
-                eval_cycle = self._online_learning_cycle - 1
-                label = "initial" if eval_cycle < 0 else f"cycle{eval_cycle}"
-                archive_path = os.path.join(self._get_log_dir(),
-                                            f"journal_eval_{label}.md")
-                with open(archive_path, "w", encoding="utf-8") as f:
-                    f.write(content)
-                logging.info(
-                    "[%s] Archived the test-phase solve journal to %s",
-                    self._run_id, archive_path)
-            journal_mod.restore(sandbox_dir, snapshot)
+            for kind, filename in filenames.items():
+                content = journal_mod.read_raw(sandbox_dir, filename=filename)
+                if content is not None:
+                    archive_path = os.path.join(self._get_log_dir(),
+                                                f"{kind}_eval_{label}.md")
+                    with open(archive_path, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    logging.info("[%s] Archived the test-phase %s to %s",
+                                 self._run_id, filename, archive_path)
+                journal_mod.restore(sandbox_dir,
+                                    snapshots[kind],
+                                    filename=filename)
         except OSError as e:
             logging.warning(
                 "[%s] Failed to archive/roll back the test-phase solve "
