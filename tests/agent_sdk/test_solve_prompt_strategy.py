@@ -151,8 +151,9 @@ def test_explore_mode_early_stop_note_credits_exploration_plans() -> None:
     assert ("The loop concludes early once the exploration plans solve "
             "training") in prompt
     assert "learned model solves training" not in prompt
-    assert "the plan still runs in full" in prompt
-    assert "falls back to the explicit parameters you proposed" in prompt
+    assert "runs in the real environment EXACTLY as written" in prompt
+    assert "nothing is searched or substituted" in prompt
+    assert "falls back to the explicit parameters" not in prompt
     assert "truncated just after that step" not in prompt
 
 
