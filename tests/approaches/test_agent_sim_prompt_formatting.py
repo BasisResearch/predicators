@@ -387,3 +387,27 @@ def test_format_objective_block(approach_cls):
     assert "## Task objective (env ground-truth reward)" in out
     assert "each blue costs 0.05" in out
     assert "evaluate_trajectory" in out
+
+
+def test_learn_message_ships_goal_required_mechanisms_as_hypotheses():
+    """The learn message distinguishes a hypothesis the goal can do without
+    (record, do not ship) from one the goal REQUIRES (ship as a labelled
+    hypothesis with declared ParamSpecs and a first-ranked confirming
+    experiment).
+
+    The message is composed from live session state, so the guard reads
+    the template source: in run_20260829 both plan-arm learners followed
+    the older "never ship a never-observed mechanism" rule, the belief
+    then had no bond, and the test session proved the goal unreachable.
+    """
+    import inspect
+
+    from predicators.approaches.agent_sim_learning_approach import \
+        AgentSimLearningApproach
+    src = inspect.getsource(
+        AgentSimLearningApproach._build_synthesis_learn_message)
+    assert "When the goal REQUIRES it" in src
+    assert "LABELLED HYPOTHESIS" in src
+    assert "FIRST entry of open_questions.md" in src
+    assert "A GO that rests on a" in src
+    assert "instead of shipping a speculative rule" not in src

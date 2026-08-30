@@ -432,9 +432,11 @@ class AgentBilevelExplorer(BaseExplorer):
                 "The learning phase left this ranked ledger of OPEN "
                 "QUESTIONS - uncertainties it could not settle from the "
                 "data collected so far, each with the experiment that "
-                "would settle it. Settling ledger entries is this "
-                "episode's highest-value use; design the episode to "
-                "cover as many as its step budget allows:\n" + ledger)
+                "would settle it. The TOP entry is mandatory for this "
+                "cycle: run its experiment as specified (its option "
+                "sequence and parameters) unless a plan already "
+                "scheduled this cycle covers it, and fold in as many "
+                "lower entries as the step budget allows:\n" + ledger)
         if CFG.agent_explorer_info_seeking:
             parts.append(
                 "Your explicit continuous parameters execute exactly as "
