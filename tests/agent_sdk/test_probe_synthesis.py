@@ -16,7 +16,8 @@ import pytest
 from predicators import utils
 from predicators.agent_sdk.belief_probe import BeliefProbe, \
     build_probe_namespace
-from predicators.agent_sdk.tools import ToolContext, create_mcp_tools
+from predicators.agent_sdk.tools import ToolContext, _ParamsView, \
+    create_mcp_tools
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
 from predicators.code_sim_learning.fit_space import FitResult
@@ -348,3 +349,20 @@ def test_probe_run_reports_subgoal_divergence() -> None:
     rendered = repr(ProbeResult([step], False, [], task.init, []))
     assert "SUBGOAL NOT REACHED: {WidgetAtFixture(widget0, fixture0)}" \
         in rendered
+
+
+def test_params_view_missing_key_names_available_parameters() -> None:
+    """A dangling params[...] reference (spec deleted or never declared) names
+    the missing key and the available parameters instead of advising a
+    sim.fit() that cannot fix it (run_20260829 cycle 1: an agent deleted
+    ParamSpec("butt_gap_tol") while a predicate still read it and burned turns
+    on the old "call sim.fit()" advice)."""
+    view = _ParamsView({"k": 1.0, "gap": 0.2})
+    assert view["k"] == 1.0
+    with pytest.raises(KeyError) as excinfo:
+        view["butt_gap_tol"]  # pylint: disable=pointless-statement
+    msg = str(excinfo.value)
+    assert "butt_gap_tol" in msg
+    assert "gap, k" in msg
+    assert "ParamSpec" in msg
+    assert "before any parameter fit" not in msg
