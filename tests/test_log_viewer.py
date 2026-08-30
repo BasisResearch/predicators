@@ -230,12 +230,23 @@ def test_chain_summary_single_run_keeps_rows() -> None:
     assert merged["episodes"][0]["superseded"] is False
 
 
-_CERTIFIED = ("INFO: agent_bilevel explorer: the agent's tool-validated plan "
-              "passed the belief's capture gate (validation: 8/8 rollouts "
-              "ok); executing it verbatim as this episode's solve attempt "
-              "(mental model solved the goal).")
+_CERTIFIED = ("INFO: agent_model_based explorer: the agent's "
+              "tool-validated plan passed the belief's capture gate "
+              "(validation: 8/8 rollouts ok); executing it verbatim as "
+              "this episode's solve attempt (mental model solved the "
+              "goal).")
 _VERDICT = ("INFO: Interaction episode on train task 0: reward={r}, "
             "terminated={t}, accepted={a}")
+
+
+def test_certified_regex_matches_pre_rename_logs() -> None:
+    """Logs written before the explorer rename still mark the certified
+    chip."""
+    # pylint: disable=import-outside-toplevel
+    from scripts.log_viewer import CERTIFIED_RE
+    assert CERTIFIED_RE.search(
+        "INFO: agent_bilevel explorer: the agent's tool-validated "
+        "plan passed the belief's capture gate")
 
 
 def test_certified_session_is_marked(tmp_path: Path) -> None:

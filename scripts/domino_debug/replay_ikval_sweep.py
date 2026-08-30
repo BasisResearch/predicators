@@ -76,7 +76,7 @@ def main() -> None:
         "pybullet_ik_validate": ikv,  # <-- the change under test
         "demonstrator": "oracle_process_planning",
         "bilevel_plan_without_sim": True,
-        "explorer": "agent_bilevel",
+        "explorer": "agent_model_based",
         "agent_sim_learn_oracle_sim_program": True,
         "agent_sim_learn_oracle_sim_params": True,
         "agent_sim_learn_parameterized_samplers": True,

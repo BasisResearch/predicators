@@ -34,7 +34,7 @@ Example command (partially observable)::
         --approach agent_sim_predicate_invention --seed 0 \
         --num_train_tasks 10 --num_test_tasks 5 \
         --partially_observable True \
-        --num_online_learning_cycles 2 --explorer agent_plan
+        --num_online_learning_cycles 2 --explorer agent_model_free
 """
 
 import logging

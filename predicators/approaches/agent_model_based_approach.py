@@ -9,15 +9,15 @@ as a probe method (``sim.refine``) and to mid-episode
 suffix replans, but there is no approach-side refinement of unvalidated
 sketches.
 
-Registered under the CLI approach name ``agent_bilevel`` (kept stable so
-existing configs and logs remain valid).
+Registered under the CLI approach name ``agent_model_based``
+(``agent_bilevel`` is kept as a deprecated alias).
 
 Example command::
 
     python predicators/main.py --env pybullet_domino \
-        --approach agent_bilevel --seed 0 \
+        --approach agent_model_based --seed 0 \
         --num_train_tasks 1 --num_test_tasks 1 \
-        --num_online_learning_cycles 1 --explorer agent_plan
+        --num_online_learning_cycles 1 --explorer agent_model_free
 """
 import dataclasses
 import hashlib
@@ -159,7 +159,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
 
     @classmethod
     def get_name(cls) -> str:
-        return "agent_bilevel"
+        return "agent_model_based"
 
     # ------------------------------------------------------------------ #
     # Execution monitoring (closed-loop test execution)

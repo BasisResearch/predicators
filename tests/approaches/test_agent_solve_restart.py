@@ -48,7 +48,7 @@ def _make_approach(overrides=None, sandbox_dir=None):
     task = Task(state, {GroundAtom(_Reached, [_block0])})
     config = {
         "env": "cover",
-        "approach": "agent_bilevel",
+        "approach": "agent_model_based",
         "num_train_tasks": 1,
         "num_test_tasks": 1,
         "seed": 42,

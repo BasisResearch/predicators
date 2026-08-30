@@ -21,7 +21,8 @@ from typing import Optional, Sequence, Set
 from predicators import utils
 from predicators.agent_sdk.prompt_templates import render
 from predicators.settings import CFG
-from predicators.structs import ParameterizedOption, Predicate, Task
+from predicators.structs import LowLevelTrajectory, ParameterizedOption, \
+    Predicate, Task
 
 _BLANK_RUN_RE = re.compile(r"\n{3,}")
 
@@ -321,3 +322,38 @@ def build_solve_prompt(
         instructions=instructions,
     )
     return _join([body])
+
+
+def summarize_trajectories(trajectories: Sequence[LowLevelTrajectory],
+                           predicates: Set[Predicate]) -> str:
+    """The ``## Trajectory Summary`` query section, or "".
+
+    Per recent trajectory (the last
+    ``CFG.agent_sdk_max_trajectories_in_context``), the atoms gained and
+    lost between its first and last state. Shared by the solve approach
+    and the explorers.
+    """
+    if not trajectories:
+        return ""
+    max_trajs = CFG.agent_sdk_max_trajectories_in_context
+    recent = trajectories[-max_trajs:]
+    lines = [
+        f"\n## Trajectory Summary ({len(trajectories)} total, "
+        f"showing last {len(recent)})"
+    ]
+    for i, traj in enumerate(recent):
+        n_steps = len(traj.actions)
+        init_atoms = utils.abstract(traj.states[0], predicates)
+        final_atoms = utils.abstract(traj.states[-1], predicates)
+        new_atoms = final_atoms - init_atoms
+        lost_atoms = init_atoms - final_atoms
+        lines.append(f"\nTrajectory {i}: {n_steps} steps")
+        if new_atoms:
+            lines.append(
+                "  Gained: " +
+                f"{', '.join(str(a) for a in sorted(new_atoms, key=str))}")
+        if lost_atoms:
+            lines.append(
+                "  Lost: " +
+                f"{', '.join(str(a) for a in sorted(lost_atoms, key=str))}")
+    return "\n".join(lines)
