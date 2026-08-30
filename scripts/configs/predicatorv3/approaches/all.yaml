@@ -8,7 +8,7 @@
 # weakest baselines:
 #   OURS         - the method: PO, no GT; learn predicates + hybrid sim + params
 #   ORACLES      - given a GT world model (GT sim / params); upper bounds,
-#                  ablations of OURS, and the oracle-sim agent_planner baseline
+#                  ablations of OURS, and the oracle-sim agent_model_free baseline
 #   BASELINES    - lower bounds (no world model or no learning)
 #   DEMONSTRATOR - the demo source (oracle process planning) + scripted/manual
 #
@@ -40,7 +40,7 @@ APPROACHES:
     SKIP: True
     FLAGS:
       demonstrator: "oracle_process_planning"
-      explorer: "agent_bilevel"
+      explorer: "agent_model_based"
       terminate_on_goal_reached_and_option_terminated: True
       agent_sdk_use_local_sandbox: True
       option_model_terminate_on_repeat: False
@@ -69,7 +69,7 @@ APPROACHES:
     SKIP: True
     FLAGS:
       demonstrator: "oracle_process_planning"
-      explorer: "agent_bilevel"
+      explorer: "agent_model_based"
       terminate_on_goal_reached_and_option_terminated: True
       agent_sdk_use_local_sandbox: True
       option_model_terminate_on_repeat: False
@@ -98,14 +98,14 @@ APPROACHES:
   # use_llm_initial_params False the LLM delivers a full, concrete,
   # exact-parameter plan and validates it in the sim via
   # submit_plan -- there is no approach-side backtracking
-  # fallback. On top of plain agent_planner it has sim.refine (an
+  # fallback. On top of plain agent_model_free it has sim.refine (an
   # agent-invokable per-step backtracking parameter search) plus
   # the sketch / per-step-subgoal scaffolding.
   agent_oracle_mono_sim:
-    NAME: "agent_bilevel"
+    NAME: "agent_model_based"
     SKIP: True
     FLAGS:
-      explorer: "agent_plan"
+      explorer: "agent_model_free"
       demonstrator: "oracle_process_planning"
       terminate_on_goal_reached_and_option_terminated: True
       agent_sdk_use_local_sandbox: True
@@ -128,7 +128,7 @@ APPROACHES:
     FLAGS:
       demonstrator: "oracle_process_planning"
       bilevel_plan_without_sim: True # for the demonstrator
-      explorer: "agent_bilevel"
+      explorer: "agent_model_based"
       terminate_on_goal_reached_and_option_terminated: True
       agent_sdk_use_local_sandbox: True
       option_model_terminate_on_repeat: False
@@ -151,7 +151,7 @@ APPROACHES:
     NAME: "agent_sim_learning"
     SKIP: True
     FLAGS:
-      explorer: "agent_bilevel"
+      explorer: "agent_model_based"
       demonstrator: "oracle_process_planning"
       terminate_on_goal_reached_and_option_terminated: True
       agent_sdk_use_local_sandbox: True
@@ -175,7 +175,7 @@ APPROACHES:
   #   FLAGS:
   #     demonstrator: "oracle_process_planning"
   #     bilevel_plan_without_sim: True # for the demonstrator
-  #     explorer: "agent_bilevel"
+  #     explorer: "agent_model_based"
   #     terminate_on_goal_reached_and_option_terminated: True
   #     agent_sdk_use_local_sandbox: True
   #     option_model_terminate_on_repeat: False
@@ -202,7 +202,7 @@ APPROACHES:
   #   FLAGS:
   #     demonstrator: "oracle_process_planning"
   #     bilevel_plan_without_sim: True # for the demonstrator
-  #     explorer: "agent_bilevel"
+  #     explorer: "agent_model_based"
   #     terminate_on_goal_reached_and_option_terminated: True
   #     agent_sdk_use_local_sandbox: True
   #     option_model_terminate_on_repeat: False
@@ -220,7 +220,7 @@ APPROACHES:
     NAME: "agent_sim_learning"
     SKIP: True
     FLAGS:
-      explorer: "agent_bilevel"
+      explorer: "agent_model_based"
       demonstrator: "oracle_process_planning"
       terminate_on_goal_reached_and_option_terminated: True
       agent_sdk_use_local_sandbox: True
@@ -237,7 +237,7 @@ APPROACHES:
     NAME: "agent_sim_predicate_invention"
     SKIP: True
     FLAGS:
-      explorer: "agent_bilevel"
+      explorer: "agent_model_based"
       demonstrator: "oracle_process_planning"
       terminate_on_goal_reached_and_option_terminated: True
       agent_sdk_use_local_sandbox: True
@@ -254,12 +254,12 @@ APPROACHES:
   # BASELINES  (lower bounds / alternative learners)
   # ======================================================================
   # Baseline: agent planning does NOT have a simulator / world model
-  # (agent_planner with agent_planner_use_simulator: False).
+  # (agent_model_free with agent_planner_use_simulator: False).
   agent_model_free_planning:
-    NAME: "agent_planner"
+    NAME: "agent_model_free"
     SKIP: True
     FLAGS:
-      explorer: "agent_plan"
+      explorer: "agent_model_free"
       demonstrator: "oracle_process_planning"
       terminate_on_goal_reached_and_option_terminated: True
       agent_sdk_use_local_sandbox: True
@@ -273,7 +273,7 @@ APPROACHES:
     FLAGS:
       demonstrator: "oracle_process_planning"
       bilevel_plan_without_sim: True # for the demonstrator
-      explorer: "agent_bilevel"
+      explorer: "agent_model_based"
       terminate_on_goal_reached_and_option_terminated: True
       agent_sdk_use_local_sandbox: True
       option_model_terminate_on_repeat: False

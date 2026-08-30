@@ -102,7 +102,7 @@ def _make_approach():
 
     utils.reset_config({
         "env": "cover",
-        "approach": "agent_bilevel",
+        "approach": "agent_model_based",
         "num_train_tasks": 1,
         "num_test_tasks": 1,
         "option_model_name": "oracle",
@@ -592,7 +592,7 @@ class TestRefineSketch:
         approach, mock_om, task = _make_approach()
         utils.reset_config({
             "env": "cover",
-            "approach": "agent_bilevel",
+            "approach": "agent_model_based",
             "num_train_tasks": 1,
             "num_test_tasks": 1,
             "seed": 42,
@@ -634,7 +634,7 @@ class TestRefineSketch:
         approach, mock_om, task = _make_approach()
         utils.reset_config({
             "env": "cover",
-            "approach": "agent_bilevel",
+            "approach": "agent_model_based",
             "num_train_tasks": 1,
             "num_test_tasks": 1,
             "seed": 42,
@@ -668,7 +668,7 @@ class TestRefineSketch:
         approach, mock_om, task = _make_approach()
         utils.reset_config({
             "env": "cover",
-            "approach": "agent_bilevel",
+            "approach": "agent_model_based",
             "num_train_tasks": 1,
             "num_test_tasks": 1,
             "seed": 42,
@@ -837,7 +837,7 @@ class TestQueryAgentForPlanSketch:
 
         utils.reset_config({
             "env": "cover",
-            "approach": "agent_bilevel",
+            "approach": "agent_model_based",
             "num_train_tasks": 1,
             "num_test_tasks": 1,
             "seed": 42,
@@ -1039,7 +1039,12 @@ class TestSampleParams:
 
 def test_get_name():
     """Test get name."""
-    assert AgentModelBasedApproach.get_name() == "agent_bilevel"
+    assert AgentModelBasedApproach.get_name() == "agent_model_based"
+    # The pre-rename CLI name still resolves to this approach.
+    # pylint: disable=import-outside-toplevel
+    from predicators.approaches import _get_approach_cls_from_name
+    assert _get_approach_cls_from_name(
+        "agent_bilevel") is AgentModelBasedApproach
 
 
 # ---------------------------------------------------------------------------
@@ -1350,7 +1355,7 @@ class TestScheduledPlansPromptSection:
         from predicators.agent_sdk import sketch_prompts
         utils.reset_config({
             "env": "cover",
-            "approach": "agent_bilevel",
+            "approach": "agent_model_based",
             "seed": 42,
         })
         state = _make_state()
@@ -1574,7 +1579,7 @@ def test_policy_mode_constructor_checks():
                        train_tasks=[task])
     utils.reset_config({
         "env": "cover",
-        "approach": "agent_bilevel",
+        "approach": "agent_model_based",
         "seed": 42,
         "agent_solve_policy_mode": True,
         "agent_bilevel_max_execution_replans": 1,
@@ -1584,7 +1589,7 @@ def test_policy_mode_constructor_checks():
         AgentModelBasedApproach(**base_kwargs)
     utils.reset_config({
         "env": "cover",
-        "approach": "agent_bilevel",
+        "approach": "agent_model_based",
         "seed": 42,
         "agent_solve_policy_mode": True,
         "agent_bilevel_max_execution_replans": 0,
@@ -1599,7 +1604,7 @@ def test_consume_policy_capture_builds_executor():
     approach, _, _ = _make_approach()
     utils.reset_config({
         "env": "cover",
-        "approach": "agent_bilevel",
+        "approach": "agent_model_based",
         "seed": 42,
         "agent_solve_policy_mode": True,
         "agent_bilevel_max_execution_replans": 0,
@@ -1628,7 +1633,7 @@ def test_execution_policy_surfaces_option_failures():
     approach, _, _ = _make_approach()
     utils.reset_config({
         "env": "cover",
-        "approach": "agent_bilevel",
+        "approach": "agent_model_based",
         "seed": 42,
         "agent_solve_policy_mode": True,
         "agent_bilevel_max_execution_replans": 0,
@@ -1666,7 +1671,7 @@ def test_execution_policy_budget_is_fatal():
     approach, _, _ = _make_approach()
     utils.reset_config({
         "env": "cover",
-        "approach": "agent_bilevel",
+        "approach": "agent_model_based",
         "seed": 42,
         "agent_solve_policy_mode": True,
         "agent_bilevel_max_execution_replans": 0,
@@ -1711,7 +1716,7 @@ def test_execution_policy_stuck_loop_is_fatal():
     approach, _, _ = _make_approach()
     utils.reset_config({
         "env": "cover",
-        "approach": "agent_bilevel",
+        "approach": "agent_model_based",
         "seed": 42,
         "agent_solve_policy_mode": True,
         "agent_bilevel_max_execution_replans": 0,
@@ -1740,7 +1745,7 @@ def test_execution_policy_stuck_loop_resets_on_changed_params():
     approach, _, _ = _make_approach()
     utils.reset_config({
         "env": "cover",
-        "approach": "agent_bilevel",
+        "approach": "agent_model_based",
         "seed": 42,
         "agent_solve_policy_mode": True,
         "agent_bilevel_max_execution_replans": 0,
@@ -1772,7 +1777,7 @@ def test_execution_policy_stuck_loop_on_mid_execution_raise():
     approach, _, _ = _make_approach()
     utils.reset_config({
         "env": "cover",
-        "approach": "agent_bilevel",
+        "approach": "agent_model_based",
         "seed": 42,
         "agent_solve_policy_mode": True,
         "agent_bilevel_max_execution_replans": 0,
@@ -1828,7 +1833,7 @@ def test_execution_policy_noop_livelock_is_fatal():
     approach, _, _ = _make_approach()
     utils.reset_config({
         "env": "cover",
-        "approach": "agent_bilevel",
+        "approach": "agent_model_based",
         "seed": 42,
         "agent_solve_policy_mode": True,
         "agent_bilevel_max_execution_replans": 0,
@@ -1856,7 +1861,7 @@ def test_execution_policy_noop_livelock_resets_on_changed_params():
     approach, _, _ = _make_approach()
     utils.reset_config({
         "env": "cover",
-        "approach": "agent_bilevel",
+        "approach": "agent_model_based",
         "seed": 42,
         "agent_solve_policy_mode": True,
         "agent_bilevel_max_execution_replans": 0,

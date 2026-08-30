@@ -31,7 +31,7 @@ from predicators.settings import CFG
 # Config matching predicatorv3/predicator_v3.yaml (mf_agent approach)
 _CFG_OVERRIDES = {
     "env": "pybullet_domino",
-    "approach": "agent_planner",
+    "approach": "agent_model_free",
     "seed": 0,
     "use_gui": False,
     "domino_restricted_push": True,

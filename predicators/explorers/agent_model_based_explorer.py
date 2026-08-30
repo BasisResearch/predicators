@@ -1,5 +1,5 @@
-"""Agent bilevel explorer: the agent sketches an experiment, it runs as
-written.
+"""Agent model-based explorer: the agent sketches an experiment against the
+learned belief model, and it runs as written.
 
 Queries a Claude agent for a fully parameterized plan sketch and rolls
 it out for real exactly as written. The agent refines and validates
@@ -12,48 +12,38 @@ subgoal atom it expected after a Wait doesn't actually hold), the
 trajectory is a targeted learning signal for online simulator
 synthesis.
 
-Parallels ``AgentPlanExplorer`` for session plumbing and
-``AgentModelBasedApproach`` for the sketch workflow.
+Parallels ``AgentModelBasedApproach`` for the sketch workflow; the
+session plumbing lives in ``AgentExplorerBase``.
+
+Registered under the CLI explorer name ``agent_model_based``
+(``agent_bilevel`` is kept as a deprecated alias).
 """
 
 import logging
 import os
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 import numpy as np
-from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.rendering import save_task_state_image
 from predicators.agent_sdk.session_base import AgentSessionFatalError, \
     query_fatal_error
-from predicators.agent_sdk.session_manager import SessionManagerProtocol, \
-    run_query_sync
-from predicators.agent_sdk.tools import PlanCapture, ToolContext, \
-    agent_render_resolution, load_ground_sampler_fns
-from predicators.explorers.base_explorer import BaseExplorer
+from predicators.agent_sdk.session_manager import run_query_sync
+from predicators.agent_sdk.tools import PlanCapture, agent_render_resolution, \
+    load_ground_sampler_fns
+from predicators.explorers.agent_explorer_base import AgentExplorerBase
 from predicators.settings import CFG
-from predicators.structs import Action, ExplorationStrategy, \
-    ParameterizedOption, Predicate, State, Task, Type
+from predicators.structs import Action, ExplorationStrategy, State, Task
 
 
-class AgentBilevelExplorer(BaseExplorer):
+class AgentModelBasedExplorer(AgentExplorerBase):
     """Queries a Claude agent for a plan sketch and executes it as written."""
-
-    def __init__(self, predicates: Set[Predicate],
-                 options: Set[ParameterizedOption], types: Set[Type],
-                 action_space: Box, train_tasks: List[Task],
-                 max_steps_before_termination: int, tool_context: ToolContext,
-                 agent_session: SessionManagerProtocol) -> None:
-        super().__init__(predicates, options, types, action_space, train_tasks,
-                         max_steps_before_termination)
-        self._tool_context = tool_context
-        self._agent_session = agent_session
 
     @classmethod
     def get_name(cls) -> str:
-        return "agent_bilevel"
+        return "agent_model_based"
 
     # ------------------------------------------------------------------ #
     # Exploration strategy
@@ -66,7 +56,7 @@ class AgentBilevelExplorer(BaseExplorer):
         # this explorer, so reading here picks up the latest learned model.
         option_model = self._tool_context.option_model
         assert option_model is not None, \
-            "agent_bilevel explorer needs a synced option_model"
+            "agent_model_based explorer needs a synced option_model"
 
         # Reset the per-request mental-model verdict so a stale value can't
         # leak if the query below throws or falls back to random before
@@ -153,7 +143,7 @@ class AgentBilevelExplorer(BaseExplorer):
                 # last resort.
                 plan = list(capture.plan)
                 logging.info(
-                    "agent_bilevel explorer: the agent's tool-validated "
+                    "agent_model_based explorer: the agent's tool-validated "
                     "plan passed the belief's capture gate (%s); executing "
                     "it verbatim as this episode's solve attempt (mental "
                     "model solved the goal).", capture.validation_summary
@@ -210,7 +200,7 @@ class AgentBilevelExplorer(BaseExplorer):
             self._tool_context.last_mental_model_solved = False
             record = self._format_sketch(sketch, plan)
             logging.info(
-                "agent_bilevel explorer: executing the agent's sketch "
+                "agent_model_based explorer: executing the agent's sketch "
                 "verbatim for train task %d (%d steps; not "
                 "belief-certified):\n%s", train_task_idx, len(plan), record)
             self._tool_context.cycle_scheduled_plans.append(
@@ -226,12 +216,12 @@ class AgentBilevelExplorer(BaseExplorer):
             # re-raise so the run terminates.
             raise
         except Exception as e:  # pylint: disable=broad-except
-            logging.warning(f"agent_bilevel explorer failed: {e}. "
+            logging.warning(f"agent_model_based explorer failed: {e}. "
                             "Falling back to random options.")
 
         if not CFG.agent_explorer_fallback_to_random:
             raise utils.RequestActPolicyFailure(
-                "agent_bilevel explorer failed and fallback disabled.")
+                "agent_model_based explorer failed and fallback disabled.")
         return self._random_options_fallback()
 
     # ------------------------------------------------------------------ #
@@ -269,7 +259,8 @@ class AgentBilevelExplorer(BaseExplorer):
                     subgoal_neg_atoms=step.subgoal_neg_atoms,
                     initial_params=params))
         logging.info(
-            "agent_bilevel explorer: final text didn't parse, recovered the "
+            "agent_model_based explorer: final text didn't parse, recovered "
+            "the "
             "agent's tool-validated plan from capture (%d steps); executing "
             "it at the captured params.", len(seeded))
         return seeded
@@ -292,7 +283,7 @@ class AgentBilevelExplorer(BaseExplorer):
             if params is None or len(params) != dim:
                 if dim > 0:
                     logging.warning(
-                        "agent_bilevel explorer: step %d (%s) has no "
+                        "agent_model_based explorer: step %d (%s) has no "
                         "usable proposed params (%s); drawing one sample "
                         "from the option's box - propose every "
                         "parameter explicitly.", i, step.option.name,
@@ -335,7 +326,7 @@ class AgentBilevelExplorer(BaseExplorer):
     def _certified_plan_strategy(self,
                                  plan: Sequence[Any]) -> ExplorationStrategy:
         """Execute a belief-certified grounded plan verbatim."""
-        logging.info("agent_bilevel explorer: certified plan:\n%s",
+        logging.info("agent_model_based explorer: certified plan:\n%s",
                      self._format_plan(plan))
         policy = utils.option_plan_to_policy(
             list(plan),
@@ -359,22 +350,6 @@ class AgentBilevelExplorer(BaseExplorer):
                 raise utils.RequestActPolicyFailure(e.args[0], e.info) from e
 
         return _wrapped
-
-    def _random_options_fallback(self) -> ExplorationStrategy:
-        """Fall back to random option sampling."""
-
-        def fallback_policy(state: State) -> Action:
-            del state
-            raise utils.RequestActPolicyFailure(
-                "Random option sampling failed!")
-
-        policy = utils.create_random_option_policy(self._options, self._rng,
-                                                   fallback_policy)
-        return policy, lambda _: False
-
-    def _agent_tool_names(self) -> Optional[List[str]]:
-        """Return tool names exposed by the current session, if any."""
-        return getattr(self._agent_session, "tool_names", None)
 
     def _initial_image_section(self, task: Task, train_task_idx: int) -> str:
         """Render the explore task's initial state and return a prompt section
@@ -512,8 +487,9 @@ class AgentBilevelExplorer(BaseExplorer):
         # ensemble is internally confident (or too tight) everywhere.
         all_ranked = sorted(((v, k) for k, v in best.items()), reverse=True)
         logging.info(
-            "agent_bilevel explorer: per-predicate max ensemble disagreement "
-            "over %d states — %s.", len(states),
+            "agent_model_based explorer: per-predicate max ensemble "
+            "disagreement "
+            "over %d states - %s.", len(states),
             ", ".join(f"{k}={v:.4f}" for v, k in all_ranked) or "(none)")
         ranked = [(v, k) for v, k in all_ranked if v > 0.05][:4]
         if not ranked:
@@ -523,50 +499,3 @@ class AgentBilevelExplorer(BaseExplorer):
                 f"internally uncertain about: {named}. A sketch that puts "
                 "these predicates on the critical path will be most "
                 "informative.")
-
-    def _build_trajectory_summary(self) -> str:
-        """Summarize trajectory data for the agent."""
-        all_trajs = (self._tool_context.offline_trajectories +
-                     self._tool_context.online_trajectories)
-        if not all_trajs:
-            return ""
-
-        max_trajs = CFG.agent_sdk_max_trajectories_in_context
-        recent = all_trajs[-max_trajs:]
-        lines = [
-            f"\n## Trajectory Summary ({len(all_trajs)} total, "
-            f"showing last {len(recent)})"
-        ]
-
-        for i, traj in enumerate(recent):
-            n_steps = len(traj.actions)
-            init_atoms = utils.abstract(traj.states[0], self._predicates)
-            final_atoms = utils.abstract(traj.states[-1], self._predicates)
-            new_atoms = final_atoms - init_atoms
-            lost_atoms = init_atoms - final_atoms
-            lines.append(f"\nTrajectory {i}: {n_steps} steps")
-            if new_atoms:
-                lines.append(
-                    "  Gained: " +
-                    f"{', '.join(str(a) for a in sorted(new_atoms, key=str))}")
-            if lost_atoms:
-                lines.append(
-                    "  Lost: " +
-                    f"{', '.join(str(a) for a in sorted(lost_atoms, key=str))}"
-                )
-
-        return "\n".join(lines)
-
-    def _extract_option_plan_text(self, responses: List[Dict[str,
-                                                             Any]]) -> str:
-        """Extract plan text from the last assistant text response."""
-        last_text_parts: List[str] = []
-        for resp in responses:
-            if resp.get("type") == "assistant":
-                parts = [
-                    block.get("text", "") for block in resp.get("content", [])
-                    if isinstance(block, dict) and block.get("type") == "text"
-                ]
-                if parts:
-                    last_text_parts = parts
-        return "\n".join(last_text_parts)

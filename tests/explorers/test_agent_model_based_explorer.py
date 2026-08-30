@@ -1,4 +1,4 @@
-"""Tests for AgentBilevelExplorer."""
+"""Tests for AgentModelBasedExplorer."""
 # pylint: disable=protected-access
 
 from unittest.mock import AsyncMock, MagicMock
@@ -11,7 +11,8 @@ from predicators import utils
 from predicators.agent_sdk.sketch_types import SketchStep
 from predicators.agent_sdk.tools import ToolContext
 from predicators.explorers import create_explorer
-from predicators.explorers.agent_bilevel_explorer import AgentBilevelExplorer
+from predicators.explorers.agent_model_based_explorer import \
+    AgentModelBasedExplorer
 from predicators.explorers.base_explorer import BaseExplorer
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, Type
@@ -111,7 +112,7 @@ def _assistant_response(text: str):
 
 
 def _make_explorer(option_model, query_impl):
-    """Build an AgentBilevelExplorer with stubbed session + tool_context."""
+    """Build an AgentModelBasedExplorer with stubbed session + tool_context."""
     tool_context = ToolContext(
         types=_ALL_TYPES,
         predicates=_ALL_PREDICATES,
@@ -122,7 +123,7 @@ def _make_explorer(option_model, query_impl):
     agent_session = MagicMock()
     agent_session.query = query_impl
     agent_session.tool_names = None
-    explorer = AgentBilevelExplorer(
+    explorer = AgentModelBasedExplorer(
         predicates=_ALL_PREDICATES,
         options=_ALL_OPTIONS,
         types=_ALL_TYPES,
@@ -138,7 +139,7 @@ def _make_explorer(option_model, query_impl):
 def _reset_config(**overrides):
     base = {
         "env": "cover",
-        "approach": "agent_bilevel",
+        "approach": "agent_model_based",
         "num_train_tasks": 1,
         "num_test_tasks": 1,
         "seed": 42,
@@ -158,7 +159,8 @@ def _reset_config(**overrides):
 
 
 def test_factory_registration():
-    """AgentBilevelExplorer is reachable through create_explorer."""
+    """AgentModelBasedExplorer is reachable through create_explorer, under its
+    own name and under the deprecated agent_bilevel alias."""
     _reset_config()
     tool_context = ToolContext(
         types=_ALL_TYPES,
@@ -169,7 +171,7 @@ def test_factory_registration():
     )
     agent_session = MagicMock()
     explorer = create_explorer(
-        "agent_bilevel",
+        "agent_model_based",
         _ALL_PREDICATES,
         _ALL_OPTIONS,
         _ALL_TYPES,
@@ -179,7 +181,18 @@ def test_factory_registration():
         agent_session=agent_session,
     )
     assert isinstance(explorer, BaseExplorer)
-    assert isinstance(explorer, AgentBilevelExplorer)
+    assert isinstance(explorer, AgentModelBasedExplorer)
+    legacy = create_explorer(
+        "agent_bilevel",
+        _ALL_PREDICATES,
+        _ALL_OPTIONS,
+        _ALL_TYPES,
+        Box(low=-1, high=1, shape=(1, )),
+        [_make_task()],
+        tool_context=tool_context,
+        agent_session=agent_session,
+    )
+    assert isinstance(legacy, AgentModelBasedExplorer)
 
 
 def test_happy_path_returns_policy_and_stashes_subgoals():

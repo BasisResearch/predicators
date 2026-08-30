@@ -140,10 +140,12 @@ RESUMED_TEST_RE = re.compile(
 # requests (see _parse_info_log).
 SAVED_EP_RE = re.compile(r"Saved local sandbox query/response to .*[/\\]"
                          r"(\d{3})_([a-z]+)(?:_task\d+)?_\d{8}_\d{6}\.md")
-# agent_bilevel_explorer's line saying the session just saved (the newest
+# agent_model_based_explorer's line (pre-rename logs say
+# agent_bilevel) saying the session just saved (the newest
 # explore session) submitted a plan that passed the belief's capture gate
 # and executes it verbatim as a solve attempt.
-CERTIFIED_RE = re.compile(r"agent_bilevel explorer: the agent's "
+CERTIFIED_RE = re.compile(r"agent_(?:bilevel|model_based) explorer: "
+                          r"the agent's "
                           r"tool-validated plan passed the belief's "
                           r"capture gate")
 # utils.save_video's announcement of a written video file. Its

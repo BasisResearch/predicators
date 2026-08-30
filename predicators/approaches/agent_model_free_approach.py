@@ -2,18 +2,18 @@
 
 The agent plans directly from its own world knowledge - no simulator
 (model) is required to validate a plan before execution. Combines online
-trajectory collection (via AgentPlanExplorer) with open-loop option plan
+trajectory collection (via AgentModelFreeExplorer) with open-loop option plan
 generation (via Claude Agent SDK). No predicate/process/type invention -
 just stores trajectories and generates plans.
 
-Registered under the CLI approach name ``agent_planner`` (kept stable so
-existing configs and logs remain valid).
+Registered under the CLI approach name ``agent_model_free``
+(``agent_planner`` is kept as a deprecated alias).
 
 Example command:
     python predicators/main.py --env pybullet_domino \
-        --approach agent_planner --seed 0 \
+        --approach agent_model_free --seed 0 \
         --num_train_tasks 1 --num_test_tasks 1 \
-        --num_online_learning_cycles 1 --explorer agent_plan
+        --num_online_learning_cycles 1 --explorer agent_model_free
 """
 import copy
 import datetime
@@ -29,8 +29,10 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk.rendering import save_task_state_image
+from predicators.agent_sdk.response_parser import extract_final_text
 from predicators.agent_sdk.session_base import AgentSessionFatalError, \
     query_fatal_error
+from predicators.agent_sdk.sketch_prompts import summarize_trajectories
 from predicators.agent_sdk.tools import agent_render_resolution
 from predicators.agent_sdk.tools.digests import render_options_digest, \
     render_types_digest
@@ -52,7 +54,7 @@ from predicators.structs import Action, Dataset, GroundAtom, \
 class AgentModelFreeApproach(AgentSessionMixin, BaseApproach):
     """Fixed-vocabulary open-loop planning via Claude Agent SDK.
 
-    - Collects trajectories online using AgentPlanExplorer
+    - Collects trajectories online using AgentModelFreeExplorer
     - At solve time, queries the agent for an option plan
     - No predicate/process/type invention
     """
@@ -148,7 +150,7 @@ class AgentModelFreeApproach(AgentSessionMixin, BaseApproach):
 
     @classmethod
     def get_name(cls) -> str:
-        return "agent_planner"
+        return "agent_model_free"
 
     @property
     def is_learning_based(self) -> bool:
@@ -921,55 +923,13 @@ Output ONLY the option plan lines at the end, after any analysis."""
 
     def _build_trajectory_summary(self) -> str:
         """Summarize trajectory data for context."""
-        all_trajs = self._get_all_trajectories()
-        if not all_trajs:
-            return ""
+        return summarize_trajectories(self._get_all_trajectories(),
+                                      self._get_all_predicates())
 
-        max_trajs = CFG.agent_sdk_max_trajectories_in_context
-        recent = all_trajs[-max_trajs:]
-        all_preds = self._get_all_predicates()
-        lines = [
-            f"\n## Trajectory Summary ({len(all_trajs)} total, "
-            f"showing last {len(recent)})"
-        ]
-
-        for i, traj in enumerate(recent):
-            n_steps = len(traj.actions)
-            init_atoms = utils.abstract(traj.states[0], all_preds)
-            final_atoms = utils.abstract(traj.states[-1], all_preds)
-            new_atoms = final_atoms - init_atoms
-            lost_atoms = init_atoms - final_atoms
-            lines.append(f"\nTrajectory {i}: {n_steps} steps")
-            if new_atoms:
-                lines.append(
-                    f"  Gained: "
-                    f"{', '.join(str(a) for a in sorted(new_atoms, key=str))}")
-            if lost_atoms:
-                lines.append(
-                    f"  Lost: "
-                    f"{', '.join(str(a) for a in sorted(lost_atoms, key=str))}"
-                )
-
-        return "\n".join(lines)
-
-    def _extract_option_plan_text(self, responses: List[Dict[str,
-                                                             Any]]) -> str:
-        """Extract plan text from the last assistant text response.
-
-        Only uses the final assistant message to avoid including
-        intermediate reasoning/tool-call text that precedes the actual
-        option plan.
-        """
-        last_text_parts: List[str] = []
-        for resp in responses:
-            if resp.get("type") == "assistant":
-                parts = [
-                    block.get("text", "") for block in resp.get("content", [])
-                    if isinstance(block, dict) and block.get("type") == "text"
-                ]
-                if parts:
-                    last_text_parts = parts
-        return "\n".join(last_text_parts)
+    @staticmethod
+    def _extract_option_plan_text(responses: List[Dict[str, Any]]) -> str:
+        """Extract plan text from the last assistant text response."""
+        return extract_final_text(responses)
 
     @staticmethod
     def _strip_code_fences(text: str) -> str:
@@ -1070,7 +1030,8 @@ Output ONLY the option plan lines at the end, after any analysis."""
 
     def _create_explorer(self) -> BaseExplorer:
         """Create explorer for interaction requests."""
-        if CFG.explorer in ("agent_plan", "agent_bilevel"):
+        if CFG.explorer in ("agent_model_free", "agent_model_based",
+                            "agent_plan", "agent_bilevel"):
             self._sync_tool_context()
             return self._create_agent_explorer(
                 self._get_all_predicates(),

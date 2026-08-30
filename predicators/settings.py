@@ -1527,7 +1527,6 @@ class GlobalSettings:
     agent_sdk_use_local_sandbox = False
 
     # Agent explorer settings
-    agent_explorer_max_turns = 5  # max agent turns per exploration query
     agent_explorer_fallback_to_random = True  # fall back to random on failure
 
     # Agent planner approach settings

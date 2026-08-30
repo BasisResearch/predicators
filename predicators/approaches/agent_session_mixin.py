@@ -323,7 +323,7 @@ class AgentSessionMixin:
         self,
         predicates: Set[Predicate],
         options: Set[ParameterizedOption],
-        name: str = "agent_plan",
+        name: str = "agent_model_free",
     ) -> BaseExplorer:
         """Create an agent explorer with tool_context and agent_session."""
         self._ensure_agent_session()

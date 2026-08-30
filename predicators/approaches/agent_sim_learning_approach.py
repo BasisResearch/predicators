@@ -14,7 +14,7 @@ Example command::
     python predicators/main.py --env pybullet_boil \
         --approach agent_sim_learning --seed 0 \
         --num_train_tasks 10 --num_test_tasks 5 \
-        --num_online_learning_cycles 5 --explorer agent_plan
+        --num_online_learning_cycles 5 --explorer agent_model_free
 """
 
 import copy
@@ -1242,7 +1242,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         i.e. an informative experiment. Returns 0.0 when the ensemble is
         trivial (<=1 member) or no atoms are given.
 
-        Wired into refinement as the info-scorer for the agent_bilevel
+        Wired into refinement as the info-scorer for the agent_model_based
         explorer; a read-only query that leaves ``_fitted_params``
         unchanged on return.
         """
