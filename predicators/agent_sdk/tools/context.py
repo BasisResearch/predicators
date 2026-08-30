@@ -149,14 +149,6 @@ class ToolContext:
     # explore prompt so the agent proposes a complementary plan instead of
     # repeating the identical one for every request.
     cycle_scheduled_plans: List[str] = field(default_factory=list)
-    # Grounded plans that passed the belief's capture gate this cycle,
-    # keyed by train task index. Cleared by get_interaction_requests per
-    # cycle, written by AgentBilevelExplorer when an explore session's
-    # tool-validated capture reached the goal; the cycle's remaining
-    # requests on that task replay the plan (no new query), so a plan
-    # the belief certifies and reality solves on every attempt ends the
-    # loop (see agent_explorer_replay_certified_plan).
-    cycle_certified_plans: Dict[int, List[Any]] = field(default_factory=dict)
     # Digest of the latest rollout system-ID fit's weak spots
     # (unexplainable segments, unidentified/insensitive params,
     # cross-cycle conflicts), synced from the sim-learning approach.

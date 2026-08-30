@@ -405,11 +405,11 @@ def _make_certified_capture(pick_params, place_params):
     return grounded_plan, captured_sketch
 
 
-def test_certified_capture_executes_verbatim_and_is_replayed():
+def test_certified_capture_executes_verbatim_and_next_request_queries():
     """A plan the session validated through the capture gate (reached_goal
     True) is executed verbatim as a solve attempt with a True mental-model
-    verdict; the cycle's next request on the task replays it with no new
-    query."""
+    verdict; the cycle's next request on the task queries the agent again
+    (asking for a different certified plan) rather than replaying it."""
     _reset_config(agent_explorer_info_seeking=True)
     option_model = MagicMock()
     option_model.get_next_state_and_num_actions.return_value = (_make_state(
@@ -436,26 +436,29 @@ def test_certified_capture_executes_verbatim_and_is_replayed():
     assert not option_model.get_next_state_and_num_actions.called
     assert tool_context.last_mental_model_solved is True
     assert tool_context.solved_plan is None
-    assert tool_context.cycle_certified_plans[0] is not None
     assert "belief-certified" in tool_context.cycle_scheduled_plans[-1]
+    assert "replayed" not in tool_context.cycle_scheduled_plans[-1]
     assert tool_context.last_sketch_options == [("Pick", ["block0"]),
                                                 ("Place", ["block0",
                                                            "block1"])]
     # The policy runs the captured options with their captured params.
     act = policy(_make_state())
     assert isinstance(act, Action)
-    # Second request of the cycle on the same task: replay, no query.
+    # Second request of the cycle on the same task: a new query that
+    # shows the certified plan as already scheduled.
     tool_context.last_mental_model_solved = None
     policy2, _ = explorer._get_exploration_strategy(0, timeout=5)
     assert callable(policy2)
-    assert len(queries) == 1
+    assert len(queries) == 2
+    assert "belief-certified" in queries[1]
+    assert "STRUCTURALLY different" in queries[1]
     assert tool_context.last_mental_model_solved is True
 
 
 def test_uncertified_capture_executes_its_plan_verbatim():
     """A capture whose gate verdict is not True (best-effort, flaky) is not
     certified: it executes at its captured params as an experiment, with a
-    False mental-model verdict and no replay for the cycle."""
+    False mental-model verdict."""
     _reset_config()
     option_model = MagicMock()
     grounded_plan, captured_sketch = _make_captured([0.42], [0.11, 0.22])
@@ -471,5 +474,5 @@ def test_uncertified_capture_executes_its_plan_verbatim():
     policy, _ = explorer._get_exploration_strategy(0, timeout=5)
     assert callable(policy)
     assert not option_model.get_next_state_and_num_actions.called
-    assert 0 not in tool_context.cycle_certified_plans
+    assert "belief-certified" not in tool_context.cycle_scheduled_plans[-1]
     assert tool_context.last_mental_model_solved is False

@@ -1818,11 +1818,14 @@ class GlobalSettings:
     # (submit_plan: goal reached in
     # agent_plan_validation_rollouts fresh belief rollouts) is executed
     # verbatim as the episode's solve attempt with mental_model_solved=
-    # True, and the cycle's remaining requests on that task replay it
-    # without a new query - so a certified plan that solves for real on
-    # every attempt satisfies the train-driven early-stop rule. Off
-    # feeds the capture into the experiment search as seeds instead.
-    agent_explorer_replay_certified_plan = True
+    # True. The cycle's remaining requests on that task still query the
+    # agent, which sees the certified plan among the plans already
+    # scheduled and is asked for a different certified plan (a second,
+    # independent test of the belief), resubmitting the same one only as
+    # a last resort; every certified attempt solving for real satisfies
+    # the train-driven early-stop rule. Off feeds the capture into the
+    # experiment search as seeds instead.
+    agent_explorer_execute_certified_plan = True
     # Per-parameter jitter as a fraction of the ParamSpec box width, for
     # the uniform-fallback ensemble only (see calibrated flag below).
     agent_explorer_info_perturb_frac = 0.15
