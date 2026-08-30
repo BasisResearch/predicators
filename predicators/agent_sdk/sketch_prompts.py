@@ -176,10 +176,10 @@ def build_solve_prompt(
                 "unchanged) is how the loop concludes." +
                 (" A plan that passes submit_plan's validation "
                  "gate (goal reached in every fresh belief rollout) is "
-                 "executed VERBATIM as this episode's solve attempt and "
-                 "replayed for the cycle's remaining episodes; only an "
-                 "unvalidated sketch is treated as an experiment."
-                 if CFG.agent_explorer_replay_certified_plan else ""))
+                 "executed VERBATIM as this episode's solve attempt; "
+                 "only an unvalidated sketch is treated as an "
+                 "experiment."
+                 if CFG.agent_explorer_execute_certified_plan else ""))
         elif CFG.online_learning_early_stopping_by_test_solve_rate:
             n_perfect = (
                 CFG.online_learning_early_stopping_consecutive_perfect_tests)
@@ -321,7 +321,21 @@ def build_solve_prompt(
             "scheduled plans will not is the better use of this episode. "
             "Only if the model is believed correct everywhere and no "
             "meaningfully different goal-reaching plan exists, repeat "
-            "the best plan.\n")
+            "the best plan.\n"
+            "\nIf a scheduled plan is marked belief-certified, this "
+            "episode is the second test of the belief model, and one "
+            "success of one plan is weak evidence. In order of "
+            "preference: (1) a STRUCTURALLY different goal-reaching plan "
+            "- a different option sequence, order, grasp, or contact "
+            "arrangement - validated through the same submit_plan gate; "
+            "(2) when no structurally different plan exists for this "
+            "goal, the same structure with materially different "
+            "parameters (a different placement pose, offset, or timing, "
+            "not a jitter), validated the same way; (3) only as a last "
+            "resort, the certified plan resubmitted unchanged. State "
+            "which of the three you chose and why. A certified plan "
+            "that then fails for real is the most informative outcome "
+            "this episode can produce, not a loss.\n")
 
     strategy_section = ""
     if strategy:

@@ -234,78 +234,40 @@ _CERTIFIED = ("INFO: agent_bilevel explorer: the agent's tool-validated plan "
               "passed the belief's capture gate (validation: 8/8 rollouts "
               "ok); executing it verbatim as this episode's solve attempt "
               "(mental model solved the goal).")
-_REPLAY = ("INFO: agent_bilevel explorer: replaying this cycle's "
-           "belief-certified plan for train task 0 (26 steps) without a new "
-           "query.")
 _VERDICT = ("INFO: Interaction episode on train task 0: reward={r}, "
             "terminated={t}, accepted={a}")
 
 
-def test_certified_plan_replay_is_booked_on_its_session(
-        tmp_path: Path) -> None:
-    """The second request of a cycle that certified a plan re-executes it
-    without a new query, so its verdict has no transcript: it is recorded as a
-    replay of the certified session (not dropped, and not paired with the next
-    cycle's first explore)."""
+def test_certified_session_is_marked(tmp_path: Path) -> None:
+    """The capture-gate line marks the newest explore session as certified; the
+    cycle's second request is an ordinary session with its own transcript and
+    verdict."""
     path = _write_log(tmp_path, [
         "ONLINE LEARNING CYCLE 2",
         _SAVE.format(name="018_explore_20260830_090000"),
         _CERTIFIED,
-        _REPLAY,
+        _SAVE.format(name="019_explore_20260830_093000"),
         _VERDICT.format(r="1.00", t="True", a="True"),
         _VERDICT.format(r="0.00", t="False", a="False"),
-        _SAVE.format(name="019_learn_20260830_100000"),
-        "ONLINE LEARNING CYCLE 3",
-        _SAVE.format(name="020_explore_20260830_110000"),
-        _VERDICT.format(r="0.50", t="True", a="True"),
     ])
-    parsed = _parse_info_log(path)
-    ex = parsed["explore"]
-    assert ex[18]["certified"] is True
-    assert ex[18]["accepted"] is True
-    assert [(r["steps"], r["accepted"]) for r in ex[18]["replays"]] == \
-        [(26, False)]
-    assert ex[20] == {
-        "reward": 0.5,
-        "terminated": True,
-        "accepted": True,
-        "msg": "",
-        "cycle": 3,
-    }
+    ex = _parse_info_log(path)["explore"]
+    assert ex[18]["certified"] is True and ex[18]["accepted"] is True
+    assert "certified" not in ex[19] and ex[19]["accepted"] is False
 
 
-def test_replay_chip_and_cycle_tally() -> None:
-    """The grid draws the replay as its own dashed chip after the certified
-    session's chip, and the per-cycle tally counts it as an attempt (the early-
-    stop rule judges every attempt)."""
+def test_certified_chip_mark() -> None:
+    """A certified session's chip carries the diamond and its tooltip; the
+    tally is unchanged."""
     ep = {
-        "num":
-        18,
-        "kind":
-        "explore",
-        "cycle_tag":
-        "cycle2",
-        "env_reward":
-        1.0,
-        "env_terminated":
-        True,
-        "env_accepted":
-        True,
-        "env_msg":
-        "",
-        "certified":
-        True,
-        "replays": [{
-            "env_reward": 0.0,
-            "env_terminated": False,
-            "env_accepted": False,
-            "env_msg": "",
-            "steps": 26,
-            "interaction_idx": 1,
-        }],
+        "num": 18,
+        "kind": "explore",
+        "env_reward": 1.0,
+        "env_terminated": True,
+        "env_accepted": True,
+        "env_msg": "",
+        "certified": True,
     }
     html = _misc_chip(ep)
     assert "018 explore ✓ 1.00 ◆" in html
-    assert "↻ 018 ✗ 0.00" in html
-    assert "replay" in html and "without a new query" in html
-    assert _explore_results([ep]) == [(2, 1, 2, 0.5)]
+    assert "belief-certified" in html
+    assert _explore_results([dict(ep, cycle_tag="cycle2")]) == [(2, 1, 1, 1.0)]

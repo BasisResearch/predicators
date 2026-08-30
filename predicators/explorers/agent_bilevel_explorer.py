@@ -73,22 +73,6 @@ class AgentBilevelExplorer(BaseExplorer):
         # producing one.
         self._tool_context.last_mental_model_solved = None
 
-        # A plan this cycle already certified on this task (see the
-        # capture branch below) is replayed for the cycle's remaining
-        # requests without a new query: the train-driven early-stop rule
-        # needs EVERY attempt of the cycle to solve, and a second real
-        # execution of the certified plan is the cheapest evidence.
-        certified = self._tool_context.cycle_certified_plans.get(
-            train_task_idx)
-        if certified is not None and \
-                CFG.agent_explorer_replay_certified_plan:
-            logging.info(
-                "agent_bilevel explorer: replaying this cycle's "
-                "belief-certified plan for train task %d (%d steps) "
-                "without a new query.", train_task_idx, len(certified))
-            self._tool_context.last_mental_model_solved = True
-            return self._certified_plan_strategy(certified)
-
         # Point the agent's interactive tools (submit_plan, the
         # sim probe) at the EXPLORE task. They
         # default to ctx.current_task when the agent omits task_idx, and
@@ -158,12 +142,16 @@ class AgentBilevelExplorer(BaseExplorer):
             # (submit_plan, N fresh
             # rollouts). ``reached_goal`` is the gate's verdict.
             capture = self._tool_context.take_plan_capture()
-            if CFG.agent_explorer_replay_certified_plan and capture.plan \
+            if CFG.agent_explorer_execute_certified_plan and capture.plan \
                     and capture.reached_goal is True:
                 # Certified: the mental model solves the task with THIS
                 # plan, so run it verbatim as a solve attempt instead of
                 # re-searching (or boundary-probing) its parameters. A
-                # real success now counts for early stopping.
+                # real success now counts for early stopping. The cycle's
+                # later requests see it under "plans already scheduled"
+                # and are asked for a DIFFERENT certified plan (a second
+                # test of the model), resubmitting this one only as a
+                # last resort.
                 plan = list(capture.plan)
                 logging.info(
                     "agent_bilevel explorer: the agent's tool-validated "
@@ -181,12 +169,10 @@ class AgentBilevelExplorer(BaseExplorer):
                         for s in capture.sketch
                     ]
                 self._tool_context.last_mental_model_solved = True
-                self._tool_context.cycle_certified_plans[train_task_idx] = plan
                 self._tool_context.cycle_scheduled_plans.append(
                     self._format_plan(plan) +
                     "\n  NOTE: belief-certified; executes verbatim as a "
-                    "solve attempt and is replayed for this cycle's "
-                    "remaining episodes.")
+                    "solve attempt.")
                 return self._certified_plan_strategy(plan)
             if not plan_text and not capture.plan:
                 raise ValueError("agent returned empty plan text")
