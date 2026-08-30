@@ -140,6 +140,20 @@ RESUMED_TEST_RE = re.compile(
 # requests (see _parse_info_log).
 SAVED_EP_RE = re.compile(r"Saved local sandbox query/response to .*[/\\]"
                          r"(\d{3})_([a-z]+)(?:_task\d+)?_\d{8}_\d{6}\.md")
+# agent_bilevel_explorer's two certified-plan lines. The first says the
+# session just saved (the newest pending explore) submitted a plan that
+# passed the belief's capture gate and executes it verbatim as a solve
+# attempt. The second says a later request of the same cycle re-executes
+# that plan WITHOUT a new query, so its interaction verdict arrives with
+# no transcript of its own: the parser books it as a replay of the
+# certified session rather than dropping it (or mis-pairing it with the
+# next cycle's first explore).
+CERTIFIED_RE = re.compile(r"agent_bilevel explorer: the agent's "
+                          r"tool-validated plan passed the belief's "
+                          r"capture gate")
+REPLAY_RE = re.compile(r"agent_bilevel explorer: replaying this cycle's "
+                       r"belief-certified plan for train task (\d+) "
+                       r"\((\d+) steps\) without a new query\.")
 # utils.save_video's announcement of a written video file. Its
 # <approach>/<experiment_id>/seed<N>/run_<timestamp> tail names the video
 # dir the run actually wrote, which the mirrored-layout assumption gets
@@ -863,6 +877,10 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
     "rounds": [{task_idx0: {"solved": bool, "msg": str,
     "reward": float?}, ...}, ...],
     "explore": {episode_num: {"reward": float, "terminated": bool,
+                  "certified": bool (the session's plan passed the belief's
+                  capture gate and ran verbatim), "replays": [verdict dicts
+                  of the cycle's later requests that re-executed that plan
+                  without a new query, in order],
     "accepted": bool, "msg": str, "cycle": int|None}, ...},
     "test_round": {episode_num: round_idx, ...},
     "round_cycles": [cycle_id|None, ...] parallel to rounds -- the
@@ -894,9 +912,13 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
     explore: Dict[int, Dict[str, Any]] = {}
     session_cycles: Dict[int, Optional[int]] = {}
     test_round: Dict[int, int] = {}
-    pending: List[int] = []
+    # Verdict slots (a session's entry in ``explore`` or one of its replay
+    # entries) awaiting their interaction line, in request order.
+    pending: List[Dict[str, Any]] = []
     pending_test: List[int] = []
-    last_explore: Optional[int] = None
+    last_explore: Optional[Dict[str, Any]] = None
+    certified: Optional[Dict[str, Any]] = None
+    newest_session: Optional[Dict[str, Any]] = None
     cycle: Optional[int] = None
     resume_cycle: Optional[int] = None
     done = False
@@ -925,6 +947,7 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
                 m = CYCLE_HEADER_RE.match(line)
                 if m:
                     cycle = int(m.group(1))
+                    certified = None
                     continue
                 if resume_cycle is None:
                     m = RESUME_RE.search(line)
@@ -987,33 +1010,48 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
                     # eval).
                     session_cycles[int(m.group(1))] = cycle
                     if m.group(2) == "explore":
-                        pending.append(int(m.group(1)))
+                        newest_session = explore.setdefault(
+                            int(m.group(1)), {})
+                        pending.append(newest_session)
                     elif m.group(2) == "learn":
                         pending.clear()
+                        certified = None
                     elif m.group(2) == "test":
                         pending_test.append(int(m.group(1)))
+                    continue
+                if CERTIFIED_RE.search(line):
+                    # Belongs to the newest explore session (it saved its
+                    # transcript just before the explorer read the capture).
+                    certified = newest_session
+                    if certified is not None:
+                        certified["certified"] = True
+                    continue
+                m = REPLAY_RE.search(line)
+                if m:
+                    if certified is not None:
+                        replay = {"steps": int(m.group(2))}
+                        certified.setdefault("replays", []).append(replay)
+                        pending.append(replay)
                     continue
                 m = INTERACTION_RE.match(line)
                 if m:
                     last_explore = pending.pop(0) if pending else None
                     if last_explore is not None:
-                        explore[last_explore] = {
+                        last_explore.update({
                             "reward": float(m.group(1)),
                             "terminated": m.group(2) == "True",
                             "accepted": m.group(3) == "True",
                             "msg": "",
                             "cycle": cycle,
-                        }
+                        })
                     continue
                 m = INTERACTION_REJECT_RE.match(line)
                 if m and last_explore is not None:
-                    explore[last_explore]["msg"] = ("REJECTED: " +
-                                                    m.group(1).strip())
+                    last_explore.update(msg="REJECTED: " + m.group(1).strip())
                     continue
                 m = INTERACTION_BAR_RE.match(line)
                 if m and last_explore is not None:
-                    explore[last_explore]["msg"] = ("solved but " +
-                                                    m.group(1).strip())
+                    last_explore.update(msg="solved but " + m.group(1).strip())
     if current:  # run still in progress or crashed mid-round
         rounds.append(current)
         round_cycles.append(cycle)
@@ -1057,11 +1095,15 @@ def _explore_results(
     out: List[Tuple[Optional[int], int, int, float]] = []
     for (kind, num) in sorted(by_key):
         eps = by_key[(kind, num)]
-        rewards = [ep["env_reward"] for ep in eps if "env_reward" in ep]
-        if not rewards:
+        # A certified plan's query-free replays are real attempts too (the
+        # early-stop rule counts every attempt), so they join the tally.
+        attempts = [ep for ep in eps if "env_reward" in ep]
+        attempts += [r for ep in eps for r in ep.get("replays", [])]
+        if not attempts:
             continue
-        solved = sum(1 for ep in eps if ep.get("env_accepted"))
-        out.append((num if kind == 0 else None, solved, len(eps),
+        rewards = [a["env_reward"] for a in attempts]
+        solved = sum(1 for a in attempts if a.get("env_accepted"))
+        out.append((num if kind == 0 else None, solved, len(attempts),
                     sum(rewards) / len(rewards)))
     return out
 
@@ -1166,7 +1208,7 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
             interactions_seen = 0
         if ep["kind"] == "explore":
             verdict = explore_verdicts.get(ep["num"])
-            if verdict is not None:
+            if verdict is not None and "accepted" in verdict:
                 ep["env_reward"] = verdict["reward"]
                 ep["env_terminated"] = verdict["terminated"]
                 ep["env_accepted"] = verdict["accepted"]
@@ -1178,6 +1220,26 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
                 # i-th among the cycle's verdict-earning explore sessions.
                 ep["interaction_idx"] = interactions_seen
                 interactions_seen += 1
+            if verdict is not None and verdict.get("certified"):
+                ep["certified"] = True
+                # The cycle's later requests replayed this session's plan
+                # without a query: real attempts (they count for the
+                # early-stop rule and own the next __ep<i> videos) that
+                # left no transcript, so they ride on this session.
+                replays = []
+                for r in verdict.get("replays", []):
+                    if "accepted" not in r:
+                        continue
+                    replays.append({
+                        "env_reward": r["reward"],
+                        "env_terminated": r["terminated"],
+                        "env_accepted": r["accepted"],
+                        "env_msg": r["msg"],
+                        "steps": r["steps"],
+                        "interaction_idx": interactions_seen,
+                    })
+                    interactions_seen += 1
+                ep["replays"] = replays
         round_i = test_round.get(ep["num"])
         if (ep["kind"] == "test" and round_i is not None
                 and round_i < len(round_cycles)):
@@ -1701,6 +1763,7 @@ summary .hint { color: var(--muted); font-weight: 400; font-size: 12px; }
 .chip.bad { color: var(--bad); border-color: var(--bad); }
 .chip.kind-explore { color: #b083f0; border-color: #b083f0; }
 .chip.kind-learn { color: #daaa3f; border-color: #daaa3f; }
+.chip.replay { border-style: dashed; }
 .chip.sup { opacity: .5; }
 /* Lifecycle, not verdict: green and red stay reserved for env evals. */
 .chip.live { color: var(--accent); border-color: var(--accent);
@@ -2403,13 +2466,34 @@ def _test_chip(ep: Dict[str, Any]) -> str:
 
 
 def _misc_chip(ep: Dict[str, Any]) -> str:
-    """Chip for one non-test episode, e.g. "002 explore ✓ 0.70"."""
+    """Chip(s) for one non-test episode, e.g. "002 explore ✓ 0.70".
+
+    A belief-certified explore session is marked ◆, and each of the
+    cycle's query-free replays of its plan follows as its own "↻ 002 ✗
+    0.00" chip: the replay is a real interaction episode with an env
+    verdict but no transcript, so without the chip a cycle that certified
+    a plan reads as a single attempt while the early-stop rule judged two.
+    """
     label = f"{int(ep['num']):03} {ep['kind']}"
     title = ""
     if "env_accepted" in ep:
         mark, _, title = explore_mark(ep)
         label += " " + mark
-    return _lineage_chip(ep, label, "kind-" + ep["kind"], title)
+    if ep.get("certified"):
+        label += " ◆"
+        title = ("belief-certified: the submitted plan passed the capture "
+                 "gate and ran verbatim as a solve attempt" +
+                 ("; " + title if title else ""))
+    chips = [_lineage_chip(ep, label, "kind-" + ep["kind"], title)]
+    for i, rep in enumerate(ep.get("replays", [])):
+        mark, _, rtitle = explore_mark(rep)
+        rtitle = (f"replay {i + 1} of session {int(ep['num']):03}'s "
+                  f"certified plan ({rep['steps']} steps) without a new "
+                  f"query; " + rtitle)
+        chips.append(
+            _lineage_chip(ep, f"↻ {int(ep['num']):03} {mark}",
+                          "kind-" + ep["kind"] + " replay", rtitle))
+    return " ".join(chips)
 
 
 # ----------------------------------------------------------------- pages
@@ -3009,6 +3093,12 @@ def episode_videos(ep: Dict[str, Any], run_rel: str) -> str:
                          "of this cycle)")
             elif ep_idx == ep.get("interaction_idx"):
                 label = "interaction video"
+            elif ep_idx in {
+                    r["interaction_idx"]
+                    for r in ep.get("replays", [])
+            }:
+                label = ("interaction video (query-free replay of this "
+                         "session's certified plan)")
             else:
                 continue  # another explore session's episode
             url = "/rawvideo?p=" + q(video_url_rel(run_rel, name))
