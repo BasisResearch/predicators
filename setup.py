@@ -49,6 +49,7 @@ setup(
         "emcee",
     ],
     include_package_data=True,
+    package_data={"predicators.agent_sdk": ["prompts/*.md"]},
     extras_require={
         "develop": [
             "pytest-cov==2.12.1", "pytest-pylint==0.18.0", "yapf==0.32.0",

@@ -395,19 +395,14 @@ def test_learn_message_ships_goal_required_mechanisms_as_hypotheses():
     hypothesis with declared ParamSpecs and a first-ranked confirming
     experiment).
 
-    The message is composed from live session state, so the guard reads
-    the template source: in run_20260829 both plan-arm learners followed
-    the older "never ship a never-observed mechanism" rule, the belief
-    then had no bond, and the test session proved the goal unreachable.
+    The rule lives in the learn system prompt's deliverables section.
     """
-    import inspect
-
-    from predicators.approaches.agent_sim_learning_approach import \
-        AgentSimLearningApproach
-    src = inspect.getsource(
-        AgentSimLearningApproach._build_synthesis_learn_message)
-    assert "When the goal REQUIRES it" in src
-    assert "LABELLED HYPOTHESIS" in src
-    assert "FIRST entry of open_questions.md" in src
-    assert "A GO that rests on a" in src
-    assert "instead of shipping a speculative rule" not in src
+    from predicators.agent_sdk import learn_prompts
+    prompt = learn_prompts.build_learn_system_prompt(
+        partially_observable=False,
+        residual_rule_signature="def residual_rule(state, updates, params):",
+        scene_viz_hint="render the scene")
+    assert "When the goal requires it" in prompt
+    assert "labelled hypothesis" in prompt
+    assert "first entry of `./open_questions.md`" in prompt
+    assert "A GO that rests on a hypothesized mechanism" in prompt

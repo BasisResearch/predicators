@@ -1379,7 +1379,7 @@ class TestScheduledPlansPromptSection:
         assert "## Plans Already Scheduled This Cycle" in prompt
         assert "Plan 1:\n  0: Pick(block0)[0.5000]" in prompt
         assert "Plan 2:\n  0: Place(block0, block1)[0.1000, 0.2000]" in prompt
-        assert "DATA is complementary rather than redundant" in prompt
+        assert "data is complementary rather than redundant" in prompt
         # The instruction must keep the request goal-directed (this is what
         # preserves the train-solve early-stopping semantics).
         assert "repeat the best plan" in " ".join(prompt.split())

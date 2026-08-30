@@ -73,8 +73,8 @@ _STDIO_TAIL_CHARS = 2000
 _STDERR_TAIL_LINES = 20
 
 # Build Docker-specific prompts from shared templates.
-# CLAUDE.md is built per-instance with the phase tag so the agent reads
-# phase-appropriate strategy guidance every turn (see build_claude_md).
+# CLAUDE.md (sandbox mechanics only; see build_claude_md) is written
+# into the sandbox when it is populated.
 _SANDBOX_SYSTEM_PROMPT = build_sandbox_system_prompt(
     env_description="an isolated Docker sandbox",
     workspace_description="/sandbox/",
