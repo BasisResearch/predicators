@@ -145,8 +145,8 @@ def test_unparsable_line_is_fatal():
 
 
 def test_stuck_loop_identical_failures_is_fatal():
-    """K consecutive failures of one identical command end the episode as
-    a policy bug instead of burning the whole option budget."""
+    """K consecutive failures of one identical command end the episode as a
+    policy bug instead of burning the whole option budget."""
     fn, task = _fn("def get_option(state, memory):\n"
                    "    return 'Move(block0:block)[0.95]'\n")
     model = _Model(fail_calls=set(range(1, 50)))
@@ -161,8 +161,8 @@ def test_stuck_loop_identical_failures_is_fatal():
 
 
 def test_stuck_loop_resets_on_changed_params():
-    """A policy that adapts its parameters after each failure never trips
-    the stuck-loop guard, even across many consecutive failures."""
+    """A policy that adapts its parameters after each failure never trips the
+    stuck-loop guard, even across many consecutive failures."""
     fn, task = _fn('''
 def get_option(state, memory):
     for obj in state:
@@ -205,9 +205,9 @@ def get_option(state, memory):
 
 
 def test_noop_livelock_identical_completions_is_fatal():
-    """K consecutive clean completions of one identical command that
-    change nothing observable end the episode as a livelock, before the
-    option budget is burned."""
+    """K consecutive clean completions of one identical command that change
+    nothing observable end the episode as a livelock, before the option budget
+    is burned."""
     fn, task = _fn("def get_option(state, memory):\n"
                    "    return 'Move(block0:block)[0.5]'\n")
     r = execute_policy_forward(task,
