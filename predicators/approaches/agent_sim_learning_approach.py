@@ -2324,14 +2324,28 @@ version-tagged (see the system prompt's Tools section).{probe_note}
 Evidence discipline for rules that WRITE physical state (poses, \
 velocities): ground them in recorded transitions the base sim \
 mispredicts. A mechanism you suspect but have never observed \
-end-to-end in the data is a HYPOTHESIS - record it in the decision \
-record with the experiment that would confirm it (so the next \
-exploration phase can run that experiment), instead of shipping a \
-speculative rule; a speculative pose-writer fabricates states the \
-environment never produces, and plans validated against it fail in \
-reality. The converse error is just as costly: do not delete a rule \
-whose mechanism you have confirmed merely because one fit metric is \
-noisy - decide from the recorded evidence either way.
+end-to-end in the data is a HYPOTHESIS, and what to do with it \
+depends on whether the goal needs it. When the goal is reachable \
+without it, record it in the decision record with the experiment \
+that would confirm it and ship no rule: a speculative pose-writer \
+fabricates states the environment never produces, and plans \
+validated against it fail in reality. When the goal REQUIRES it - \
+without the mechanism the goal is unreachable in your model (an \
+assembly that must be carried as one body, a latch that must hold, \
+an activation that must take effect) - omitting it is NOT the \
+cautious choice: it turns "unknown" into "impossible" for every \
+consumer of the model, so the explorer can no longer certify a goal \
+attempt and the test session proves the goal unreachable and gives \
+up. Ship a goal-required mechanism as a LABELLED HYPOTHESIS: a rule \
+whose trigger geometry and timing are declared ParamSpecs at your \
+best physical estimate with honest ranges (the ensemble spreads over \
+them and the capture gate validates plans under that spread), a \
+HYPOTHESIS marker on it in the decision record, and its confirming \
+experiment as the FIRST entry of open_questions.md, written so that \
+the next exploration's goal attempt exercises it. The converse error \
+is just as costly: do not delete a rule whose mechanism you have \
+confirmed merely because one fit metric is noisy - decide from the \
+recorded evidence either way.
 
 Work through EVERY divergence this cycle's new trajectories reveal \
 in this one session: enumerate each mechanism the episodes \
@@ -2363,7 +2377,10 @@ WEAKEST margin - the smallest distance from any step's operating \
 point to a learned threshold - compared against the measured \
 execution scatter. NO-GO, or a margin thinner than the scatter, \
 means the next test episode will likely fail: put exactly what is \
-missing at the top of `./open_questions.md`.
+missing at the top of `./open_questions.md`. A GO that rests on a \
+hypothesised mechanism says so in the verdict; it is still a GO - \
+the plan it certifies is the experiment that confirms or refutes \
+the hypothesis in the real environment.
 
 Also maintain `./open_questions.md`: a short RANKED ledger of the \
 model's remaining uncertainties - mechanisms never observed, \

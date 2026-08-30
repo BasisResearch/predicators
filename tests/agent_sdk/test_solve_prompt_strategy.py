@@ -157,6 +157,20 @@ def test_explore_mode_early_stop_note_credits_exploration_plans() -> None:
     assert "truncated just after that step" not in prompt
 
 
+def test_explore_mode_states_the_cycle_data_contract() -> None:
+    """Every cycle must attempt the full goal at least once and run the
+    ledger's top experiment as specified, and first-cycle coverage must carry
+    each interaction to its consequence (run_20260829: four cycle-0 episodes
+    staged glue and neighbours without ever consummating a bond, so no learner
+    had the event to model)."""
+    utils.reset_config({"seed": 0})
+    prompt = _render_explore(_make_task(None))
+    assert "attempt at the FULL goal" in prompt
+    assert "top-ranked open question's experiment executed as it is " \
+        "specified" in prompt
+    assert "Carry each interaction to its CONSEQUENCE" in prompt
+
+
 def test_domain_strategy_block_is_advisory() -> None:
     """strategy.md content renders as an advisory section; absent without."""
     utils.reset_config({"seed": 0})
