@@ -1,15 +1,153 @@
-"""Prompt construction for bilevel plan-sketch solving/exploration.
+"""Prompt construction for the solve and explore phases.
 
-Split out of ``bilevel_sketch`` (see that module's docstring for the
-full layout); holds ``build_solve_prompt``, the solve/explore prompt
-asking the agent for a plan sketch in the grammar that
-``sketch_parsing`` reads back.
+Two builders, both rendered from the Markdown templates in
+``predicators/agent_sdk/prompts`` (see :mod:`prompt_templates`):
+
+- :func:`build_solve_system_prompt` composes ``solve_system.md``: the
+  agent's identity, its deliverable contract, the plan grammar, the
+  tool semantics, the working principles, the run-record protocol,
+  and (explore phase) the exploration setting. Everything that holds
+  for every episode of a phase lives here.
+- :func:`build_solve_prompt` composes ``solve_query.md``: the task
+  (goal, scene, vocabulary), the run state (records, scheduled plans,
+  open questions), and this episode's instructions.
+
+The query never restates a rule from the system prompt; the split is
+what keeps each rule stated exactly once.
 """
+import re
 from typing import Optional, Sequence, Set
 
 from predicators import utils
+from predicators.agent_sdk.prompt_templates import render
 from predicators.settings import CFG
 from predicators.structs import ParameterizedOption, Predicate, Task
+
+_BLANK_RUN_RE = re.compile(r"\n{3,}")
+
+
+def _join(parts: Sequence[str]) -> str:
+    """Join non-empty prompt parts with blank lines, squeezing runs of blank
+    lines that empty optional sections leave behind."""
+    text = "\n\n".join(p for p in parts if p)
+    return _BLANK_RUN_RE.sub("\n\n", text).strip("\n") + "\n"
+
+
+def build_early_stop_note() -> str:
+    """The exploration setting's early-stop sentence, from ``CFG``.
+
+    Empty when early stopping is off. Describes the rule the run uses
+    (train-driven: every attempt must be certified and solve for real;
+    test-driven: consecutive perfect test phases).
+    """
+    if not CFG.online_learning_early_stopping:
+        return ""
+    if CFG.online_learning_early_stopping_by_test_solve_rate:
+        n_perfect = CFG.online_learning_early_stopping_consecutive_perfect_tests
+        phases = ("the next test phase solves" if n_perfect <= 1 else
+                  f"{n_perfect} consecutive test phases each solve")
+        return render("solve_system", "early_stop_test", phases=phases)
+    attempts_clause = ("every episode of a cycle" if
+                       CFG.online_learning_early_stopping_require_all_attempts
+                       else "each train task's first episode of a cycle")
+    return render("solve_system",
+                  "early_stop_train",
+                  attempts_clause=attempts_clause)
+
+
+def build_solve_system_prompt(
+    *,
+    explore: bool,
+    policy_mode: bool = False,
+    propose_params: bool = True,
+    ground_samplers: bool = False,
+    physics_margin: bool = False,
+    rule_param_margin: bool = False,
+    use_journal: bool = True,
+    execute_certified_plan: bool = True,
+    early_stop_note: str = "",
+    policy_max_options: int = 0,
+    policy_max_repeated_failures: int = 0,
+    policy_max_repeated_noops: int = 0,
+) -> str:
+    """Compose the solve-phase or explore-phase system prompt.
+
+    ``explore`` selects the exploration identity, deliverable, and
+    setting (``early_stop_note`` and ``execute_certified_plan`` only
+    matter there); otherwise ``policy_mode`` selects the closed-loop
+    policy deliverable over the captured plan. ``propose_params`` and
+    ``ground_samplers`` shape the grammar; ``physics_margin`` and
+    ``rule_param_margin`` describe the capture gate's extra checks;
+    ``use_journal`` includes the run-record protocol.
+    """
+    assert not (explore and policy_mode), (
+        "exploration delivers a plan sketch even in policy-mode runs")
+    identity = render("solve_system",
+                      "identity_explore" if explore else "identity_solve")
+    if explore:
+        certified_note = ""
+        if execute_certified_plan:
+            certified_note = " " + render("solve_system", "certified_note")
+        deliverable = render("solve_system",
+                             "deliverable_explore",
+                             certified_note=certified_note)
+    elif policy_mode:
+        deliverable = render(
+            "solve_system",
+            "deliverable_policy",
+            max_options=str(policy_max_options),
+            max_repeated_failures=str(policy_max_repeated_failures),
+            max_repeated_noops=str(policy_max_repeated_noops))
+    else:
+        deliverable = render("solve_system", "deliverable_plan")
+
+    params_rule = render(
+        "solve_system",
+        "params_rule_propose" if propose_params else "params_rule_search")
+    ground_sampler_rule = ""
+    if propose_params and ground_samplers:
+        ground_sampler_rule = "\n" + render("solve_system",
+                                            "ground_sampler_rule")
+    grammar = render("solve_system",
+                     "grammar",
+                     param_slot="[p1, p2]" if propose_params else "",
+                     wait_slot="[]" if propose_params else "",
+                     params_rule=params_rule,
+                     ground_sampler_rule=ground_sampler_rule)
+
+    validation_gate = ""
+    if physics_margin:
+        validation_gate += " " + render("solve_system",
+                                        "validation_gate_physics")
+    if rule_param_margin:
+        validation_gate += " " + render("solve_system",
+                                        "validation_gate_rule_params")
+    tools = render("solve_system", "tools", validation_gate=validation_gate)
+
+    principles = render("solve_system", "principles")
+    if not explore:
+        principles += "\n" + render("solve_system", "banking")
+
+    run_records = ""
+    if use_journal:
+        journal_protocol = ""
+        if not explore:
+            journal_protocol = "\n\n" + render("solve_system",
+                                               "journal_protocol_solve")
+        run_records = render("solve_system",
+                             "run_records",
+                             journal_protocol=journal_protocol)
+
+    setting = ""
+    if explore:
+        note = (" " + early_stop_note.strip()) if early_stop_note else ""
+        setting = render("solve_system",
+                         "exploration_setting",
+                         early_stop_note=note)
+
+    return _join([
+        identity, deliverable, grammar, tools, principles, run_records, setting
+    ])
 
 
 def build_solve_prompt(
@@ -25,756 +163,161 @@ def build_solve_prompt(
     propose_params: bool = False,
     require_tool_validation: bool = False,
     explore_mode: bool = False,
-    ground_samplers: bool = False,
     journal: str = "",
     strategy: str = "",
     attempts: str = "",
-    physics_margin: bool = False,
-    policy_mode: bool = False,
 ) -> str:
-    """Build the bilevel solve/explore prompt asking for a plan sketch.
+    """Compose the solve or explore query for ``task``.
 
-    ``ground_samplers`` is the caller-threaded value of
-    ``RefinementConfig.ground_samplers``; when False the prompt never
-    mentions the ``~`` annotation channel.
-
-    Mirrors ``AgentModelBasedApproach._build_solve_prompt`` but takes
-    dependencies explicitly so explorers can reuse it.
-
-    ``scheduled_plans`` lists sketch-line descriptions of exploration
-    plans already generated this online-learning cycle (all of a cycle's
-    requests are generated before any executes). When given, the prompt
-    asks for a plan that still achieves the goal but differs meaningfully,
-    so the cycle's interaction data is complementary instead of the same
-    plan repeated per request.
-
-    ``propose_params`` switches the prompt from "param-free sketch, search
-    finds all continuous params" to "propose your best continuous params in
-    ``[...]`` per step; the search refines them and samples on failure".
-
-    ``require_tool_validation`` tells the agent it MUST submit a
-    goal-reaching ``submit_plan`` run on the current task (the
-    captured, validated plan is the only output) - used when the approach
-    has no refinement fallback. When False, validation is merely
-    encouraged.
-
-    ``explore_mode`` marks the query as an exploration request whose
-    sketch will run in the REAL environment as an experiment. It adds a
-    belief-model disclosure (the simulator is base physics plus dynamics
-    learned so far, so an unlearned mechanism shows zero effect) and an
-    explicit delivery contract: a simulator-failing sketch is a valid
-    deliverable when the goal depends on a mechanism the belief model
-    lacks. Without it, agents have burned entire sessions exhaustively
-    proving such a mechanism's absence instead of submitting the
-    experiment that would let it be learned.
-
-    ``journal`` is the agent's own notebook (``journal.md``) and
-    ``attempts`` the harness's attempt log (``attempts.md``); see
-    ``predicators/agent_sdk/journal.py``. Both are injected so
-    fresh-context sessions inherit what worked (and what was already
-    swept) without inheriting failed attempts' conclusions.
-
-    ``strategy`` is the learn-phase-maintained domain strategy document
-    (``strategy.md``): the learn agent's best current natural-language
-    account of how to solve tasks in this domain, rewritten freely
-    across learning cycles. Injected as explicitly-advisory reference -
-    the knowledge can be wrong, so the prompt tells the solver to
-    re-verify rather than inherit.
-
-    ``policy_mode`` (``CFG.agent_solve_policy_mode``): the deliverable
-    becomes a closed-loop ./policy.py validated via ``submit_policy``
-    instead of a fixed submit_plan capture; the submit and
-    closing guidance swap to the policy contract.
-
-    ``physics_margin`` is the caller-threaded value of
-    ``CFG.agent_plan_validation_physics_margin``: when True (and
-    ``require_tool_validation``), the submit guidance tells the agent
-    the capture gate also sweeps the identified physical parameters'
-    uncertainty range, and to pre-check designs with
-    ``sim.run(..., physics_sweep=True)`` instead of discovering
-    PARAM-SENSITIVE rejections one submission at a time.
+    ``propose_params`` labels each option's parameter box as proposed by
+    the agent (otherwise as found by the search) and picks the stuck-
+    step advice. ``require_tool_validation`` selects the capture-gate
+    instructions; ``explore_mode`` the experiment instructions (the two
+    are exclusive). ``scheduled_plans`` lists the plans this cycle
+    already queued, so the agent is asked for a complementary one.
+    ``journal``, ``attempts``, and ``strategy`` are the run records'
+    contents (``journal.py``); the protocol for using them is in the
+    system prompt.
     """
     assert not (explore_mode and require_tool_validation), (
         "explore_mode accepts an uncaptured experiment sketch, which "
         "contradicts the hard capture gate of require_tool_validation")
-    assert not policy_mode or require_tool_validation, (
-        "policy_mode is a hard capture gate (submit_policy), so it "
-        "requires require_tool_validation")
 
     init_state = task.init
-    objects = list(init_state)
-
-    obj_strs = []
-    for obj in sorted(objects, key=lambda o: o.name):
-        obj_strs.append(f"  {obj.name}: {obj.type.name}")
+    objects = sorted(init_state, key=lambda o: o.name)
+    obj_lines = [f"  {obj.name}: {obj.type.name}" for obj in objects]
 
     # Only expose goal atoms whose predicate is in the agent's current
-    # predicate set. Approaches that strip env predicates (e.g.
-    # agent_sim_predicate_invention) rely on goal_nl to communicate the
-    # goal; leaking unfiltered task.goal atoms would expose predicates the
-    # agent is supposed to invent for itself.
-    goal_strs = [
+    # predicate set: approaches that strip env predicates rely on
+    # goal_nl and must not leak atoms of predicates the agent invents.
+    goal_atoms = [
         str(a) for a in sorted(task.goal, key=str)
         if a.predicate in all_predicates
     ]
 
-    option_strs = []
+    option_lines = []
     for opt in sorted(all_options, key=lambda o: o.name):
         type_sig = ", ".join(t.name for t in opt.types)
         params_dim = opt.params_space.shape[0]
+        param_info = ""
         if params_dim > 0:
             low = opt.params_space.low.tolist()
             high = opt.params_space.high.tolist()
             label = "params" if propose_params else "auto-searched params"
-            if opt.params_description:
-                desc = ", ".join(opt.params_description)
-                param_info = (f"  [{label}: {desc}, "
-                              f"range {low} to {high}]")
-            else:
-                kind = f"{params_dim}d"
-                param_info = (f"  [{label}: {kind}, "
-                              f"range {low} to {high}]")
-        else:
-            param_info = ""
-        option_strs.append(f"  {opt.name}({type_sig}){param_info}")
+            desc = (", ".join(opt.params_description)
+                    if opt.params_description else f"{params_dim}d")
+            param_info = f"  [{label}: {desc}, range {low} to {high}]"
+        option_lines.append(f"  {opt.name}({type_sig}){param_info}")
 
     atoms = utils.abstract(init_state, all_predicates)
-    atom_strs = [str(a) for a in sorted(atoms, key=str)]
+    atom_lines = [str(a) for a in sorted(atoms, key=str)]
 
-    state_str = init_state.dict_str(indent=2)
-
-    tools_str = ""
-    if tool_names:
-        tool_list = "\n".join(f"  - {t}" for t in tool_names)
-        tools_str = f"\n## Available Tools\n{tool_list}\n"
-
-    experiment_section = ""
-    if experiment_guidance:
-        experiment_section = (f"\n## Experiment Guidance\n"
-                              f"{experiment_guidance}\n")
-
-    # Everything explore-specific lives in this ONE section: loop
-    # context, belief-model semantics, and experiment-design principles.
-    # The deliverable contract stays in closing_block; the system prompt
-    # never repeats any of it.
-    setting_section = ""
-    if explore_mode:
-        early_stop_note = ""
-        if (CFG.online_learning_early_stopping
-                and not CFG.online_learning_early_stopping_by_test_solve_rate):
-            attempts_clause = (
-                "every episode of a cycle"
-                if CFG.online_learning_early_stopping_require_all_attempts else
-                "each train task's first episode of a cycle")
-            early_stop_note = (
-                " The loop concludes early once the exploration plans "
-                f"solve training: {attempts_clause} must reach the goal "
-                "for real, AND the plan must have validated in the belief "
-                "model - a lucky real success from a plan the model could "
-                "not certify does not count. Once the belief model can "
-                "validate a goal-reaching plan, submitting it (even "
-                "unchanged) is how the loop concludes." +
-                (" A plan that passes submit_plan's validation "
-                 "gate (goal reached in every fresh belief rollout) is "
-                 "executed VERBATIM as this episode's solve attempt; "
-                 "only an unvalidated sketch is treated as an "
-                 "experiment."
-                 if CFG.agent_explorer_execute_certified_plan else ""))
-        elif CFG.online_learning_early_stopping_by_test_solve_rate:
-            n_perfect = (
-                CFG.online_learning_early_stopping_consecutive_perfect_tests)
-            phases = ("the next test phase solves" if n_perfect <= 1 else
-                      f"{n_perfect} consecutive test phases each solve")
-            early_stop_note = (
-                f" The loop concludes early once {phases} every test "
-                "task. Test attempts plan with the belief model, so what "
-                "ends the loop is the belief model becoming reliably "
-                "correct - your episodes count toward that only through "
-                "the model corrections their data enables, not through "
-                "reaching the goal themselves.")
-        setting_section = (
-            "\n## Exploration Setting\n"
-            "You are the explorer in an online learning loop: the plan "
-            "you submit runs in the REAL environment as an experiment, "
-            "and its episode data is what the next learning phase uses "
-            "to correct the belief model." + early_stop_note + "\n\n"
-            "The simulator behind your tools is that belief model: known "
-            "base physics plus whatever additional dynamics have been "
-            "learned from real interaction data so far. A mechanism that "
-            "has not been learned yet is simply ABSENT from it - the "
-            "simulator shows zero effect no matter how you arrange the "
-            "probe, and early in learning this can include the very "
-            "mechanism the goal depends on. Treat a null effect after a "
-            "few well-aimed probes as \"not in the belief model yet\", "
-            "not as evidence about the real environment, and do not "
-            "spend the session exhaustively confirming the absence.\n\n"
-            "Design the experiment accordingly. A goal-reaching, "
-            "simulator-validated plan is ideal when the model supports "
-            "one; when the goal depends on a mechanism the model lacks, "
-            "submit the plan most likely to achieve the goal in reality "
-            "- reason from the goal description, the scene geometry, and "
-            "physical common sense - and annotate the subgoals that "
-            "SHOULD hold if the mechanism works: the disagreement "
-            "between prediction and reality is exactly the signal "
-            "exploration exists to collect, so a simulator-failing "
-            "sketch is a valid deliverable, and grinding for a validated "
-            "plan the model cannot produce is wasted budget. An "
-            "experiment's information comes from the steps the belief "
-            "model cannot predict. Your sketch runs in the real "
-            "environment EXACTLY as written: every explicit parameter "
-            "executes verbatim, nothing is searched or substituted, and "
-            "a step you leave without parameters gets one uniform draw "
-            "from the option's box - so propose explicit parameters for "
-            "every step. Validate in the belief model yourself where it "
-            "supports the plan (`sim.run`, `sim.refine`, then "
-            "`submit_plan` to submit), and follow each "
-            "uncertified step with a step whose outcome reveals whether "
-            "the mechanism worked - a short plan that exercises the "
-            "unknown beats a long one that spends the episode's steps "
-            "on what the model already predicts.\n\n"
-            "What a cycle's data must contain. Across a cycle's "
-            "episodes the real environment must see (a) at least one "
-            "attempt at the FULL goal - every goal atom, executed to "
-            "the end, with the parameters you believe most likely to "
-            "work in reality even where the belief model predicts "
-            "failure - and (b) the top-ranked open question's "
-            "experiment executed as it is specified (its option "
-            "sequence and parameters), not a variation of your own. "
-            "One episode usually carries both, because when the open "
-            "question is a mechanism the goal requires, the goal "
-            "attempt IS its experiment; when the budget forces a "
-            "choice, the cycle's first episode attempts the goal and a "
-            "later one runs the ledger's top experiment - the "
-            "scheduled-plans section below tells you what this cycle "
-            "already covers.\n\n"
-            "Experiment design - one episode, many measurements. Before "
-            "sketching, list the mechanisms the goal depends on and "
-            "mark each KNOWN (the belief model has predicted it "
-            "correctly against real data) or OPEN (never observed, "
-            "unverified, or flagged in the guidance below). Design the "
-            "episode to settle as many OPEN items as its step budget "
-            "allows, not one per episode: probes of independent "
-            "mechanisms can share an episode when they touch disjoint "
-            "objects and neither depends on the other's outcome. When "
-            "an open item is a threshold or window (how close, how "
-            "long, how aligned), stage a LADDER: several independent "
-            "instances at staggered values bracketing the believed "
-            "boundary - e.g. object pairs at several spacings - so one "
-            "episode measures the boundary from both sides instead of "
-            "contributing a single incidental sample; every threshold "
-            "pinned this way is a cycle of drift-by-refit avoided "
-            "later. When combining probes, annotate the subgoals of "
-            "steps whose mechanism the belief model already CONTAINS "
-            "(annotations there let `sim.suggest_probes` rank probes and "
-            "let the execution monitor catch divergence, and cost "
-            "nothing). For a mechanism the model entirely LACKS, "
-            "annotate what SHOULD happen: the annotation documents the "
-            "disagreement to measure, and your explicit parameters keep "
-            "the later probes exactly as designed. "
-            "Spend no steps re-demonstrating what the model already "
-            "predicts well beyond what later probes need as setup.\n\n"
-            "When the belief model has learned no dynamics at all yet "
-            "(the first cycle of a fresh run), coverage beats depth: "
-            "design the episode to exercise every option and to create "
-            "every object interaction the goal description names "
-            "(contact, attachment, activation, stacking - whatever the "
-            "domain's language suggests), so the first learning phase "
-            "sees each mechanism at least once, instead of spending the "
-            "episode polishing a single goal attempt whose failure "
-            "reveals only its first missing mechanism. Carry each "
-            "interaction to its CONSEQUENCE, not just its setup: bring "
-            "the prepared surfaces into actual contact, release, wait "
-            "long enough for a delayed effect, then probe the result "
-            "(lift, push, or move one body and watch whether the other "
-            "follows). An interaction the episode stages but never "
-            "consummates - glue applied to a face that touches nothing, "
-            "parts placed near but not against each other - leaves the "
-            "learner with no event to model, and the cycle is spent.\n\n"
-            "Ledger upkeep is part of the deliverable. Append "
-            "measurements to ./journal.md as you go (a short entry per "
-            "experiment - lead with the numbers), and when a result "
-            "settles an open question or opens a new one, edit "
-            "open_questions.md directly with the file tools - the next "
-            "learning phase designs its work from that file, and a "
-            "result that only lives in a truncated journal entry is a "
-            "result lost. Do NOT edit strategy.md: it is the learning "
-            "phase's curated document, and one exploration episode's "
-            "evidence does not overturn it - when your measurements "
-            "contradict a recipe, record the contradiction as an open "
-            "question instead.\n")
-
-    scheduled_plans_section = ""
-    if scheduled_plans:
-        plan_blocks = "\n".join(f"Plan {i + 1}:\n{p}"
-                                for i, p in enumerate(scheduled_plans))
-        scheduled_plans_section = (
-            "\n## Plans Already Scheduled This Cycle\n"
-            "The plan(s) below are already queued to run on this same task "
-            "before any learning happens, so their interaction data will be "
-            "collected regardless of what you propose now.\n"
-            f"{plan_blocks}\n"
-            "\nPropose a plan whose DATA is complementary rather than "
-            "redundant: cover open questions, mechanisms, or parameter "
-            "regions the plan(s) above leave unmeasured. A goal-reaching "
-            "plan is still preferred when it can carry that coverage; "
-            "when it cannot, a designed experiment that settles what the "
-            "scheduled plans will not is the better use of this episode. "
-            "Only if the model is believed correct everywhere and no "
-            "meaningfully different goal-reaching plan exists, repeat "
-            "the best plan.\n"
-            "\nIf a scheduled plan is marked belief-certified, this "
-            "episode is the second test of the belief model, and one "
-            "success of one plan is weak evidence. In order of "
-            "preference: (1) a STRUCTURALLY different goal-reaching plan "
-            "- a different option sequence, order, grasp, or contact "
-            "arrangement - validated through the same submit_plan gate; "
-            "(2) when no structurally different plan exists for this "
-            "goal, the same structure with materially different "
-            "parameters (a different placement pose, offset, or timing, "
-            "not a jitter), validated the same way; (3) only as a last "
-            "resort, the certified plan resubmitted unchanged. State "
-            "which of the three you chose and why. A certified plan "
-            "that then fails for real is the most informative outcome "
-            "this episode can produce, not a loss.\n")
-
-    strategy_section = ""
-    if strategy:
-        strategy_section = (
-            "\n## Domain Strategy (advisory, written during learning)\n"
-            "The learning phase maintains this strategy document - its "
-            "best current account of how to solve tasks in this domain "
-            "(approach, mechanisms, parameter formulas, pitfalls). Use "
-            "it as a reference and starting point, but you are NOT "
-            "limited to it: it can be wrong or stale, so re-verify its "
-            "load-bearing claims cheaply before building on them, and "
-            "depart from it whenever your own measurements disagree.\n\n"
-            f"{strategy}\n")
-
-    attempts_section = ""
-    if attempts:
-        attempts_section = (
-            "\n## Attempt Log (recorded by the harness)\n"
-            "Outcomes of earlier solve attempts and tasks in this run, "
-            "recorded automatically in ./attempts.md (do not edit it): "
-            "each task's goal and initial state, and per attempt the "
-            "outcome, the budget spent, and the captured or best refused "
-            "plan. Facts, not advice.\n\n"
-            f"{attempts}\n")
-    journal_section = ""
-    if journal or attempts:
-        journal_section = (
-            "\n## Solve Journal (./journal.md)\n"
-            "You start with fresh context. The journal is this run's "
-            "persistent notebook, written by earlier solve and learning "
-            "sessions with the file tools; with the attempt log it is "
-            "the record of what was tried. Use it - reproduce what "
-            "worked, do not repeat parameter sweeps it already covers - "
-            "but treat any recorded conclusion skeptically: re-verify "
-            "cheap claims rather than inheriting them, especially from "
-            "failed attempts.\n"
-            "Journal protocol for this attempt:\n"
-            "- A design the attempt log records as having reached the "
-            "goal in the REAL environment is the INCUMBENT: reproduce it "
-            "unless the record also shows it failing since, or a model "
-            "update invalidates one of its steps. Every deviation from "
-            "an execution-validated design - reordering steps, dropping "
-            "a Wait, retargeting a parameter - is a NEW experiment "
-            "carrying first-execution risk that belief validation does "
-            "NOT retire (real option durations and placement scatter "
-            "differ), so deviate only for a recorded reason and record "
-            "that reason.\n"
-            "- FIRST list the journal's untried leads, then execute or "
-            "explicitly retire (with a measurement) each promising lead "
-            "BEFORE re-opening a family an earlier attempt already marked "
-            "exhausted or opening a brand-new one. Attempts have been "
-            "wasted re-litigating condemned designs while a recorded, "
-            "concrete, untried lead sat unexecuted.\n"
-            "- A negative claim is only as broad as the family actually "
-            "swept: before trusting 'X never works', check what was "
-            "tested - a claim derived from one orientation, formula, or "
-            "region says nothing about the rest.\n"
-            "- If two entries conflict (one rules a mechanism out, another "
-            "recommends it), BOTH demote to open questions: design the "
-            "cheap experiment that decides between them instead of "
-            "silently trusting either.\n"
-            "Add your own lessons for future attempts by appending a "
-            "short entry to ./journal.md with the file tools: a `### ` "
-            "header naming the task and attempt, then a few bullets of "
-            "facts and measurements only - exact parameters, what was "
-            "measured, what to try differently; no verdicts like "
-            "'impossible'.\n\n"
-            f"{journal or '(no journal entries yet)'}\n")
-
-    goal_nl_section = ""
-    if task.goal_nl:
-        goal_nl_section = f"\n## Goal Description\n{task.goal_nl}\n"
-
-    # The env's public reward form (success condition + costs), when the
-    # task ships an evaluator that states one. Without it, agents burn
-    # turns reverse-engineering scores and induce false rules from them
-    # (run_20260729_001752 hypothesized a "-0.10 binary route-rejected
-    # flag" and a "-0.30 excess-blue penalty" from raw numbers the
-    # formula decodes instantly). Public by design: reward FORM only,
-    # never oracle quantities.
-    scoring_section = ""
-    evaluator = getattr(task, "evaluator", None)
-    if evaluator is not None:
-        objective = evaluator.objective_description()
-        if objective:
-            scoring_section = (
-                "\n## Scoring (env ground-truth reward)\n"
-                f"{objective}\n"
-                "Decode every reward you observe with this scoring rule "
-                "before hypothesizing any other mechanism - there are no "
-                "hidden reward terms.\n")
-
-    goal_atoms_section = ""
-    if goal_strs:
-        goal_atoms_section = (f"\n## Goal Atoms\n{chr(10).join(goal_strs)}\n")
-
-    pred_strs = []
+    pred_lines = []
     for pred in sorted(all_predicates, key=lambda p: p.name):
         type_sig = ", ".join(t.name for t in pred.types)
         line = f"  {pred.name}({type_sig})"
         if pred.natural_language_assertion is not None:
             names = [t.name for t in pred.types]
-            line += f" — {pred.natural_language_assertion(names)}"
-        pred_strs.append(line)
+            line += f": {pred.natural_language_assertion(names)}"
+        pred_lines.append(line)
 
-    # Tool-availability-aware references: guidance must not name a
-    # capability the session lacks (a simulator-free session has no
-    # probe). ``tool_names=None`` means the full surface.
-    tool_set = set(tool_names) if tool_names is not None else None
+    goal_nl_section = ""
+    if task.goal_nl:
+        goal_nl_section = render("solve_query",
+                                 "goal_nl",
+                                 goal_nl=task.goal_nl)
 
-    def _has_tool(name: str) -> bool:
-        return tool_set is None or name in tool_set
+    # The env's public reward form (success condition plus costs) when
+    # the task ships an evaluator that states one; never oracle values.
+    scoring_section = ""
+    evaluator = getattr(task, "evaluator", None)
+    if evaluator is not None and evaluator.objective_description():
+        scoring_section = render("solve_query",
+                                 "scoring",
+                                 objective=evaluator.objective_description())
 
-    refine_ref = "`sim.refine` (in `run_python`)"
-    if _has_tool("run_python"):
-        visualize_advice = (
-            "- Use `run_python` (`sim.reset(mods={...})`, then "
-            "`sim.render(...)`) to move objects to candidate positions and "
-            "orientations for free (no physics) and find the right region "
-            "visually before testing.\n")
-    else:
-        # No visualization surface offered: no bullet, rather than
-        # advice naming a capability the session lacks.
-        visualize_advice = ""
+    goal_atoms_section = ""
+    if goal_atoms:
+        goal_atoms_section = render("solve_query",
+                                    "goal_atoms",
+                                    goal_atoms="\n".join(goal_atoms))
 
-    # Advice for a step the search reports stuck (SAMPLE_EXHAUSTED). When the
-    # agent proposes params it tunes that step's values; otherwise it can only
-    # change the skeleton.
-    deep_tune_advice = (
-        "deep-tune just that step (it needs precise values from you), then "
-        "re-test it. When deep-tuning a step with `submit_plan`:\n"
-        "- Inspect the rendered images in `./test_images/` to see what "
-        "actually happened.\n"
-        "- For a failure like an IK error or collision, use the image and "
-        "object poses to reason about WHY and adjust params directionally — "
-        "don't try random nearby values.\n" + visualize_advice +
-        "- Vary ALL parameters, not just position — orientation and others "
-        "affect both the outcome and whether the action succeeds.\n"
-        "- Search coarse-to-fine: spread attempts across the full range; if "
-        "several nearby values fail the same way, jump to a different region "
-        "instead of continuing to tweak.\n"
-        "- Before steering a search with a DERIVED formula or geometric "
-        "prediction (e.g. which way an object moves, falls, or deflects), "
-        "validate the formula on one clean controlled experiment first. A "
-        "wrong formula makes correct designs look refuted, and that false "
-        "negative then silently excludes the right design family from the "
-        "rest of the search.")
-    revise_sketch_advice = (
-        "revise the sketch — try different objects, a different ordering, an "
-        "added intermediate step, or a corrected subgoal annotation — then "
-        "re-test.")
+    experiment_section = ""
+    if experiment_guidance:
+        experiment_section = render("solve_query",
+                                    "experiment_guidance",
+                                    guidance=experiment_guidance)
 
-    if propose_params:
-        ground_sampler_guidance = ""
-        ground_sampler_format = ""
-        if ground_samplers:
-            ground_sampler_guidance = (
-                " Confine its search near your estimate by appending a "
-                "region `~ [w1, w2]` (per-parameter half-widths) after a "
-                "step's `[params]`: the exact center is tried first, then "
-                "every sample for that step stays inside "
-                "`[center - w, center + w]` instead of the full range. For "
-                "regions a fixed window cannot express (state-dependent or "
-                "curved), write a function in `ground_samplers.py` "
-                "(`GROUND_SAMPLERS = {\"my_sampler\": fn}`, "
-                "`fn(state, subgoal_atoms, rng, objects) -> params`) and "
-                "reference it as `~ my_sampler` instead; the file is "
-                f"reloaded on every {refine_ref} call.")
-            ground_sampler_format = (
-                f"\n(For {refine_ref} only, a step may add a search "
-                "region after its params: "
-                "`OptionName(obj1:type1)[p1, p2] ~ [w1, w2] -> {...}`, or "
-                "`... ~ my_sampler` naming a GROUND_SAMPLERS entry.)")
-        sketch_kind_guidance = (
-            "Generate a plan — the sequence of options with object arguments "
-            "and continuous parameters in `[...]` per step (see each option's "
-            "params and range above; use `[]` for options with no "
-            "parameters).\n\n"
-            "Explore designs before tuning parameters: when several "
-            "qualitatively different designs could work (different objects, "
-            "orientations, sides, orderings, or mechanisms), run a cheap "
-            "test of each and compare failure modes BEFORE fine-tuning any "
-            "one of them. Parameter tuning cannot rescue the wrong design - "
-            "if a design keeps failing the same way as you tune it, switch "
-            "designs rather than tightening values. And before building on "
-            "a physics rule or constraint you inferred from a single "
-            "observation, re-test it once with a clean experiment; a wrong "
-            "rule adopted early can quietly rule out the correct designs.\n\n"
-            "Spend effort on parameters in proportion to difficulty:\n"
-            "- Where a WIDE range of values works, any reasonable value is "
-            "fine — don't over-tune these.\n"
-            "- Where good values are hard to hit — tight tolerances or exact "
-            "relative placements (e.g. positioning one object at a precise "
-            f"offset from another) - use {refine_ref} to search for a "
-            "working value (it's slower) and read the value it found." +
-            ground_sampler_guidance)
-        format_block = (
-            "Output the plan with one option per line in this format:\n"
-            "  OptionName(obj1:type1, obj2:type2)[param1, param2] -> "
-            "{Pred(obj1:type1), Pred2(obj1:type1, obj2:type2)}\n"
-            "  Wait(robot:robot)[] -> "
-            "{Pred3(obj1:type1), NOT Pred4(obj1:type1, obj2:type2)}" +
-            ground_sampler_format)
-    else:
-        sketch_kind_guidance = (
-            "Generate a plan sketch — the sequence of options with object "
-            "arguments, WITHOUT continuous parameters; a backtracking search "
-            "finds them for you.")
-        format_block = (
-            "Output the plan sketch with one option per line in this "
-            "format:\n"
-            "  OptionName(obj1:type1, obj2:type2) -> "
-            "{Pred(obj1:type1), Pred2(obj1:type1, obj2:type2)}\n"
-            "  Wait(robot:robot) -> "
-            "{Pred3(obj1:type1), NOT Pred4(obj1:type1, obj2:type2)}")
+    tools_section = ""
+    if tool_names:
+        tools_section = render("solve_query",
+                               "tools",
+                               tool_list="\n".join(f"  - {t}"
+                                                   for t in tool_names))
 
-    if require_tool_validation:
-        stuck_advice = (deep_tune_advice
-                        if propose_params else revise_sketch_advice)
-        margin_guidance = ""
-        if physics_margin:
-            margin_guidance = (
-                "Capture also requires the plan to succeed at a grid of "
-                "perturbations spanning +-1 sigma of the identified "
-                "physical parameters (the physics fit's own uncertainty); "
-                "a plan that fails any point is reported PARAM-SENSITIVE "
-                "instead of captured. Success can be NON-MONOTONIC in a "
-                "physical parameter - a design can pass just above and "
-                "just below a value and fail exactly at it - so tune "
-                "designs that pass the WHOLE range: pre-check with "
-                "`sim.run(plan_text, physics_sweep=True)` in run_python "
-                "(same points as the gate, one deterministic rollout each) "
-                "instead of discovering rejections one submission at a "
-                "time. ")
-        if CFG.agent_plan_validation_rule_param_margin:
-            margin_guidance += (
-                "Capture additionally re-runs the plan under the "
-                "calibrated posterior members of the LEARNED rule "
-                "parameters (the fit's honest uncertainty about the "
-                "thresholds and offsets it learned from data); failing "
-                "under any member is rejected PARAM-SENSITIVE. So design "
-                "MAX-MARGIN, not merely feasible: place every operating "
-                "point at the CENTER of its learned feasibility window "
-                "(aim an applicator at the target point itself, put a "
-                "placement mid-window, leave slack on every timing) - a "
-                "design that only works at the fitted point estimate of "
-                "an uncertain constant will fail either this gate or the "
-                "real environment, whose true constant sits somewhere in "
-                "that posterior. Before submitting, name your plan's "
-                "WEAKEST margin (the smallest distance from any step's "
-                "operating point to a learned threshold) and widen it if "
-                "it is smaller than the measured execution scatter. ")
-        submit_guidance = (
-            "SUBMIT via `submit_plan`: pass your full plan as text "
-            "(one option per line, `Option(obj:type)[params] -> {subgoals}`, "
-            "with EXACT params) and run it on the CURRENT task (omit "
-            "task_idx). When it reaches the goal, that plan is captured as "
-            "your answer, so do NOT finish until submit_plan "
-            "CONFIRMS the capture. A goal-reaching plan is re-run several "
-            "times before capture (simulation varies across runs; each "
-            "rollout reports the motion-planner seed it ran at); if it is "
-            "reported FLAKY, reproduce the failed rollout exactly (pass "
-            "its reported seed as rollout_seed to submit_plan, or "
-            "`sim.run(plan_text, seed=...)` in run_python) to see WHY, "
-            "then add margin to the fragile step and resubmit. For a plan "
-            "you suspect is marginal, request a stricter gate up front "
-            "with validation_rollouts=N (more repeats; never fewer than "
-            "configured) or measure reliability first with "
-            "`sim.run(plan_text, trials=N)`. " + margin_guidance +
-            "CAPTURE FIRST, OPTIMIZE SECOND: when the reward charges for "
-            "resources used (read the scoring section), a captured "
-            "modest-reward solve outscores an uncaptured optimal attempt "
-            "by the entire success bonus - so bank a ROBUST goal-reaching "
-            "design early, even an over-built one (extra margin, extra "
-            "resources), and only then spend remaining budget improving "
-            "it. This is safe: a newly VALIDATED capture replaces the "
-            "banked one, while a rejected submission (flaky, "
-            "param-sensitive, evaluator-rejected, or short of the goal) "
-            "never displaces it - but do not resubmit designs that are "
-            "not strictly better, since a validated worse plan would "
-            "replace the banked answer. Robust-but-wasteful designs live "
-            "AWAY from the feasibility boundary that minimal designs sit "
-            "on, so they are usually far easier to find and validate. "
-            "It runs your EXACT parameters with no sampling. To find "
-            f"working parameters you MAY use {refine_ref} (it searches "
-            "but is slower); read the parameters it reports and submit them "
-            "via submit_plan. If a step does not reach its subgoal, " +
-            stuck_advice)
-    elif propose_params:
-        submit_guidance = (
-            f"You may validate with {refine_ref} (it tries your "
-            "parameters first, then samples) and deep-tune any step it "
-            "reports stuck before finishing.")
-    else:
-        submit_guidance = (
-            f"You may vet a sketch with {refine_ref} before finishing; "
-            "the backtracking search will find continuous parameters.")
-    # Explore-specific delivery guidance lives in the Exploration
-    # Setting section above (single source); nothing to append here.
+    strategy_section = ""
+    if strategy:
+        strategy_section = render("solve_query", "strategy", strategy=strategy)
 
-    if policy_mode:
-        submit_guidance = (
-            "## Deliverable: Closed-Loop Policy (./policy.py)\n"
-            "Instead of a fixed plan, you deliver a PROGRAM that chooses "
-            "the next option from the current state. Write it to "
-            "./policy.py:\n\n"
-            "    def get_option(state, memory):\n"
-            "        ...\n\n"
-            "- `state`: the current State object (read-only copy). Same "
-            "API as run_python: `state.get(obj, 'feature')`, iterate "
-            "objects with `for obj in state`, `obj.name`, `obj.type`.\n"
-            "- `memory`: a dict, initially empty, persisting across calls "
-            "within ONE episode (phase flags, counters, cached "
-            "measurements); reset between episodes. After a failed "
-            "option, `memory['last_failure']` holds the failure text - "
-            "branch on it to RECOVER (re-place a drifted block, adjust a "
-            "target after a motion-planning refusal); it is None on clean "
-            "steps.\n"
-            "- Return ONE plan line as a string, in the exact sketch "
-            "grammar `OptionName(obj:type, ...)[p1, p2]` with exact "
-            "continuous parameters (`[]` for none; `->`/`~` annotations "
-            "are ignored here). Return None to declare the episode "
-            "finished.\n"
-            "- Helpers available inside policy.py: `np` (numpy) and "
-            "`atoms(state)` -> set of ground-atom strings.\n"
-            "- Execution semantics (identical in the belief simulator and "
-            "the real environment): get_option is called once per option "
-            "boundary with the ACTUAL current state; option failures do "
-            "NOT end the episode (they surface via memory['last_failure'] "
-            "and you are asked again); exceptions in get_option or "
-            "unparsable/ungroundable lines DO end it; a hard cap of "
-            f"{CFG.agent_policy_max_options} options bounds every "
-            "episode. After a failure, CHANGE something before retrying "
-            "(parameters, target object, or action) - re-issuing the "
-            "byte-identical line that just failed "
-            f"{CFG.agent_policy_max_repeated_failures} times in a row "
-            "ends the episode as a policy bug, because an unchanged "
-            "command fails the same way. The same applies to a no-op "
-            "livelock: re-issuing one identical line that keeps "
-            "COMPLETING with no observable state change "
-            f"{CFG.agent_policy_max_repeated_noops} times in a row also "
-            "ends the episode - if your stage logic is not advancing, "
-            "fix the stage test, do not re-send the same command.\n"
-            "SUBMIT via `submit_policy` on the CURRENT task until it "
-            "reaches the goal across all validation rollouts - the "
-            "validated policy.py snapshot (taken at call time; later "
-            "edits need a new call) is your ONLY accepted output. Test "
-            "recovery behavior first: in run_python, "
-            "`sim.run_policy()` runs ./policy.py from the CURRENT probe "
-            "state (including perturbed or mid-plan states), so check "
-            "that the policy recovers from off-nominal states, not just "
-            "the initial one. " + margin_guidance)
-        closing_block = (
-            "Your answer is ONLY accepted from a goal-reaching "
-            "`submit_policy` run on the CURRENT task; final text alone "
-            "is discarded, so never finish without that validated run. "
-            "After the goal-reaching run, summarize the policy's strategy "
-            "as your final text.")
-    if require_tool_validation and not policy_mode:
-        # Plain text is NOT a submission in this mode; saying "output the
-        # plan lines" as the closing instruction has led agents (especially
-        # right after an SDK context compaction, whose text-only summary
-        # instruction bleeds into the task) to answer with an unvalidated
-        # text sketch and finish, wasting the whole attempt.
-        closing_block = (
-            "Your answer is ONLY accepted from a goal-reaching "
-            "`submit_plan` run on the CURRENT task; final text "
-            "alone is discarded, so never finish without that validated "
-            "run. Tool calls are permitted on every turn of this "
-            "conversation. If an earlier context summary says a turn was "
-            "text-only, that applied to writing the summary itself, not to "
-            "this task; resume calling tools. After the goal-reaching run, "
-            "repeat its plan lines as your final text.")
-    elif explore_mode:
-        closing_block = (
-            "This is an EXPLORE query: your final plan-sketch text IS the "
-            "deliverable (a simulator-validated capture is welcome but NOT "
-            "required). Output ONLY the plan sketch lines at the end, "
-            "after any analysis.")
-    elif not policy_mode:
-        # (In policy mode the closing block was set above.)
-        closing_block = (
-            "Output ONLY the plan sketch lines at the end, after any "
-            "analysis.")
+    attempts_section = ""
+    if attempts:
+        attempts_section = render("solve_query", "attempts", attempts=attempts)
 
-    atoms_block = chr(10).join(atom_strs) if atom_strs else (
-        "  (none - no atom of the available predicates holds initially)")
+    journal_section = ""
+    if journal or attempts:
+        journal_section = render("solve_query",
+                                 "journal",
+                                 journal=journal
+                                 or render("solve_query", "no_journal"))
+
+    scheduled_section = ""
+    if scheduled_plans:
+        plans = "\n".join(f"Plan {i + 1}:\n{p}"
+                          for i, p in enumerate(scheduled_plans))
+        certified_rule = ""
+        if any("belief-certified" in p for p in scheduled_plans):
+            certified_rule = "\n\n" + render("solve_query", "certified_rule")
+        scheduled_section = render("solve_query",
+                                   "scheduled_plans",
+                                   plans=plans,
+                                   certified_rule=certified_rule)
 
     if explore_mode:
-        opening = (
-            "You are exploring a task environment to gather information. "
-            "Generate a plan sketch to run in the real environment as an "
-            "experiment. Achieving the goal is the most informative "
-            "experiment available, so treat solving the task as part of "
-            "information gathering.")
+        instructions = render("solve_query", "instructions_explore")
+    elif require_tool_validation:
+        stuck = render("solve_query",
+                       "stuck_tune" if propose_params else "stuck_revise")
+        instructions = render("solve_query",
+                              "instructions_capture",
+                              stuck_advice=stuck)
     else:
-        opening = ("You are solving a task. Generate a plan sketch to "
-                   "achieve the goal.")
+        instructions = render("solve_query",
+                              "instructions_capture",
+                              stuck_advice=render("solve_query",
+                                                  "stuck_revise"))
 
-    prompt = f"""{opening}
-{goal_nl_section}{scoring_section}{goal_atoms_section}{setting_section}\
-{experiment_section}
-## Initial State Atoms
-{atoms_block}
-
-## Initial State Features
-{state_str}
-{initial_image_section}
-## Objects
-{chr(10).join(obj_strs)}
-
-## Available Options
-{chr(10).join(option_strs)}
-
-## Available Predicates (for subgoal annotations)
-{chr(10).join(pred_strs)}
-{trajectory_summary}{tools_str}{strategy_section}{attempts_section}\
-{journal_section}\
-{scheduled_plans_section}
-## Instructions
-Use your available tools to inspect the environment before producing the plan.
-
-{sketch_kind_guidance}
-
-{submit_guidance}
-
-{format_block}
-
-Follow the system prompt's Subgoal Annotations contract: annotate every \
-step whose effect the available predicates can express (typed obj:type \
-references in arguments and atoms alike), insert a Wait after any action \
-whose subgoal depends on a delayed process, and annotate each Wait with \
-the atoms that should end it. A delayed process needs its EXPLICIT Wait \
-even when a belief rollout completes without one: belief and real option \
-durations differ, so a plan that borrows other steps' incidental \
-duration to cover a hidden timer validates in belief and loses the \
-timing race in reality. A step without `-> {{atoms}}` is only \
-checked for "executed" - search and execution monitoring are blind there.
-
-{closing_block}"""
-
-    return prompt
+    body = render(
+        "solve_query",
+        "skeleton",
+        opening=render("solve_query",
+                       "opening_explore" if explore_mode else "opening_solve"),
+        goal_nl_section=goal_nl_section,
+        scoring_section=scoring_section,
+        goal_atoms_section=goal_atoms_section,
+        experiment_section=experiment_section,
+        atoms="\n".join(atom_lines) if atom_lines else render(
+            "solve_query", "no_atoms"),
+        state=init_state.dict_str(indent=2),
+        image_section=initial_image_section.strip("\n"),
+        objects="\n".join(obj_lines),
+        options="\n".join(option_lines),
+        predicates="\n".join(pred_lines),
+        trajectory_summary=trajectory_summary.strip("\n"),
+        tools_section=tools_section,
+        strategy_section=strategy_section,
+        attempts_section=attempts_section,
+        journal_section=journal_section,
+        scheduled_plans_section=scheduled_section,
+        instructions=instructions,
+    )
+    return _join([body])

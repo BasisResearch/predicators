@@ -8,8 +8,9 @@ working. New code should import from the specific module:
 - ``sketch_types``: shared dataclasses (``GroundSampler``,
   ``SketchStep``) that parsing constructs and refinement/execution
   consume.
-- ``sketch_prompts``: ``build_solve_prompt``, the solve/explore prompt
-  builder.
+- ``sketch_prompts``: ``build_solve_system_prompt`` and
+  ``build_solve_prompt``, the solve/explore system-prompt and query
+  builders (rendered from ``prompts/*.md``).
 - ``sketch_parsing``: the sketch-line grammar - step/plan formatters
   and the parsers for subgoal / ``~`` ground-sampler annotations and
   continuous params.
@@ -26,7 +27,8 @@ from predicators.agent_sdk.sketch_parsing import format_plan_lines, \
     parse_region_annotations, parse_sketch_from_text, \
     parse_subgoal_annotations, strip_code_fences, strip_region_annotations, \
     strip_subgoal_annotations
-from predicators.agent_sdk.sketch_prompts import build_solve_prompt
+from predicators.agent_sdk.sketch_prompts import build_early_stop_note, \
+    build_solve_prompt, build_solve_system_prompt
 from predicators.agent_sdk.sketch_refinement import DeepestFailure, \
     InfoScorer, RefineOutcome, StepProbeSuggestion, ground_step, \
     refine_and_validate_report, refine_sketch, resolve_refine_timeout, \
@@ -42,7 +44,9 @@ __all__ = [
     "SketchStep",
     "StepOutcome",
     "StepProbeSuggestion",
+    "build_early_stop_note",
     "build_solve_prompt",
+    "build_solve_system_prompt",
     "execute_plan_forward",
     "format_plan_lines",
     "format_sketch_lines",

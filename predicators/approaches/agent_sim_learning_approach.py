@@ -34,6 +34,7 @@ import pybullet
 from gym.spaces import Box
 
 from predicators import utils
+from predicators.agent_sdk import learn_prompts
 from predicators.agent_sdk.session_base import AgentSessionFatalError, \
     max_session_log_number, query_fatal_error
 from predicators.agent_sdk.tools import SYNTHESIS_TOOL_NAMES, \
@@ -79,564 +80,6 @@ from predicators.structs import Action, Dataset, DerivedPredicate, \
     Predicate, State, Task, Type, step_option_labels
 
 logger = logging.getLogger(__name__)
-
-# Canonical "### Rule signature" blocks for the synthesis system prompt,
-# spliced in at the ``__RULE_SIGNATURE_SECTION__`` placeholder by
-# ``_build_synthesis_system_prompt``. Which one renders is decided by
-# ``CFG.partially_observable`` (see ``_rule_signature_section``): the
-# same flag that swaps the env's observation and the GT simulator
-# module, so the prompt can never disagree with the world's
-# observability regime. Under the flag the prompt never shows the 3-arg
-# form as canonical - the 3-arg form sitting beside the PO guidance
-# previously led the agent to write a 3-arg rule the recurrent engine
-# rejects.
-_FO_RULE_SIGNATURE_SECTION = '''\
-### Rule signature
-
-```python
-def rule(state, updates, params):
-    # state:   the current env State
-    # updates: Dict[Object, Dict[str, float]] accumulated from prior rules
-    # params:  Dict[str, float], one entry per ParamSpec
-    #
-    # Accumulate, don't replace:
-    #     updates.setdefault(obj, {})[feat] = new_value
-    # Return the same dict.
-    ...
-```'''
-
-_PO_RULE_SIGNATURE_SECTION = '''\
-### Rule signature
-
-This is a **partial-observability** task. Write every rule with the
-recurrent 5-arg signature below - the 2nd parameter MUST be named
-`latent` (the engine inspects each rule's signature and threads the
-latent block / read-only history only into rules that declare it):
-
-```python
-def rule(observation, latent, history, updates, params):
-    # observation: the current observation (a State holding the
-    #          observable features ONLY - hidden quantities appear
-    #          under no name; infer them into `latent`)
-    # latent:  Dict[str, Any], mutated in place - the hidden dims you
-    #          infer, threaded across steps (see "Recurrent rules" below)
-    # history: List[Tuple[State, Optional[Action]]] of past
-    #          observations, read-only; newest last
-    # updates: Dict[Object, Dict[str, float]] accumulated from prior rules
-    # params:  Dict[str, float], one entry per ParamSpec
-    #
-    # Accumulate, don't replace:
-    #     updates.setdefault(obj, {})[feat] = new_value
-    # Return the same dict.
-    ...
-```
-
-A rule that needs no hidden state can ignore its `latent`/`history`
-args, but keep the 5-arg shape so the tools and the fitting engine call
-every rule the same way. See "## Recurrent rules (partial observability)"
-below for `LATENT_INIT` and the two latent-modelling patterns.'''
-
-# Simulator-side latent tutorial appended to the synthesis system prompt
-# under ``CFG.partially_observable`` (see
-# ``_extra_synthesis_system_prompt``). Predicate-invention arms append
-# their predicate-side counterpart after this
-# (``agent_sim_predicate_invention_approach._RECURRENT_PREDICATE_SECTION``).
-_RECURRENT_PROMPT_SECTION = """\
-## Recurrent rules (partial observability)
-
-This approach handles partial observability: the observation may omit
-causally-important quantities - there may be several, one, or none.
-Anything omitted is *absent entirely* from the state (it appears under
-no name, not even as a NaN placeholder), so you cannot read it and
-must *infer* its existence and dynamics from how the observable
-features evolve. Inspect the trajectories first to judge how many
-latents (if any) you need: a feature that drifts or ramps with no
-visible observed driver is likely downstream of an accumulating
-latent; if every observable is already explained by other observed
-quantities, you need no latent at all - keep the 5-arg signature and
-simply leave `latent` untouched. One common case: a hidden continuous
-quantity surfaced only through a derived observable that ramps once the
-latent crosses a threshold.
-
-Model the hidden state explicitly: each ``State`` you predict is one
-sample of an *augmented* state - the observable features plus the
-latent dimensions you infer (a free-form dict like ``{"level": 0.73}``
-or ``{"count": 22}``). Rules read and advance that latent through the
-``latent`` argument of the 5-arg signature defined in "### Rule
-signature" above. Declare the initial latent block:
-
-```python
-LATENT_INIT = {"level": 0.0, "count": 0}
-# OR a zero-arg callable returning such a dict.
-# Use ParamSpec("name", ...) values to make an init value learnable.
-```
-
-### Structure the latent like the state (per-object)
-
-The augmented state is the observable features in ``observation.data``
-*plus* the latent dims you infer: a jug's hidden ``heat`` is just
-another feature of that jug that happens to be unobserved. So **shape
-the latent like ``data`` - object first, then feature**:
-``latent[jug.name]["heat"]`` should read in parallel with
-``observation.get(jug, "water_volume")``. The
-hidden quantities almost always belong to *individual* objects (each jug
-its own heat, each faucet its own spill buffer), and with several
-same-type objects a flat ``{"heat": 0.0}`` collapses them into one shared
-accumulator, which is wrong - exactly as your rules must loop over every
-object rather than indexing ``[0]``.
-
-```python
-LATENT_INIT = {}          # {jug_name: {"heat": value}}, filled lazily
-
-def heat_rule(observation, latent, history, updates, params):
-    jugs = [o for o in observation.data if o.type.name == "jug"]
-    for jug in jugs:
-        jl = latent.setdefault(jug.name, {})    # this jug's hidden dims
-        h = jl.get("heat", 0.0)
-        if on_active_burner(observation, jug, params):
-            h += 1.0
-        jl["heat"] = h
-        updates.setdefault(jug, {})["bubbling_level"] = readout(h, params)
-    return updates
-```
-
-Two deliberate differences from ``data``, though - the latent is **not**
-a typed feature array, and must not be made into one: (1) key by the
-stable string ``obj.name``, not the live ``Object`` (``data`` keys by
-``Object``, but the latent is deep-copied / reconstructed at every search
-node, so a live key risks identity mismatch); (2) keep it a free-form
-JSON-like nest of dicts / numbers with no registered schema - the agent
-invents these dims, and the engine threads and deep-copies whatever
-structure you put here. A genuinely global hidden quantity (a world
-clock, ambient temperature) stays a top-level scalar rather than being
-forced under an object. (Top-level scalar latent entries may be
-``ParamSpec``s to make their initial value learnable; seed each
-per-object slot lazily from such a shared init.)
-
-The type, feature, latent, and parameter names in the examples below
-(`widget`, `fixture`, `progress`, `level`, ...) are illustrative - use
-whatever your prompt digests and the trajectory data actually report
-for your task.
-
-### Two synthesis patterns (agent picks per latent)
-
-**Pattern A - Counter + threshold.** Carry a step counter; flip the
-observable when it crosses a learnable threshold. Same statistical
-shape as a delayed discrete event:
-
-```python
-PARAM_SPECS = [ParamSpec("delay", init_value=33, lo=1, hi=200)]
-LATENT_INIT = {"count": 0}
-
-def count_rule(observation, latent, history, updates, params):
-    active = is_widget_at_fixture(observation)  # observable check
-    fixture_on = observation.get(fixture, "is_on") > 0.5
-    if active and fixture_on:
-        latent["count"] += 1
-    else:
-        latent["count"] = 0
-    fired = latent["count"] >= params["delay"]
-    updates[widget]["progress"] = 1.0 if fired else 0.0
-    return updates
-```
-
-**Pattern B - Physical latent + readout.** Carry an estimate of the
-unobserved quantity; map it through a (typically monotone) function to
-predict the observable. Higher resolution: the observable co-varies
-smoothly with the latent before the symbolic "done" point.
-
-```python
-PARAM_SPECS = [ParamSpec("rate", init_value=0.03, lo=0.0, hi=0.1)]
-LATENT_INIT = {"level": 0.0}
-
-def level_rule(observation, latent, history, updates, params):
-    active = is_widget_at_fixture(observation)
-    fixture_on = observation.get(fixture, "is_on") > 0.5
-    if active and fixture_on:
-        latent["level"] += params["rate"]
-    lvl = latent["level"]
-    # monotone readout: ramps from 0 once `lvl` passes an onset (~0.85)
-    updates[widget]["progress"] = max(0.0, min(1.0, (lvl - 0.85) / 0.15))
-    return updates
-```
-
-**How to choose.** Look at the derived observable in the inspect
-tools:
-- Smooth ramp across many steps ⇒ Pattern B (partial-progress
-  signal; rate identifiable from a single trajectory by slope-fit).
-- Clean discrete flip at a variable tick ⇒ Pattern A may suffice
-  (one learnable threshold, calibrated from the empirical
-  flip-time distribution across trajectories).
-- Mixing is fine: different rules / different latents can use
-  different patterns within the same simulator.
-
-### Keep carried state in `latent`, not in your emitted observables
-
-Anything your rule must remember across steps - a counter, an accumulated
-level, an irreversible "done" flag - belongs in `latent`. Treat the
-observables you write to `updates` as **outputs only**: recompute them
-from `latent` (and base-owned inputs) each step; never read one of your
-own emitted features back in as state. The planner resets and replays
-states during refinement, and only `latent` is guaranteed to be threaded
-across those jumps - an emitted observable may not survive a reset, so a
-rule that latches on its own output can pass a step-by-step rollout yet
-break at refinement time. Patterns A and B above already follow this: the
-observable is a fresh readout of `latent`. (Reading features the base sim
-owns - positions, `is_on`, `is_held` - is fine; those are restored
-faithfully.)
-"""
-
-# Short partial-observability note appended to the agent's first
-# synthesis message under ``CFG.partially_observable`` (see
-# ``_extra_synthesis_message``).
-_RECURRENT_MESSAGE_SECTION = """\
-## Partial observability
-
-Some causally-important quantities may be absent from the agent-visible
-observation entirely (under no name, not even as NaN) - possibly
-several, possibly none. Inspect the trajectories first to judge whether
-any hidden process is at work and which observable features are your
-window into it; then, if any latents are needed, choose Pattern A or
-Pattern B (or mix) to model the underlying dynamics in `latent`.
-"""
-
-# Synthesis system prompt, rendered by
-# ``AgentSimLearningApproach._build_synthesis_system_prompt``: the
-# ``__UPPER_SNAKE__`` placeholders are substituted per instance
-# (observability, env parameter menu, tool surface, subclass extras).
-_SYNTHESIS_SYSTEM_PROMPT_TEMPLATE = """\
-You are synthesizing a parameterized residual-dynamics simulator for a \
-robotic manipulation environment.
-
-A separate PyBullet base sim handles robot movement, grasping, and rigid- \
-body physics. Your simulator handles **residual dynamics** - features \
-that change due to physical or causal processes (gradual level changes, \
-accumulation, propagation between contacting objects, sensor readouts \
-that lag actuators, etc.) that the base sim doesn't model.
-
-## What you produce
-
-One file `simulator.py` (path given in the first message) defining three \
-top-level names:
-
-```python
-RESIDUAL_RULES:    List[Callable]            # rule functions (see signature below)
-PARAM_SPECS:      List[ParamSpec]           # learnable parameters
-RESIDUAL_FEATURES: Dict[str, List[str]]      # {type_name: [feature_names]} your rules predict
-```
-
-`RESIDUAL_FEATURES` defines both the loss scope and the test-time overwrite \
-scope: only the listed `(type, feature)` pairs are scored against \
-observations, and only those are written on top of the base sim at test \
-time. Be honest - listing features your rules don't actually update \
-inflates the loss without giving MCMC anything to optimise.
-__PHYSICAL_PARAMS_SECTION__
-__RULE_SIGNATURE_SECTION__
-
-### Physics commands (`cmds`) - moving rigid bodies through the engine
-
-A rule may declare one extra trailing parameter named `cmds` to gain a \
-second output channel: generic rigid-body actuation executed by the \
-base sim's physics engine.
-
-```python
-def rule(..., cmds):        # same leading args as above, plus `cmds`
-    cmds.apply_force(obj, (fx, fy, fz))    # world-frame Newtons
-    cmds.apply_torque(obj, (tx, ty, tz))   # world-frame N*m
-    cmds.set_velocity(obj, linear=(vx, vy, vz))   # kinematic override
-    cmds.attach(obj_a, obj_b)   # rigid weld at their CURRENT relative pose
-    return updates
-```
-
-`cmds.attach` is the primitive for two bodies that move as ONE rigid \
-body from some event on (a cured glue joint, a latch, a magnetised \
-contact): the engine creates a fixed constraint at the pair's current \
-relative pose and keeps it exactly while the command is re-emitted, so \
-the base sim carries the whole assembly through pick, transport, and \
-contact. Latch the decision in the rule's latent/feature state and \
-re-emit from the latch every step. Do NOT emulate a weld by writing \
-follower poses from the leader's pose each step: pose-written \
-followers do not collide, do not support anything, and swing free \
-during a carry, so plans validate in the belief and fail for real.
-
-Commands act during the NEXT env action and then expire - re-emit \
-them each step the process is active (a wind that blows while a \
-device is on is simply "emit the force whenever `is_on > 0.5`"). \
-A force/torque is re-applied on every physics substep of that action: \
-a continuous push, like real wind or a magnet. The engine resolves \
-everything the commanded motion runs into: contact stops, sliding \
-along surfaces, deflection. Do NOT re-derive collision handling in \
-rule code on top of commands.
-
-**Choosing the channel - run this diagnostic ladder, in order:**
-
-1. **The base sim already produces the motion, but quantitatively \
-off** (bodies move on replay, with drifting angles/timing): the \
-mechanism lives in the engine and the error is a function of its \
-physical parameters. Declare `PHYSICAL_PARAMS` and write NO rule for \
-it.
-2. **A body moves in the data but is inert in base-sim replay** \
-whenever some observable condition holds: the mechanism is missing - \
-an exogenous influence the engine knows nothing about. Model it with \
-force/velocity commands gated on the condition. If the missing \
-mechanism is that two bodies move together rigidly after an event, \
-the command is `cmds.attach`, not a pose rule.
-3. **The feature is not a rigid-body pose at all** (a level, a \
-temperature, a counter): use the feature-update channel.
-
-Never write a rule that overwrites or pushes a body the base sim is \
-already moving - the two fight, and the fit lets the rule absorb \
-physics error. And prefer the simplest force hypothesis first: a \
-body that moves at a constant rate while a condition holds and stops \
-when it ends (or when something is in the way) is a constant force \
-plus engine contacts, not a decaying gust, a one-shot kick, or an \
-edge-triggered pulse.
-
-Declaring `cmds` switches fitting and residual scoring to \
-env-in-the-loop rollout matching automatically (`sim.fit` reports it); \
-command effects cannot be scored teacher-forced. `RESIDUAL_FEATURES` \
-still declares the features your dynamics own - list the pose \
-features your commands move (e.g. `{"ball": ["x", "y"]}`); they are \
-scored against observations but NOT overwritten at test time (the \
-engine moves them).
-
-### Multiple objects of the same type
-
-A task may contain **several objects of the same type** - two widgets, \
-three fixtures, or one of each - and the count varies from task to task. \
-Your rules run once per step over the entire `State`, so they must act on \
-*whatever objects are present*, never a hard-coded slot. Code like \
-`widgets[0]` silently ignores every other instance and breaks the moment \
-a task has more (or fewer) objects than the trajectory you calibrated on.
-
-Gather the relevant objects by type and loop over the binding(s) the rule \
-acts on, emitting updates keyed by the specific object the effect applies \
-to:
-
-```python
-widgets  = [o for o in state.data if o.type.name == "widget"]
-fixtures = [o for o in state.data if o.type.name == "fixture"]
-for widget in widgets:
-    for fixture in fixtures:           # all pairs, or pair each widget
-        if at_fixture(state, widget, fixture, params):   # to its nearest
-            wv = state.get(widget, "progress")
-            updates.setdefault(widget, {})["progress"] = wv + params["rate"]
-```
-
-The same `params` apply to every object of a type: you are learning the \
-shared physics of "a widget", not per-instance constants. If a rule \
-genuinely needs exactly one object (a single global clock, say), assert \
-that rather than silently indexing `[0]`.
-
-### Timing
-
-Each rule fires once per step:
-
-```
-state[t] ──base_sim──▶ draft state[t+1] ──your rules──▶ final state[t+1]
-                                               ^^^^^^^
-                        (only RESIDUAL_FEATURES are overwritten)
-```
-
-Rules see `state[t]`. They cannot see actions, the base sim's draft, or \
-`state[t+2]`. If a feature changes one step *after* its gating event \
-(e.g. an action toggles a gating flag at `t`, but the feature it drives \
-only starts changing at `t+1`), that's an inherent 1-step lag in the \
-data - accept the single boundary residual or model the delay with an \
-extra parameter rather than chasing it with ever-stricter conditions.
-
-### Geometric gates
-
-If a rule's firing condition depends on the relative position of two \
-bodies, do **not** gate on the raw distance between their recorded \
-poses. `obj.x, obj.y` is the recorded pose origin - usually a body's \
-base or frame center - while the point that actually drives the \
-physics (a contact surface, an outlet on the body's side, an \
-end-effector tip, a container opening, a handle) is typically offset \
-from it. That offset lives in the body's **local frame**, so it \
-rotates with the body's `rot` feature; gating on raw origin distance \
-silently bakes in one task's orientation and breaks on any task where \
-the fixture is rotated differently.
-
-**Default to a learned, rotation-aware anchor offset.** Express every \
-two-body geometric gate as a distance to an *anchored* point - the \
-fixture origin plus a local-frame offset rotated into the world frame \
-by the fixture's `rot` - with the offset declared as learnable params:
-
-```python
-PARAM_SPECS = [
-    # Functional point offset, in the fixture's LOCAL frame:
-    ParamSpec("fixture_local_dx",       0.0,  lo=-0.3, hi=0.3),
-    ParamSpec("fixture_local_dy",       0.0,  lo=-0.3, hi=0.3),
-    ParamSpec("widget_at_fixture_dist", 0.10, lo=0.0,  hi=0.4),
-]
-
-# `fixture`, `widget`: the relevant object pair (bind as your rule needs).
-__RESIDUAL_RULE_SIGNATURE__
-    rot = state.get(fixture, "rot")
-    cos_r, sin_r = np.cos(rot), np.sin(rot)
-    rot_mat = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
-    local_offset = np.array([params["fixture_local_dx"],
-                             params["fixture_local_dy"]])
-    origin = np.array([state.get(fixture, "x"), state.get(fixture, "y")])
-    anchor = origin + rot_mat @ local_offset  # world-frame point
-    widget_xy = np.array([state.get(widget, "x"), state.get(widget, "y")])
-    if np.linalg.norm(widget_xy - anchor) < params["widget_at_fixture_dist"]:
-        ...  # fire
-```
-
-If the functional point really does coincide with the recorded origin, \
-the fit drives the offsets to ~0 - no harm done. A threshold-only gate \
-(no offset) is the exception: use one only after you have positively \
-confirmed the recorded origin *is* the functional point. Share the \
-offset and distance params with the gating predicate so the rule and \
-predicate anchor to the same point.
-
-**Before committing any geometric gate**, run the threshold-fitting \
-protocol in CLAUDE.md: bucket trajectory steps by whether the gated \
-effect actually fired and require a clear margin between the buckets - \
-overlap or a knife-edge gap means the gate references the wrong point, \
-so add or refit the anchor offset rather than nudging the threshold. \
-To find the offset, __SCENE_VIZ_HINT__; the gap between the origin and \
-the effect-firing cluster is the offset.
-
-### ParamSpec
-
-```python
-ParamSpec(name: str, init_value: float,
-          lo: Optional[float] = None, hi: Optional[float] = None)
-```
-
-Bounds shape both the MCMC prior and the warm-start clamp. Set `lo=0.0` \
-for non-negative rates, etc.
-
-### Pre-injected when `simulator.py` is exec'd
-
-`numpy as np`, `ParamSpec`. Import anything else at the top of the file. \
-The data classes (`State`, `Object`, `Action`, ...) come from \
-`predicators.structs`; source is in the reference file linked in the \
-first message.
-
-## Tools
-
-`Write` / `Edit` `simulator.py` is your normal coding loop. Every \
-successful write is snapshotted to \
-`simulator_versions/cycle_XXX_vers_YYY_simulator.py` (deduped by \
-content; ``XXX`` is the current cycle, ``YYY`` resets per cycle). \
-`sim.fit` / `sim.residuals` (and the probe's candidate-model refit) \
-load the file fresh on every call and prefix their reports with \
-`[cycle_XXX_vers_YYY]` so you and reviewers can diff iterations.
-
-- `run_python(code)` - ad-hoc data exploration AND validation. \
-`trajectories`, `np`, `ParamSpec` in scope; when the learn message \
-states a task objective, `evaluate_trajectory(states, actions=None, \
-task_idx=0)` scores a state sequence with the env's ground-truth \
-evaluator (returns reward / solved; on your own simulator's rollouts \
-the verdict is only as good as the simulator). The `sim` probe over \
-your CANDIDATE simulator also lives here: `sim.fit()` (parameter \
-fitting + report; cheap inner-loop signal), `sim.residuals()` \
-(per-feature breakdown: mismatch counts, mean / max abs error, \
-vs-baseline improvement (negative ⇒ rules are adding error), worst-N \
-example transitions - diagnostic for *which* rule to fix), \
-`sim.refine` (backtracking parameter search on a plan sketch), \
-`sim.run` (forward rollout with subgoal checking). **Does not** \
-define rules.
-
-`sim.fit` and the refine-then-run protocol test complementary \
-things - pointwise accuracy vs. goal reachability. A rule can have \
-ε-small SSE and still get a saturation threshold or alignment cap *just* \
-wrong enough that refinement can't satisfy a subgoal. Use `sim.fit` + \
-`sim.residuals` as the fast inner loop, and refine-then-run as the \
-slow goal-relevant gate before declaring done.
-
-### Refinement vs. forward validation (read before tuning a threshold)
-
-Validation is two checks under the same option model. `sim.refine` \
-samples continuous params with up to 50 attempts per \
-parametric step and snapshots state at each backtrack - failures are \
-isolated per step. The forward pass - one continuous `sim.run` of the \
-refined plan, state carrying forward across all options, subgoal \
-annotations checked per step - matches how test time will execute it. \
-Any divergence between the \
-two indicates the learned model is *more permissive* than the env's \
-effective behavior: refinement's looser gates accept a Place/Wait \
-that the env-driven rollout won't actually achieve.
-
-When `sim.refine` passes but the continuous `sim.run` reports a \
-`SUBGOAL NOT REACHED` (or the goal check fails), the failure mode is \
-almost always one of these:
-
-1. **A learned gate threshold is wider than the env's effective \
-threshold.** Example: the env's residual rule only fires when the \
-widget-to-fixture distance < 0.05, but you set \
-`widget_at_fixture_dist = 0.063` for "safety margin". Refinement \
-accepts a Place at distance 0.05–0.063 (your `WidgetAtFixture` \
-predicate is true and your learned rule fires); forward validation \
-runs the same Place, the env's rule never fires (distance > env \
-threshold), and Wait runs to its step cap without `WidgetReady` \
-holding. **Fix:** tighten the gate to match the env's empirical \
-boundary, do not widen for slack.
-2. **A wait-termination cutoff fires before the env-side feature \
-catches up.** Example: `WidgetReady = process_value >= 0.99` fires at \
-the learned simulator's step 34 (process_value=0.9996), but the env's \
-goal-check requires the underlying feature to reach 1.0 - refinement's \
-subgoal passes, but the final-state goal check on env state fails. \
-**Fix:** align the predicate's cutoff with the env's effective \
-cutoff, *and* confirm by re-running plan refinement after the change.
-
-**Rule of thumb:** when in doubt, *tighten* learned thresholds toward \
-the env's empirical boundary, never loosen them. Widening hides \
-discrepancies during refinement and reveals them at test time as \
-0-solve regressions.
-__SYNTHESIS_PROMPT_EXTRA__
-## Plan format for `sim.refine` / `sim.run`
-
-One option call per line, **with every option argument supplied and using \
-typed object references** (`obj:type`), matching exactly the Options \
-digest in your prompt. Use that digest (or `run_python` over a trajectory) \
-to read off the right names and arities - the parser is strict and \
-silently omitting an argument will not be auto-filled. Example:
-
-```
-PickWidget(robot:robot, widget0:widget)
-Place(robot:robot) -> {WidgetAtFixture(widget0:widget, fixture0:fixture)}
-ActivateFixture(robot:robot, fixture0:fixture)
-Wait(robot:robot) -> {WidgetReady(widget0:widget)}
-...
-```
-
-(The names above are illustrative - use whatever options, types, and \
-predicates your prompt digests actually list for your task.) Insert a \
-`Wait` after any action that triggers a delayed process (gradual \
-accumulation, propagation, sensor catch-up) so your rules have steps to \
-fire on.
-
-**Subgoal annotations** (`-> {Atom(obj:type, ...)}` after a step) are \
-optional in general but **effectively required after open-ended skills \
-like `Place`**. Without one the backtracking search has no preference for \
-*where* to put the object, so a `Place; Wait` pair will refine cleanly \
-but skip past the relevant target location and your rules never fire - \
-the run looks like a rule bug but is actually a missing subgoal. For \
-`Wait`, the annotation also specifies when the wait should terminate; \
-prefix an atom with `NOT` if it should become false.
-
-## Workflow
-
-1. Explore data with `run_python` - what features change per step, \
-which ones aren't explained by the base sim.
-2. `Write` `simulator.py`; `Edit` to iterate.
-3. Score with `sim.fit()`, then `sim.residuals()` to find \
-diverging features. Negative `vs base` ⇒ a rule is actively hurting - \
-usually a wrong gate or sign.
-4. When SSE is plausible, propose an option-skeleton plan and validate: \
-`sim.reset(task_idx=i)`, `sim.refine(plan, require_goal=True)`, then a \
-continuous `sim.run` of the refined plan from a fresh \
-`sim.reset(task_idx=i)`. A stuck refine step means the rules gating \
-its subgoal atoms are too tight or too loose; a refine-pass whose \
-`sim.run` diverges means a rule is too permissive. Fix and \
-re-validate - do not declare done until BOTH pass.\
-__WORKFLOW_EXTRA__
-"""
 
 
 def _fit_space_dist(a: float, b: float, scale: str) -> float:
@@ -1034,17 +477,25 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         ``super()`` so the note survives.
         """
         del extra_paths
-        return _RECURRENT_MESSAGE_SECTION if CFG.partially_observable else ""
+        if CFG.partially_observable:
+            return learn_prompts.render_partial_observability_message()
+        return ""
 
-    def _extra_synthesis_system_prompt(self) -> str:
-        """Return text to append to the synthesis system prompt.
+    def _extra_synthesis_system_prompt_sections(self) -> List[str]:
+        """Sections a subclass adds to the synthesis system prompt.
 
-        Under ``CFG.partially_observable`` this is the simulator-side
-        recurrent-rules tutorial (``LATENT_INIT``, latent shaping,
-        Patterns A/B); subclasses that override MUST chain via
-        ``super()`` so the tutorial survives.
+        Inserted after the validation guidance and before the recurrent
+        rules tutorial (partial observability) and the plan format.
+        Subclasses that override MUST chain via ``super()``.
         """
-        return _RECURRENT_PROMPT_SECTION if CFG.partially_observable else ""
+        return []
+
+    def _extra_synthesis_latent_sections(self) -> List[str]:
+        """Sections a subclass adds after the recurrent-rules tutorial.
+
+        Only rendered under ``CFG.partially_observable``.
+        """
+        return []
 
     def _post_synthesis_loading(
         self,
@@ -2158,262 +1609,63 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     ) -> str:
         """Compose the synthesis session's first user message.
 
-        Reads the just-opened session's tool names, so the session must
-        be open before this is called.
+        Gathers this cycle's data roster, digests, and reports and
+        renders ``learn_message.md``. Reads the just-opened session's
+        tool names, so the session must be open before this is called.
         """
         n_trajs = len(trajectories)
         n_demos = sum(1 for t in trajectories if t.is_demo)
-        n_interaction = n_trajs - n_demos
-        predicate_listing = self._format_predicate_signatures(
-            self._get_all_predicates())
-        # Static per-session digests, injected instead of costing a tool
-        # turn (see the roster note in _get_synthesis_tool_names).
-        types_digest = render_types_digest(self._tool_context.types)
-        options_digest = render_options_digest(
-            self._tool_context.options,
-            gt_options_ref_path=self._tool_context.gt_options_ref_path)
-        trajectory_listing = self._format_trajectory_listing(trajectories)
-        prior_state_block = self._format_prior_state_block(paths.base)
         # Start-of-session divergence report: when a prior model exists,
         # score it (params refit to ALL data, so what remains is the
         # structural gap) before the agent's first turn - the session
         # then starts from "here is where the model breaks" instead of
         # spending turns rediscovering it. The same report stays callable
-        # as `sim.residuals()` against every subsequent edit, so this is
-        # the first data point of an iteration loop, not a one-shot.
+        # as `sim.residuals()` against every subsequent edit. With no
+        # prior model the "prior" is the bare base simulator and every
+        # mismatch is an unmodeled mechanism.
+        prior_state_block = self._format_prior_state_block(paths.base)
         divergence_block = ""
         if self._tool_context.probe_residuals_provider is not None:
             try:
                 report = self._tool_context.probe_residuals_provider(
                     max_transitions=100000, fit_params=True)
-                if prior_state_block:
-                    divergence_block = (
-                        "## Where the prior model diverges from the data\n"
-                        "Computed just now from the prior cycle's "
-                        "`simulator.py` with its params refit to all "
-                        "trajectories above - remaining mismatches need "
-                        "structural fixes, not tuning. Re-score any edit "
-                        "with `sim.residuals()` (same report, current "
-                        "file):\n\n"
-                        f"{report}\n\n")
-                else:
-                    # Cycle 0: no prior model, so the "prior" is the bare
-                    # base simulator and every mismatch is an unmodeled
-                    # mechanism - the map of what the first simulator.py
-                    # needs to cover.
-                    divergence_block = (
-                        "## Where the base simulator diverges from the "
-                        "data\n"
-                        "No prior model exists yet, so every feature "
-                        "below is an unmodeled mechanism: this is the map "
-                        "of what your `simulator.py` needs to cover, each "
-                        "with its worst transition located in the data. "
-                        "Re-score any edit with `sim.residuals()` (same "
-                        "report, current file):\n\n"
-                        f"{report}\n\n")
+                divergence_block = learn_prompts.render_divergence_block(
+                    report, has_prior_model=bool(prior_state_block))
             except Exception as e:  # pylint: disable=broad-except
                 logger.warning("Skipping start-of-session residual report: %s",
                                e)
-        objective_block = self._format_objective_block()
-        simulator_file_for_agent = paths.simulator_file_for_agent
-        # The probe rides inside run_python's namespace (one exec
-        # namespace per session): `trajectories` is the recorded DATA,
-        # `sim` forward-rolls the CANDIDATE simulator. One sentence so
-        # the two are not conflated; details live in the tool
-        # description.
-        probe_note = (
-            "\n\nThe `sim` probe inside `run_python` forward-rolls "
-            "the CANDIDATE simulator you are editing at the params "
-            "of your last `sim.fit()` - it never fits on its own, so "
-            "after a structural edit its results are marked UNFITTED "
-            "until you run `sim.fit()` on the current file; pass "
-            "task_idx explicitly to `sim.reset`, `sim.task(task_idx)` "
-            "for a task digest). Its rollouts "
-            "are candidate predictions - do not mix them up with the "
-            "recorded real `trajectories`. Usage and the validation "
-            "protocol are in the system prompt's Tools section.")
-        # Tool surface of the (just-opened) synthesis session, rendered
-        # the same way the solve/explore prompts list theirs.
-        # ``tool_names`` already merges the sandbox built-ins with the
-        # declared MCP subset, prefix-stripped.
-        tools_block = ""
         session_tool_names = (self._agent_session.tool_names
                               if self._agent_session is not None else [])
-        if session_tool_names:
-            tool_listing = "\n".join(f"  - {t}" for t in session_tool_names)
-            tools_block = f"## Available Tools\n{tool_listing}\n\n"
-        base_sim_block = ""
-        if base_sim_refs:
-            ref_listing = "\n".join(f"  - {r}" for r in base_sim_refs)
-            base_sim_block = (
-                "\nThe BASE SIMULATOR's own source code is available "
-                "(read-only) - the robot knows its own simulator:\n"
-                f"{ref_listing}\n"
-                "These files are byte-identical to the code your base-sim "
-                "rollouts execute: scene geometry and constants, body "
-                "construction, stepping, and state read/write. What they "
-                "deliberately do NOT contain is the environment's hidden "
-                "domain-specific step - the residual dynamics you are "
-                "here to model - nor task generation or goal semantics. "
-                "Use them to ground hypotheses (masses, damping, substeps "
-                "per action, how switches toggle) instead of re-measuring "
-                "those from data.\n")
-        message = f"""\
-Synthesize a residual dynamics simulator for this environment. \
-There are {n_trajs} trajectories ({len(obs_triples)} step \
-transitions) available: {n_demos} oracle demonstration(s) (goal \
-reached by construction) and {n_interaction} interaction \
-trajectory/ies (collected during online learning; some may have \
-failed to reach the goal).
-
-{trajectory_listing}
-Each trajectory carries a `train_task_idx`. You can query the \
-ground-truth goal-atom check by calling \
-`is_goal_state(state, task_idx)`. Equivalently \
-`train_tasks[task_idx].goal_holds(state)`. This checks a single \
-STATE for the goal atoms only - reaching the goal atoms does not by \
-itself mean an episode is solved; when a task objective is stated \
-below, score full trajectories with `evaluate_trajectory`. Use \
-`is_goal_state` to (1) confirm which trajectories reached the goal \
-atoms and (2) treat failed interaction trajectories as \
-counterexamples - places where your predicate or rule said "this \
-should work" but the env disagreed.
-
-{objective_block}{prior_state_block}{divergence_block}Data-structure \
-source code is at: \
-{structs_ref}
-{base_sim_block}
-A residual scan between the base simulator's prediction and the \
-observed next state suggests these features carry residual dynamics \
-(starting hint, may include base-sim jitter - refine as you go):
-{inferred_hint}
-
-## Available Predicates (for subgoal annotations)
-{predicate_listing}
-
-Subgoal annotations in your plans for `sim.refine` / `sim.run` \
-must reference these predicate names with matching arity and types. \
-Any threshold or condition you bake into a rule must be consistent \
-with what the predicate's classifier actually checks, or refinement \
-will reject parameter samples that look correct on paper.
-
-## Object Types
-{types_digest}
-
-## Options
-Plans (for `sim.refine` / `sim.run`) and rules must match these \
-typed signatures and parameter boxes exactly:
-{options_digest}
-
-{tools_block}Read the data-structures file first, then explore the trajectory \
-data with `run_python` (variables: `trajectories`, `train_tasks`, \
-`is_goal_state`, `describe_trajectory(traj_idx)` for a per-timestep \
-digest, `np`, `ParamSpec`, plus `evaluate_trajectory` when a \
-task objective is stated above). Write your simulator to \
-`{simulator_file_for_agent}` - define RESIDUAL_RULES, PARAM_SPECS, \
-and RESIDUAL_FEATURES there. Begin the file with a short DECISION \
-RECORD comment stating your key modeling choices and the evidence \
-behind them: which dynamics the base sim carries vs. your process \
-rules, which features the rules own, any latent structure, and any \
-other structural commitments (e.g. whether base-sim parameters are \
-declared for identification, when the environment discloses them). \
-Later cycles read this record before deciding what to keep. Iterate \
-with `Edit` and re-score; every successful write is snapshotted and \
-version-tagged (see the system prompt's Tools section).{probe_note}
-
-Evidence discipline for rules that WRITE physical state (poses, \
-velocities): ground them in recorded transitions the base sim \
-mispredicts. A mechanism you suspect but have never observed \
-end-to-end in the data is a HYPOTHESIS, and what to do with it \
-depends on whether the goal needs it. When the goal is reachable \
-without it, record it in the decision record with the experiment \
-that would confirm it and ship no rule: a speculative pose-writer \
-fabricates states the environment never produces, and plans \
-validated against it fail in reality. When the goal REQUIRES it - \
-without the mechanism the goal is unreachable in your model (an \
-assembly that must be carried as one body, a latch that must hold, \
-an activation that must take effect) - omitting it is NOT the \
-cautious choice: it turns "unknown" into "impossible" for every \
-consumer of the model, so the explorer can no longer certify a goal \
-attempt and the test session proves the goal unreachable and gives \
-up. Ship a goal-required mechanism as a LABELLED HYPOTHESIS: a rule \
-whose trigger geometry and timing are declared ParamSpecs at your \
-best physical estimate with honest ranges (the ensemble spreads over \
-them and the capture gate validates plans under that spread), a \
-HYPOTHESIS marker on it in the decision record, and its confirming \
-experiment as the FIRST entry of open_questions.md, written so that \
-the next exploration's goal attempt exercises it. The converse error \
-is just as costly: do not delete a rule whose mechanism you have \
-confirmed merely because one fit metric is noisy - decide from the \
-recorded evidence either way.
-
-Work through EVERY divergence this cycle's new trajectories reveal \
-in this one session: enumerate each mechanism the episodes \
-exercised, reconcile it against the model, and fix all confirmed \
-errors now - not just the one that blocked the last test or the \
-first one you find. Each error deferred to the next cycle costs a \
-full explore-learn-test round trip, which is the main thing that \
-makes learning slow.
-
-Declare your uncertainty. A learned constant whose supporting data \
-leaves real doubt - a one-sided bracket, a knife-edge margin, a \
-handful of samples - must be a declared ParamSpec spanning that \
-honest range, never a bare literal baked into rule code: declared \
-params get fitted posteriors, the exploration ensemble spreads over \
-them, and the capture gate re-validates every submitted plan under \
-those posterior members, so an operating point that only works at \
-your point estimate is caught in simulation instead of failing a \
-real test episode. A literal is earned only once the data brackets \
-the constant from both sides with margin to spare.
-
-Before ending the session, run `sim.fit()` on the final file (that \
-fit IS the model deployed for this cycle - end without one and the \
-harness fits on its own and logs the deviation; a GO verdict on \
-UNFITTED values is worthless) and then a GO/NO-GO check: refine a \
-full solve of the train task in your candidate simulator and validate \
-it with several trials (`sim.refine` / `sim.run(plan, trials=5)`). \
-Record the verdict in the decision record together with the plan's \
-WEAKEST margin - the smallest distance from any step's operating \
-point to a learned threshold - compared against the measured \
-execution scatter. NO-GO, or a margin thinner than the scatter, \
-means the next test episode will likely fail: put exactly what is \
-missing at the top of `./open_questions.md`. A GO that rests on a \
-hypothesised mechanism says so in the verdict; it is still a GO - \
-the plan it certifies is the experiment that confirms or refutes \
-the hypothesis in the real environment.
-
-Also maintain `./open_questions.md`: a short RANKED ledger of the \
-model's remaining uncertainties - mechanisms never observed, \
-thresholds whose supporting data is one-sided or knife-edge, \
-hypotheses awaiting confirmation - each entry naming the cheapest \
-real-environment experiment that would settle it, as a concrete \
-option sequence or parameter ladder (e.g. "place pairs at spacings \
-bracketing the believed window"), plus what to measure. The next \
-exploration phase receives this file verbatim and designs its \
-episodes from it, so write entries as runnable experiment specs, \
-not prose; DELETE entries this cycle's data settles. An empty \
-ledger declares the model believed complete everywhere.
-
-Separately, maintain `./strategy.md`: a natural-language DOMAIN \
-STRATEGY for solving tasks in this environment - the recommended \
-approach and step ordering, the mechanisms that matter and how to \
-trigger them, parameter formulas expressed relative to the scene \
-(never hard-coded to one task's coordinates), and known pitfalls. \
-Future solve sessions read it as advisory reference (clearly framed \
-as possibly wrong), so state uncertainty honestly. Unlike the \
-journal (`./journal.md`, an append-only log of facts and \
-measurements that you may also add to), strategy.md is a LIVING \
-document: REWRITE it \
-freely this cycle wherever new evidence corrects or supersedes \
-earlier advice, rather than appending contradictions."""
-
+        extra_messages = []
         extra_message = self._extra_synthesis_message(extra_paths)
         if extra_message:
-            message = message + "\n\n" + extra_message
+            extra_messages.append(extra_message)
         if self._do_synthesize_samplers:
-            message = message + "\n\n" + \
-                self._sampler_synthesis_message(sampler_paths)
-        return message
+            extra_messages.append(
+                self._sampler_synthesis_message(sampler_paths))
+        return learn_prompts.build_learn_message(
+            n_trajs=n_trajs,
+            n_transitions=len(obs_triples),
+            n_demos=n_demos,
+            n_interaction=n_trajs - n_demos,
+            trajectory_listing=self._format_trajectory_listing(trajectories),
+            structs_ref=structs_ref,
+            inferred_hint=str(inferred_hint),
+            predicate_listing=self._format_predicate_signatures(
+                self._get_all_predicates()),
+            types_digest=render_types_digest(self._tool_context.types),
+            options_digest=render_options_digest(
+                self._tool_context.options,
+                gt_options_ref_path=self._tool_context.gt_options_ref_path),
+            simulator_file=paths.simulator_file_for_agent,
+            objective_block=self._format_objective_block(),
+            prior_state_block=prior_state_block,
+            divergence_block=divergence_block,
+            base_sim_block=learn_prompts.render_base_sim_block(base_sim_refs
+                                                               or []),
+            tools_block=learn_prompts.render_tools_block(session_tool_names),
+            extra_messages=extra_messages,
+        )
 
     def _load_synthesis_artifacts(
         self,
@@ -3661,23 +2913,7 @@ earlier advice, rather than appending contradictions."""
             (t.evaluator.objective_description()
              for t in self._train_tasks if t.evaluator is not None
              and t.evaluator.objective_description()), "")
-        if not description:
-            return ""
-        return f"""\
-## Task objective (env ground-truth reward)
-{description}
-
-The trajectory roster above shows each interaction episode's \
-env-computed reward. In `run_python`, \
-`evaluate_trajectory(states, actions=None, task_idx=0)` scores any \
-state sequence with the same ground-truth evaluator - a collected \
-trajectory's `states`/`actions`, or a rollout of YOUR simulator \
-(there the verdict is only as trustworthy as your simulator). It \
-returns {{reward, solved}}. `solved` means the episode is scored as \
-a success; a rollout can reach the goal atoms and still be \
-solved=False.
-
-"""
+        return learn_prompts.render_objective_block(description)
 
     def _format_prior_state_block(self, base: str) -> str:
         """Tell the agent about any simulator/predicates left over from a
@@ -3689,34 +2925,11 @@ solved=False.
         for ``simulator.py`` / ``predicates.py``.
         """
         prior: List[str] = []
-        sim_path = os.path.join(base, "simulator.py")
-        preds_path = os.path.join(base, "predicates.py")
-        if os.path.isfile(sim_path):
+        if os.path.isfile(os.path.join(base, "simulator.py")):
             prior.append("`./simulator.py`")
-        if os.path.isfile(preds_path):
+        if os.path.isfile(os.path.join(base, "predicates.py")):
             prior.append("`./predicates.py`")
-        if not prior:
-            return ""
-        joined = " and ".join(prior)
-        return f"""\
-Prior cycle state: {joined} already exist in the sandbox from a previous \
-learning cycle. Read them first - they are the previous cycle's committed \
-result and a reasonable starting point for incremental refinement (though \
-a fresh rewrite is fine if the prior approach looks fundamentally wrong). \
-Structural decisions are NOT binding across cycles: re-read the decision \
-record at the top of `simulator.py` and re-decide the architecture itself \
-- what the base sim carries vs. what the rules model, which features the \
-rules own, the latent structure, and whether disclosed base-sim \
-parameters should be identified - rather than only tuning what exists. \
-In particular, if the trajectory roster shows goal-reaching episodes \
-scored solved=0, suspect a structural modeling error (e.g. mis-calibrated \
-base physics that your rules only paper over near the fit data), not just \
-parameter values. Earlier versions are in `./simulator_versions/` and \
-`./predicates_versions/` (named `cycle_XXX_vers_YYY_*.py`); \
-cross-reference the trajectory roster's provenance tags against those \
-files to see exactly which rules and predicates produced each failed plan.
-
-"""
+        return learn_prompts.render_prior_state_block(prior)
 
     @staticmethod
     def _load_simulator_from_module_file(
@@ -4091,35 +3304,24 @@ files to see exactly which rules and predicates produced each failed plan.
         return make_stepper
 
     def _build_synthesis_system_prompt(self) -> str:
-        """Render the synthesis system prompt from the module template.
+        """Compose the synthesis system prompt from the templates.
 
-        Substitutes the placeholders that vary per instance: the
-        rule-signature blocks (flag-gated on
-        ``CFG.partially_observable`` - under the flag the prompt
-        presents only the recurrent 5-arg form as canonical), the
-        optional PHYSICAL_PARAMS section (env parameter menu), the
-        scene-visualization hint (tool surface), and the subclass extra
-        section.
+        Per-instance choices: the rule signature (flag-gated on
+        ``CFG.partially_observable``, which also swaps the env's
+        observation and the GT simulator module, so prompt and world
+        never disagree; under the flag only the recurrent 5-arg form is
+        shown), the optional PHYSICAL_PARAMS section (env parameter
+        menu), the scene-visualization hint, and the subclass extras.
         """
-        prompt = _SYNTHESIS_SYSTEM_PROMPT_TEMPLATE
-        prompt = prompt.replace("__RULE_SIGNATURE_SECTION__",
-                                self._rule_signature_section())
-        prompt = prompt.replace("__RESIDUAL_RULE_SIGNATURE__",
-                                self._residual_rule_signature())
-        prompt = prompt.replace("__PHYSICAL_PARAMS_SECTION__",
-                                self._physical_params_prompt_section())
-        prompt = prompt.replace("__SCENE_VIZ_HINT__", self._scene_viz_hint())
-        prompt = prompt.replace("__WORKFLOW_EXTRA__",
-                                self._synthesis_workflow_extra())
-        extra = self._extra_synthesis_system_prompt()
-        extra_block = "\n" + extra.rstrip() + "\n" if extra else ""
-        prompt = prompt.replace("__SYNTHESIS_PROMPT_EXTRA__", extra_block)
-        # The template (and the blocks spliced into it) is authored as
-        # hard-wrapped markdown; the rendered prompt keeps one line per
-        # paragraph like every other phase's prompt.
-        # pylint: disable-next=import-outside-toplevel
-        from predicators.agent_sdk.sandbox_prompts import unwrap_prose_lines
-        return unwrap_prose_lines(prompt)
+        return learn_prompts.build_learn_system_prompt(
+            partially_observable=CFG.partially_observable,
+            residual_rule_signature=self._residual_rule_signature(),
+            scene_viz_hint=self._scene_viz_hint(),
+            physical_params_section=self._physical_params_prompt_section(),
+            extra_sections=self._extra_synthesis_system_prompt_sections(),
+            latent_extra_sections=self._extra_synthesis_latent_sections(),
+            workflow_extra=self._synthesis_workflow_extra(),
+        )
 
     def _synthesis_workflow_extra(self) -> str:
         """Extra text appended to the Workflow list.
@@ -4159,118 +3361,14 @@ files to see exactly which rules and predicates produced each failed plan.
         getter = getattr(base_env, "get_physical_param_info", None)
         if callable(getter):
             info = getter() or {}
-        if not info:
-            return ""
-        lines = [
-            "",
-            "## Base-sim system identification "
-            "(`PHYSICAL_PARAMS`) - decide, don't default",
-            "",
-            "The base sim's rigid-body physics is itself parameterized, "
-            "and its built-in values may be MIS-CALIBRATED (the real "
-            "environment may run different physics). It reveals these "
-            "tunable parameters:",
-            "",
-        ]
-        for name, meta in info.items():
-            scale_note = (", fitted in log-space"
-                          if meta.get("scale") == "log" else "")
-            lines.append(f"- `{name}` (built-in {meta['default']:.4g}, fit "
-                         f"box [{meta['lo']:.4g}, {meta['hi']:.4g}]"
-                         f"{scale_note}): {meta['description']}")
-        lines.extend([
-            "",
-            "If observed trajectories diverge from the base sim on "
-            "*rigid-body motion itself* (not a hidden process layered on "
-            "top of it), declare a fourth export:",
-            "",
-            "```python",
-            "PHYSICAL_PARAMS: List[ParamSpec]  # subset of the names "
-            "above; init = your hypothesis, lo/hi from the box",
-            "```",
-            "",
-            "Guidance:",
-            "",
-            "- **This decision requires open-loop evidence - in either "
-            "direction.** Per-step (teacher-forced) residuals CANNOT "
-            "rule a mis-set physical parameter in or out: they predict "
-            "each step from the RECORDED state, so compounding "
-            "divergence - exactly how a wrong friction or mass "
-            "manifests - is invisible to them. Near-zero per-step "
-            "residuals are fully compatible with rollouts that are "
-            "hundreds of times worse than at the correct value. Before "
-            "deciding, run `sim.residuals(rollout=True, "
-            "sweep_params='all')` (or name the suspect parameters): it "
-            "replays the recorded trajectories free-running and sweeps "
-            "each requested parameter across its box; "
-            "`phys_params={name: value}` instead scores one "
-            "hypothesized point. Declare a parameter whose sweep is "
-            "materially better away from the baseline; a flat sweep is "
-            "honest evidence the data cannot constrain it. Omitting "
-            "PHYSICAL_PARAMS is justified by a flat rollout sweep, "
-            "never by small per-step residuals.",
-            "- **Undeclared parameters keep their built-in values in "
-            "every base-sim rollout** - including an evaluator's "
-            "verification replay deciding what counts as a SOLVE. Your "
-            "rules ride on top of the base sim everywhere, but rules "
-            "fit to observed data can only compensate for a mis-set "
-            "built-in value near that data; identifying the parameter "
-            "fixes the substrate itself.",
-            "- **Start with ONE parameter** - the single one with a "
-            "physical story for the observed residual (e.g. cascades "
-            "stopping short of the sim's prediction implicates sliding "
-            "friction) - and add another only if the calibrated fit "
-            "still leaves structure unexplained. Co-declared parameters "
-            "can compensate each other's errors along a data-equivalent "
-            "ridge, so every extra parameter costs fit budget and adds a "
-            "way to be confidently wrong; a parameter cannot be "
-            "identified from data that does not exercise it (a collision "
-            "parameter needs collisions).",
-            "- `sim.fit()` returns a per-parameter identifiability "
-            "report (posterior contraction). Drop any parameter reported "
-            "NOT identified or insensitive - its fitted value is "
-            "arbitrary noise. A parameter reported 'anchored' moved only "
-            "to compensate the others and was reverted to its baseline; "
-            "keep it only if you can collect an interaction that excites "
-            "it specifically.",
-            "- With `PHYSICAL_PARAMS` declared, the fit switches to "
-            "matching **free-running rollouts** of full trajectories "
-            "(momentum accrues in-sim, which the per-step teacher-forced "
-            "fit destroys), and physical + rule parameters are fit "
-            "**jointly** in one posterior, so rules cannot silently "
-            "absorb physics error.",
-            "- A physics-only artifact is valid: `RESIDUAL_RULES = []` and "
-            "`PARAM_SPECS = []` with a non-empty `PHYSICAL_PARAMS` means "
-            "the calibrated base sim carries all the dynamics. "
-            "`RESIDUAL_FEATURES` must still be declared - it defines which "
-            "features the rollout is scored on (e.g. the pose features "
-            "of the objects whose motion you are calibrating).",
-            "- After the fit, the identified values are applied to the "
-            "planning base env, so probe rollouts and "
-            "test-time planning use the calibrated physics.",
-        ])
-        return "\n".join(lines) + "\n"
-
-    def _rule_signature_section(self) -> str:
-        """Markdown for the '### Rule signature' block.
-
-        Decided by ``CFG.partially_observable`` - the same flag that
-        swaps the env's observation and the GT simulator module, so
-        prompt and world can never disagree. Fully observable: the
-        legacy 3-arg signature. Partially observable: the recurrent
-        5-arg signature only, so the prompt never advertises the 3-arg
-        form as canonical.
-        """
-        if CFG.partially_observable:
-            return _PO_RULE_SIGNATURE_SECTION
-        return _FO_RULE_SIGNATURE_SECTION
+        return learn_prompts.render_physical_params_section(info)
 
     def _residual_rule_signature(self) -> str:
         """The ``def`` line used in the geometric-gate example.
 
-        Matches the signature advertised by
-        :meth:`_rule_signature_section` so the worked example doesn't
-        contradict the canonical signature.
+        Matches the canonical rule signature the prompt advertises
+        (``CFG.partially_observable`` selects it) so the worked example
+        doesn't contradict it.
         """
         if CFG.partially_observable:
             return ("def residual_rule(observation, latent, history, "

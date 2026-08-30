@@ -121,7 +121,6 @@ class AgentBilevelExplorer(BaseExplorer):
                 # the belief model may lack goal-critical dynamics, so a
                 # simulator-failing sketch is a valid deliverable.
                 explore_mode=True,
-                ground_samplers=CFG.agent_bilevel_ground_samplers,
             )
             responses = run_query_sync(self._agent_session,
                                        prompt,
