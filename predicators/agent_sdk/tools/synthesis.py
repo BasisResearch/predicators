@@ -188,7 +188,7 @@ def create_synthesis_tools(
         fit_rule_parameters_latent
     from predicators.code_sim_learning.grid_seed import grid_candidates
     from predicators.code_sim_learning.identifiability import \
-        format_identifiability
+        format_identifiability, physics_sigma_points
     from predicators.code_sim_learning.orchestrator import run_rollout_sysid
     from predicators.code_sim_learning.rollout_env import \
         physical_param_anchors
@@ -367,6 +367,30 @@ def create_synthesis_tools(
             # applied - do NOT print fitted values or identifiability
             # verdicts computed on zero surviving data (chaos makes
             # the probe report "identified" for everything).
+            if not exploratory:
+                # Record the refusal as this file's canonical fit
+                # (pinned at the declared inits): the deployed model
+                # reuses it instead of re-running the same refused fit
+                # under a misleading FIT FALLBACK warning, and probe
+                # results stop saying UNFITTED after the agent did
+                # fit. Mirroring the joint-rollout fallback's
+                # no-survivor case, nothing is applied to the planning
+                # env and no sigma points are recorded.
+                trim_rule_names = {s.name for s in rule_specs}
+                approach._publish_probe_fit(  # pylint: disable=protected-access
+                    {
+                        n: v
+                        for n, v in
+                        outcome.fit_result.point_estimate.items()
+                        if n in trim_rule_names
+                    },
+                    version_tag,
+                    simulator_file,
+                    fit_result=outcome.fit_result,
+                    sse=float("nan"))
+                if hasattr(approach, "_record_sysid_diagnostics"):
+                    approach._record_sysid_diagnostics(  # pylint: disable=protected-access
+                        {}, physical_names, 0, len(rollouts), outcome.traj_rms)
             rms_str = ", ".join(f"{r:.4g}" for r in outcome.traj_rms)
             return "\n".join([
                 f"[{version_tag}] NO FIT RAN: all {len(rollouts)} "
@@ -377,6 +401,10 @@ def create_synthesis_tools(
                 "",
                 "Parameters were left at their baselines; nothing was "
                 "applied to the planning base env.",
+                ("Recorded as this file's canonical fit (pinned at the "
+                 "declared inits): the deployed model will use these "
+                 "values without a harness refit." if not exploratory else
+                 "Exploratory call: nothing recorded."),
                 "",
                 "This usually means the recorded interactions are not "
                 "repeatable under replay (prolonged scraping/jamming "
@@ -404,7 +432,15 @@ def create_synthesis_tools(
                 simulator_file,
                 fit_result=outcome.fit_result,
                 sse=post_sse,
-                applied_physical=dict(applied))
+                applied_physical=dict(applied),
+                # Physics-margin points for the capture gate, restored
+                # when this fit is deployed as the cycle's model.
+                sigma_points=physics_sigma_points(
+                    applied,
+                    ident_report,
+                    physical_specs,
+                    num_points=CFG.
+                    agent_plan_validation_physics_margin_points))
             if hasattr(approach, "_record_sysid_diagnostics"):
                 approach._record_sysid_diagnostics(  # pylint: disable=protected-access
                     ident_report, physical_names, outcome.num_survivors,

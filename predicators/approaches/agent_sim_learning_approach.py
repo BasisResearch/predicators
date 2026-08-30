@@ -1525,6 +1525,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         fit_result: Optional[FitResult] = None,
         sse: float = float("nan"),
         applied_physical: Optional[Dict[str, float]] = None,
+        sigma_points: Optional[List[Dict[str, float]]] = None,
     ) -> None:
         """Deploy a canonical ``sim.fit`` result to the candidate probe.
 
@@ -1550,6 +1551,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         state["fit_result"] = fit_result
         state["sse"] = sse
         state["applied_physical"] = dict(applied_physical or {})
+        state["sigma_points"] = list(sigma_points or [])
         self._probe_model_cache().clear()
         self._tool_context.probe_param_status = f"fitted ({version_tag})"
         logger.info("Synthesis probe: sim.fit deployed %d params (%s).",
@@ -2513,7 +2515,14 @@ earlier advice, rather than appending contradictions."""
                     len(expected), self._fit_sse)
                 applied = self._probe_fit_state().get("applied_physical")
                 if self._physical_param_specs and applied:
+                    # Mirror _fit_parameters_joint_rollout's deploy: the
+                    # cycle-level applied snapshot and the physics-margin
+                    # sigma points come from the published fit (applying
+                    # resets the points, so set them after).
                     self._apply_identified_physical_params(dict(applied))
+                    self._cycle_applied_physical = dict(applied)
+                    self._identified_physical_sigma_points = list(
+                        self._probe_fit_state().get("sigma_points") or [])
             else:
                 if CFG.agent_sim_learn_oracle_sim_program:
                     logger.info("Oracle sim program: fitting its "
