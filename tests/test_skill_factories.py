@@ -373,6 +373,29 @@ class TestPhaseSkill:
         assert grounded.initiable(state)
         assert grounded.memory["phase_idx"] == 0
 
+    def test_initiable_starts_every_execution_clean(self, robot_scene):
+        """Re-running a grounded option must not inherit the previous
+        execution's memory (BiRRT waypoint cache, aim offset, retry and stall
+        counters).
+
+        The explorer's certified-plan replay re-executes the very
+        objects the first episode ran; with stale memory the skills
+        popped cached waypoints and exhausted retries, and 10 of 11
+        replays of a plan that had just solved the task failed.
+        """
+        _, robot = robot_scene
+        skill, _robot_obj, _ = self._make_single_ik_skill(robot, _EE_HOME)
+        opt = skill.build()
+        grounded = opt.ground([_make_robot_obj()], np.zeros(0))
+        state = _build_state(_make_robot_obj(), robot, *_EE_HOME)
+        assert grounded.initiable(state)
+        grounded.memory["phase_idx"] = 3
+        grounded.memory["aim_offset"] = (0.01, -0.02)
+        grounded.memory["birrt_traj_123"] = [np.zeros(7)]
+        grounded.memory["phase_retries_123"] = 2
+        assert grounded.initiable(state)
+        assert grounded.memory == {"phase_idx": 0}
+
     def test_change_fingers_terminal_when_at_target(self, robot_scene):
         """Test change fingers terminal when at target."""
         _, robot = robot_scene

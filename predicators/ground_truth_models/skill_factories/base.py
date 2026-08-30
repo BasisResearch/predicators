@@ -460,6 +460,16 @@ class PhaseSkill:
     def _initiable(self, state: State, memory: Dict, objects: Sequence[Object],
                    params: Array) -> bool:
         del state, objects, params  # unused
+        # A grounded option is re-executed by several callers (the
+        # explorer's certified-plan replay, execution-monitor suffix
+        # replans, validation rollouts). Everything this skill keeps in
+        # memory - the BiRRT waypoint cache, the learned aim offset,
+        # retry/dwell/stall counters, finger targets - describes ONE
+        # execution; carried into the next one it drives the phases from
+        # stale state (cached waypoints from a different start pose,
+        # exhausted retries, a correction offset for a landing that never
+        # happened). Start every execution clean.
+        memory.clear()
         memory["phase_idx"] = 0
         return True
 
