@@ -72,6 +72,7 @@ class SynthesisBackend(Protocol):
         fit_result: Optional[FitResult] = None,
         sse: float = float("nan"),
         applied_physical: Optional[Dict[str, float]] = None,
+        sigma_points: Optional[List[Dict[str, float]]] = None,
     ) -> None:
         """Deploy a canonical ``sim.fit`` result to the candidate probe."""
 
