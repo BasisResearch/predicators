@@ -135,6 +135,7 @@ def _run_trial(env, options, target_xy: Tuple[float, float], trial_seed: int,
 
 
 def main() -> None:
+    """Run the drift trials for one variant and write the CSV report."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--variant", required=True)
     parser.add_argument("--trials", type=int, default=10)

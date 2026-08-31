@@ -14,15 +14,19 @@ yields real SDK dataclasses; no network, no subprocess.
 """
 # pylint: disable=protected-access
 import asyncio
+import datetime
 from typing import Any, List
+from zoneinfo import ZoneInfo
 
 import claude_agent_sdk
 import pytest
 from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
 
+import predicators.agent_sdk.session_base as sb
 from predicators import utils
-from predicators.agent_sdk.session_base import AgentSessionFatalError, \
-    BaseAgentSessionManager, query_fatal_error
+from predicators.agent_sdk.session_base import _LIMIT_DEFAULT_WAIT_SECS, \
+    _LIMIT_MAX_WAIT_SECS, AgentSessionFatalError, BaseAgentSessionManager, \
+    query_fatal_error, usage_limit_wait_seconds
 from predicators.agent_sdk.session_manager import AgentSessionManager
 
 # The exact assistant text run_20260721_161159's queries came back with.
@@ -278,10 +282,6 @@ def test_third_dead_query_raises_through_manager(monkeypatch, tmp_path):
 
 def test_limit_wait_parses_reset_time():
     """The wait runs to the banner's stated reset (plus slack)."""
-    import datetime
-    from zoneinfo import ZoneInfo
-
-    from predicators.agent_sdk.session_base import usage_limit_wait_seconds
     tz = ZoneInfo("America/New_York")
     now = datetime.datetime(2026, 8, 27, 16, 30, tzinfo=tz).timestamp()
     wait = usage_limit_wait_seconds(
@@ -293,11 +293,6 @@ def test_limit_wait_parses_reset_time():
 
 def test_limit_wait_wraps_to_next_day():
     """A reset time already past today means tomorrow's occurrence."""
-    import datetime
-    from zoneinfo import ZoneInfo
-
-    from predicators.agent_sdk.session_base import _LIMIT_MAX_WAIT_SECS, \
-        usage_limit_wait_seconds
     tz = ZoneInfo("America/New_York")
     now = datetime.datetime(2026, 8, 27, 17, 30, tzinfo=tz).timestamp()
     wait = usage_limit_wait_seconds(
@@ -308,14 +303,13 @@ def test_limit_wait_wraps_to_next_day():
 
 
 def test_limit_wait_defaults_without_reset_time():
-    from predicators.agent_sdk.session_base import _LIMIT_DEFAULT_WAIT_SECS, \
-        usage_limit_wait_seconds
+    """A limit banner without a stated reset waits the default period."""
     assert usage_limit_wait_seconds(
         "You've hit your session limit.") == _LIMIT_DEFAULT_WAIT_SECS
 
 
 def test_non_limit_reasons_do_not_wait():
-    from predicators.agent_sdk.session_base import usage_limit_wait_seconds
+    """Non-limit fatal reasons return None: no wait-and-retry."""
     assert usage_limit_wait_seconds(None) is None
     assert usage_limit_wait_seconds("invalid api key") is None
     assert usage_limit_wait_seconds(
@@ -325,7 +319,6 @@ def test_non_limit_reasons_do_not_wait():
 def test_run_streamed_query_retries_after_limit(tmp_path, monkeypatch):
     """A limit-dead query is re-issued after the wait; the healthy retry is
     what the caller receives, and the fatal streak never advances."""
-    import predicators.agent_sdk.session_base as sb
     mgr = _make_base_manager(tmp_path)
     limit_resp = [
         _text_entry("You've hit your session limit · resets 5:10pm "
@@ -335,7 +328,7 @@ def test_run_streamed_query_retries_after_limit(tmp_path, monkeypatch):
     responses = [list(limit_resp), list(healthy_resp)]
     calls = []
 
-    async def _fake_stream(client, message, **kwargs):
+    async def _fake_stream(_client, message, **_kwargs):
         calls.append(message)
         return responses.pop(0)
 

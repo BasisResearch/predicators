@@ -16,8 +16,8 @@ Usage (detach with nohup; poll every 10 min):
 
     nohup python scripts/engaging/relaunch_on_timeout.py \
         -p mit_preemptable \
-        21338737:predicatorv3/exp_bridge_v2.yaml:bridge_v2-agent_po_predicate_invention_al \
-        21338740:predicatorv3/exp_bridge_v2.yaml:bridge_v2-agent_po_predicate_invention_al_policy \
+        21338737:predicatorv3/exp_bridge_v2.yaml:bridge_v2-agent_pi_al \
+        21338740:predicatorv3/exp_bridge_v2.yaml:bridge_v2-agent_pi_al_pol \
         >> logs/auto_relaunch.log 2>&1 &
 """
 

@@ -56,6 +56,7 @@ POSE_FEATS = ("x", "y", "z", "roll", "pitch", "yaw")
 
 
 def main() -> None:
+    """Run the leg-drift trials and report per-leg drift/tilt/jump stats."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--tag", required=True)
     parser.add_argument("--glue", action="store_true")
@@ -73,23 +74,26 @@ def main() -> None:
     robot, leg, span = objs["robot"], objs["leg0"], objs["span1"]
 
     def g(name, objects, params):
-        return options[name].ground(objects,
-                                    np.array(params, dtype=np.float32))
+        return options[name].ground(objects, np.array(params,
+                                                      dtype=np.float32))
 
     f32 = np.float32
     plan = [
         g("PickBlock", [robot, leg], [0.0]),
-        g("Place", [robot], list(LEG_SITE) + [0.0]),
+        g("Place", [robot],
+          list(LEG_SITE) + [0.0]),
     ]
     if args.glue:
         plan += [
             g("PickBottle", [robot, objs["bottle"]], [0.0]),
-            g("MoveTo", [robot], list(DAB_MOVETO) + [0.0]),
+            g("MoveTo", [robot],
+              list(DAB_MOVETO) + [0.0]),
             g("Place", [robot], [0.45, 1.12, 0.45, 0.0]),
         ]
     plan += [
         g("PickBlock", [robot, span], [0.0]),
-        g("Place", [robot], list(SPAN_ON_LEG) + [0.0]),
+        g("Place", [robot],
+          list(SPAN_ON_LEG) + [0.0]),
         options["Wait"].ground([robot], np.array([], dtype=f32)),
         options["Wait"].ground([robot], np.array([], dtype=f32)),
     ]
@@ -149,21 +153,25 @@ def main() -> None:
         ref = rest[0]
 
         def leg_rot(r):
-            return R.from_euler("xyz", [
-                r["leg_roll"], r["leg_pitch"], r["leg_yaw"]
-            ])
+            return R.from_euler("xyz",
+                                [r["leg_roll"], r["leg_pitch"], r["leg_yaw"]])
 
         ref_rot = leg_rot(ref)
         max_d, max_tilt, max_jump, jump_t = 0.0, 0.0, 0.0, -1
         prev = None
         for r in rest:
-            d = float(np.hypot(r["leg_x"] - ref["leg_x"],
-                               r["leg_y"] - ref["leg_y"]))
+            d = float(
+                np.hypot(r["leg_x"] - ref["leg_x"], r["leg_y"] - ref["leg_y"]))
             tilt = (ref_rot.inv() * leg_rot(r)).magnitude()
             max_d, max_tilt = max(max_d, d), max(max_tilt, tilt)
             if prev is not None:
-                jump = float(np.hypot(r["leg_x"] - prev["leg_x"],
-                                      r["leg_y"] - prev["leg_y"]))
+                # pylint: disable=unsubscriptable-object
+                # (guarded by the None check; astroid misses the
+                # narrowing here)
+                jump = float(
+                    np.hypot(r["leg_x"] - prev["leg_x"],
+                             r["leg_y"] - prev["leg_y"]))
+                # pylint: enable=unsubscriptable-object
                 if jump > max_jump:
                     max_jump, jump_t = jump, r["t"]
             prev = r

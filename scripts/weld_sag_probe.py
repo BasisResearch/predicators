@@ -19,6 +19,10 @@ Usage (COMPUTE NODE):
   python scripts/weld_sag_probe.py --tag iters150 --solver-iters 150 \
       --out logs/weld_sag
 """
+# This probe deliberately monkeypatches env internals (weld creation,
+# the domain step) to test stiffness levers, and defers env imports to
+# after arg parsing.
+# pylint: disable=protected-access,import-outside-toplevel
 import argparse
 import csv
 import os
@@ -69,18 +73,24 @@ def _ang(d: float) -> float:
 
 
 def main() -> None:
+    """Run one carry trial under the chosen stiffness levers and record per-
+    step sag metrics."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--tag", required=True)
     parser.add_argument("--solver-iters", type=int, default=None)
     parser.add_argument("--weld-erp", type=float, default=None)
     parser.add_argument("--pin-held", action="store_true")
-    parser.add_argument("--pin-cfg", action="store_true",
+    parser.add_argument("--pin-cfg",
+                        action="store_true",
                         help="use the PRODUCTION pin "
                         "(pybullet_pin_held_weld_assemblies) instead of "
                         "the probe monkeypatch")
-    parser.add_argument("--seat", action="store_true",
+    parser.add_argument("--seat",
+                        action="store_true",
                         help="place legs at sites and seat the beam on them")
-    parser.add_argument("--preload", type=float, default=None,
+    parser.add_argument("--preload",
+                        type=float,
+                        default=None,
                         help="skill_place_settle_preload_force value")
     parser.add_argument("--block-mass", type=float, default=None)
     parser.add_argument("--out", required=True)
@@ -149,7 +159,7 @@ def main() -> None:
                     frontier.append(nxt)
                     info = p.getConstraintInfo(cid_of[frozenset({cur, nxt})],
                                                physicsClientId=client)
-                    parent, child = info[0], info[2]
+                    parent = info[0]
                     rel_pos, rel_orn = info[6], info[8]
                     if parent == cur:
                         tgt = p.multiplyTransforms(cur_pos, cur_orn, rel_pos,
@@ -178,7 +188,9 @@ def main() -> None:
     legs = [objs["leg0"], objs["leg1"]]
     if args.block_mass is not None:
         for o in spans + legs:
-            p.changeDynamics(o.id, -1, mass=args.block_mass,
+            p.changeDynamics(o.id,
+                             -1,
+                             mass=args.block_mass,
                              physicsClientId=env._physics_client_id)  # pylint: disable=protected-access
         print(f"[{args.tag}] block mass set to {args.block_mass} kg")
 
@@ -217,7 +229,8 @@ def main() -> None:
     else:
         plan += [
             g("PickBlock", [robot, objs["span1"]], [0.01]),
-            g("Place", [robot], list(CARRY_TARGET) + [0.0]),
+            g("Place", [robot],
+              list(CARRY_TARGET) + [0.0]),
         ]
     carry_start_opt = len(plan) - 2  # PickBlock(span1) of the carry
     # Cure Waits: explicit targets, or the rich env abstraction's
@@ -308,9 +321,10 @@ def main() -> None:
             ref = seat[0]
             for leg in ("leg0", "leg1"):
                 dxy = max(
-                    float(np.hypot(r[f"{leg}_x"] - ref[f"{leg}_x"],
-                                   r[f"{leg}_y"] - ref[f"{leg}_y"]))
-                    for r in seat)
+                    float(
+                        np.hypot(r[f"{leg}_x"] -
+                                 ref[f"{leg}_x"], r[f"{leg}_y"] -
+                                 ref[f"{leg}_y"])) for r in seat)
                 tilt = max(
                     max(abs(_ang(r[f"{leg}_roll"] - ref[f"{leg}_roll"])),
                         abs(_ang(r[f"{leg}_pitch"] - ref[f"{leg}_pitch"])))

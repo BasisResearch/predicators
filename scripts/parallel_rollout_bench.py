@@ -141,7 +141,7 @@ def _child(idx: int, q: Any) -> None:
         # 21335464: results queued instantly, exits so late the parent's
         # liveness-based window deadlocked). The result is already on
         # the queue; nothing of the child is worth tearing down.
-        os._exit(exit_code)
+        os._exit(exit_code)  # pylint: disable=protected-access
 
 
 def run_parallel(num_rollouts: int, workers: int) -> List[dict]:
@@ -169,10 +169,10 @@ def run_parallel(num_rollouts: int, workers: int) -> List[dict]:
             if time.monotonic() > deadline:
                 for i, p in procs.items():
                     print(f"  child {i} pid={p.pid} "
-                          f"exitcode={p.exitcode}", flush=True)
-                raise RuntimeError(
-                    f"benchmark deadline exceeded with "
-                    f"{len(results)}/{num_rollouts} results")
+                          f"exitcode={p.exitcode}",
+                          flush=True)
+                raise RuntimeError(f"benchmark deadline exceeded with "
+                                   f"{len(results)}/{num_rollouts} results")
             time.sleep(0.05)
         r = q.get()
         results.append(r)
@@ -186,6 +186,7 @@ def run_parallel(num_rollouts: int, workers: int) -> List[dict]:
 
 
 def main() -> None:
+    """Run the rollout benchmark across the requested worker counts."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--rollouts", type=int, default=8)
     parser.add_argument("--workers", default="1,2,4,8")
