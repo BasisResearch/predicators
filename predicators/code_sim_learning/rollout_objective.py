@@ -10,8 +10,10 @@ for why the objective free-runs the base sim.
 from __future__ import annotations
 
 import dataclasses
+import functools
 import logging
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, \
+    Tuple
 
 import numpy as np
 
@@ -19,7 +21,7 @@ from predicators.code_sim_learning.config import SysIdConfig
 from predicators.code_sim_learning.fit_space import ParamSpec, to_fit_space
 from predicators.code_sim_learning.lm import solve_lm
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
-    rollout_states
+    add_rollouts_run, rollout_states
 from predicators.code_sim_learning.trajectory_prep import ResidualScaling
 from predicators.settings import CFG
 from predicators.structs import Action, State
@@ -176,6 +178,11 @@ def _iter_rollout_residual_terms(
     rolled-out state, and score every in-scope feature against its
     observation. Deterministic iteration order. Without ``scaling`` the
     residual is the raw ``pred - obs`` difference (legacy objective).
+    With a factory ``base_env`` and fork-parallel workers enabled
+    (``agent_validation_parallel_workers``), per-step scoring fans
+    whole trajectories out to forked children; the terms and their
+    order are identical to the serial path's (see
+    :func:`_prefetch_trajectory_terms`).
 
     Each per-step residual is Huber-capped (``huber_delta``), and two
     kinds of per-trajectory SUMMARY residuals are appended with weight
@@ -224,12 +231,14 @@ def _iter_rollout_residual_terms(
     # scored segment: the positions only line up at the episode's start.
     id_maps = (_episode_id_maps(tracks, trajectories, config, paired_tracks)
                if score_intervals else [])
-    episode_rollouts: List[List[State]] = []
     physical = {n: params[n] for n in physical_names if n in params}
     rules_list = list(rules)
     latent_mode = bool(rules_list) and has_latent_rules(rules_list)
 
-    for traj_index, (states, actions) in enumerate(trajectories):
+    def _rollout_with_rules(
+        states: List[State], actions: List[Action]
+    ) -> Tuple[List[State], List[Dict[Any, Dict[str, Any]]]]:
+        """Free-run ONE trajectory with the rules in-the-loop."""
         latent: Dict[str, Any] = (init_latent(latent_init, params)
                                   if latent_mode else {})
         history: List[Tuple[State, Optional[Action]]] = []
@@ -240,8 +249,6 @@ def _iter_rollout_residual_terms(
         # state (never written back into the physics world).
         updates_per_step: List[Dict[Any, Dict[str, Any]]] = []
 
-        # pylint: disable=cell-var-from-loop
-        # (Consumed within this same loop iteration, before rebinding.)
         def _run_rules_post_step(env: Any, sim_state: State, i: int) -> None:
             cmds = CommandBuffer()
             if latent_mode:
@@ -262,31 +269,25 @@ def _iter_rollout_residual_terms(
             if cmds:
                 env.queue_residual_commands(cmds.commands)
 
-        # pylint: enable=cell-var-from-loop
         sim_states = rollout_states(
             base_env,
             states[0],
             actions,
             physical,
             post_step=_run_rules_post_step if rules_list else None)
-        if score_intervals:
-            # The per-step loop below is skipped entirely rather than added
-            # to. Under open-loop nothing corrects the twin, so those steps
-            # are the twin's own simulation and including them would let the
-            # defect this flag exists to fix outvote the real evidence by
-            # thousands of terms to a handful.
-            if paired_tracks:
-                # One track per trajectory: each trajectory IS an episode, so
-                # scoring it on its own already is per-episode.
-                yield from _interval_residual_terms(sim_states, states,
-                                                    tracks[traj_index],
-                                                    id_maps[traj_index],
-                                                    config, summary_w)
-            else:
-                # Segments of ONE episode. Held, not scored: see the episode
-                # -level yield after this loop.
-                episode_rollouts.append(sim_states)
-            continue
+        return sim_states, updates_per_step
+
+    def _per_step_terms(states: List[State],
+                        actions: List[Action]) -> List[float]:
+        """All residual terms of ONE trajectory under per-step scoring.
+
+        Self-contained per trajectory (rollout, per-step residuals,
+        endpoint and onset summaries), which is what lets the parallel
+        path hand whole trajectories to forked children and get back
+        exactly the serial path's terms.
+        """
+        sim_states, updates_per_step = _rollout_with_rules(states, actions)
+        terms: List[float] = []
         endpoint_residuals: List[float] = []
         for i, sim_state in enumerate(sim_states):
             obs_state = states[i + 1]
@@ -314,18 +315,91 @@ def _iter_rollout_residual_terms(
                         res = pred_val - obs_val
                     if is_last and summary_w > 0:
                         endpoint_residuals.append(res)
-                    yield _huberize(res, delta)
+                    terms.append(_huberize(res, delta))
         if summary_w > 0 and sim_states:
             for res in endpoint_residuals:
-                yield summary_w * _huberize(res, delta)
-            yield from _onset_residuals([states[0]] + sim_states, states,
-                                        residual_features, config.settle_tol,
-                                        summary_w)
-    if score_intervals and not paired_tracks and episode_rollouts:
+                terms.append(summary_w * _huberize(res, delta))
+            terms.extend(
+                _onset_residuals([states[0]] + sim_states, states,
+                                 residual_features, config.settle_tol,
+                                 summary_w))
+        return terms
+
+    if not score_intervals:
+        prefetched = _prefetch_trajectory_terms(base_env, trajectories,
+                                                _per_step_terms)
+        for idx, (states, actions) in enumerate(trajectories):
+            terms = None if prefetched is None else prefetched[idx]
+            if terms is None:
+                terms = _per_step_terms(states, actions)
+            yield from terms
+        return
+
+    # Track-interval scoring. The per-step terms above are skipped
+    # entirely rather than added to. Under open-loop nothing corrects
+    # the twin, so those steps are the twin's own simulation and
+    # including them would let the defect this flag exists to fix
+    # outvote the real evidence by thousands of terms to a handful.
+    episode_rollouts: List[List[State]] = []
+    for traj_index, (states, actions) in enumerate(trajectories):
+        sim_states, _ = _rollout_with_rules(states, actions)
+        if paired_tracks:
+            # One track per trajectory: each trajectory IS an episode, so
+            # scoring it on its own already is per-episode.
+            yield from _interval_residual_terms(sim_states, states,
+                                                tracks[traj_index],
+                                                id_maps[traj_index], config,
+                                                summary_w)
+        else:
+            # Segments of ONE episode. Held, not scored: see the episode
+            # -level yield after this loop.
+            episode_rollouts.append(sim_states)
+    if not paired_tracks and episode_rollouts:
         yield from _episode_interval_terms(episode_rollouts,
                                            [s for s, _ in trajectories],
                                            tracks[-1], id_maps[0], config,
                                            summary_w)
+
+
+def _prefetch_trajectory_terms(
+    base_env: Any,
+    trajectories: List[RolloutTrajectory],
+    score_fn: Callable[[List[State], List[Action]], List[float]],
+) -> Optional[List[Optional[List[float]]]]:
+    """Fan per-trajectory scoring out to forked children when enabled.
+
+    Factory envs only: each rollout builds (and disposes) its own fresh
+    world whichever process runs it, so a child's term list is
+    bit-identical to what the serial path would compute - which is what
+    the LM finite-difference Jacobian requires of repeated same-theta
+    evaluations. A shared env instance keeps the serial path untouched
+    (its rollouts mutate the caller's env, which must happen in this
+    process).
+
+    Returns the index-aligned per-trajectory term lists - the caller
+    recomputes any ``None`` entry serially, per the
+    :func:`~predicators.agent_sdk.parallel_rollouts.prefetch_parallel`
+    contract - or ``None`` when parallelism is disabled, unavailable,
+    or pointless. Successful child rollouts are credited to this
+    process's rollout counter, which the children's exits would
+    otherwise lose from the per-stage budget logs.
+    """
+    if not callable(base_env) or len(trajectories) <= 1:
+        return None
+    # Deferred: agent_sdk imports this module's package; importing the
+    # (dependency-free) pool module lazily keeps the layering acyclic.
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.agent_sdk.parallel_rollouts import prefetch_parallel
+    jobs: List[Callable[[], List[float]]] = [
+        functools.partial(score_fn, states, actions)
+        for states, actions in trajectories
+    ]
+    results = prefetch_parallel(jobs, "sysid objective", quiet=True)
+    done = sum(1 for r in results if r is not None)
+    if done == 0:
+        return None
+    add_rollouts_run(done)
+    return results
 
 
 def _load_scored_track(config: SysIdConfig) -> Optional[Any]:
@@ -795,6 +869,8 @@ def fit_map_lm_rollout(
     prior_sigmas: Optional[np.ndarray] = None,
     noise_sigma: float = 0.05,
     fixed_physical: Optional[Dict[str, float]] = None,
+    notes_out: Optional[List[str]] = None,
+    flat_params_out: Optional[List[str]] = None,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """MAP estimate of the joint physical+rule theta via Levenberg-Marquardt.
 
@@ -819,7 +895,12 @@ def fit_map_lm_rollout(
     noise (a flat likelihood's finite-difference gradient is pure
     noise). The prior rows are stripped from the returned Jacobian -
     its consumers (Laplace ensemble, Hessian diagnostic) add the prior
-    term themselves and would otherwise double-count it.
+    term themselves and would otherwise double-count it - and excluded
+    from the zero-gradient gate detection (``n_prior_rows``), without
+    which the bracket search for threshold-like parameters could never
+    fire on this MAP path (see :func:`lm.zero_jacobian_columns`).
+    ``notes_out``/``flat_params_out`` pass through to
+    :func:`lm.solve_lm`.
     """
     all_specs = list(physical_specs) + list(rule_specs)
     names = [s.name for s in all_specs]
@@ -843,7 +924,10 @@ def fit_map_lm_rollout(
                               all_specs,
                               max_nfev,
                               "rollout",
-                              diff_step=_ROLLOUT_LM_DIFF_STEP)
+                              diff_step=_ROLLOUT_LM_DIFF_STEP,
+                              notes_out=notes_out,
+                              n_prior_rows=len(all_specs) if use_prior else 0,
+                              flat_params_out=flat_params_out)
     if use_prior and jac is not None and jac.shape[0] > len(all_specs):
         jac = jac[:-len(all_specs)]
     return theta_map, jac

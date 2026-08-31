@@ -147,22 +147,53 @@ _GATE_GRID_POINTS = 9
 _GATE_REFINE_ITERS = 6
 _GATE_MIN_REL_IMPROVEMENT = 1e-6
 
+# Zero-gradient column detection tolerances. Exact ``!= 0.0`` is the
+# wrong test on simulation residuals: solver jitter under the coarse
+# finite-difference step leaves ~1e-10-scale junk in columns that carry
+# no signal (jitter ~1e-12 over a 2e-2 relative step), while a genuinely
+# responsive column of the dimensionless scaled residuals is O(1). A
+# column counts as zero-gradient when its largest |entry| on the DATA
+# rows is at or below max(abs tol, rel tol * the largest entry in any
+# data column).
+_ZERO_COL_ABS_TOL = 1e-8
+_ZERO_COL_REL_TOL = 1e-6
 
-def zero_jacobian_columns(jac: np.ndarray) -> List[int]:
-    """Indices of parameters whose Jacobian column is identically zero."""
+
+def zero_jacobian_columns(jac: np.ndarray, n_prior_rows: int = 0) -> List[int]:
+    """Indices of parameters whose DATA-row Jacobian column carries no usable
+    gradient.
+
+    ``n_prior_rows`` trailing rows (the MAP objective's Gaussian prior
+    rows) are excluded from the test: a prior row's derivative with
+    respect to its own parameter is the nonzero constant
+    ``noise_sigma / prior_sigma``, so on a prior-folded objective no
+    column of the FULL Jacobian is ever zero and an all-rows test can
+    never fire - which left the bracket search dead on the rollout MAP
+    path (the 2026-08-30 bridge runs logged zero bracket searches
+    across every fit while 20 of 25 parameters were data-flat).
+    Detection uses the ``_ZERO_COL_*_TOL`` tolerances above rather than
+    exact zero.
+    """
     if jac.ndim != 2 or jac.size == 0:
         return []
-    return [j for j in range(jac.shape[1]) if not np.any(jac[:, j] != 0.0)]
+    data = jac[:jac.shape[0] - n_prior_rows] if n_prior_rows > 0 else jac
+    if data.size == 0:
+        return []
+    col_max = np.max(np.abs(data), axis=0)
+    tol = max(_ZERO_COL_ABS_TOL, _ZERO_COL_REL_TOL * float(np.max(col_max)))
+    return [j for j in range(data.shape[1]) if col_max[j] <= tol]
 
 
 def bracket_search_zero_gradient_params(
-    sse_fn: Callable[[np.ndarray], float],
+    residuals_fn: Callable[[np.ndarray], np.ndarray],
     z: np.ndarray,
     lo: np.ndarray,
     hi: np.ndarray,
     cols: List[int],
     param_specs: List[ParamSpec],
     label: str,
+    n_prior_rows: int = 0,
+    flat_out: Optional[List[str]] = None,
 ) -> Tuple[np.ndarray, float, List[str]]:
     """Coordinate-wise bracket search (fit space) for the parameters in
     ``cols``, holding every other parameter fixed.
@@ -176,12 +207,42 @@ def bracket_search_zero_gradient_params(
     to hand-bracketing by the agent. This search evaluates the SSE on
     a grid across the parameter's box, refines around the best grid
     point by golden section, and keeps a move only when it lowers the
-    SSE. Returns ``(z, sse, notes)`` with one note per parameter
-    saying what happened, in external units, for the agent-facing
-    report.
+    SSE. Returns ``(z, sse, notes)`` (``sse`` is the TOTAL objective,
+    prior rows included) with one note per parameter saying what
+    happened, in external units, for the agent-facing report.
+
+    Takes the residual VECTOR function rather than an SSE function
+    because the two verdicts need different rows of it (one evaluation
+    serves both): flat verdicts are judged on the DATA rows only - at
+    a box edge the ``n_prior_rows`` Gaussian prior rows alone add
+    ``(noise_sigma * (z - c) / sigma)**2`` to the total, orders of
+    magnitude above the flat tolerance, so testing the MAP total would
+    read every data-flat parameter as responsive - while the argmin
+    and move acceptance use the TOTAL objective, so a move trades data
+    improvement against distance from the anchor exactly as LM does.
+
+    Cost control: the box EDGES are evaluated first, and a parameter
+    whose data SSE is flat at both edges is declared flat for 2
+    evaluations instead of 9 - for the piecewise-constant thresholds
+    this search exists for, a response anywhere in the box almost
+    always shows at an edge. (An interior-only dip whose edges match
+    the current SSE is the accepted blind spot; the full grid only
+    ever ran for parameters the LM gradient already called flat.)
+    ``flat_out``, when given, collects the names of parameters found
+    flat across their box - box-wide insensitivity evidence the
+    identifiability report can consume instead of re-probing them.
     """
     z = np.array(z, dtype=float)
-    sse = float(sse_fn(z))
+
+    def _sses(zz: np.ndarray) -> Tuple[float, float]:
+        """``(data_sse, total_sse)`` from one residual evaluation."""
+        res = np.asarray(residuals_fn(zz), dtype=float)
+        total = float(np.sum(res**2))
+        if n_prior_rows <= 0:
+            return total, total
+        return float(np.sum(res[:res.size - n_prior_rows]**2)), total
+
+    data_sse, sse = _sses(z)
     notes: List[str] = []
     for j in cols:
         spec = param_specs[j]
@@ -192,18 +253,36 @@ def bracket_search_zero_gradient_params(
                          f"{init_ext:.4g} (NOT fit from data).")
             continue
         grid = np.linspace(lo[j], hi[j], _GATE_GRID_POINTS)
-        vals = []
-        for g in grid:
+
+        def _eval_at(g: float, col: int = j) -> Tuple[float, float]:
             zz = z.copy()
-            zz[j] = g
-            vals.append(float(sse_fn(zz)))
-        span = max(vals) - min(vals)
-        if span <= _GATE_MIN_REL_IMPROVEMENT * max(sse, 1e-12):
-            notes.append(f"{spec.name}: SSE is flat across its whole box "
-                         f"({_GATE_GRID_POINTS} points), so the data do not "
-                         f"constrain it; kept at {init_ext:.4g} (NOT fit "
-                         "from data).")
+            zz[col] = g
+            return _sses(zz)
+
+        flat_tol = _GATE_MIN_REL_IMPROVEMENT * max(data_sse, 1e-12)
+        lo_data, lo_total = _eval_at(float(grid[0]))
+        hi_data, hi_total = _eval_at(float(grid[-1]))
+        if (abs(lo_data - data_sse) <= flat_tol
+                and abs(hi_data - data_sse) <= flat_tol):
+            notes.append(f"{spec.name}: data SSE is flat at both box edges, "
+                         "so the data do not constrain it; kept at "
+                         f"{init_ext:.4g} (NOT fit from data).")
+            if flat_out is not None:
+                flat_out.append(spec.name)
             continue
+        pairs = [(lo_data, lo_total)]
+        pairs += [_eval_at(float(g)) for g in grid[1:-1]]
+        pairs.append((hi_data, hi_total))
+        data_vals = [p[0] for p in pairs]
+        if max(data_vals) - min(data_vals) <= flat_tol:
+            notes.append(f"{spec.name}: data SSE is flat across its whole "
+                         f"box ({_GATE_GRID_POINTS} points), so the data do "
+                         f"not constrain it; kept at {init_ext:.4g} (NOT fit "
+                         "from data).")
+            if flat_out is not None:
+                flat_out.append(spec.name)
+            continue
+        vals = [p[1] for p in pairs]
         best = int(np.argmin(vals))
         best_z, best_sse = float(grid[best]), vals[best]
         a = float(grid[max(best - 1, 0)])
@@ -211,22 +290,16 @@ def bracket_search_zero_gradient_params(
         phi = (np.sqrt(5.0) - 1.0) / 2.0
         x1 = b - phi * (b - a)
         x2 = a + phi * (b - a)
-
-        def _eval(x: float, col: int = j) -> float:
-            zz = z.copy()
-            zz[col] = x
-            return float(sse_fn(zz))
-
-        f1, f2 = _eval(x1), _eval(x2)
+        f1, f2 = _eval_at(x1)[1], _eval_at(x2)[1]
         for _ in range(_GATE_REFINE_ITERS):
             if f1 < f2:
                 b, x2, f2 = x2, x1, f1
                 x1 = b - phi * (b - a)
-                f1 = _eval(x1)
+                f1 = _eval_at(x1)[1]
             else:
                 a, x1, f1 = x1, x2, f2
                 x2 = a + phi * (b - a)
-                f2 = _eval(x2)
+                f2 = _eval_at(x2)[1]
         for x, f in ((x1, f1), (x2, f2)):
             if f < best_sse:
                 best_z, best_sse = x, f
@@ -237,7 +310,9 @@ def bracket_search_zero_gradient_params(
                          f"{init_ext:.4g} -> {new_ext:.4g} (SSE {sse:.4g} -> "
                          f"{best_sse:.4g}).")
             z[j] = best_z
-            sse = best_sse
+            # Refresh both SSEs at the moved point: later parameters'
+            # flat tests compare against the CURRENT data SSE.
+            data_sse, sse = _sses(z)
         else:
             notes.append(f"{spec.name}: LM gradient is zero; bracket search "
                          f"over its box found nothing better than "
@@ -254,6 +329,8 @@ def solve_lm(
     label: str,
     diff_step: Optional[float] = None,
     notes_out: Optional[List[str]] = None,
+    n_prior_rows: int = 0,
+    flat_params_out: Optional[List[str]] = None,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """Shared Levenberg-Marquardt core for the per-transition, recurrent, and
     rollout (``physical_sysid``) MAP fits.
@@ -285,13 +362,20 @@ def solve_lm(
     for log params, so the finite-difference gradient stays equally
     informative across decades instead of vanishing at the low end.
 
-    Parameters whose Jacobian column at the LM optimum is identically
-    zero (threshold/gate parameters, whose finite-difference gradient
-    exists only where a data point is crossed) get a coordinate-wise
-    bracket search over their box (:func:`bracket_search_zero_gradient_
-    params`); if any moves, LM is re-run from the new point so the
-    smooth parameters re-adapt. ``notes_out`` collects one line per
-    such parameter for the agent-facing fit report.
+    Parameters whose DATA-row Jacobian column at the LM optimum carries
+    no gradient (threshold/gate parameters, whose finite-difference
+    gradient exists only where a data point is crossed) get a
+    coordinate-wise bracket search over their box
+    (:func:`bracket_search_zero_gradient_params`); if any moves, LM is
+    re-run from the new point so the smooth parameters re-adapt.
+    ``n_prior_rows`` is how many trailing residual rows are Gaussian
+    prior rows: they must be excluded from the zero-gradient test (see
+    :func:`zero_jacobian_columns`) or the bracket search never runs on
+    a MAP objective. ``notes_out`` collects one line per searched
+    parameter for the agent-facing fit report; ``flat_params_out``
+    collects the names of parameters the search measured flat across
+    their whole box (box-wide insensitivity evidence for the
+    identifiability report).
     """
     from scipy.optimize import \
         least_squares  # pylint: disable=import-outside-toplevel
@@ -334,14 +418,18 @@ def solve_lm(
                 "converged" if result.success else "max-evals")
 
     jac = np.asarray(result.jac, dtype=float)
-    zero_cols = zero_jacobian_columns(jac)
+    zero_cols = zero_jacobian_columns(jac, n_prior_rows)
     if zero_cols:
-
-        def _sse(z: np.ndarray) -> float:
-            return float(np.sum(internal_residuals(z)**2))
-
         z_new, sse_new, notes = bracket_search_zero_gradient_params(
-            _sse, result.x, lo, hi, zero_cols, param_specs, label)
+            internal_residuals,
+            result.x,
+            lo,
+            hi,
+            zero_cols,
+            param_specs,
+            label,
+            n_prior_rows=n_prior_rows,
+            flat_out=flat_params_out)
         if notes_out is not None:
             notes_out.extend(notes)
         if sse_new < sse_lm:

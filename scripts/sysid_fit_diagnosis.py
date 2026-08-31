@@ -213,9 +213,18 @@ def _main() -> None:
     parser.add_argument("--smoke",
                         action="store_true",
                         help="load + prep only; run no rollouts")
+    parser.add_argument("--parallel_workers",
+                        type=int,
+                        default=None,
+                        help="override the run's "
+                        "agent_validation_parallel_workers (0 forces the "
+                        "serial objective path, for parallel-parity checks)")
     args = parser.parse_args()
 
     _apply_run_config(args.run_dir, args.env, args.seed)
+    if args.parallel_workers is not None:
+        utils.update_config(
+            {"agent_validation_parallel_workers": args.parallel_workers})
 
     payload = _load_fit_data(args.run_dir, args.pickle)
     trajectories = payload["trajectories"]

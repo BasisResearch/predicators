@@ -261,6 +261,8 @@ def fit_params_rollout(
     # The grid-seeded, prior-folded LM MAP IS the fit. The Jacobian at
     # the MAP is kept on the result as the Laplace bundle for the
     # info-seeking explorer's calibrated ensemble.
+    lm_notes: List[str] = []
+    lm_flat: List[str] = []
     lm_theta, lm_jac = fit_map_lm_rollout(base_env,
                                           trajectories,
                                           lm_physical_specs,
@@ -271,10 +273,36 @@ def fit_params_rollout(
                                           scaling=scaling,
                                           prior_centers=center_int,
                                           prior_sigmas=prior_sigma,
-                                          noise_sigma=noise_sigma)
+                                          noise_sigma=noise_sigma,
+                                          notes_out=lm_notes,
+                                          flat_params_out=lm_flat)
     if (config.log_hessian_identifiability and lm_jac is not None
             and lm_jac.size > 0):
         log_hessian_identifiability(lm_jac, names, noise_sigma, prior_sigma)
+    # Box-flat verdicts from the LM bracket grid: for params without
+    # grid-sweep coverage (rule params, or fits run with the grid
+    # disabled), a measured flat-across-the-box SSE at the MAP is the
+    # same box-wide insensitivity evidence the sweep supplies, so it
+    # feeds the same INSENSITIVE verdict and whole-box interval - and
+    # spares the identifiability probe its 2 rollout evals per such
+    # param. A param the grid DID sweep keeps the sweep's verdict (the
+    # sweep held the others at their anchors, the bracket at the MAP;
+    # when they disagree the anchored measurement stands).
+    if lm_flat:
+        if sensitivity is None:
+            sensitivity = {}
+        spec_by_name = {s.name: s for s in all_specs}
+        for flat_name in lm_flat:
+            spec = spec_by_name.get(flat_name)
+            if flat_name in sensitivity or spec is None:
+                continue
+            if spec.lo is None or spec.hi is None:
+                continue
+            sensitivity[flat_name] = {
+                "flat_interval": [float(spec.lo),
+                                  float(spec.hi)],
+                "sensitive": False,
+            }
     result = FitResult(names=names,
                        samples=np.asarray(lm_theta, dtype=float)[None, :],
                        log_probs=np.zeros(1),
@@ -282,7 +310,8 @@ def fit_params_rollout(
                        noise_sigma=noise_sigma,
                        prior_sigma=prior_sigma,
                        scales=scales,
-                       sensitivity=sensitivity)
+                       sensitivity=sensitivity,
+                       lm_notes=lm_notes)
     n_lm = num_rollouts_run() - n_start - n_grid
     if (config.anchor_ablation and config.grid_flat_frac > 0 and trajectories):
         result = _anchor_backward_elimination(

@@ -48,7 +48,8 @@ def parallel_rollouts_available() -> bool:
 
 
 def prefetch_parallel(jobs: Sequence[Callable[[], Any]],
-                      label: str) -> List[Optional[Any]]:
+                      label: str,
+                      quiet: bool = False) -> List[Optional[Any]]:
     """Pre-run independent rollout jobs as forked children when enabled.
 
     Returns an index-aligned result list, or all-``None`` when parallel
@@ -58,6 +59,10 @@ def prefetch_parallel(jobs: Sequence[Callable[[], Any]],
     path, so verdict semantics (seeds, scopes, bookkeeping, early
     breaks) are identical with the flag on or off - the parallel pass
     only prepays the rollouts.
+
+    ``quiet`` demotes the per-call INFO line to DEBUG: the sysID
+    objective calls this once per candidate theta, hundreds of times
+    per fit, and one log line each would drown the run's info.log.
     """
     # Deferred: settings must stay import-cycle-free from tool modules.
     # pylint: disable-next=import-outside-toplevel
@@ -65,8 +70,9 @@ def prefetch_parallel(jobs: Sequence[Callable[[], Any]],
     workers = min(int(CFG.agent_validation_parallel_workers), len(jobs))
     if workers <= 1 or len(jobs) <= 1 or not parallel_rollouts_available():
         return [None] * len(jobs)
-    logger.info("[%s] prefetching %d rollouts across %d forked children.",
-                label, len(jobs), workers)
+    logger.log(logging.DEBUG if quiet else logging.INFO,
+               "[%s] prefetching %d rollouts across %d forked children.",
+               label, len(jobs), workers)
     return run_forked_rollouts(jobs, workers, label)
 
 
@@ -91,7 +97,7 @@ def _child_main(idx: int, job: Callable[[], Any], q: Any,
         except BaseException:  # pylint: disable=broad-except
             exit_code = 2
     finally:
-        os._exit(exit_code)
+        os._exit(exit_code)  # pylint: disable=protected-access
 
 
 def run_forked_rollouts(
