@@ -187,9 +187,9 @@ def test_journal_auto_entries_record_each_attempt(tmp_path):
     approach._solve(task, timeout=10)
     content = journal_mod.read_journal(str(tmp_path),
                                        filename=journal_mod.ATTEMPTS_FILENAME)
-    assert "### task 0 attempt 1/2 (auto)" in content
+    assert "### cycle 0 task 0 attempt 1/2 (auto)" in content
     assert "- outcome: no capture" in content
-    assert "### task 0 attempt 2/2 (auto)" in content
+    assert "### cycle 0 task 0 attempt 2/2 (auto)" in content
     assert "best-effort capture (evaluator reward -0.05)" in content
     assert "Move(block0:block)" in content
     # The capture-time validation record travels into the auto entry so a
@@ -198,13 +198,13 @@ def test_journal_auto_entries_record_each_attempt(tmp_path):
     # Task context (goal + init state dict, the prompt's own
     # representation) is a dedicated entry written once, at the TOP of
     # the task's section - before any attempt entry.
-    assert content.count("### task 0 goal + initial state (auto)") == 1
+    assert content.count("### cycle 0 task 0 goal + initial state (auto)") == 1
     assert content.count("- goal: Reached(block0:block)") == 1
     assert content.count("- initial state features:") == 1
     assert "'block0:block'" in content
     assert "'x'" in content
     assert content.index("goal + initial state") < content.index(
-        "### task 0 attempt 1/2")
+        "### cycle 0 task 0 attempt 1/2")
 
 
 def test_attempt_bookkeeping_reset_per_attempt():
@@ -349,7 +349,7 @@ def test_journal_task_context_written_once_even_on_resolve(tmp_path):
     approach._solve(task, timeout=10)
     content = journal_mod.read_journal(str(tmp_path),
                                        filename=journal_mod.ATTEMPTS_FILENAME)
-    assert content.count("### task 0 goal + initial state (auto)") == 1
+    assert content.count("### cycle 0 task 0 goal + initial state (auto)") == 1
     assert content.index("- goal:") < content.index("- outcome:")
 
 
@@ -385,7 +385,7 @@ def test_test_phase_journal_archived_and_rolled_back(tmp_path):
               encoding="utf-8") as f:
         f.write("### task 0 attempt 1\n- eval-time note\n")
     content = journal_mod.read_journal(str(sandbox), filename=attempts)
-    assert "### task 0 goal + initial state (auto)" in content
+    assert "### cycle 0 task 0 goal + initial state (auto)" in content
     assert "- learning fact" in journal_mod.read_journal(str(sandbox))
     approach.end_test_phase()
     # Rolled back: learning content survives, eval additions are gone.
@@ -398,7 +398,7 @@ def test_test_phase_journal_archived_and_rolled_back(tmp_path):
     # evaluation phase. This first evaluation precedes any online
     # learning, so it archives as the initial test.
     archived = (log_dir / "attempts_eval_initial.md").read_text()
-    assert "### task 0 goal + initial state (auto)" in archived
+    assert "### cycle 0 task 0 goal + initial state (auto)" in archived
     archived_notes = (log_dir / "journal_eval_initial.md").read_text()
     assert "- learning fact" in archived_notes
     assert "eval-time note" in archived_notes
@@ -411,7 +411,7 @@ def test_test_phase_journal_archived_and_rolled_back(tmp_path):
     ctx.test_task_idx = 0
     approach._solve(task, timeout=10)
     content = journal_mod.read_journal(str(sandbox), filename=attempts)
-    assert content.count("### task 0 goal + initial state (auto)") == 1
+    assert content.count("### cycle 0 task 0 goal + initial state (auto)") == 1
     approach.end_test_phase()
     # The second evaluation ran after cycle 0's learn advanced the
     # counter to 1, so it archives under the 0-based cycle it evaluates.

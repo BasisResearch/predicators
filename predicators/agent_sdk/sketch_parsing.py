@@ -34,15 +34,21 @@ def format_step_line(
     subgoal_atoms: Optional[Set[GroundAtom]] = None,
     params_width: Optional[Union[Sequence[float], np.ndarray]] = None,
     sampler_name: Optional[str] = None,
+    subgoal_neg_atoms: Optional[Set[GroundAtom]] = None,
 ) -> str:
     """Format one plan/sketch step as a single indented line.
 
-    ``  <idx>: OptName(obj1, obj2)[p0, p1] ~ [w0, w1] -> {Atom, Atom}``
+    ``  <idx>: OptName(obj1, obj2)[p0, p1] ~ [w0, w1] -> {Atom, NOT
+    Atom}``
 
     The ``[params]``, ``~ [widths]`` / ``~ name`` and ``-> {atoms}``
-    slots are omitted when their argument is empty/None. Shared by the
-    sketch- and plan-formatting helpers below so every per-step line
-    reads identically.
+    slots are omitted when their argument is empty/None. Negative
+    subgoals render as ``NOT Atom`` inside the same braces - dropping
+    them made the logged plan diverge from the sketch monitoring
+    actually used (a monitored ``NOT GluedEndB`` Wait logged as bare
+    ``Wait(robot)`` in run_20260830_145216's attempts record). Shared
+    by the sketch- and plan-formatting helpers below so every per-step
+    line reads identically.
     """
     objs = ", ".join(o.name for o in objects)
     line = f"  {idx}: {option_name}({objs})"
@@ -54,9 +60,12 @@ def format_step_line(
             line += f" ~ [{wid}]"
     if sampler_name:
         line += f" ~ {sampler_name}"
-    if subgoal_atoms:
-        atoms = ", ".join(str(a) for a in subgoal_atoms)
-        line += f" -> {{{atoms}}}"
+    if subgoal_atoms or subgoal_neg_atoms:
+        parts = [str(a) for a in sorted(subgoal_atoms or set(), key=str)]
+        parts += [
+            f"NOT {a}" for a in sorted(subgoal_neg_atoms or set(), key=str)
+        ]
+        line += f" -> {{{', '.join(parts)}}}"
     return line
 
 
@@ -78,7 +87,8 @@ def format_sketch_lines(sketch: Sequence[SketchStep]) -> List[str]:
                              subgoal_atoms=s.subgoal_atoms,
                              params_width=gs.width if gs is not None else None,
                              sampler_name=(gs.name if gs is not None
-                                           and gs.fn is not None else None)))
+                                           and gs.fn is not None else None),
+                             subgoal_neg_atoms=s.subgoal_neg_atoms))
     return lines
 
 
@@ -96,12 +106,14 @@ def format_plan_lines(
     for i, opt in enumerate(plan):
         step = sketch[i] if sketch and i < len(sketch) else None
         subgoals = step.subgoal_atoms if step is not None else None
+        neg_subgoals = step.subgoal_neg_atoms if step is not None else None
         lines.append(
             format_step_line(i,
                              opt.name,
                              opt.objects,
                              params=opt.params,
-                             subgoal_atoms=subgoals))
+                             subgoal_atoms=subgoals,
+                             subgoal_neg_atoms=neg_subgoals))
     return lines
 
 
@@ -118,23 +130,50 @@ def strip_code_fences(text: str) -> str:
 # Matches an atom like ``Pred(a:t, b:t)`` or ``NOT Pred(a)`` in subgoal text.
 _ATOM_RE = re.compile(r'(NOT\s+)?(\w+)\(([^)]*)\)')
 
+# Once-per-process memory for tolerant-mode subgoal warnings: annotations
+# are re-parsed on every monitored step, so an unknown name used to log
+# one warning per parse (hundreds per predicate per run - 2026-08-30
+# bridge runs logged ~660/~1460 of them).
+_warned_subgoal_issues: Set[str] = set()
+
+
+def _warn_subgoal_once(msg: str) -> None:
+    if msg in _warned_subgoal_issues:
+        return
+    _warned_subgoal_issues.add(msg)
+    logging.warning("%s (skipping this atom; logged once)", msg)
+
 
 def parse_atoms(
     atoms_text: str,
     predicates: Set[Predicate],
     objects: Sequence[Object],
+    strict: bool = False,
 ) -> Tuple[Set[GroundAtom], Set[GroundAtom]]:
     """Parse atoms like ``Pred(a:t, b:t)`` / ``NOT Pred(a)`` from a string.
 
     Returns ``(positive_atoms, negative_atoms)``. Any number of atoms
     may appear in ``atoms_text`` (separated by commas or anything else —
-    the regex finds each ``Pred(...)``). Atoms with an unknown predicate
-    or object, or the wrong arity, are skipped with a warning.
+    the regex finds each ``Pred(...)``).
+
+    ``strict`` (tool inputs): an atom with an unknown predicate or
+    object, or the wrong arity, raises ``ValueError`` naming the
+    problem - silently dropping it would monitor a different sketch
+    than the agent wrote (a literal ``NotARealPredicate`` annotation
+    passed refinement untouched in run_20260830_145226). Tolerant mode
+    (re-parsing logged plans) skips such atoms with a once-per-process
+    warning.
     """
     pred_map = {p.name: p for p in predicates}
     obj_map = {o.name: o for o in objects}
     pos_atoms: Set[GroundAtom] = set()
     neg_atoms: Set[GroundAtom] = set()
+
+    def _bad(msg: str, hint: str) -> None:
+        if strict:
+            raise ValueError(f"{msg} in subgoal annotation - {hint}")
+        _warn_subgoal_once(f"{msg} in subgoal")
+
     for atom_match in _ATOM_RE.finditer(atoms_text):
         is_neg = atom_match.group(1) is not None
         pred_name = atom_match.group(2)
@@ -142,17 +181,21 @@ def parse_atoms(
             n.strip().split(':')[0] for n in atom_match.group(3).split(',')
         ]
         if pred_name not in pred_map:
-            logging.warning(f"Unknown predicate in subgoal: {pred_name}")
+            _bad(f"Unknown predicate {pred_name!r}",
+                 f"available predicates: {sorted(pred_map)}")
             continue
         pred = pred_map[pred_name]
-        try:
-            objs = [obj_map[n] for n in obj_names]
-        except KeyError as e:
-            logging.warning(f"Unknown object in subgoal: {e}")
+        missing = [n for n in obj_names if n not in obj_map]
+        if missing:
+            _bad(f"Unknown object(s) {missing} for {pred_name}",
+                 f"available objects: {sorted(obj_map)}")
             continue
+        objs = [obj_map[n] for n in obj_names]
         if len(objs) != len(pred.types):
-            logging.warning(f"Arity mismatch for {pred_name}: expected "
-                            f"{len(pred.types)}, got {len(objs)}")
+            _bad(
+                f"Arity mismatch for {pred_name}: expected "
+                f"{len(pred.types)}, got {len(objs)}",
+                "give one argument per predicate type")
             continue
         (neg_atoms if is_neg else pos_atoms).add(GroundAtom(pred, objs))
     return pos_atoms, neg_atoms
@@ -163,12 +206,14 @@ def parse_subgoal_annotations(
     predicates: Set[Predicate],
     objects: Sequence[Object],
     option_names: Set[str],
+    strict: bool = False,
 ) -> List[Optional[Tuple[Set[GroundAtom], Set[GroundAtom]]]]:
     """Parse ``-> {Pred(...), NOT Pred(...)}`` annotations from plan text.
 
     Returns a list parallel to the option lines in ``text``. Each entry
     is ``None`` for a line with no annotation, or ``(positive_atoms,
-    negative_atoms)`` otherwise.
+    negative_atoms)`` otherwise. ``strict`` makes a malformed atom raise
+    instead of being skipped (see ``parse_atoms``).
     """
     subgoal_re = re.compile(r'->\s*\{([^}]*)\}')
     results: List[Optional[Tuple[Set[GroundAtom], Set[GroundAtom]]]] = []
@@ -190,8 +235,10 @@ def parse_subgoal_annotations(
             results.append(None)
             continue
 
-        pos_atoms, neg_atoms = parse_atoms(sg_match.group(1), predicates,
-                                           objects)
+        pos_atoms, neg_atoms = parse_atoms(sg_match.group(1),
+                                           predicates,
+                                           objects,
+                                           strict=strict)
         if pos_atoms or neg_atoms:
             results.append((pos_atoms, neg_atoms))
         else:
@@ -356,6 +403,9 @@ def parse_sketch_from_text(
     default freeform tolerance (skip preamble, drop malformed lines,
     truncate at the first non-option line). Without it, a dropped line
     also silently misaligns the per-line subgoal annotations below.
+    Strict mode also validates every subgoal atom: an unknown predicate
+    or object, or a wrong arity, raises instead of being silently
+    dropped from the monitored sketch (see ``parse_atoms``).
 
     When ``parse_continuous_params`` is set, each step's ``[p0, p1, ...]``
     block is parsed by the SAME canonical parser the open-loop planner
@@ -399,8 +449,11 @@ def parse_sketch_from_text(
     if not parsed:
         return []
 
-    subgoals = parse_subgoal_annotations(cleaned_text, predicates, objects,
-                                         option_names)
+    subgoals = parse_subgoal_annotations(cleaned_text,
+                                         predicates,
+                                         objects,
+                                         option_names,
+                                         strict=strict)
     regions = (parse_region_annotations(cleaned_text, option_names)
                if parse_continuous_params else [])
 

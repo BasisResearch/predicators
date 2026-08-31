@@ -443,8 +443,18 @@ class AgentModelBasedExplorer(AgentExplorerBase):
         except OSError:
             return ""
         if len(text) > self._MAX_OPEN_QUESTIONS_CHARS:
-            text = (text[:self._MAX_OPEN_QUESTIONS_CHARS] +
-                    "\n[... ledger truncated; lower-ranked entries omitted]")
+            # Cut at an entry boundary, never mid-sentence, and point at
+            # the file: a mid-sentence cut silently dropped the entries
+            # the header told the agent to fold in (run_20260830).
+            head = text[:self._MAX_OPEN_QUESTIONS_CHARS]
+            cut = head.rfind("\n#")
+            if cut <= 0:
+                cut = head.rfind("\n\n")
+            if cut > 0:
+                head = head[:cut]
+            text = (head.rstrip() +
+                    "\n[... ledger truncated at the prompt cap - read "
+                    "./open_questions.md for the remaining entries]")
         return text
 
     def _build_disagreement_summary(self) -> str:

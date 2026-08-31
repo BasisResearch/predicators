@@ -288,13 +288,18 @@ class AgentSessionMixin:
                 f.write(self._get_agent_system_prompt())
 
     def _get_log_dir(self) -> str:
-        """Return the log directory, using the approach name."""
+        """Return the log directory, using the approach name.
+
+        Always absolute: agent tool code (``run_python``) executes with
+        the sandbox as its working directory, so any path that harness
+        code may touch mid-call must not depend on the process cwd.
+        """
         if hasattr(CFG, 'log_file') and CFG.log_file:
-            return CFG.log_file
+            return os.path.abspath(CFG.log_file)
         name = (
             self.get_name()  # type: ignore[attr-defined]
             if hasattr(self, 'get_name') else self._log_subdir)
-        return os.path.join("logs", name)
+        return os.path.abspath(os.path.join("logs", name))
 
     def _close_agent_session(self) -> None:
         """Close and discard the current agent session, if one exists."""

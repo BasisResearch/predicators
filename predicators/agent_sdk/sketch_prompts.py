@@ -214,13 +214,24 @@ def build_solve_prompt(
     atom_lines = [str(a) for a in sorted(atoms, key=str)]
 
     pred_lines = []
+    any_latent = False
     for pred in sorted(all_predicates, key=lambda p: p.name):
         type_sig = ", ".join(t.name for t in pred.types)
         line = f"  {pred.name}({type_sig})"
+        if pred.accepts_latent:
+            line += " [reads belief latent]"
+            any_latent = True
         if pred.natural_language_assertion is not None:
             names = [t.name for t in pred.types]
             line += f": {pred.natural_language_assertion(names)}"
         pred_lines.append(line)
+    if any_latent:
+        pred_lines.append(
+            "  ([reads belief latent]: its truth can depend on belief-only "
+            "state that real observations never carry, so an annotation "
+            "using it may be dropped from closed-loop monitoring at "
+            "capture as execution-unverifiable - prefer predicates over "
+            "observable features for monitored subgoals.)")
 
     goal_nl_section = ""
     if task.goal_nl:
@@ -308,7 +319,11 @@ def build_solve_prompt(
         experiment_section=experiment_section,
         atoms="\n".join(atom_lines) if atom_lines else render(
             "solve_query", "no_atoms"),
-        state=init_state.dict_str(indent=2),
+        # 4 decimals (0.1 mm at metric scale), matching the per-step
+        # state dumps: the default 2 dp misstated mm-scale geometry
+        # (a 0.025 half-extent printed as 0.03) and sent agents to
+        # sim.task()/sim.state() to re-derive every number.
+        state=init_state.dict_str(indent=2, num_decimal_points=4),
         image_section=initial_image_section.strip("\n"),
         objects="\n".join(obj_lines),
         options="\n".join(option_lines),

@@ -860,6 +860,15 @@ def create_synthesis_tools(
                         "list of registry names or the string 'all', got "
                         f"{sweep_params!r} (available: "
                         f"{sorted(sweepable)}).")
+            if not sweepable:
+                # Say so instead of silently degrading to the bare
+                # baseline report (which then advises passing
+                # sweep_params - the argument the caller already passed).
+                return (f"[{version_tag}] Error: sweep_params='all', but "
+                        "the env's physical-param registry has no "
+                        "sweepable entries (none declare a lo/hi range), "
+                        "so there is nothing to sweep. Use phys_params="
+                        "{name: value} to score explicit points instead.")
             selected = dict(sweepable)
         else:
             unknown = sorted(set(sweep_params) - set(sweepable))
@@ -1132,7 +1141,20 @@ def create_synthesis_tools(
         answers whether the base physics is globally faithful, which
         per-step residuals cannot see.
         """
-        p = path or simulator_file
+        if path is not None:
+            # Resolve a relative path against the sandbox (where the
+            # canonical simulator.py lives), never the process cwd, and
+            # error on a missing file instead of falling through to the
+            # no-simulator baseline report: run_20260830_145216 scored
+            # "simulator_glueonly.py" as the bare base sim for a whole
+            # session because the path resolved against the repo root.
+            p = (path if os.path.isabs(path) else os.path.join(
+                os.path.dirname(simulator_file), path))
+            if not os.path.isfile(p):
+                return (f"Error: path={path!r} not found (resolved to "
+                        f"{p}). Pass a file that exists in the sandbox.")
+        else:
+            p = simulator_file
         if not os.path.isfile(p):
             # No simulator.py yet (a fresh cycle-0 learn session): score
             # the BASE simulator alone. Everything is out of scope, so

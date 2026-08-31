@@ -96,7 +96,12 @@ def read_strategy(sandbox_dir: Optional[str],
     with open(path, "r", encoding="utf-8") as f:
         content = f.read().strip()
     if len(content) > max_chars:
-        content = (content[:max_chars].rstrip() +
+        # Cut at a line boundary, never mid-word.
+        head = content[:max_chars]
+        cut = head.rfind("\n")
+        if cut > 0:
+            head = head[:cut]
+        content = (head.rstrip() +
                    "\n[strategy truncated at the prompt cap - read "
                    f"./{STRATEGY_FILENAME} for the rest]")
     return content

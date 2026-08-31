@@ -1620,8 +1620,12 @@ class PhaseSkill:
                             "clutter (no path or arm branch can fix it)")
 
         if traj is None and not expect_contact:
+            # Debug, not error: a refused pose is a normal search
+            # outcome during sampling/refinement retries (hundreds per
+            # run), and the diagnostics reach the agent-facing failure
+            # reason via _last_plan_diagnostics either way.
             for diag in diagnostics:
-                logging.error("[%s/%s] %s", self._name, phase_name, diag)
+                logging.debug("[%s/%s] %s", self._name, phase_name, diag)
             self._last_plan_diagnostics = diagnostics
 
         return traj
@@ -1852,8 +1856,12 @@ class PhaseSkill:
                 "GOAL with fingers OPEN to release (the opening "
                 "gripper needs side clearance at the drop pose)")
         if log_errors:
+            # Debug, not error: see the demotion note at the _plan
+            # failure site - these are routine per-candidate refusal
+            # explanations, surfaced to the agent via the returned
+            # diagnostics.
             for diag in diagnostics:
-                logging.error("[%s/%s] %s", self._name, phase_name, diag)
+                logging.debug("[%s/%s] %s", self._name, phase_name, diag)
         return diagnostics
 
     # Gentle strokes (Phase.max_step_norm): any single arm joint asked to

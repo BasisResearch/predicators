@@ -522,6 +522,16 @@ class Predicate:
         """The arity of this predicate (number of arguments)."""
         return len(self.types)
 
+    @cached_property
+    def accepts_latent(self) -> bool:
+        """Whether the classifier reads the belief latent block.
+
+        Such a predicate's truth can depend on belief-only state that
+        real observations do not carry, so it may be unverifiable at
+        execution time (see the capture gate's latent-stripped probe).
+        """
+        return _classifier_accepts_latent(self._classifier)
+
     def holds(self,
               state: State,
               objects: Sequence[Object],
