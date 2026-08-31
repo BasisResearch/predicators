@@ -26,6 +26,7 @@ running any rollout (login-node safe).
 """
 import argparse
 import pickle
+import re
 import sys
 import time
 from pathlib import Path
@@ -55,6 +56,51 @@ from predicators.settings import CFG
 # for near-zero baselines).
 _RESPONSE_REL = 1e-3
 _RESPONSE_ABS = 1e-6
+
+
+def _apply_run_config(run_dir: Path, env: Optional[str],
+                      seed: Optional[int]) -> None:
+    """Reproduce the run's CFG by replaying its logged command line.
+
+    Env construction depends on far more than the env name (weld
+    pinning, contact margins, wait caps, ...): with defaults-only CFG
+    the fresh env could not even reconstruct the recorded states (blocks
+    parked at their creation poses). The run's info.log logs the exact
+    ``main.py`` invocation; replay its flags verbatim, with ``--env`` /
+    ``--seed`` as explicit overrides.
+    """
+    argv: List[str] = []
+    info = run_dir / "info.log"
+    if info.is_file():
+        with open(info, encoding="utf-8") as f:
+            for line in f:
+                if "Running command:" not in line:
+                    continue
+                tokens = re.sub(r"\x1b\[[0-9;]*m", "", line).split()
+                mains = [
+                    i for i, t in enumerate(tokens) if t.endswith("main.py")
+                ]
+                if mains:
+                    argv = tokens[mains[0] + 1:]
+                break
+    if not argv:
+        if env is None:
+            sys.exit(f"No logged command in {info} - pass --env explicitly.")
+        utils.reset_config({"env": env, "seed": seed or 0})
+        return
+    old_argv = sys.argv
+    try:
+        sys.argv = ["sysid_fit_diagnosis"] + argv
+        parsed = utils.parse_args()
+    finally:
+        sys.argv = old_argv
+    if env is not None:
+        parsed["env"] = env
+    if seed is not None:
+        parsed["seed"] = seed
+    utils.update_config(parsed)
+    print(f"Replayed {len(argv) // 2} flags from the run's logged command "
+          f"(env={CFG.env}, seed={CFG.seed}).")
 
 
 def _load_fit_data(run_dir: Path, pickle_name: Optional[str]) -> Dict:
@@ -150,8 +196,12 @@ def _probe_set(label: str, segments: List[RolloutTrajectory],
 def _main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run_dir", required=True, type=Path)
-    parser.add_argument("--env", required=True, type=str)
-    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--env",
+                        type=str,
+                        default=None,
+                        help="override the run's own env (default: replay "
+                        "the run's logged flags)")
+    parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--pickle",
                         type=str,
                         default=None,
@@ -165,7 +215,7 @@ def _main() -> None:
                         help="load + prep only; run no rollouts")
     args = parser.parse_args()
 
-    utils.reset_config({"env": args.env, "seed": args.seed})
+    _apply_run_config(args.run_dir, args.env, args.seed)
 
     payload = _load_fit_data(args.run_dir, args.pickle)
     trajectories = payload["trajectories"]
