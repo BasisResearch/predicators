@@ -307,10 +307,15 @@ def run_episode_and_get_observations(
                 actions.append(act)
                 observations.append(obs)
             except Exception as e:
-                logging.debug(f"[CogMan] State at the exception {e}: "
-                              f"{utils.abstract(obs, env.predicates)}")
-                logging.debug(
-                    f"[CogMan] Full traceback:\n{traceback.format_exc()}")
+                # A plan_exhausted OptionExecutionFailure is how a
+                # completed plan ENDS (see below), not an error - dumping
+                # its state and full traceback buried the real failures
+                # under dozens of end-of-plan stacks per run.
+                if not getattr(e, "info", {}).get("plan_exhausted"):
+                    logging.debug(f"[CogMan] State at the exception {e}: "
+                                  f"{utils.abstract(obs, env.predicates)}")
+                    logging.debug(
+                        f"[CogMan] Full traceback:\n{traceback.format_exc()}")
                 # pylint: disable-next=import-outside-toplevel
                 from predicators.agent_sdk.session_base import \
                     AgentSessionFatalError

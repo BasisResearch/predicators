@@ -451,9 +451,17 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         return True
 
     def _journal_task_label(self) -> str:
-        """The journal's label for the task currently being solved."""
+        """The journal's label for the task currently being solved.
+
+        Carries the HARNESS cycle number so the attempt log anchors a
+        canonical numbering: without it agents invented their own cycle
+        counts (a journal's "cycle 4" was the harness's cycle 1), and
+        cross-referencing run logs against the journal needed a mental
+        offset.
+        """
         idx = self._tool_context.test_task_idx
-        return f"task {idx}" if idx is not None else "task ?"
+        task_part = f"task {idx}" if idx is not None else "task ?"
+        return f"cycle {self._tool_context.iteration_id} {task_part}"
 
     def _record_task_context_in_journal(self, task: Task) -> None:
         """Append the task's goal + init-state entry, once per task.

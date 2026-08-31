@@ -20,8 +20,8 @@ The learning phase left this ranked ledger of open questions:
 
 ## Initial State Features
 
-  {'fixture0:fixture': {'x': 1.00, 'y': 0.00, 'is_on': 0.00},
-   'thing0:thing': {'x': 0.00, 'y': 0.00}}
+  {'fixture0:fixture': {'x': 1.0000, 'y': 0.0000, 'is_on': 0.0000},
+   'thing0:thing': {'x': 0.0000, 'y': 0.0000}}
 
 ## Objects
 

@@ -196,6 +196,17 @@ def _make_python_exec_tool(
 
         old_stdout = sys.stdout
         sys.stdout = captured = io.StringIO()
+        # Execute with the sandbox as the working directory, so the
+        # agent's relative paths (open("plan.txt"), np.save(...)) hit
+        # the same files as its Read/Write/Bash tools instead of the
+        # repo root (run_20260830: a stale repo-root plan.txt from one
+        # session was silently executed by the next). exec blocks the
+        # event loop, so no other tool call can observe the changed
+        # cwd; harness paths reachable from tool code are absolute
+        # (see _get_log_dir).
+        prev_cwd = os.getcwd()
+        if sandbox_dir is not None:
+            os.chdir(sandbox_dir)
         try:
             exec(compile(code, label, "exec"), exec_ns)  # pylint: disable=exec-used
         except ProbeBudgetExceeded as e:
@@ -215,6 +226,8 @@ def _make_python_exec_tool(
             prefix = f"{partial}\n" if partial else ""
             return text_result(f"{prefix}Error:\n{tb}{_footer()}")
         finally:
+            if sandbox_dir is not None:
+                os.chdir(prev_cwd)
             if watchdog_disarm is not None:
                 watchdog_disarm()
             sys.stdout = old_stdout

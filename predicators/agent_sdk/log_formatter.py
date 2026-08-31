@@ -52,19 +52,48 @@ def format_conversation_markdown(
     lines.append("## Conversation\n")
 
     turn_num = 0
+    # Duplicate suppression: the SDK can deliver the same assistant
+    # message (and its tool results) more than once, and tool_use /
+    # tool_result ids are unique per call, so a repeated id is always a
+    # re-render of an already-logged turn (run_20260830 transcripts
+    # rendered turns twice verbatim).
+    seen_tool_use_ids: set = set()
+    seen_tool_result_ids: set = set()
     for entry in collected:
         etype = entry.get("type", "")
 
         if etype == "assistant":
+            blocks = entry.get("content", [])
+            ids = [
+                b.get("id") for b in blocks if isinstance(b, dict)
+                and b.get("type") == "tool_use" and b.get("id")
+            ]
+            if ids and all(i in seen_tool_use_ids for i in ids):
+                continue
+            # Render into a buffer first: a turn whose blocks produce no
+            # output (empty or redacted thinking) gets no header at all,
+            # instead of an empty "### Turn N" stub.
+            body: List[str] = []
+            for block in blocks:
+                _format_assistant_block(block, body)
+            if not body:
+                continue
+            seen_tool_use_ids.update(ids)
             turn_num += 1
             if turn_num > 1:
                 lines.append("---\n")
             lines.append(f"### Turn {turn_num}\n")
-            for block in entry.get("content", []):
-                _format_assistant_block(block, lines)
+            lines.extend(body)
 
         elif etype == "user":
             for block in entry.get("content", []):
+                if (isinstance(block, dict)
+                        and block.get("type") == "tool_result"):
+                    tid = block.get("tool_use_id")
+                    if tid and tid in seen_tool_result_ids:
+                        continue
+                    if tid:
+                        seen_tool_result_ids.add(tid)
                 _format_user_block(block, lines)
 
         elif etype == "result":

@@ -19,7 +19,7 @@ from predicators.agent_sdk.tools.context import ToolContext, \
     _capture_task_key, decorrelated_rollout_seed
 from predicators.agent_sdk.tools.results import _error_result
 from predicators.agent_sdk.tools.scene import format_object_poses, \
-    render_scene_image
+    render_pybullet_image
 from predicators.agent_sdk.tools.tasks import _resolve_task
 from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
     _format_evaluator_verdict, _resolve_task_evaluator, _sandbox_base, \
@@ -188,9 +188,12 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         "closed-loop (monitored, with replan-on-divergence). Capture is "
         "gated: a goal-reaching plan is re-run several times (simulation "
         "varies across runs; each rollout reports the motion-planner seed "
-        "it ran at) and a FLAKY plan is reported instead of captured - "
-        "reproduce a failed rollout with `sim.run(plan, seed=S)` in "
-        "run_python, add margin, and resubmit. `validation_rollouts` "
+        "it ran at) and a FLAKY plan is reported instead of captured. The "
+        "gate's rollout set is exactly what `sim.run(plan, trials=N)` runs "
+        "(fresh env per rollout, same planner seeds), so measure "
+        "reliability there BEFORE submitting, and reproduce one failed "
+        "rollout with `sim.run(plan, seed=S, fresh=True)`; then add "
+        "margin and resubmit. `validation_rollouts` "
         "requests a STRICTER gate for this submission (more rollouts; never "
         "fewer than configured). This is the ONLY path that captures an "
         "answer: explore (other tasks, modified states, partial plans, "
@@ -328,15 +331,21 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 "Parsed empty plan. Each line must be "
                 "`Option(obj:type, ...)[params] -> {subgoals}` with a known "
                 "option, typed object refs, and exact params in `[]`.")
-        # Ground each step with its parsed exact params.
+        # Ground each step with its parsed exact params, via the same
+        # helper the refine path uses: an annotated Wait gets its
+        # wait_target_atoms installed, so it waits for the annotated
+        # atoms here exactly as in refine and in real execution -
+        # grounding directly made the same Wait terminate on the first
+        # incidental atom change in this rollout but wait for its
+        # targets in refine, two different durations for one plan.
         grounded_plan: List[Any] = []
         for step_idx, st in enumerate(sketch_steps):
             params = (st.initial_params if st.initial_params is not None else
                       np.array([], dtype=np.float32))
             try:
                 grounded_plan.append(
-                    st.option.ground(list(st.objects),
-                                     np.asarray(params, dtype=np.float32)))
+                    bilevel_sketch.ground_step(
+                        st, np.asarray(params, dtype=np.float32)))
             except Exception as e:  # pylint: disable=broad-except
                 return _error_result(f"Failed to ground step {step_idx} "
                                      f"({st.option.name}): {e}")
@@ -359,6 +368,13 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                              f"{format_object_poses(outcome.pre_state)}")
                 return
             step_line = f"Step {i}: {sig} ({outcome.num_actions} actions)"
+            if (opt.name == "Wait" and outcome.failure_reason is None and
+                    outcome.num_actions >= CFG.max_num_steps_option_rollout):
+                step_line += (
+                    "\n  NOTE: this Wait ran to the option-rollout cap - "
+                    "its wait-target atoms never became true in the "
+                    "belief (and no other atom changed). Check whether "
+                    "the awaited change is modeled, or drop the Wait.")
             if outcome.failure_reason is not None:
                 step_line += (f"\n  FAILURE REASON: {outcome.failure_reason}"
                               "\n  Object poses at failure:\n"
@@ -375,24 +391,71 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 step_line += ("\n  State:\n" +
                               post.dict_str(indent=4, num_decimal_points=4))
             lines.append(step_line)
-            img_block = render_scene_image(ctx, f"step_{i}_{opt.name}")
+            # Render from the outcome's state explicitly: the rollout
+            # runs on the gate's fresh env (see fresh_scope below) while
+            # the renderer draws the shared session env, so without the
+            # state the images would show a stale scene.
+            img_block = render_pybullet_image(
+                ctx,
+                f"step_{i}_{opt.name}",
+                state=post if post is not None else outcome.pre_state)
             if img_block and img_block.get("saved_path"):
                 saved_image_paths.append(img_block["saved_path"])
 
+        # One substrate for the WHOLE gate: rollout 1 (the capture
+        # rollout) runs on the same freshly constructed env as the
+        # validation repeats, at the base planner seed. This makes the
+        # gate reproducible from inside the session - sim.run(plan,
+        # trials=N) runs the identical rollout set (fresh env per trial,
+        # planner seeds base..base+N-1) - and stops a submission from
+        # advancing the shared session env. Rollout 1 on the warm shared
+        # env was a different physics substrate from every repeat: the
+        # 2026-08-30 bridge runs tuned plans to 27/27 on one substrate
+        # that then scored 1/10 on the other, with no way to reproduce
+        # the gate's rollouts.
+        fresh_scope = (ctx.validation_env_scope
+                       if validation_cfg.fresh_env else None)
         # Execute exactly like the real closed-loop executor: abort at the
         # first failing option (0-action collision / not-initiable / env
         # failure) instead of pressing on. Otherwise forward simulation can
         # continue past a collision and report a goal that the real rollout —
         # which ends the episode at that failed option — never reaches.
         ctx.attempt_rollout_count += 1
-        result = bilevel_sketch.execute_plan_forward(task,
-                                                     grounded_plan,
-                                                     ctx.option_model,
-                                                     predicates=all_predicates,
-                                                     sketch=sketch_steps,
-                                                     on_step=_report_step,
-                                                     stop_on_failure=True)
-        final_atoms = utils.abstract(result.final_state, ctx.predicates)
+        with (fresh_scope()
+              if fresh_scope is not None else contextlib.nullcontext()):
+            result = bilevel_sketch.execute_plan_forward(
+                task,
+                grounded_plan,
+                ctx.option_model,
+                predicates=all_predicates,
+                sketch=sketch_steps,
+                on_step=_report_step,
+                stop_on_failure=True)
+            final_atoms = utils.abstract(result.final_state, ctx.predicates)
+            # Task-evaluator verdict on this belief-sim rollout, computed
+            # BEFORE capture and INSIDE the scope (certificate probes must
+            # judge on the env the rollout ran on): the real evaluator
+            # applies the same certificate, so a goal-reaching but
+            # illegitimate plan can never count as a solve and must not be
+            # captured as the answer (run_20260712_173955 tasks 1-2:
+            # flagged-illegitimate captures stood all session and were
+            # executed only to be rejected). Failure-tolerant: verdict
+            # stays None when the task has no evaluator or nothing
+            # executed. A coarse verdict (option-boundary states only) can
+            # falsely reject a legitimate cascade, so it never blocks
+            # capture.
+            evaluator = _resolve_task_evaluator(ctx, task_label)
+            verdict: Optional[Dict[str, Any]] = None
+            if evaluator is not None and len(eval_collector.states) > 1:
+                try:
+                    verdict = evaluate_states_with(evaluator,
+                                                   eval_collector.states,
+                                                   eval_collector.labels,
+                                                   sim_env=getattr(
+                                                       ctx.option_model,
+                                                       "sim_env", None))
+                except Exception as e:  # pylint: disable=broad-except
+                    logging.debug("Task-evaluator verdict failed: %s", e)
         # Use the env's goal-check (its own classifiers); robust to invented
         # predicates that don't reuse env names.
         goal_reached = result.goal_reached
@@ -406,27 +469,6 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                           and result.actions_to_goal <= horizon)
         goal_achieved = (goal_reached and result.clean_to_goal
                          and within_horizon)
-        # Task-evaluator verdict on this belief-sim rollout, computed BEFORE
-        # capture: the real evaluator applies the same certificate, so a
-        # goal-reaching but illegitimate plan can never count as a solve and
-        # must not be captured as the answer (run_20260712_173955 tasks 1-2:
-        # flagged-illegitimate captures stood all session and were executed
-        # only to be rejected). Failure-tolerant: verdict stays None when the
-        # task has no evaluator or nothing executed. A coarse verdict
-        # (option-boundary states only) can falsely reject a legitimate
-        # cascade, so it never blocks capture.
-        evaluator = _resolve_task_evaluator(ctx, task_label)
-        verdict: Optional[Dict[str, Any]] = None
-        if evaluator is not None and len(eval_collector.states) > 1:
-            try:
-                verdict = evaluate_states_with(evaluator,
-                                               eval_collector.states,
-                                               eval_collector.labels,
-                                               sim_env=getattr(
-                                                   ctx.option_model, "sim_env",
-                                                   None))
-            except Exception as e:  # pylint: disable=broad-except
-                logging.debug("Task-evaluator verdict failed: %s", e)
         evaluator_rejected = (verdict is not None and not verdict["legitimate"]
                               and not eval_collector.coarse)
         # An evaluator rejection only disqualifies a capture when the goal
@@ -526,12 +568,10 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                     f"NOTE: validation_rollouts={requested_rollouts} capped "
                     f"at {_MAX_REQUESTED_ROLLOUTS}.")
             n_rollouts = max(n_rollouts, capped_request)
-        # Fresh env per validation rollout when the approach provides one:
-        # repeats on the shared env are correlated (its reset cannot
-        # reconstruct state exactly), so only fresh envs sample the same
-        # distribution the real episode will.
-        fresh_scope = (ctx.validation_env_scope
-                       if validation_cfg.fresh_env else None)
+        # fresh_scope (computed above, shared with rollout 1): repeats on
+        # the shared env are correlated (its reset cannot reconstruct
+        # state exactly), so only fresh envs sample the same distribution
+        # the real episode will.
         rollout_outcomes: List[str] = []
         # Per-step post-states of PASSING validation rollouts, for the
         # captured-annotation intersection filter. Failing rollouts are
@@ -597,7 +637,8 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                     f"{base_planner_seed + n_rollouts - 1}; the "
                     "simulator's motion planning and physics stepping vary "
                     "across runs; repeats sample that execution "
-                    f"variability{fresh_note}).")
+                    f"variability{fresh_note}; sim.run(plan, "
+                    f"trials={n_rollouts}) reruns this exact rollout set).")
 
         # Parameter-margin gates (see _parameter_margin_sweep): the
         # execution repeats above all run AT the fitted parameters, so
@@ -738,6 +779,25 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                                               subgoal_atoms=pos_held or None,
                                               subgoal_neg_atoms=neg_held
                                               or None))
+            # Re-align each Wait's target atoms with the FILTERED
+            # sketch: the real executor waits on exactly the monitored
+            # (execution-verifiable) atoms. A latent-only target (e.g. a
+            # belief Bonded) reads false on every real observation, so
+            # leaving it in the grounded option's memory would stall the
+            # real Wait to its step-cap backstop no matter what happens.
+            # With every target filtered away the Wait falls back to
+            # any-atom-change, the same rule the belief rollout then
+            # shares.
+            for g_opt, cap_step in zip(grounded_plan, captured_sketch):
+                if g_opt.name != "Wait":
+                    continue
+                g_opt.memory.pop("wait_target_atoms", None)
+                g_opt.memory.pop("wait_target_neg_atoms", None)
+                if cap_step.subgoal_atoms:
+                    g_opt.memory["wait_target_atoms"] = cap_step.subgoal_atoms
+                if cap_step.subgoal_neg_atoms:
+                    g_opt.memory["wait_target_neg_atoms"] = \
+                        cap_step.subgoal_neg_atoms
             ctx.solved_plan = grounded_plan
             ctx.solved_sketch = captured_sketch
             ctx.solved_plan_reached_goal = validated_solve
@@ -829,10 +889,14 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 "planning and physics stepping vary across runs, and the "
                 "real environment samples the same variability - a plan "
                 "that only sometimes succeeds in simulation will likely "
-                "fail for real. To debug a failed rollout first, re-run "
-                "it exactly in run_python: sim.run(plan, seed=<the failed "
-                "rollout's planner seed>) gives full per-step reporting at "
-                "that seed. Then add margin (e.g. tighter spacing, aim "
+                "fail for real. This gate is reproducible in run_python: "
+                f"sim.run(plan, trials={n_rollouts}) runs the identical "
+                "rollout set (fresh env per trial, same planner seeds), "
+                "and sim.run(plan, seed=<the failed rollout's planner "
+                "seed>, fresh=True) re-runs one failed rollout exactly "
+                "with full per-step reporting (without fresh=True the "
+                "warm session env is a different, optimistic substrate). "
+                "Then add margin (e.g. tighter spacing, aim "
                 "impacts closer to the middle of the fall path) and "
                 "resubmit. Because this task has now produced a flaky "
                 f"submission, captures require {escalated_n}/{escalated_n} "
@@ -1056,17 +1120,44 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 step_line += (f"\n  Added:   {{{added_s}}}"
                               f"\n  Deleted: {{{del_s}}}")
             lines.append(step_line)
-            img_block = render_scene_image(ctx, f"policy_step_{i}_{opt.name}")
+            # Explicit state: the rollout runs on the gate's fresh env
+            # while the renderer draws the shared session env (see
+            # submit_plan's _report_step).
+            img_block = render_pybullet_image(
+                ctx,
+                f"policy_step_{i}_{opt.name}",
+                state=post if post is not None else outcome.pre_state)
             if img_block and img_block.get("saved_path"):
                 saved_image_paths.append(img_block["saved_path"])
 
+        # One substrate for the whole gate, as in submit_plan: rollout 1
+        # runs on the same fresh env as the validation repeats, at the
+        # base planner seed, so the gate is reproducible in-session.
+        fresh_scope = (ctx.validation_env_scope
+                       if validation_cfg.fresh_env else None)
         ctx.attempt_rollout_count += 1
-        result = execute_policy_forward(task,
-                                        option_fn,
-                                        model,
-                                        predicates=all_predicates,
-                                        max_policy_options=max_opts,
-                                        on_step=_report_step)
+        with (fresh_scope()
+              if fresh_scope is not None else contextlib.nullcontext()):
+            result = execute_policy_forward(task,
+                                            option_fn,
+                                            model,
+                                            predicates=all_predicates,
+                                            max_policy_options=max_opts,
+                                            on_step=_report_step)
+            # Verdict INSIDE the scope: certificate probes must judge on
+            # the env the rollout ran on.
+            evaluator = _resolve_task_evaluator(ctx, task_label)
+            verdict: Optional[Dict[str, Any]] = None
+            if evaluator is not None and len(eval_collector.states) > 1:
+                try:
+                    verdict = evaluate_states_with(evaluator,
+                                                   eval_collector.states,
+                                                   eval_collector.labels,
+                                                   sim_env=getattr(
+                                                       ctx.option_model,
+                                                       "sim_env", None))
+                except Exception as e:  # pylint: disable=broad-except
+                    logging.debug("Task-evaluator verdict failed: %s", e)
 
         goal_reached = result.goal_reached
         within_horizon = (result.actions_to_goal is not None
@@ -1086,18 +1177,6 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # and policy-code errors gate.
         goal_achieved = (goal_reached and within_horizon
                          and result.policy_error is None)
-        evaluator = _resolve_task_evaluator(ctx, task_label)
-        verdict: Optional[Dict[str, Any]] = None
-        if evaluator is not None and len(eval_collector.states) > 1:
-            try:
-                verdict = evaluate_states_with(evaluator,
-                                               eval_collector.states,
-                                               eval_collector.labels,
-                                               sim_env=getattr(
-                                                   ctx.option_model, "sim_env",
-                                                   None))
-            except Exception as e:  # pylint: disable=broad-except
-                logging.debug("Task-evaluator verdict failed: %s", e)
         evaluator_rejected = (verdict is not None and not verdict["legitimate"]
                               and not eval_collector.coarse)
         reward_hack = (evaluator_rejected and verdict is not None
@@ -1153,8 +1232,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         if requested_rollouts is not None:
             n_rollouts = max(n_rollouts,
                              min(requested_rollouts, _MAX_REQUESTED_ROLLOUTS))
-        fresh_scope = (ctx.validation_env_scope
-                       if validation_cfg.fresh_env else None)
+        # fresh_scope computed above, shared with rollout 1.
         rollout_outcomes: List[str] = []
         base_planner_seed = CFG.seed
         if (ctx.capture_goal_reaching_plans and goal_achieved
