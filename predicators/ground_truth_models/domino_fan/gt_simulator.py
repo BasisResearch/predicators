@@ -58,10 +58,12 @@ from predicators.structs import Object, State
 
 # ── Constants ────────────────────────────────────────────────────
 
-# Held-mode force (N), equal to the env's domino_fan_wind_force. A 100 g
+# Starting guess for the wind force (N). NOT the true value: the env
+# blows at CFG.domino_fan_wind_force, and recovering that number from
+# rollouts is the whole job of the parameter-learning rung. A 100 g
 # domino 15 mm thick and 150 mm tall, pushed at 0.4 of its height, tips
-# at m*g*(depth/2)/(0.4*height) = 0.123 N; this sits ~60% over that, the
-# same margin the ball's 0.06 N keeps over its stiction. Fitted init.
+# at m*g*(depth/2)/(0.4*height) = 0.123 N, so this init clears tipping
+# with the same margin the ball's 0.06 N keeps over its stiction.
 WIND_FORCE = 0.2
 
 # Height above the domino's origin the wind effectively acts at (m),
@@ -157,8 +159,19 @@ def _wind_topples_start_block(state: State, updates: ResidualUpdate,
 
 RESIDUAL_RULES = [_wind_topples_start_block]
 
+# The search box the fit is allowed to look in. It MUST contain the
+# env's true values or the rung is unwinnable by construction: hi=1.0
+# excluded the env's 1.5 N, and run_20260829_110429 spent three cycles
+# creeping 0.2251 -> 0.2229 and scoring 0/1 every time, because the
+# answer was outside the box. The bound is now set from the env's own
+# setting with room either side, so recalibrating the wind cannot
+# silently strand the fit again.
+_FORCE_HI = max(3.0, 2.0 * CFG.domino_fan_wind_force)
+
 PARAM_SPECS: List[ParamSpec] = [
-    ParamSpec("wind_force", WIND_FORCE, lo=0.0, hi=1.0),
+    ParamSpec("wind_force", WIND_FORCE, lo=0.0, hi=_FORCE_HI),
+    # 0.4 * domino_height = 0.06 for the default 0.15 m domino, so the
+    # true lever sits mid-box here.
     ParamSpec("wind_lever", WIND_LEVER, lo=0.0, hi=0.15),
 ]
 
