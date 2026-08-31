@@ -17,10 +17,26 @@ non-sysID, per-transition fitting paths).
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Tuple
 
-from predicators.settings import CFG
+from predicators.settings import CFG, LAUNCH_CWD
+
+
+def _anchor_at_launch_cwd(path: str) -> str:
+    """Resolve a relative CFG path against the process launch directory.
+
+    Experiment yamls declare track manifests relative to the launch
+    (repo) directory, but ``from_cfg`` may run inside ``run_python``'s
+    exec window, whose working directory is the agent sandbox - a
+    bare relative open() there misses the file and the track scorer
+    silently falls back to per-step scoring. Absolute and empty paths
+    pass through untouched.
+    """
+    if not path or os.path.isabs(path):
+        return path
+    return os.path.join(LAUNCH_CWD, path)
 
 
 @dataclass(frozen=True)
@@ -100,7 +116,8 @@ class SysIdConfig:
                 CFG.code_sim_learning_log_hessian_identifiability),
             score_observed_only=(
                 CFG.code_sim_learning_rollout_score_observed_only),
-            track_path=CFG.code_sim_learning_rollout_track_path,
+            track_path=_anchor_at_launch_cwd(
+                CFG.code_sim_learning_rollout_track_path),
             onset_confirm_deg=CFG.code_sim_learning_onset_confirm_deg,
             onset_deg=CFG.code_sim_learning_onset_deg,
             onset_min_persist=CFG.code_sim_learning_onset_min_persist,

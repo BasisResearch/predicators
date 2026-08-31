@@ -1581,3 +1581,32 @@ def test_per_trajectory_rms_reports_the_callers_own_episode_count(monkeypatch):
 def pytest_approx(value, abs=1e-9):  # pylint: disable=redefined-builtin
     """Local approx so the comparisons above read as equations."""
     return pytest.approx(value, abs=abs)
+
+
+def test_sysid_config_track_path_anchored_at_launch_cwd(monkeypatch, tmp_path):
+    """A relative track path resolves against the launch directory even when
+    ``from_cfg`` runs under a different working directory.
+
+    Regression: run_python's exec window chdirs into the agent sandbox,
+    so a sim.fit issued from agent code would open the fan domain's
+    relative track path against the sandbox, miss it, and silently fall
+    back to per-step scoring.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.config import SysIdConfig
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.settings import LAUNCH_CWD
+    utils.reset_config({
+        "code_sim_learning_rollout_track_path":
+        "logs/zed_tracks/tracks.json",
+    })
+    monkeypatch.chdir(tmp_path)  # simulate the sandbox exec window
+    cfg = SysIdConfig.from_cfg()
+    assert cfg.track_path == os.path.join(LAUNCH_CWD,
+                                          "logs/zed_tracks/tracks.json")
+    # Absolute and empty paths pass through untouched.
+    abs_path = str(tmp_path / "tracks.json")
+    utils.reset_config({"code_sim_learning_rollout_track_path": abs_path})
+    assert SysIdConfig.from_cfg().track_path == abs_path
+    utils.reset_config({"code_sim_learning_rollout_track_path": ""})
+    assert SysIdConfig.from_cfg().track_path == ""

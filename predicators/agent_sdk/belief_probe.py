@@ -173,6 +173,26 @@ def _attach_step_contacts(events: List[Dict[str, Any]],
         start += s["num_actions"]
 
 
+class _BareNameFallbackDict(Dict[str, Dict[str, float]]):
+    """``state()``'s full dict: keyed ``name:type``, resolving BARE object
+    names via ``__missing__``.
+
+    Agent code persisted before the ``name:type`` keying (sandbox
+    helpers, journal recipes replayed after a resume/requeue) indexes
+    the full dict by bare name; resolving that here costs new code
+    nothing and closes the same gap the single-object form's bare-name
+    path already closes. Ambiguous bare names (two objects sharing a
+    name across types - not constructible in current envs) fall through
+    to the ordinary KeyError.
+    """
+
+    def __missing__(self, key: str) -> Dict[str, float]:
+        matches = [k for k in self if k.split(":", 1)[0] == key]
+        if len(matches) == 1:
+            return self[matches[0]]
+        raise KeyError(key)
+
+
 class _StrLikeResult:
     """String conveniences shared by the probe result types.
 
@@ -853,7 +873,10 @@ class BeliefProbe:
         - keys use the same ``name:type`` form as atoms, plan lines, and
         the prompt, so a key read anywhere else indexes here directly;
         ``state("domino_1")`` and ``state("domino_1:domino")`` both ->
-        that object's ``{feat: value}``.
+        that object's ``{feat: value}``. The full dict also resolves
+        BARE-name lookups (``state()["domino_1"]``) via a fallback, so
+        agent helpers persisted from before the ``name:type`` keying
+        keep working across a resume.
         """
         cur = self._require_state()
 
@@ -875,7 +898,9 @@ class BeliefProbe:
                     return _features(obj)
             raise ValueError(f"Unknown object '{obj_name}'. Available: "
                              f"{sorted(str(o) for o in cur)}")
-        return {str(obj): _features(obj) for obj in sorted(cur, key=str)}
+        return _BareNameFallbackDict(
+            {str(obj): _features(obj)
+             for obj in sorted(cur, key=str)})
 
     def atoms(self) -> List[str]:
         """Sorted ground atoms true in the current state."""
@@ -1496,10 +1521,10 @@ class BeliefProbe:
             img = render_scene_image(
                 ctx,
                 f"probe_step_{i}_{outcome.option.name}") if render else None
-            if (outcome.option.name == "Wait" and failure is None and
-                    outcome.num_actions >= CFG.max_num_steps_option_rollout):
+            if (outcome.option.name == "Wait" and failure is None
+                    and outcome.num_actions >= utils.wait_rollout_step_cap()):
                 notices.append(
-                    f"step {i} (Wait) ran to the option-rollout cap "
+                    f"step {i} (Wait) ran to its step cap "
                     f"({outcome.num_actions} actions): its wait-target "
                     "atoms never became true in the belief (and no other "
                     "atom changed). Check whether the awaited change is "

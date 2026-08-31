@@ -118,8 +118,12 @@ def test_solve_lm_map_prior_rows_bracket_still_fires() -> None:
 
 
 def test_bracket_search_flat_param_settled_from_edge_evals() -> None:
-    """A box-flat parameter is settled from the two edge evaluations, is
-    reported in ``flat_out``, and never pays the full 9-point grid."""
+    """A box-flat parameter is settled from the two edge evaluations and.
+
+    never pays the full 9-point grid - but is NOT reported in
+    ``flat_out``: 2 edge evals cannot rule out an interior-only
+    response, so the identifiability probe must stay armed for it.
+    """
     calls: List[np.ndarray] = []
 
     def residuals(z: np.ndarray) -> np.ndarray:
@@ -142,7 +146,7 @@ def test_bracket_search_flat_param_settled_from_edge_evals() -> None:
                                                           "test",
                                                           flat_out=flat)
     assert z_new[1] == 0.7
-    assert flat == ["gate"]
+    assert not flat  # edge screen alone never suppresses the probe
     assert len(notes) == 1 and "NOT fit from data" in notes[0]
     # One baseline evaluation plus the two box edges.
     assert len(calls) == 3
@@ -179,5 +183,6 @@ def test_bracket_search_flat_test_ignores_prior_rows() -> None:
                                                       "test",
                                                       n_prior_rows=2,
                                                       flat_out=flat)
-    assert flat == ["gate"]
+    assert not flat  # edge screen alone never suppresses the probe
     assert len(notes) == 1 and "NOT fit from data" in notes[0]
+    assert "flat at both box edges" in notes[0]

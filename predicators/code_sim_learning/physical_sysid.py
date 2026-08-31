@@ -583,6 +583,7 @@ def _anchor_backward_elimination(
                      prior_sigma=result.prior_sigma,
                      scales=result.scales,
                      sensitivity=result.sensitivity,
+                     lm_notes=list(result.lm_notes),
                      anchor_ablation=pinned)
 
 

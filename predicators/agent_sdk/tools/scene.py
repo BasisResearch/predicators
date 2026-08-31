@@ -79,11 +79,32 @@ def render_pybullet_image(
 
         from PIL import Image as PILImage
 
+        # pylint: disable=protected-access
+        prev: Optional[Tuple[State, List[Any]]] = None
         if state is not None:
-            ctx.env._set_state(state)  # pylint: disable=protected-access
-
-        with agent_render_resolution():
-            video = ctx.env.render()
+            # A stateful render must leave NO trace on the shared
+            # session env: the submit gate renders per-step states while
+            # its rollouts run on a fresh env, and leaving the env
+            # teleported to the plan's states (with the welds and
+            # residual-command queue _set_state syncs to them) corrupts
+            # the substrate later consumers trust - planner simulate()
+            # even SKIPS its own reset when the incoming state
+            # allclose-matches the env's current one, inheriting
+            # whatever the render left behind.
+            if ctx.env._current_observation is not None:
+                prev = (ctx.env._current_state.copy(),
+                        ctx.env._pending_residual_commands)
+        try:
+            if state is not None:
+                ctx.env._set_state(state)
+            with agent_render_resolution():
+                video = ctx.env.render()
+        finally:
+            if prev is not None:
+                prev_state, prev_commands = prev
+                ctx.env._set_state(prev_state)
+                ctx.env._pending_residual_commands = prev_commands
+        # pylint: enable=protected-access
         if not video:
             return None
         rgb_array = np.asarray(video[0], dtype=np.uint8)

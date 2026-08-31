@@ -487,8 +487,14 @@ def create_synthesis_tools(
         ]
         # An inert fit must announce itself: every value below is then
         # the declared init, not an estimate, and "fitted" language
-        # would launder hand-set constants as calibration.
-        if fitted and all(fitted[n] == init_params[n] for n in fitted):
+        # would launder hand-set constants as calibration. Tolerance,
+        # not exact equality: log-scale params round-trip through
+        # exp(log(x)) (inexact for e.g. 0.1 or 3.0) and solve_lm nudges
+        # bound-sitting inits into the interior by 1e-9, so an exact
+        # test never fires on exactly the fits it exists to call out.
+        if fitted and all(
+                np.isclose(fitted[n], init_params[n], rtol=1e-8, atol=1e-12)
+                for n in fitted):
             lines.insert(
                 1, "NOTE: the optimizer moved NO parameter (every delta "
                 "is +0.0000) - this fit is a no-op and the values below "
