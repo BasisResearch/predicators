@@ -29,7 +29,13 @@ run_one() {
   case "$rung" in
     1) arm="oracle"                          ; exp="rung1_oracle" ;;
     2) arm="agent_model_based_planning"      ; exp="rung2_agent_planner" ;;
-    3) arm="agent_param_learning"            ; exp="rung3_param_learning" ;;
+    3) arm="agent_param_learning"            ; exp="rung3_param_learning"
+       echo "NOTE: rung 3 fits the wind's parameters, and in this env they" >&2
+       echo "      are not identifiable: the wind acts for ~2 steps before" >&2
+       echo "      the start block tips, so the whole observation is 'tipped" >&2
+       echo "      or did not'. 1.5 N and 2.0 N give identical trajectories." >&2
+       echo "      Rung 4 learns the wind RULE instead, which is the open" >&2
+       echo "      question here. Running anyway." >&2 ;;
     4) arm="agent_po_predicate_invention_al" ; exp="rung4_full_learning" ;;
     *) echo "unknown rung: $rung" >&2; usage ;;
   esac

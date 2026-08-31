@@ -67,8 +67,13 @@ APPROACHES:
     SKIP: True
     FLAGS:
       skip_initial_test: True
-      # Hands over the scene and the skills the way exp_fan.yaml does
-      # for the ball task. The WIND dynamics are not in that source -
-      # they live in the residual program the agent must rediscover -
-      # so this is not handing over the answer.
-      agent_sim_provide_base_sim_source: True
+      # NOT enabled: this flag is a no-op for this env and reads as if
+      # it were not. exp_fan.yaml can turn it on because the ball env
+      # split its sim core into pybullet_fan_base.py, a module holding
+      # geometry and switch mechanics and deliberately NO wind law.
+      # pybullet_domino_fan has no such split - the wind lives inside
+      # fan_component.py next to the fan bodies - so
+      # get_base_sim_source_files() returns [] and the run logs
+      # "declares no base-sim source files; providing none".
+      # Turning it on would need that module split first.
+      #   agent_sim_provide_base_sim_source: True
