@@ -40,6 +40,19 @@ def _skill_robot_env_cls(env_name: str) -> TypingType[PyBulletEnv]:
     return PyBulletDominoEnv
 
 
+# Envs where the cascade is started by WIND rather than by a push, and
+# so where a Wait has to outlast the lull described below. Named
+# explicitly because the obvious test - a "_fan" suffix - silently gave
+# pybullet_domino_declare the push threshold of 10: it is wind-started
+# too, it just does not say so in its name. The agent in
+# run_20260831_122006 noticed before I did, and padded its plan with
+# extra Waits to compensate.
+_WIND_STARTED_ENVS = frozenset({
+    "pybullet_domino_fan",
+    "pybullet_domino_declare",
+})
+
+
 class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
                                              GroundTruthOptionFactory):
     """Ground-truth options for the domino environment."""
@@ -256,7 +269,8 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
             # and the chain then coasts on contact alone. Ten steps of
             # that reads as settled and ends the Wait mid-cascade -
             # measured at 35 steps against the ~70 the chain needs.
-            wait_quiescence_steps=(40 if CFG.env.endswith("_fan") else 10),
+            wait_quiescence_steps=(40 if CFG.env in _WIND_STARTED_ENVS
+                                   else 10),
         )
 
     @classmethod
