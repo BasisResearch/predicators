@@ -447,11 +447,23 @@ def create_synthesis_tools(
                     len(rollouts), outcome.traj_rms)
         kept_at_init = sorted(n for n in physical_names
                               if applied[n] != fitted[n])
-        if pre_sse > 0:
-            pct_str = (f"({(pre_sse - post_sse) / pre_sse * 100:.1f}% "
-                       "SSE reduction vs init)")
+        # Like-for-like SSE headline: the % reduction is measured on the
+        # SAME segment set post_sse was computed on (the trimming
+        # survivors). pre_sse covers all segments, so the old ratio
+        # counted the trimming as fit improvement - run_20260830
+        # reported "74% SSE reduction" from a fit that moved nothing.
+        pre_surv = getattr(outcome, "pre_sse_survivors", float("nan"))
+        if not np.isfinite(pre_surv):
+            pre_surv = pre_sse
+        if pre_surv > 0:
+            pct = (pre_surv - post_sse) / pre_surv * 100
+            pct_str = (f"({pct:.1f}% SSE reduction vs init on the SAME "
+                       "segments)")
         else:
-            pct_str = "(init SSE was 0)"
+            pct_str = "(init SSE on these segments was 0)"
+        n_surv = outcome.num_survivors
+        surv_note = (f" on the {n_surv} surviving segments"
+                     if n_surv < len(rollouts) else "")
         mode_note = (
             f"EXPLORATORY, trajectories {sorted(traj_idxs or [])} only"
             if exploratory else "canonical")
@@ -465,11 +477,25 @@ def create_synthesis_tools(
             "per-feature normalized (angles wrapped), so SSE/RMS are "
             "dimensionless fractions of typical motion.",
             "",
-            f"At init params:   rollout SSE = {pre_sse:.6f}",
-            f"After joint fit:  rollout SSE = {post_sse:.6f}  {pct_str}",
+            f"At init params:   rollout SSE = {pre_sse:.6f} "
+            f"(all {len(rollouts)} segments)" +
+            (f", {pre_surv:.6f}{surv_note}" if surv_note else ""),
+            f"After joint fit:  rollout SSE = {post_sse:.6f}{surv_note}  "
+            f"{pct_str}",
             "",
             "Fitted parameters:",
         ]
+        # An inert fit must announce itself: every value below is then
+        # the declared init, not an estimate, and "fitted" language
+        # would launder hand-set constants as calibration.
+        if fitted and all(fitted[n] == init_params[n] for n in fitted):
+            lines.insert(
+                1, "NOTE: the optimizer moved NO parameter (every delta "
+                "is +0.0000) - this fit is a no-op and the values below "
+                "are exactly the declared init_values, not estimates. "
+                "The data as trimmed does not pull any parameter away "
+                "from its starting point; treat the model as running on "
+                "hand-set constants.")
         if outcome.num_survivors < len(rollouts):
             rms_str = ", ".join(f"{r:.4g}" for r in outcome.traj_rms)
             dropped = len(rollouts) - outcome.num_survivors
