@@ -187,9 +187,19 @@ def identifiability_report(
             verdict = Verdict.IDENTIFIED
         elif contraction < _WEAK_CONTRACTION:
             verdict = Verdict.WEAKLY_IDENTIFIED
-        else:
+        elif contraction <= 1.0 + 1e-9:
             verdict = Verdict.NOT_IDENTIFIED
             note = "posterior ~= prior; MAP arbitrary"
+        else:
+            # Contraction > 1 is not "~= prior": the reported width
+            # EXCEEDS the prior (the curvature probe read near-zero
+            # information and the width floor / flat-likelihood spread
+            # inflated it). Calling 4.4x or 33x "~= prior" hid exactly
+            # this in run_20260830's fit reports.
+            verdict = Verdict.NOT_IDENTIFIED
+            note = (f"posterior {contraction:.2g}x WIDER than the prior - "
+                    "the data carries ~no information on this parameter "
+                    "(width floor / flat-likelihood spread); MAP arbitrary")
         if (verdict is Verdict.IDENTIFIED and num_explainable is not None
                 and num_explainable < 2):
             verdict = Verdict.WEAKLY_IDENTIFIED
