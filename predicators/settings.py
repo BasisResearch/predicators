@@ -4,11 +4,22 @@ Anything that varies between runs should be a command-line arg
 (args.py).
 """
 
+import os
 from collections import defaultdict
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
+
+# Working directory at process start. run_python's exec window chdirs
+# into the agent sandbox (see agent_sdk/tools/python_exec.py), so any
+# consumer that resolves a RELATIVE CFG path at call time must anchor
+# it here rather than on os.getcwd() - first observed on the fan
+# domain's relative rollout track path, which a sim.fit invoked inside
+# run_python would fail to find, silently falling back to per-step
+# scoring. This module is imported at process start, before any agent
+# session (and therefore any sandbox chdir) can exist.
+LAUNCH_CWD = os.path.abspath(os.getcwd())
 
 
 class GlobalSettings:

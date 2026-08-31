@@ -1856,12 +1856,14 @@ class PhaseSkill:
                 "GOAL with fingers OPEN to release (the opening "
                 "gripper needs side clearance at the drop pose)")
         if log_errors:
-            # Debug, not error: see the demotion note at the _plan
-            # failure site - these are routine per-candidate refusal
-            # explanations, surfaced to the agent via the returned
-            # diagnostics.
+            # ERROR is correct HERE, unlike the demoted _plan failure
+            # site: ``log_errors`` is this method's contract for
+            # final-failure emission - every in-run caller goes through
+            # ``_diagnose(..., log_errors=False)`` and stays quiet, so
+            # the loud path never fires during sampling/refinement
+            # retries and cannot spam a run's log.
             for diag in diagnostics:
-                logging.debug("[%s/%s] %s", self._name, phase_name, diag)
+                logging.error("[%s/%s] %s", self._name, phase_name, diag)
         return diagnostics
 
     # Gentle strokes (Phase.max_step_norm): any single arm joint asked to

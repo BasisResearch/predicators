@@ -153,8 +153,11 @@ _GATE_MIN_REL_IMPROVEMENT = 1e-6
 # no signal (jitter ~1e-12 over a 2e-2 relative step), while a genuinely
 # responsive column of the dimensionless scaled residuals is O(1). A
 # column counts as zero-gradient when its largest |entry| on the DATA
-# rows is at or below max(abs tol, rel tol * the largest entry in any
-# data column).
+# rows is at or below max(abs tol, rel tol * the MEDIAN column max) -
+# median, not max, so one badly-scaled residual block cannot inflate
+# the flatness threshold applied to every other parameter's column;
+# when most columns are flat the median sits at the junk scale and the
+# absolute floor governs, which errs conservative (LM keeps the param).
 _ZERO_COL_ABS_TOL = 1e-8
 _ZERO_COL_REL_TOL = 1e-6
 
@@ -180,7 +183,7 @@ def zero_jacobian_columns(jac: np.ndarray, n_prior_rows: int = 0) -> List[int]:
     if data.size == 0:
         return []
     col_max = np.max(np.abs(data), axis=0)
-    tol = max(_ZERO_COL_ABS_TOL, _ZERO_COL_REL_TOL * float(np.max(col_max)))
+    tol = max(_ZERO_COL_ABS_TOL, _ZERO_COL_REL_TOL * float(np.median(col_max)))
     return [j for j in range(data.shape[1]) if col_max[j] <= tol]
 
 
@@ -225,12 +228,14 @@ def bracket_search_zero_gradient_params(
     whose data SSE is flat at both edges is declared flat for 2
     evaluations instead of 9 - for the piecewise-constant thresholds
     this search exists for, a response anywhere in the box almost
-    always shows at an edge. (An interior-only dip whose edges match
-    the current SSE is the accepted blind spot; the full grid only
-    ever ran for parameters the LM gradient already called flat.)
-    ``flat_out``, when given, collects the names of parameters found
-    flat across their box - box-wide insensitivity evidence the
-    identifiability report can consume instead of re-probing them.
+    always shows at an edge. An interior-only dip whose edges match
+    the current SSE is the accepted blind spot of the SEARCH, but not
+    of the verdicts: edge-screened params are deliberately kept out of
+    ``flat_out`` so the identifiability probe (interior +-sigma evals)
+    stays armed as their backstop. ``flat_out``, when given, collects
+    only the params the FULL grid measured flat across their box -
+    box-wide insensitivity evidence the identifiability report can
+    consume instead of re-probing them.
     """
     z = np.array(z, dtype=float)
 
@@ -264,11 +269,14 @@ def bracket_search_zero_gradient_params(
         hi_data, hi_total = _eval_at(float(grid[-1]))
         if (abs(lo_data - data_sse) <= flat_tol
                 and abs(hi_data - data_sse) <= flat_tol):
+            # NOT added to ``flat_out``: 2 edge evaluations cannot rule
+            # out an interior-only response, so the identifiability
+            # probe (whose +-sigma evals are interior) must stay armed
+            # as the backstop for these params - only the full-grid
+            # verdict below may suppress it.
             notes.append(f"{spec.name}: data SSE is flat at both box edges, "
                          "so the data do not constrain it; kept at "
                          f"{init_ext:.4g} (NOT fit from data).")
-            if flat_out is not None:
-                flat_out.append(spec.name)
             continue
         pairs = [(lo_data, lo_total)]
         pairs += [_eval_at(float(g)) for g in grid[1:-1]]
@@ -435,7 +443,12 @@ def solve_lm(
         if sse_new < sse_lm:
             # The moved gates may have given the smooth parameters a
             # gradient: polish from the new point. A failure here keeps
-            # the searched point (better than the LM one by construction).
+            # the searched point (better than the LM one by construction)
+            # and DROPS the Jacobian: the pre-bracket jac was evaluated
+            # at the old theta, and returning it alongside the moved
+            # theta would feed a wrong-point curvature to the Laplace
+            # ensemble and the Hessian diagnostic (consumers already
+            # handle jacobian=None).
             try:
                 polished = least_squares(internal_residuals,
                                          z_new,
@@ -448,11 +461,13 @@ def solve_lm(
                     jac = np.asarray(result.jac, dtype=float)
                 else:
                     result.x = z_new
+                    jac = np.zeros((0, 0))
             except Exception as exc:  # pylint: disable=broad-except
                 logger.warning(
                     "%s LM polish after bracket search raised "
                     "%s; keeping the searched point.", label, exc)
                 result.x = z_new
+                jac = np.zeros((0, 0))
             sse_lm = min(float(2.0 * result.cost), sse_new)
             logger.info("%s LM fit after bracket search: SSE %.4f.", label,
                         sse_lm)

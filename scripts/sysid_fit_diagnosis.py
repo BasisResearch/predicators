@@ -283,9 +283,14 @@ def _main() -> None:
         scaling=scaling,
         anchors=anchors)
     fitted = result.point_estimate
+    # Tolerance, not exact !=: log-scale params round-trip through
+    # exp(log(x)) and solve_lm nudges bound-sitting inits by 1e-9, so an
+    # exact test reports phantom "moved" parameters (observed:
+    # glue_dose_steps 3.0 -> 3.000000001 on run_20260830 seed0).
     moved = {
         n: (init_params[n], fitted[n])
-        for n in fitted if fitted[n] != init_params[n]
+        for n in fitted
+        if not np.isclose(fitted[n], init_params[n], rtol=1e-8, atol=1e-12)
     }
     print(f"Fit replay: {len(survivors)}/{len(rollouts)} segments "
           f"survived trimming (per-segment best RMS: "

@@ -625,3 +625,25 @@ def test_format_step_line_renders_negative_subgoals():
     atom = GroundAtom(_ReachedHi, [_block])
     line = format_step_line(0, "Wait0", [_block], subgoal_neg_atoms={atom})
     assert "-> {NOT ReachedHi(block0:block)}" in line
+
+
+def test_wait_rollout_step_cap_tracks_the_binding_ceiling():
+    """The stalled-Wait notice threshold is whichever cap fires first.
+
+    Regression: the notice compared against max_num_steps_option_rollout
+    (1000) while the option model's wait_option_max_steps backstop (120
+    on the bridge) terminated the Wait first, so the notice could never
+    fire in exactly the configured envs it was written for.
+    """
+    utils.reset_config({
+        "wait_option_terminate_on_atom_change": True,
+        "wait_option_max_steps": 120,
+        "max_num_steps_option_rollout": 1000,
+    })
+    assert utils.wait_rollout_step_cap() == 120
+    utils.reset_config({
+        "wait_option_terminate_on_atom_change": False,
+        "wait_option_max_steps": 120,
+        "max_num_steps_option_rollout": 1000,
+    })
+    assert utils.wait_rollout_step_cap() == 1000

@@ -204,10 +204,15 @@ def _make_python_exec_tool(
         # event loop, so no other tool call can observe the changed
         # cwd; harness paths reachable from tool code are absolute
         # (see _get_log_dir).
+        # The chdir happens INSIDE the try: the budget watchdog armed
+        # above delivers an ASYNC exception, and one landing between a
+        # pre-try chdir and try-entry would skip the finally and leave
+        # the whole process in the sandbox cwd. Restoring prev_cwd when
+        # the chdir never ran is a harmless no-op.
         prev_cwd = os.getcwd()
-        if sandbox_dir is not None:
-            os.chdir(sandbox_dir)
         try:
+            if sandbox_dir is not None:
+                os.chdir(sandbox_dir)
             exec(compile(code, label, "exec"), exec_ns)  # pylint: disable=exec-used
         except ProbeBudgetExceeded as e:
             partial = captured.getvalue()
@@ -226,8 +231,7 @@ def _make_python_exec_tool(
             prefix = f"{partial}\n" if partial else ""
             return text_result(f"{prefix}Error:\n{tb}{_footer()}")
         finally:
-            if sandbox_dir is not None:
-                os.chdir(prev_cwd)
+            os.chdir(prev_cwd)
             if watchdog_disarm is not None:
                 watchdog_disarm()
             sys.stdout = old_stdout

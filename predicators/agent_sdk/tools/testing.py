@@ -368,10 +368,10 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                              f"{format_object_poses(outcome.pre_state)}")
                 return
             step_line = f"Step {i}: {sig} ({outcome.num_actions} actions)"
-            if (opt.name == "Wait" and outcome.failure_reason is None and
-                    outcome.num_actions >= CFG.max_num_steps_option_rollout):
+            if (opt.name == "Wait" and outcome.failure_reason is None
+                    and outcome.num_actions >= utils.wait_rollout_step_cap()):
                 step_line += (
-                    "\n  NOTE: this Wait ran to the option-rollout cap - "
+                    "\n  NOTE: this Wait ran to its step cap - "
                     "its wait-target atoms never became true in the "
                     "belief (and no other atom changed). Check whether "
                     "the awaited change is modeled, or drop the Wait.")
