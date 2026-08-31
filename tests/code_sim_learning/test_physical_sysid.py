@@ -1517,3 +1517,164 @@ def test_rollout_sse_huber_caps_spike(monkeypatch):
 
     assert sse(0.0) == pytest.approx(100.0**2)
     assert sse(1.0) == pytest.approx(2 * 100.0 - 1.0)
+
+
+# ── Fork-parallel rollout objective ────────────────────────────────
+
+
+class _LinearParamEnv:
+    """Fresh-per-rollout env whose domino advances by the physical param ``k``
+    each step, so residuals depend on theta and on the trajectory."""
+
+    def __init__(self, log):
+        self._physics_client_id = p.connect(p.DIRECT)
+        log.append(self)
+        self._k = 0.0
+        self._x = 0.0
+        self._domino = Object("d0", _DOMINO_TYPE)
+        self._robot = Object("r0", _ROBOT_TYPE)
+
+    def apply_physical_param_overrides(self, params):
+        """Record the candidate ``k`` the rollout advances by."""
+        self._k = float(params.get("k", 0.0))
+
+    def _set_state(self, state):
+        domino = next(o for o in state if o.name == "d0")
+        self._x = float(state.get(domino, "x"))
+
+    def step(self, action):
+        """Advance the domino by ``k`` and return the post-step state."""
+        del action
+        self._x += self._k
+        return State({
+            self._domino: np.array([self._x], dtype=float),
+            self._robot: np.array([0.0], dtype=float),
+        })
+
+    @property
+    def connected(self):
+        """Whether this stub's PyBullet client is still connected."""
+        return bool(
+            p.getConnectionInfo(self._physics_client_id)["isConnected"])
+
+
+def test_rollout_residuals_parallel_matches_serial(monkeypatch):
+    """The fork-parallel objective path returns exactly the serial terms.
+
+    The parallel path exists purely as a wall-clock optimization of the
+    sysID objective (LM Jacobian columns, sensitivity/identifiability
+    sweeps, grid seeding all funnel through it); any value or ordering
+    difference from the serial path would silently change fits.
+    """
+    from predicators.agent_sdk.parallel_rollouts import \
+        parallel_rollouts_available
+    from predicators.settings import CFG
+    if not parallel_rollouts_available():
+        pytest.skip("fork not available on this platform")
+    trajectories = [
+        _trajectory([0.0, 0.1, 0.2]),
+        _trajectory([0.0, 0.2, 0.4]),
+        _trajectory([0.0, 0.05, 0.1]),
+    ]
+    built = []
+
+    def factory():
+        return _LinearParamEnv(built)
+
+    params = {"k": 0.1}
+    monkeypatch.setattr(CFG, "agent_validation_parallel_workers", 0)
+    serial = rollout_objective.compute_rollout_residuals(
+        factory, trajectories, params, _RESIDUAL_FEATURES, ["k"])
+    assert serial.size > 0
+
+    monkeypatch.setattr(CFG, "agent_validation_parallel_workers", 2)
+    n0 = rollout_env.num_rollouts_run()
+    parallel = rollout_objective.compute_rollout_residuals(
+        factory, trajectories, params, _RESIDUAL_FEATURES, ["k"])
+    assert np.array_equal(serial, parallel)
+    # The parent's rollout counter stays honest: every trajectory is
+    # credited exactly once whether its rollout ran in a child or (on a
+    # child failure) was recomputed serially here.
+    assert rollout_env.num_rollouts_run() - n0 == len(trajectories)
+    # Every parent-built env was disposed (children build their own).
+    assert all(not env.connected for env in built)
+
+
+def test_rollout_residuals_shared_env_instance_stays_serial(monkeypatch):
+    """A caller-owned env instance never takes the parallel path: its rollouts
+    mutate the caller's env, which must happen in-process."""
+    from predicators.settings import CFG
+    monkeypatch.setattr(CFG, "agent_validation_parallel_workers", 4)
+    trajectories = [
+        _trajectory([0.0, 0.1, 0.2]),
+        _trajectory([0.0, 0.2, 0.4]),
+    ]
+    built = []
+    env = _LinearParamEnv(built)
+    res = rollout_objective.compute_rollout_residuals(env, trajectories,
+                                                      {"k": 0.1},
+                                                      _RESIDUAL_FEATURES,
+                                                      ["k"])
+    assert res.size > 0
+    assert len(built) == 1  # the caller's env, used for every rollout
+    assert env.connected  # and never disposed
+    p.disconnect(env._physics_client_id)
+
+
+# ── Bracket-grid flat verdicts feeding the identifiability report ──
+
+
+def test_fit_params_rollout_folds_bracket_flat_into_sensitivity(monkeypatch):
+    """Box-flat LM bracket verdicts become INSENSITIVE evidence for params the
+    grid sweep does not cover, and the notes ride the FitResult."""
+    phys_specs = [ParamSpec("mu", 0.5, lo=0.1, hi=1.0)]
+    rule_specs = [ParamSpec("gate", 2.0, lo=1.0, hi=3.0)]
+
+    def fake_lm(_env,
+                _trajs,
+                physical_specs,
+                _features,
+                _rules=(),
+                rule_specs=(),
+                _latent=None,
+                **kwargs):
+        notes = kwargs.get("notes_out")
+        flat = kwargs.get("flat_params_out")
+        if notes is not None:
+            notes.append("gate: data SSE is flat at both box edges, so the "
+                         "data do not constrain it; kept at 2 (NOT fit from "
+                         "data).")
+        if flat is not None:
+            flat.append("gate")
+        all_specs = list(physical_specs) + list(rule_specs)
+        theta = np.array([s.init_value for s in all_specs], dtype=float)
+        return theta, None
+
+    monkeypatch.setattr(physical_sysid, "fit_map_lm_rollout", fake_lm)
+    result = physical_sysid.fit_params_rollout(None, [],
+                                               phys_specs, {"domino": ["x"]},
+                                               rule_specs=rule_specs)
+    assert result.sensitivity is not None
+    entry = result.sensitivity["gate"]
+    assert entry["sensitive"] is False
+    assert entry["flat_interval"] == [1.0, 3.0]
+    # Only MEASURED flats are folded in; the physical param (grid sweep
+    # skipped: no trajectories) stays uncovered.
+    assert "mu" not in result.sensitivity
+    assert result.lm_notes and result.lm_notes[0].startswith("gate:")
+
+    # Downstream: the report renders the flat param INSENSITIVE and the
+    # curvature probe never spends rollouts on it - its two ±sigma
+    # evals would only re-measure what the bracket grid already did.
+    calls = []
+
+    def counting_sse(params):
+        calls.append(dict(params))
+        return 1.0
+
+    report = identifiability_report(result, counting_sse,
+                                    phys_specs + rule_specs)
+    assert report["gate"]["verdict"] is Verdict.INSENSITIVE
+    # 3 MAP evals (noise floor) + 2 perturbations of mu only.
+    assert len(calls) == 5
+    assert all(p["gate"] == 2.0 for p in calls)

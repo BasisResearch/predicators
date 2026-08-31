@@ -1783,18 +1783,20 @@ class GlobalSettings:
     # installs the ensemble providers (see rule_param_margin_provider),
     # which requires agent_explorer_info_seeking's ensemble.
     agent_plan_validation_rule_param_margin = False
-    # Fork-parallel validation rollouts: the capture gate's repeat
-    # rollouts, its physics/rule-param margin sweeps, and the belief
-    # probe's trials/physics_sweep modes each run N INDEPENDENT
-    # fresh-env rollouts; with a value W > 1, up to W run concurrently
-    # as forked children (see agent_sdk/parallel_rollouts.py). Verdict
-    # semantics are unchanged: each rollout runs under the exact seed /
-    # override scope it would run under sequentially, and a failed
-    # child is transparently re-run in-process. Benchmark (job
-    # 21336169, 8-CPU node, fresh bridge env per rollout): 1.89x at
-    # W=2, 3.74x at W=4, 4.81x at W=8. 0 (the default) keeps every
-    # rollout sequential; enable in experiment configs sized to the
-    # job's CPU allocation (e.g. 6 with --cpus-per-task=8).
+    # Fork-parallel rollouts: the capture gate's repeat rollouts, its
+    # physics/rule-param margin sweeps, the belief probe's
+    # trials/physics_sweep modes, and the rollout-sysID objective (each
+    # candidate theta scores N trajectory segments) all run N
+    # INDEPENDENT fresh-env rollouts; with a value W > 1, up to W run
+    # concurrently as forked children (see
+    # agent_sdk/parallel_rollouts.py). Verdict/fit semantics are
+    # unchanged: each rollout runs under the exact seed / override
+    # scope it would run under sequentially, and a failed child is
+    # transparently re-run in-process. Benchmark (job 21336169, 8-CPU
+    # node, fresh bridge env per rollout): 1.89x at W=2, 3.74x at W=4,
+    # 4.81x at W=8. 0 (the default) keeps every rollout sequential;
+    # enable in experiment configs sized to the job's CPU allocation
+    # (e.g. 6 with --cpus-per-task=8).
     agent_validation_parallel_workers = 0
     # Agent bilevel explorer settings. Separate from the solve-path budget
     # above because the explorer runs full backtracking while looking for
