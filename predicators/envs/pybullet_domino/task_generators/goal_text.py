@@ -27,7 +27,8 @@ CASCADE_VERIFICATION_NL = (
 # reached the goal by knocking the chain over while placing a block
 # would certify.
 WIND_VERIFICATION_NL = (
-    " A solve only counts if the wind starts the cascade: the episode "
+    " A solve only counts if switching the fan on is what starts the "
+    "cascade: the episode "
     "must carry a TurnFanOn step, nothing may topple before it, and an "
     "episode that reaches the goal with no TurnFanOn on the record is "
     "rejected.")
@@ -46,7 +47,8 @@ MIN_BLOCK_GOAL_NL = (
 # checked is that the declaration is on the record and that nothing
 # fell before it.
 DECLARE_VERIFICATION_NL = (
-    " A solve only counts if the wind starts the cascade: the episode "
+    " A solve only counts if the declaration is what starts the "
+    "cascade: the episode "
     "must carry a DeclareFinished step, nothing may topple before it, "
     "and an episode that reaches the goal with no DeclareFinished on "
     "the record is rejected.")

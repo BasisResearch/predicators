@@ -1808,6 +1808,14 @@ a.watchlink:hover { text-decoration: none; filter: brightness(1.1); }
 /* The compare column: an unlabeled checkbox is a question, not a
    control. Small and grey, but named. */
 th.cmphdr { font-size: 9px; letter-spacing: .08em; cursor: help; }
+/* Which env a run is on, beside its rung: same ladder, different
+   trigger. Coloured apart so the two are never read as one series. */
+.trig { display: inline-block; margin-right: 6px; padding: 1px 6px;
+  border-radius: 4px; font-size: 9px; font-weight: 700;
+  letter-spacing: .06em; cursor: help;
+  border: 1px solid var(--border2); color: var(--muted); }
+.trig-declare { border-color: var(--ok); color: var(--ok);
+  background: var(--ok-dim); }
 /* The "what is happening right now" panel above the run table. */
 .livepanel { border: 1px solid var(--border); border-radius: 8px;
   background: var(--panel); padding: 12px 14px; margin: 0 0 14px; }
@@ -2423,14 +2431,25 @@ def status_chip(r: Dict[str, Any], summary: Dict[str, Any], live: LiveProcs,
 # The domino-fan ladder, keyed by the arm that experiment_id carries.
 # Each rung hands the agent less; the label says what it must supply, so
 # a row reads as a rung of the experiment rather than an approach name.
+# The ladder is the same on both fan envs, so the rung comes from the
+# ARM and the env is shown beside it: what differs between the two is
+# not what the agent is given but what starts the cascade.
 _RUNG_BY_ARM = {
-    "domino_fan-oracle": (1, "GT sim + GT predicates, process planner plans"),
-    "domino_fan-agent_model_based_planning":
+    "oracle": (1, "GT sim + GT predicates, process planner plans"),
+    "agent_model_based_planning":
     (2, "GT sim + GT predicates, the AGENT plans"),
-    "domino_fan-agent_param_learning":
+    "agent_param_learning":
     (3, "GT sim structure; must fit the wind's parameters"),
-    "domino_fan-agent_po_predicate_invention_al":
-    (4, "base sim only; must find the wind, model it, invent predicates"),
+    "agent_po_predicate_invention_al":
+    (4, "base sim only; must find the mechanism and invent predicates"),
+}
+
+# How the cascade is started, which is the whole difference between the
+# two envs and so the thing a reader most needs on the row.
+_TRIGGER_BY_ENV = {
+    "domino_fan": ("BUTTON", "the robot presses a switch to start the fan"),
+    "domino_declare":
+    ("DECLARE", "no switch: the robot declares finished and the fan starts"),
 }
 
 
@@ -2565,11 +2584,16 @@ def live_panel(runs: List[Dict[str, Any]], summaries: Dict[str, Dict[str,
 def rung_badge(exp: str) -> str:
     """"RUNG n" chip for a domino-fan experiment, else empty."""
     key = exp.split("/")[-1]
-    entry = _RUNG_BY_ARM.get(key)
-    if entry is None:
+    env_key, _, arm = key.partition("-")
+    entry = _RUNG_BY_ARM.get(arm)
+    trigger = _TRIGGER_BY_ENV.get(env_key)
+    if entry is None or trigger is None:
         return ""
     num, what = entry
-    return f"<span class='rung' title='{esc(what)}'>RUNG {num}</span>"
+    word, how = trigger
+    cls = "trig trig-declare" if env_key == "domino_declare" else "trig"
+    return (f"<span class='rung' title='{esc(what)}'>RUNG {num}</span>"
+            f"<span class='{cls}' title='{esc(how)}'>{word}</span>")
 
 
 def run_row(r: Dict[str, Any], summary: Dict[str, Any], live: LiveProcs,

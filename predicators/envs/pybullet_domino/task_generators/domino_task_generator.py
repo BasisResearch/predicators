@@ -242,9 +242,9 @@ class DominoTaskGenerator(TaskGenerator):
         if fan_only and trigger == "DeclareFinished":
             goal_nl = (
                 f"Arrange the blue dominoes as needed (possibly none) such "
-                f"that once you declare you have finished building, the "
-                f"wind topples the green domino and {target_word} "
-                f"{target_verb} toppled. Only the blue dominoes may be "
+                f"that once you declare you have finished building, "
+                f"{target_word} {target_verb} toppled. Only the blue "
+                f"dominoes may be "
                 f"rearranged: the green and purple dominoes must stay "
                 f"untouched at their staged poses, upright and never held, "
                 f"until you declare finished, and nothing may topple "
@@ -254,8 +254,8 @@ class DominoTaskGenerator(TaskGenerator):
         elif fan_only:
             goal_nl = (
                 f"Arrange the blue dominoes as needed (possibly none) such "
-                f"that when the fan is switched on, the wind topples the "
-                f"green domino and {target_word} {target_verb} toppled. "
+                f"that when the fan is switched on, {target_word} "
+                f"{target_verb} toppled. "
                 f"Only the blue dominoes may be rearranged: the green and "
                 f"purple dominoes must stay untouched at their staged "
                 f"poses, upright and never held, until the fan is switched "
