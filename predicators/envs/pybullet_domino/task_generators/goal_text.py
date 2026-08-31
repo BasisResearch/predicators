@@ -41,6 +41,16 @@ MIN_BLOCK_GOAL_NL = (
     "may topple before that push. Only the green domino may ever be "
     "pushed." + CASCADE_VERIFICATION_NL)
 
+# The declaration variant. Same rule, different named step: there is
+# no counterfactual replay for a skill that moves nothing, so what is
+# checked is that the declaration is on the record and that nothing
+# fell before it.
+DECLARE_VERIFICATION_NL = (
+    " A solve only counts if the wind starts the cascade: the episode "
+    "must carry a DeclareFinished step, nothing may topple before it, "
+    "and an episode that reaches the goal with no DeclareFinished on "
+    "the record is rejected.")
+
 # The min-block instruction for a wind-triggered env. Nothing pairs
 # domino_min_block_tasks with a fan today, but the two flags are
 # independent and the push wording is unfollowable in a fan env, so the

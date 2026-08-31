@@ -34,8 +34,9 @@ from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
 from predicators.pybullet_helpers.objects import create_object
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
-from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
-    ParameterizedOption, Predicate, State, TaskEvaluator, Type
+from predicators.structs import DECLARE_FINISHED_KEY, Action, \
+    EnvironmentTask, GroundAtom, Object, ParameterizedOption, Predicate, \
+    State, TaskEvaluator, Type
 
 
 class DominoEvaluator(TaskEvaluator):
@@ -1052,19 +1053,96 @@ class PyBulletDominoFanEnv(PyBulletDominoComposedEnv):
         # domino chain runs one way, and the aligned generator lays it
         # along side 0. The other three fans would be distractors the
         # planner still has to ground, and being opposed they cancel.
-        fan_comp = FanComponent(workspace_bounds=bounds,
-                                table_height=self.table_height,
-                                table_width=self.table_width,
-                                num_sides=CFG.domino_fan_num_sides,
-                                fans_per_side=1,
-                                switch_xy=DOMINO_FAN_SWITCH_XY)
+        fan_comp = self._make_fan_component(bounds)
         super().__init__(components=[domino_comp, fan_comp],
                          use_gui=use_gui,
                          **kwargs)
 
+    def _make_fan_component(self, bounds: Dict[str, float]) -> FanComponent:
+        """The fan bank for this env. Overridden where the switch is
+        not something the robot can reach."""
+        return FanComponent(workspace_bounds=bounds,
+                            table_height=self.table_height,
+                            table_width=self.table_width,
+                            num_sides=CFG.domino_fan_num_sides,
+                            fans_per_side=1,
+                            switch_xy=DOMINO_FAN_SWITCH_XY)
+
     @classmethod
     def get_name(cls) -> str:
         return "pybullet_domino_fan"
+
+
+class PyBulletDominoDeclareEnv(PyBulletDominoFanEnv):
+    """The fan env with the button removed: the robot DECLARES finished.
+
+    Same scene and same physics as ``pybullet_domino_fan`` -- arrange
+    the blues so the wind carries a cascade from the green start block
+    to the purple target -- with one thing changed: there is no switch
+    to press. The robot runs a ``DeclareFinished`` skill, and the fan
+    comes on.
+
+    Two reasons the change is worth its own env rather than a flag.
+
+    **It is the version that survives contact with real hardware.** A
+    physical button has to be reachable from every staging pose, the
+    arm has to approach it without sweeping through the chain it just
+    built, and a missed press looks exactly like a press that did not
+    take. A declaration has none of that.
+
+    **It makes the causal question clean.** With a button, "what starts
+    the wind" has a mechanical answer an agent can stumble into: the
+    gripper touched a thing. Here nothing is touched. An agent that
+    works out that the wind follows its declaration has found a
+    relation that is causal and nothing else -- which is precisely what
+    the predicate-invention rung is meant to be testing.
+
+    The switch body still exists and still stores the bit (a fan's
+    ``is_on`` is read off its joint), but it is parked two metres
+    outside the workspace, so a press is not merely unnecessary here:
+    it is impossible.
+    """
+
+    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
+        super().__init__(use_gui=use_gui, **kwargs)
+        # Latched by the declaration, cleared on reset. Kept on the env
+        # rather than read from the switch each step because the
+        # question it answers is "has the robot declared yet", which is
+        # about the episode, not about the bodies.
+        self._declared: bool = False
+
+    @classmethod
+    def get_name(cls) -> str:
+        return "pybullet_domino_declare"
+
+    def _make_fan_component(self, bounds: Dict[str, float]) -> FanComponent:
+        """A fan whose switch nothing can reach."""
+        return FanComponent(workspace_bounds=bounds,
+                            table_height=self.table_height,
+                            table_width=self.table_width,
+                            num_sides=CFG.domino_fan_num_sides,
+                            fans_per_side=1,
+                            switch_xy=DOMINO_FAN_SWITCH_XY,
+                            switch_reachable=False)
+
+    def _set_domain_specific_state(self, state: State) -> None:
+        super()._set_domain_specific_state(state)
+        # A reset is a new episode: the declaration does not carry over,
+        # or the second task of a run would begin with the wind already
+        # blowing on a chain nobody has built yet.
+        self._declared = bool(self._fan_component is not None
+                              and self._fan_component.any_fan_on())
+
+    def _domain_specific_step(self) -> None:
+        # The declaration, before the wind: the flag it sets is what
+        # makes any wind happen at all this step.
+        action = self._last_action
+        info = getattr(action, "extra_info", None)
+        if isinstance(info, dict) and info.get(DECLARE_FINISHED_KEY):
+            self._declared = True
+            if self._fan_component is not None:
+                self._fan_component.set_fans_on(True)
+        super()._domain_specific_step()
 
 
 class PyBulletDominoFanRampEnv(PyBulletDominoComposedEnv):

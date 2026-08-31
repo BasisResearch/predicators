@@ -68,7 +68,8 @@ class FanComponent(DominoEnvComponent):
                  table_width: float = 1.0,
                  num_sides: int = 4,
                  fans_per_side: Optional[int] = None,
-                 switch_xy: Optional[Tuple[float, float]] = None) -> None:
+                 switch_xy: Optional[Tuple[float, float]] = None,
+                 switch_reachable: bool = True) -> None:
         """Initialize the fan component.
 
         Args:
@@ -85,6 +86,13 @@ class FanComponent(DominoEnvComponent):
             fans_per_side: Fan bodies in each side's bank (default keeps
                 the class values). They blow as one; only fan_ids[0] is
                 read for direction or wind, so a bank is decoration.
+            switch_reachable: When False, the switch bodies are parked
+                far outside the workspace. The switch stays the thing
+                that STORES whether the fan is on -- extract_feature
+                reads the fan's is_on off its joint -- but nothing can
+                reach it, so the only way the fan comes on is whatever
+                the env decides to latch it with (see
+                PyBulletDominoDeclareEnv, where a declaration does).
             switch_xy: Where the first switch sits, overriding the
                 workspace-centre formula below. That formula assumes the
                 fan env's workspace, which is twice as deep with the
@@ -98,6 +106,7 @@ class FanComponent(DominoEnvComponent):
         super().__init__()
         assert 1 <= num_sides <= 4, num_sides
         self.num_sides = num_sides
+        self.switch_reachable = switch_reachable
         if fans_per_side is not None:
             self.num_left_fans = fans_per_side
             self.num_right_fans = fans_per_side
@@ -144,6 +153,14 @@ class FanComponent(DominoEnvComponent):
         else:
             self.switch_base_x, self.switch_y = switch_xy
         self.switch_x_spacing = 0.08
+        if not switch_reachable:
+            # Parked well outside the arm's reach and off the table.
+            # The body still exists and still stores the on/off bit,
+            # but no skill and no stray sweep of the arm can touch it,
+            # so the fan's state has exactly one cause: whatever the
+            # env latches it with.
+            self.switch_base_x = self.x_lb - 2.0
+            self.switch_y = self.y_lb - 2.0
 
         # Side names. A component built with fewer sides keeps the
         # first N of these: side 0 (left) blows +x, and the domino-fan
@@ -389,6 +406,23 @@ class FanComponent(DominoEnvComponent):
     # -------------------------------------------------------------------------
     # Fan-specific methods
     # -------------------------------------------------------------------------
+
+    def set_fans_on(self, on: bool = True) -> None:
+        """Turn every fan on or off without anything pressing anything.
+
+        The switch joint IS the stored bit -- ``extract_feature`` reads
+        a fan's ``is_on`` off the switch that controls its side -- so
+        setting the fan means setting that joint. Written for envs
+        where the fan has no reachable button and something else
+        decides (see PyBulletDominoDeclareEnv). In the button envs
+        nothing calls this and the press remains the only cause.
+        """
+        for switch in self._switches:
+            self._set_switch_on(switch.id, on)
+
+    def any_fan_on(self) -> bool:
+        """True when at least one fan is currently blowing."""
+        return any(self._is_switch_on(sw.id) for sw in self._switches)
 
     def set_wind_target(self,
                         target_id: int,

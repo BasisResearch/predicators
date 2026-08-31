@@ -190,7 +190,11 @@ RESIDUAL_FEATURES: Dict[str, List[str]] = {
 
 class PyBulletDominoFanGroundTruthSimulatorFactory(GroundTruthSimulatorFactory
                                                    ):
-    """GT residual-dynamics simulator for pybullet_domino_fan.
+    """GT residual-dynamics simulator for the ball-free domino-fan envs.
+
+    Both of them: the wind is the same physics whether a button press
+    or a declaration turned the fan on. What starts the fan is a
+    process, not dynamics.
 
     The simulator components (``RESIDUAL_RULES``, ``PARAM_SPECS``,
     ``RESIDUAL_FEATURES``) live as module globals above; this class only
@@ -200,4 +204,4 @@ class PyBulletDominoFanGroundTruthSimulatorFactory(GroundTruthSimulatorFactory
 
     @classmethod
     def get_env_names(cls) -> set:
-        return {"pybullet_domino_fan"}
+        return {"pybullet_domino_fan", "pybullet_domino_declare"}

@@ -14,6 +14,8 @@ from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.ground_truth_models.skill_factories import SkillConfig, \
     create_pick_skill, create_place_skill, create_push_skill, \
     create_wait_option, shared_skill_robot, shared_skill_simulator
+from predicators.ground_truth_models.skill_factories.declare import \
+    create_declare_option
 from predicators.ground_truth_models.skill_factories.pick import _PICK_PARAMS
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
@@ -58,7 +60,8 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
     def get_env_names(cls) -> Set[str]:
         return {
             "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real",
-            "pybullet_domino_real_geometry", "pybullet_domino_fan"
+            "pybullet_domino_real_geometry", "pybullet_domino_fan",
+            "pybullet_domino_declare"
         }
 
     @classmethod
@@ -115,13 +118,23 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
         options.add(create_wait_option("Wait", cfg, robot_type))
 
         # A composed env carrying a FanComponent brings switches with
-        # it, and without a skill to press one the fan can never be
-        # turned on: every plan in pybullet_domino_fan starts there.
-        # Absent in the plain domino envs, whose types have no switch.
+        # it, and without a skill to start the fan it can never be
+        # turned on: every plan in a fan env starts there. Absent in
+        # the plain domino envs, whose types have no switch.
+        #
+        # HOW the fan starts is the difference between the two fan
+        # envs. pybullet_domino_fan gives the robot a button and a push
+        # skill to press it. pybullet_domino_declare parks the switch
+        # outside the workspace and the robot instead DECLARES it has
+        # finished building - no contact, nothing to reach around, and
+        # for a learner nothing mechanical to credit the wind to.
         if "switch" in types:
-            options |= cls._create_sf_switch_options(cfg, robot_type,
-                                                     types["switch"],
-                                                     types.get("fan"))
+            if CFG.env == "pybullet_domino_declare":
+                options.add(
+                    create_declare_option("DeclareFinished", cfg, robot_type))
+            else:
+                options |= cls._create_sf_switch_options(
+                    cfg, robot_type, types["switch"], types.get("fan"))
 
         return options
 

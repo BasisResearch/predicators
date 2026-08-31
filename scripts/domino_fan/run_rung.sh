@@ -7,6 +7,11 @@
 #   scripts/domino_fan/run_rung.sh 4     # learns wind code + predicates
 #   scripts/domino_fan/run_rung.sh all   # 1 then 2 then 3 then 4
 #
+# Add --declare for the button-free variant, where the robot runs
+# DeclareFinished instead of pressing a switch:
+#
+#   scripts/domino_fan/run_rung.sh --declare 1
+#
 # Each rung gives the agent less and asks it to recover more:
 #   1  GT simulator + GT predicates, process planner plans.
 #   2  GT simulator + GT predicates, the AGENT plans.
@@ -21,7 +26,15 @@ cd "$(dirname "$0")/../.."
 PY=".venv/bin/python"
 [ -x "$PY" ] || PY="python3"
 
-usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+usage() { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+
+# Which env the ladder runs on. Same arms, same rungs; only the thing
+# that starts the fan differs.
+ENV_KEY="domino_fan"
+if [ "${1:-}" = "--declare" ]; then
+  ENV_KEY="domino_declare"
+  shift
+fi
 [ $# -ge 1 ] || usage
 
 run_one() {
@@ -42,11 +55,11 @@ run_one() {
 
   # experiment_id is built by cluster_utils as "<env key>-<arm key>",
   # so it is domino_fan-<arm>; the dashboard maps that back to a rung.
-  local cfg="scripts/configs/predicatorv3/_rung${rung}.yaml"
+  local cfg="scripts/configs/predicatorv3/_${ENV_KEY}_rung${rung}.yaml"
   # Generated, not hand-edited: every arm parked except this one.
-  $PY - "$rung" "$arm" > "$cfg" <<'PYEOF'
+  $PY - "$rung" "$arm" "$ENV_KEY" > "$cfg" <<'PYEOF'
 import sys
-rung, arm = sys.argv[1], sys.argv[2]
+rung, arm, env_key = sys.argv[1], sys.argv[2], sys.argv[3]
 arms = ["oracle", "agent_model_based_planning", "agent_param_learning",
         "agent_po_predicate_invention_al"]
 lines = [
@@ -58,7 +71,7 @@ lines = [
     "  - envs/all.yaml",
     "  - approaches/all.yaml",
     "ENVS:",
-    "  domino_fan:",
+    f"  {env_key}:",
     "    SKIP: False",
     "APPROACHES:",
 ]
@@ -90,9 +103,9 @@ PYEOF
 
   echo "=========================================================="
   echo "  RUNG $rung  ->  $arm"
-  echo "  logs/*/domino_fan-$arm/   (rung $rung: $exp)"
+  echo "  logs/*/${ENV_KEY}-$arm/   (rung $rung: $exp)"
   echo "=========================================================="
-  PYTHONHASHSEED=0 $PY scripts/local/launch_simp.py -c "predicatorv3/_rung${rung}.yaml"
+  PYTHONHASHSEED=0 $PY scripts/local/launch_simp.py -c "predicatorv3/_${ENV_KEY}_rung${rung}.yaml"
 }
 
 if [ "$1" = "all" ]; then

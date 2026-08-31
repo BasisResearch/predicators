@@ -231,8 +231,27 @@ class DominoTaskGenerator(TaskGenerator):
         else:
             target_word, target_verb = "the purple dominoes", "are"
         fan_only = self._wind_triggered()
-        trigger = "TurnFanOn" if fan_only else "Push"
-        if fan_only:
+        # Which skill is sanctioned to start the cascade. The two fan
+        # envs differ only here: one presses a button, one declares.
+        if not fan_only:
+            trigger = "Push"
+        elif CFG.env == "pybullet_domino_declare":
+            trigger = "DeclareFinished"
+        else:
+            trigger = "TurnFanOn"
+        if fan_only and trigger == "DeclareFinished":
+            goal_nl = (
+                f"Arrange the blue dominoes as needed (possibly none) such "
+                f"that once you declare you have finished building, the "
+                f"wind topples the green domino and {target_word} "
+                f"{target_verb} toppled. Only the blue dominoes may be "
+                f"rearranged: the green and purple dominoes must stay "
+                f"untouched at their staged poses, upright and never held, "
+                f"until you declare finished, and nothing may topple "
+                f"before that. There is no switch to press and the robot "
+                f"must never push a domino - declaring finished is the "
+                f"only thing that starts the cascade.")
+        elif fan_only:
             goal_nl = (
                 f"Arrange the blue dominoes as needed (possibly none) such "
                 f"that when the fan is switched on, the wind topples the "
@@ -294,8 +313,12 @@ class DominoTaskGenerator(TaskGenerator):
             # Same reasoning for the legitimacy rule (see
             # goal_text.CASCADE_VERIFICATION_NL): an arm-assisted layout
             # otherwise fails with verdicts the agent cannot explain.
-            goal_nl += (goal_text.WIND_VERIFICATION_NL
-                        if fan_only else goal_text.CASCADE_VERIFICATION_NL)
+            if not fan_only:
+                goal_nl += goal_text.CASCADE_VERIFICATION_NL
+            elif trigger == "DeclareFinished":
+                goal_nl += goal_text.DECLARE_VERIFICATION_NL
+            else:
+                goal_nl += goal_text.WIND_VERIFICATION_NL
 
         return EnvironmentTask(init_state,
                                goal_atoms,

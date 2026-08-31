@@ -80,7 +80,14 @@ _WIND_TRIGGER_OPTION_NAME = "TurnFanOn"
 # switch metres away has no body contact to disprove. Rules (a)-(c)
 # still apply and are what reject the arm-knocked-the-target episodes
 # this env was scoring as wins.
-_BODYLESS_TRIGGERS = frozenset({_WIND_TRIGGER_OPTION_NAME})
+_DECLARE_TRIGGER_OPTION_NAME = "DeclareFinished"
+
+# Triggers that start a cascade without the arm touching anything, and
+# so have no contact for the counterfactual probe to disprove. The
+# switch press is one because the switch is metres from the chain; a
+# declaration is one because it moves nothing at all.
+_BODYLESS_TRIGGERS = frozenset(
+    {_WIND_TRIGGER_OPTION_NAME, _DECLARE_TRIGGER_OPTION_NAME})
 
 # Consecutive non-held states a domino must spend at or past
 # ``fallen_threshold`` before that counts as a topple rather than as

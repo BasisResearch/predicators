@@ -97,6 +97,21 @@ def _push_sampler(state: State, goal: Set[GroundAtom],
                     dtype=np.float32)
 
 
+def _declare_sampler(state: State, goal: Set[GroundAtom],
+                     rng: np.random.Generator,
+                     objs: Sequence[Object]) -> Array:
+    """No parameters: a declaration has nothing to aim.
+
+    Its option's params_space is empty, so an empty array is what the
+    option expects. Written out rather than reaching for null_sampler
+    to keep the contrast with _switch_push_sampler on the page: the
+    press needs an approach distance and a contact offset because it
+    has to arrive somewhere, and this does not.
+    """
+    del state, goal, rng, objs
+    return np.array([], dtype=np.float32)
+
+
 def _switch_push_sampler(state: State, goal: Set[GroundAtom],
                          rng: np.random.Generator,
                          objs: Sequence[Object]) -> Array:
@@ -185,7 +200,8 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
     def get_env_names(cls) -> Set[str]:
         return {
             "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real",
-            "pybullet_domino_real_geometry", "pybullet_domino_fan"
+            "pybullet_domino_real_geometry", "pybullet_domino_fan",
+            "pybullet_domino_declare"
         }
 
     @classmethod
@@ -457,17 +473,37 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
 
         processes: Set[CausalProcess] = set()
 
-        # Pressing the switch. Endogenous: the robot does it.
+        # Starting the fan. Endogenous either way: the robot does it.
+        # What differs between the two fan envs is only HOW, and so
+        # what the process is grounded on.
         robot = Variable("?robot", robot_type)
         fan = Variable("?fan", fan_type)
-        processes.add(
-            EndogenousProcess(
-                "TurnFanOn", [robot, fan], {LiftedAtom(FanOff, [fan])}, set(),
-                set(), {LiftedAtom(FanOn, [fan])}, {LiftedAtom(FanOff, [fan])},
-                DiscreteGaussianDelay(mu=torch.tensor(1.0),
-                                      sigma=torch.tensor(0.1)),
-                torch.tensor(1.0), options["TurnFanOn"], [robot, fan],
-                _switch_push_sampler))
+        if CFG.env == "pybullet_domino_declare":
+            # The robot announces it has finished building and the fan
+            # starts. The option takes only the robot -- there is
+            # nothing to reach for -- so the fan appears in the
+            # process's variables and its effects but NOT in the
+            # option's arguments. That split is the whole content of
+            # this env: an effect with no contact to explain it.
+            processes.add(
+                EndogenousProcess(
+                    "DeclareFinished", [robot, fan],
+                    {LiftedAtom(FanOff, [fan])}, set(), set(),
+                    {LiftedAtom(FanOn, [fan])}, {LiftedAtom(FanOff, [fan])},
+                    DiscreteGaussianDelay(mu=torch.tensor(1.0),
+                                          sigma=torch.tensor(0.1)),
+                    torch.tensor(1.0), options["DeclareFinished"], [robot],
+                    _declare_sampler))
+        else:
+            processes.add(
+                EndogenousProcess(
+                    "TurnFanOn", [robot, fan], {LiftedAtom(FanOff, [fan])},
+                    set(), set(), {LiftedAtom(FanOn, [fan])},
+                    {LiftedAtom(FanOff, [fan])},
+                    DiscreteGaussianDelay(mu=torch.tensor(1.0),
+                                          sigma=torch.tensor(0.1)),
+                    torch.tensor(1.0), options["TurnFanOn"], [robot, fan],
+                    _switch_push_sampler))
 
         # The wind. Exogenous: nobody chooses it, it follows from the
         # fan being on.
@@ -752,7 +788,8 @@ class PyBulletDominoGroundTruthSamplerFactory(GroundTruthSamplerFactory):
     def get_env_names(cls) -> Set[str]:
         return {
             "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real",
-            "pybullet_domino_real_geometry", "pybullet_domino_fan"
+            "pybullet_domino_real_geometry", "pybullet_domino_fan",
+            "pybullet_domino_declare"
         }
 
     @classmethod

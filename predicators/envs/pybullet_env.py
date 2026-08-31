@@ -302,6 +302,11 @@ class PyBulletEnv(BaseEnv):
         # Used by sim-learning to create base-sim-only envs.
         self._skip_domain_specific_dynamics: bool = skip_residual_dynamics
 
+        # The action currently being stepped, for domain dynamics that
+        # depend on what the skill announced rather than on where the
+        # arm went (see Action.extra_info).
+        self._last_action: Optional[Action] = None
+
         # Drives real hardware from this env's rollouts; None means pure sim,
         # which is what every env built by the planner stays.
         self._executor: Optional[ActionExecutor] = None
@@ -727,6 +732,11 @@ class PyBulletEnv(BaseEnv):
                    action: Action,
                    render_obs: bool = False) -> Observation:
         """Advance the simulation one action, with no executor involved."""
+        # Stashed so _domain_specific_step, which takes no arguments,
+        # can still read what the action carried. Only envs with a
+        # signalling skill look at it (see Action.extra_info); the
+        # rest never touch it.
+        self._last_action = action
         self._step_base(action)
         if not self._skip_domain_specific_dynamics:
             self._domain_specific_step()

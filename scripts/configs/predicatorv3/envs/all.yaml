@@ -385,6 +385,49 @@ ENVS:
       # and the turn geometry was tuned for a robot push anyway.
       domino_test_turn_ratio: 0.0
       domino_train_turn_ratio: 0.0
+  # The same task with the BUTTON removed: instead of pressing a
+  # switch, the robot runs DeclareFinished and the fan starts. Same
+  # scene, same wind, same certificate - only the trigger changes.
+  #
+  # Two reasons it is its own env. A physical button is awkward on a
+  # real arm: it has to be reachable from every staging pose, the
+  # approach must not sweep through the chain just built, and a missed
+  # press is indistinguishable from one that did not take. And for a
+  # LEARNING arm the declaration is the cleaner question - nothing is
+  # touched, so there is no contact to credit the wind to, and an
+  # agent that finds the relation has found a causal one.
+  domino_declare:
+    NAME: "pybullet_domino_declare"
+    SKIP: True  # un-skipped by run_rung.sh --declare
+    FLAGS:
+      max_initial_demos: 0
+      excluded_objects_in_state_str: "loc,rot,angle,direction"
+      horizon: 500
+      domino_initialize_at_finished_state: False
+      domino_use_domino_blocks_as_target: True
+      domino_use_continuous_place: True
+      process_planning_heuristic_weight: 2.0
+      domino_has_glued_dominos: False
+      keep_failed_demos: True
+      predicate_invent_invent_derived_predicates: True
+      pybullet_birrt_extend_num_interp: 20
+      pybullet_birrt_path_subsample_ratio: 2
+      fan_known_controls_relation: True
+      fan_fans_blow_opposite_direction: False
+      # Lay each chain along one fan's wind axis. Without this the
+      # generator points chains anywhere, and a chain across the wind
+      # cannot cascade however hard the fan blows - the task is
+      # unsolvable before a planner sees it.
+      domino_fan_aligned_tasks: True
+      # Sized so the block moves before Wait declares the scene settled
+      # (onset 7 steps at 1.5 N against Wait's ~11), not just to clear
+      # the 0.123 N tipping threshold. See settings.py.
+      domino_fan_wind_force: 1.5
+      # Straight chains only. Alignment guarantees the FIRST leg runs
+      # downwind; a turn puts the rest of the chain across the wind,
+      # and the turn geometry was tuned for a robot push anyway.
+      domino_test_turn_ratio: 0.0
+      domino_train_turn_ratio: 0.0
   # coffee:
   #   NAME: "pybullet_coffee"
   #   FLAGS:

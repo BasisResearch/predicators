@@ -1988,6 +1988,15 @@ class _GroundNSRT:
         return _GroundNSRT(**default_kwargs)  # type: ignore
 
 
+# Key an Action carries in ``extra_info`` when the skill that produced
+# it is a declaration rather than a motion: the robot announcing it has
+# finished, for an env where that announcement is itself an event (see
+# skill_factories/declare.py and PyBulletDominoDeclareEnv). It lives
+# here, beside Action, because it is part of that contract and because
+# both the skill and the env must name it without importing each other.
+DECLARE_FINISHED_KEY = "declare_finished"
+
+
 @dataclass(eq=False)
 class Action:
     """An action in an environment.
