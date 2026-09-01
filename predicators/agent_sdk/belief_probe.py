@@ -29,6 +29,7 @@ annotation failed to hold).
 from __future__ import annotations
 
 import dataclasses
+import functools
 import logging
 import os
 import time
@@ -38,6 +39,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, \
 from predicators import utils
 from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig, \
     ValidationConfig
+from predicators.agent_sdk.parallel_rollouts import prefetch_parallel
 from predicators.agent_sdk.tools.context import absolute_rollout_seed, \
     decorrelated_rollout_seed
 from predicators.agent_sdk.tools.scene import apply_state_modifications, \
@@ -1042,43 +1044,52 @@ class BeliefProbe:
             point_dicts: List[Dict[str, Any]] = []
             all_points: List[Optional[Dict[str, float]]] = \
                 [None] + sweep_points
+            # Rebound so the nested function sees the narrowed
+            # (non-Optional) type - the None-check above cannot
+            # propagate into a closure.
+            sweep_scope = fresh_scope
+
+            def _one_point(
+                    point: Optional[Dict[str, float]]) -> Dict[str, Any]:
+                # Base planner seed at every point (no
+                # decorrelated_rollout_seed), matching the capture
+                # gate's margin rollouts: with the seed held fixed, an
+                # outcome flip between points is attributable to the
+                # physics perturbation alone.
+                with (sweep_scope() if point is None else sweep_scope(
+                        physical_overrides=point)), \
+                        absolute_rollout_seed(seed):
+                    model = self._option_model()
+                    r = bilevel_sketch.execute_plan_forward(
+                        probe_task,
+                        grounded,
+                        model,
+                        predicates=all_predicates,
+                        sketch=sketch_steps,
+                        stop_on_failure=True)
+                point_failure: Optional[str] = None
+                if r.first_failure_idx is not None:
+                    fs = r.steps[r.first_failure_idx]
+                    point_failure = (f"step {r.first_failure_idx} "
+                                     f"({_fmt_option(fs.option)}): "
+                                     f"{fs.failure_reason or 'not initiable'}")
+                return {
+                    "params": point,
+                    "goal_reached": r.goal_reached,
+                    "num_actions": sum(s.num_actions for s in r.steps),
+                    "failure": point_failure,
+                }
+
+            point_prefetched = prefetch_parallel(
+                [functools.partial(_one_point, pt) for pt in all_points],
+                "probe physics sweep")
             try:
-                for point in all_points:
+                for point_idx, point in enumerate(all_points):
                     _check_time_budget(ctx)
                     _count_rollout(ctx)
-                    # Base planner seed at every point (no
-                    # decorrelated_rollout_seed), matching the capture
-                    # gate's margin rollouts: with the seed held fixed, an
-                    # outcome flip between points is attributable to the
-                    # physics perturbation alone.
-                    with (fresh_scope() if point is None else fresh_scope(
-                            physical_overrides=point)), \
-                            absolute_rollout_seed(seed):
-                        model = self._option_model()
-                        r = bilevel_sketch.execute_plan_forward(
-                            probe_task,
-                            grounded,
-                            model,
-                            predicates=all_predicates,
-                            sketch=sketch_steps,
-                            stop_on_failure=True)
-                    point_failure: Optional[str] = None
-                    if r.first_failure_idx is not None:
-                        fs = r.steps[r.first_failure_idx]
-                        point_failure = (
-                            f"step {r.first_failure_idx} "
-                            f"({_fmt_option(fs.option)}): "
-                            f"{fs.failure_reason or 'not initiable'}")
-                    point_dicts.append({
-                        "params":
-                        point,
-                        "goal_reached":
-                        r.goal_reached,
-                        "num_actions":
-                        sum(s.num_actions for s in r.steps),
-                        "failure":
-                        point_failure,
-                    })
+                    pre = point_prefetched[point_idx]
+                    point_dicts.append(
+                        pre if pre is not None else _one_point(point))
             except ProbeBudgetExceeded as e:
                 # Same salvage rule as trials mode: completed points are
                 # sim time living in the return value, not stdout.
@@ -1114,104 +1125,101 @@ class BeliefProbe:
                            None)
             trial_dicts: List[Dict[str, Any]] = []
             base_planner_seed = seed if seed is not None else CFG.seed
+
+            def _one_trial(trial_idx: int) -> Dict[str, Any]:
+                trial_solved: Optional[bool] = None
+                trial_reward: Optional[float] = None
+                coarse = False
+                # decorrelated_rollout_seed: a fresh env alone gives
+                # bit-identical repeats (motion planning reads the
+                # constant CFG.seed), so without it N trials are one
+                # effective sample. Entered inside the fresh scope so
+                # env construction keeps the base seed.
+                trial_inexact: List[str] = []
+                with (fresh_scope() if fresh_scope is not None else
+                      contextlib.nullcontext()), \
+                        absolute_rollout_seed(seed), \
+                        decorrelated_rollout_seed(trial_idx):
+                    model = self._option_model()
+                    collector = (_EvalStateCollector(model, probe_task.init)
+                                 if evaluator is not None else None)
+
+                    def _trial_on_step(i: int, outcome: Any) -> None:
+                        # The first option's execution resets the
+                        # (fresh) env to the parsed start state; any
+                        # features that reset could not round-trip
+                        # are a start-state reconstruction error, a
+                        # failure source distinct from plan margin.
+                        if i == 0:
+                            env = getattr(model, "sim_env", None)
+                            lossy = getattr(
+                                env, "_last_unreconstructible_features",
+                                None) or []
+                            trial_inexact.extend(f"{obj.name}.{feat}"
+                                                 for obj, feat in lossy)
+                        if collector is not None:
+                            collector.on_step(i, outcome)
+
+                    r = bilevel_sketch.execute_plan_forward(
+                        probe_task,
+                        grounded,
+                        model,
+                        predicates=all_predicates,
+                        sketch=sketch_steps,
+                        on_step=_trial_on_step,
+                        stop_on_failure=True)
+                    # Score INSIDE the scope: the evaluator's
+                    # certificate probes at the (fresh) env the
+                    # rollout ran on, same as the capture path.
+                    if (collector is not None and len(collector.states) > 1):
+                        try:
+                            verdict = evaluate_states_with(
+                                evaluator,
+                                collector.states,
+                                collector.labels,
+                                sim_env=getattr(model, "sim_env", None))
+                            # Reward first: it is the only fallible
+                            # conversion, so a malformed verdict is
+                            # caught below with BOTH fields still None
+                            # instead of crashing the loop and losing
+                            # the completed trials.
+                            trial_reward = float(verdict["reward"])
+                            trial_solved = bool(verdict["solved"])
+                            # Only a produced verdict can be coarse; an
+                            # errored one must not trip the coarse
+                            # caveat.
+                            coarse = collector.coarse
+                        except Exception as e:  # pylint: disable=broad-except
+                            logging.debug("Trial evaluator verdict failed: %s",
+                                          e)
+                failure: Optional[str] = None
+                if r.first_failure_idx is not None:
+                    fs = r.steps[r.first_failure_idx]
+                    failure = (f"step {r.first_failure_idx} "
+                               f"({_fmt_option(fs.option)}): "
+                               f"{fs.failure_reason or 'not initiable'}")
+                total = sum(s.num_actions for s in r.steps)
+                return {
+                    "goal_reached": r.goal_reached,
+                    "num_actions": total,
+                    "failure": failure,
+                    "solved": trial_solved,
+                    "reward": trial_reward,
+                    "verdict_coarse": coarse,
+                    "planner_seed": base_planner_seed + trial_idx,
+                    "inexact_start_features": sorted(set(trial_inexact)),
+                }
+
+            trial_prefetched = prefetch_parallel(
+                [functools.partial(_one_trial, k) for k in range(trials)],
+                "probe trials")
             try:
                 for trial_idx in range(trials):
                     _check_time_budget(ctx)
                     _count_rollout(ctx)
-                    trial_solved: Optional[bool] = None
-                    trial_reward: Optional[float] = None
-                    coarse = False
-                    # decorrelated_rollout_seed: a fresh env alone gives
-                    # bit-identical repeats (motion planning reads the
-                    # constant CFG.seed), so without it N trials are one
-                    # effective sample. Entered inside the fresh scope so
-                    # env construction keeps the base seed.
-                    trial_inexact: List[str] = []
-                    with (fresh_scope() if fresh_scope is not None else
-                          contextlib.nullcontext()), \
-                            absolute_rollout_seed(seed), \
-                            decorrelated_rollout_seed(trial_idx):
-                        model = self._option_model()
-                        collector = (_EvalStateCollector(
-                            model, probe_task.init)
-                                     if evaluator is not None else None)
-
-                        # pylint: disable=cell-var-from-loop
-                        # (called synchronously within this iteration)
-                        def _trial_on_step(i: int, outcome: Any) -> None:
-                            # The first option's execution resets the
-                            # (fresh) env to the parsed start state; any
-                            # features that reset could not round-trip
-                            # are a start-state reconstruction error, a
-                            # failure source distinct from plan margin.
-                            if i == 0:
-                                env = getattr(model, "sim_env", None)
-                                lossy = getattr(
-                                    env, "_last_unreconstructible_features",
-                                    None) or []
-                                trial_inexact.extend(f"{obj.name}.{feat}"
-                                                     for obj, feat in lossy)
-                            if collector is not None:
-                                collector.on_step(i, outcome)
-
-                        r = bilevel_sketch.execute_plan_forward(
-                            probe_task,
-                            grounded,
-                            model,
-                            predicates=all_predicates,
-                            sketch=sketch_steps,
-                            on_step=_trial_on_step,
-                            stop_on_failure=True)
-                        # Score INSIDE the scope: the evaluator's
-                        # certificate probes at the (fresh) env the
-                        # rollout ran on, same as the capture path.
-                        if (collector is not None
-                                and len(collector.states) > 1):
-                            try:
-                                verdict = evaluate_states_with(
-                                    evaluator,
-                                    collector.states,
-                                    collector.labels,
-                                    sim_env=getattr(model, "sim_env", None))
-                                # Reward first: it is the only fallible
-                                # conversion, so a malformed verdict is
-                                # caught below with BOTH fields still None
-                                # instead of crashing the loop and losing
-                                # the completed trials.
-                                trial_reward = float(verdict["reward"])
-                                trial_solved = bool(verdict["solved"])
-                                # Only a produced verdict can be coarse; an
-                                # errored one must not trip the coarse
-                                # caveat.
-                                coarse = collector.coarse
-                            except Exception as e:  # pylint: disable=broad-except
-                                logging.debug(
-                                    "Trial evaluator verdict failed: %s", e)
-                    failure: Optional[str] = None
-                    if r.first_failure_idx is not None:
-                        fs = r.steps[r.first_failure_idx]
-                        failure = (f"step {r.first_failure_idx} "
-                                   f"({_fmt_option(fs.option)}): "
-                                   f"{fs.failure_reason or 'not initiable'}")
-                    total = sum(s.num_actions for s in r.steps)
-                    trial_dicts.append({
-                        "goal_reached":
-                        r.goal_reached,
-                        "num_actions":
-                        total,
-                        "failure":
-                        failure,
-                        "solved":
-                        trial_solved,
-                        "reward":
-                        trial_reward,
-                        "verdict_coarse":
-                        coarse,
-                        "planner_seed":
-                        base_planner_seed + trial_idx,
-                        "inexact_start_features":
-                        sorted(set(trial_inexact)),
-                    })
+                    pre = trial_prefetched[trial_idx]
+                    trial_dicts.append(
+                        pre if pre is not None else _one_trial(trial_idx))
             except ProbeBudgetExceeded as e:
                 # Completed trials are minutes of sim time and live in the
                 # RETURN VALUE, not stdout - discarding them on a mid-loop

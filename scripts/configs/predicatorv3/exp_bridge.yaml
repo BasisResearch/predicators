@@ -40,6 +40,12 @@ APPROACHES:
       # draw from the solver fit's jacobian; gate/threshold params with a
       # flat likelihood get prior-width spread, degrading gracefully.
       agent_explorer_info_mcmc_steps: 0
+      # Fork-parallel validation/margin/probe rollouts - the one config
+      # difference the bridge_v2 generation tested (2026-08-26/27):
+      # E2E-validated by the oracle regression (job 21336925, 1/1) and
+      # live in the v2 learning arms; benchmark 3.74x at 4 workers
+      # (job 21336169). Sized to the launcher's --cpus-per-task=8.
+      agent_validation_parallel_workers: 6
     # Self-resume from the latest per-cycle checkpoint on requeue /
     # resubmission of the identical command (12h mit_normal cap; or run
     # on mit_preemptable via PREDICATORS_ENGAGING_PARTITION).
@@ -56,5 +62,6 @@ APPROACHES:
       agent_solve_max_attempts: 1
       agent_explorer_info_mcmc_steps: 0 # see the arm above
       agent_plan_validation_rule_param_margin: True # see the arm above
+      agent_validation_parallel_workers: 6 # see the arm above
     ARGS:
       - auto_resume
