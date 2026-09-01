@@ -206,7 +206,7 @@ def test_pin_held_weld_assembly_is_rigid():
         act = Action(np.array(env._pybullet_robot.initial_joint_positions))
 
         # Weld the chain (re-emitted every action) and settle one step.
-        def emit():
+        def emit(env=env, span0=span0, span1=span1, span2=span2):
             buf = CommandBuffer()
             buf.attach(span0, span1)
             buf.attach(span1, span2)
@@ -220,7 +220,7 @@ def test_pin_held_weld_assembly_is_rigid():
         ref12 = _rel_transform(env, span1, span2)
         # Violent carry: teleport the held root 4 cm up/sideways per
         # action for several actions (gravity acts on the partners).
-        for k in range(6):
+        for _ in range(6):
             pos, orn = p.getBasePositionAndOrientation(
                 span1.id, physicsClientId=env._physics_client_id)
             p.resetBasePositionAndOrientation(
@@ -250,8 +250,8 @@ def test_pin_held_weld_assembly_is_rigid():
 
 
 def test_pin_never_moves_static_bodies_or_idle_assemblies():
-    """The pin is a no-op without a held root, and never re-poses a
-    static (mass-0) body welded into the held assembly."""
+    """The pin is a no-op without a held root, and never re-poses a static
+    (mass-0) body welded into the held assembly."""
     env = _make_env(skip_residual_dynamics=True)
     utils.update_config({"pybullet_pin_held_weld_assemblies": True})
     state, span0, span1 = _side_by_side_state(env)

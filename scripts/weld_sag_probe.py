@@ -19,10 +19,14 @@ Usage (COMPUTE NODE):
   python scripts/weld_sag_probe.py --tag iters150 --solver-iters 150 \
       --out logs/weld_sag
 """
+# This probe deliberately monkeypatches env internals (weld creation,
+# the domain step) to test stiffness levers, and defers env imports to
+# after arg parsing.
+# pylint: disable=protected-access,import-outside-toplevel
 import argparse
 import csv
 import os
-from typing import List, Optional
+from typing import Dict, List, Optional, Set
 
 import imageio.v2 as imageio
 import numpy as np
@@ -32,6 +36,7 @@ from predicators import utils
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.settings import CFG
+from predicators.structs import GroundAtom, Object, State, _Option
 
 BRIDGE_FLAGS = {
     "env": "pybullet_bridge",
@@ -59,7 +64,7 @@ CARRY_TARGET = (0.7550, 1.4500, 0.6000)
 POSE_FEATS = ("x", "y", "z", "roll", "pitch", "yaw")
 
 
-def _pose(state, obj):
+def _pose(state: State, obj: Object) -> np.ndarray:
     return np.array([state.get(obj, f) for f in POSE_FEATS])
 
 
@@ -69,18 +74,24 @@ def _ang(d: float) -> float:
 
 
 def main() -> None:
+    """Run one carry trial under the chosen stiffness levers and record per-
+    step sag metrics."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--tag", required=True)
     parser.add_argument("--solver-iters", type=int, default=None)
     parser.add_argument("--weld-erp", type=float, default=None)
     parser.add_argument("--pin-held", action="store_true")
-    parser.add_argument("--pin-cfg", action="store_true",
+    parser.add_argument("--pin-cfg",
+                        action="store_true",
                         help="use the PRODUCTION pin "
                         "(pybullet_pin_held_weld_assemblies) instead of "
                         "the probe monkeypatch")
-    parser.add_argument("--seat", action="store_true",
+    parser.add_argument("--seat",
+                        action="store_true",
                         help="place legs at sites and seat the beam on them")
-    parser.add_argument("--preload", type=float, default=None,
+    parser.add_argument("--preload",
+                        type=float,
+                        default=None,
                         help="skill_place_settle_preload_force value")
     parser.add_argument("--block-mass", type=float, default=None)
     parser.add_argument("--out", required=True)
@@ -95,14 +106,18 @@ def main() -> None:
     os.makedirs(args.out, exist_ok=True)
 
     env = create_new_env("pybullet_bridge", do_cache=True, use_gui=False)
+    physics_client: int = getattr(env, "_physics_client_id")
     if args.solver_iters is not None:
         p.setPhysicsEngineParameter(numSolverIterations=args.solver_iters,
-                                    physicsClientId=env._physics_client_id)  # pylint: disable=protected-access
+                                    physicsClientId=physics_client)
     if args.weld_erp is not None:
         from predicators.envs.pybullet_bridge import PyBulletBridgeEnv
         orig_create = PyBulletBridgeEnv._create_weld
 
-        def _create_weld_erp(self, body_a, body_b, ideal_dz=None):
+        def _create_weld_erp(self: PyBulletBridgeEnv,
+                             body_a: int,
+                             body_b: int,
+                             ideal_dz: Optional[float] = None) -> None:
             orig_create(self, body_a, body_b, ideal_dz=ideal_dz)
             cid = self._weld_constraints.get(frozenset({body_a, body_b}))
             if cid is not None:
@@ -111,7 +126,7 @@ def main() -> None:
                                    erp=args.weld_erp,
                                    physicsClientId=self._physics_client_id)
 
-        PyBulletBridgeEnv._create_weld = _create_weld_erp
+        setattr(PyBulletBridgeEnv, "_create_weld", _create_weld_erp)
     if args.pin_held:
         # Kinematic rigidity while carried: after the env's own step
         # dynamics, re-pose every weld partner of the held body from the
@@ -123,12 +138,12 @@ def main() -> None:
         from predicators.envs.pybullet_bridge import PyBulletBridgeEnv
         orig_dss = PyBulletBridgeEnv._domain_specific_step
 
-        def _pin_welds_to_held(self):
+        def _pin_welds_to_held(self: PyBulletBridgeEnv) -> None:
             held = self._held_obj_id
             if held is None or not self._weld_constraints:
                 return
             cid_of = dict(self._weld_constraints)
-            adj = {}
+            adj: Dict[int, Set[int]] = {}
             for key in cid_of:
                 a, b = tuple(key)
                 adj.setdefault(a, set()).add(b)
@@ -149,7 +164,7 @@ def main() -> None:
                     frontier.append(nxt)
                     info = p.getConstraintInfo(cid_of[frozenset({cur, nxt})],
                                                physicsClientId=client)
-                    parent, child = info[0], info[2]
+                    parent = info[0]
                     rel_pos, rel_orn = info[6], info[8]
                     if parent == cur:
                         tgt = p.multiplyTransforms(cur_pos, cur_orn, rel_pos,
@@ -164,11 +179,11 @@ def main() -> None:
                     p.resetBaseVelocity(nxt, (0, 0, 0), (0, 0, 0),
                                         physicsClientId=client)
 
-        def _dss_with_pin(self):
+        def _dss_with_pin(self: PyBulletBridgeEnv) -> None:
             orig_dss(self)
             _pin_welds_to_held(self)
 
-        PyBulletBridgeEnv._domain_specific_step = _dss_with_pin
+        setattr(PyBulletBridgeEnv, "_domain_specific_step", _dss_with_pin)
     options = {o.name: o for o in get_gt_options(env.get_name())}
     preds = {pr.name: pr for pr in env.predicates}
     state = env.reset("train", 0)
@@ -178,16 +193,17 @@ def main() -> None:
     legs = [objs["leg0"], objs["leg1"]]
     if args.block_mass is not None:
         for o in spans + legs:
-            p.changeDynamics(o.id, -1, mass=args.block_mass,
-                             physicsClientId=env._physics_client_id)  # pylint: disable=protected-access
+            p.changeDynamics(o.id,
+                             -1,
+                             mass=args.block_mass,
+                             physicsClientId=physics_client)
         print(f"[{args.tag}] block mass set to {args.block_mass} kg")
 
-    def g(name, objects, params):
+    def g(name: str, objects: List[Object], params: List[float]) -> _Option:
         return options[name].ground(objects, np.array(params,
                                                       dtype=np.float32))
 
     f32 = np.float32
-    from predicators.structs import GroundAtom
     attached = preds["Attached"]
     plan = [
         g("PickBlock", [robot, objs["span1"]], [0.0]),
@@ -217,7 +233,8 @@ def main() -> None:
     else:
         plan += [
             g("PickBlock", [robot, objs["span1"]], [0.01]),
-            g("Place", [robot], list(CARRY_TARGET) + [0.0]),
+            g("Place", [robot],
+              list(CARRY_TARGET) + [0.0]),
         ]
     carry_start_opt = len(plan) - 2  # PickBlock(span1) of the carry
     # Cure Waits: explicit targets, or the rich env abstraction's
@@ -233,7 +250,7 @@ def main() -> None:
     opt_index = {"i": 0}
     orig_plan = list(plan)
 
-    def _option_policy(s):
+    def _option_policy(s: State) -> _Option:
         del s
         if opt_index["i"] >= len(orig_plan):
             raise utils.OptionExecutionFailure("Option plan exhausted!",
@@ -259,7 +276,7 @@ def main() -> None:
             break
         state = env.step(act)
         t += 1
-        row = {"t": t, "opt": opt_index["i"]}
+        row: Dict[str, float] = {"t": t, "opt": opt_index["i"]}
         for sp in spans + legs:
             for f, v in zip(POSE_FEATS, _pose(state, sp)):
                 row[f"{sp.name}_{f}"] = float(v)
@@ -308,9 +325,10 @@ def main() -> None:
             ref = seat[0]
             for leg in ("leg0", "leg1"):
                 dxy = max(
-                    float(np.hypot(r[f"{leg}_x"] - ref[f"{leg}_x"],
-                                   r[f"{leg}_y"] - ref[f"{leg}_y"]))
-                    for r in seat)
+                    float(
+                        np.hypot(r[f"{leg}_x"] -
+                                 ref[f"{leg}_x"], r[f"{leg}_y"] -
+                                 ref[f"{leg}_y"])) for r in seat)
                 tilt = max(
                     max(abs(_ang(r[f"{leg}_roll"] - ref[f"{leg}_roll"])),
                         abs(_ang(r[f"{leg}_pitch"] - ref[f"{leg}_pitch"])))

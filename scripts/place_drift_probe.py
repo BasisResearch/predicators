@@ -26,15 +26,16 @@ Usage (COMPUTE NODE - this steps pybullet physics):
 import argparse
 import csv
 import os
-from typing import List, Optional, Tuple
+from typing import List, Optional, Set, Tuple
 
 import imageio.v2 as imageio
 import numpy as np
 
 from predicators import utils
-from predicators.envs import create_new_env
+from predicators.envs import BaseEnv, create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.settings import CFG
+from predicators.structs import Object, ParameterizedOption, State
 
 # Placement targets from the actual bridge staging plans (near / mid /
 # far reach along the row at y=1.18); the far target is where the agent
@@ -63,12 +64,13 @@ BRIDGE_FLAGS = {
 }
 
 
-def _block_pose(state, block) -> Tuple[float, float, float]:
+def _block_pose(state: State, block: Object) -> Tuple[float, float, float]:
     return (state.get(block, "x"), state.get(block,
                                              "y"), state.get(block, "z"))
 
 
-def _run_trial(env, options, target_xy: Tuple[float, float], trial_seed: int,
+def _run_trial(env: BaseEnv, options: Set[ParameterizedOption],
+               target_xy: Tuple[float, float], trial_seed: int,
                record_video: bool) -> Tuple[Optional[dict], List, List[dict]]:
     """One pick-and-place; returns (row, frames, timeline)."""
     CFG.seed = BASE_SEED  # stable task layout through reset
@@ -135,6 +137,7 @@ def _run_trial(env, options, target_xy: Tuple[float, float], trial_seed: int,
 
 
 def main() -> None:
+    """Run the drift trials for one variant and write the CSV report."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--variant", required=True)
     parser.add_argument("--trials", type=int, default=10)

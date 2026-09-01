@@ -51,11 +51,11 @@ def _held_assembly_external_contacts(state: State) -> list:
     """Contact points between the held assembly and bodies outside it.
 
     The assembly is the held object plus every body rigidly attached to
-    it (the robot excluded). Attached partners matter: a carried
-    multi-body assembly usually touches down through an OUTER member,
-    not the grasped one. The assembly is discovered generically by BFS
-    over the client's fixed constraints, skipping the grasp constraint
-    (any fixed constraint involving the robot body).
+    it (the robot excluded). Attached partners matter: a carried multi-
+    body assembly usually touches down through an OUTER member, not the
+    grasped one. The assembly is discovered generically by BFS over the
+    client's fixed constraints, skipping the grasp constraint (any fixed
+    constraint involving the robot body).
     """
     sim_state = getattr(state, "simulator_state", None)
     if not isinstance(sim_state, dict):
