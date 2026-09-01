@@ -1034,7 +1034,8 @@ def create_synthesis_tools(
         A final section lists every feature that differs from the data
         but sits OUTSIDE the scored scope - no rule predicts it, so
         the combined model falls back to the base prediction there;
-        each such feature is a candidate missing mechanism. Uses init_value params by default;
+        each such feature is a candidate missing mechanism. Uses
+        init_value params by default;
         ``fit_params=True`` MCMC-fits first (diagnostic only - nothing
         is published). Tolerance: ``|pred - obs| > rel_tol * |obs| +
         abs_tol``. Each call snapshots the simulator file into

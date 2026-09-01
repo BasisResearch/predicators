@@ -936,12 +936,12 @@ def test_plan_capture_carries_validation_summary():
 
 
 def test_parallel_repeats_capture_robust_plan():
-    """With agent_validation_parallel_workers set, the validation
-    repeats run in forked children: the verdict and note are identical
-    to sequential mode, and the parent-side model counter proves the
-    repeats did NOT run in this process (fork isolation)."""
+    """With agent_validation_parallel_workers set, the validation repeats run
+    in forked children: the verdict and note are identical to sequential mode,
+    and the parent-side model counter proves the repeats did NOT run in this
+    process (fork isolation)."""
     from predicators.agent_sdk.parallel_rollouts import \
-        parallel_rollouts_available
+        parallel_rollouts_available  # pylint: disable=import-outside-toplevel
     if not parallel_rollouts_available():
         pytest.skip("fork not available on this platform")
     model = _Model()
@@ -964,7 +964,7 @@ def test_parallel_repeats_capture_robust_plan():
 def test_parallel_repeats_still_reject_flaky_plan():
     """Child-side failures propagate through the result queue."""
     from predicators.agent_sdk.parallel_rollouts import \
-        parallel_rollouts_available
+        parallel_rollouts_available  # pylint: disable=import-outside-toplevel
     if not parallel_rollouts_available():
         pytest.skip("fork not available on this platform")
     model = _Model(succeed_first_n=1)

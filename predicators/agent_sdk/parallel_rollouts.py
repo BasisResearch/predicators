@@ -91,7 +91,7 @@ def _child_main(idx: int, job: Callable[[], Any], q: Any,
         except BaseException:  # pylint: disable=broad-except
             exit_code = 2
     finally:
-        os._exit(exit_code)
+        os._exit(exit_code)  # pylint: disable=protected-access
 
 
 def run_forked_rollouts(
