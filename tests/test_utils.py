@@ -1,4 +1,5 @@
 """Test cases for utils."""
+import abc
 import os
 import time
 from typing import Iterator, Optional, Tuple
@@ -3748,43 +3749,52 @@ def test_parse_model_output_into_option_plan_strict():
     assert no_seed[0][2] == []
 
 
-def test_pkl_dump_with_retry_survives_a_transient_failure(
-        tmp_path, monkeypatch):
-    """A TypeError on the first attempt must not lose the artifact.
+def test_pkl_dump_all_or_nothing_round_trips_a_by_value_abc(tmp_path):
+    """An ABC pickled BY VALUE must survive the round trip.
 
-    The real failure is ``cannot pickle '_abc._abc_data' object``, seen
-    intermittently while saving learned NSRTs and GNN weights. It is
-    faked here because it does not reproduce on demand -- which is the
-    whole reason the retry exists rather than a targeted fix.
+    This is the regression test for ``TypeError: cannot pickle
+    '_abc._abc_data' object``, which used to fail runs intermittently
+    while saving learned NSRTs and GNN weights. dill serialises a class
+    by value whenever it cannot find that exact class again at
+    ``module.qualname`` -- as here, where the class is local to this
+    function -- and before dill 0.3.6 the by-value path shipped the
+    class ``__dict__`` verbatim, ``_abc_impl`` included. ``_abc_impl``
+    is the unpicklable ``_abc_data`` that ``ABCMeta`` puts on every
+    class it builds, so the dump died. If the ``dill`` pin ever slips
+    back below 0.3.6, this fails here instead of at random in CI.
     """
-    attempts = []
-    real_dumps = utils.pkl.dumps
 
-    def _flaky_dumps(obj, *args, **kwargs):
-        """Fail once with the real error, then behave."""
-        attempts.append(obj)
-        if len(attempts) == 1:
-            raise TypeError("cannot pickle '_abc._abc_data' object")
-        return real_dumps(obj, *args, **kwargs)
+    class Base(abc.ABC):
+        """A local ABC, so dill cannot pickle it by reference."""
 
-    monkeypatch.setattr(utils.pkl, "dumps", _flaky_dumps)
+        @abc.abstractmethod
+        def value(self) -> int:
+            """The subclass's answer."""
+
+    class Impl(Base):
+        """A concrete subclass, carrying an ``_abc_impl`` of its own."""
+
+        def value(self) -> int:
+            """The answer."""
+            return 3
+
+    assert "_abc_impl" in Impl.__dict__, "no ABCMeta cache to trip over"
     path = tmp_path / "artifact.pkl"
     with open(path, "wb") as f:
-        utils.pkl_dump_with_retry({"learned": [1, 2, 3]}, f)
-
-    assert len(attempts) == 2, "the failed dump was not retried"
+        utils.pkl_dump_all_or_nothing({"cls": Impl}, f)
     with open(path, "rb") as f:
-        assert utils.pkl.load(f) == {"learned": [1, 2, 3]}
+        loaded = utils.pkl.load(f)
+    assert loaded["cls"]().value() == 3
 
 
-def test_pkl_dump_with_retry_writes_nothing_when_it_fails(
+def test_pkl_dump_all_or_nothing_writes_nothing_when_it_fails(
         tmp_path, monkeypatch):
-    """A persistent failure must raise and leave the file EMPTY.
+    """A failed dump must raise and leave the file EMPTY.
 
-    Retrying into the file handle would append to the prefix the failed
-    dump already wrote, and a half-written pickle only fails at LOAD
-    time -- long after the run that produced it could have been
-    repeated.
+    Dumping straight into the file handle would leave the prefix the
+    failed dump had already written, and a half-written pickle only
+    fails at LOAD time -- long after the run that produced it could have
+    been repeated.
     """
 
     def _always_fails(obj, *args, **kwargs):
@@ -3796,7 +3806,7 @@ def test_pkl_dump_with_retry_writes_nothing_when_it_fails(
     path = tmp_path / "artifact.pkl"
     with pytest.raises(TypeError) as excinfo:
         with open(path, "wb") as f:
-            utils.pkl_dump_with_retry({"learned": [1, 2, 3]}, f)
+            utils.pkl_dump_all_or_nothing({"learned": [1, 2, 3]}, f)
     assert "_abc_data" in str(excinfo.value), \
         "a genuinely unpicklable object must still report why"
     assert path.stat().st_size == 0, "a failed dump left a partial file"
