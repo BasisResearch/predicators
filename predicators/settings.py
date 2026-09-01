@@ -996,6 +996,47 @@ class GlobalSettings:
     # push-throughs.
     boil_mobile_base_align_x = True
 
+    # busyboard env
+    # Use skill-factory-based option implementations
+    busyboard_use_skill_factories = True
+    # Board size. Test boards are larger than train boards, so a learner must
+    # re-identify a wiring over more buttons and lamps than it ever saw - the
+    # rule (a conjunctive drive feeding a delayed accumulator) transfers, the
+    # bindings do not.
+    busyboard_num_buttons_train = [3]
+    busyboard_num_buttons_test = [4, 5]
+    busyboard_num_lamps_train = [2]
+    busyboard_num_lamps_test = [2, 3]
+    # Probability that a lamp's drive is conjunctive (needs a second
+    # "enabler" button on as well as its driver). This is the many-to-one
+    # relation that undirected play confounds; set to 0.0 to ablate it and
+    # recover a one-to-one board.
+    busyboard_interlock_prob = 0.5
+    # One wiring per run (projected onto each board size) rather than a fresh
+    # one per task. True is what today's fitting stack supports: PARAM_SPECS
+    # resolves once, before any task is chosen, so a hidden quantity that
+    # varied per task would have no home in a fitted model. False is the
+    # setting this domain exists to motivate - a model whose STRUCTURE is
+    # re-identified every episode - and needs a per-task parameter scope.
+    busyboard_fixed_wiring = True
+    # Decorrelates the wiring draw from every other use of CFG.seed, so
+    # changing the wiring does not also reshuffle the task distribution.
+    busyboard_wiring_salt = 7919
+    # Hidden charge accumulated / bled per low-level step. A lamp is slow to
+    # light and quick to die: the build-up delay is what makes a naive
+    # press-and-look policy mis-attribute causes, and the fast decay is what
+    # keeps plans short. Calibrated against the measured cost of a button
+    # operation on this board (~22 low-level steps for a press or release):
+    # a lamp lights after ~48 driven steps, so roughly two button operations
+    # pass between a cause and its visible effect and a press-then-press
+    # sequence genuinely confounds which press was responsible. Full decay
+    # takes ~20 steps, under one button operation, so undoing is cheap.
+    busyboard_charge_rate = 0.017
+    busyboard_decay_rate = 0.05
+    # Rejection-sampling budget for finding a wiring plus a goal assignment
+    # that some button setting realizes exactly.
+    busyboard_max_sampling_attempts = 200
+
     # parameters for random options approach
     random_options_max_tries = 100
 
@@ -2218,6 +2259,12 @@ class GlobalSettings:
                     "pybullet_bridge": 3000,
                     "pybullet_switch": 2000,
                     "pybullet_barrier": 2000,
+                    # Busyboard plans are short in options (a few presses
+                    # and a wait) but not in steps: a push is ~22 low-level
+                    # steps and a lamp needs ~48 driven ones to light, so a
+                    # three-press plan runs past the default 100 and every
+                    # refinement would be rejected on the horizon check.
+                    "pybullet_busyboard": 2000,
                     "doors": 1000,
                     "coffee": 1000,
                     "kitchen": 1000,
