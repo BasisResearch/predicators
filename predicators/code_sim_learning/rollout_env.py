@@ -31,6 +31,17 @@ def num_rollouts_run() -> int:
     return _NUM_ROLLOUTS
 
 
+def add_rollouts_run(n: int) -> None:
+    """Credit ``n`` rollouts executed OUTSIDE this process to the counter.
+
+    The parallel objective path runs its rollouts in forked children
+    whose counter copies die with them; the parent credits each
+    successful child here so the per-stage budget logs stay honest.
+    """
+    global _NUM_ROLLOUTS  # pylint: disable=global-statement
+    _NUM_ROLLOUTS += n
+
+
 def _zero_all_velocities(base_env: Any) -> None:
     """Zero every velocity in the env's client: base velocities of all bodies
     AND joint velocities of articulated bodies (the robot arm).

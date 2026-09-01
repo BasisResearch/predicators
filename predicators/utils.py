@@ -13,6 +13,7 @@ import importlib
 import io
 import itertools
 import logging
+import math
 import os
 import pkgutil
 import re
@@ -1844,6 +1845,26 @@ def _format_wait_target_debug(
     if object_details:
         details.append(f"target_objects: {'; '.join(object_details)}")
     return "; ".join(details)
+
+
+def wait_rollout_step_cap() -> int:
+    """The step count at which a belief-rollout Wait is force-terminated.
+
+    Wait termination has two ceilings: the option model's
+    ``wait_option_max_steps`` backstop (active with
+    ``wait_option_terminate_on_atom_change``, mirroring the real
+    executor's branches in :func:`option_policy_to_policy`) and the
+    generic ``max_num_steps_option_rollout`` cap. Report code asking
+    "did this Wait stall?" must compare against whichever fires FIRST:
+    the bridge configures the backstop at 120 against a 1000-step
+    rollout cap, so a notice keyed on the rollout cap alone can never
+    fire in exactly the runs it was written for.
+    """
+    cap = int(CFG.max_num_steps_option_rollout)
+    if CFG.wait_option_terminate_on_atom_change and \
+            math.isfinite(CFG.wait_option_max_steps):
+        cap = min(cap, int(CFG.wait_option_max_steps))
+    return cap
 
 
 def option_policy_to_policy(

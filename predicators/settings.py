@@ -4,11 +4,22 @@ Anything that varies between runs should be a command-line arg
 (args.py).
 """
 
+import os
 from collections import defaultdict
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
+
+# Working directory at process start. run_python's exec window chdirs
+# into the agent sandbox (see agent_sdk/tools/python_exec.py), so any
+# consumer that resolves a RELATIVE CFG path at call time must anchor
+# it here rather than on os.getcwd() - first observed on the fan
+# domain's relative rollout track path, which a sim.fit invoked inside
+# run_python would fail to find, silently falling back to per-step
+# scoring. This module is imported at process start, before any agent
+# session (and therefore any sandbox chdir) can exist.
+LAUNCH_CWD = os.path.abspath(os.getcwd())
 
 
 class GlobalSettings:
@@ -1682,17 +1693,21 @@ class GlobalSettings:
     # that settled off-target), CogMan re-invokes solve(), which resumes a
     # re-refined suffix of the executed sketch from the current state,
     # instead of running the rest of the stale plan open-loop. Value =
-    # recoveries per test episode, shared across chained replans; 0
-    # disables (legacy open-loop execution). Requires --execution_monitor
+    # recoveries per test episode, shared across chained replans; when no
+    # suffix refines (or the budget is spent) the remaining plan resumes
+    # open-loop rather than failing the episode. 0 disables (legacy
+    # open-loop execution). Requires --execution_monitor
     # subgoal_annotations (enforced at approach construction).
     agent_bilevel_max_execution_replans = 0
     # When an execution replan's suffix refinement fails, whether to fall
     # back to querying the agent for a fresh sketch - a brand-new
     # full-turn-budget session. Default False: the cheap suffix replan is
-    # the only recovery, and the episode fails when no suffix of the
-    # executed sketch refines from the diverged state. Re-opening the
-    # agent budget is especially wasteful after a best-effort (non-solve)
-    # capture, whose execution diverges by construction.
+    # the only recovery, and when no suffix of the executed sketch
+    # refines from the diverged state the remaining plan resumes
+    # open-loop (the divergence is logged; the goal check decides the
+    # episode). Re-opening the agent budget is especially wasteful after
+    # a best-effort (non-solve) capture, whose execution diverges by
+    # construction.
     agent_bilevel_replan_agent_fallback = False
     # log state pretty_str before/after each step
     agent_bilevel_log_state = False
@@ -1783,18 +1798,20 @@ class GlobalSettings:
     # installs the ensemble providers (see rule_param_margin_provider),
     # which requires agent_explorer_info_seeking's ensemble.
     agent_plan_validation_rule_param_margin = False
-    # Fork-parallel validation rollouts: the capture gate's repeat
-    # rollouts, its physics/rule-param margin sweeps, and the belief
-    # probe's trials/physics_sweep modes each run N INDEPENDENT
-    # fresh-env rollouts; with a value W > 1, up to W run concurrently
-    # as forked children (see agent_sdk/parallel_rollouts.py). Verdict
-    # semantics are unchanged: each rollout runs under the exact seed /
-    # override scope it would run under sequentially, and a failed
-    # child is transparently re-run in-process. Benchmark (job
-    # 21336169, 8-CPU node, fresh bridge env per rollout): 1.89x at
-    # W=2, 3.74x at W=4, 4.81x at W=8. 0 (the default) keeps every
-    # rollout sequential; enable in experiment configs sized to the
-    # job's CPU allocation (e.g. 6 with --cpus-per-task=8).
+    # Fork-parallel rollouts: the capture gate's repeat rollouts, its
+    # physics/rule-param margin sweeps, the belief probe's
+    # trials/physics_sweep modes, and the rollout-sysID objective (each
+    # candidate theta scores N trajectory segments) all run N
+    # INDEPENDENT fresh-env rollouts; with a value W > 1, up to W run
+    # concurrently as forked children (see
+    # agent_sdk/parallel_rollouts.py). Verdict/fit semantics are
+    # unchanged: each rollout runs under the exact seed / override
+    # scope it would run under sequentially, and a failed child is
+    # transparently re-run in-process. Benchmark (job 21336169, 8-CPU
+    # node, fresh bridge env per rollout): 1.89x at W=2, 3.74x at W=4,
+    # 4.81x at W=8. 0 (the default) keeps every rollout sequential;
+    # enable in experiment configs sized to the job's CPU allocation
+    # (e.g. 6 with --cpus-per-task=8).
     agent_validation_parallel_workers = 0
     # Agent bilevel explorer settings. Separate from the solve-path budget
     # above because the explorer runs full backtracking while looking for

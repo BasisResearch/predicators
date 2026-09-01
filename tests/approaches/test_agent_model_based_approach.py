@@ -1197,14 +1197,15 @@ class TestExecutionReplanning:
         assert args[0] is state  # replans from the real current state
         assert args[3] == 0  # the failed step is the annotated first step
 
-    def test_episode_fails_when_no_suffix_validates(self):
-        """Suffix path exhausted: by default the episode fails.
+    def test_openloop_resume_when_no_suffix_validates(self):
+        """Suffix path exhausted: the remaining plan resumes open-loop.
 
-        A fresh sketch query would re-open the agent turn budget the
-        attempt already spent, so it is opt-in
+        An annotation is the agent's prediction, not proof the goal is
+        out of reach, so by default the episode keeps executing and the
+        goal check decides. A fresh sketch query would re-open the agent
+        turn budget the attempt already spent, so it stays opt-in
         (agent_bilevel_replan_agent_fallback).
         """
-        from predicators.approaches import ApproachFailure
         approach, _, task = _make_approach()
         _enable_replanning(approach, 2)
         holding = {GroundAtom(_Holding, [_block0])}
@@ -1213,10 +1214,41 @@ class TestExecutionReplanning:
         state = _make_state()
         policy(state)
         approach._replan_suffix = MagicMock(return_value=None)
-        with pytest.raises(ApproachFailure,
-                           match="agent_bilevel_replan_agent_fallback"):
-            approach._solve(Task(state, task.goal), timeout=10)
+        approach._query_agent_for_plan_sketch = MagicMock()
+        new_policy = approach._solve(Task(state, task.goal), timeout=10)
         approach._replan_suffix.assert_called_once()
+        approach._query_agent_for_plan_sketch.assert_not_called()
+        # The resumed policy executes the remaining step (Place), and
+        # monitoring re-arms over exactly that suffix.
+        new_policy(state)
+        status = approach.get_execution_monitoring_info()[0]
+        assert status.steps_initiated == 1
+        assert status.current_option.name == "Place"
+
+    def test_openloop_resume_at_last_step_ends_plan(self):
+        """Divergence at the final step leaves nothing to resume: the returned
+        policy ends through the normal plan-exhausted path (so a goal-reached
+        terminator still gets its chance), not a divergence abort."""
+        from predicators.approaches import ApproachFailure
+        approach, _, task = _make_approach()
+        _enable_replanning(approach, 2)
+        holding = {GroundAtom(_Holding, [_block0])}
+        plan, _ = _make_two_step_plan(holding)
+        # Annotate the LAST step instead of the first.
+        sketch = [
+            _SketchStep(_PickDone, [_block0], None),
+            _SketchStep(_PlaceDone, [_block0, _block1], holding),
+        ]
+        policy = approach._plan_to_policy(plan, sketch=sketch)
+        state = _make_state()  # block0 not held: Place's subgoal fails
+        policy(state)  # starts Pick
+        policy(state)  # Pick terminal -> starts Place
+        monitor = _make_monitor(approach)
+        assert monitor.step(state)
+        approach._replan_suffix = MagicMock(return_value=None)
+        new_policy = approach._solve(Task(state, task.goal), timeout=10)
+        with pytest.raises(ApproachFailure, match="exhausted"):
+            new_policy(state)
 
     def test_full_resolve_when_no_suffix_validates_with_fallback(self):
         """With agent_bilevel_replan_agent_fallback, a failed suffix replan
@@ -1243,9 +1275,9 @@ class TestExecutionReplanning:
         approach._replan_suffix.assert_called_once()
 
     def test_budget_shared_across_chained_replans(self):
-        """Chained replans share one per-episode budget and fail fast once it
-        is exhausted."""
-        from predicators.approaches import ApproachFailure
+        """Chained replans share one per-episode budget; once it is exhausted,
+        a divergence resumes the remaining plan open-loop without paying for
+        further refinement."""
         approach, _, task = _make_approach()
         _enable_replanning(approach, 1)
         holding = {GroundAtom(_Holding, [_block0])}
@@ -1268,10 +1300,14 @@ class TestExecutionReplanning:
         new_policy(state)
         _sync(monitor, approach)
         assert monitor.step(state)
-        # Second divergence: no budget left.
-        with pytest.raises(ApproachFailure, match="No execution replans"):
-            approach._solve(Task(state, task.goal), timeout=10)
+        # Second divergence: no budget left - the remaining plan resumes
+        # open-loop, with no further refinement attempt.
+        resumed = approach._solve(Task(state, task.goal), timeout=10)
+        approach._replan_suffix.assert_called_once()
         approach._query_agent_for_plan_sketch.assert_not_called()
+        resumed(state)
+        status = approach.get_execution_monitoring_info()[0]
+        assert status.current_option.name == "Place"
 
     def test_reset_for_new_episode_clears_state(self):
         """A new episode refreshes the budget and clears the live status."""

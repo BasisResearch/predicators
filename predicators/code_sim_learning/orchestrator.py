@@ -72,6 +72,12 @@ class SysIdOutcome:
     traj_rms: List[float]
     pre_sse: float
     post_sse: float
+    # Init-params SSE on the SAME survivor set ``post_sse`` is computed
+    # on - the like-for-like baseline for any "reduction" claim.
+    # ``pre_sse`` covers all segments, so pre/post ratios across the two
+    # sets measure the trimming, not the fit (run_20260830: "74% SSE
+    # reduction" reported while the optimizer moved no parameter).
+    pre_sse_survivors: float = float("nan")
     hull_candidates: List[Dict[str, float]] = field(default_factory=list)
     from_cache: bool = False
 
@@ -87,6 +93,8 @@ class _FitComputation:
     hull_candidates: List[Dict[str, float]] = field(default_factory=list)
     pre_sse: float = float("nan")
     post_sse: float = float("nan")
+    # See SysIdOutcome.pre_sse_survivors.
+    pre_sse_survivors: float = float("nan")
     # SSE of an arbitrary joint theta on the fit's surviving segments
     # with the fit's own scaling (the closure identifiability_report
     # consumed); None when no fit ran. Cache-safe: it closes over the
@@ -183,17 +191,21 @@ def run_rollout_sysid(
                 num_rollouts_run() - n0,
                 time.monotonic() - t0,
                 " (fit cache hit)" if from_cache else "")
-    return SysIdOutcome(fit_result=core.fit_result,
-                        report=report,
-                        fitted=fitted,
-                        applied=applied,
-                        num_segments=len(rollouts),
-                        num_survivors=core.num_survivors,
-                        traj_rms=list(core.traj_rms),
-                        pre_sse=core.pre_sse,
-                        post_sse=core.post_sse,
-                        hull_candidates=list(core.hull_candidates),
-                        from_cache=from_cache)
+    return SysIdOutcome(
+        fit_result=core.fit_result,
+        report=report,
+        fitted=fitted,
+        applied=applied,
+        num_segments=len(rollouts),
+        num_survivors=core.num_survivors,
+        traj_rms=list(core.traj_rms),
+        pre_sse=core.pre_sse,
+        post_sse=core.post_sse,
+        # getattr: a _FitComputation unpickled from a pre-field
+        # checkpoint restores its saved __dict__ without the default.
+        pre_sse_survivors=getattr(core, "pre_sse_survivors", float("nan")),
+        hull_candidates=list(core.hull_candidates),
+        from_cache=from_cache)
 
 
 def _log_data_health(report: Dict[str, Dict[str, Any]],
@@ -289,6 +301,19 @@ def _compute_fit(
                                    residual_features, physical_names, rules,
                                    latent_init, scaling)
     logger.info("Rollout sysID - post-SSE: %.6f", post_sse)
+    # Init-params SSE on the SAME survivor set: the only baseline a
+    # "reduction from the fit" claim may be measured against (see
+    # SysIdOutcome.pre_sse_survivors). Costs len(survivors) extra
+    # rollouts once per uncached fit; skipped when nothing was trimmed.
+    if len(survivors) == len(rollouts):
+        pre_sse_survivors = pre_sse
+    else:
+        pre_sse_survivors = compute_rollout_sse(fit_env, survivors,
+                                                init_params, residual_features,
+                                                physical_names, rules,
+                                                latent_init, scaling)
+        logger.info("Rollout sysID - pre-SSE on the %d survivors: %.6f",
+                    len(survivors), pre_sse_survivors)
 
     def rollout_sse_fn(params: Dict[str, float]) -> float:
         return compute_rollout_sse(fit_env, survivors, params,
@@ -317,4 +342,5 @@ def _compute_fit(
                            hull_candidates=list(hull_candidates),
                            pre_sse=pre_sse,
                            post_sse=post_sse,
+                           pre_sse_survivors=pre_sse_survivors,
                            sse_fn=rollout_sse_fn)
