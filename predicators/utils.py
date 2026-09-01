@@ -13,6 +13,7 @@ import importlib
 import io
 import itertools
 import logging
+import math
 import os
 import pkgutil
 import re
@@ -1860,7 +1861,8 @@ def wait_rollout_step_cap() -> int:
     fire in exactly the runs it was written for.
     """
     cap = int(CFG.max_num_steps_option_rollout)
-    if CFG.wait_option_terminate_on_atom_change:
+    if CFG.wait_option_terminate_on_atom_change and \
+            math.isfinite(CFG.wait_option_max_steps):
         cap = min(cap, int(CFG.wait_option_max_steps))
     return cap
 

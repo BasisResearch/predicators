@@ -647,3 +647,9 @@ def test_wait_rollout_step_cap_tracks_the_binding_ceiling():
         "max_num_steps_option_rollout": 1000,
     })
     assert utils.wait_rollout_step_cap() == 1000
+    utils.reset_config({
+        "wait_option_terminate_on_atom_change": True,
+        "wait_option_max_steps": float("inf"),
+        "max_num_steps_option_rollout": 1000,
+    })
+    assert utils.wait_rollout_step_cap() == 1000
