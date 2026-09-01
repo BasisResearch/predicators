@@ -3,6 +3,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 from collections import defaultdict
 from typing import Callable, Dict
 
@@ -388,10 +389,10 @@ def test_perfect_test_streak_from_disk():
 
 def test_inflight_interactions_roundtrip(tmp_path):
     """A cycle's episodes persisted before LEARN survive a mid-learn death:
-    reloadable at the same cycle, invisible to the checkpoint scanner,
-    ignored when stale, and gone once discarded."""
-    import time as time_module
 
+    reloadable at the same cycle, invisible to the checkpoint scanner,
+    ignored when stale, and gone once discarded.
+    """
     utils.reset_config({
         "env": "cover",
         "approach": "random_actions",
@@ -424,7 +425,7 @@ def test_inflight_interactions_roundtrip(tmp_path):
     assert max_cycle is None
     # A stale stash (older than the auto-resume gate) is ignored.
     path = _inflight_interactions_path(3)
-    old_ts = time_module.time() - CFG.auto_resume_max_age_hours * 3600.0 - 10
+    old_ts = time.time() - CFG.auto_resume_max_age_hours * 3600.0 - 10
     os.utime(path, (old_ts, old_ts))
     assert _load_inflight_interactions(3, cogman) is None
     os.utime(path, None)
@@ -438,6 +439,6 @@ def test_inflight_interactions_roundtrip(tmp_path):
         _save_suffix = None
 
     cogman_nockpt = _FakeCogman()
-    cogman_nockpt._approach = _NoCkptApproach()
+    cogman_nockpt._approach = _NoCkptApproach()  # pylint: disable=protected-access
     _save_inflight_interactions(4, cogman_nockpt, results, [0], [True], 0.0)
     assert not os.path.exists(_inflight_interactions_path(4))
