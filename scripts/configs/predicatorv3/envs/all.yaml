@@ -471,8 +471,11 @@ ENVS:
       domino_test_num_dominos: [1]
       domino_train_num_targets: [0]
       domino_test_num_targets: [0]
-      domino_blow_wind_force: 2.5
-      domino_blow_wind_steps: 60
+      # Left to settings.py: force and gust length are calibrated
+      # together against the measured slide curve, and pinning one of
+      # them here silently decoupled the pair - the launcher blew for
+      # 60 steps while the oracle's slide model assumed 30, so the
+      # block sailed past the goal every time.
       # Straight chains only. Alignment guarantees the FIRST leg runs
       # downwind; a turn puts the rest of the chain across the wind,
       # and the turn geometry was tuned for a robot push anyway.

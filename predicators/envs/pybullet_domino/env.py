@@ -1203,9 +1203,18 @@ class PyBulletDominoBlowEnv(PyBulletDominoFanEnv):
 
     def _set_domain_specific_state(self, state: State) -> None:
         super()._set_domain_specific_state(state)
-        # A fresh episode gets a fresh gust budget, and the wind aims at
-        # the movable block through its centre so the block slides.
-        self._wind_steps_left = CFG.domino_blow_wind_steps
+        # A fresh gust budget, but ONLY when the incoming state has the
+        # fan off - which is to say, at the start of an episode.
+        #
+        # _set_state is called far more often than once per episode: the
+        # executor reconstructs state during execution, and refilling
+        # the budget on every one of those meant the counter never
+        # reached zero, the fan never switched off, and the block was
+        # pushed straight past the goal. The trace that drove the plan
+        # by hand never hit it, which is exactly why it passed while the
+        # launcher scored zero.
+        if self._fan_component is None or not self._fan_component.any_fan_on():
+            self._wind_steps_left = CFG.domino_blow_wind_steps
         self._wire_blow_target(state)
 
     def _wire_blow_target(self, state: State) -> None:
@@ -1256,9 +1265,40 @@ class PyBulletDominoBlowEnv(PyBulletDominoFanEnv):
         if self._fan_component is None:
             return
         if self._fan_component.any_fan_on() and self._wind_steps_left > 0:
+            if self._wind_steps_left == CFG.domino_blow_wind_steps:
+                logging.info("[blow] gust starts, budget=%d",
+                             self._wind_steps_left)
             self._wind_steps_left -= 1
             if self._wind_steps_left == 0:
                 self._fan_component.set_fans_on(False)
+                self._log_gust_outcome()
+
+
+    def _log_gust_outcome(self) -> None:
+        """Where the gust left the block, once per episode.
+
+        The task turns entirely on this one number, and reading it off
+        a video is not reading it. Logged at the moment the gust ends,
+        which is the moment the answer is decided.
+        """
+        try:
+            state = self._get_state()
+        except Exception:  # pylint: disable=broad-except
+            return
+        blocks = [o for o in state if o.type.name == "domino"]
+        regions = [o for o in state if o.type.name == "region"]
+        if not blocks or not regions:
+            return
+        block, region = blocks[0], regions[0]
+        roll = float(state.get(block, "roll"))
+        roll = (roll + np.pi / 2) % np.pi - np.pi / 2
+        gx = float(state.get(region, "x"))
+        half = float(state.get(region, "half_x"))
+        bx = float(state.get(block, "x"))
+        logging.info(
+            "[blow] gust over: block x=%.4f roll=%.3f | goal x=%.4f "
+            "+/- %.3f | dx=%.4f | flat=%s in_x=%s", bx, roll, gx, half,
+            bx - gx, abs(roll) >= 0.087, abs(bx - gx) <= half)
 
 
 class PyBulletDominoFanRampEnv(PyBulletDominoComposedEnv):

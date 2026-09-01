@@ -935,7 +935,7 @@ def _get_blow_processes(
             DiscreteGaussianDelay(mu=torch.tensor(1.0),
                                   sigma=torch.tensor(0.1)),
             torch.tensor(1.0), options["TurnFanOn"], [robot, fan],
-            _switch_push_sampler))
+            _switch_push_sampler, incidental))
 
     # The gust. Exogenous: the robot never carries the block in.
     # condition_overall as well as condition_at_start: the gust only
@@ -964,9 +964,14 @@ def _get_blow_processes(
     # let TIME pass. The gust needs about sixty simulator steps to carry
     # the block, and without a Wait in the skeleton the episode ends the
     # instant the robot finishes speaking.
+    # The Wait's ignore_effects are the point of the Wait. Everything
+    # this task is about happens DURING it - the block tips, slides and
+    # arrives - and a Wait that does not declare those changes ignorable
+    # is cut short by its own executor with "atom change during Wait".
     processes.add(
         EndogenousProcess("Wait", [robot], set(), set(), set(), set(), set(),
                           ConstantDelay(1), torch.tensor(1.0),
-                          options["Wait"], [robot], null_sampler))
+                          options["Wait"], [robot], null_sampler,
+                          incidental))
 
     return processes
