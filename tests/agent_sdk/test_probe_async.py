@@ -75,8 +75,8 @@ def test_parallel_launch_and_gather(monkeypatch):
 def test_polling_done_forks_queued_launches(monkeypatch):
     """More launches than workers, waited on with done() only.
 
-    Queued jobs are forked only from caller threads, so a poll loop
-    that never calls gather must still drive the scheduler.
+    Queued jobs are forked only from caller threads, so a poll loop that
+    never calls gather must still drive the scheduler.
     """
 
     def _run(self, plan_text, **kwargs):
