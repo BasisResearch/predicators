@@ -113,6 +113,13 @@ __all__ = [
     "truncate_settled_tail",
 ]
 
+# The fit's assumed measurement noise on dimensionless scaled
+# residuals. The signature defaults below and the sim.fit report's
+# trimming-threshold math (agent_sdk/tools/synthesis.py) share this one
+# constant so the reported cutoff can never drift from the one the
+# trimmer applied.
+DEFAULT_NOISE_SIGMA = 0.05
+
 # Prior width as a fraction of each param's box; shared by the rollout
 # fit default and the pinned-at-init fallback result so the two cannot
 # silently diverge.
@@ -131,7 +138,7 @@ def fit_params_rollout(
     rules: Sequence[Any] = (),
     rule_specs: Sequence[ParamSpec] = (),
     latent_init: Any = None,
-    noise_sigma: float = 0.05,
+    noise_sigma: float = DEFAULT_NOISE_SIGMA,
     prior_sigma_scale: float = _ROLLOUT_PRIOR_SIGMA_SCALE,
     scaling: Optional[ResidualScaling] = None,
     anchors: Optional[Dict[str, float]] = None,
@@ -650,7 +657,7 @@ def fit_params_rollout_trimmed(
     rules: Sequence[Any] = (),
     rule_specs: Sequence[ParamSpec] = (),
     latent_init: Any = None,
-    noise_sigma: float = 0.05,
+    noise_sigma: float = DEFAULT_NOISE_SIGMA,
     scaling: Optional[ResidualScaling] = None,
     anchors: Optional[Dict[str, float]] = None,
     rms_cache: Optional[Dict[Tuple, Tuple[List[float],
