@@ -483,8 +483,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         # what the process is grounded on.
         robot = Variable("?robot", robot_type)
         fan = Variable("?fan", fan_type)
-        if CFG.env in ("pybullet_domino_declare",
-                       "pybullet_domino_blow"):
+        if CFG.env == "pybullet_domino_declare":
             # The robot announces it has finished building and the fan
             # starts. The option takes only the robot -- there is
             # nothing to reach for -- so the fan appears in the
@@ -838,8 +837,18 @@ def _blow_place_sampler(state: State, subgoal_atoms: Set[GroundAtom],
     # A hair of jitter so backtracking can re-draw rather than retrying
     # an identical pose, kept well inside the patch's own tolerance.
     x += float(rng.uniform(-0.005, 0.005))
-    z = float(state.get(held[0], "z"))
-    return np.array([x, y, z, 0.0], dtype=np.float32)
+    # The canonical release height, NOT the held block's current z: the
+    # Place option's release_z is where the GRIPPER opens (its declared
+    # range is 0.5-0.6), and the block's carried z is neither that nor
+    # inside it, so every refinement was asking for a drop the skill
+    # could not make.
+    # yaw pi/2 puts the block's WIDE face into the wind. Dropping it at
+    # yaw 0 leaves the narrow edge facing the gust, which the wind
+    # creeps along without ever tipping: measured 5.0 cm and roll 0.000
+    # where the same force on a turned block gives 14.4 cm and flat.
+    # The generator stages the block turned; the placement has to keep
+    # it that way.
+    return np.array([x, y, _DOMINO_DROP_Z, np.pi / 2], dtype=np.float32)
 
 
 def _get_blow_processes(
@@ -872,16 +881,24 @@ def _get_blow_processes(
 
     processes: Set[CausalProcess] = set()
 
+    # Predicates a pick or a place disturbs incidentally. Lifting a
+    # block off the table changes whether it is Upright and whether it
+    # is where the wind would take it; a process that does not declare
+    # those as ignorable is rejected in refinement for effects it never
+    # claimed, which is what stalled every skeleton at step 0.
+    Upright = predicates["Upright"]
+    incidental = {Upright, ReadyToBlow, InGoal}
+
     # Pick the block up.
     processes.add(
         EndogenousProcess(
             "PickBlock", [robot, block], {LiftedAtom(HandEmpty, [robot])},
             set(), set(), {LiftedAtom(Holding, [robot, block])},
             {LiftedAtom(HandEmpty, [robot])},
-            DiscreteGaussianDelay(mu=torch.tensor(3.0),
+            DiscreteGaussianDelay(mu=torch.tensor(4.0),
                                   sigma=torch.tensor(0.1)),
             torch.tensor(1.0), options["Pick"], [robot, block],
-            _pick_sampler))
+            _pick_sampler, incidental))
 
     # Put it down one slide-length upwind of the patch.
     processes.add(
@@ -894,30 +911,62 @@ def _get_blow_processes(
             DiscreteGaussianDelay(mu=torch.tensor(3.0),
                                   sigma=torch.tensor(0.1)),
             torch.tensor(1.0), options["Place"], [robot],
-            _blow_place_sampler))
+            _blow_place_sampler, incidental))
 
-    # Say it is finished, and the fan starts.
+    # Press the switch, and the fan starts. HandEmpty is a precondition
+    # and not decoration: without it the planner is free to press while
+    # still holding the block, and its first skeleton did exactly that -
+    # PickBlock, <trigger>, PlaceUpwind - which blows the gust across an
+    # empty table while the arm is still carrying the thing it was
+    # supposed to move.
     processes.add(
         EndogenousProcess(
-            "DeclareFinished", [robot, fan], {LiftedAtom(FanOff, [fan])},
-            set(), set(), {LiftedAtom(FanOn, [fan])},
+            "TurnFanOn", [robot, fan, block, region], {
+                LiftedAtom(FanOff, [fan]),
+                LiftedAtom(HandEmpty, [robot]),
+                # The switch is only worth pressing once the block is
+                # where the gust can deliver it. HandEmpty alone is true
+                # at t=0, so without this the planner's first skeleton
+                # pressed the switch before it had even picked the block
+                # up and blew the gust across an empty table.
+                LiftedAtom(ReadyToBlow, [block, region])
+            }, set(), set(), {LiftedAtom(FanOn, [fan])},
             {LiftedAtom(FanOff, [fan])},
             DiscreteGaussianDelay(mu=torch.tensor(1.0),
                                   sigma=torch.tensor(0.1)),
-            torch.tensor(1.0), options["DeclareFinished"], [robot],
-            _declare_sampler))
+            torch.tensor(1.0), options["TurnFanOn"], [robot, fan],
+            _switch_push_sampler))
 
     # The gust. Exogenous: the robot never carries the block in.
+    # condition_overall as well as condition_at_start: the gust only
+    # delivers the block if the fan STAYS on and the block STAYS where
+    # it was put for the whole flight, which is what the cascade's own
+    # exogenous processes assert too.
+    wind_conditions = {
+        LiftedAtom(FanOn, [fan]),
+        LiftedAtom(ReadyToBlow, [block, region])
+    }
     processes.add(
         ExogenousProcess(
-            "WindCarriesToGoal", [fan, block, region], {
-                LiftedAtom(FanOn, [fan]),
-                LiftedAtom(ReadyToBlow, [block, region])
-            }, set(), set(), {LiftedAtom(InGoal, [block, region])},
-            set(),
-            DiscreteGaussianDelay(mu=torch.tensor(float(
-                CFG.domino_blow_wind_steps)),
-                                  sigma=torch.tensor(2.0)),
+            "WindCarriesToGoal", [fan, block, region], wind_conditions,
+            wind_conditions.copy(), set(),
+            {LiftedAtom(InGoal, [block, region])}, set(),
+            # Delay is in PROCESS steps, not simulator steps. Handing it
+            # the gust's 60 simulator steps put the effect beyond the
+            # planner's lookahead and every skeleton was exhausted
+            # without the goal ever becoming true. The cascade's own
+            # exogenous processes use 1-4 for the same reason.
+            DiscreteGaussianDelay(mu=torch.tensor(12.0),
+                                  sigma=torch.tensor(0.5)),
             torch.tensor(1.0)))
+
+    # Wait. No preconditions, no effects: it exists so the planner can
+    # let TIME pass. The gust needs about sixty simulator steps to carry
+    # the block, and without a Wait in the skeleton the episode ends the
+    # instant the robot finishes speaking.
+    processes.add(
+        EndogenousProcess("Wait", [robot], set(), set(), set(), set(), set(),
+                          ConstantDelay(1), torch.tensor(1.0),
+                          options["Wait"], [robot], null_sampler))
 
     return processes

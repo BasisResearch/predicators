@@ -366,13 +366,14 @@ class DominoTaskGenerator(TaskGenerator):
             return None
 
         obj_dict: Dict[Object, Dict[str, Any]] = {}
-        # rotation 0 makes the block face along +y; the wind is axial and
-        # pushes through the centre of mass, so facing does not matter
-        # here the way it does for a topple.
+        # pi/2 turns the block's WIDE face into the wind. With rotation
+        # 0 it presents its narrow edge, which a +x gust shoves happily
+        # and can barely tip - measured: nothing toppled at any force or
+        # lever until the block was turned to face the wind.
         obj_dict[dominos[0]] = self.domino.place_domino(0,
                                                         stage_x,
                                                         lane_y,
-                                                        0.0,
+                                                        np.pi / 2,
                                                         rng=rng,
                                                         task_idx=task_idx)
         # Every other domino body this env owns is parked out of view:
@@ -391,6 +392,14 @@ class DominoTaskGenerator(TaskGenerator):
             self.robot: self.robot_init_state.copy()
         }
         init_dict.update(obj_dict)
+        # Aim the fan down the lane BEFORE its init entries are read.
+        # Reading them first records the fan at its rail default while
+        # the body ends up on the lane, and the state then disagrees
+        # with the world by a third of a metre - the same misalignment
+        # the cascade generator fixes for the same reason.
+        for component in self.additional_components:
+            if hasattr(component, "set_lateral_alignment"):
+                component.set_lateral_alignment(lane_y)
         for component in self.additional_components:
             if hasattr(component, "get_init_dict_entries"):
                 init_dict.update(component.get_init_dict_entries(rng))
@@ -401,11 +410,12 @@ class DominoTaskGenerator(TaskGenerator):
                        [dominos[0], self._goal_region.region])
         }
         goal_nl = (
-            "Pick up the block and put it down so that when you declare "
-            "you have finished, it ends up inside the green goal region. "
-            "The block starts downwind of the region, so leaving it where "
-            "it is cannot work. Declaring finished is the only thing that "
-            "starts the fan, and the fan blows for a limited time.")
+            "Pick up the block and put it down so that when the fan is "
+            "switched on, the wind knocks it over and it ends up lying "
+            "FLAT inside the green goal region. Putting the block down "
+            "in the region is not enough - you cannot place it on its "
+            "side, so only the wind can leave it flat. The fan blows for "
+            "a limited time once it is switched on.")
         return EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl)
 
     @property

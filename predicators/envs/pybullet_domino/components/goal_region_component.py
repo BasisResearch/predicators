@@ -169,7 +169,14 @@ class GoalRegionComponent(DominoEnvComponent):
     # -- predicate ----------------------------------------------------
 
     def _InGoal_holds(self, state: State, objects: Sequence[Object]) -> bool:
-        """The domino's centre lies inside the patch.
+        """The domino lies FLAT inside the patch.
+
+        Flat, not merely present, and that word is what makes the task
+        a task. A robot cannot place a domino on its side - Place sets
+        blocks upright - so a block lying in the patch can only have
+        been put there by the wind. Without it the goal has a trivial
+        answer: pick the block up, put it down in the region, done, and
+        the fan is never needed at all.
 
         Centre rather than footprint overlap: a block half in and half
         out is a coin toss on the exact contact solve, and the reward
@@ -178,6 +185,17 @@ class GoalRegionComponent(DominoEnvComponent):
         if len(objects) != 2:
             return False
         domino, region = objects
+        if state.get(domino, "is_held") > 0.5:
+            return False
+        # Roll is meaningful modulo pi: a box turned 180 degrees about
+        # its own width axis is the same box.
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.envs.pybullet_domino.components.domino_component \
+            import DominoComponent
+        roll = float(state.get(domino, "roll"))
+        roll = (roll + np.pi / 2) % np.pi - np.pi / 2
+        if abs(roll) < DominoComponent.domino_roll_threshold:
+            return False
         dx = abs(float(state.get(domino, "x")) - float(state.get(region, "x")))
         dy = abs(float(state.get(domino, "y")) - float(state.get(region, "y")))
         return (dx <= float(state.get(region, "half_x"))

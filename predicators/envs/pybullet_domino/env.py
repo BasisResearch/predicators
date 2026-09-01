@@ -1153,13 +1153,13 @@ class PyBulletDominoDeclareEnv(PyBulletDominoFanEnv):
         super()._domain_specific_step()
 
 
-class PyBulletDominoBlowEnv(PyBulletDominoDeclareEnv):
+class PyBulletDominoBlowEnv(PyBulletDominoFanEnv):
     """Place a block so the wind carries it INTO a goal region.
 
     The scene reads left to right: fan, goal patch, staged block. The
     robot picks the block up, puts it down somewhere between the fan
-    and the patch, and declares finished; the fan then blows for a
-    bounded number of steps and the block slides. It scores if the
+    and the patch, and presses the fan's switch; the fan then blows for
+    a bounded number of steps and the block slides. It scores if the
     block comes to rest inside the patch.
 
     This task exists because of what pybullet_domino_fan could NOT
@@ -1211,12 +1211,21 @@ class PyBulletDominoBlowEnv(PyBulletDominoDeclareEnv):
     def _wire_blow_target(self, state: State) -> None:
         """Aim the fan at the block it is supposed to move.
 
-        z_offset 0.0 is the whole difference from the cascade envs: a
-        force through the centre of mass is pure translation. In
-        pybullet_domino_fan that same setting was a BUG - the start
-        block slid a metre and a half into the target without ever
-        tipping, "solving" a bridge task with no bridge - and here it
-        is the mechanism.
+        Two settings, and the task depends on both.
+
+        The lever (0.4 of the block's height, as in the cascade env) is
+        what makes the block END UP FLAT, and flat is what stops the
+        task having a trivial answer: the robot cannot place a domino
+        on its side, so a block lying in the goal can only have been
+        put there by the wind.
+
+        stop_when_toppled=False is what keeps the distance LEARNABLE.
+        Cut the wind at the topple and the block always lands about the
+        same place - 8.78 cm at 1.3 N and 8.93 at 2.0 - which is the
+        saturation that made pybullet_domino_fan's wind unfittable.
+        Let the gust keep pushing the fallen block and the landing point
+        spreads out again: 11.8 cm at 1.2 N, 23.4 at 2.6, smooth and
+        monotone in between.
         """
         if self._fan_component is None or self._domino_component is None:
             return
@@ -1233,7 +1242,7 @@ class PyBulletDominoBlowEnv(PyBulletDominoDeclareEnv):
             state.get(block, "y")))
         self._fan_component.set_wind_target(
             block.id,
-            z_offset=0.0,
+            z_offset=0.4 * self._domino_component.domino_height,
             stop_when_toppled=False,
             force=CFG.domino_blow_wind_force)
 

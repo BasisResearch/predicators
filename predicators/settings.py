@@ -898,15 +898,17 @@ class GlobalSettings:
     # longer holds.
     domino_fan_wind_force = 1.5
 
-    # Wind force for the blow-to-goal task (N). Applied at the block's
-    # CENTRE OF MASS, so the block slides instead of tipping - the whole
-    # point of that task is that the distance travelled is a continuous,
-    # monotone function of this number, which is what makes it fittable
-    # at all. In pybullet_domino_fan the same parameter is NOT fittable,
+    # Wind force for the blow-to-goal task (N). Applied 0.4 of the way
+    # up the block, so the gust tips it AND keeps pushing it once it is
+    # down: the block ends up flat (which the robot cannot achieve by
+    # placing, so the goal cannot be reached without the wind) while the
+    # distance travelled stays a continuous, monotone function of this
+    # number - over a 30-step gust: 12.0 cm at 1.5 N, 14.4 at 2.0,
+    # 16.3 at 2.5, 20.3 at 3.0, 26.4 at 3.5. In pybullet_domino_fan the same parameter is NOT fittable,
     # because there the wind tips a block in about two steps and every
     # force above threshold looks the same (see
     # scripts/domino_debug/probe_wind_identifiability.py).
-    domino_blow_wind_force = 2.5
+    domino_blow_wind_force = 2.0
     # Steps the fan blows for once the robot has declared. Bounded so
     # the block travels a finite, repeatable distance rather than being
     # pushed until the episode ends. Measured: at 2.5 N this gust slides
@@ -914,7 +916,11 @@ class GlobalSettings:
     # 3.7 cm, 2.5 -> 11.6, 4.0 -> 30.9) which is exactly the gradient the
     # cascade env's saturating topple does not provide. Past ~6 N the
     # block is launched off the table rather than slid.
-    domino_blow_wind_steps = 60
+    # Thirty, not sixty, because the plan gets exactly ONE Wait however
+    # long the wind process's delay is made, and a Wait ends when the
+    # scene's atoms change. A 60-step gust was still pushing when its
+    # Wait expired at 40 steps and the block stopped short.
+    domino_blow_wind_steps = 30
     # Sides carrying a fan + switch in pybullet_domino_fan, in order
     # left, right, down, up. One is the point of the task: the robot has
     # a single switch to find and press. Four is the ball task's layout

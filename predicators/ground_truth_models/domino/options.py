@@ -52,7 +52,6 @@ def _skill_robot_env_cls(env_name: str) -> TypingType[PyBulletEnv]:
 # for the same reason as _WIND_STARTED_ENVS below.
 _DECLARE_TRIGGER_ENVS = frozenset({
     "pybullet_domino_declare",
-    "pybullet_domino_blow",
 })
 
 _WIND_STARTED_ENVS = frozenset({

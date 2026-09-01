@@ -57,12 +57,12 @@ def _blow_slide_distance() -> float:
     an agent approach cannot read it off the state. Knowing it is the
     whole content of the task.
     """
-    # A quadratic least-squares fit to the measured curve, accurate to
-    # under a millimetre from 1.8 to 3.2 N (5.75 / 8.79 / 11.53 / 14.61
-    # / 19.33 cm). Cheaper and clearer than shipping a table, and it
+    # A quadratic least-squares fit to the measured curve over the
+    # 30-step gust, from 1.5 to 3.5 N (12.02 / 14.35 / 16.33 / 20.33 /
+    # 26.36 cm). Cheaper and clearer than shipping a table, and it
     # extrapolates sensibly for a task generator that varies the force.
     force = CFG.domino_blow_wind_force
-    return max(0.0, 0.02081 * force * force - 0.00703 * force + 0.00273)
+    return max(0.0, 0.02691 * force * force - 0.06525 * force + 0.16024)
 
 
 def _blow_helper_predicates(types: Dict[str, Type]) -> Set[Predicate]:
@@ -77,15 +77,36 @@ def _blow_helper_predicates(types: Dict[str, Type]) -> Set[Predicate]:
     region_type = types["region"]
 
     def _ready_holds(state: State, objects: Sequence[Object]) -> bool:
+        """The block is somewhere the gust can still deliver it.
+
+        A CORRIDOR, from one slide-length upwind of the patch through to
+        the patch's far edge, rather than the single point the placement
+        aims at. Written as a point it was true only at the instant of
+        release: the wind then moved the block, the atom flipped, and
+        the Wait terminated after three steps with "atom change during
+        Wait" - killing the gust a twentieth of the way through its own
+        flight. It has to stay true while the thing it describes is
+        happening.
+
+        Loosening it costs nothing, because it is not what makes the
+        task hard. The goal demands the block end up FLAT in the patch,
+        and no placement anywhere in this corridor achieves that on its
+        own.
+        """
         domino, region = objects
         if state.get(domino, "is_held") > 0.5:
             return False
-        # The fan blows +x, so the block must start upwind by one slide.
-        want_x = float(state.get(region, "x")) - _blow_slide_distance()
-        dx = abs(float(state.get(domino, "x")) - want_x)
+        gx = float(state.get(region, "x"))
+        half_x = float(state.get(region, "half_x"))
+        half_y = float(state.get(region, "half_y"))
+        # The fan blows +x, so the block travels from upwind toward the
+        # patch. Half a patch of slack at the upwind end is the
+        # placement tolerance; the far edge closes the corridor.
+        lo = gx - _blow_slide_distance() - half_x
+        hi = gx + half_x
+        x = float(state.get(domino, "x"))
         dy = abs(float(state.get(domino, "y")) - float(state.get(region, "y")))
-        return (dx <= float(state.get(region, "half_x"))
-                and dy <= float(state.get(region, "half_y")))
+        return lo <= x <= hi and dy <= half_y
 
     return {
         Predicate("ReadyToBlow", [domino_type, region_type], _ready_holds)

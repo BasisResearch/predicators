@@ -463,6 +463,14 @@ ENVS:
       # Sized so the block moves before Wait declares the scene settled
       # (onset 7 steps at 1.5 N against Wait's ~11), not just to clear
       # the 0.123 N tipping threshold. See settings.py.
+      # Exactly one block. Spare bodies are not harmless scenery here:
+      # they stay MovableBlock wherever they are parked, so the planner
+      # grounds PickBlock over them and builds skeletons that reach for
+      # a block ten metres off the table, which then cannot be refined.
+      domino_train_num_dominos: [1]
+      domino_test_num_dominos: [1]
+      domino_train_num_targets: [0]
+      domino_test_num_targets: [0]
       domino_blow_wind_force: 2.5
       domino_blow_wind_steps: 60
       # Straight chains only. Alignment guarantees the FIRST leg runs
