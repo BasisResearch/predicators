@@ -1,7 +1,7 @@
 """Synthesis-session tools for sim learning (create_synthesis_tools)."""
 import dataclasses
 import os
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -12,6 +12,52 @@ from predicators.agent_sdk.tools.results import _make_coercing_tool, \
     _make_spilling_text_result
 from predicators.agent_sdk.tools.sandbox_guard import _scrub_host_paths
 from predicators.agent_sdk.tools.snapshots import _ArtifactSnapshotter
+
+# A trimmed segment scoring within this factor of the trimming
+# threshold is reported as a model-fidelity limit rather than a chaotic
+# recording. Calibrated on the 2026-08-31 bridge runs: every segment of
+# three independent runs scored 1.00-1.35x the cutoff (a replay-fidelity
+# floor no re-collection can move), while genuinely chaotic recordings
+# score ~2x and beyond (seed4's scraping segments: 3-4x).
+_TRIM_BORDERLINE_FACTOR = 1.5
+
+
+def _trim_cause_note(traj_rms: Sequence[float], threshold: float) -> List[str]:
+    """Advice for trimmed segments, split by how far past the cutoff they
+    scored.
+
+    A segment within ``_TRIM_BORDERLINE_FACTOR`` of the threshold is the
+    closest the simulator can track that recording at ANY candidate
+    parameters - a model-fidelity floor, not a chaotic recording - so
+    re-collecting equivalent experiments cannot help and the advice says
+    so; only far-over segments get the chaotic-recording advice.
+    """
+    dropped = [r for r in traj_rms if r > threshold]
+    close = [r for r in dropped if r <= _TRIM_BORDERLINE_FACTOR * threshold]
+    far = [r for r in dropped if r > _TRIM_BORDERLINE_FACTOR * threshold]
+    notes: List[str] = []
+    if close:
+        pct = int(round((_TRIM_BORDERLINE_FACTOR - 1) * 100))
+        notes.append(
+            f"{len(close)} dropped segment(s) score within {pct}% of the "
+            f"threshold (closest {min(close):.4g} vs {threshold:.4g}). A "
+            "margin that small is a model-fidelity limit, not chaotic "
+            "data: the simulator cannot replay those recordings any "
+            "closer at ANY candidate parameter values, so re-collecting "
+            "the same experiments will score the same. To make them "
+            "explainable, improve the simulator's dynamics rules where "
+            "replay deviates from the recording; until then the declared "
+            "init values (your own measurements) stand in as the model.")
+    if far:
+        notes.append(
+            f"{len(far)} dropped segment(s) score well past the threshold "
+            f"(worst {max(far):.4g}): such recordings are usually not "
+            "repeatable under replay (prolonged scraping/jamming "
+            "robot-object contact is chaotic). Collect experiments whose "
+            "outcome is dominated by object dynamics: actuate one or two "
+            "objects cleanly, then let the scene evolve and settle on "
+            "its own.")
+    return notes
 
 
 @dataclasses.dataclass(frozen=True)
@@ -190,6 +236,8 @@ def create_synthesis_tools(
     from predicators.code_sim_learning.identifiability import \
         format_identifiability, physics_sigma_points
     from predicators.code_sim_learning.orchestrator import run_rollout_sysid
+    from predicators.code_sim_learning.physical_sysid import \
+        DEFAULT_NOISE_SIGMA
     from predicators.code_sim_learning.rollout_env import \
         physical_param_anchors
     from predicators.code_sim_learning.rollout_objective import \
@@ -392,12 +440,14 @@ def create_synthesis_tools(
                     approach._record_sysid_diagnostics(  # pylint: disable=protected-access
                         {}, physical_names, 0, len(rollouts), outcome.traj_rms)
             rms_str = ", ".join(f"{r:.4g}" for r in outcome.traj_rms)
+            trim_threshold = (CFG.code_sim_learning_rollout_trim_rms_factor *
+                              DEFAULT_NOISE_SIGMA)
             return "\n".join([
                 f"[{version_tag}] NO FIT RAN: all {len(rollouts)} "
                 "recorded motion segments were unexplainable at ANY "
                 "candidate physical parameters (per-segment "
                 f"best-achievable RMS [{rms_str}] all above the "
-                "trimming threshold).",
+                f"trimming threshold {trim_threshold:.4g}).",
                 "",
                 "Parameters were left at their baselines; nothing was "
                 "applied to the planning base env.",
@@ -406,13 +456,7 @@ def create_synthesis_tools(
                  "values without a harness refit." if not exploratory else
                  "Exploratory call: nothing recorded."),
                 "",
-                "This usually means the recorded interactions are not "
-                "repeatable under replay (prolonged scraping/jamming "
-                "robot-object contact is chaotic). Collect experiments "
-                "whose outcome is dominated by object dynamics: actuate "
-                "one or two objects cleanly, then let the scene evolve "
-                "and settle on its own.",
-            ])
+            ] + _trim_cause_note(outcome.traj_rms, trim_threshold))
         fitted = outcome.fitted
         applied = outcome.applied
         ident_report = outcome.report
@@ -505,15 +549,16 @@ def create_synthesis_tools(
         if outcome.num_survivors < len(rollouts):
             rms_str = ", ".join(f"{r:.4g}" for r in outcome.traj_rms)
             dropped = len(rollouts) - outcome.num_survivors
+            trim_threshold = (CFG.code_sim_learning_rollout_trim_rms_factor *
+                              DEFAULT_NOISE_SIGMA)
             lines.insert(
                 1, f"Goodness-of-fit trimming: {dropped}"
                 f" of {len(rollouts)} motion segments were unexplainable at "
                 "ANY candidate params (per-segment best-achievable RMS: "
-                f"[{rms_str}]) and were dropped before fitting; the fit "
-                "below used only the explainable ones. Unexplainable "
-                "segments are not repeatable under replay - prefer "
-                "experiments whose outcome is dominated by object dynamics "
-                "rather than prolonged robot-object contact.")
+                f"[{rms_str}], trimming threshold {trim_threshold:.4g}) and "
+                "were dropped before fitting; the fit below used only the "
+                "explainable ones. " +
+                " ".join(_trim_cause_note(outcome.traj_rms, trim_threshold)))
         for name in sorted(fitted):
             init_val = init_params[name]
             fit_val = fitted[name]
