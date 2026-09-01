@@ -12,6 +12,11 @@
 #
 #   scripts/domino_fan/run_rung.sh --declare 1
 #
+# --blow is the place-it-so-the-wind-carries-it task, where the wind's
+# strength IS fittable and rung 3 is therefore worth running:
+#
+#   scripts/domino_fan/run_rung.sh --blow 1
+#
 # SEED=1 repeats a rung on another seed, for a second opinion:
 #
 #   SEED=1 scripts/domino_fan/run_rung.sh 4
@@ -37,6 +42,9 @@ usage() { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 ENV_KEY="domino_fan"
 if [ "${1:-}" = "--declare" ]; then
   ENV_KEY="domino_declare"
+  shift
+elif [ "${1:-}" = "--blow" ]; then
+  ENV_KEY="domino_blow"
   shift
 fi
 

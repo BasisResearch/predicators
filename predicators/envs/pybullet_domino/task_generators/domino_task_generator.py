@@ -139,6 +139,8 @@ class DominoTaskGenerator(TaskGenerator):
         straight-only. Ignored on the min-block path, which fills its
         own quota from the same ratio.
         """
+        if CFG.env == "pybullet_domino_blow":
+            return self._generate_blow_task(task_idx, rng)
         if CFG.domino_min_block_tasks:
             return self._generate_min_block_task(task_idx, rng)
 
@@ -324,6 +326,95 @@ class DominoTaskGenerator(TaskGenerator):
                                goal_atoms,
                                goal_nl=goal_nl,
                                evaluator=evaluator)
+
+    def _generate_blow_task(
+            self, task_idx: int,
+            rng: np.random.Generator) -> Optional[EnvironmentTask]:
+        """Place a block so the wind carries it into the goal patch.
+
+        The scene is one line along the fan's axis: fan (off-table, at
+        low x, blowing +x), then the goal patch, then the block on its
+        staging spot downwind of the patch. The robot has to pick the
+        block up and put it down UPWIND of the patch, far enough back
+        that the gust delivers it into the patch rather than past it.
+
+        The patch is placed first and the staging spot derived from it,
+        so the block never starts inside its own goal - which would make
+        the task solvable by doing nothing at all.
+        """
+        dominos = self.domino.dominos
+        if not dominos or self._goal_region is None:
+            return None
+        x_lb, x_ub = self.domino.domino_x_lb, self.domino.domino_x_ub
+        y_lb, y_ub = self.domino.domino_y_lb, self.domino.domino_y_ub
+
+        # One lane, chosen away from the workspace edges so both the
+        # placement band and the staging spot stay reachable.
+        lane_y = float(rng.uniform(y_lb + 0.05, y_ub - 0.05))
+        # The patch sits in the middle third of the run, leaving room
+        # upwind for the placement band and downwind for staging.
+        goal_x = float(
+            rng.uniform(x_lb + 0.30 * (x_ub - x_lb),
+                        x_lb + 0.55 * (x_ub - x_lb)))
+        self._goal_region.set_region_xy(goal_x, lane_y)
+
+        # The block starts downwind of the patch: the wind blows +x, so
+        # from here the gust alone can never deliver it. Only a pick and
+        # a place upwind can.
+        stage_x = min(x_ub - 0.02, goal_x + 0.18)
+        if stage_x <= goal_x + 0.10:
+            return None
+
+        obj_dict: Dict[Object, Dict[str, Any]] = {}
+        # rotation 0 makes the block face along +y; the wind is axial and
+        # pushes through the centre of mass, so facing does not matter
+        # here the way it does for a topple.
+        obj_dict[dominos[0]] = self.domino.place_domino(0,
+                                                        stage_x,
+                                                        lane_y,
+                                                        0.0,
+                                                        rng=rng,
+                                                        task_idx=task_idx)
+        # Every other domino body this env owns is parked out of view:
+        # the task is about ONE block, and spare bodies on the table
+        # would be distractors the planner still has to ground.
+        ox, oy = self.domino.out_of_view_xy
+        for i in range(1, len(dominos)):
+            obj_dict[dominos[i]] = self.domino.place_domino(i,
+                                                            ox + 0.05 * i,
+                                                            oy,
+                                                            0.0,
+                                                            rng=rng,
+                                                            task_idx=task_idx)
+
+        init_dict: Dict[Object, Dict[str, Any]] = {
+            self.robot: self.robot_init_state.copy()
+        }
+        init_dict.update(obj_dict)
+        for component in self.additional_components:
+            if hasattr(component, "get_init_dict_entries"):
+                init_dict.update(component.get_init_dict_entries(rng))
+        init_state = utils.create_state_from_dict(init_dict)
+
+        goal_atoms = {
+            GroundAtom(self._goal_region.InGoal,
+                       [dominos[0], self._goal_region.region])
+        }
+        goal_nl = (
+            "Pick up the block and put it down so that when you declare "
+            "you have finished, it ends up inside the green goal region. "
+            "The block starts downwind of the region, so leaving it where "
+            "it is cannot work. Declaring finished is the only thing that "
+            "starts the fan, and the fan blows for a limited time.")
+        return EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl)
+
+    @property
+    def _goal_region(self) -> Any:
+        """The GoalRegionComponent, if this env has one."""
+        for component in self.additional_components:
+            if type(component).__name__ == "GoalRegionComponent":
+                return component
+        return None
 
     def _generate_min_block_task(
             self, task_idx: int,

@@ -201,7 +201,8 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         return {
             "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real",
             "pybullet_domino_real_geometry", "pybullet_domino_fan",
-            "pybullet_domino_declare"
+            "pybullet_domino_declare",
+            "pybullet_domino_blow"
         }
 
     @classmethod
@@ -210,7 +211,11 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
                                             Type], predicates: Dict[str,
                                                                     Predicate],
             options: Dict[str, ParameterizedOption]) -> Set[CausalProcess]:
-        del env_name  # unused
+        if env_name == "pybullet_domino_blow":
+            # A different task, so a different model rather than the
+            # cascade one with pieces disabled: no chain, no topple, no
+            # grid. One block, one gust, one patch to land it in.
+            return _get_blow_processes(types, predicates, options)
 
         # These processes are defined over the grid (loc/angle/direction).
         # Only oracle / process-planning approaches request them, and they do
@@ -478,7 +483,8 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         # what the process is grounded on.
         robot = Variable("?robot", robot_type)
         fan = Variable("?fan", fan_type)
-        if CFG.env == "pybullet_domino_declare":
+        if CFG.env in ("pybullet_domino_declare",
+                       "pybullet_domino_blow"):
             # The robot announces it has finished building and the fan
             # starts. The option takes only the robot -- there is
             # nothing to reach for -- so the fan appears in the
@@ -789,7 +795,8 @@ class PyBulletDominoGroundTruthSamplerFactory(GroundTruthSamplerFactory):
         return {
             "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real",
             "pybullet_domino_real_geometry", "pybullet_domino_fan",
-            "pybullet_domino_declare"
+            "pybullet_domino_declare",
+            "pybullet_domino_blow"
         }
 
     @classmethod
@@ -800,3 +807,117 @@ class PyBulletDominoGroundTruthSamplerFactory(GroundTruthSamplerFactory):
             "Push": _push_option_sampler,
             "Place": _place_option_sampler,
         }
+
+
+# ── Blow task: pick, place upwind, declare, and let the wind deliver ──
+
+
+def _blow_place_sampler(state: State, subgoal_atoms: Set[GroundAtom],
+                        rng: np.random.Generator,
+                        objects: Sequence[Object]) -> Array:
+    """Put the block one slide-length upwind of the goal patch.
+
+    The oracle's whole advantage in this env is this number. A learner
+    has to recover it from watching blocks slide; here it is read
+    straight off the ground-truth curve.
+    """
+    del subgoal_atoms, objects
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.ground_truth_models.domino.predicates import \
+        _blow_slide_distance
+    regions = [o for o in state if o.type.name == "region"]
+    held = [
+        o for o in state
+        if o.type.name == "domino" and state.get(o, "is_held") > 0.5
+    ]
+    if not regions or len(held) != 1:
+        raise ValueError("blow place sampler: need a region and a held block")
+    region = regions[0]
+    x = float(state.get(region, "x")) - _blow_slide_distance()
+    y = float(state.get(region, "y"))
+    # A hair of jitter so backtracking can re-draw rather than retrying
+    # an identical pose, kept well inside the patch's own tolerance.
+    x += float(rng.uniform(-0.005, 0.005))
+    z = float(state.get(held[0], "z"))
+    return np.array([x, y, z, 0.0], dtype=np.float32)
+
+
+def _get_blow_processes(
+        types: Dict[str, Type], predicates: Dict[str, Predicate],
+        options: Dict[str, ParameterizedOption]) -> Set[CausalProcess]:
+    """Pick, place upwind, declare, and let the wind carry the block.
+
+    Four processes and no grid. The one that matters is the last: the
+    wind is EXOGENOUS - the robot does not carry the block into the
+    goal, it arranges the world so that the wind will, and then says it
+    is done. That is the shape of the whole task, and it is why the
+    placement has to be right rather than merely somewhere.
+    """
+    robot_type = types["robot"]
+    domino_type = types["domino"]
+    fan_type = types["fan"]
+    region_type = types["region"]
+
+    HandEmpty = predicates["HandEmpty"]
+    Holding = predicates["Holding"]
+    FanOn = predicates["FanOn"]
+    FanOff = predicates["FanOff"]
+    ReadyToBlow = predicates["ReadyToBlow"]
+    InGoal = predicates["InGoal"]
+
+    robot = Variable("?robot", robot_type)
+    block = Variable("?block", domino_type)
+    fan = Variable("?fan", fan_type)
+    region = Variable("?region", region_type)
+
+    processes: Set[CausalProcess] = set()
+
+    # Pick the block up.
+    processes.add(
+        EndogenousProcess(
+            "PickBlock", [robot, block], {LiftedAtom(HandEmpty, [robot])},
+            set(), set(), {LiftedAtom(Holding, [robot, block])},
+            {LiftedAtom(HandEmpty, [robot])},
+            DiscreteGaussianDelay(mu=torch.tensor(3.0),
+                                  sigma=torch.tensor(0.1)),
+            torch.tensor(1.0), options["Pick"], [robot, block],
+            _pick_sampler))
+
+    # Put it down one slide-length upwind of the patch.
+    processes.add(
+        EndogenousProcess(
+            "PlaceUpwind", [robot, block, region],
+            {LiftedAtom(Holding, [robot, block])}, set(), set(), {
+                LiftedAtom(HandEmpty, [robot]),
+                LiftedAtom(ReadyToBlow, [block, region])
+            }, {LiftedAtom(Holding, [robot, block])},
+            DiscreteGaussianDelay(mu=torch.tensor(3.0),
+                                  sigma=torch.tensor(0.1)),
+            torch.tensor(1.0), options["Place"], [robot],
+            _blow_place_sampler))
+
+    # Say it is finished, and the fan starts.
+    processes.add(
+        EndogenousProcess(
+            "DeclareFinished", [robot, fan], {LiftedAtom(FanOff, [fan])},
+            set(), set(), {LiftedAtom(FanOn, [fan])},
+            {LiftedAtom(FanOff, [fan])},
+            DiscreteGaussianDelay(mu=torch.tensor(1.0),
+                                  sigma=torch.tensor(0.1)),
+            torch.tensor(1.0), options["DeclareFinished"], [robot],
+            _declare_sampler))
+
+    # The gust. Exogenous: the robot never carries the block in.
+    processes.add(
+        ExogenousProcess(
+            "WindCarriesToGoal", [fan, block, region], {
+                LiftedAtom(FanOn, [fan]),
+                LiftedAtom(ReadyToBlow, [block, region])
+            }, set(), set(), {LiftedAtom(InGoal, [block, region])},
+            set(),
+            DiscreteGaussianDelay(mu=torch.tensor(float(
+                CFG.domino_blow_wind_steps)),
+                                  sigma=torch.tensor(2.0)),
+            torch.tensor(1.0)))
+
+    return processes

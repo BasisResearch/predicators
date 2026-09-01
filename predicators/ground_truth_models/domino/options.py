@@ -47,9 +47,18 @@ def _skill_robot_env_cls(env_name: str) -> TypingType[PyBulletEnv]:
 # too, it just does not say so in its name. The agent in
 # run_20260831_122006 noticed before I did, and padded its plan with
 # extra Waits to compensate.
+# Envs where the robot starts the fan by DECLARING it has finished
+# rather than by pressing a switch. Named rather than tested by suffix,
+# for the same reason as _WIND_STARTED_ENVS below.
+_DECLARE_TRIGGER_ENVS = frozenset({
+    "pybullet_domino_declare",
+    "pybullet_domino_blow",
+})
+
 _WIND_STARTED_ENVS = frozenset({
     "pybullet_domino_fan",
     "pybullet_domino_declare",
+    "pybullet_domino_blow",
 })
 
 
@@ -74,7 +83,8 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
         return {
             "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real",
             "pybullet_domino_real_geometry", "pybullet_domino_fan",
-            "pybullet_domino_declare"
+            "pybullet_domino_declare",
+            "pybullet_domino_blow"
         }
 
     @classmethod
@@ -142,7 +152,7 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
         # finished building - no contact, nothing to reach around, and
         # for a learner nothing mechanical to credit the wind to.
         if "switch" in types:
-            if CFG.env == "pybullet_domino_declare":
+            if CFG.env in _DECLARE_TRIGGER_ENVS:
                 options.add(
                     create_declare_option("DeclareFinished", cfg, robot_type))
             else:

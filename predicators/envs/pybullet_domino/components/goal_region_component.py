@@ -31,7 +31,11 @@ class GoalRegionComponent(DominoEnvComponent):
     # A patch big enough to be hittable and small enough that "as hard
     # as possible" overshoots it. 6 cm of slack along the wind axis
     # against a slide of tens of centimetres.
-    region_half_x: ClassVar[float] = 0.06
+    # Half-width along the wind axis. 4 cm against an 11.6 cm slide
+    # means the robot has to know how far this gust carries the block to
+    # within about a quarter - loose enough to be learnable from a
+    # handful of episodes, tight enough that a coarse guess misses.
+    region_half_x: ClassVar[float] = 0.04
     region_half_y: ClassVar[float] = 0.09
     region_thickness: ClassVar[float] = 0.001
     region_color: ClassVar[Tuple[float, float, float,

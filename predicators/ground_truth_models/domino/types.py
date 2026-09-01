@@ -20,7 +20,8 @@ class PyBulletDominoGroundTruthTypeFactory(GroundTruthTypeFactory):
         return {
             "pybullet_domino", "pybullet_domino_real",
             "pybullet_domino_real_geometry", "pybullet_domino_fan",
-            "pybullet_domino_declare"
+            "pybullet_domino_declare",
+            "pybullet_domino_blow"
         }
 
     @classmethod

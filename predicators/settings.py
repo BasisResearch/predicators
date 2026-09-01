@@ -906,10 +906,14 @@ class GlobalSettings:
     # because there the wind tips a block in about two steps and every
     # force above threshold looks the same (see
     # scripts/domino_debug/probe_wind_identifiability.py).
-    domino_blow_wind_force = 0.35
+    domino_blow_wind_force = 2.5
     # Steps the fan blows for once the robot has declared. Bounded so
     # the block travels a finite, repeatable distance rather than being
-    # pushed until the episode ends.
+    # pushed until the episode ends. Measured: at 2.5 N this gust slides
+    # the block 11.6 cm, and the response is steep and monotone (1.5 N ->
+    # 3.7 cm, 2.5 -> 11.6, 4.0 -> 30.9) which is exactly the gradient the
+    # cascade env's saturating topple does not provide. Past ~6 N the
+    # block is launched off the table rather than slid.
     domino_blow_wind_steps = 60
     # Sides carrying a fan + switch in pybullet_domino_fan, in order
     # left, right, down, up. One is the point of the task: the robot has
