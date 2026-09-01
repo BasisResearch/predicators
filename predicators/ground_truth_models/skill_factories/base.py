@@ -1291,8 +1291,21 @@ class PhaseSkill:
             if sim_obj is not None:
                 new_state_data[sim_obj] = features.copy()
 
+        # Carry the privileged (hidden) channel into the planning state.
+        # Under partial observability the attachment slots that encode
+        # glue-bond welds live ONLY there (they are stripped from the
+        # observable features), and the planning simulator's _set_state
+        # rebuilds weld constraints from them; dropping the channel made
+        # the planner blind to every bonded follower of the held object,
+        # so a carried assembly's outer members swept unchecked through
+        # standing bystanders (bridge_v2 007/traj5: the welded row raked
+        # leg0 during a "collision-free" transit). Ground-truth skills
+        # are env-side machinery and may read privileged state; the
+        # channel is keyed by object NAME, which the sim remap preserves.
         remapped_state = utils.PyBulletState(
-            new_state_data, simulator_state=pb_state.simulator_state)
+            new_state_data,
+            simulator_state=pb_state.simulator_state,
+            privileged=pb_state.privileged)
 
         # 3. Reset simulator to current state
         sim._set_state(remapped_state)  # pylint: disable=protected-access

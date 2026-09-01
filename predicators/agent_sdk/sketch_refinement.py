@@ -885,25 +885,45 @@ def refine_sketch(
             total_pool_rollouts=search.total_pool_rollouts,
             seeded_only_from=seeded_only_from)
 
-    if (truncate_on_subgoal_fail and not success
-            and search.deepest_fail_idx >= 0):
-        snapshot = search.deepest_fail_prefix
-        refined = [p for p in snapshot if p is not None]
+    if truncate_on_subgoal_fail and not success:
+        # Exploration must not be gated on certification by a belief
+        # model that is known-wrong where it matters: extend the plan
+        # past the point the search reached with the sketch's own
+        # seeded params and let the real env answer the steps the model
+        # could not certify. Two ways the search stops short:
+        # - a VALIDATION failure (deepest_fail_idx >= 0): keep the
+        #   searched prefix through the failing step's closest attempt
+        #   and fill from the next step;
+        # - NO validation failure (timeout mid-descent, non-validation
+        #   errors): keep whatever prefix was grounded and fill from
+        #   the first unsearched step. This used to fall through to a
+        #   bare prefix, silently dropping the sketch's tail - a 19-step
+        #   bond probe lost its Wait+lift witness to a ~15s budget and
+        #   the agent learned to cap its experiments at 16 steps
+        #   (2026-08-27 run_20260827_121054 ep0).
+        # The fill stops at the first step with nothing to execute (a
+        # non-trivial params space and no seed) - running later steps
+        # across a hole would not be the designed experiment.
+        if search.deepest_fail_idx >= 0:
+            snapshot = search.deepest_fail_prefix
+            refined = [p for p in snapshot if p is not None]
+            fill_from = search.deepest_fail_idx + 1
+            fail_desc = f"at step {search.deepest_fail_idx}"
+        else:
+            refined = [p for p in plan if p is not None]
+            fill_from = len(refined)
+            fail_desc = (f"with no validation failure recorded "
+                         f"({search.termination_reason[0]})"
+                         if search.termination_reason else
+                         "with no validation failure recorded")
         fail_note = ""
         if search.deepest_failure is not None:
             fail_note = (f" Deepest failure: "
                          f"{search.deepest_failure.option.simple_str()} -> "
                          f"{search.deepest_failure.fail_reason}.")
-        # Exploration must not be gated on certification by a belief
-        # model that is known-wrong where it matters: extend the plan
-        # past the failure with the sketch's own seeded params and let
-        # the real env answer the steps the model could not certify.
-        # The fill stops at the first step with nothing to execute (a
-        # non-trivial params space and no seed) - running later steps
-        # across a hole would not be the designed experiment.
         seeded_suffix: List[_Option] = []
         stop_note = ""
-        for idx in range(search.deepest_fail_idx + 1, n):
+        for idx in range(fill_from, n):
             grounded = ground_seeded_step(sketch[idx])
             if grounded is None:
                 stop_note = (f" No seeded params for step {idx} "
@@ -913,9 +933,9 @@ def refine_sketch(
             seeded_suffix.append(grounded)
         seeded_from = len(refined) if seeded_suffix else None
         logging.info(
-            f"[{run_id}] Refinement failed at step "
-            f"{search.deepest_fail_idx}; experiment plan = {len(refined)} "
-            f"searched steps + {len(seeded_suffix)} seeded-only steps "
+            f"[{run_id}] Refinement failed {fail_desc}; experiment plan = "
+            f"{len(refined)} searched steps + {len(seeded_suffix)} "
+            f"seeded-only steps "
             f"({len(refined) + len(seeded_suffix)}/{n})."
             f"{fail_note}{stop_note}")
         return _outcome(

@@ -4,7 +4,8 @@
 Stdlib-only TensorBoard-style browser for run directories of the form
 logs/<family>/<env>-<approach>/seed<N>/run_<timestamp>/. Features:
 
-  * runs overview with per-episode pass/fail chips, costs, and run comparison
+  * runs overview with one row per auto-resume lineage, per-episode
+    pass/fail chips, and costs
   * episode markdown transcripts with collapsible turns, inline images, and
     the run's saved episode video from videos/<same run subdir>/
   * unified diffs between simulator_versions / predicates_versions files
@@ -122,6 +123,14 @@ CYCLE_HEADER_RE = re.compile(r"^ONLINE LEARNING CYCLE (\d+)\b")
 RESUME_RE = re.compile(
     r"--auto_resume: checkpoint\(s\) found at .* resuming with "
     r"load_approach \+ restart_learning, skip_until_cycle=(\d+)\.")
+# main.py's announcement, logged BEFORE the resumed run's first cycle
+# banner, that it is first re-running the test of the last completed
+# cycle (whose checkpoint exists but whose test the previous incarnation
+# never finished). The test sessions it saves belong to that cycle, not
+# to the offline phase, so the parser treats the line as that cycle's
+# banner.
+RESUMED_TEST_RE = re.compile(
+    r"Resumed past cycle (\d+) whose test never ran; testing it now")
 # The transcript save line each agent session leaves in info.log; it pairs
 # explore sessions with the interaction episodes that execute their
 # requests (see _parse_info_log).
@@ -506,14 +515,21 @@ def _expand_stdout_path(stdout: str, job_id: str, task_id: str, plain_id: str,
 # codes and all, which pins the job to one run_<timestamp> exactly.
 _LOGGING_TO_RE = re.compile(
     r"Logging to \S*?([^\s/]+/[^\s/]+/seed\d+/run_\d{8}_\d{6})/")
-# Positive pins per stdout path. The announcement is in the first lines
-# of the file and never changes, so a hit is cacheable forever; a miss
-# is retried every render, since the file may simply not be there yet.
-_stdout_pin_cache: Dict[str, str] = {}
+# Per stdout path: (bytes scanned so far, last announced run). Requeued
+# jobs APPEND to their stdout (sbatch --open-mode=append), so the file
+# holds one announcement per incarnation and only the LAST names the run
+# the job is writing now - taking the first pinned a live job to its
+# pre-preemption run, showing the dead run as running and the live
+# successor as interrupted. The scan is incremental (only new bytes are
+# read each render, with a small overlap in case an announcement line
+# straddles a scan boundary); a shrunken file means the log was
+# truncated, which restarts the scan.
+_stdout_pin_cache: Dict[str, Tuple[int, str]] = {}
+_PIN_SCAN_OVERLAP = 4096
 
 
 def _job_run_rel(stdout: str) -> str:
-    """The run (rel to LOGS_ROOT) a Slurm job's stdout file announces.
+    """The run (rel to LOGS_ROOT) a Slurm job's stdout file last announced.
 
     Returns "" when the file is unreadable (e.g. the viewer host does
     not share the cluster filesystem) or does not name a run, in which
@@ -522,19 +538,22 @@ def _job_run_rel(stdout: str) -> str:
     """
     if not stdout:
         return ""
-    hit = _stdout_pin_cache.get(stdout)
-    if hit is not None:
-        return hit
+    pos, rel = _stdout_pin_cache.get(stdout, (0, ""))
     try:
-        with open(stdout, "r", encoding="utf-8", errors="replace") as f:
-            head = f.read(65536)
+        size = os.path.getsize(stdout)
+        if size < pos:  # truncated log: forget the old scan entirely
+            pos, rel = 0, ""
+        if size > pos:
+            with open(stdout, "rb") as f:
+                f.seek(max(0, pos - _PIN_SCAN_OVERLAP))
+                chunk = f.read().decode("utf-8", errors="replace")
+            for m in _LOGGING_TO_RE.finditer(chunk):
+                rel = m.group(1)
+            pos = size
     except OSError:
-        return ""
-    m = _LOGGING_TO_RE.search(head)
-    if not m:
-        return ""
-    _stdout_pin_cache[stdout] = m.group(1)
-    return m.group(1)
+        return rel
+    _stdout_pin_cache[stdout] = (pos, rel)
+    return rel
 
 
 def _slurm_owned(
@@ -843,8 +862,10 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
     "test_round": {episode_num: round_idx, ...},
     "round_cycles": [cycle_id|None, ...] parallel to rounds -- the
     ONLINE LEARNING CYCLE banner in effect when each round closed (None
-    for the pre-learning test), which is the id main.py stamps into that
-    round's video names and stays correct across auto-resume,
+    for the pre-learning test; a resumed run's catch-up test of its last
+    completed cycle counts that cycle's "Resumed past cycle N" line as
+    its banner), which is the id main.py stamps into that round's video
+    names and stays correct across auto-resume,
     "resume_cycle": int|None -- the cycle an --auto_resume run continued
     at (its true first cycle), None for fresh runs} where each round is
     one test phase, closed by a "Tasks solved: X / Y" line.
@@ -904,6 +925,14 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
                     m = RESUME_RE.search(line)
                     if m:
                         resume_cycle = int(m.group(1))
+                        continue
+                if cycle is None:
+                    # A resumed run's catch-up test of its last completed
+                    # cycle runs before that run's first banner; without
+                    # this it would read as the offline pre-loop test.
+                    m = RESUMED_TEST_RE.search(line)
+                    if m:
+                        cycle = int(m.group(1))
                         continue
                 if "Test results:" in line:
                     ms, mt = NUM_SOLVED_RE.search(line), NUM_TOTAL_RE.search(
@@ -1048,10 +1077,10 @@ def test_results_str(summary: Dict[str, Any]) -> str:
     """The run's test phases as e.g. "c3 0/1 (r 0.00) → c4 1/1 (r 0.90)".
 
     Each phase is prefixed with its true learning-cycle id from the
-    log's cycle banners ("init" for the pre-learning test), so an auto-
-    resumed run reads c3, c4, ... rather than looking like a fresh run's
-    first rounds. The prefix is omitted for logs without banners (and
-    the reward tag for logs that predate avg_test_reward).
+    log's cycle banners ("off" for the offline pre-learning test), so an
+    auto-resumed run reads c3, c4, ... rather than looking like a fresh
+    run's first rounds. The prefix is omitted for logs without banners
+    (and the reward tag for logs that predate avg_test_reward).
     """
     parts = []
     cycles = summary.get("test_cycles", [])
@@ -1061,7 +1090,7 @@ def test_results_str(summary: Dict[str, Any]) -> str:
         if reward is not None:
             s += f" (r {reward:.2f})"
         if i < len(cycles):
-            s = ("init " if cycles[i] is None else f"c{cycles[i]} ") + s
+            s = ("off " if cycles[i] is None else f"c{cycles[i]} ") + s
         parts.append(s)
     return " → ".join(parts)
 
@@ -1092,11 +1121,17 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
     tagged_cycles = sorted(
         {c
          for c in session_cycles.values() if c is not None})
-    use_cycle_rows = bool(tagged_cycles)
     cycle_rank = {c: k for k, c in enumerate(tagged_cycles)}
     has_init_row = any(c is None for c in session_cycles.values())
     row_offset = 1 if has_init_row else 0
     last_cycle = parsed.get("last_cycle")
+    # Cycle rows engage as soon as the log shows ANY cycle banner, not
+    # only once a session has closed under one: early in a run whose
+    # only closed session is the offline learn (saved before the first
+    # banner) the still-open cycle-0 explore would otherwise fall back
+    # to bare r-labels while a sibling arm a few minutes ahead already
+    # shows off/c0. Banner-less legacy logs keep the fallback.
+    use_cycle_rows = bool(tagged_cycles) or last_cycle is not None
 
     def _cycle_row(ep: Dict[str, Any]) -> Optional[int]:
         if not use_cycle_rows:
@@ -1661,6 +1696,7 @@ summary .hint { color: var(--muted); font-weight: 400; font-size: 12px; }
 .chip.bad { color: var(--bad); border-color: var(--bad); }
 .chip.kind-explore { color: #b083f0; border-color: #b083f0; }
 .chip.kind-learn { color: #daaa3f; border-color: #daaa3f; }
+.chip.sup { opacity: .5; }
 /* Lifecycle, not verdict: green and red stay reserved for env evals. */
 .chip.live { color: var(--accent); border-color: var(--accent);
   animation: pulse 1.8s ease-in-out infinite; }
@@ -1819,7 +1855,7 @@ function setAllDetails(open) {
   $all('.content details').forEach(function(d) { d.open = open; });
 }
 
-// Index page: filter + compare + collapsible groups.
+// Index page: filter + selected-only toggle + collapsible groups.
 function groupKey(d) { return 'lv-grp:' + d.dataset.key; }
 function restoreGroups() {
   $all('details.grp').forEach(function(d) {
@@ -1841,30 +1877,77 @@ function setAllGroups(open) {
   });
   window._filtering = false;
 }
-function filterRuns(text) {
-  text = text.toLowerCase();
-  sessionStorage.setItem('lv-filter', text);
+// Run selection: checkbox state is persisted per tab (sessionStorage)
+// so the auto-refresh reloads keep it; it drives the show-selected
+// toggle. Runs stay inside their experiment groups, so each visible
+// row keeps its experiment tag as the group header.
+function selStored() {
+  try {
+    return JSON.parse(sessionStorage.getItem('lv-selected') || '[]');
+  } catch (e) { return []; }
+}
+function selChanged(cb) {
+  var rels = selStored().filter(function(r) { return r !== cb.value; });
+  if (cb.checked) rels.push(cb.value);
+  sessionStorage.setItem('lv-selected', JSON.stringify(rels));
+  paintSelBtn();
+  if (selOnly()) applyRunVisibility();
+}
+function restoreSelection() {
+  var sel = {};
+  selStored().forEach(function(r) { sel[r] = true; });
+  $all('input.sel').forEach(function(cb) { cb.checked = !!sel[cb.value]; });
+  paintSelBtn();
+}
+function selOnly() { return sessionStorage.getItem('lv-selonly') === '1'; }
+function toggleSelOnly() {
+  if (!selOnly() && !$all('input.sel:checked').length) {
+    alert('Select at least one run first.');
+    return;
+  }
+  sessionStorage.setItem('lv-selonly', selOnly() ? '0' : '1');
+  paintSelBtn();
+  applyRunVisibility();
+}
+function paintSelBtn() {
+  var b = $('#selbtn');
+  if (!b) return;
+  var n = $all('input.sel:checked').length;
+  b.textContent = selOnly() ? 'show: selected (' + n + ')' : 'show: all';
+}
+function applyRunVisibility() {
+  var text = (sessionStorage.getItem('lv-filter') || '').toLowerCase();
+  var only = selOnly();
+  var narrowing = !!text || only;
   window._filtering = true;
   $all('.runrow').forEach(function(row) {
-    row.classList.toggle('hidden',
-      !!text && row.dataset.key.indexOf(text) === -1);
+    var hide = !!text && row.dataset.key.indexOf(text) === -1;
+    if (!hide && only) {
+      var cb = row.querySelector('input.sel');
+      hide = !(cb && cb.checked);
+    }
+    row.classList.toggle('hidden', hide);
   });
   $all('details.grp.exp').forEach(function(d) {
     var any = $all('.runrow', d).some(function(r) {
       return !r.classList.contains('hidden');
     });
     d.classList.toggle('hidden', !any);
-    if (text) d.open = any;
+    if (narrowing) d.open = any;
   });
   $all('details.grp.family').forEach(function(d) {
     var any = $all('details.grp.exp', d).some(function(x) {
       return !x.classList.contains('hidden');
     });
     d.classList.toggle('hidden', !any);
-    if (text) d.open = any;
+    if (narrowing) d.open = any;
   });
-  if (!text) restoreGroups();
+  if (!narrowing) restoreGroups();
   window._filtering = false;
+}
+function filterRuns(text) {
+  sessionStorage.setItem('lv-filter', text.toLowerCase());
+  applyRunVisibility();
 }
 // Index page: sort runs by seed (the server order) or by start time.
 // Time mode interleaves each experiment's seeds newest-first; the
@@ -1893,12 +1976,6 @@ function applySort() {
     rows.forEach(function(r) { tbody.appendChild(r); });
   });
 }
-function compareSelected() {
-  var sel = $all('input.cmp:checked').map(function(c) { return c.value; });
-  if (sel.length < 2) { alert('Select at least two runs to compare.'); return; }
-  location.href = '/compare?runs=' + encodeURIComponent(sel.join(';'));
-}
-
 // Kill / delete buttons on index run rows. POST only, so the auto-
 // refresh GETs can never trip these; reload shortly after success so
 // the status chip reflects the process actually exiting.
@@ -2073,7 +2150,8 @@ document.addEventListener('DOMContentLoaded', function() {
   var f = $('#runfilter');
   if (f) {
     f.value = sessionStorage.getItem('lv-filter') || '';
-    if (f.value) filterRuns(f.value);
+    restoreSelection();
+    applyRunVisibility();
   }
   var r = window._restore;
   if (r) {
@@ -2223,8 +2301,9 @@ def episode_grid(episodes: EpList,
         cells = []
         if layout["rounds"]:
             # Label the row with its episodes' true learning-cycle id
-            # ("c3", or "init" for the pre-learning test) so a resumed
-            # run reads c3, c4, ... rather than restarting at r1. Test
+            # ("c3", or "off" for the offline phase before cycle 0: the
+            # demo learn and/or the pre-learning test) so a resumed run
+            # reads c3, c4, ... rather than restarting at r1. Test
             # episodes name the row when present (the grid's columns are
             # theirs); the in-log row index is the fallback for rows
             # whose episodes carry no cycle tag (e.g. learn-only rows of
@@ -2235,7 +2314,7 @@ def episode_grid(episodes: EpList,
             for ep in row_eps:
                 tag = ep.get("cycle_tag", "")
                 if tag == "cycleNone":
-                    label = "init"
+                    label = "off"
                     break
                 if tag.startswith("cycle"):
                     label = f"c{tag[5:]}"
@@ -2298,13 +2377,24 @@ def status_chip(r: Dict[str, Any], summary: Dict[str, Any], live: LiveProcs,
     return chip(label, cls, title)
 
 
+def _lineage_chip(ep: Dict[str, Any], label: str, cls: str, title: str) -> str:
+    """A grid chip that also names the episode's run when the row merges a
+    resume lineage, dimmed if a later resume superseded that run."""
+    if ep.get("run_id"):
+        title = f"run {ep['run_id']}" + (f": {title}" if title else "")
+    if ep.get("superseded"):
+        cls = (cls + " sup").strip()
+        title += " (superseded by a resumed run)"
+    return chip(label, cls, title)
+
+
 def _test_chip(ep: Dict[str, Any]) -> str:
     """Chip for one test episode, e.g. "003 t1 ✓"."""
     mark, cls, title = test_mark(ep)
     label = f"{int(ep['num']):03} t{ep['task']}"
     if mark:
         label += " " + mark
-    return chip(label, cls, title)
+    return _lineage_chip(ep, label, cls, title)
 
 
 def _misc_chip(ep: Dict[str, Any]) -> str:
@@ -2314,7 +2404,7 @@ def _misc_chip(ep: Dict[str, Any]) -> str:
     if "env_accepted" in ep:
         mark, _, title = explore_mark(ep)
         label += " " + mark
-    return chip(label, "kind-" + ep["kind"], title)
+    return _lineage_chip(ep, label, "kind-" + ep["kind"], title)
 
 
 # ----------------------------------------------------------------- pages
@@ -2352,71 +2442,184 @@ def _prev_run_rel(run_rel: str) -> Optional[str]:
     return f"{parent_rel}/{sibs[-1]}" if sibs else None
 
 
-def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
-            live: LiveProcs, is_newest: bool) -> str:
-    """Table row summarizing one run for the index page."""
-    eps = summary.get("episodes", [])
-    tr_str = test_results_str(summary) or "-"
-    # Auto-resumed run: mark the RUN cell with the cycle it continued at
-    # and the run whose checkpoints it continued from (it describes the
-    # run's lifecycle, not its test outcomes).
-    resume_mark = ""
-    if summary.get("resume_cycle") is not None:
-        prev_rel = _prev_run_rel(r["rel"])
-        if prev_rel is not None:
-            # The cycle it continued at is already visible as the grid's
-            # first row label, so the marker only names the lineage.
-            prev_name = os.path.basename(prev_rel)
-            resume_mark = (
-                " <span class='muted' title='auto-resumed run: continued "
-                f"at cycle {summary['resume_cycle']} from this run&#39;s "
-                f"checkpoints'>(re. <a href='/run?d={q(prev_rel)}'>"
-                f"{esc(_display_run_id(prev_name))}/"
-                f"{esc(r['seed'])}</a>)</span>")
-    cost = summary.get("total_cost", 0.0)
-    fmt = "%Y-%m-%d %H:%M"
-    start_ts = _run_start_ts(r["name"], r["mtime"])
-    # Server-local (MIT) text is only the no-JS fallback: renderTimes()
-    # re-renders every .ts span client-side in the viewer's chosen
-    # timezone (uk/mit toggle in the topbar).
-    sstr = (
-        f"<span class='ts' data-ts='{start_ts:.0f}'>"
-        f"{datetime.datetime.fromtimestamp(start_ts).strftime(fmt)}</span>")
-    mstr = (f"<span class='ts' data-ts='{r['activity']:.0f}'>"
-            f"{datetime.datetime.fromtimestamp(r['activity']).strftime(fmt)}"
-            "</span>")
-    dur_str = _fmt_duration(max(0.0, r["activity"] - start_ts))
-    status, _ = run_status(r, summary, live, is_newest)
-    # The status joins the filter key, so "running" narrows to live runs.
-    key = f"{r['exp']} {r['seed']} {r['name']} {status}".lower()
-    cost_str = f"${cost:.2f}" if cost else "-"
-    # Path to paste into a terminal at the server's working directory.
+def resume_chains(
+        runs: List[Dict[str, Any]],
+        summaries: Dict[str, Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
+    """Group one experiment's runs into auto-resume lineages.
+
+    Each chain is chronological (oldest first). A run whose info.log
+    carries main.py's ``--auto_resume: checkpoint(s) found`` line
+    continued the checkpoints that were newest on disk when it started,
+    i.e. those of its chronological predecessor of the same seed (the
+    same rule ``_prev_run_rel`` applies), so it joins that predecessor's
+    chain; every other run opens a chain of its own.
+    """
+    by_seed: Dict[str, List[Dict[str, Any]]] = {}
+    for r in runs:
+        by_seed.setdefault(r["seed"], []).append(r)
+    chains: List[List[Dict[str, Any]]] = []
+    for seed in sorted(by_seed):
+        seed_chains: List[List[Dict[str, Any]]] = []
+        for r in sorted(by_seed[seed], key=lambda x: x["name"]):
+            resumed = summaries.get(r["rel"], {}).get("resume_cycle")
+            if resumed is not None and seed_chains:
+                seed_chains[-1].append(r)
+            else:
+                seed_chains.append([r])
+        chains.extend(seed_chains)
+    return chains
+
+
+def _cycle_key(ep: Dict[str, Any]) -> int:
+    """Sort key of an episode's true learning cycle: -1 for the offline phase
+    (``cycleNone``), the cycle id otherwise; untagged episodes (banner-less
+    logs) sort with the offline row."""
+    tag = ep.get("cycle_tag", "")
+    if tag.startswith("cycle") and tag != "cycleNone":
+        return int(tag[5:])
+    return -1
+
+
+def chain_summary(chain: List[Dict[str, Any]],
+                  summaries: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    """One index-row summary for a whole resume lineage.
+
+    Episodes of every run in the chain are re-bucketed into grid rows by
+    their true cycle id, so a lineage that was interrupted and resumed
+    twice reads as one continuous off/c0/c1/... grid. Each episode is
+    stamped with its run (``run_rel``/``run_id``) and, for runs a later
+    resume superseded, ``superseded`` (drawn dimmed: e.g. a test the
+    resume re-ran sits next to the killed run's unfinished attempt).
+    Test phases merge by cycle with the newest run's result winning;
+    cost sums over the chain; done/resume come from its head. A single-
+    run chain is the run's own summary plus the stamps.
+    """
+    head = chain[-1]
+    episodes: List[Dict[str, Any]] = []
+    for r in chain:
+        for ep in summaries.get(r["rel"], {}).get("episodes", []):
+            ep = dict(ep)
+            ep["run_rel"] = r["rel"]
+            ep["run_id"] = _display_run_id(r["name"])
+            ep["superseded"] = r is not head
+            episodes.append(ep)
+    if len(chain) > 1:
+        keys = sorted({_cycle_key(ep) for ep in episodes})
+        row_of = {k: i for i, k in enumerate(keys)}
+        for ep in episodes:
+            ep["round"] = row_of[_cycle_key(ep)]
+    # Test phases keyed by cycle (None = the offline pre-loop test),
+    # newest run last so its result overrides a superseded attempt at
+    # the same cycle.
+    by_cycle: Dict[Optional[int], Tuple[int, int, Optional[float]]] = {}
+    for r in chain:
+        s = summaries.get(r["rel"], {})
+        cycles = s.get("test_cycles", [])
+        for i, tot in enumerate(s.get("test_results", [])):
+            by_cycle[cycles[i] if i < len(cycles) else None] = tot
+    ordered = sorted(by_cycle, key=lambda c: -1 if c is None else c)
+    head_summary = summaries.get(head["rel"], {})
+    return {
+        "episodes":
+        episodes,
+        "test_results": [by_cycle[c] for c in ordered],
+        "test_cycles":
+        ordered,
+        "explore_results":
+        _explore_results(episodes),
+        "resume_cycle":
+        head_summary.get("resume_cycle"),
+        "total_cost":
+        sum(summaries.get(r["rel"], {}).get("total_cost", 0.0) for r in chain),
+        "done":
+        head_summary.get("done", False),
+    }
+
+
+def _run_cell_line(r: Dict[str, Any], summary: Dict[str, Any], is_head: bool,
+                   is_live: bool) -> str:
+    """One run's link and per-run buttons inside a lineage's RUN cell."""
     copy_path = os.path.relpath(os.path.join(LOGS_ROOT, r["rel"]))
-    is_live = status == "running"
     esc_rel = esc(r["rel"])
-    kill_btn = ""
-    if is_live:
-        kill_btn = ("<button class='rowbtn' title='Kill the live process "
-                    "of this run, or scancel its Slurm job' "
-                    f"onclick='killRun(\"{esc_rel}\")'>"
-                    "kill</button>")
     del_title = ("Kill the live process, then delete this run"
                  if is_live else "Delete this run's log dir and videos")
     live_flag = "true" if is_live else "false"
     del_btn = (f"<button class='rowbtn' title='{del_title}' "
                f"onclick='deleteRun(\"{esc_rel}\", {live_flag})'>"
                "✕</button>")
-    return ("<tr class='runrow' "
-            f"data-key='{esc(key)}' data-seed='{esc(r['seed'])}' "
-            f"data-start='{start_ts:.0f}'>"
-            f"<td><input type='checkbox' class='cmp' value='{esc(r['rel'])}'>"
-            "</td>"
-            f"<td><a href='/run?d={q(r['rel'])}'>"
-            f"{esc(_display_run_id(r['name']))}/{esc(r['seed'])}</a>"
-            f"{resume_mark}"
+    link = (f"<a href='/run?d={q(r['rel'])}'>"
+            f"{esc(_display_run_id(r['name']))}/{esc(r['seed'])}</a>")
+    resumed = summary.get("resume_cycle")
+    if resumed is not None:
+        link = (f"<span class='muted' title='auto-resumed run: continued at "
+                f"cycle {resumed} from the checkpoints of the run above'>"
+                f"↳ </span>{link}")
+    cls = "" if is_head else " class='muted'"
+    return (f"<div{cls}>{link}"
             f"<button class='copybtn' data-copy='{esc(copy_path)}' "
-            f"title='Copy run path'>⧉</button>{del_btn}</td>"
-            f"<td>{status_chip(r, summary, live, is_newest)}{kill_btn}</td>"
+            f"title='Copy run path'>⧉</button>{del_btn}</div>")
+
+
+def run_row(chain: List[Dict[str, Any]], summary: Dict[str, Any],
+            summaries: Dict[str, Dict[str, Any]], layout: Dict[str, Any],
+            live: LiveProcs, is_newest: bool) -> str:
+    """Table row summarizing one resume lineage for the index page.
+
+    ``chain`` is chronological; its last run (the head) is the one
+    whose status the row carries and that the kill button and the
+    selection checkbox address. ``summary`` is the lineage's merged
+    :func:`chain_summary`; ``summaries`` holds each run's own. Every run
+    keeps its own link, copy, and delete buttons inside the RUN cell.
+    """
+    head = chain[-1]
+    eps = summary.get("episodes", [])
+    tr_str = test_results_str(summary) or "-"
+    cost = summary.get("total_cost", 0.0)
+    fmt = "%Y-%m-%d %H:%M"
+    first_start = _run_start_ts(chain[0]["name"], chain[0]["mtime"])
+    head_start = _run_start_ts(head["name"], head["mtime"])
+    activity = max(r["activity"] for r in chain)
+    # Server-local (MIT) text is only the no-JS fallback: renderTimes()
+    # re-renders every .ts span client-side in the viewer's chosen
+    # timezone (uk/mit toggle in the topbar).
+    sstr = (
+        f"<span class='ts' data-ts='{first_start:.0f}'>"
+        f"{datetime.datetime.fromtimestamp(first_start).strftime(fmt)}</span>")
+    mstr = (f"<span class='ts' data-ts='{activity:.0f}'>"
+            f"{datetime.datetime.fromtimestamp(activity).strftime(fmt)}"
+            "</span>")
+    # Active time: each run's own span, so the gaps while a lineage sat
+    # dead between a kill and its relaunch do not count.
+    dur_str = _fmt_duration(
+        sum(
+            max(0.0, r["activity"] - _run_start_ts(r["name"], r["mtime"]))
+            for r in chain))
+    status, _ = run_status(head, summary, live, is_newest)
+    # The status joins the filter key, so "running" narrows to live runs;
+    # every run name of the lineage joins it, so filtering by an
+    # ancestor's timestamp still finds the row.
+    names = " ".join(r["name"] for r in chain)
+    key = f"{head['exp']} {head['seed']} {names} {status}".lower()
+    cost_str = f"${cost:.2f}" if cost else "-"
+    is_live = status == "running"
+    kill_btn = ""
+    if is_live:
+        kill_btn = ("<button class='rowbtn' title='Kill the live process "
+                    "of this run, or scancel its Slurm job' "
+                    f"onclick='killRun(\"{esc(head['rel'])}\")'>"
+                    "kill</button>")
+    run_cell = "".join(
+        _run_cell_line(r, summaries.get(r["rel"], {}), r is head, is_live
+                       and r is head) for r in chain)
+    return ("<tr class='runrow' "
+            f"data-key='{esc(key)}' data-seed='{esc(head['seed'])}' "
+            f"data-start='{head_start:.0f}'>"
+            f"<td><input type='checkbox' class='sel' "
+            f"value='{esc(head['rel'])}' "
+            "onchange='selChanged(this)' title='Select this run for the "
+            "show-selected toggle'></td>"
+            f"<td>{run_cell}</td>"
+            f"<td>{status_chip(head, summary, live, is_newest)}{kill_btn}</td>"
             f"<td>{episode_grid(eps, layout)}</td>"
             f"<td>{esc(tr_str)}</td>"
             f"<td>{cost_str}</td>"
@@ -2433,13 +2636,25 @@ def index_page() -> str:
         fam, _, rest = r["exp"].partition("/")
         families.setdefault(fam, {}).setdefault(rest or fam, []).append(r)
     summaries = {r["rel"]: run_summary(r["rel"]) or {} for r in runs}
+    # One row per auto-resume lineage: a run that continued an earlier
+    # run's checkpoints shares that run's row, its episodes merged into
+    # the same off/c0/c1/... grid (see chain_summary).
+    exp_chains: Dict[Tuple[str, str], List[List[Dict[str, Any]]]] = {}
+    chain_summaries: Dict[str, Dict[str, Any]] = {}
+    for fam, exps in families.items():
+        for expname, exp_runs in exps.items():
+            chains = resume_chains(exp_runs, summaries)
+            exp_chains[(fam, expname)] = chains
+            for chain in chains:
+                chain_summaries[chain[-1]["rel"]] = chain_summary(
+                    chain, summaries)
     # The task and round columns are laid out once for the whole page, so
     # a task's chips line up across runs, experiments, and families. The
     # explore/learn column sits to the right of every task column, so it
     # can stay per-family without costing any of that alignment - which
     # spares families that never explore its reserved width.
     page_layout = grid_layout(
-        [s.get("episodes", []) for s in summaries.values()])
+        [s.get("episodes", []) for s in chain_summaries.values()])
     live = live_runs(runs)
     # A process lsof could not pin owns the newest run of its experiment
     # and seed: the one it made at startup. Older runs of that key are
@@ -2464,8 +2679,10 @@ def index_page() -> str:
     for fam in sorted(families):
         exps = families[fam]
         fam_runs = [r for rs in exps.values() for r in rs]
-        fam_misc = grid_layout(
-            [summaries[r["rel"]].get("episodes", []) for r in fam_runs])
+        fam_misc = grid_layout([
+            chain_summaries[chain[-1]["rel"]].get("episodes", [])
+            for expname in exps for chain in exp_chains[(fam, expname)]
+        ])
         layout = dict(page_layout, misc=fam_misc["misc"])
         widths = [w or grid_width(layout) for w in RUN_COL_W]
         cols = "<colgroup>" + "".join(f"<col style='width:{w}px'>"
@@ -2476,9 +2693,12 @@ def index_page() -> str:
                     "</span></summary>")
         for expname in sorted(exps):
             rows = "".join(
-                run_row(r, summaries[r["rel"]], layout, live, newest[(
-                    r["exp"], r["seed"])][1] == r["rel"])
-                for r in exps[expname])
+                run_row(
+                    chain, chain_summaries[chain[-1]["rel"]], summaries,
+                    layout, live, newest[(
+                        chain[-1]["exp"],
+                        chain[-1]["seed"])][1] == chain[-1]["rel"])
+                for chain in exp_chains[(fam, expname)])
             body.append(f"<details class='grp exp' data-key='exp:{esc(fam)}/"
                         f"{esc(expname)}'>"
                         f"<summary>{esc(expname)} <span class='muted'>"
@@ -2495,8 +2715,10 @@ def index_page() -> str:
               "newest runs first within each experiment'></button>"
               "<button onclick='setAllGroups(true)'>expand all</button>"
               "<button onclick='setAllGroups(false)'>collapse all</button>"
-              "<button onclick='compareSelected()'>Compare selected"
-              f"</button><span class='crumb'>{esc(LOGS_ROOT)}</span>")
+              "<button id='selbtn' onclick='toggleSelOnly()' title='Show "
+              "only the checked runs (grouped under their experiment "
+              "tags; the selection survives refresh)'></button>"
+              f"<span class='crumb'>{esc(LOGS_ROOT)}</span>")
     return page("runs - log viewer", topbar, "".join(body))
 
 
@@ -3020,88 +3242,6 @@ def gallery_fragment(run_rel: str, dir_rel: str) -> str:
     return "".join(out)
 
 
-def compare_page(run_rels: List[str]) -> str:
-    """Side-by-side comparison table across several runs."""
-    summaries: List[Tuple[str, Dict[str, Any]]] = []
-    for rel in run_rels:
-        s = run_summary(rel)
-        if s:
-            summaries.append((rel, s))
-    if len(summaries) < 2:
-        return page(
-            "compare", "", "<div class='content'>"
-            "<p>Need at least two valid runs.</p></div>")
-    all_tasks = sorted({
-        ep["task"]
-        for _, s in summaries for ep in s["episodes"]
-        if ep["kind"] == "test" and ep["task"] is not None
-    })
-    head = "".join(
-        f"<th><a href='/run?d={q(rel)}'>{esc(rel.split('/')[-1])}</a><br>"
-        f"<span class='muted'>{esc('/'.join(rel.split('/')[:-1]))}</span></th>"
-        for rel, _ in summaries)
-
-    def _verdict_mark(v: Dict[str, Any]) -> str:
-        mark = "✓" if v["solved"] else "✗"
-        if v.get("reward") is not None:
-            mark += f" {v['reward']:.2f}"
-        cls = "ok" if v["solved"] else "bad"
-        return f"<span class='{cls}' title='{esc(v['msg'])}'>{mark}</span>"
-
-    rows = []
-    for task in all_tasks:
-        cells = []
-        for _, s in summaries:
-            verdicts = [r[task] for r in s.get("rounds", []) if task in r]
-            if verdicts:
-                marks = " → ".join(_verdict_mark(v) for v in verdicts)
-            else:
-                attempts = [
-                    ep for ep in s["episodes"]
-                    if ep["kind"] == "test" and ep["task"] == task
-                ]
-                mark_parts = []
-                for ep in attempts:
-                    if ep.get("goal"):
-                        cls, mk = "ok", "(✓)"
-                    elif ep.get("goal") is False:
-                        cls, mk = "bad", "(✗)"
-                    else:
-                        cls, mk = "muted", "?"
-                    mark_parts.append(f"<span class='{cls}'>{mk}</span>")
-                marks = "".join(mark_parts)
-                if marks:
-                    marks += " <span class='muted'>agent-reported</span>"
-            cells.append(f"<td>{marks or '-'}</td>")
-        rows.append(f"<tr><th>task {int(task)}</th>{''.join(cells)}</tr>")
-
-    def stat_row(label: str, fn: Callable[[Dict[str, Any]], str]) -> str:
-        cols = "".join(f"<td>{fn(s)}</td>" for _, s in summaries)
-        return f"<tr><th>{label}</th>{cols}</tr>"
-
-    rows.append(
-        stat_row("test results", lambda s: esc(test_results_str(s) or "-")))
-    rows.append(
-        stat_row("explore results",
-                 lambda s: esc(explore_results_str(s) or "-")))
-    rows.append(stat_row("episodes", lambda s: str(len(s["episodes"]))))
-    rows.append(
-        stat_row(
-            "explore / learn", lambda s:
-            f"{sum(1 for e in s['episodes'] if e['kind'] == 'explore')} / "
-            f"{sum(1 for e in s['episodes'] if e['kind'] == 'learn')}"))
-    rows.append(
-        stat_row(
-            "total cost", lambda s: (f"${s['total_cost']:.2f}")
-            if s["total_cost"] else "-"))
-    rows_html = "".join(rows)
-    body = ("<div class='content' style='height:calc(100vh - 45px);"
-            "overflow-y:auto'><h2>Run comparison</h2>"
-            "<table class='grid'><tr><th></th>"
-            f"{head}</tr>{rows_html}</table></div>")
-    return page("compare - log viewer", "", body)
-
-
 # ------------------------------------------------------------ HTTP layer
 
 
@@ -3243,9 +3383,6 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/gallery":
             self.send_html(
                 gallery_fragment(params.get("d", ""), params.get("p", "")))
-        elif route == "/compare":
-            rels = [r for r in params.get("runs", "").split(";") if r]
-            self.send_html(compare_page(rels))
         elif route == "/stamp":
             d = params.get("d", "")
             self.send_text(run_stamp(d) if d else index_stamp())

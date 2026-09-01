@@ -14,15 +14,19 @@ yields real SDK dataclasses; no network, no subprocess.
 """
 # pylint: disable=protected-access
 import asyncio
+import datetime
 from typing import Any, List
+from zoneinfo import ZoneInfo
 
 import claude_agent_sdk
 import pytest
 from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
 
+import predicators.agent_sdk.session_base as sb
 from predicators import utils
-from predicators.agent_sdk.session_base import AgentSessionFatalError, \
-    BaseAgentSessionManager, query_fatal_error
+from predicators.agent_sdk.session_base import _LIMIT_DEFAULT_WAIT_SECS, \
+    _LIMIT_MAX_WAIT_SECS, AgentSessionFatalError, BaseAgentSessionManager, \
+    query_fatal_error, usage_limit_wait_seconds
 from predicators.agent_sdk.session_manager import AgentSessionManager
 
 # The exact assistant text run_20260721_161159's queries came back with.
@@ -267,3 +271,78 @@ def test_third_dead_query_raises_through_manager(monkeypatch, tmp_path):
     with pytest.raises(AgentSessionFatalError,
                        match="3 consecutive agent queries"):
         asyncio.run(mgr.query("third"))
+
+
+# ── usage-limit wait-and-retry ───────────────────────────────────────
+# A session/usage-limit banner states its own reset time, so it is a
+# transient outage to wait out, not a reason to terminate: the
+# 2026-08-27 limit killed six jobs and silently burned two arms'
+# cycle-1 learn phases as one-turn $0 "completed" sessions.
+
+
+def test_limit_wait_parses_reset_time():
+    """The wait runs to the banner's stated reset (plus slack)."""
+    tz = ZoneInfo("America/New_York")
+    now = datetime.datetime(2026, 8, 27, 16, 30, tzinfo=tz).timestamp()
+    wait = usage_limit_wait_seconds(
+        "You've hit your session limit · resets 5:10pm (America/New_York)",
+        now=now)
+    # 40 min to 5:10pm + 180 s slack.
+    assert wait == pytest.approx(40 * 60 + 180)
+
+
+def test_limit_wait_wraps_to_next_day():
+    """A reset time already past today means tomorrow's occurrence."""
+    tz = ZoneInfo("America/New_York")
+    now = datetime.datetime(2026, 8, 27, 17, 30, tzinfo=tz).timestamp()
+    wait = usage_limit_wait_seconds(
+        "You've hit your usage limit · resets 5:10pm (America/New_York)",
+        now=now)
+    # Tomorrow 5:10pm is ~23.7h away; the wait clamps to the cap.
+    assert wait == _LIMIT_MAX_WAIT_SECS
+
+
+def test_limit_wait_defaults_without_reset_time():
+    """A limit banner without a stated reset waits the default period."""
+    assert usage_limit_wait_seconds(
+        "You've hit your session limit.") == _LIMIT_DEFAULT_WAIT_SECS
+
+
+def test_non_limit_reasons_do_not_wait():
+    """Non-limit fatal reasons return None: no wait-and-retry."""
+    assert usage_limit_wait_seconds(None) is None
+    assert usage_limit_wait_seconds("invalid api key") is None
+    assert usage_limit_wait_seconds(
+        "error result: something else broke") is None
+
+
+def test_run_streamed_query_retries_after_limit(tmp_path, monkeypatch):
+    """A limit-dead query is re-issued after the wait; the healthy retry is
+    what the caller receives, and the fatal streak never advances."""
+    mgr = _make_base_manager(tmp_path)
+    limit_resp = [
+        _text_entry("You've hit your session limit · resets 5:10pm "
+                    "(America/New_York)"),
+    ]
+    healthy_resp = [_text_entry("fine"), _result_entry()]
+    responses = [list(limit_resp), list(healthy_resp)]
+    calls = []
+
+    async def _fake_stream(_client, message, **_kwargs):
+        calls.append(message)
+        return responses.pop(0)
+
+    sleeps = []
+
+    async def _fake_sleep(secs):
+        sleeps.append(secs)
+
+    monkeypatch.setattr(sb, "stream_agent_response", _fake_stream)
+    monkeypatch.setattr(sb.asyncio, "sleep", _fake_sleep)
+    mgr._client = object()
+    collected = asyncio.run(
+        mgr._run_streamed_query("do the thing", log_path=None, kind="test"))
+    assert len(calls) == 2 and calls[0] == calls[1] == "do the thing"
+    assert len(sleeps) == 1 and sleeps[0] > 0
+    assert collected == healthy_resp
+    assert BaseAgentSessionManager._consecutive_fatal_queries == 0

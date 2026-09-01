@@ -253,6 +253,31 @@ def test_explorer_mode_seeded_fill_stops_at_unseeded_step():
     assert outcome.seeded_only_from is None
 
 
+def test_explorer_mode_timeout_still_runs_seeded_plan():
+    """A search that stops with NO validation failure (expired budget) still
+    returns the full seeded experiment instead of a bare prefix.
+
+    The 19-step bond probe of run_20260827_121054 ep0 lost its Wait+lift
+    witness this way: the refine budget expired mid-descent, no
+    validation failure was recorded, and the old code silently dropped
+    the tail.
+    """
+    sketch = [
+        SketchStep(option=_Move,
+                   objects=[_block],
+                   subgoal_atoms=None,
+                   initial_params=np.array([v], dtype=np.float32))
+        for v in (0.1, 0.2, 0.3)
+    ]
+    outcome = _refine(sketch, [], truncate_on_subgoal_fail=True, timeout=0.0)
+    assert not outcome.success
+    assert outcome.termination_reason == "timeout"
+    assert len(outcome.plan) == 3
+    assert outcome.seeded_only_from == 0
+    for opt, v in zip(outcome.plan, (0.1, 0.2, 0.3)):
+        assert np.isclose(float(opt.params[0]), v)
+
+
 def test_ground_seeded_step_zero_dim_needs_no_seed():
     """A zero-dim params space grounds without a seed; a non-trivial one
     without a seed returns None."""

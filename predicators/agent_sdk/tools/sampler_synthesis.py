@@ -34,7 +34,8 @@ def create_sampler_synthesis_tools(
         samplers_file: Host path to the agent-edited ``samplers.py``.
         samplers_versions_dir: Directory for per-call snapshots.
         approach: The ``AgentSimLearningApproach`` instance.
-        cycle_index_provider: Returns the current 1-indexed cycle.
+        cycle_index_provider: Returns the current 0-based cycle
+            (negative = the offline pass, rendered as ``offline``).
     """
     # pylint: disable=import-outside-toplevel
     import traceback  # pylint: disable=redefined-outer-name,reimported

@@ -109,3 +109,50 @@ def test_subgoal_annotations_monitor():
     # Boundary, negative atom violated: replan.
     monitor.update_approach_info([_status(done_option, 1, None, {held_atom})])
     assert monitor.step(state_held)
+
+
+def test_subgoal_annotations_monitor_skips_unverifiable_atoms():
+    """A classifier that cannot evaluate on a bare observation (e.g. it indexes
+    a latent that real env states never carry) is skipped with a warning
+    instead of crashing the episode or counting as divergence."""
+    block_type = Type("block", ["held"])
+    block = Object("block0", block_type)
+
+    def _latent_only(s, o, latent=None):
+        del s, o
+        return bool(latent["_bonds"])  # TypeError when latent is None
+
+    latent_pred = Predicate("LatentBonded", [block_type], _latent_only)
+    latent_atom = GroundAtom(latent_pred, [block])
+    held = Predicate("Held", [block_type],
+                     lambda s, o: s.get(o[0], "held") > 0.5)
+    held_atom = GroundAtom(held, [block])
+    state = State({block: np.array([0.0], dtype=np.float32)})  # no latent
+
+    param_opt = ParameterizedOption(
+        "Pick",
+        types=[block_type],
+        params_space=Box(low=np.zeros(1, dtype=np.float32),
+                         high=np.ones(1, dtype=np.float32)),
+        policy=lambda s, m, o, p: Action(np.zeros(1, dtype=np.float32)),
+        initiable=lambda s, m, o, p: True,
+        terminal=lambda s, m, o, p: True,
+    )
+    done_option = param_opt.ground([block], np.zeros(1, dtype=np.float32))
+    monitor = create_execution_monitor("subgoal_annotations")
+
+    def _status(pos=None, neg=None):
+        step = _FakeSketchStep(param_opt, pos, neg)
+        return SubgoalExecutionStatus(sketch=[step],
+                                      steps_initiated=1,
+                                      current_option=done_option)
+
+    # The unverifiable atom alone: skipped, no divergence, no crash.
+    monitor.update_approach_info([_status(pos={latent_atom})])
+    assert not monitor.step(state)
+    # Same in the negative polarity.
+    monitor.update_approach_info([_status(neg={latent_atom})])
+    assert not monitor.step(state)
+    # A genuinely failed observable atom alongside it still fires.
+    monitor.update_approach_info([_status(pos={latent_atom, held_atom})])
+    assert monitor.step(state)

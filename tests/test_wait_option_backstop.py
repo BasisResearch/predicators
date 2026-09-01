@@ -105,3 +105,63 @@ def test_targeted_wait_terminates_on_target_before_cap() -> None:
     policy = utils.option_plan_to_policy([option], abstract_function=_abstract)
     exhausted_at = _run_until_exhausted(policy, state, max_calls=50)
     assert 0 < exhausted_at < 30
+
+
+def _make_neg_only_wait_option(neg_atom: GroundAtom):
+    """A Wait annotated with ONLY a negative target (-> {NOT ...}), the
+    consumption-signature pattern; no positive key is ever set, matching
+    sketch_refinement's conditional injection."""
+    param_option = ParameterizedOption(
+        "Wait", [_ROBOT],
+        Box(0, 1, (0, )),
+        policy=lambda s, m, o, p: Action(np.zeros(1, dtype=np.float32)),
+        initiable=lambda s, m, o, p: True,
+        terminal=lambda s, m, o, p: False)
+    robot = Object("robby", _ROBOT)
+    option = param_option.ground([robot], np.zeros(0, dtype=np.float32))
+    option.memory["wait_target_neg_atoms"] = {neg_atom}
+    return robot, option
+
+
+def test_neg_only_wait_waits_and_hits_backstop() -> None:
+    """A Wait with only NOT targets that never clear waits to the step cap
+    instead of crashing (an assert on the missing positive-target.
+
+    key used to kill the whole episode - 2026-08-27 bridge_demo1 run).
+    """
+    utils.reset_config({
+        "wait_option_terminate_on_atom_change": True,
+        "wait_option_max_steps": 5,
+    })
+    always = Predicate("Always", [_ROBOT], lambda s, o: True)
+    robot_obj = Object("robby", _ROBOT)
+    atom = GroundAtom(always, [robot_obj])
+    robot, option = _make_neg_only_wait_option(atom)
+    state = State({robot: np.array([0.0])})
+    policy = utils.option_plan_to_policy([option],
+                                         abstract_function=lambda s: {atom})
+    exhausted_at = _run_until_exhausted(policy, state, max_calls=50)
+    assert exhausted_at == 6  # same schedule as the positive-target cap
+
+
+def test_neg_only_wait_terminates_when_atom_clears() -> None:
+    """A NOT-only Wait ends as soon as its atom stops holding."""
+    utils.reset_config({
+        "wait_option_terminate_on_atom_change": True,
+        "wait_option_max_steps": 100,
+    })
+    calls = {"n": 0}
+    pred = Predicate("Consumed", [_ROBOT], lambda s, o: calls["n"] < 3)
+    robot_obj = Object("robby", _ROBOT)
+    atom = GroundAtom(pred, [robot_obj])
+    robot, option = _make_neg_only_wait_option(atom)
+    state = State({robot: np.array([0.0])})
+
+    def _abstract(s):
+        del s
+        calls["n"] += 1
+        return {atom} if calls["n"] < 3 else set()
+
+    policy = utils.option_plan_to_policy([option], abstract_function=_abstract)
+    exhausted_at = _run_until_exhausted(policy, state, max_calls=50)
+    assert 0 < exhausted_at < 10
