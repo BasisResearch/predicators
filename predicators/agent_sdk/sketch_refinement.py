@@ -678,6 +678,7 @@ def refine_sketch(
     info_scorer: Optional[InfoScorer] = None,
     info_n_feasible_target: int = 1,
     parameterized_samplers: Optional[Dict[str, ParameterizedSampler]] = None,
+    strip_latent_wait_targets: bool = True,
     solved_check: Optional[Callable[[List[State], List[Any], bool],
                                     Tuple[bool, str]]] = None,
 ) -> RefineOutcome:
@@ -938,11 +939,39 @@ def refine_sketch(
             f"seeded-only steps "
             f"({len(refined) + len(seeded_suffix)}/{n})."
             f"{fail_note}{stop_note}")
-        return _outcome(
-            cast(List[_Option], refined) + seeded_suffix, False, seeded_from)
+        experiment = cast(List[_Option], refined) + seeded_suffix
+        if strip_latent_wait_targets:
+            _strip_latent_wait_targets(experiment, task.init, run_id)
+        return _outcome(experiment, False, seeded_from)
 
     refined = [p for p in plan if p is not None]
+    if strip_latent_wait_targets:
+        _strip_latent_wait_targets(cast(List[_Option], refined), task.init,
+                                   run_id)
     return _outcome(cast(List[_Option], refined), success)
+
+
+def _strip_latent_wait_targets(plan: List[_Option], state: State,
+                               run_id: str) -> None:
+    """Remove Wait targets the real executor can never observe.
+
+    The sketch's subgoal annotations were checked in the belief, where
+    the latent block exists; grounding copied them into each Wait's
+    memory as its termination targets. A target on a latent-reading
+    predicate (a bond flag, a cure counter) is False on every real
+    observation, so the Wait would run to its step cap regardless of
+    what happened (~120 steps per Wait on the bridge, three Waits a
+    plan). Dropped here, after the belief search, so refinement itself
+    still validated the annotated subgoals. Callers whose executor
+    tracks the latent (``ToolContext.latent_tracking_available``) pass
+    ``strip_latent_wait_targets=False`` and keep them.
+    """
+    dropped = utils.strip_latent_wait_targets(plan, state)
+    if dropped:
+        logging.info(
+            f"[{run_id}] Dropped {len(dropped)} Wait target(s) that read the "
+            "belief's latent block and cannot be observed by the real "
+            f"executor: {'; '.join(dropped)}.")
 
 
 def resolve_refine_timeout(
@@ -982,6 +1011,7 @@ def refine_and_validate_report(
     extra_summary_lines: Optional[List[str]] = None,
     solved_check: Optional[Callable[[List[State], List[Any], bool],
                                     Tuple[bool, str]]] = None,
+    strip_latent_wait_targets: bool = True,
 ) -> Tuple[bool, str, List[_Option]]:
     """Refine a sketch, forward-validate on success, return a report.
 
@@ -1023,6 +1053,7 @@ def refine_and_validate_report(
         run_id=run_id,
         parameterized_samplers=parameterized_samplers,
         solved_check=solved_check,
+        strip_latent_wait_targets=strip_latent_wait_targets,
     )
     plan, success, n_samples = (outcome.plan, outcome.success,
                                 outcome.total_samples)

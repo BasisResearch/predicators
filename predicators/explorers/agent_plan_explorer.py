@@ -13,7 +13,8 @@ import numpy as np
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.agent_sdk.session_base import AgentSessionFatalError
+from predicators.agent_sdk.session_base import AgentSessionFatalError, \
+    query_fatal_error
 from predicators.agent_sdk.session_manager import SessionManagerProtocol, \
     run_query_sync
 from predicators.agent_sdk.tools import ToolContext
@@ -48,6 +49,13 @@ class AgentPlanExplorer(BaseExplorer):
             responses = run_query_sync(self._agent_session,
                                        prompt,
                                        kind="explore")
+            dead = query_fatal_error(responses)
+            if dead is not None:
+                # See agent_bilevel_explorer: never explore at random
+                # because the session backend is down.
+                raise AgentSessionFatalError(
+                    "explore query died without the agent doing any work "
+                    f"({dead}); not falling back to random exploration.")
             plan_text = self._extract_option_plan_text(responses)
             if plan_text:
                 option_plan = self._parse_and_ground_plan(plan_text, task)

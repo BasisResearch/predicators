@@ -118,6 +118,15 @@ class ToolContext:
     # mental-model subgoals against real trajectories.
     # TODO(sim-learning): consume these in learn_from_interaction_results.
     last_sketch_subgoals: Optional[Any] = None
+    # Agent-session phase the tools are serving: "explore", "solve"
+    # (test-time) or "synthesis" (learn). Set by the session mixin when
+    # it builds the session; None before any session exists.
+    phase: Optional[str] = None
+    # True when the approach will track the simulator's latent block at
+    # execution (code_sim_learning.latent_tracker), so latent-reading
+    # atoms are evaluable on real observations and refinement must keep
+    # them as Wait targets; False (bare observations) strips them.
+    latent_tracking_available: bool = False
     last_sketch_options: Optional[Any] = None
     # Set by AgentBilevelExplorer per request: did the mental model reach
     # the task goal during refinement? Read by get_interaction_requests to

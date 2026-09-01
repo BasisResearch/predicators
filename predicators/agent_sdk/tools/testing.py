@@ -3,7 +3,7 @@ import contextlib
 import functools
 import logging
 import os
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
@@ -26,12 +26,27 @@ from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
     _format_evaluator_verdict, _resolve_task_evaluator, _sandbox_base, \
     evaluate_states_with, load_ground_sampler_fns
 from predicators.settings import CFG
-from predicators.structs import State
+from predicators.structs import GroundAtom, State, Task
 
 # Ceiling on agent-requested validation rollouts per submission
 # (validation_rollouts): the agent pays for rollouts from its budget, but
 # a typo'd request should not silently torch it.
 _MAX_REQUESTED_ROLLOUTS = 25
+
+
+def _missing_goal_atoms(task: Task, state: State) -> Set[GroundAtom]:
+    """Goal atoms that do NOT hold in ``state`` by their own classifiers.
+
+    Evaluated per atom with the goal predicates' own classifiers (the
+    same ones ``goal_holds`` runs), never by abstracting the state with
+    the agent's predicate set: the env's goal predicates are not in
+    that set under predicate invention, so every goal atom then read
+    as missing whenever the goal was not reached - including the ones
+    that held - and one agent concluded the goal atoms could never be
+    made True in the belief and abandoned a working route
+    (2026-08-27 bridge policy seed 0, cycle 3).
+    """
+    return {a for a in task.goal if not a.holds(state)}
 
 
 def _policy_source_path(ctx: ToolContext) -> Optional[str]:
@@ -526,10 +541,11 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # predicates that don't reuse env names.
         goal_reached = result.goal_reached
         # One more real-executor constraint the option model doesn't enforce:
-        # the episode is capped at `CFG.horizon` low-level steps. A plan whose
-        # goal is reached only after more steps than the horizon allows will
-        # time out in real rollout, so don't count it as achieved/captured.
-        horizon = CFG.horizon
+        # the episode is capped at the phase's step budget (the horizon, or
+        # the interaction-request cap for explore episodes). A plan whose
+        # goal is reached only after more steps than that will time out in
+        # real rollout, so don't count it as achieved/captured.
+        horizon = utils.real_episode_step_budget(ctx.phase)
         within_horizon = (result.actions_to_goal is not None
                           and result.actions_to_goal <= horizon)
         goal_achieved = (goal_reached and result.clean_to_goal
@@ -603,8 +619,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 return False, (f"step {r.first_failure_idx} "
                                f"({opt.name}) failed: {fr}"), posts
             if not r.goal_reached:
-                missing = task.goal - utils.abstract(r.final_state,
-                                                     ctx.predicates)
+                missing = _missing_goal_atoms(task, r.final_state)
                 missing_str = ", ".join(str(a) for a in sorted(missing))
                 detail = f" (missing: {{{missing_str}}})" if missing else ""
                 return False, f"goal not reached{detail}", posts
@@ -1095,7 +1110,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # non-starter, and validation-rollout failures already name the
         # missing atoms - this just makes rollout 1 report the same way.
         if not goal_reached:
-            missing = task.goal - final_atoms
+            missing = _missing_goal_atoms(task, result.final_state)
             missing_str = ", ".join(str(a) for a in sorted(missing))
             lines.append(f"Missing goal atoms: {{{missing_str}}}")
 
@@ -1230,7 +1245,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         if load_err is not None or option_fn is None:
             return _error_result(load_err or "policy.py failed to load.")
         max_opts = CFG.agent_policy_max_options
-        horizon = CFG.horizon
+        horizon = utils.real_episode_step_budget(ctx.phase)
 
         lines = [f"Testing policy.py on task {task_label}:"]
         saved_image_paths: List[str] = []
@@ -1328,8 +1343,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             if r.policy_error is not None:
                 return False, f"policy error: {r.policy_error}"
             if not r.goal_reached:
-                missing = task.goal - utils.abstract(r.final_state,
-                                                     ctx.predicates)
+                missing = _missing_goal_atoms(task, r.final_state)
                 missing_str = ", ".join(str(a) for a in sorted(missing))
                 detail = f" (missing: {{{missing_str}}})" if missing else ""
                 return False, f"goal not reached{detail}"
@@ -1502,8 +1516,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 f"{result.actions_to_goal} low-level steps but the episode "
                 f"horizon is {horizon}.")
         if not goal_reached:
-            final_atoms = utils.abstract(result.final_state, ctx.predicates)
-            missing = task.goal - final_atoms
+            missing = _missing_goal_atoms(task, result.final_state)
             missing_str = ", ".join(str(a) for a in sorted(missing))
             lines.append(f"Missing goal atoms: {{{missing_str}}}")
         if saved_image_paths:

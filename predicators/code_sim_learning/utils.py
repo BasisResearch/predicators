@@ -35,6 +35,7 @@ namespace is unpacked:
 
 from __future__ import annotations
 
+import copy
 import inspect
 import logging
 from functools import lru_cache
@@ -292,12 +293,19 @@ def init_latent(
         latent_init = latent_init()
     if not isinstance(latent_init, dict):
         return {}
+    # Every rollout owns its latent: values are deep-copied so a rule
+    # that mutates a container in place (``latent["bonds"].append``) can
+    # never write back into the declared LATENT_INIT. It did: the
+    # execution-time LatentTracker mutates one latent for a whole real
+    # episode, and with a plain-dict LATENT_INIT every bond formed in a
+    # test episode leaked into the next explore's belief, which then
+    # welded those pairs on its first action (policy seed1, 2026-08-29).
     out: Dict[str, Any] = {}
     for k, v in latent_init.items():
         if isinstance(v, ParamSpec):
             out[k] = params.get(v.name, v.init_value)
         else:
-            out[k] = v
+            out[k] = copy.deepcopy(v)
     return out
 
 

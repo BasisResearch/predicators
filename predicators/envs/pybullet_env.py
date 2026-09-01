@@ -904,36 +904,105 @@ class PyBulletEnv(BaseEnv):
                     "pair ('%s', '%s'); skipping.", cmd.obj_a_name,
                     cmd.obj_b_name)
                 continue
-            pos_a, orn_a = p.getBasePositionAndOrientation(
-                body_a, physicsClientId=self._physics_client_id)
-            pos_b, orn_b = p.getBasePositionAndOrientation(
-                body_b, physicsClientId=self._physics_client_id)
-            inv_pos, inv_orn = p.invertTransform(pos_a, orn_a)
-            rel_pos, rel_orn = p.multiplyTransforms(inv_pos, inv_orn, pos_b,
-                                                    orn_b)
-            cid = p.createConstraint(parentBodyUniqueId=body_a,
-                                     parentLinkIndex=-1,
-                                     childBodyUniqueId=body_b,
-                                     childLinkIndex=-1,
-                                     jointType=p.JOINT_FIXED,
-                                     jointAxis=[0, 0, 0],
-                                     parentFramePosition=rel_pos,
-                                     parentFrameOrientation=rel_orn,
-                                     childFramePosition=[0, 0, 0],
-                                     childFrameOrientation=[0, 0, 0, 1],
-                                     physicsClientId=self._physics_client_id)
-            # PyBullet's default maxForce (500) sags under cantilevered
-            # load (see the bridge env's weld_max_force).
-            p.changeConstraint(cid,
-                               maxForce=self.residual_attach_max_force,
-                               physicsClientId=self._physics_client_id)
-            self._cmd_weld_constraints[key] = cid
+            self._cmd_weld_constraints[key] = self._create_command_weld(
+                body_a, body_b)
+
+    def _create_command_weld(self, body_a: int, body_b: int) -> int:
+        """Weld ``body_b`` to ``body_a`` at their CURRENT relative pose.
+
+        The frame lives in the parent's (``body_a``) frame with an
+        identity child frame, the convention every weld-walking helper
+        below relies on (:meth:`get_welded_partner_transforms`).
+        """
+        pos_a, orn_a = p.getBasePositionAndOrientation(
+            body_a, physicsClientId=self._physics_client_id)
+        pos_b, orn_b = p.getBasePositionAndOrientation(
+            body_b, physicsClientId=self._physics_client_id)
+        inv_pos, inv_orn = p.invertTransform(pos_a, orn_a)
+        rel_pos, rel_orn = p.multiplyTransforms(inv_pos, inv_orn, pos_b, orn_b)
+        cid = p.createConstraint(parentBodyUniqueId=body_a,
+                                 parentLinkIndex=-1,
+                                 childBodyUniqueId=body_b,
+                                 childLinkIndex=-1,
+                                 jointType=p.JOINT_FIXED,
+                                 jointAxis=[0, 0, 0],
+                                 parentFramePosition=rel_pos,
+                                 parentFrameOrientation=rel_orn,
+                                 childFramePosition=[0, 0, 0],
+                                 childFrameOrientation=[0, 0, 0, 1],
+                                 physicsClientId=self._physics_client_id)
+        # PyBullet's default maxForce (500) sags under cantilevered
+        # load (see the bridge env's weld_max_force).
+        p.changeConstraint(cid,
+                           maxForce=self.residual_attach_max_force,
+                           physicsClientId=self._physics_client_id)
+        return cid
 
     def _clear_commanded_attachments(self) -> None:
         """Remove every command-created weld (episode boundary)."""
         for cid in self._cmd_weld_constraints.values():
             p.removeConstraint(cid, physicsClientId=self._physics_client_id)
         self._cmd_weld_constraints.clear()
+
+    def _command_weld_records(self) -> List[Tuple[str, str]]:
+        """Live command welds as sorted ``(parent_name, child_name)`` pairs.
+
+        Names, not body ids: the record is meant to be restored on a
+        different env instance (the skills' shared planning simulator, a
+        forked validation rollout), whose ids differ.
+        """
+        names_by_id: Dict[int, str] = {}
+        for obj in self._objects:
+            obj_id = getattr(obj, "id", None)
+            if obj_id is not None and obj_id >= 0:
+                names_by_id[obj_id] = obj.name
+        records: List[Tuple[str, str]] = []
+        for cid in self._cmd_weld_constraints.values():
+            info = p.getConstraintInfo(cid,
+                                       physicsClientId=self._physics_client_id)
+            parent = names_by_id.get(info[0])
+            child = names_by_id.get(info[2])
+            if parent is None or child is None:
+                continue
+            records.append((parent, child))
+        return sorted(records)
+
+    def _restore_commanded_attachments(self, state: State) -> None:
+        """Rebuild the command welds a restored State carries.
+
+        A rigid attachment is part of the world the State describes: a
+        rule that welded two bodies expects every consumer of that
+        State - the option model's next step, the skills' planning
+        simulator posing the carried assembly for collision checks - to
+        see one rigid body, exactly as the env's own native welds are
+        rebuilt from the privileged channel. Each recorded pair is
+        re-frozen at the RESTORED relative pose (the recorded frame
+        belongs to the poses the constraint was created at; after a
+        teleport a stale frame would make the solver yank the pair).
+        During stepping the emitting rule stays the authority: a pair
+        it no longer re-emits is dropped by the per-action reconcile.
+        """
+        sim_state = getattr(state, "simulator_state", None)
+        if not isinstance(sim_state, dict):
+            return
+        records = sim_state.get("command_welds") or ()
+        if not records:
+            return
+        ids_by_name = self._residual_command_body_ids()
+        for parent_name, child_name in records:
+            key = frozenset((parent_name, child_name))
+            if key in self._cmd_weld_constraints:
+                continue
+            body_a = ids_by_name.get(parent_name)
+            body_b = ids_by_name.get(child_name)
+            if body_a is None or body_b is None:
+                logging.warning(
+                    "State carries a command weld for unknown or bodiless "
+                    "object pair ('%s', '%s'); skipping.", parent_name,
+                    child_name)
+                continue
+            self._cmd_weld_constraints[key] = self._create_command_weld(
+                body_a, body_b)
 
     def _weld_constraint_edges(self) -> Dict[FrozenSet[int], int]:
         """Every live rigid-attachment constraint, as ``{frozenset({body_a,
@@ -950,6 +1019,68 @@ class PyBulletEnv(BaseEnv):
                                        physicsClientId=self._physics_client_id)
             edges[frozenset((info[0], info[2]))] = cid
         return edges
+
+    def get_welded_partner_ids(self, body_id: int) -> Set[int]:
+        """All body ids rigidly welded (transitively) to ``body_id``.
+
+        Consumed by the skill-factory motion planner to exclude welded
+        partners of the held object from the collision set. Walks the
+        unified registry (:meth:`_weld_constraint_edges`): command welds
+        plus whatever native weld machinery a subclass adds.
+        """
+        partners: Set[int] = set()
+        frontier = [body_id]
+        edges = self._weld_constraint_edges()
+        while frontier:
+            current = frontier.pop()
+            for key in edges:
+                if current in key:
+                    (other, ) = key - {current}
+                    if other != body_id and other not in partners:
+                        partners.add(other)
+                        frontier.append(other)
+        return partners
+
+    def get_welded_partner_transforms(
+        self, body_id: int
+    ) -> Dict[int, Tuple[Tuple[float, ...], Tuple[float, ...]]]:
+        """Ideal ``(position, orientation)`` of every transitively welded
+        partner RELATIVE to ``body_id``, chained from the weld constraints'
+        frozen frames (parent-frame transform, identity child frame).
+
+        Consumed by the skill-factory motion planner to pose welded
+        partners of the held object. The constraint frames are the
+        settled geometry the physical assembly returns to; live partner
+        poses instead snapshot whatever pendulum transient the carried
+        assembly is mid-swing through (an outer span was captured 19 mm
+        low right after a lift), which poisons every collision check
+        that reuses the capture.
+        """
+        out: Dict[int, Tuple[Tuple[float, ...], Tuple[float, ...]]] = {}
+        identity = ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+        frontier: List[int] = [body_id]
+        transforms = {body_id: identity}
+        edges = self._weld_constraint_edges()
+        while frontier:
+            current = frontier.pop()
+            for key, cid in edges.items():
+                if current not in key:
+                    continue
+                (other, ) = key - {current}
+                if other in transforms:
+                    continue
+                info = p.getConstraintInfo(
+                    cid, physicsClientId=self._physics_client_id)
+                parent_id, rel = info[0], (info[6], info[8])
+                step_tf = rel if current == parent_id else \
+                    p.invertTransform(rel[0], rel[1])
+                base = transforms[current]
+                tf = p.multiplyTransforms(base[0], base[1], step_tf[0],
+                                          step_tf[1])
+                transforms[other] = tf
+                out[other] = tf
+                frontier.append(other)
+        return out
 
     def _pin_welds_to_held_root(self) -> None:
         """Kinematically enforce weld transforms across the HELD assembly.
@@ -1195,7 +1326,8 @@ class PyBulletEnv(BaseEnv):
         # the raw post-step state on every step where a rule fired,
         # and the freshly queued commands were computed for exactly
         # that merged state); welds a rule still wants are re-emitted
-        # and re-frozen at the restored poses.
+        # and re-frozen at the restored poses, and welds the State
+        # itself records are restored below.
         self._pending_residual_commands = []
         self._clear_commanded_attachments()
 
@@ -1302,10 +1434,14 @@ class PyBulletEnv(BaseEnv):
             self._create_grasp_constraint()
             wrote_anything = True
 
-        # 4) Subclass-specific state always runs (idempotent and cheap).
+        # 4) Command welds the State carries come back at the restored
+        # poses (see _restore_commanded_attachments); the ones cleared
+        # above belonged to whatever state this env held before.
+        self._restore_commanded_attachments(state)
+        # 5) Subclass-specific state always runs (idempotent and cheap).
         self._set_domain_specific_state(state)
 
-        # 5) Reconstruction check - only when we actually wrote something
+        # 6) Reconstruction check - only when we actually wrote something
         # kinematic. React by mismatch magnitude (see the threshold
         # ClassVars above): a large mismatch can't be benign IK noise, so
         # raise; a small one just warns since the IK reset path is lossy.
@@ -1805,6 +1941,14 @@ class PyBulletEnv(BaseEnv):
         base_pose = self._robot_base_pose_tuple()
         if base_pose is not None:
             sim_state_dict["base_pose"] = base_pose
+        # Live command welds ride along by object NAME, so restoring this
+        # state on ANY env instance - above all the skills' shared planning
+        # simulator - rebuilds them (see _restore_commanded_attachments).
+        # Without this the planner saw a learned rule's welded assembly
+        # as loose bystanders and swept a carried deck through them.
+        command_welds = self._command_weld_records()
+        if command_welds:
+            sim_state_dict["command_welds"] = command_welds
         pyb_state = PyBulletState(state.data, simulator_state=sim_state_dict)
         return pyb_state
 

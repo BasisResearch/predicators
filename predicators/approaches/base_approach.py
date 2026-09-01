@@ -62,6 +62,19 @@ class BaseApproach(abc.ABC):
         """
         return []
 
+    def make_latent_tracker(self) -> Optional[Any]:
+        """An execution-time latent tracker for the coming episode, or None.
+
+        CogMan calls this at every episode reset. An approach whose
+        learned simulator threads a latent block (see
+        ``code_sim_learning.latent_tracker``) returns a fresh
+        ``LatentTracker`` so the states handed to its policy, the
+        termination function, and the execution monitor carry the
+        belief's latent; everything else returns None and executes on
+        bare observations as before.
+        """
+        return None
+
     def reset_for_new_episode(self) -> None:
         """Called by CogMan at the start of each episode, before the initial
         solve() for that episode.
@@ -122,6 +135,18 @@ class BaseApproach(abc.ABC):
         _ = self  # unused, but maybe useful for subclasses
         return []
 
+    def restore_interaction_requests(self, train_task_idxs: List[int]) -> None:
+        """Re-establish the per-request bookkeeping that
+        get_interaction_requests() would have left behind, for a resumed run
+        that reuses a cycle's persisted interaction episodes instead of re-
+        exploring (see main._load_inflight_interactions).
+
+        ``train_task_idxs[i]`` is the train task of the i-th result the
+        following learn_from_interaction_results() call receives. The
+        default is a no-op for approaches that keep no such state.
+        """
+        _ = self, train_task_idxs
+
     def learn_from_interaction_results(
             self, results: Sequence[InteractionResult]) -> None:
         """Given a list of results of the requests returned by
@@ -174,6 +199,10 @@ class BaseApproachWrapper(BaseApproach):
 
     def get_interaction_requests(self) -> List[InteractionRequest]:
         return self._base_approach.get_interaction_requests()
+
+    def restore_interaction_requests(self, train_task_idxs: List[int]) -> None:
+        return self._base_approach.restore_interaction_requests(
+            train_task_idxs)
 
     def learn_from_interaction_results(
             self, results: Sequence[InteractionResult]) -> None:

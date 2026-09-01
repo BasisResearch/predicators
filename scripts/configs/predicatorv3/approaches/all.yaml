@@ -35,7 +35,7 @@ APPROACHES:
   # switches the synthesis prompt to the recurrent 5-arg rule form and
   # the env / GT-simulator dispatch to their PO variants); there is no
   # separate PO approach class.
-  agent_po_predicate_invention_al:
+  sim_predicator:
     NAME: "agent_sim_predicate_invention"
     SKIP: True
     FLAGS:
@@ -65,7 +65,7 @@ APPROACHES:
   # plan: option failures are surfaced to the policy, which owns
   # recovery - so the sketch-divergence replan machinery is off
   # (mutually exclusive by construction).
-  agent_po_predicate_invention_al_policy:
+  sim_predicator_policy:
     NAME: "agent_sim_predicate_invention"
     SKIP: True
     FLAGS:
@@ -92,19 +92,17 @@ APPROACHES:
       code_sim_learning_rollout_min_posterior_width: 0.1
 
   # ======================================================================
-  # ORACLES  (given a GT world model; the two GT-mono-sim arms first (with vs
-  #           without the refine_plan_sketch tool), then the GT-hybrid-sim
-  #           ladder ordered from most GT handed in down to least)
+  # ORACLES  (given a GT world model; the GT-mono-sim arm first, then the
+  #           GT-hybrid-sim ladder ordered from most GT handed in down to
+  #           least)
   # ======================================================================
   # Oracle: GT monolithic sim as world model + GT predicates. Even with
   # use_llm_initial_params False the LLM delivers a full, concrete,
   # exact-parameter plan and validates it in the sim via
   # evaluate_option_plan -- there is no approach-side backtracking
-  # fallback. What it adds over
-  # agent_model_based_planning is the refine_plan_sketch tool (an agent-invokable
-  # per-step backtracking parameter search) plus the sketch / per-step-subgoal
-  # scaffolding. Paired with agent_model_based_planning below: same oracle GT
-  # mono sim, the difference is that extra tooling.
+  # fallback. On top of plain agent_planner it has the refine_plan_sketch
+  # tool (an agent-invokable per-step backtracking parameter search) plus
+  # the sketch / per-step-subgoal scaffolding.
   agent_oracle_mono_sim:
     NAME: "agent_bilevel"
     SKIP: True
@@ -117,23 +115,6 @@ APPROACHES:
       option_model_use_gui: True
       agent_bilevel_log_state: False
       agent_bilevel_plan_sketch_file: "tests/approaches/test_data/boil_plan_sketch.txt"
-  # Oracle-sim baseline: SAME GT monolithic sim as agent_oracle_mono_sim and,
-  # under these defaults, the LLM likewise delivers a full concrete plan via
-  # evaluate_option_plan. The difference is the tooling: agent_planner has NO
-  # refine_plan_sketch, so the LLM must find working continuous params itself
-  # using only whole-plan simulation (evaluate_option_plan) + inspection -- no
-  # per-step backtracking search and no sketch/subgoal scaffolding. This isolates
-  # the effect of that tooling under identical oracle dynamics; its no-sim
-  # counterpart is agent_model_free_planning in BASELINES.
-  agent_model_based_planning:
-    NAME: "agent_planner"
-    SKIP: True
-    FLAGS:
-      explorer: "agent_plan"
-      demonstrator: "oracle_process_planning"
-      terminate_on_goal_reached_and_option_terminated: True
-      agent_sdk_use_local_sandbox: True
-      option_model_terminate_on_repeat: False
   # Oracle (upper bound): GT hybrid sim + GT base-sim physical params
   # (true friction), as if all learning had already succeeded.
   # Includes the 200-turn sandbox budget (2026-07-15 sweeps: every failed
@@ -185,58 +166,58 @@ APPROACHES:
       agent_sim_learn_oracle_sim_params: False
       agent_sim_learn_oracle_sim_param_noise_scale: 1.0 # 1.0 allows successful planning but insatisficing plan; 0.8 produces satisficing plan
       code_sim_learning_num_mcmc_steps: 0
-  # agent_oracle_hybrid_sim + agent-synthesized per-skill samplers: the
-  # agent writes samplers.py (LEARNED_SAMPLERS) in a dedicated synthesis
-  # session, and bilevel refinement then draws each option's params from
-  # its sampler instead of uniformly (per-step `~ [widths]` regions still
-  # override per step). Compare against agent_oracle_hybrid_sim to
-  # measure what the reusable cross-task sampler prior adds.
-  agent_oracle_hybrid_sim_sampler:
-    NAME: "agent_sim_learning"
-    SKIP: True
-    FLAGS:
-      demonstrator: "oracle_process_planning"
-      bilevel_plan_without_sim: True # for the demonstrator
-      explorer: "agent_bilevel"
-      terminate_on_goal_reached_and_option_terminated: True
-      agent_sdk_use_local_sandbox: True
-      option_model_terminate_on_repeat: False
-      option_model_use_gui: False
-      agent_bilevel_log_state: False
-      agent_sim_learn_oracle_sim_program: True
-      agent_sim_learn_oracle_sim_params: True
-      agent_bilevel_use_llm_initial_params: True
-      num_online_learning_cycles: 0
-      execution_monitor: "subgoal_annotations"
-      agent_bilevel_max_execution_replans: 2
-      agent_sim_learn_parameterized_samplers: True
-  # agent_oracle_hybrid_sim + GROUND samplers: the agent may attach a
-  # per-step sampling prior to any sketch step - a uniform window
-  # `~ [w1, w2]` around its proposed params, or `~ name` referencing a
-  # function it wrote in ground_samplers.py (reloaded on every
-  # refine_plan_sketch call). No learning session; the channel is pure
-  # sketch grammar, enabled by agent_bilevel_ground_samplers. Compare
-  # against agent_oracle_hybrid_sim (which never sees the grammar) to
-  # measure what per-call ground sampling adds.
-  agent_oracle_hybrid_sim_ground_sampler:
-    NAME: "agent_sim_learning"
-    SKIP: True
-    FLAGS:
-      demonstrator: "oracle_process_planning"
-      bilevel_plan_without_sim: True # for the demonstrator
-      explorer: "agent_bilevel"
-      terminate_on_goal_reached_and_option_terminated: True
-      agent_sdk_use_local_sandbox: True
-      option_model_terminate_on_repeat: False
-      option_model_use_gui: False
-      agent_bilevel_log_state: False
-      agent_sim_learn_oracle_sim_program: True
-      agent_sim_learn_oracle_sim_params: True
-      agent_bilevel_use_llm_initial_params: True
-      num_online_learning_cycles: 0
-      execution_monitor: "subgoal_annotations"
-      agent_bilevel_max_execution_replans: 2
-      agent_bilevel_ground_samplers: True
+  # # agent_oracle_hybrid_sim + agent-synthesized per-skill samplers: the
+  # # agent writes samplers.py (LEARNED_SAMPLERS) in a dedicated synthesis
+  # # session, and bilevel refinement then draws each option's params from
+  # # its sampler instead of uniformly (per-step `~ [widths]` regions still
+  # # override per step). Compare against agent_oracle_hybrid_sim to
+  # # measure what the reusable cross-task sampler prior adds.
+  # agent_oracle_hybrid_sim_sampler:
+  #   NAME: "agent_sim_learning"
+  #   SKIP: True
+  #   FLAGS:
+  #     demonstrator: "oracle_process_planning"
+  #     bilevel_plan_without_sim: True # for the demonstrator
+  #     explorer: "agent_bilevel"
+  #     terminate_on_goal_reached_and_option_terminated: True
+  #     agent_sdk_use_local_sandbox: True
+  #     option_model_terminate_on_repeat: False
+  #     option_model_use_gui: False
+  #     agent_bilevel_log_state: False
+  #     agent_sim_learn_oracle_sim_program: True
+  #     agent_sim_learn_oracle_sim_params: True
+  #     agent_bilevel_use_llm_initial_params: True
+  #     num_online_learning_cycles: 0
+  #     execution_monitor: "subgoal_annotations"
+  #     agent_bilevel_max_execution_replans: 2
+  #     agent_sim_learn_parameterized_samplers: True
+  # # agent_oracle_hybrid_sim + GROUND samplers: the agent may attach a
+  # # per-step sampling prior to any sketch step - a uniform window
+  # # `~ [w1, w2]` around its proposed params, or `~ name` referencing a
+  # # function it wrote in ground_samplers.py (reloaded on every
+  # # refine_plan_sketch call). No learning session; the channel is pure
+  # # sketch grammar, enabled by agent_bilevel_ground_samplers. Compare
+  # # against agent_oracle_hybrid_sim (which never sees the grammar) to
+  # # measure what per-call ground sampling adds.
+  # agent_oracle_hybrid_sim_ground_sampler:
+  #   NAME: "agent_sim_learning"
+  #   SKIP: True
+  #   FLAGS:
+  #     demonstrator: "oracle_process_planning"
+  #     bilevel_plan_without_sim: True # for the demonstrator
+  #     explorer: "agent_bilevel"
+  #     terminate_on_goal_reached_and_option_terminated: True
+  #     agent_sdk_use_local_sandbox: True
+  #     option_model_terminate_on_repeat: False
+  #     option_model_use_gui: False
+  #     agent_bilevel_log_state: False
+  #     agent_sim_learn_oracle_sim_program: True
+  #     agent_sim_learn_oracle_sim_params: True
+  #     agent_bilevel_use_llm_initial_params: True
+  #     num_online_learning_cycles: 0
+  #     execution_monitor: "subgoal_annotations"
+  #     agent_bilevel_max_execution_replans: 2
+  #     agent_bilevel_ground_samplers: True
   # Oracle: GT predicates; learn the hybrid sim and its params.
   agent_sim_learning:
     NAME: "agent_sim_learning"
@@ -255,7 +236,7 @@ APPROACHES:
       code_sim_learning_num_mcmc_steps: 0
   # Oracle / fully-observable ablation of OURS: sees full state, no GT models;
   # learn predicates, hybrid sim, and params.
-  agent_predicate_invention:
+  agent_fo_predicate_invention:
     NAME: "agent_sim_predicate_invention"
     SKIP: True
     FLAGS:
@@ -275,9 +256,8 @@ APPROACHES:
   # ======================================================================
   # BASELINES  (lower bounds / alternative learners)
   # ======================================================================
-  # Baseline: agent planning does NOT have a simulator / world model. This is
-  # the no-model counterpart of agent_model_based_planning (same agent_planner
-  # approach, but agent_planner_use_simulator: False).
+  # Baseline: agent planning does NOT have a simulator / world model
+  # (agent_planner with agent_planner_use_simulator: False).
   agent_model_free_planning:
     NAME: "agent_planner"
     SKIP: True
@@ -308,16 +288,16 @@ APPROACHES:
       num_online_learning_cycles: 0
       execution_monitor: "subgoal_annotations"
       agent_bilevel_max_execution_replans: 2
-  # Baseline: learn options from demonstrations.
-  agent_option_learning:
-    NAME: "agent_option_learning"
-    SKIP: True
-    FLAGS:
-      explorer: "agent_plan"
-      option_learner: "agent"
-      demonstrator: "oracle_process_planning"
-      terminate_on_goal_reached_and_option_terminated: True
-      agent_sdk_use_local_sandbox: True
+  # # Baseline: learn options from demonstrations.
+  # agent_option_learning:
+  #   NAME: "agent_option_learning"
+  #   SKIP: True
+  #   FLAGS:
+  #     explorer: "agent_plan"
+  #     option_learner: "agent"
+  #     demonstrator: "oracle_process_planning"
+  #     terminate_on_goal_reached_and_option_terminated: True
+  #     agent_sdk_use_local_sandbox: True
 
   # ======================================================================
   # DEMONSTRATOR / SCRIPTED  (demo source used by every agent arm above,

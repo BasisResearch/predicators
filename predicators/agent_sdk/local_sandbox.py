@@ -36,7 +36,6 @@ of the normal ``AgentSessionManager``::
 import datetime
 import logging
 import os
-import re
 import time
 from typing import Any, Dict, List, Optional
 
@@ -45,7 +44,7 @@ from predicators.agent_sdk.log_formatter import format_conversation_markdown
 from predicators.agent_sdk.sandbox_prompts import build_sandbox_system_prompt
 from predicators.agent_sdk.sandbox_setup import git_commit_all
 from predicators.agent_sdk.session_base import SandboxSessionManagerBase, \
-    build_agent_options, build_sandbox_mcp
+    build_agent_options, build_sandbox_mcp, max_session_log_number
 from predicators.agent_sdk.tools import ToolContext, session_log_filename
 
 logger = logging.getLogger(__name__)
@@ -84,6 +83,7 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
         extra_reference_files: Optional[Dict[str, str]] = None,
         phase: Optional[str] = None,
         config: Optional[SessionConfig] = None,
+        query_count_floor: int = 0,
     ) -> None:
         super().__init__(system_prompt=system_prompt +
                          _LOCAL_SANDBOX_SYSTEM_PROMPT,
@@ -96,6 +96,11 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
                          config=config)
         self._sandbox_log_path: Optional[str] = None
         self._query_count_seeded: bool = False
+        # Lowest transcript number this session may hand out minus one:
+        # an auto-resumed run passes the count its predecessor reached
+        # (recorded in the checkpoint), so ids continue across the
+        # lineage instead of restarting at 001 in the new run dir.
+        self._query_count_floor = int(query_count_floor)
 
     # -- Session lifecycle --
 
@@ -214,32 +219,20 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
     # ``kind_NNN_ts.md`` layout so resuming across the migration is
     # lossless. The counter is always captured in group 1 or 2; the
     # optional ``_task<idx>`` segment tags test queries with their task.
-    _LOG_FILENAME_RE = re.compile(
-        r"^(?:(\d{3})_[a-z][a-z_]*(?:_task\d+)?|[a-z][a-z_]*_(\d{3}))"
-        r"_\d{8}_\d{6}\.md$")
-
     def _seed_query_count_from_log_dir(self) -> None:
         """Make the per-session counter continuous across the run.
 
         On first use, scan ``_log_dir`` for prior log files matching
         ``NNN_<kind>_<ts>.md`` (or the legacy ``<kind>_NNN_<ts>.md``)
-        and pick up where the last session left off. Without this, every
-        fresh session would restart at 001.
+        and pick up where the last session left off, never below the
+        resumed lineage's floor. Without this, every fresh session would
+        restart at 001.
         """
         if self._query_count_seeded:
             return
         self._query_count_seeded = True
-        if not self._log_dir or not os.path.isdir(self._log_dir):
-            return
-        max_n = 0
-        for name in os.listdir(self._log_dir):
-            m = self._LOG_FILENAME_RE.match(name)
-            if m:
-                # Group 1 is the new layout, group 2 is the legacy
-                # layout; exactly one matches per file.
-                captured = m.group(1) or m.group(2)
-                max_n = max(max_n, int(captured))
-        self._query_count = max_n
+        self._query_count = max(max_session_log_number(self._log_dir),
+                                self._query_count_floor)
 
     def _init_incremental_log(self,
                               query: str,

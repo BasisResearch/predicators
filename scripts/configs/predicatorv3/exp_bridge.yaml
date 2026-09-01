@@ -17,7 +17,7 @@ APPROACHES:
   # min after the Place post-release verification revert); re-skipped.
   agent_oracle_hybrid_sim:
     SKIP: True
-  agent_po_predicate_invention_al:
+  sim_predicator:
     SKIP: False
     FLAGS:
       skip_initial_test: True
@@ -54,7 +54,7 @@ APPROACHES:
       - auto_resume
   # Closed-loop policy-mode arm (same learner; the solve deliverable is
   # a per-task policy.py executed without an LLM at test time).
-  agent_po_predicate_invention_al_policy:
+  sim_predicator_policy:
     SKIP: False
     FLAGS:
       skip_initial_test: True

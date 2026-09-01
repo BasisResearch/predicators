@@ -765,3 +765,67 @@ def test_planning_context_sees_hidden_welds_in_po_mode():
     finally:
         _SHARED_SIMULATOR_CACHE.pop(PyBulletBridgeEnv, None)
         p.disconnect(env._physics_client_id)
+
+
+def test_planning_context_sees_command_welds():
+    """A learned rule's ``cmds.attach`` weld reaches the skills' planning
+    simulator through ``simulator_state["command_welds"]``: the welded follower
+    travels with the grasp instead of standing in the obstacle set as a static
+    ghost (the belief-side "seat sweeps the deck through the legs" failure that
+    kept every bridge plan uncertifiable)."""
+    utils.reset_config({
+        "env": "pybullet_bridge",
+        "seed": 0,
+        "num_train_tasks": 1,
+        "num_test_tasks": 0,
+        "skill_phase_use_motion_planning": True,
+    })
+    # pylint: disable=import-outside-toplevel
+    from gym.spaces import Box
+
+    from predicators.envs.pybullet_bridge import PyBulletBridgeEnv
+    from predicators.ground_truth_models.bridge.options import \
+        PyBulletBridgeGroundTruthOptionFactory
+    from predicators.ground_truth_models.skill_factories.base import \
+        _SHARED_SIMULATOR_CACHE, Phase, PhaseAction, PhaseSkill, \
+        shared_skill_robot
+
+    _SHARED_SIMULATOR_CACHE.pop(PyBulletBridgeEnv, None)
+    env = PyBulletBridgeEnv(use_gui=False, skip_residual_dynamics=True)
+    try:
+        task = env._generate_train_tasks()[0]
+        env._set_state(task.init)
+        state = env._get_state()
+        span0 = next(b for b in env._blocks if b.name == "span0")
+        span1 = next(b for b in env._blocks if b.name == "span1")
+        # No native weld anywhere (base sim, hidden dynamics off): the
+        # only attachment is the one the State records by name.
+        assert not env._weld_constraints
+        state.simulator_state = dict(state.simulator_state)
+        state.simulator_state["command_welds"] = [(span1.name, span0.name)]
+        state.set(span1, "is_held", 1.0)
+
+        config = PyBulletBridgeGroundTruthOptionFactory._build_skill_config(
+            shared_skill_robot(PyBulletBridgeEnv))
+        assert config.simulator is not None
+        skill = PhaseSkill(
+            "probe", [], Box(0.0, 1.0, (0, )), config,
+            [Phase("noop", PhaseAction.CHANGE_FINGERS, target_fn=None)])
+        _, collision_bodies, _, held_id, attachments = \
+            skill._sim_collision_context(state)
+
+        sim = config.simulator
+        sim_ids = {b.name: b.id for b in sim._blocks}
+        assert held_id == sim_ids["span1"]
+        assert sim_ids["span0"] in attachments
+        assert sim_ids["span0"] not in collision_bodies
+        assert sim_ids["span2"] in collision_bodies
+        # Without the record the same State plans span1 alone.
+        del state.simulator_state["command_welds"]
+        _, collision_bodies, _, _, attachments = \
+            skill._sim_collision_context(state)
+        assert not attachments
+        assert sim_ids["span0"] in collision_bodies
+    finally:
+        _SHARED_SIMULATOR_CACHE.pop(PyBulletBridgeEnv, None)
+        p.disconnect(env._physics_client_id)

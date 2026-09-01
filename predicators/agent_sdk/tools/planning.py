@@ -449,6 +449,8 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
                         run_id="planner_refine",
                         timeout_source=timeout_source,
                         solved_check=solved_check,
+                        strip_latent_wait_targets=(
+                            not ctx.latent_tracking_available),
                     )
             except Exception:  # pylint: disable=broad-except
                 tb = _scrub_host_paths(traceback.format_exc())

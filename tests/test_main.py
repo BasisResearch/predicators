@@ -5,7 +5,7 @@ import sys
 import tempfile
 import time
 from collections import defaultdict
-from typing import Callable, Dict
+from typing import Callable, Dict, List
 
 import pytest
 
@@ -13,6 +13,8 @@ import predicators.ground_truth_models
 from predicators import utils
 from predicators.approaches import ApproachFailure, ApproachTimeout, \
     BaseApproach, create_approach
+from predicators.approaches.agent_model_free_approach import \
+    AgentModelFreeApproach
 from predicators.cogman import CogMan
 from predicators.envs.cover import CoverEnv
 from predicators.execution_monitoring import create_execution_monitor
@@ -407,7 +409,11 @@ def test_inflight_interactions_roundtrip(tmp_path):
         _approach = _FakeApproach()
 
     cogman = _FakeCogman()
-    results = [{"episode": 1}, {"episode": 2}]  # picklable stand-ins
+    results: List[Dict[str, int]] = [{
+        "episode": 1
+    }, {
+        "episode": 2
+    }]  # picklable stand-ins
     _save_inflight_interactions(3, cogman, results, [0, 0], [True, False], 1.5)
     # Wrong cycle finds nothing.
     assert _load_inflight_interactions(2, cogman) is None
@@ -442,3 +448,30 @@ def test_inflight_interactions_roundtrip(tmp_path):
     cogman_nockpt._approach = _NoCkptApproach()  # pylint: disable=protected-access
     _save_inflight_interactions(4, cogman_nockpt, results, [0], [True], 0.0)
     assert not os.path.exists(_inflight_interactions_path(4))
+
+
+def test_stash_resume_restores_request_bookkeeping():
+    """A resume that reuses a cycle's persisted episodes never calls
+    get_interaction_requests, so the result->train-task pairing that
+    learn_from_interaction_results needs must come from
+    restore_interaction_requests (run_20260828_173451 asserted on it)."""
+    # The model-free family records the pairing in get_interaction_requests
+    # and asserts on it in learn_from_interaction_results.
+    approach = object.__new__(AgentModelFreeApproach)
+    approach._requests_train_task_idxs = None  # pylint: disable=protected-access
+    approach.restore_interaction_requests([0, 0])
+    assert approach._requests_train_task_idxs == [0, 0]  # pylint: disable=protected-access
+
+    # CogMan forwards to whatever approach it wraps.
+    class _RecordingApproach:
+        restored = None
+
+        def restore_interaction_requests(self, train_task_idxs):
+            """Record what CogMan forwarded."""
+            self.restored = list(train_task_idxs)
+
+    rec = _RecordingApproach()
+    cogman = CogMan(rec, create_perceiver("trivial"),
+                    create_execution_monitor("trivial"))
+    cogman.restore_interaction_requests([1, 0])
+    assert rec.restored == [1, 0]

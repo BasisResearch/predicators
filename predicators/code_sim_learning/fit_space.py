@@ -12,7 +12,7 @@ without import cycles.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -89,6 +89,12 @@ class FitResult:
     prior_sigma: Optional[
         np.ndarray] = None  # (num_params,) Gaussian-prior std, FIT space
     scales: Optional[List[str]] = None  # per-param ParamSpec.scale
+    # One line per parameter whose LM Jacobian column was identically
+    # zero (threshold/gate parameters the finite-difference fit cannot
+    # move): what the bracket search did about it (see lm.solve_lm).
+    # Rendered to the agent by the fit tools so "converged" never
+    # passes for "fit from data" on such a parameter.
+    lm_notes: List[str] = field(default_factory=list)
     # Pre-fit sensitivity screen (physical_sysid): per-param
     # {"sse_span": ..., "noise_floor": ..., "sensitive": bool}. A param
     # whose grid-sweep SSE span stays within the same-theta noise floor

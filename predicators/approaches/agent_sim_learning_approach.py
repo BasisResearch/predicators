@@ -34,6 +34,8 @@ import pybullet
 from gym.spaces import Box
 
 from predicators import utils
+from predicators.agent_sdk.session_base import AgentSessionFatalError, \
+    max_session_log_number, query_fatal_error
 from predicators.agent_sdk.tools import JOURNAL_TOOL_NAMES, \
     SAMPLER_SYNTHESIS_TOOL_NAMES, SYNTHESIS_TOOL_NAMES, _SnapshotTarget, \
     create_synthesis_tools, evaluate_states_with, \
@@ -55,6 +57,8 @@ from predicators.code_sim_learning.fitting import FIT_NOISE_SIGMA, \
     fit_rule_parameters_latent, log_param_changes, log_sse_breakdown
 from predicators.code_sim_learning.identifiability import Verdict, \
     format_identifiability, physics_sigma_points
+from predicators.code_sim_learning.latent_tracker import LatentTracker, \
+    make_latent_tracker
 from predicators.code_sim_learning.orchestrator import run_rollout_sysid
 from predicators.code_sim_learning.physical_sysid import fit_params_rollout
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
@@ -341,8 +345,20 @@ def rule(..., cmds):        # same leading args as above, plus `cmds`
     cmds.apply_force(obj, (fx, fy, fz))    # world-frame Newtons
     cmds.apply_torque(obj, (tx, ty, tz))   # world-frame N*m
     cmds.set_velocity(obj, linear=(vx, vy, vz))   # kinematic override
+    cmds.attach(obj_a, obj_b)   # rigid weld at their CURRENT relative pose
     return updates
 ```
+
+`cmds.attach` is the primitive for two bodies that move as ONE rigid \
+body from some event on (a cured glue joint, a latch, a magnetised \
+contact): the engine creates a fixed constraint at the pair's current \
+relative pose and keeps it exactly while the command is re-emitted, so \
+the base sim carries the whole assembly through pick, transport, and \
+contact. Latch the decision in the rule's latent/feature state and \
+re-emit from the latch every step. Do NOT emulate a weld by writing \
+follower poses from the leader's pose each step: pose-written \
+followers do not collide, do not support anything, and swing free \
+during a carry, so plans validate in the belief and fail for real.
 
 Commands act during the NEXT env action and then expire - re-emit \
 them each step the process is active (a wind that blows while a \
@@ -363,7 +379,9 @@ it.
 2. **A body moves in the data but is inert in base-sim replay** \
 whenever some observable condition holds: the mechanism is missing - \
 an exogenous influence the engine knows nothing about. Model it with \
-force/velocity commands gated on the condition.
+force/velocity commands gated on the condition. If the missing \
+mechanism is that two bodies move together rigidly after an event, \
+the command is `cmds.attach`, not a pose rule.
 3. **The feature is not a rigid-body pose at all** (a level, a \
 temperature, a counter): use the feature-update channel.
 
@@ -1239,6 +1257,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             self._collect_sandbox_artifacts(),
             "git_describe":
             _describe_git_revision(),
+            # Highest session-transcript id so far, so a resumed run
+            # keeps numbering its transcripts after this run's.
+            "agent_query_count":
+            max_session_log_number(self._get_log_dir()),
         }
 
     def _load_extra_save_state(self, save_dict: Dict[str, Any]) -> None:
@@ -1249,6 +1271,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 "Checkpoint was written at git revision %s but this run "
                 "is at %s - resuming across code versions is untested.",
                 saved_rev, current_rev)
+        self._resume_query_count = int(save_dict.get("agent_query_count", 0))
         # In-place update: _ParamsView holders (invented predicate and
         # sampler closures) alias this exact dict object.
         self._fitted_params.clear()
@@ -1832,7 +1855,20 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             trajectories, obs_triples, inferred_hint, paths, structs_ref,
             extra_paths, sampler_paths, base_sim_refs)
         try:
-            self._query_agent_sync(message, kind="learn")
+            responses = self._query_agent_sync(message, kind="learn")
+            dead = query_fatal_error(responses)
+            if dead is not None:
+                # The synthesis session never ran (usage limit, auth,
+                # transport): nothing was learned, so this cycle must
+                # not be checkpointed as learned. The cycle's explore
+                # episodes are stashed (main._save_inflight_interactions),
+                # so a relaunch resumes at exactly this learn. Silently
+                # continuing once wrote a byte-identical checkpoint and
+                # burned a whole cycle (2026-08-27 run_20260827_121111).
+                raise AgentSessionFatalError(
+                    "The learn session died without the agent doing any "
+                    f"work ({dead}); refusing to checkpoint this cycle as "
+                    "learned.")
         finally:
             self._tool_context.extra_session_hooks = {}
             self._tool_context.extra_mcp_tools = []
@@ -3029,6 +3065,27 @@ earlier advice, rather than appending contradictions."""
         super()._sync_tool_context()
         self._tool_context.sysid_diagnostics = (self._last_sysid_diagnostics
                                                 or None)
+        self._tool_context.latent_tracking_available = \
+            self._latent_tracking_available()
+
+    def _latent_tracking_available(self) -> bool:
+        """Whether episodes will run with an execution-time latent tracker (the
+        loaded simulator threads a latent block)."""
+        rules = self._residual_rules
+        if not rules:
+            return False
+        return has_latent_rules(rules)
+
+    def make_latent_tracker(self) -> Optional[LatentTracker]:
+        """A fresh tracker over the current rules, params, and latent init (see
+        ``code_sim_learning.latent_tracker``), or None for a fully- observable
+        simulator.
+
+        Parameters are passed by reference, as the belief simulator's
+        closure does, so a later in-place fit is seen.
+        """
+        return make_latent_tracker(self._residual_rules, self._fitted_params,
+                                   self._latent_init)
 
     # ── Partial-observability (latent) support ───────────────────
     # Reached only when the loaded rules use the recurrent 5-arg
