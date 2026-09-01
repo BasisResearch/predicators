@@ -541,6 +541,96 @@ def test_physics_margin_vacuous_without_points():
     assert scope_overrides == [None, None]
 
 
+def _rule_param_scope_ctx(model, members):
+    """A ctx whose rule-param override scope applies members to ``model``."""
+    ctx = _make_ctx(model)
+    applied = []
+
+    @contextlib.contextmanager
+    def _fresh_scope(physical_overrides=None):
+        del physical_overrides
+        yield
+
+    @contextlib.contextmanager
+    def _override(point):
+        applied.append(point)
+        prev = model.friction
+        model.friction = point["dab_tol"]
+        try:
+            yield
+        finally:
+            model.friction = prev
+
+    ctx.validation_env_scope = _fresh_scope
+    ctx.rule_param_margin_provider = lambda: list(members)
+    ctx.rule_param_override_scope = _override
+    return ctx, applied
+
+
+def test_rule_param_sensitive_plan_is_not_captured():
+    """A plan that fails under a calibrated rule-param ensemble member is
+    refused as PARAM-SENSITIVE.
+
+    Regression for the bridge cycles 5-7: plans centered on marginal
+    operating points of uncertain learned constants (a glue dab at 16 mm
+    of the true 20 mm radius) passed 5/5 nominal validation rollouts and
+    the (empty) physics sweep, then failed in the real environment.
+    """
+    utils.reset_config({
+        "agent_plan_validation_rollouts": 3,
+        "agent_plan_validation_fresh_env": True,
+        "agent_plan_validation_physics_margin": False,
+        "agent_plan_validation_rule_param_margin": True,
+    })
+    model = _PhysicsAwareModel()
+    ctx, applied = _rule_param_scope_ctx(model, [{
+        "dab_tol": 0.59
+    }, {
+        "dab_tol": 0.48
+    }])
+    text = _call_tool(ctx)
+    assert "PARAM-SENSITIVE (plan NOT captured)" in text
+    assert "rule-param ensemble member 2/2" in text
+    assert "dab_tol=0.48" in text
+    assert ctx.solved_plan is None
+    assert applied == [{"dab_tol": 0.59}, {"dab_tol": 0.48}]
+
+
+def test_rule_param_margin_pass_is_captured_with_note():
+    """Members inside the success band capture with the margin note."""
+    utils.reset_config({
+        "agent_plan_validation_rollouts": 3,
+        "agent_plan_validation_fresh_env": True,
+        "agent_plan_validation_physics_margin": False,
+        "agent_plan_validation_rule_param_margin": True,
+    })
+    model = _PhysicsAwareModel()
+    ctx, _ = _rule_param_scope_ctx(model, [{
+        "dab_tol": 0.51
+    }, {
+        "dab_tol": 0.59
+    }])
+    text = _call_tool(ctx)
+    assert "Captured as the current answer" in text
+    assert "Rule-parameter margin check passed" in text
+
+
+def test_rule_param_margin_disabled_by_config():
+    """The default-off flag skips the rule-param sweep entirely."""
+    utils.reset_config({
+        "agent_plan_validation_rollouts": 3,
+        "agent_plan_validation_fresh_env": True,
+        "agent_plan_validation_physics_margin": False,
+        "agent_plan_validation_rule_param_margin": False,
+    })
+    model = _PhysicsAwareModel()
+    ctx, applied = _rule_param_scope_ctx(model, [{"dab_tol": 0.48}])
+    text = _call_tool(ctx)
+    assert "Captured as the current answer" in text
+    assert "PARAM-SENSITIVE" not in text
+    assert not applied
+
+
 def test_best_effort_flaky_plan_is_captured():
     """A best-effort submission captures a flaky plan instead of refusing.
 

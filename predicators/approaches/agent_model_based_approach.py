@@ -273,7 +273,9 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
                 "change something - parameters, target, or action: "
                 "re-issuing the identical failing line "
                 f"{CFG.agent_policy_max_repeated_failures} times in a "
-                "row ends the episode as a policy bug. Sketches and "
+                "row ends the episode as a policy bug, and so does "
+                "re-issuing one identical line that keeps completing "
+                "with NO state change (a no-op livelock). Sketches and "
                 "subgoal annotations remain useful for exploration "
                 "(sim.run / sim.refine) but are not the deliverable.")
         else:
@@ -1114,9 +1116,12 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         step-cap timeout) do NOT end the episode; the failure text is
         surfaced to the policy via ``memory['last_failure']`` and the
         next option is requested from the current state, bounded by
-        ``CFG.agent_policy_max_options`` total options and
+        ``CFG.agent_policy_max_options`` total options,
         ``CFG.agent_policy_max_repeated_failures`` consecutive failures
-        of one identical command (the stuck-loop guard). ``get_option``
+        of one identical command (the stuck-loop guard), and
+        ``CFG.agent_policy_max_repeated_noops`` consecutive clean
+        completions of one identical command that changed nothing
+        observable (the guard's livelock twin). ``get_option``
         bugs and DONE end the episode via ``ApproachFailure`` (harmless
         when the goal already holds).
 
@@ -1130,7 +1135,8 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         """
         # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk.policy_execution import PolicyError, \
-            option_repeat_key, repeated_failure_message
+            option_repeat_key, repeated_failure_message, \
+            repeated_noop_message, states_features_allclose
         predicates = self._get_all_predicates()
 
         def _abstract(s: State) -> Set[GroundAtom]:
@@ -1140,17 +1146,37 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         last_failure: Optional[str] = None
         repeat_key: Optional[Any] = None
         repeat_count = 0
+        issued_option: Optional[_Option] = None
+        issued_state: Optional[State] = None
+        noop_key: Optional[Any] = None
+        noop_count = 0
 
         class _PolicyFatal(utils.OptionExecutionFailure):
             """DONE / policy bug / budget: never surfaced, ends episode."""
 
         def _option_policy(state: State) -> _Option:
-            nonlocal issued, last_failure, repeat_key, repeat_count
+            nonlocal issued, last_failure, repeat_key, repeat_count, \
+                issued_option, issued_state, noop_key, noop_count
             if last_failure is None and issued > 0:
                 # The previous option completed cleanly: the policy is
                 # making progress, so the stuck-loop counter resets.
                 repeat_key = None
                 repeat_count = 0
+                # ...unless the clean completion changed nothing
+                # observable: an identical command re-completing as a
+                # no-op K times is a livelock the failure guard cannot
+                # see (mirrors execute_policy_forward).
+                if issued_option is not None and issued_state is not None \
+                        and states_features_allclose(issued_state, state):
+                    key = option_repeat_key(issued_option)
+                    noop_count = noop_count + 1 if key == noop_key else 1
+                    noop_key = key
+                    if noop_count >= CFG.agent_policy_max_repeated_noops:
+                        raise _PolicyFatal(
+                            repeated_noop_message(issued_option, noop_count))
+                else:
+                    noop_key = None
+                    noop_count = 0
             if issued >= CFG.agent_policy_max_options:
                 raise _PolicyFatal(
                     "Policy exhausted its option budget "
@@ -1173,6 +1199,8 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
                 # raise would name the PREVIOUS option in its info).
                 raise utils.OptionExecutionFailure(
                     "not initiable", info={"last_failed_option": nxt})
+            issued_option = nxt
+            issued_state = state
             return nxt
 
         def _fresh_inner() -> Callable[[State], Action]:

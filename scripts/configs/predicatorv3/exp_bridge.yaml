@@ -23,6 +23,17 @@ APPROACHES:
       skip_initial_test: True
       bilevel_plan_without_sim: True # for the demonstrator
       agent_solve_max_attempts: 1
+      # Early stopping stays train-driven (common.yaml): test tasks are
+      # evaluation-only and must never feed a training/termination
+      # decision. The path to firing the 2/2 train criterion is making
+      # attempts reliable (max-margin plans, precise skills), not
+      # peeking at test outcomes.
+      # A submission must also survive the calibrated posterior members
+      # of the learned rule constants: three straight test failures
+      # (cycles 5-7) came from plans centered on marginal operating
+      # points (a glue dab at 16 mm of the true 20 mm radius) that
+      # passed 5/5 nominal validation rollouts.
+      agent_plan_validation_rule_param_margin: True
       # Skip the once-per-cycle exploration-posterior emcee fit (up to 5h
       # wall per cycle at bridge scale for a ~0.1% log-prob gain over the
       # LM warm start). The info-seeking ensemble falls back to a Laplace
@@ -44,5 +55,6 @@ APPROACHES:
       bilevel_plan_without_sim: True # for the demonstrator
       agent_solve_max_attempts: 1
       agent_explorer_info_mcmc_steps: 0 # see the arm above
+      agent_plan_validation_rule_param_margin: True # see the arm above
     ARGS:
       - auto_resume

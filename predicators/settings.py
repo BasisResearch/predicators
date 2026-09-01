@@ -30,6 +30,15 @@ class GlobalSettings:
     skip_initial_test = False
     # just for plotting
     online_learning_early_stopping_by_test_solve_rate = False
+    # Test-driven early stopping fires only after this many CONSECUTIVE
+    # test phases solved every test task. With a small test set a single
+    # perfect phase can be one lucky rollout of a stochastic
+    # environment; requiring more phases turns the criterion into
+    # evidence of reliability. The streak is re-seeded from the saved
+    # per-cycle test results on --auto_resume, so a timeout/relaunch
+    # continues the count. Only read when
+    # online_learning_early_stopping_by_test_solve_rate is True.
+    online_learning_early_stopping_consecutive_perfect_tests = 1
     # When True, every interaction request in the cycle (not just the first
     # per task) must succeed before early stopping is triggered. Catches
     # "lucky single-sample" successes that mask a buggy learned model.
@@ -1627,6 +1636,14 @@ class GlobalSettings:
     # options on one identical colliding PickBlock). 3 still allows a
     # couple of deliberate retries against stochastic motion planning.
     agent_policy_max_repeated_failures = 3
+    # The no-effect twin of the guard above: consecutive re-issues of one
+    # identical command that keeps COMPLETING with no observable state
+    # change (e.g. a MoveTo to the pose the robot already holds). The
+    # 2026-08-26 policy-arm cycle-6 test livelocked this way, spinning
+    # 10+ of its 50 options on one completed MoveTo the failure guard
+    # cannot see (nothing fails). 3 tolerates a benign settle-in-place
+    # step without letting a livelock burn the budget.
+    agent_policy_max_repeated_noops = 3
     # LLM-free bypass: path to a prewritten policy.py used as the captured
     # artifact for every test task (mirrors the sketch-file bypass). For
     # smoke tests and debugging the execution path.
@@ -1743,6 +1760,18 @@ class GlobalSettings:
     # captures are infrequent, so density is cheap sensitivity; designs
     # with real margin pass every density identically.
     agent_plan_validation_physics_margin_points = 32
+    # Rule-parameter margin gate: after the physics points, re-run each
+    # capture-eligible submission under the calibrated rule-parameter
+    # ensemble members (the same posterior draws info-seeking
+    # exploration scores with), rejecting as PARAM-SENSITIVE a plan
+    # that survives only at the point estimate of an uncertain LEARNED
+    # constant (a gate threshold, a geometric offset). The physics
+    # sweep cannot catch these: it perturbs identified base-physics
+    # params, while a learned rule constant baked near a data boundary
+    # carries its own posterior uncertainty. No-op unless the approach
+    # installs the ensemble providers (see rule_param_margin_provider),
+    # which requires agent_explorer_info_seeking's ensemble.
+    agent_plan_validation_rule_param_margin = False
     # Agent bilevel explorer settings. Separate from the solve-path budget
     # above because the explorer runs full backtracking while looking for
     # the deepest subgoal-failure to truncate at. Denominated in

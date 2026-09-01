@@ -3,7 +3,8 @@ import os
 import shutil
 import sys
 import tempfile
-from typing import Callable
+from collections import defaultdict
+from typing import Callable, Dict
 
 import pytest
 
@@ -15,7 +16,9 @@ from predicators.cogman import CogMan
 from predicators.envs.cover import CoverEnv
 from predicators.execution_monitoring import create_execution_monitor
 from predicators.ground_truth_models import get_gt_options
-from predicators.main import _early_stop_below_bar_msg, _run_testing, main
+from predicators.main import _early_stop_below_bar_msg, \
+    _load_test_solve_rate, _perfect_test_streak_from_disk, _run_testing, \
+    _save_test_results, main
 from predicators.perception import create_perceiver
 from predicators.structs import Action, DefaultState, EnvironmentTask, State, \
     Task
@@ -335,4 +338,45 @@ def test_skip_initial_test():
     saved = os.listdir(results_dir)
     assert not any(f.endswith("__None.pkl") for f in saved)
     assert any(f.endswith("__0.pkl") for f in saved)
+    shutil.rmtree(results_dir)
+
+
+def test_perfect_test_streak_from_disk():
+    """Test-driven early stopping's consecutive-perfect-test streak is re-
+    derived from the saved per-cycle results, so an --auto_resume relaunch
+    continues the count instead of restarting it."""
+    parent_dir = os.path.dirname(__file__)
+    results_dir = os.path.join(parent_dir, "_fake_results_streak")
+    utils.reset_config({
+        "env": "cover",
+        "approach": "random_actions",
+        "seed": 123,
+        "results_dir": results_dir,
+    })
+
+    def _fake_results(num_solved: int, num_total: int) -> dict:
+        results: Dict[str, float] = defaultdict(float)
+        results["num_solved"] = num_solved
+        results["num_total"] = num_total
+        return results
+
+    # Fresh run: nothing on disk, seed is 0.
+    assert _perfect_test_streak_from_disk(-1) == 0
+    assert _perfect_test_streak_from_disk(2) == 0
+    assert _load_test_solve_rate(0) is None
+    # Cycle 0 imperfect, cycles 1-2 perfect: the walk stops at cycle 0.
+    _save_test_results(_fake_results(0, 1), online_learning_cycle=0)
+    _save_test_results(_fake_results(1, 1), online_learning_cycle=1)
+    _save_test_results(_fake_results(1, 1), online_learning_cycle=2)
+    assert _load_test_solve_rate(0) == 0.0
+    assert _load_test_solve_rate(1) == 1.0
+    assert _perfect_test_streak_from_disk(2) == 2
+    assert _perfect_test_streak_from_disk(1) == 1
+    assert _perfect_test_streak_from_disk(0) == 0
+    # A missing cycle (3) breaks the streak even with cycle 4 perfect.
+    _save_test_results(_fake_results(1, 1), online_learning_cycle=4)
+    assert _perfect_test_streak_from_disk(4) == 1
+    # An empty test set never counts as perfect.
+    _save_test_results(_fake_results(0, 0), online_learning_cycle=5)
+    assert _perfect_test_streak_from_disk(5) == 0
     shutil.rmtree(results_dir)

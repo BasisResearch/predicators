@@ -173,6 +173,18 @@ def build_solve_prompt(
                 "not certify does not count. Once the belief model can "
                 "validate a goal-reaching plan, submitting it (even "
                 "unchanged) is how the loop concludes.")
+        elif CFG.online_learning_early_stopping_by_test_solve_rate:
+            n_perfect = (
+                CFG.online_learning_early_stopping_consecutive_perfect_tests)
+            phases = ("the next test phase solves" if n_perfect <= 1 else
+                      f"{n_perfect} consecutive test phases each solve")
+            early_stop_note = (
+                f" The loop concludes early once {phases} every test "
+                "task. Test attempts plan with the belief model, so what "
+                "ends the loop is the belief model becoming reliably "
+                "correct - your episodes count toward that only through "
+                "the model corrections their data enables, not through "
+                "reaching the goal themselves.")
         setting_section = (
             "\n## Exploration Setting\n"
             "You are the explorer in an online learning loop: the plan "
@@ -210,7 +222,44 @@ def build_solve_prompt(
             "and follow it with a step whose outcome reveals whether "
             "the mechanism worked - a short plan that exercises the "
             "unknown beats a long one that spends the episode's steps "
-            "on what the model already predicts.\n")
+            "on what the model already predicts.\n\n"
+            "Experiment design - one episode, many measurements. Before "
+            "sketching, list the mechanisms the goal depends on and "
+            "mark each KNOWN (the belief model has predicted it "
+            "correctly against real data) or OPEN (never observed, "
+            "unverified, or flagged in the guidance below). Design the "
+            "episode to settle as many OPEN items as its step budget "
+            "allows, not one per episode: probes of independent "
+            "mechanisms can share an episode when they touch disjoint "
+            "objects and neither depends on the other's outcome. When "
+            "an open item is a threshold or window (how close, how "
+            "long, how aligned), stage a LADDER: several independent "
+            "instances at staggered values bracketing the believed "
+            "boundary - e.g. object pairs at several spacings - so one "
+            "episode measures the boundary from both sides instead of "
+            "contributing a single incidental sample; every threshold "
+            "pinned this way is a cycle of drift-by-refit avoided "
+            "later. Mind the truncation rule above when combining "
+            "probes: annotate the subgoals of steps whose mechanism the "
+            "belief model already CONTAINS (annotations there drive "
+            "boundary-probing refinement and cost nothing), but for a "
+            "mechanism the model entirely LACKS, either place that "
+            "probe last or leave its subgoal annotation off and give "
+            "explicit parameters - an annotation the model cannot "
+            "establish truncates the plan there and silently discards "
+            "every later probe, while the recorded trajectory captures "
+            "the unannotated probe's outcome regardless. Spend no steps "
+            "re-demonstrating what the model already predicts well "
+            "beyond what later probes need as setup.\n\n"
+            "When the belief model has learned no dynamics at all yet "
+            "(the first cycle of a fresh run), coverage beats depth: "
+            "design the episode to exercise every option and to create "
+            "every object interaction the goal description names "
+            "(contact, attachment, activation, stacking - whatever the "
+            "domain's language suggests), so the first learning phase "
+            "sees each mechanism at least once, instead of spending the "
+            "episode polishing a single goal attempt whose failure "
+            "reveals only its first missing mechanism.\n")
 
     scheduled_plans_section = ""
     if scheduled_plans:
@@ -222,10 +271,15 @@ def build_solve_prompt(
             "before any learning happens, so their interaction data will be "
             "collected regardless of what you propose now.\n"
             f"{plan_blocks}\n"
-            "\nPropose a plan that still achieves the goal but differs "
-            "meaningfully from the plan(s) above, so this cycle's data is "
-            "complementary rather than redundant. Only if no meaningfully "
-            "different goal-reaching plan exists, repeat the best plan.\n")
+            "\nPropose a plan whose DATA is complementary rather than "
+            "redundant: cover open questions, mechanisms, or parameter "
+            "regions the plan(s) above leave unmeasured. A goal-reaching "
+            "plan is still preferred when it can carry that coverage; "
+            "when it cannot, a designed experiment that settles what the "
+            "scheduled plans will not is the better use of this episode. "
+            "Only if the model is believed correct everywhere and no "
+            "meaningfully different goal-reaching plan exists, repeat "
+            "the best plan.\n")
 
     strategy_section = ""
     if strategy:
@@ -441,6 +495,24 @@ def build_solve_prompt(
                 "(same points as the gate, one deterministic rollout each) "
                 "instead of discovering rejections one submission at a "
                 "time. ")
+        if CFG.agent_plan_validation_rule_param_margin:
+            margin_guidance += (
+                "Capture additionally re-runs the plan under the "
+                "calibrated posterior members of the LEARNED rule "
+                "parameters (the fit's honest uncertainty about the "
+                "thresholds and offsets it learned from data); failing "
+                "under any member is rejected PARAM-SENSITIVE. So design "
+                "MAX-MARGIN, not merely feasible: place every operating "
+                "point at the CENTER of its learned feasibility window "
+                "(aim an applicator at the target point itself, put a "
+                "placement mid-window, leave slack on every timing) - a "
+                "design that only works at the fitted point estimate of "
+                "an uncertain constant will fail either this gate or the "
+                "real environment, whose true constant sits somewhere in "
+                "that posterior. Before submitting, name your plan's "
+                "WEAKEST margin (the smallest distance from any step's "
+                "operating point to a learned threshold) and widen it if "
+                "it is smaller than the measured execution scatter. ")
         submit_guidance = (
             "SUBMIT via `evaluate_option_plan`: pass your full plan as text "
             "(one option per line, `Option(obj:type)[params] -> {subgoals}`, "
@@ -526,7 +598,12 @@ def build_solve_prompt(
             "byte-identical line that just failed "
             f"{CFG.agent_policy_max_repeated_failures} times in a row "
             "ends the episode as a policy bug, because an unchanged "
-            "command fails the same way.\n"
+            "command fails the same way. The same applies to a no-op "
+            "livelock: re-issuing one identical line that keeps "
+            "COMPLETING with no observable state change "
+            f"{CFG.agent_policy_max_repeated_noops} times in a row also "
+            "ends the episode - if your stage logic is not advancing, "
+            "fix the stage test, do not re-send the same command.\n"
             "SUBMIT via `evaluate_policy` on the CURRENT task until it "
             "reaches the goal across all validation rollouts - the "
             "validated policy.py snapshot (taken at call time; later "

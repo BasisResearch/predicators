@@ -449,3 +449,33 @@ def test_experiment_guidance_gated_by_info_seeking():
     # Off => section absent entirely.
     _reset_config(agent_explorer_info_seeking=False)
     assert explorer._build_experiment_guidance() == ""  # pylint: disable=protected-access
+
+
+def test_experiment_guidance_injects_open_questions_ledger(tmp_path):
+    """The learn phase's open_questions.md ledger reaches the explore query
+    verbatim, independent of the info-seeking flag, and an oversized ledger
+    keeps its head (the ranking's top)."""
+    _reset_config(agent_explorer_info_seeking=False)
+    explorer, tool_context = _make_explorer(MagicMock(), MagicMock())
+    # No sandbox / no file => no section (and no crash).
+    assert explorer._build_experiment_guidance() == ""  # pylint: disable=protected-access
+    tool_context.sandbox_dir = str(tmp_path)
+    assert explorer._build_experiment_guidance() == ""  # pylint: disable=protected-access
+    ledger = ("1. Bond window: place pairs at spacings 0.100/0.104/"
+              "0.110/0.114 and record which bond.")
+    (tmp_path / "open_questions.md").write_text(ledger, encoding="utf-8")
+    guidance = explorer._build_experiment_guidance()  # pylint: disable=protected-access
+    assert ledger in guidance
+    assert "OPEN QUESTIONS" in guidance
+    # Info-seeking on: both the ledger and the boundary-probing note.
+    _reset_config(agent_explorer_info_seeking=True)
+    guidance = explorer._build_experiment_guidance()  # pylint: disable=protected-access
+    assert ledger in guidance
+    assert "straddle the learned model's decision boundaries" in guidance
+    # Oversized ledger: head survives, truncation is announced.
+    head = "TOP-RANKED ENTRY"
+    (tmp_path / "open_questions.md").write_text(head + "x" * 10000,
+                                                encoding="utf-8")
+    guidance = explorer._build_experiment_guidance()  # pylint: disable=protected-access
+    assert head in guidance
+    assert "ledger truncated" in guidance

@@ -110,6 +110,18 @@ INTERACTION_REJECT_RE = re.compile(
 INTERACTION_BAR_RE = re.compile(
     r"^INFO: Interaction episode on train task \d+ solved but (.+): "
     r"does NOT count as solved for early stopping\.$")
+# main.py's banner at the top of each online learning cycle. The cycle in
+# effect when a test round closes (or an interaction verdict lands) is the
+# cycle main.py stamps into that episode's video name -- the only mapping
+# that survives auto-resumed runs, whose logs start mid-lineage, and the
+# early-stopping forced re-test, whose cycle runs no learn.
+CYCLE_HEADER_RE = re.compile(r"^ONLINE LEARNING CYCLE (\d+)\b")
+# main.py _maybe_auto_resume's announcement that this run continues an
+# earlier one's checkpoints: group 1 is skip_until_cycle, the first cycle
+# this run actually executes (its log then opens at that cycle's banner).
+RESUME_RE = re.compile(
+    r"--auto_resume: checkpoint\(s\) found at .* resuming with "
+    r"load_approach \+ restart_learning, skip_until_cycle=(\d+)\.")
 # The transcript save line each agent session leaves in info.log; it pairs
 # explore sessions with the interaction episodes that execute their
 # requests (see _parse_info_log).
@@ -819,9 +831,15 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
     "rounds": [{task_idx0: {"solved": bool, "msg": str,
     "reward": float?}, ...}, ...],
     "explore": {episode_num: {"reward": float, "terminated": bool,
-    "accepted": bool, "msg": str}, ...},
-    "test_round": {episode_num: round_idx, ...}} where each round is one
-    test phase, closed by a "Tasks solved: X / Y" line.
+    "accepted": bool, "msg": str, "cycle": int|None}, ...},
+    "test_round": {episode_num: round_idx, ...},
+    "round_cycles": [cycle_id|None, ...] parallel to rounds -- the
+    ONLINE LEARNING CYCLE banner in effect when each round closed (None
+    for the pre-learning test), which is the id main.py stamps into that
+    round's video names and stays correct across auto-resume,
+    "resume_cycle": int|None -- the cycle an --auto_resume run continued
+    at (its true first cycle), None for fresh runs} where each round is
+    one test phase, closed by a "Tasks solved: X / Y" line.
 
     Both explore and test verdicts are paired by stream order. Explore:
     within a cycle every explore session logs its transcript save line
@@ -835,131 +853,195 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
     instead is wrong: only some configs run an initial pre-learning test
     round, so the offset between learn count and round index varies.)
     """
-    text, _ = read_text(path, max_bytes=8 * 1024 * 1024)
-    text = ANSI_RE.sub("", text)
-    m_vid = VIDEO_SAVED_RE.search(text)
     totals: List[Tuple[int, int, Optional[float]]] = []
     rounds: List[Dict[int, Dict[str, Any]]] = []
+    round_cycles: List[Optional[int]] = []
     current: Dict[int, Dict[str, Any]] = {}
     explore: Dict[int, Dict[str, Any]] = {}
     test_round: Dict[int, int] = {}
     pending: List[int] = []
     pending_test: List[int] = []
     last_explore: Optional[int] = None
+    cycle: Optional[int] = None
+    resume_cycle: Optional[int] = None
     done = False
-    for line in text.splitlines():
-        if DONE_RE.match(line):
-            done = True
-            continue
-        if "Test results:" in line:
-            ms, mt = NUM_SOLVED_RE.search(line), NUM_TOTAL_RE.search(line)
-            mr = AVG_TEST_REWARD_RE.search(line)
-            if ms and mt:
-                totals.append(
-                    (int(float(ms.group(1))), int(float(mt.group(1))),
-                     float(mr.group(1)) if mr else None))
-            continue
-        m = TASK_VERDICT_RE.match(line)
-        if m:
-            msg = m.group(3).strip()
-            # A later verdict for the same task within a round (e.g. the
-            # impossible-goal SOLVED after an approach failure) overwrites.
-            current[int(m.group(1)) - 1] = {
-                "solved": msg.startswith("SOLVED"),
-                "msg": msg,
-            }
-            continue
-        if TASKS_SOLVED_RE.search(line):
-            rounds.append(current)
-            current = {}
-            for num in pending_test:
-                test_round[num] = len(rounds) - 1
-            pending_test.clear()
-            continue
-        # Logged after the "Tasks solved" line, so this decorates the
-        # round that line just closed.
-        if "Per-task rewards:" in line and rounds:
-            for tm in PER_TASK_REWARD_RE.finditer(line):
-                verdict = rounds[-1].get(int(tm.group(1)))
-                if verdict is not None:
-                    verdict["reward"] = float(tm.group(2))
-            continue
-        m = SAVED_EP_RE.search(line)
-        if m:
-            if m.group(2) == "explore":
-                pending.append(int(m.group(1)))
-            elif m.group(2) == "learn":
-                pending.clear()
-            elif m.group(2) == "test":
-                pending_test.append(int(m.group(1)))
-            continue
-        m = INTERACTION_RE.match(line)
-        if m:
-            last_explore = pending.pop(0) if pending else None
-            if last_explore is not None:
-                explore[last_explore] = {
-                    "reward": float(m.group(1)),
-                    "terminated": m.group(2) == "True",
-                    "accepted": m.group(3) == "True",
-                    "msg": "",
-                }
-            continue
-        m = INTERACTION_REJECT_RE.match(line)
-        if m and last_explore is not None:
-            explore[last_explore]["msg"] = "REJECTED: " + m.group(1).strip()
-            continue
-        m = INTERACTION_BAR_RE.match(line)
-        if m and last_explore is not None:
-            explore[last_explore]["msg"] = "solved but " + m.group(1).strip()
+    video_rel = ""
+    # Stream the whole file line by line: a tail-only size cap here used
+    # to drop the head of long runs' logs, silently losing early env
+    # verdicts (grey test chips, unmarked explore episodes, mis-paired
+    # interaction verdicts). Memory stays O(line) and the parse is
+    # cached by (mtime, size) in _cached.
+    try:
+        f = open(path, "r", encoding="utf-8", errors="replace")
+    except OSError:
+        f = None
+    if f is not None:
+        with f:
+            for raw in f:
+                line = ANSI_RE.sub("", raw).rstrip("\n")
+                if not video_rel:
+                    m = VIDEO_SAVED_RE.search(line)
+                    if m:
+                        video_rel = m.group(1)
+                        continue
+                if DONE_RE.match(line):
+                    done = True
+                    continue
+                m = CYCLE_HEADER_RE.match(line)
+                if m:
+                    cycle = int(m.group(1))
+                    continue
+                if resume_cycle is None:
+                    m = RESUME_RE.search(line)
+                    if m:
+                        resume_cycle = int(m.group(1))
+                        continue
+                if "Test results:" in line:
+                    ms, mt = NUM_SOLVED_RE.search(line), NUM_TOTAL_RE.search(
+                        line)
+                    mr = AVG_TEST_REWARD_RE.search(line)
+                    if ms and mt:
+                        totals.append(
+                            (int(float(ms.group(1))), int(float(mt.group(1))),
+                             float(mr.group(1)) if mr else None))
+                    continue
+                m = TASK_VERDICT_RE.match(line)
+                if m:
+                    msg = m.group(3).strip()
+                    # A later verdict for the same task within a round (e.g.
+                    # the impossible-goal SOLVED after an approach failure)
+                    # overwrites.
+                    current[int(m.group(1)) - 1] = {
+                        "solved": msg.startswith("SOLVED"),
+                        "msg": msg,
+                    }
+                    continue
+                if TASKS_SOLVED_RE.search(line):
+                    rounds.append(current)
+                    round_cycles.append(cycle)
+                    current = {}
+                    for num in pending_test:
+                        test_round[num] = len(rounds) - 1
+                    pending_test.clear()
+                    continue
+                # Logged after the "Tasks solved" line, so this decorates the
+                # round that line just closed.
+                if "Per-task rewards:" in line and rounds:
+                    for tm in PER_TASK_REWARD_RE.finditer(line):
+                        verdict = rounds[-1].get(int(tm.group(1)))
+                        if verdict is not None:
+                            verdict["reward"] = float(tm.group(2))
+                    continue
+                m = SAVED_EP_RE.search(line)
+                if m:
+                    if m.group(2) == "explore":
+                        pending.append(int(m.group(1)))
+                    elif m.group(2) == "learn":
+                        pending.clear()
+                    elif m.group(2) == "test":
+                        pending_test.append(int(m.group(1)))
+                    continue
+                m = INTERACTION_RE.match(line)
+                if m:
+                    last_explore = pending.pop(0) if pending else None
+                    if last_explore is not None:
+                        explore[last_explore] = {
+                            "reward": float(m.group(1)),
+                            "terminated": m.group(2) == "True",
+                            "accepted": m.group(3) == "True",
+                            "msg": "",
+                            "cycle": cycle,
+                        }
+                    continue
+                m = INTERACTION_REJECT_RE.match(line)
+                if m and last_explore is not None:
+                    explore[last_explore]["msg"] = ("REJECTED: " +
+                                                    m.group(1).strip())
+                    continue
+                m = INTERACTION_BAR_RE.match(line)
+                if m and last_explore is not None:
+                    explore[last_explore]["msg"] = ("solved but " +
+                                                    m.group(1).strip())
     if current:  # run still in progress or crashed mid-round
         rounds.append(current)
+        round_cycles.append(cycle)
+        for num in pending_test:
+            test_round[num] = len(rounds) - 1
     return {
         "totals": totals,
         "rounds": rounds,
+        "round_cycles": round_cycles,
         "explore": explore,
         "test_round": test_round,
+        "resume_cycle": resume_cycle,
         "done": done,
-        "video_rel": m_vid.group(1) if m_vid else "",
+        "video_rel": video_rel,
     }
 
 
-def _explore_results(episodes: EpList) -> List[Tuple[int, int, float]]:
-    """Per-round explore outcomes as (accepted, total, mean env reward).
+def _explore_results(
+        episodes: EpList) -> List[Tuple[Optional[int], int, int, float]]:
+    """Per-cycle explore outcomes as (cycle id, accepted, total, mean env
+    reward).
 
+    Grouped by the banner-derived true cycle id when the log carries it
+    (so an auto-resumed run's groups are e.g. 3, 4, ...); episodes
+    without one fall back to the in-log learn count with cycle id None.
     Rounds with no executed interaction episode yet (hence no env
     verdict) are omitted rather than shown as 0/N.
     """
-    by_round: Dict[int, EpList] = {}
+    by_key: Dict[Tuple[int, int], EpList] = {}
     for ep in episodes:
-        if ep["kind"] == "explore":
-            by_round.setdefault(ep.get("round", 0), []).append(ep)
-    out: List[Tuple[int, int, float]] = []
-    for rnd in sorted(by_round):
-        eps = by_round[rnd]
+        if ep["kind"] != "explore":
+            continue
+        tag = ep.get("cycle_tag", "")
+        if tag.startswith("cycle") and tag != "cycleNone":
+            key = (0, int(tag[5:]))  # true cycle ids sort first, in order
+        else:
+            key = (1, ep.get("round", 0))
+        by_key.setdefault(key, []).append(ep)
+    out: List[Tuple[Optional[int], int, int, float]] = []
+    for (kind, num) in sorted(by_key):
+        eps = by_key[(kind, num)]
         rewards = [ep["env_reward"] for ep in eps if "env_reward" in ep]
         if not rewards:
             continue
         solved = sum(1 for ep in eps if ep.get("env_accepted"))
-        out.append((solved, len(eps), sum(rewards) / len(rewards)))
+        out.append((num if kind == 0 else None, solved, len(eps),
+                    sum(rewards) / len(rewards)))
     return out
 
 
 def explore_results_str(summary: Dict[str, Any]) -> str:
-    """The run's explore rounds as e.g. "1/2 (r 0.75) → 2/2 (r 0.90)"."""
-    return " → ".join(f"{s}/{t} (r {mr:.2f})"
-                      for s, t, mr in summary.get("explore_results", []))
+    """The run's explore cycles as e.g. "c3 1/2 (r 0.75) → c4 2/2 (r 0.90)".
+
+    The cycle prefix is omitted for logs without cycle banners.
+    """
+    parts = []
+    for cyc, s, t, mr in summary.get("explore_results", []):
+        prefix = f"c{cyc} " if cyc is not None else ""
+        parts.append(f"{prefix}{s}/{t} (r {mr:.2f})")
+    return " → ".join(parts)
 
 
 def test_results_str(summary: Dict[str, Any]) -> str:
-    """The run's test phases as e.g. "0/1 (r 0.00) → 1/1 (r 0.90)".
+    """The run's test phases as e.g. "c3 0/1 (r 0.00) → c4 1/1 (r 0.90)".
 
-    The reward tag is omitted for logs that predate avg_test_reward.
+    Each phase is prefixed with its true learning-cycle id from the
+    log's cycle banners ("init" for the pre-learning test), so an auto-
+    resumed run reads c3, c4, ... rather than looking like a fresh run's
+    first rounds. The prefix is omitted for logs without banners (and
+    the reward tag for logs that predate avg_test_reward).
     """
     parts = []
-    for solved, total, reward in summary.get("test_results", []):
+    cycles = summary.get("test_cycles", [])
+    for i, (solved, total,
+            reward) in enumerate(summary.get("test_results", [])):
         s = f"{solved}/{total}"
         if reward is not None:
             s += f" (r {reward:.2f})"
+        if i < len(cycles):
+            s = ("init " if cycles[i] is None else f"c{cycles[i]} ") + s
         parts.append(s)
     return " → ".join(parts)
 
@@ -972,11 +1054,15 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
     episodes = list_episodes(run_abs)
     parsed = _cached(os.path.join(run_abs, "info.log"), _parse_info_log) or {}
     rounds = parsed.get("rounds", [])
+    round_cycles = parsed.get("round_cycles", [])
     explore_verdicts = parsed.get("explore", {})
     test_round = parsed.get("test_round", {})
     # ep["round"] (learn episodes seen so far) drives only the grid-row
     # layout; env verdicts pair by the stream-order test_round map, since
     # the learn count offset from the round index varies per config.
+    # ep["cycle_tag"] is the authoritative video-name cycle tag from the
+    # log's ONLINE LEARNING CYCLE banners; the learn count is only its
+    # fallback (see episode_videos), being wrong for auto-resumed runs.
     learn_seen = 0
     interactions_seen = 0
     for ep in episodes:
@@ -991,12 +1077,18 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
                 ep["env_terminated"] = verdict["terminated"]
                 ep["env_accepted"] = verdict["accepted"]
                 ep["env_msg"] = verdict["msg"]
+                if verdict.get("cycle") is not None:
+                    ep["cycle_tag"] = f"cycle{verdict['cycle']}"
                 # Interaction episodes execute in session order, so this
                 # session's episode -- and its __ep<i> video -- is the
                 # i-th among the cycle's verdict-earning explore sessions.
                 ep["interaction_idx"] = interactions_seen
                 interactions_seen += 1
         round_i = test_round.get(ep["num"])
+        if (ep["kind"] == "test" and round_i is not None
+                and round_i < len(round_cycles)):
+            c = round_cycles[round_i]
+            ep["cycle_tag"] = "cycleNone" if c is None else f"cycle{c}"
         if (ep["kind"] == "test" and ep["task"] is not None
                 and round_i is not None and round_i < len(rounds)):
             verdict = rounds[round_i].get(ep["task"])
@@ -1009,8 +1101,10 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
     return {
         "episodes": episodes,
         "test_results": parsed.get("totals", []),
+        "test_cycles": round_cycles,
         "explore_results": _explore_results(episodes),
         "rounds": rounds,
+        "resume_cycle": parsed.get("resume_cycle"),
         "total_cost": total_cost,
         "done": parsed.get("done", False),
     }
@@ -2042,7 +2136,24 @@ def episode_grid(episodes: EpList,
     for rnd in range(n_rounds):
         cells = []
         if layout["rounds"]:
+            # Label the row with its episodes' true learning-cycle id
+            # ("c3", or "init" for the pre-learning test) so a resumed
+            # run reads c3, c4, ... rather than restarting at r1. Test
+            # episodes name the row when present (the grid's columns are
+            # theirs); the in-log row index is the fallback for rows
+            # whose episodes carry no cycle tag (e.g. learn-only rows of
+            # a log without cycle banners).
             label = f"r{int(rnd + 1)}" if n_rounds > 1 else ""
+            row_eps = ([ep for by in tests.get(rnd, {}).values()
+                        for ep in by] + misc.get(rnd, []))
+            for ep in row_eps:
+                tag = ep.get("cycle_tag", "")
+                if tag == "cycleNone":
+                    label = "init"
+                    break
+                if tag.startswith("cycle"):
+                    label = f"c{tag[5:]}"
+                    break
             cells.append(f"<td class='muted rnd'>{label}</td>")
         for task in layout["tasks"]:
             # One retry per line: two short chips would otherwise share a
@@ -2118,11 +2229,37 @@ def _misc_chip(ep: Dict[str, Any]) -> str:
 # ----------------------------------------------------------------- pages
 
 
+def _prev_run_rel(run_rel: str) -> Optional[str]:
+    """The same experiment's most recent earlier run dir, if any.
+
+    run_<YYYYMMDD_HHMMSS> names sort chronologically, so the lexical
+    predecessor among the sibling run dirs is the run whose checkpoints
+    were the newest on disk when an --auto_resume relaunch continued the
+    lineage. (If that predecessor itself saved no checkpoint, the resume
+    actually loaded an older run's file - the link still walks the
+    lineage one hop at a time.)
+    """
+    parent_rel, name = os.path.split(run_rel.rstrip("/"))
+    parent_abs = safe_join(parent_rel) if parent_rel else None
+    if not parent_abs or not os.path.isdir(parent_abs):
+        return None
+    try:
+        sibs = sorted(d for d in os.listdir(parent_abs)
+                      if d.startswith("run_") and d < name
+                      and os.path.isdir(os.path.join(parent_abs, d)))
+    except OSError:
+        return None
+    return f"{parent_rel}/{sibs[-1]}" if sibs else None
+
+
 def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
             live: LiveProcs, is_newest: bool) -> str:
     """Table row summarizing one run for the index page."""
     eps = summary.get("episodes", [])
     tr_str = test_results_str(summary) or "-"
+    if summary.get("resume_cycle") is not None:
+        # Auto-resumed run: mark the row with the cycle it continued at.
+        tr_str = f"↻c{summary['resume_cycle']} {tr_str}"
     cost = summary.get("total_cost", 0.0)
     fmt = "%Y-%m-%d %H:%M"
     start_ts = _run_start_ts(r["name"], r["mtime"])
@@ -2307,7 +2444,13 @@ def run_page(run_rel: str) -> Optional[str]:
             cost = (f"  ${ep['solve_cost']:.2f}" if "solve_cost" in ep else "")
             task_str = (f" task{ep['task']}" if ep["task"] is not None else "")
             mark_str = " " + mark if mark else ""
-            label = f"{ep['num']:03d} {ep['kind'] + task_str}{mark_str}"
+            # True learning-cycle id from the log's cycle banners, so a
+            # resumed run's episodes read c3, c4, ... over the lineage.
+            tag = ep.get("cycle_tag", "")
+            cyc_str = (f" c{tag[5:]}" if tag.startswith("cycle")
+                       and tag != "cycleNone" else "")
+            label = (f"{ep['num']:03d} "
+                     f"{ep['kind'] + task_str}{cyc_str}{mark_str}")
             side.append(f"<a href='#f={q(ep['file'])}'>"
                         f"<span class='chip {cls}' title='{esc(title)}'>"
                         f"{esc(label)}</span>"
@@ -2338,9 +2481,19 @@ def run_page(run_rel: str) -> Optional[str]:
                         f"{esc(ex_str)}</span>")
     cost_span = (f"total cost: ${summary['total_cost']:.2f}"
                  if summary["total_cost"] else "")
-    banner = ("<span title='per-cycle test phases: solved/total "
-              f"(avg env reward)'>{results_span}</span>{explore_span}"
-              f"<span>{cost_span}</span>")
+    resume_span = ""
+    if summary.get("resume_cycle") is not None:
+        prev = _prev_run_rel(run_rel)
+        prev_link = (f" of <a href='/run?d={q(prev)}'>"
+                     f"{esc(os.path.basename(prev))}</a>") if prev else ""
+        resume_span = (
+            "<span title='--auto_resume continued this experiment from "
+            "its latest checkpoint; cycle ids continue that lineage'>"
+            f"↻ resumed at cycle {summary['resume_cycle']}{prev_link}"
+            "</span>")
+    banner = (f"{resume_span}<span title='per-cycle test phases: "
+              f"solved/total (avg env reward)'>{results_span}</span>"
+              f"{explore_span}<span>{cost_span}</span>")
     side_html = "".join(side)
     body = (f"<div class='layout'>{side_html}"
             "<div style='flex:1;display:flex;flex-direction:column;"
@@ -2361,11 +2514,16 @@ def run_page(run_rel: str) -> Optional[str]:
 
 
 def _cycle_tag(rnd: int) -> str:
-    """The cycle tag main.py stamps into the video names of a test round.
+    """FALLBACK cycle tag for a test round, from the in-log learn count.
 
     Round 0 is the pre-learning test phase, which main.py runs with
     online_learning_cycle=None; round r>0 is the test after learning
-    cycle r-1, since main.py passes that loop's 0-based index.
+    cycle r-1, since main.py passes that loop's 0-based index. This
+    heuristic is wrong for auto-resumed runs (their logs open mid-
+    lineage) and for the early-stopping forced re-test (whose cycle runs
+    no learn); episode_videos therefore prefers the authoritative
+    ep["cycle_tag"] parsed from the ONLINE LEARNING CYCLE banners, and
+    falls back here only for a round the log has not closed yet.
     """
     return "cycleNone" if rnd == 0 else f"cycle{rnd - 1}"
 
@@ -2481,16 +2639,22 @@ def episode_videos(ep: Dict[str, Any], run_rel: str) -> str:
     """
     out = []
     if ep["kind"] == "test" and ep["task"] is not None:
-        key = (int(ep["task"]), _cycle_tag(int(ep.get("round", 0))))
+        # ep["cycle_tag"] comes from the log's ONLINE LEARNING CYCLE
+        # banners (run_summary) and is right even for auto-resumed runs;
+        # the learn-count heuristic only covers a round the log has not
+        # closed yet (no "Tasks solved" line).
+        tag = ep.get("cycle_tag") or _cycle_tag(int(ep.get("round", 0)))
+        key = (int(ep["task"]), tag)
         for name, is_failure in videos_for_run(run_rel).get(key, []):
             url = "/rawvideo?p=" + q(video_url_rel(run_rel, name))
             label = "failure video" if is_failure else "test video"
             out.append(_video_figure(url, label))
     elif ep["kind"] == "explore":
         # Interaction videos are stamped with the 0-based learning cycle
-        # directly (no cycleNone offset like test rounds), and an explore
-        # episode's round -- learn episodes seen before it -- IS its cycle.
-        tag = f"cycle{int(ep.get('round', 0))}"
+        # directly (no cycleNone offset like test rounds); prefer the
+        # banner-derived tag, falling back to the in-log learn count for
+        # an episode whose env verdict has not landed yet.
+        tag = ep.get("cycle_tag") or f"cycle{int(ep.get('round', 0))}"
         for ep_idx, name in interaction_videos_for_run(run_rel).get(tag, []):
             if ep_idx is None:
                 label = ("interaction video (all explore episodes "
@@ -2543,7 +2707,12 @@ def episode_banner(ep: Dict[str, Any], n_rounds: int = 0) -> str:
                      "</span>")
     if ep.get("task") is not None:
         parts.append(f"task {int(ep['task'])}")
-    if n_rounds > 1 and "round" in ep:
+    tag = ep.get("cycle_tag", "")
+    if tag == "cycleNone":
+        parts.append("pre-learning test")
+    elif tag.startswith("cycle"):
+        parts.append(f"cycle {tag[5:]}")
+    elif n_rounds > 1 and "round" in ep:
         parts.append(f"round {int(ep['round'])}")
     parts.append(f"kind: {ep['kind']}")
     if "turns" in ep:

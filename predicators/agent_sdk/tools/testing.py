@@ -39,6 +39,87 @@ def _policy_source_path(ctx: ToolContext) -> Optional[str]:
     return os.path.join(base, "policy.py")
 
 
+def _parameter_margin_sweep(
+        ctx: ToolContext, validation_cfg: ValidationConfig,
+        fresh_scope: Callable[..., Any], rollout: Callable[[], Tuple[bool,
+                                                                     str]],
+        subject: str) -> Tuple[List[str], Optional[str], str]:
+    """Margin sweep over BOTH parameter-uncertainty sources of one.
+
+    capture-eligible submission - the single code path behind the
+    physics-margin and rule-parameter gates of ``evaluate_option_plan``
+    and ``evaluate_policy``.
+
+    The execution repeats before this all run AT the fitted parameters,
+    so they cannot see a submission whose success band excludes the
+    fit's own error (run_20260723_091108: a capture validated 8/8 at
+    fitted lateral_friction 0.5319 failed deterministically at true
+    0.5). Two sources express that error:
+
+    * identified PHYSICAL params: the fit posterior's sigma grid,
+      applied as construction overrides on a fresh env (perturbing the
+      shared env would leak into later tool calls), at the BASE planner
+      seed so a failure is attributable to the perturbation alone;
+    * learned RULE params: the calibrated posterior ensemble (the same
+      members info-seeking exploration scores with), applied by
+      swapping the live fitted-params view - entered BEFORE the fresh
+      env so values bound at construction also see the member.
+
+    ``rollout`` runs one validation rollout and returns ``(ok, why)``.
+    Returns ``(outcome lines, param-sensitive detail or None, suffix
+    for the validation note)``; any failing point sets the detail,
+    which rejects the submission as PARAM-SENSITIVE.
+    """
+    outcomes: List[str] = []
+    detail: Optional[str] = None
+    note = ""
+    if (validation_cfg.physics_margin
+            and ctx.physics_margin_provider is not None):
+        points = ctx.physics_margin_provider() or []
+        for point in points:
+            ctx.attempt_rollout_count += 1
+            with fresh_scope(physical_overrides=point):
+                ok, why = rollout()
+            desc = ", ".join(f"{k}={v:.4g}" for k, v in sorted(point.items()))
+            if ok:
+                outcomes.append(f"physics point ({desc}): goal reached")
+            else:
+                outcomes.append(f"physics point ({desc}): FAILED - {why}")
+                if detail is None:
+                    detail = f"at {desc}: {why}"
+        if points and detail is None:
+            note += (
+                f" Physics-margin check passed: the {subject} also reached "
+                f"the goal at all {len(points)} grid points spanning +-1 "
+                "sigma of the identified physical parameters.")
+    if (validation_cfg.rule_param_margin and detail is None
+            and ctx.rule_param_margin_provider is not None
+            and ctx.rule_param_override_scope is not None):
+        rule_points = ctx.rule_param_margin_provider() or []
+        for member_idx, point in enumerate(rule_points):
+            ctx.attempt_rollout_count += 1
+            with ctx.rule_param_override_scope(point), fresh_scope():
+                ok, why = rollout()
+            desc = (f"rule-param ensemble member "
+                    f"{member_idx + 1}/{len(rule_points)}")
+            if ok:
+                outcomes.append(f"{desc}: goal reached")
+            else:
+                shown = ", ".join(f"{k}={v:.4g}"
+                                  for k, v in sorted(point.items())[:8])
+                if len(point) > 8:
+                    shown += ", ..."
+                outcomes.append(f"{desc}: FAILED - {why}")
+                detail = f"under {desc} ({shown}): {why}"
+                break
+        if rule_points and detail is None:
+            note += (
+                f" Rule-parameter margin check passed: the {subject} also "
+                f"reached the goal under all {len(rule_points)} calibrated "
+                "posterior members of the learned rule parameters.")
+    return outcomes, detail, note
+
+
 def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                          tool: Callable) -> Dict[str, Any]:
     """Evaluation tools (run predicates / option plans against tasks)."""
@@ -654,42 +735,22 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 f"the goal (planner seeds {diagnostic_seed}-"
                 f"{diagnostic_seed + capped_request - 1}):\n{per_diag}")
 
-        # Physics-margin gate: the execution repeats above all run AT the
-        # fitted physical params, so they cannot see a plan whose success
-        # band excludes the fit's parameter error (run_20260723_091108: a
-        # capture validated 8/8 at fitted lateral_friction 0.5319 failed
-        # deterministically at true 0.5, just outside the design's band).
-        # Re-run the plan at each +-1-posterior-sigma perturbation of the
-        # identified params, on a fresh env (perturbing the shared env
-        # would leak into later tool calls) at the BASE planner seed, so a
-        # failure is attributable to the physics perturbation alone.
+        # Parameter-margin gates (see _parameter_margin_sweep): the
+        # execution repeats above all run AT the fitted parameters, so
+        # they cannot see a plan whose success band excludes the fit's
+        # own error - in the identified physical params or the learned
+        # rule constants.
         param_sensitive_detail: Optional[str] = None
         margin_outcomes: List[str] = []
-        if (validation_cfg.physics_margin and fresh_scope is not None
-                and ctx.physics_margin_provider is not None
-                and ctx.capture_goal_reaching_plans and is_current
-                and goal_achieved and not evaluator_rejected and grounded_plan
-                and diagnostic_seed is None and flaky_detail is None):
-            for point in ctx.physics_margin_provider() or []:
-                ctx.attempt_rollout_count += 1
-                with fresh_scope(physical_overrides=point):
-                    ok, why, _ = _validation_rollout()
-                desc = ", ".join(f"{k}={v:.4g}"
-                                 for k, v in sorted(point.items()))
-                if ok:
-                    margin_outcomes.append(
-                        f"physics point ({desc}): goal reached")
-                else:
-                    margin_outcomes.append(
-                        f"physics point ({desc}): FAILED - {why}")
-                    if param_sensitive_detail is None:
-                        param_sensitive_detail = f"at {desc}: {why}"
-            if margin_outcomes and param_sensitive_detail is None:
-                validation_note += (
-                    " Physics-margin check passed: the plan also reached "
-                    f"the goal at all {len(margin_outcomes)} grid points "
-                    "spanning +-1 sigma of the identified physical "
-                    "parameters.")
+        if (fresh_scope is not None and ctx.capture_goal_reaching_plans
+                and is_current and goal_achieved and not evaluator_rejected
+                and grounded_plan and diagnostic_seed is None
+                and flaky_detail is None):
+            margin_outcomes, param_sensitive_detail, margin_note = \
+                _parameter_margin_sweep(
+                    ctx, validation_cfg, fresh_scope,
+                    lambda: _validation_rollout()[:2], "plan")
+            validation_note += margin_note
 
         def _stash_uncaptured_submission() -> None:
             """Remember the best refused submission of this attempt.
@@ -965,8 +1026,10 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         "planning refusal, 0 actions) do NOT end the episode - the failure "
         "text arrives in memory['last_failure'] and get_option is asked "
         "again, so RECOVERY is your policy's job; exceptions in get_option, "
-        "unparsable/ungroundable lines, and re-issuing one identical "
-        "failing line repeatedly (the stuck-loop guard) DO end it. Capture "
+        "unparsable/ungroundable lines, re-issuing one identical "
+        "failing line repeatedly (the stuck-loop guard), and re-issuing "
+        "one identical line that keeps completing with no state change "
+        "(its no-op livelock twin) DO end it. Capture "
         "is gated like "
         "evaluate_option_plan: the goal-reaching rollout is repeated "
         "several times (fresh simulator env + varied planner seed per "
@@ -1241,34 +1304,17 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                     f"{base_planner_seed + n_rollouts - 1}; fresh env and "
                     "fresh policy memory per rollout).")
 
-        # Physics-margin gate, mirroring evaluate_option_plan.
+        # Parameter-margin gates, mirroring evaluate_option_plan (one
+        # shared code path: see _parameter_margin_sweep).
         param_sensitive_detail: Optional[str] = None
         margin_outcomes: List[str] = []
-        if (validation_cfg.physics_margin and fresh_scope is not None
-                and ctx.physics_margin_provider is not None
-                and ctx.capture_goal_reaching_plans and goal_achieved
-                and not evaluator_rejected and diagnostic_seed is None
-                and flaky_detail is None):
-            for point in ctx.physics_margin_provider() or []:
-                ctx.attempt_rollout_count += 1
-                with fresh_scope(physical_overrides=point):
-                    ok, why = _policy_validation_rollout()
-                desc = ", ".join(f"{k}={v:.4g}"
-                                 for k, v in sorted(point.items()))
-                if ok:
-                    margin_outcomes.append(
-                        f"physics point ({desc}): goal reached")
-                else:
-                    margin_outcomes.append(
-                        f"physics point ({desc}): FAILED - {why}")
-                    if param_sensitive_detail is None:
-                        param_sensitive_detail = f"at {desc}: {why}"
-            if margin_outcomes and param_sensitive_detail is None:
-                validation_note += (
-                    " Physics-margin check passed: the policy also reached "
-                    f"the goal at all {len(margin_outcomes)} grid points "
-                    "spanning +-1 sigma of the identified physical "
-                    "parameters.")
+        if (fresh_scope is not None and ctx.capture_goal_reaching_plans
+                and goal_achieved and not evaluator_rejected
+                and diagnostic_seed is None and flaky_detail is None):
+            margin_outcomes, param_sensitive_detail, margin_note = \
+                _parameter_margin_sweep(ctx, validation_cfg, fresh_scope,
+                                        _policy_validation_rollout, "policy")
+            validation_note += margin_note
 
         capture_outcome = _decide_capture(
             capture_enabled=(ctx.capture_goal_reaching_plans
