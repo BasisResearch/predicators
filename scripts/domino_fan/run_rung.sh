@@ -97,6 +97,27 @@ for a in arms:
         flags.append("      num_online_learning_cycles: 0")
     elif a.startswith("agent_p"):
         flags.append("      skip_initial_test: True")
+    if a == "agent_po_predicate_invention_al":
+        # Rung 4 spent 5 hours inside cycle 0 and never scored a test.
+        # The cost is the rollout fit: the agent declared FIVE physical
+        # params (the hand-written GT simulator has two), and the grid
+        # seeding is a coordinate sweep - params x seed_points x passes
+        # rollout evaluations, each rebuilding a PyBullet env, each
+        # replaying every recorded trajectory, run once per refit.
+        #
+        # Worth cutting because that fit was not buying anything: it
+        # reported a Δ of exactly 0.0000 on all five params, five times
+        # over, which is the same identifiability wall
+        # probe_wind_identifiability.py measures - above the topple
+        # threshold the wind's effect saturates and SSE is flat. The
+        # discovery this rung is for happens in cycle 0 regardless, and
+        # the agent's own initial values already produced reward-0.95
+        # episodes in the real env.
+        flags += [
+            "      num_online_learning_cycles: 2",
+            "      code_sim_learning_rollout_grid_seed_points: 5",
+            "      code_sim_learning_rollout_grid_sweep_passes: 1",
+        ]
     lines += ["    FLAGS:"] + flags
 print("\n".join(lines))
 PYEOF
