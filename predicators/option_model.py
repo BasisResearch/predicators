@@ -167,8 +167,10 @@ class _OracleOptionModel(_OptionModelBase):
         # Note: mypy complains if this is None instead of DefaultState.
         last_state = DefaultState
 
+        wait_steps = 0
+
         def _terminal(s: State) -> bool:
-            nonlocal last_state
+            nonlocal last_state, wait_steps
             if option_copy.terminal(s):
                 logging.debug("Option reached terminal state.")
                 return True
@@ -186,11 +188,22 @@ class _OracleOptionModel(_OptionModelBase):
             if (CFG.wait_option_terminate_on_atom_change
                     and option_copy.name == "Wait"
                     and last_state is not DefaultState
-                    and self._abstract_function is not None
-                    and _check_wait_termination(option_copy, s, last_state,
-                                                self._abstract_function)):
-                logging.debug("Wait option terminating early.")
-                return True
+                    and self._abstract_function is not None):
+                wait_steps += 1
+                if _check_wait_termination(option_copy, s, last_state,
+                                           self._abstract_function):
+                    logging.debug("Wait option terminating early.")
+                    return True
+                # Same backstop the real executor applies (utils.py's
+                # wait_option_max_steps branches), so a Wait whose
+                # target atoms never come true ends at the same step
+                # count on both substrates instead of running to this
+                # model's option-rollout cap only in the belief.
+                if wait_steps >= CFG.wait_option_max_steps:
+                    logging.debug(
+                        "Wait terminating: wait_option_max_steps "
+                        "backstop (%d steps).", wait_steps)
+                    return True
             last_state = s
             return False
 

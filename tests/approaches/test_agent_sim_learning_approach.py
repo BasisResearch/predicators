@@ -1019,7 +1019,7 @@ def test_checkpoint_cycle_counter_semantics(tmp_path, monkeypatch):
     from predicators.structs import Dataset
     utils.reset_config({
         "env": "cover",
-        "approach": "agent_planner",
+        "approach": "agent_model_free",
         "seed": 0,
         "approach_dir": str(tmp_path),
     })

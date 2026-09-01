@@ -1,172 +1,24 @@
-"""Shared prompt text for agent session managers.
+"""Sandbox-level prompt text shared by the session managers.
 
-Both ``LocalSandboxSessionManager`` and ``DockerSessionManager`` use
-these constants and builder functions so that prompt text stays in sync.
-Sandbox directory scaffolding lives in :mod:`sandbox_setup`.
+``LocalSandboxSessionManager`` and ``DockerSessionManager`` both write
+the sandbox ``CLAUDE.md`` (from ``prompts/sandbox_claude_md.md``) and
+append the same sandbox suffix to the system prompt. Both describe the
+sandbox mechanics only; task guidance lives in the per-phase system
+prompts. Sandbox directory scaffolding lives in :mod:`sandbox_setup`.
 """
-import re
-from typing import Optional
-
+from predicators.agent_sdk.prompt_templates import render, unwrap_prose_lines
 from predicators.agent_sdk.tools import BUILTIN_TOOLS
 
-# Matches "1. ", "12) " etc. at the start of a stripped line.
-_NUMBERED_ITEM_RE = re.compile(r"^\d+[.)]\s")
-
-# ---------------------------------------------------------------------------
-# Prompt template builders
-# ---------------------------------------------------------------------------
+__all__ = [
+    "build_claude_md", "build_sandbox_system_prompt", "unwrap_prose_lines"
+]
 
 _BUILTIN_TOOLS_STR = ", ".join(BUILTIN_TOOLS)
 
-_CLAUDE_MD_HEADER = """\
-# Predicators Agent Sandbox
 
-## Working Directory
-Your working directory is the sandbox. All files you create MUST stay here.
-Always use relative paths (e.g., `./my_script.py`).
-
-## Python
-The Python interpreter is `python3`. The predicators package is available
-for import in your scripts:
-
-    python3 -c "from predicators.structs import State, Type; print('OK')"
-
-You can write and run test scripts in the sandbox:
-
-    python3 my_experiment.py
-
-## Reference Files
-Curated source files are available in ./reference/ for you to read.
-Read these to understand the APIs before writing code.
-
-## Session Logs
-Your past session queries and tool results are in ./session_logs/. Files are
-named `<NNN>_<kind>_<timestamp>.md` where `<NNN>` is a run-wide counter and
-`<kind>` is the query phase (e.g. `learn`, `test`, `explore`). The counter
-comes first so alphabetical sort matches chronological order. Use Glob and
-Read to review your earlier attempts when debugging:
-
-    Glob ./session_logs/*.md
-    Read ./session_logs/001_learn_*.md
-
-## Scene Images
-`submit_plan` automatically saves scene images to ./test_images/
-after each step. You can Read them to inspect the spatial state of
-the environment.
-"""
-
-_CLAUDE_MD_RULES = """\
-
-## Rules
-- Do NOT attempt to read or browse files outside the sandbox directory.
-  This is enforced for the file tools AND for Bash and the run_python
-  tool: commands or code
-  containing absolute or `../` paths that leave the sandbox (or source
-  introspection) are blocked. Use relative paths inside the sandbox.
-- Do NOT modify files in ./reference/ — they are for reading only
-- Write all your code, experiments, and tests in the sandbox
-- Do NOT inspect predicators source code (e.g. via `inspect.getsource()`,
-  `inspect.getfile()`, reading `.py` files from site-packages, or any other
-  method). Use the MCP tools and reference files instead.
-- Do NOT reach into harness internals from executed code. In particular
-  `State.privileged`, the probe's `_ctx`, and env flags/attributes are
-  hidden environment ground truth and are blocked. Learn the world model
-  from observable state features and the documented tool surface only -
-  a conclusion derived from hidden internals is an invalid result.
-"""
-
-_CLAUDE_MD_SOLVE_STRATEGY = """\
-
-## Debugging Strategy
-- **Visualize liberally** — {visualize_hint} It's free (no physics, no
-  failure modes). When stuck on a step, STOP testing and visualize the
-  object at several candidate positions and orientations to find the
-  right region before spending more submit_plan calls.
-- **Vary all parameters** — orientation and other non-position params
-  affect both the outcome and whether the action succeeds.
-- **Search coarse-to-fine** — spread initial attempts across the full
-  parameter range. After 3 failures in a small neighborhood, jump to a
-  different region.
-"""
-
-# The solve strategy's visualization pointer: run_python's
-# sim.reset staging + sim.render overlays are the visualization surface.
-_VISUALIZE_HINT_PROBE = ("use run_python (`sim.reset(mods={...})`, "
-                         "then `sim.render(...)`).")
-
-_CLAUDE_MD_SYNTHESIS_STRATEGY = """\
-
-## Model-Learning Strategy
-
-Trajectory numbers are evidence, not ground truth. Two states with nearly
-identical recorded coordinates can be geometrically very different — an
-object's recorded pose origin often does not coincide with the part that
-actually drives the rule (a body center vs. an outlet on its side, a
-joint base vs. an end-effector tip, a container origin vs. its opening,
-a switch housing vs. its handle). Before encoding any geometric
-threshold, render the scene and check what's actually where.
-
-**Threshold-fitting protocol** — follow this whenever a predicate or rule
-condition compares a recorded feature against a learned cutoff:
-
-1. Bucket trajectory steps by whether the downstream effect actually
-   occurred (the rule-relevant feature advanced, the goal-relevant
-   quantity changed, etc.). Compute your candidate quantity at each step.
-2. Inspect the two buckets' value ranges. They must separate by a clear
-   margin. If they overlap, or the gap is narrower than roughly 5% of
-   the value range, STOP — a knife-edge separator is a symptom, not a
-   fit, and a threshold flush against the data boundary is rejected.
-   The candidate quantity is measuring against the wrong reference
-   point; do not widen the threshold to absorb the gap.
-3. For any two-body geometric gate, default to a learned anchor offset
-   in the fixture's LOCAL frame, rotated into the world frame by the
-   fixture's `rot` (origin + R(rot) @ (local_dx, local_dy)), with
-   local_dx/local_dy declared as ParamSpecs and shared between the rule
-   and its gating predicate — not a raw origin-distance threshold. To
-   find the offset, stage one representative state from each bucket
-   with `sim.reset(task_idx=..., mods={...})` and use
-   `sim.render(label, annotations=[...])` to overlay, on one render,
-   the recorded object origin and the positions where the effect did
-   vs. did not fire. The gap between the origin and the effect-firing
-   cluster is the offset.
-4. Re-derive the candidate quantity using the anchored reference and
-   refit. Only commit once the buckets separate by a comfortable margin
-   (well past the 5% knife-edge). If the fit drives local_dx/local_dy to
-   ~0, the origin was the functional point after all — fine, keep them.
-
-**Other times to render the scene:**
-- A new predicate is proposed: render a state where it should be true
-  and one where it should be false to sanity-check the definition.
-- A predicate's classifier looks right numerically but downstream signal
-  (refinement success, residual reduction, plan completion) doesn't
-  follow — the predicate is firing in the wrong places.
-- You're choosing between candidate reference points (body center vs.
-  contact surface, frame origin vs. tool tip, etc.).
-
-`sim.reset` staging and `sim.render` overlays are free (no physics, no
-failure modes). Reach for them before, not after, you commit a numeric
-fit.
-"""
-
-
-def build_claude_md(phase: Optional[str] = None) -> str:
-    """Build the CLAUDE.md content written into the sandbox directory.
-
-    Args:
-        phase: ``"synthesis"`` selects the model-learning strategy block;
-            anything else (including ``None`` and ``"solve"``) selects the
-            solve-time debugging block. The choice is reflected in the file
-            written into the sandbox so the agent reads phase-appropriate
-            guidance every turn.
-    """
-    if phase == "synthesis":
-        strategy = _CLAUDE_MD_SYNTHESIS_STRATEGY
-    else:
-        strategy = _CLAUDE_MD_SOLVE_STRATEGY.format(
-            visualize_hint=_VISUALIZE_HINT_PROBE)
-    # The templates are authored as hard-wrapped markdown; render one
-    # line per paragraph, consistent with the system prompts.
-    return unwrap_prose_lines(_CLAUDE_MD_HEADER + strategy + _CLAUDE_MD_RULES)
+def build_claude_md() -> str:
+    """The CLAUDE.md content written into every agent sandbox."""
+    return render("sandbox_claude_md", "body") + "\n"
 
 
 def build_sandbox_system_prompt(
@@ -193,47 +45,3 @@ def build_sandbox_system_prompt(
             "saved scene images and proposed code, and the file-access "
             f"rules. Read the {ref_path} files to understand the system "
             "APIs before writing code.\n")
-
-
-def unwrap_prose_lines(text: str) -> str:
-    """Join hard-wrapped prose lines into single-line paragraphs.
-
-    Prompt templates authored as triple-quoted markdown are wrapped at
-    source-code width; the rendered prompt should not carry those manual
-    line breaks (one line per paragraph, like the prompts built from
-    concatenated string literals). Joins a line onto the previous one
-    when both are plain prose (or the previous is a list item and the
-    current is its continuation). Preserves verbatim: blank lines,
-    fenced code blocks, headings, list items, tables, blockquotes, and
-    indented lines.
-    """
-    out: list = []
-    in_fence = False
-    for line in text.split("\n"):
-        stripped = line.lstrip()
-        is_fence = stripped.startswith("```")
-        if is_fence:
-            in_fence = not in_fence
-            out.append(line)
-            continue
-        if in_fence:
-            out.append(line)
-            continue
-        starts_structure = (
-            not stripped  # blank
-            or line[0] in " \t"  # indented (code/aligned examples)
-            or stripped.startswith(("#", ">", "|"))  # heading/quote/table
-            or stripped.startswith(("- ", "* ", "+ "))  # list item
-            or _NUMBERED_ITEM_RE.match(stripped) is not None)
-        prev = out[-1] if out else ""
-        prev_stripped = prev.lstrip()
-        prev_joinable = (
-            bool(prev_stripped) and prev_stripped != "---"
-            and prev[0] not in " \t"  # never join onto verbatim lines
-            and not prev_stripped.startswith(
-                ("#", "|", ">")) and not prev_stripped.startswith("```"))
-        if starts_structure or not prev_joinable:
-            out.append(line)
-        else:
-            out[-1] = prev.rstrip() + " " + stripped
-    return "\n".join(out)

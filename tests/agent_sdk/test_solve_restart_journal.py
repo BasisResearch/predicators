@@ -385,7 +385,7 @@ def test_run_python_no_footer_outside_attempt(tmp_path):
 
 
 def test_solve_prompt_includes_journal_section():
-    """build_solve_prompt renders the journal with its usage guidance."""
+    """build_solve_prompt renders the journal and attempt log contents."""
     # pylint: disable-next=import-outside-toplevel
     from predicators.agent_sdk.sketch_prompts import build_solve_prompt
     utils.reset_config({})
@@ -402,7 +402,6 @@ def test_solve_prompt_includes_journal_section():
     assert "- outcome: no capture" in prompt
     assert "## Solve Journal" in prompt
     assert "- tried x=0.5" in prompt
-    assert "treat any recorded conclusion skeptically" in prompt
     assert "./journal.md" in prompt
     assert "record_journal" not in prompt
     # Without journal content the section is absent entirely.

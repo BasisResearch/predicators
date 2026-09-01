@@ -1,45 +1,35 @@
-"""Agent plan explorer: Claude agent generates grounded option plans.
+"""Agent model-free explorer: Claude agent generates grounded option plans
+without a learned world model.
 
 Produces fully-grounded option plans (including continuous parameters)
-and rolls them out in the real environment. Unlike
-``AgentBilevelExplorer``, it runs no backtracking refinement against a
-learned option model; the agent must supply complete parameters itself.
+from a one-shot task description and rolls them out in the real
+environment. Unlike ``AgentModelBasedExplorer``, the agent has no belief
+simulator to validate against and no backtracking refinement; it must
+supply complete parameters itself.
+
+Registered under the CLI explorer name ``agent_model_free``
+(``agent_plan`` is kept as a deprecated alias).
 """
 
 import logging
-from typing import Any, Dict, List, Set
 
 import numpy as np
-from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk.session_base import AgentSessionFatalError, \
     query_fatal_error
-from predicators.agent_sdk.session_manager import SessionManagerProtocol, \
-    run_query_sync
-from predicators.agent_sdk.tools import ToolContext
-from predicators.explorers.base_explorer import BaseExplorer
+from predicators.agent_sdk.session_manager import run_query_sync
+from predicators.explorers.agent_explorer_base import AgentExplorerBase
 from predicators.settings import CFG
-from predicators.structs import Action, ExplorationStrategy, \
-    ParameterizedOption, Predicate, State, Task, Type
+from predicators.structs import ExplorationStrategy, Task
 
 
-class AgentPlanExplorer(BaseExplorer):
+class AgentModelFreeExplorer(AgentExplorerBase):
     """Queries a Claude agent to produce grounded option plans."""
-
-    def __init__(self, predicates: Set[Predicate],
-                 options: Set[ParameterizedOption], types: Set[Type],
-                 action_space: Box, train_tasks: List[Task],
-                 max_steps_before_termination: int, tool_context: ToolContext,
-                 agent_session: SessionManagerProtocol) -> None:
-        super().__init__(predicates, options, types, action_space, train_tasks,
-                         max_steps_before_termination)
-        self._tool_context = tool_context
-        self._agent_session = agent_session
 
     @classmethod
     def get_name(cls) -> str:
-        return "agent_plan"
+        return "agent_model_free"
 
     def _get_exploration_strategy(self, train_task_idx: int,
                                   timeout: int) -> ExplorationStrategy:
@@ -51,7 +41,7 @@ class AgentPlanExplorer(BaseExplorer):
                                        kind="explore")
             dead = query_fatal_error(responses)
             if dead is not None:
-                # See agent_bilevel_explorer: never explore at random
+                # See agent_model_based_explorer: never explore at random
                 # because the session backend is down.
                 raise AgentSessionFatalError(
                     "explore query died without the agent doing any work "
@@ -76,18 +66,6 @@ class AgentPlanExplorer(BaseExplorer):
             raise utils.RequestActPolicyFailure(
                 "Agent explorer failed and fallback disabled.")
         return self._random_options_fallback()
-
-    def _random_options_fallback(self) -> ExplorationStrategy:
-        """Fall back to random option sampling."""
-
-        def fallback_policy(state: State) -> Action:
-            del state
-            raise utils.RequestActPolicyFailure(
-                "Random option sampling failed!")
-
-        policy = utils.create_random_option_policy(self._options, self._rng,
-                                                   fallback_policy)
-        return policy, lambda _: False
 
     def _build_exploration_prompt(self, train_task_idx: int) -> str:
         """Build a prompt for the agent to produce an option plan."""
@@ -126,9 +104,9 @@ class AgentPlanExplorer(BaseExplorer):
 
         # Available tools
         tools_str = ""
-        if self._agent_session.tool_names:
-            tool_list = "\n".join(f"  - {t}"
-                                  for t in self._agent_session.tool_names)
+        tool_names = self._agent_tool_names()
+        if tool_names:
+            tool_list = "\n".join(f"  - {t}" for t in tool_names)
             tools_str = f"\n## Available Tools\n{tool_list}\n"
 
         task_intro = ("You are exploring a task environment. "
@@ -159,57 +137,6 @@ If an option has no continuous parameters, use empty brackets: OptionName(obj1:t
 Output ONLY the option plan lines at the end, after any analysis."""
 
         return prompt
-
-    def _build_trajectory_summary(self) -> str:
-        """Summarize trajectory data for the agent."""
-        all_trajs = (self._tool_context.offline_trajectories +
-                     self._tool_context.online_trajectories)
-        if not all_trajs:
-            return ""
-
-        max_trajs = CFG.agent_sdk_max_trajectories_in_context
-        recent = all_trajs[-max_trajs:]
-        lines = [
-            f"\n## Trajectory Summary ({len(all_trajs)} total, "
-            f"showing last {len(recent)})"
-        ]
-
-        for i, traj in enumerate(recent):
-            n_steps = len(traj.actions)
-            init_atoms = utils.abstract(traj.states[0], self._predicates)
-            final_atoms = utils.abstract(traj.states[-1], self._predicates)
-            new_atoms = final_atoms - init_atoms
-            lost_atoms = init_atoms - final_atoms
-            lines.append(f"\nTrajectory {i}: {n_steps} steps")
-            if new_atoms:
-                lines.append(
-                    "  Gained: " +
-                    f"{', '.join(str(a) for a in sorted(new_atoms, key=str))}")
-            if lost_atoms:
-                lines.append(
-                    "  Lost: " +
-                    f"{', '.join(str(a) for a in sorted(lost_atoms, key=str))}"
-                )
-
-        return "\n".join(lines)
-
-    def _extract_option_plan_text(self, responses: List[Dict[str,
-                                                             Any]]) -> str:
-        """Extract plan text from the last assistant text response.
-
-        Uses only the final assistant message so intermediate
-        reasoning/tool-call text preceding the plan is excluded.
-        """
-        last_text_parts: List[str] = []
-        for resp in responses:
-            if resp.get("type") == "assistant":
-                parts = [
-                    block.get("text", "") for block in resp.get("content", [])
-                    if isinstance(block, dict) and block.get("type") == "text"
-                ]
-                if parts:
-                    last_text_parts = parts
-        return "\n".join(last_text_parts)
 
     def _parse_and_ground_plan(self, plan_text: str, task: Task) -> list:
         """Parse option plan text and ground into executable options."""

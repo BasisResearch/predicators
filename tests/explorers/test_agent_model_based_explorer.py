@@ -1,4 +1,4 @@
-"""Tests for AgentBilevelExplorer."""
+"""Tests for AgentModelBasedExplorer."""
 # pylint: disable=protected-access
 
 from unittest.mock import AsyncMock, MagicMock
@@ -11,7 +11,8 @@ from predicators import utils
 from predicators.agent_sdk.sketch_types import SketchStep
 from predicators.agent_sdk.tools import ToolContext
 from predicators.explorers import create_explorer
-from predicators.explorers.agent_bilevel_explorer import AgentBilevelExplorer
+from predicators.explorers.agent_model_based_explorer import \
+    AgentModelBasedExplorer
 from predicators.explorers.base_explorer import BaseExplorer
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, Type
@@ -111,7 +112,7 @@ def _assistant_response(text: str):
 
 
 def _make_explorer(option_model, query_impl):
-    """Build an AgentBilevelExplorer with stubbed session + tool_context."""
+    """Build an AgentModelBasedExplorer with stubbed session + tool_context."""
     tool_context = ToolContext(
         types=_ALL_TYPES,
         predicates=_ALL_PREDICATES,
@@ -122,7 +123,7 @@ def _make_explorer(option_model, query_impl):
     agent_session = MagicMock()
     agent_session.query = query_impl
     agent_session.tool_names = None
-    explorer = AgentBilevelExplorer(
+    explorer = AgentModelBasedExplorer(
         predicates=_ALL_PREDICATES,
         options=_ALL_OPTIONS,
         types=_ALL_TYPES,
@@ -138,7 +139,7 @@ def _make_explorer(option_model, query_impl):
 def _reset_config(**overrides):
     base = {
         "env": "cover",
-        "approach": "agent_bilevel",
+        "approach": "agent_model_based",
         "num_train_tasks": 1,
         "num_test_tasks": 1,
         "seed": 42,
@@ -158,7 +159,8 @@ def _reset_config(**overrides):
 
 
 def test_factory_registration():
-    """AgentBilevelExplorer is reachable through create_explorer."""
+    """AgentModelBasedExplorer is reachable through create_explorer, under its
+    own name and under the deprecated agent_bilevel alias."""
     _reset_config()
     tool_context = ToolContext(
         types=_ALL_TYPES,
@@ -169,7 +171,7 @@ def test_factory_registration():
     )
     agent_session = MagicMock()
     explorer = create_explorer(
-        "agent_bilevel",
+        "agent_model_based",
         _ALL_PREDICATES,
         _ALL_OPTIONS,
         _ALL_TYPES,
@@ -179,7 +181,18 @@ def test_factory_registration():
         agent_session=agent_session,
     )
     assert isinstance(explorer, BaseExplorer)
-    assert isinstance(explorer, AgentBilevelExplorer)
+    assert isinstance(explorer, AgentModelBasedExplorer)
+    legacy = create_explorer(
+        "agent_bilevel",
+        _ALL_PREDICATES,
+        _ALL_OPTIONS,
+        _ALL_TYPES,
+        Box(low=-1, high=1, shape=(1, )),
+        [_make_task()],
+        tool_context=tool_context,
+        agent_session=agent_session,
+    )
+    assert isinstance(legacy, AgentModelBasedExplorer)
 
 
 def test_happy_path_returns_policy_and_stashes_subgoals():
@@ -405,11 +418,11 @@ def _make_certified_capture(pick_params, place_params):
     return grounded_plan, captured_sketch
 
 
-def test_certified_capture_executes_verbatim_and_is_replayed():
+def test_certified_capture_executes_verbatim_and_next_request_queries():
     """A plan the session validated through the capture gate (reached_goal
     True) is executed verbatim as a solve attempt with a True mental-model
-    verdict; the cycle's next request on the task replays it with no new
-    query."""
+    verdict; the cycle's next request on the task queries the agent again
+    (asking for a different certified plan) rather than replaying it."""
     _reset_config(agent_explorer_info_seeking=True)
     option_model = MagicMock()
     option_model.get_next_state_and_num_actions.return_value = (_make_state(
@@ -436,26 +449,29 @@ def test_certified_capture_executes_verbatim_and_is_replayed():
     assert not option_model.get_next_state_and_num_actions.called
     assert tool_context.last_mental_model_solved is True
     assert tool_context.solved_plan is None
-    assert tool_context.cycle_certified_plans[0] is not None
     assert "belief-certified" in tool_context.cycle_scheduled_plans[-1]
+    assert "replayed" not in tool_context.cycle_scheduled_plans[-1]
     assert tool_context.last_sketch_options == [("Pick", ["block0"]),
                                                 ("Place", ["block0",
                                                            "block1"])]
     # The policy runs the captured options with their captured params.
     act = policy(_make_state())
     assert isinstance(act, Action)
-    # Second request of the cycle on the same task: replay, no query.
+    # Second request of the cycle on the same task: a new query that
+    # shows the certified plan as already scheduled.
     tool_context.last_mental_model_solved = None
     policy2, _ = explorer._get_exploration_strategy(0, timeout=5)
     assert callable(policy2)
-    assert len(queries) == 1
+    assert len(queries) == 2
+    assert "belief-certified" in queries[1]
+    assert "STRUCTURALLY different" in queries[1]
     assert tool_context.last_mental_model_solved is True
 
 
 def test_uncertified_capture_executes_its_plan_verbatim():
     """A capture whose gate verdict is not True (best-effort, flaky) is not
     certified: it executes at its captured params as an experiment, with a
-    False mental-model verdict and no replay for the cycle."""
+    False mental-model verdict."""
     _reset_config()
     option_model = MagicMock()
     grounded_plan, captured_sketch = _make_captured([0.42], [0.11, 0.22])
@@ -471,5 +487,5 @@ def test_uncertified_capture_executes_its_plan_verbatim():
     policy, _ = explorer._get_exploration_strategy(0, timeout=5)
     assert callable(policy)
     assert not option_model.get_next_state_and_num_actions.called
-    assert 0 not in tool_context.cycle_certified_plans
+    assert "belief-certified" not in tool_context.cycle_scheduled_plans[-1]
     assert tool_context.last_mental_model_solved is False

@@ -753,7 +753,7 @@ class SandboxSessionManagerBase(BaseAgentSessionManager):
             sandbox_dir=self._sandbox_dir,
             repo_root=self._repo_root,
             extra_reference_files=self._extra_reference_files,
-            claude_md_content=build_claude_md(phase=self._phase),
+            claude_md_content=build_claude_md(),
             system_prompt=self._system_prompt,
             log_dir=self._log_dir,
             seed_scratchpad=self._config.use_scratchpad,

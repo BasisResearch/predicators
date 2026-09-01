@@ -3156,11 +3156,17 @@ def parse_model_output_into_option_plan(
                 break
             # Skip preamble lines (analysis text before the plan starts).
             continue
-        if parse_continuous_params and "[" not in option_str:
+        option = option_name_to_option[option_name]
+        # A zero-parameter option (e.g. Wait) may omit its '[]': the
+        # harness's own logs and reports render such steps bracket-free,
+        # and demanding brackets the logs never print cost agents a
+        # rejected submission per session (run_20260830).
+        has_params_block = "[" in option_str
+        if (parse_continuous_params and not has_params_block
+                and option.params_space.shape[0] > 0):
             _reject(f"Line {option_str} output by model doesn't contain a "
                     "'[' and is thus improperly formatted.")
             break
-        option = option_name_to_option[option_name]
         # Now that we have the option, we need to parse out the objects
         # along with specified types.
         try:
@@ -3226,8 +3232,9 @@ def parse_model_output_into_option_plan(
                     f"{len(objs_list)} object argument(s) but option "
                     f"{option.name} expects {len(option.types)}.")
             malformed = True
-        # Now, we attempt to parse out the continuous parameters.
-        if parse_continuous_params:
+        # Now, we attempt to parse out the continuous parameters (a
+        # zero-parameter option without a '[]' block has none).
+        if parse_continuous_params and has_params_block:
             params_str_list = option_str_stripped.split('[')[1].strip(
                 ']').split(',')
             for i, continuous_params_str in enumerate(params_str_list):

@@ -80,14 +80,14 @@ class ToolContext:
     probe_residuals_provider: Optional[Callable[..., str]] = None
     # Active-experiment info-gain scorer, synced from the learning
     # approach when info-seeking exploration is on:
-    # ``(state, atoms) -> disagreement``. The agent_bilevel explorer
+    # ``(state, atoms) -> disagreement``. The agent_model_based explorer
     # passes it into refinement so continuous-parameter search prefers
     # candidates that straddle the learned model's decision boundaries.
     # None ⇒ plain feasibility search (default).
     atom_disagreement_fn: Optional[Callable[[State, Any], float]] = None
     # Synthesized per-skill samplers (option name -> sampler), synced from
     # the learning approach when agent_sim_learn_parameterized_samplers is on.
-    # The agent_bilevel explorer and synthesis tools pass these into
+    # The agent_model_based explorer and synthesis tools pass these into
     # refinement so continuous-parameter search aims at each step's subgoal
     # instead of drawing uniformly. Empty ⇒ uniform sampling (default).
     parameterized_samplers: Dict[str, ParameterizedSampler] = field(
@@ -124,7 +124,7 @@ class ToolContext:
     # frozen for the session's lifetime. Subclasses set this before
     # opening a fresh session and clear it on close.
     extra_session_hooks: Dict[str, list] = field(default_factory=dict)
-    # Populated by AgentBilevelExplorer so learning approaches can diff
+    # Populated by AgentModelBasedExplorer so learning approaches can diff
     # mental-model subgoals against real trajectories.
     # TODO(sim-learning): consume these in learn_from_interaction_results.
     last_sketch_subgoals: Optional[Any] = None
@@ -138,29 +138,21 @@ class ToolContext:
     # them as Wait targets; False (bare observations) strips them.
     latent_tracking_available: bool = False
     last_sketch_options: Optional[Any] = None
-    # Set by AgentBilevelExplorer per request: did the mental model reach
+    # Set by AgentModelBasedExplorer per request: did the mental model reach
     # the task goal during refinement? Read by get_interaction_requests to
     # stamp InteractionRequest.mental_model_solved (None ⇒ no verdict).
     last_mental_model_solved: Optional[bool] = None
     # Sketch-line descriptions of the exploration plans already generated
     # this online-learning cycle (a cycle's requests are all generated
     # before any executes). Cleared by get_interaction_requests per cycle,
-    # appended by AgentBilevelExplorer per request, and shown in the next
+    # appended by AgentModelBasedExplorer per request, and shown in the next
     # explore prompt so the agent proposes a complementary plan instead of
     # repeating the identical one for every request.
     cycle_scheduled_plans: List[str] = field(default_factory=list)
-    # Grounded plans that passed the belief's capture gate this cycle,
-    # keyed by train task index. Cleared by get_interaction_requests per
-    # cycle, written by AgentBilevelExplorer when an explore session's
-    # tool-validated capture reached the goal; the cycle's remaining
-    # requests on that task replay the plan (no new query), so a plan
-    # the belief certifies and reality solves on every attempt ends the
-    # loop (see agent_explorer_replay_certified_plan).
-    cycle_certified_plans: Dict[int, List[Any]] = field(default_factory=dict)
     # Digest of the latest rollout system-ID fit's weak spots
     # (unexplainable segments, unidentified/insensitive params,
     # cross-cycle conflicts), synced from the sim-learning approach.
-    # The agent_bilevel explorer appends it to its experiment guidance
+    # The agent_model_based explorer appends it to its experiment guidance
     # so the next exploration targets the gaps. None ⇒ no fit ran yet
     # (or it had no weak spots).
     sysid_diagnostics: Optional[str] = None

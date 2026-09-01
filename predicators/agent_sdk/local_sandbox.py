@@ -55,8 +55,8 @@ logger = logging.getLogger(__name__)
 _DEADLINE_INTERRUPT_SLACK_S = 180
 
 # Build local-sandbox-specific prompts from shared templates.
-# CLAUDE.md is built per-instance with the phase tag so the agent reads
-# phase-appropriate strategy guidance every turn (see build_claude_md).
+# CLAUDE.md (sandbox mechanics only; see build_claude_md) is written
+# into the sandbox when it is populated.
 _LOCAL_SANDBOX_SYSTEM_PROMPT = build_sandbox_system_prompt(
     env_description="a local sandbox environment",
     workspace_description="the current directory",

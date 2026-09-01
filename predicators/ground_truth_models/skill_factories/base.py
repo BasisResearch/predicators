@@ -1620,8 +1620,12 @@ class PhaseSkill:
                             "clutter (no path or arm branch can fix it)")
 
         if traj is None and not expect_contact:
+            # Debug, not error: a refused pose is a normal search
+            # outcome during sampling/refinement retries (hundreds per
+            # run), and the diagnostics reach the agent-facing failure
+            # reason via _last_plan_diagnostics either way.
             for diag in diagnostics:
-                logging.error("[%s/%s] %s", self._name, phase_name, diag)
+                logging.debug("[%s/%s] %s", self._name, phase_name, diag)
             self._last_plan_diagnostics = diagnostics
 
         return traj
@@ -1852,6 +1856,12 @@ class PhaseSkill:
                 "GOAL with fingers OPEN to release (the opening "
                 "gripper needs side clearance at the drop pose)")
         if log_errors:
+            # ERROR is correct HERE, unlike the demoted _plan failure
+            # site: ``log_errors`` is this method's contract for
+            # final-failure emission - every in-run caller goes through
+            # ``_diagnose(..., log_errors=False)`` and stays quiet, so
+            # the loud path never fires during sampling/refinement
+            # retries and cannot spam a run's log.
             for diag in diagnostics:
                 logging.error("[%s/%s] %s", self._name, phase_name, diag)
         return diagnostics

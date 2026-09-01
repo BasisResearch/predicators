@@ -4,7 +4,8 @@ scripts/log_viewer.py."""
 from pathlib import Path
 from typing import Any, Dict
 
-from scripts.log_viewer import _parse_info_log, chain_summary, resume_chains
+from scripts.log_viewer import _explore_results, _misc_chip, _parse_info_log, \
+    chain_summary, resume_chains
 
 _SAVE = ("INFO: Saved local sandbox query/response to logs/x/sandbox/"
          "session_logs/{name}.md")
@@ -227,3 +228,57 @@ def test_chain_summary_single_run_keeps_rows() -> None:
     merged = chain_summary([a], summaries)
     assert merged["episodes"][0]["round"] == 4
     assert merged["episodes"][0]["superseded"] is False
+
+
+_CERTIFIED = ("INFO: agent_model_based explorer: the agent's "
+              "tool-validated plan passed the belief's capture gate "
+              "(validation: 8/8 rollouts ok); executing it verbatim as "
+              "this episode's solve attempt (mental model solved the "
+              "goal).")
+_VERDICT = ("INFO: Interaction episode on train task 0: reward={r}, "
+            "terminated={t}, accepted={a}")
+
+
+def test_certified_regex_matches_pre_rename_logs() -> None:
+    """Logs written before the explorer rename still mark the certified
+    chip."""
+    # pylint: disable=import-outside-toplevel
+    from scripts.log_viewer import CERTIFIED_RE
+    assert CERTIFIED_RE.search(
+        "INFO: agent_bilevel explorer: the agent's tool-validated "
+        "plan passed the belief's capture gate")
+
+
+def test_certified_session_is_marked(tmp_path: Path) -> None:
+    """The capture-gate line marks the newest explore session as certified; the
+    cycle's second request is an ordinary session with its own transcript and
+    verdict."""
+    path = _write_log(tmp_path, [
+        "ONLINE LEARNING CYCLE 2",
+        _SAVE.format(name="018_explore_20260830_090000"),
+        _CERTIFIED,
+        _SAVE.format(name="019_explore_20260830_093000"),
+        _VERDICT.format(r="1.00", t="True", a="True"),
+        _VERDICT.format(r="0.00", t="False", a="False"),
+    ])
+    ex = _parse_info_log(path)["explore"]
+    assert ex[18]["certified"] is True and ex[18]["accepted"] is True
+    assert "certified" not in ex[19] and ex[19]["accepted"] is False
+
+
+def test_certified_chip_mark() -> None:
+    """A certified session's chip carries the diamond and its tooltip; the
+    tally is unchanged."""
+    ep = {
+        "num": 18,
+        "kind": "explore",
+        "env_reward": 1.0,
+        "env_terminated": True,
+        "env_accepted": True,
+        "env_msg": "",
+        "certified": True,
+    }
+    html = _misc_chip(ep)
+    assert "018 explore ✓ 1.00 ◆" in html
+    assert "belief-certified" in html
+    assert _explore_results([dict(ep, cycle_tag="cycle2")]) == [(2, 1, 1, 1.0)]

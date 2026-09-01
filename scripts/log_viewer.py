@@ -140,6 +140,14 @@ RESUMED_TEST_RE = re.compile(
 # requests (see _parse_info_log).
 SAVED_EP_RE = re.compile(r"Saved local sandbox query/response to .*[/\\]"
                          r"(\d{3})_([a-z]+)(?:_task\d+)?_\d{8}_\d{6}\.md")
+# agent_model_based_explorer's line (pre-rename logs say
+# agent_bilevel) saying the session just saved (the newest
+# explore session) submitted a plan that passed the belief's capture gate
+# and executes it verbatim as a solve attempt.
+CERTIFIED_RE = re.compile(r"agent_(?:bilevel|model_based) explorer: "
+                          r"the agent's "
+                          r"tool-validated plan passed the belief's "
+                          r"capture gate")
 # utils.save_video's announcement of a written video file. Its
 # <approach>/<experiment_id>/seed<N>/run_<timestamp> tail names the video
 # dir the run actually wrote, which the mirrored-layout assumption gets
@@ -863,6 +871,8 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
     "rounds": [{task_idx0: {"solved": bool, "msg": str,
     "reward": float?}, ...}, ...],
     "explore": {episode_num: {"reward": float, "terminated": bool,
+                  "certified": bool (the session's plan passed the belief's
+                  capture gate and ran verbatim),
     "accepted": bool, "msg": str, "cycle": int|None}, ...},
     "test_round": {episode_num: round_idx, ...},
     "round_cycles": [cycle_id|None, ...] parallel to rounds -- the
@@ -894,9 +904,12 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
     explore: Dict[int, Dict[str, Any]] = {}
     session_cycles: Dict[int, Optional[int]] = {}
     test_round: Dict[int, int] = {}
-    pending: List[int] = []
+    # Explore sessions' verdict entries awaiting their interaction line,
+    # in request order.
+    pending: List[Dict[str, Any]] = []
     pending_test: List[int] = []
-    last_explore: Optional[int] = None
+    last_explore: Optional[Dict[str, Any]] = None
+    newest_session: Optional[Dict[str, Any]] = None
     cycle: Optional[int] = None
     resume_cycle: Optional[int] = None
     done = False
@@ -987,33 +1000,39 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
                     # eval).
                     session_cycles[int(m.group(1))] = cycle
                     if m.group(2) == "explore":
-                        pending.append(int(m.group(1)))
+                        newest_session = explore.setdefault(
+                            int(m.group(1)), {})
+                        pending.append(newest_session)
                     elif m.group(2) == "learn":
                         pending.clear()
                     elif m.group(2) == "test":
                         pending_test.append(int(m.group(1)))
                     continue
+                if CERTIFIED_RE.search(line):
+                    # Belongs to the newest explore session (it saved its
+                    # transcript just before the explorer read the capture).
+                    if newest_session is not None:
+                        newest_session["certified"] = True
+                    continue
                 m = INTERACTION_RE.match(line)
                 if m:
                     last_explore = pending.pop(0) if pending else None
                     if last_explore is not None:
-                        explore[last_explore] = {
+                        last_explore.update({
                             "reward": float(m.group(1)),
                             "terminated": m.group(2) == "True",
                             "accepted": m.group(3) == "True",
                             "msg": "",
                             "cycle": cycle,
-                        }
+                        })
                     continue
                 m = INTERACTION_REJECT_RE.match(line)
                 if m and last_explore is not None:
-                    explore[last_explore]["msg"] = ("REJECTED: " +
-                                                    m.group(1).strip())
+                    last_explore.update(msg="REJECTED: " + m.group(1).strip())
                     continue
                 m = INTERACTION_BAR_RE.match(line)
                 if m and last_explore is not None:
-                    explore[last_explore]["msg"] = ("solved but " +
-                                                    m.group(1).strip())
+                    last_explore.update(msg="solved but " + m.group(1).strip())
     if current:  # run still in progress or crashed mid-round
         rounds.append(current)
         round_cycles.append(cycle)
@@ -1166,7 +1185,7 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
             interactions_seen = 0
         if ep["kind"] == "explore":
             verdict = explore_verdicts.get(ep["num"])
-            if verdict is not None:
+            if verdict is not None and "accepted" in verdict:
                 ep["env_reward"] = verdict["reward"]
                 ep["env_terminated"] = verdict["terminated"]
                 ep["env_accepted"] = verdict["accepted"]
@@ -1178,6 +1197,8 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
                 # i-th among the cycle's verdict-earning explore sessions.
                 ep["interaction_idx"] = interactions_seen
                 interactions_seen += 1
+            if verdict is not None and verdict.get("certified"):
+                ep["certified"] = True
         round_i = test_round.get(ep["num"])
         if (ep["kind"] == "test" and round_i is not None
                 and round_i < len(round_cycles)):
@@ -2403,12 +2424,21 @@ def _test_chip(ep: Dict[str, Any]) -> str:
 
 
 def _misc_chip(ep: Dict[str, Any]) -> str:
-    """Chip for one non-test episode, e.g. "002 explore ✓ 0.70"."""
+    """Chip for one non-test episode, e.g. "002 explore ✓ 0.70".
+
+    A belief-certified explore session (its submitted plan passed the
+    capture gate and ran verbatim as a solve attempt) is marked ◆.
+    """
     label = f"{int(ep['num']):03} {ep['kind']}"
     title = ""
     if "env_accepted" in ep:
         mark, _, title = explore_mark(ep)
         label += " " + mark
+    if ep.get("certified"):
+        label += " ◆"
+        title = ("belief-certified: the submitted plan passed the capture "
+                 "gate and ran verbatim as a solve attempt" +
+                 ("; " + title if title else ""))
     return _lineage_chip(ep, label, "kind-" + ep["kind"], title)
 
 

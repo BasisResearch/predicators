@@ -522,6 +522,16 @@ class Predicate:
         """The arity of this predicate (number of arguments)."""
         return len(self.types)
 
+    @cached_property
+    def accepts_latent(self) -> bool:
+        """Whether the classifier reads the belief latent block.
+
+        Such a predicate's truth can depend on belief-only state that
+        real observations do not carry, so it may be unverifiable at
+        execution time (see the capture gate's latent-stripped probe).
+        """
+        return _classifier_accepts_latent(self._classifier)
+
     def holds(self,
               state: State,
               objects: Sequence[Object],
@@ -2564,7 +2574,7 @@ class InteractionRequest:
     # explorers); online learning treats ``False`` as not-solved for
     # early stopping even if real-env execution happens to reach the
     # goal, so a model that executes-but-mispredicts isn't certified as
-    # trained. See AgentBilevelExplorer /
+    # trained. See AgentModelBasedExplorer /
     # run.online_learning.generate_interaction_results.
     mental_model_solved: Optional[bool] = None
 

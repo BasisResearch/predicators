@@ -368,8 +368,9 @@ def test_flaky_escalation_is_per_task():
 
 
 def test_validation_rollouts_enter_fresh_env_scope():
-    """Each validation repeat runs inside ``ctx.validation_env_scope``; the
-    reported first rollout stays on the shared env."""
+    """Every gate rollout - the reported first one included - runs inside
+    ``ctx.validation_env_scope``, so the whole gate shares one substrate
+    (reproducible in-session via ``sim.run(plan, trials=N)``)."""
     utils.reset_config({
         "agent_plan_validation_rollouts": 3,
         "agent_plan_validation_fresh_env": True,
@@ -387,8 +388,8 @@ def test_validation_rollouts_enter_fresh_env_scope():
     text = _call_tool(ctx)
     assert "Captured as the current answer" in text
     assert "freshly constructed simulator" in text
-    # Rollouts 2 and 3 of 3; rollout 1 is the reported one.
-    assert len(entered) == 2
+    # All 3 rollouts, the reported first one included.
+    assert len(entered) == 3
 
 
 def test_fresh_env_scope_disabled_by_config():
@@ -481,9 +482,10 @@ def test_param_sensitive_plan_is_not_captured():
     assert "PARAM-SENSITIVE (plan NOT captured)" in text
     assert "lateral_friction=0.48" in text
     assert ctx.solved_plan is None
-    # 2 execution repeats (no overrides) + 2 physics points.
+    # Main rollout + 2 execution repeats (no overrides) + 2 physics
+    # points.
     assert scope_overrides == [
-        None, None, {
+        None, None, None, {
             "lateral_friction": 0.48
         }, {
             "lateral_friction": 0.59
@@ -523,7 +525,7 @@ def test_physics_margin_disabled_by_config():
     text = _call_tool(ctx)
     assert "Captured as the current answer" in text
     assert "PARAM-SENSITIVE" not in text
-    assert scope_overrides == [None, None]
+    assert scope_overrides == [None, None, None]
 
 
 def test_physics_margin_vacuous_without_points():
@@ -538,7 +540,7 @@ def test_physics_margin_vacuous_without_points():
     text = _call_tool(ctx)
     assert "Captured as the current answer" in text
     assert "Physics-margin check passed" not in text
-    assert scope_overrides == [None, None]
+    assert scope_overrides == [None, None, None]
 
 
 def _rule_param_scope_ctx(model, members):

@@ -34,13 +34,14 @@ Example command (partially observable)::
         --approach agent_sim_predicate_invention --seed 0 \
         --num_train_tasks 10 --num_test_tasks 5 \
         --partially_observable True \
-        --num_online_learning_cycles 2 --explorer agent_plan
+        --num_online_learning_cycles 2 --explorer agent_model_free
 """
 
 import logging
 import os
 from typing import Any, Dict, FrozenSet, List, Set, Tuple
 
+from predicators.agent_sdk import learn_prompts
 from predicators.agent_sdk.tools import _SnapshotTarget, \
     finalize_versioned_snapshot, make_predicate_quality_loader
 from predicators.approaches.agent_sim_learning_approach import \
@@ -162,36 +163,10 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
         return targets
 
     def _extra_synthesis_message(self, extra_paths: Dict[str, str]) -> str:
-        path = extra_paths["predicates_file_for_agent"]
-        goal_block = self._format_goal_nl_block()
-        return f"""\
-## Predicate Invention
-
-Only the predicates in "## Available Predicates" above exist - this \
-approach stripped the env's symbolic predicates down to that allowlist. \
-Invent every other subgoal predicate (placements, device states, \
-process completions) in `{path}` as `LEARNED_PREDICATES`; the file \
-format, parameter sharing, coverage rules, and verification protocol \
-are in the system prompt's "Predicate Invention" section.
-
-{goal_block}\
-Goal achievement is checked externally - the env owns the goal \
-definition; check any state with the black-box `is_goal_state` (see \
-above). Your invented predicates only need to support plan-sketch \
-subgoals (gating Wait, Place, etc.) and may use any names.
-
-Failure trajectories are signal: when an interaction trajectory has \
-`reached_goal=False`, look for points where your predicate was true but \
-downstream progress stalled (e.g. a placement predicate fires but the \
-relevant rule feature stops advancing). That's evidence the threshold \
-is too loose; tighten it or share the gating parameter with the rule \
-via `params[...]` so MCMC can fit them jointly.
-
-Workflow: edit `predicates.py`, call `sim.predicates()` in `run_python` \
-(fast, also reloads predicates into the live set), then run \
-`sim.refine` / `sim.run` with sketches that reference your invented \
-names. Any predicate you reference in a sketch must exist in \
-`predicates.py` first.""" + self._chained_extra_message(extra_paths)
+        message = learn_prompts.render_predicate_invention_message(
+            extra_paths["predicates_file_for_agent"],
+            self._format_goal_nl_block())
+        return message + self._chained_extra_message(extra_paths)
 
     def _chained_extra_message(self, extra_paths: Dict[str, str]) -> str:
         """The base class's extra message (the partial-observability note under
@@ -219,35 +194,28 @@ names. Any predicate you reference in a sketch must exist in \
         return f"Goals across train tasks (natural language):\n{bullets}\n\n"
 
     def _synthesis_workflow_extra(self) -> str:
-        # The base workflow's step 4 depends on invented predicates:
-        # sketches can only reference predicates that already exist.
-        return ("\nStep 4's sketches need subgoal predicates that do not "
-                "exist until you invent them: before validating, write them "
-                "to `predicates.py` and load with `sim.predicates()` "
-                "(see \"Predicate Invention\").")
+        # The base workflow's validation step depends on invented
+        # predicates: sketches can only reference predicates that exist.
+        return learn_prompts.render_predicate_workflow_extra()
 
-    def _extra_synthesis_system_prompt(self) -> str:
+    def _extra_synthesis_system_prompt_sections(self) -> List[str]:
         # The scene workbench is the sim probe inside run_python (the
         # probe is unconditional in synthesis sessions).
         workbench = ("the `sim` probe in `run_python` as scene workbench "
-                     "- `sim.reset(task_idx=..., mods={...})` to stage "
+                     "(`sim.reset(task_idx=..., mods={...})` to stage "
                      "states, `sim.render(label, annotations=[...])` "
-                     "to render with overlays")
-        render_ref = "`sim.render`"
-        section = _PREDICATE_PROMPT_SECTION.replace("__SCENE_WORKBENCH__",
-                                                    workbench).replace(
-                                                        "__SCENE_RENDER_REF__",
-                                                        render_ref)
-        # Chain the base class's extra (the recurrent-rules tutorial
-        # under CFG.partially_observable), then the predicate-side
-        # latent guidance that belongs to invention arms only.
-        parts = [section]
-        base = super()._extra_synthesis_system_prompt()
-        if base:
-            parts.append(base)
-        if CFG.partially_observable:
-            parts.append(_RECURRENT_PREDICATE_SECTION)
-        return "\n\n".join(parts)
+                     "to render with overlays)")
+        sections = super()._extra_synthesis_system_prompt_sections()
+        sections.append(
+            learn_prompts.render_predicate_invention_section(workbench))
+        return sections
+
+    def _extra_synthesis_latent_sections(self) -> List[str]:
+        # The predicate-side latent guidance belongs to invention arms
+        # only and follows the simulator-side tutorial it refers to.
+        sections = super()._extra_synthesis_latent_sections()
+        sections.append(learn_prompts.render_predicate_latent_section())
+        return sections
 
     def _post_synthesis_loading(
         self,
@@ -359,181 +327,3 @@ names. Any predicate you reference in a sketch must exist in \
             seen_names.add(entry.name)
 
         return valid
-
-
-_PREDICATE_PROMPT_SECTION = """\
-## Predicate Invention (required for plan subgoals)
-
-You are responsible for inventing the symbolic predicates the planner \
-will use as subgoal atoms in plan sketches. Only `Holding` is provided \
-as a primitive; placement, device-state, and process-completion \
-predicates do not exist until you invent them.
-
-Goals are presented to you in natural language (see the synthesis \
-message). Goal achievement is checked externally by the env via \
-`is_goal_state(state, task_idx)` / `train_tasks[task_idx].goal_holds(state)`. \
-You do **not** need to invent any goal-named predicates and you do \
-**not** need to match env predicate names. Your invented predicates \
-are purely for plan-sketch subgoals (gating Wait/Place/etc.) and can \
-be named freely.
-
-Define them in `predicates.py` (path given in the first message):
-
-```python
-LEARNED_PREDICATES: List[Predicate]
-```
-
-The exec namespace pre-injects `Predicate`, `np`, and a `<typename>_type` \
-binding for each env type (e.g. `widget_type`, `fixture_type`). The names \
-below are illustrative - use whatever types, features, and parameter names \
-your prompt digests and the trajectory data actually report for your task.
-
-```python
-# Placement: object xy within a learned distance of the fixture's
-# *functional point* - NOT its recorded origin. `fixture.x, fixture.y`
-# is usually the body base; the point the predicate should fire at
-# (a contact surface, an outlet, an opening) is offset from it, and
-# that offset lives in the fixture's LOCAL frame, so it rotates with
-# the fixture's `rot`. Declare the local offset as ParamSpecs in
-# simulator.py and share them with the rule that gates the same
-# physics. A raw origin-distance gate only holds when the fixture's
-# rotation never varies across tasks.
-def _widget_at_fixture(s, objs):
-    widget, fixture = objs
-    rot = s.get(fixture, "rot")
-    cos_r, sin_r = np.cos(rot), np.sin(rot)
-    rot_mat = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
-    local_offset = np.array([params["fixture_local_dx"],
-                             params["fixture_local_dy"]])
-    origin = np.array([s.get(fixture, "x"), s.get(fixture, "y")])
-    anchor = origin + rot_mat @ local_offset  # world-frame point
-    widget_xy = np.array([s.get(widget, "x"), s.get(widget, "y")])
-    dist = np.linalg.norm(widget_xy - anchor)
-    return dist < params["widget_at_fixture_dist"]
-
-LEARNED_PREDICATES = [
-    Predicate("WidgetAtFixture", [widget_type, fixture_type],
-              _widget_at_fixture),
-    # Device state: a feature exceeding a fixed cutoff (no learned param).
-    Predicate("FixtureActive", [fixture_type],
-              lambda s, objs: s.get(objs[0], "is_on") > 0.5),
-    # Process completion: a rule-driven feature reaches a learned threshold.
-    Predicate("WidgetReady", [widget_type],
-              lambda s, objs: s.get(objs[0], "progress") >= params["ready_threshold"]),
-]
-```
-
-A pre-injected `params` view is in scope; it always reads the **current \
-fitted values** of every `ParamSpec` declared in `simulator.py`. Whenever \
-MCMC re-fits, predicates picking up `params["name"]` see the new values \
-automatically. To share parameters between a rule and a predicate - a \
-distance threshold, and the local-frame anchor offset (`*_local_dx`, \
-`*_local_dy`) it is measured from - declare them once in `PARAM_SPECS` \
-and reference `params["name"]` from both. This is the recommended \
-pattern whenever a single physical gate drives both residual dynamics \
-(the rule's "fire" condition) and a control-relevant predicate (the \
-planner's "this subgoal is reached" check); it also gives the anchor \
-offset an SSE signal from the rule's step data, which a predicate-only \
-parameter would lack (see next caveat).
-
-Caveat: a parameter used only by predicates (not by any rule) has no SSE \
-signal - it stays at `init_value`. Pick good initial values for those.
-
-What you'll need (typical pattern):
-- Placement predicates (object at a target location) for any open-ended \
-option like Place - refinement needs these or it picks an arbitrary location.
-- Device-state predicates (on/off) for any toggle option.
-- Process-completion predicates over the features your rules drive, so \
-Wait steps know when to terminate. Keep classifier thresholds consistent \
-with rule saturation values; an inconsistency causes sim.fit to \
-look fine while sim.refine gets stuck on the Wait subgoal.
-- Coverage rule of thumb: every option you expect to use in a sketch \
-should have predicates that can express its post-condition, so every \
-sketch step can carry a subgoal annotation. Annotations are checked \
-against the real state during execution to detect and replan diverged \
-steps; a step with no annotatable effect is unmonitored. While drafting \
-sketches, a step you cannot annotate with any invented predicate is a \
-missing predicate - invent it.
-
-Verifying classifiers against the scene and data (applies to all \
-predicates): a classifier picks features and parameter values, and both \
-can be wrong - never commit either from intuition. Follow CLAUDE.md's \
-threshold-fitting protocol whenever you fit a numeric cutoff: bucket \
-trajectory steps by whether the downstream effect actually happened, \
-require the buckets to separate by a clear margin (overlap or a \
-knife-edge gap means the candidate quantity references the wrong point \
-- add a learned, rotation-aware anchor offset shared with the gating \
-rule instead of widening the threshold), and visualize before fitting. \
-Your two workbenches: __SCENE_WORKBENCH__ for geometry - a body's \
-recorded pose origin often is not the functional point (body center vs. \
-outlet, joint base vs. tool tip, housing vs. handle), so use one \
-__SCENE_RENDER_REF__ render to confirm what's actually where - and \
-`run_python` for the numeric sweep over trajectory states.
-
-Validate with `sim.predicates()` (cheap; reports first-flip step, \
-monotonicity, coverage across all available trajectories). On goal-reaching \
-trajectories (`reached_goal=True` in `describe_trajectory`) a milestone \
-predicate should flip False→True exactly once and stay true; on failed \
-interaction trajectories (`reached_goal=False`) the same predicate may \
-fire but the rest of the trajectory won't show goal completion - useful \
-signal for spotting an over-loose threshold (predicate fires, downstream \
-physics doesn't follow). A placement predicate should be true exactly \
-when an object is at its intended location and false otherwise.
-
-`sim.predicates()` is also the loader: it updates the predicate \
-set used by `sim.refine`. Call it after every edit to \
-`predicates.py` before re-running plan refinement.
-
-Predicates persist across online cycles - the file is preserved between \
-synthesis sessions. Edit it freely; every successful Write/Edit (and a \
-final post-session check) is snapshotted to \
-`predicates_versions/cycle_XXX_vers_YYY_predicates.py`. Each online cycle \
-re-runs synthesis with the full trajectory history (offline demos + every \
-interaction trajectory collected so far), so failed past attempts remain \
-visible for the agent to learn from.
-"""
-
-# Predicate-side latent guidance appended (after the base class's
-# simulator-side recurrent tutorial) under ``CFG.partially_observable``.
-# Invention-only: it teaches the optional ``latent`` classifier kwarg
-# and the latent materialisation in ``sim.predicates()``,
-# which non-invention arms have no use for.
-_RECURRENT_PREDICATE_SECTION = """\
-### Predicate signature
-
-Classifiers may stay observation-only or take an optional ``latent``
-kwarg. The latent block is available at refinement time too - the
-planner threads it through ``state.latent`` across search nodes, and
-``Predicate.holds`` auto-routes it into classifiers that opted in. Be
-defensive: at the very first step ``state.latent`` may still be ``{}``
-if the agent's ``LATENT_INIT`` is empty, and during predicate-quality
-scoring on *raw env* trajectories ``latent`` will be the block
-materialised by the agent's rules (so still meaningful, but only as
-accurate as the rules themselves).
-
-```python
-# Observation-only (robust to bad rule chains; preferred when the
-# observable carries enough signal):
-Predicate("ProcessDone", [widget_type],
-          lambda s, objs, latent=None:
-              s.get(objs[0], "progress") > 0.5)
-
-# Latent-aware (inherits simulator correctness; defend against
-# missing keys at step 0):
-Predicate("ProcessDone", [widget_type],
-          lambda s, objs, latent=None:
-              (latent or {}).get("level", 0.0) >= params["done_thresh"])
-```
-
-The kwarg MUST be named exactly ``latent`` for the auto-routing to
-fire. Trade-off: latent-aware predicates inherit the simulator's
-correctness; observation-only predicates are robust to bad rules
-but only work when the observable carries enough signal.
-
-### Diagnostics
-
-`sim.predicates()` rolls each trajectory through your
-simulator to materialise the latent before scoring classifiers, so
-latent-aware predicates get a real block there. Use the eval
-report to localise failures (bad rule chain vs. bad threshold).
-"""

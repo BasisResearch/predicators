@@ -177,9 +177,13 @@ class _StrLikeResult:
     """String conveniences shared by the probe result types.
 
     The results print like strings, so agents naturally slice
-    (``res[-800:]``) and search (``'Goal reached: True' in res``) them;
-    without these dunders both moves are ``TypeError``s that cost a
-    recovery turn (and recur after compaction erases the lesson).
+    (``res[-800:]``), search (``'Goal reached: True' in res``), and call
+    string methods (``res.split('\\n')`` destroyed a 1200 s refine
+    result in run_20260830_145216 - AttributeError, then a full
+    identical re-run); without these both moves are errors that cost a
+    recovery turn (and recur after compaction erases the lesson). Any
+    ``str`` method not shadowed by a real attribute delegates to the
+    rendered report, so the whole string API works.
     """
 
     @property
@@ -195,6 +199,16 @@ class _StrLikeResult:
 
     def __len__(self) -> int:
         return len(repr(self))
+
+    def __getattr__(self, name: str) -> Any:
+        # Only reached for attributes not found normally (dataclass
+        # fields and real methods take precedence). Delegate public str
+        # methods (.split, .splitlines, .find, .lower, ...) to the
+        # rendered report; anything else raises AttributeError as usual.
+        if not name.startswith("_") and hasattr(str, name):
+            return getattr(repr(self), name)
+        raise AttributeError(
+            f"{type(self).__name__!r} object has no attribute {name!r}")
 
 
 @dataclasses.dataclass(repr=False)
@@ -271,7 +285,8 @@ class ProbeTrialsResult(_StrLikeResult):
                     "trial - the rate estimates real execution reliability"
                     if self.fresh_env_per_trial else
                     "shared session env - trials are correlated, treat the "
-                    "rate as optimistic")
+                    "rate as optimistic; this session has no fresh-env "
+                    "scope, so fresh=True is likewise unavailable")
         scored = [t for t in self.trials if t.get("solved") is not None]
         headline = f"Trials: {self.successes}/{n} reached the goal"
         if scored:
@@ -834,8 +849,11 @@ class BeliefProbe:
     ) -> Union[Dict[str, Dict[str, float]], Dict[str, float]]:
         """Full-precision feature dict of the current state.
 
-        ``state()`` -> ``{obj: {feat: value}}`` for all objects;
-        ``state("domino_1")`` -> that object's ``{feat: value}``.
+        ``state()`` -> ``{"name:type": {feat: value}}`` for all objects
+        - keys use the same ``name:type`` form as atoms, plan lines, and
+        the prompt, so a key read anywhere else indexes here directly;
+        ``state("domino_1")`` and ``state("domino_1:domino")`` both ->
+        that object's ``{feat: value}``.
         """
         cur = self._require_state()
 
@@ -847,13 +865,17 @@ class BeliefProbe:
 
         if obj_name is not None:
             # Sweep loops call the single-object form per iteration;
-            # keep it O(one object), not O(scene).
+            # keep it O(one object), not O(scene). Accept both the bare
+            # name and the name:type form every other surface prints
+            # (bare-only lookups cost a KeyError per session:
+            # run_20260830 hit it in four sessions).
+            bare = obj_name.split(":", 1)[0]
             for obj in cur:
-                if obj.name == obj_name:
+                if obj.name == bare:
                     return _features(obj)
             raise ValueError(f"Unknown object '{obj_name}'. Available: "
-                             f"{sorted(o.name for o in cur)}")
-        return {obj.name: _features(obj) for obj in sorted(cur, key=str)}
+                             f"{sorted(str(o) for o in cur)}")
+        return {str(obj): _features(obj) for obj in sorted(cur, key=str)}
 
     def atoms(self) -> List[str]:
         """Sorted ground atoms true in the current state."""
@@ -1074,7 +1096,12 @@ class BeliefProbe:
         ``submit_plan``'s validation rollouts report theirs the
         same way. A single run (``trials=1``) executes entirely at
         ``S``; a physics sweep runs every point at ``S`` instead of the
-        base.
+        base. Without ``seed=``, and from the task's unmodified initial
+        state (plain ``reset()``, no rollout since), ``trials=N`` runs
+        the IDENTICAL rollout set as ``submit_plan``'s N-rollout capture
+        gate (fresh env per rollout, planner seeds ``base..base+N-1``),
+        so a trials score here is exactly the gate's verdict on this
+        plan.
 
         SUBSTRATE: a default single run executes on the WARM shared
         session env from the probe's current state - a feature for
@@ -1135,13 +1162,16 @@ class BeliefProbe:
         ctx.test_call_id += 1
         probe_task, sketch_steps, all_predicates, notices = \
             self._parse_sketch(plan_text)
+        # Ground via the shared helper so an annotated Wait waits for
+        # its annotated atoms here exactly as in refine, submit_plan,
+        # and real execution (see submit_plan's grounding comment).
         grounded: List[Any] = []
         for st in sketch_steps:
             params = (st.initial_params if st.initial_params is not None else
                       np.array([], dtype=np.float32))
             grounded.append(
-                st.option.ground(list(st.objects),
-                                 np.asarray(params, dtype=np.float32)))
+                bilevel_sketch.ground_step(
+                    st, np.asarray(params, dtype=np.float32)))
 
         report_preds = ctx.predicates
 
@@ -1177,8 +1207,12 @@ class BeliefProbe:
                     "physics_sweep=True, but no identified physical "
                     "parameters with nonzero posterior width are deployed "
                     "this cycle, so there is no uncertainty range to "
-                    "sweep. Use trials= to measure execution reliability "
-                    "at the current physics instead.")
+                    "sweep. (submit_plan's rule-parameter ensemble margin "
+                    "is a different, automatic gate over the learned rule "
+                    "constants - it still runs at submission and is not "
+                    "reachable through physics_sweep.) Use trials= to "
+                    "measure execution reliability at the current physics "
+                    "instead.")
             point_dicts: List[Dict[str, Any]] = []
             all_points: List[Optional[Dict[str, float]]] = \
                 [None] + sweep_points
@@ -1462,6 +1496,14 @@ class BeliefProbe:
             img = render_scene_image(
                 ctx,
                 f"probe_step_{i}_{outcome.option.name}") if render else None
+            if (outcome.option.name == "Wait" and failure is None and
+                    outcome.num_actions >= CFG.max_num_steps_option_rollout):
+                notices.append(
+                    f"step {i} (Wait) ran to the option-rollout cap "
+                    f"({outcome.num_actions} actions): its wait-target "
+                    "atoms never became true in the belief (and no other "
+                    "atom changed). Check whether the awaited change is "
+                    "modeled, or drop the Wait.")
             step_dicts.append({
                 "option":
                 sig,
@@ -2011,9 +2053,20 @@ class BeliefProbe:
                        "full rollout of these params as a solve.")
         elif require_goal:
             verdict = ("goal-reached - the task's goal atoms held at the "
-                       "final step; no evaluator verdict (use "
-                       "require_solved=True from a pristine reset() for "
-                       "that).")
+                       "final step")
+            # Recommend the evaluator gate only when the task HAS an
+            # evaluator: sessions without one wasted a call per session
+            # following this advice into "this task defines no task
+            # evaluator" (run_20260830, three sessions).
+            if (self._base_task is not None
+                    and self._base_task.evaluator is not None):
+                verdict += ("; no evaluator verdict (use "
+                            "require_solved=True from a pristine reset() "
+                            "for that).")
+            else:
+                verdict += (" (this task defines no evaluator, so "
+                            "goal-reached is the strongest verdict "
+                            "available).")
         else:
             verdict = ("executed - every step established its subgoal "
                        "annotation; the task goal was NOT checked (set "

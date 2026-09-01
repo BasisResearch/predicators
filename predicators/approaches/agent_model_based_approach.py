@@ -9,15 +9,15 @@ as a probe method (``sim.refine``) and to mid-episode
 suffix replans, but there is no approach-side refinement of unvalidated
 sketches.
 
-Registered under the CLI approach name ``agent_bilevel`` (kept stable so
-existing configs and logs remain valid).
+Registered under the CLI approach name ``agent_model_based``
+(``agent_bilevel`` is kept as a deprecated alias).
 
 Example command::
 
     python predicators/main.py --env pybullet_domino \
-        --approach agent_bilevel --seed 0 \
+        --approach agent_model_based --seed 0 \
         --num_train_tasks 1 --num_test_tasks 1 \
-        --num_online_learning_cycles 1 --explorer agent_plan
+        --num_online_learning_cycles 1 --explorer agent_model_free
 """
 import dataclasses
 import hashlib
@@ -159,7 +159,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
 
     @classmethod
     def get_name(cls) -> str:
-        return "agent_bilevel"
+        return "agent_model_based"
 
     # ------------------------------------------------------------------ #
     # Execution monitoring (closed-loop test execution)
@@ -206,129 +206,31 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         return []
 
     # ------------------------------------------------------------------ #
-    # System prompt (simplified - no parameter tuning workflow)
+    # System prompt
     # ------------------------------------------------------------------ #
 
     def _get_agent_system_prompt(self) -> str:
-        propose = CFG.agent_bilevel_use_llm_initial_params
-        refine_ref = "sim.refine (in run_python)"
-        # What a sketch step consists of (shared between modes).
-        if propose:
-            sketch_desc = (
-                "a sequence of skills (parameterized options) with object "
-                "arguments, subgoal atoms after each step, and the continuous "
-                "parameters for each step")
-        else:
-            sketch_desc = (
-                "a sequence of skills (parameterized options) with object "
-                "arguments and subgoal atoms after each step, plus continuous "
-                f"parameters you find with {refine_ref}")
-
         # Sessions are per-phase (see _ensure_agent_session: a phase
         # change closes and rebuilds the session), so a solve session
         # only ever receives solve queries and an explore session only
-        # explore queries - each phase's system prompt states just its
-        # own delivery contract. SOLVE is a hard capture gate; EXPLORE
-        # delivers an experiment sketch as text (the belief model may
-        # lack goal-critical dynamics, so a goal-reaching capture can be
-        # impossible by construction).
-        if self._explore_phase:
-            contract = ("Your deliverable is your final plan-sketch TEXT: an "
-                        "experiment to run in the real environment. A "
-                        "simulator-validated sketch is preferred when the "
-                        "current model supports one; when it does not, submit "
-                        "the sketch most likely to work in reality instead of "
-                        "grinding for a capture the model cannot produce.")
-        elif CFG.agent_solve_policy_mode:
-            contract = (
-                "You DELIVER a closed-loop PROGRAM, not a fixed plan: "
-                "write ./policy.py with `get_option(state, memory)` "
-                "returning ONE plan line (the same sketch grammar) from "
-                "the actual current state, or None when finished, then "
-                "run submit_policy on the current task until it "
-                "reaches the goal - that validated policy.py snapshot is "
-                "your ONLY accepted output. Option failures do NOT end "
-                "an episode: they arrive in memory['last_failure'] and "
-                "get_option is asked again, so RECOVERY (re-place a "
-                "drifted block, re-aim after a motion-planning refusal) "
-                "is your policy's job. After a failure your policy MUST "
-                "change something - parameters, target, or action: "
-                "re-issuing the identical failing line "
-                f"{CFG.agent_policy_max_repeated_failures} times in a "
-                "row ends the episode as a policy bug, and so does "
-                "re-issuing one identical line that keeps completing "
-                "with NO state change (a no-op livelock). Sketches and "
-                "subgoal annotations remain useful for exploration "
-                "(sim.run / sim.refine) but are not the deliverable.")
-        else:
-            contract = (
-                "You DELIVER by running submit_plan with "
-                "per-step subgoals on the current task until it reaches "
-                "the goal - that captured plan is your ONLY accepted "
-                "output, so do not finish until submit_plan "
-                "reaches the goal.")
-        job = ("Your job is to produce a plan - " + sketch_desc +
-               " - that reaches the goal. " + contract + "\n"
-               "submit_plan runs your EXACT parameters with no "
-               "sampling, so every parameter must be right. To find working "
-               f"values you MAY use {refine_ref} while reasoning (it "
-               "searches for parameters but is slower); read the parameters "
-               "it reports and submit them via submit_plan. Use "
-               "whatever tools help.")
-        # Parameter-effort and ground-sampler guidance live in the query's
-        # Instructions (sketch_prompts.build_solve_prompt) - single source.
-
-        # Keep responses short: the model's deliberation is the main driver of
-        # the output-token overflow, and testing is often faster than deriving.
-        brevity = (
-            " Keep your reasoning concise: prefer making a concrete attempt "
-            f"and testing it with {refine_ref} / submit_plan to "
-            "let the simulator tell you what's wrong.")
-        params_clause = job + brevity + "\n\n"
-        # Keep the subgoal-annotation template's option format consistent with
-        # the solve prompt: show the [params] slot iff the agent proposes them.
-        param_slot = "[param1, param2]" if propose else ""
-        wait_slot = "[]" if propose else ""
-        if self._explore_phase:
-            identity = (
-                "You are an exploration agent in an online learning "
-                "loop. You observe task environments through inspection "
-                "tools and design plan sketches as experiments that "
-                "gather information about the real environment.")
-        else:
-            identity = (
-                "You are a planning agent. You observe task environments "
-                "through inspection tools and generate plan sketches to "
-                "achieve goals.")
-        return (
-            identity + " "
-            "You have access to read-only tools to inspect predicates, "
-            "options, trajectories, and training tasks.\n\n"
-            f"{params_clause}"
-            "Some effects may not be immediate - if an action triggers a "
-            "delayed process (e.g. gradual accumulation, propagation "
-            "through contacting objects, a sensor catching up to an "
-            "actuator), insert a Wait after it so the effect has time "
-            "to occur before the next action.\n\n"
-            "## Subgoal Annotations\n"
-            "After each step, annotate which predicate atoms should hold "
-            "after that step succeeds. Use the format:\n"
-            f"  OptionName(obj1:type1, obj2:type2){param_slot} -> "
-            "{Pred(obj1:type1), Pred2(obj1:type1, obj2:type2)}\n"
-            "Always use typed references (obj:type) in subgoal atoms.\n"
-            "Annotate EVERY step whose effect the predicates can express. "
-            "Annotations are not just search hints: refinement validates "
-            "each annotated step, and at execution time they are checked "
-            "against the real state, so a step that diverges can be "
-            "detected and replanned instead of silently dooming the rest "
-            "of the plan. Prefer atoms that NEWLY hold (or stop holding) "
-            "because of the step - atoms that were already true beforehand "
-            "cannot reveal divergence. A step you cannot annotate is a "
-            "blind spot for both search and recovery.\n"
-            "For Wait steps, the annotation also specifies exactly when the "
-            "Wait should terminate. Use `NOT Pred(...)` for atoms that should "
-            f"become false (e.g. `Wait(robot:robot){wait_slot} -> "
-            "{Ready(widget:widget)}`).")
+        # explore queries: each phase's system prompt states just its
+        # own deliverable contract and rules. The query carries the task
+        # data and the run state (sketch_prompts.build_solve_prompt).
+        return bilevel_sketch.build_solve_system_prompt(
+            explore=self._explore_phase,
+            policy_mode=CFG.agent_solve_policy_mode,
+            propose_params=CFG.agent_bilevel_use_llm_initial_params,
+            ground_samplers=CFG.agent_bilevel_ground_samplers,
+            physics_margin=CFG.agent_plan_validation_physics_margin,
+            rule_param_margin=CFG.agent_plan_validation_rule_param_margin,
+            use_journal=CFG.agent_solve_use_journal,
+            execute_certified_plan=CFG.agent_explorer_execute_certified_plan,
+            early_stop_note=bilevel_sketch.build_early_stop_note(),
+            policy_max_options=CFG.agent_policy_max_options,
+            policy_max_repeated_failures=CFG.
+            agent_policy_max_repeated_failures,
+            policy_max_repeated_noops=CFG.agent_policy_max_repeated_noops,
+        )
 
     # ------------------------------------------------------------------ #
     # Solve prompt (no continuous params, subgoal format)
@@ -358,12 +260,9 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
             initial_image_section=self._initial_image_section(),
             propose_params=CFG.agent_bilevel_use_llm_initial_params,
             require_tool_validation=True,
-            ground_samplers=CFG.agent_bilevel_ground_samplers,
             journal=journal_text,
             strategy=strategy_text,
             attempts=attempts_text,
-            physics_margin=CFG.agent_plan_validation_physics_margin,
-            policy_mode=CFG.agent_solve_policy_mode,
         )
 
     def _solve_prompt_tool_names(self) -> Optional[List[str]]:
@@ -552,9 +451,17 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         return True
 
     def _journal_task_label(self) -> str:
-        """The journal's label for the task currently being solved."""
+        """The journal's label for the task currently being solved.
+
+        Carries the HARNESS cycle number so the attempt log anchors a
+        canonical numbering: without it agents invented their own cycle
+        counts (a journal's "cycle 4" was the harness's cycle 1), and
+        cross-referencing run logs against the journal needed a mental
+        offset.
+        """
         idx = self._tool_context.test_task_idx
-        return f"task {idx}" if idx is not None else "task ?"
+        task_part = f"task {idx}" if idx is not None else "task ?"
+        return f"cycle {self._tool_context.iteration_id} {task_part}"
 
     def _record_task_context_in_journal(self, task: Task) -> None:
         """Append the task's goal + init-state entry, once per task.

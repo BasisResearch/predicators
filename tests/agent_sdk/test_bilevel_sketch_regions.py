@@ -583,3 +583,45 @@ def test_probe_refine_broken_ground_samplers_file(tmp_path):
     with pytest.raises(ValueError, match="Error loading") as excinfo:
         _probe_refine("Move(block0:block)[0.95]", sandbox_dir=str(tmp_path))
     assert "bad" in str(excinfo.value)
+
+
+# --------------------------------------------------------------------------- #
+# Subgoal-annotation validation and step formatting (2026-08-31 fixes).
+# --------------------------------------------------------------------------- #
+
+
+def test_parse_strict_unknown_subgoal_predicate_errors():
+    """Strict mode rejects an annotation naming a predicate that does not
+    exist, instead of silently monitoring a different sketch."""
+    with pytest.raises(ValueError, match="Unknown predicate 'NotAReal'"):
+        _parse("Move(block0:block)[0.7] -> {NotAReal(block0:block)}")
+
+
+def test_parse_strict_unknown_subgoal_object_errors():
+    """Strict mode rejects an annotation naming an unknown object."""
+    with pytest.raises(ValueError, match="Unknown object"):
+        _parse("Move(block0:block)[0.7] -> {ReachedHi(ghost:block)}")
+
+
+def test_parse_nonstrict_unknown_subgoal_predicate_drops_atom():
+    """Tolerant mode (re-parsing logged plans) still skips the bad atom."""
+    sketch = _parse("Move(block0:block)[0.7] -> {NotAReal(block0:block)}",
+                    strict=False)
+    assert len(sketch) == 1
+    assert sketch[0].subgoal_atoms is None
+
+
+def test_parse_zero_param_option_without_brackets():
+    """A zero-parameter option may omit its `[]`, matching how the harness's
+    own logs render such steps."""
+    sketch = _parse("Wait0(block0:block)")
+    assert len(sketch) == 1
+    assert sketch[0].option.name == "Wait0"
+
+
+def test_format_step_line_renders_negative_subgoals():
+    """NOT atoms render inside the same braces so logged plans match the sketch
+    monitoring actually used."""
+    atom = GroundAtom(_ReachedHi, [_block])
+    line = format_step_line(0, "Wait0", [_block], subgoal_neg_atoms={atom})
+    assert "-> {NOT ReachedHi(block0:block)}" in line
