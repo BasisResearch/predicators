@@ -134,6 +134,11 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         # to the subgoal_annotations execution monitor. None whenever no
         # monitored plan is active (exploration, replanning disabled).
         self._exec_status: Optional[SubgoalExecutionStatus] = None
+        # The grounded option plan behind _exec_status, kept so a
+        # divergence with no refinable suffix can resume the remaining
+        # not-yet-executed options open-loop (the dispensed policy holds
+        # them only in its closure). Set/cleared alongside _exec_status.
+        self._exec_plan: Optional[List[_Option]] = None
         # Per-episode replan budget, refreshed by reset_for_new_episode.
         self._exec_replans_left = 0
         # Whether the most recent sketch query ended because the agent hit
@@ -168,6 +173,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
     def reset_for_new_episode(self) -> None:
         super().reset_for_new_episode()
         self._exec_status = None
+        self._exec_plan = None
         self._exec_replans_left = CFG.agent_bilevel_max_execution_replans
         # Optionally give each test solve a fresh agent conversation. reset()
         # fires once per test task (not on mid-episode replans, which go
@@ -838,45 +844,52 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         problem (a sampled parameter whose real outcome differed from
         the option-model rollout), not a wrong skeleton, so we first try
         to resume a suffix of the executed sketch (cheap, no agent
-        query; see :meth:`_replan_suffix`). When that fails, the default
-        is to fail the episode: a fresh agent sketch query would re-open
-        a turn budget the attempt already spent (set
-        ``CFG.agent_bilevel_replan_agent_fallback`` to return None and
-        fall through to one instead). Also raises ApproachFailure when
-        the episode's replan budget is exhausted so the episode fails
-        fast instead of running the horizon open-loop.
+        query; see :meth:`_replan_suffix`). When no suffix refines - or
+        the episode's replan budget is spent - the remaining
+        not-yet-executed options resume OPEN-LOOP instead of failing the
+        episode: an annotation is the agent's prediction, not proof the
+        goal is out of reach, and aborting a plan whose remaining
+        settle/cure steps might still deliver turns a maybe-fail into a
+        certain fail. The divergence stays in the log and the goal check
+        decides the episode. Set
+        ``CFG.agent_bilevel_replan_agent_fallback`` to instead fall
+        through to a fresh agent sketch query when no suffix refines.
         """
         status = self._exec_status
         if status is None or status.steps_initiated == 0:
             return None
         self._exec_status = None
+        exec_plan = self._exec_plan or []
+        self._exec_plan = None
         failed_idx = status.steps_initiated - 1
         steps = list(status.sketch)
         failed_name = steps[failed_idx].option.name
-        if self._exec_replans_left <= 0:
-            raise ApproachFailure(
-                f"Subgoal divergence after step {failed_idx} "
-                f"({failed_name}). No execution replans left.")
-        self._exec_replans_left -= 1
-        logging.info(
-            "Subgoal divergence after step %d (%s). Replanning from the "
-            "current state (%d execution replans left).", failed_idx,
-            failed_name, self._exec_replans_left)
-        policy = self._replan_suffix(task.init, task, steps, failed_idx,
-                                     timeout)
-        if policy is None:
-            if not CFG.agent_bilevel_replan_agent_fallback:
-                raise ApproachFailure(
-                    f"Subgoal divergence after step {failed_idx} "
-                    f"({failed_name}): no suffix of the executed sketch "
-                    "refines from here, and the fresh-agent-sketch "
-                    "fallback is disabled "
-                    "(agent_bilevel_replan_agent_fallback).")
-            # No suffix of the executed skeleton refines from here; fall
-            # through to pay for a fresh agent sketch.
-            logging.info("Suffix replan failed; querying the agent for a "
-                         "fresh sketch.")
-        return policy
+        if self._exec_replans_left > 0:
+            self._exec_replans_left -= 1
+            logging.info(
+                "Subgoal divergence after step %d (%s). Replanning from the "
+                "current state (%d execution replans left).", failed_idx,
+                failed_name, self._exec_replans_left)
+            policy = self._replan_suffix(task.init, task, steps, failed_idx,
+                                         timeout)
+            if policy is not None:
+                return policy
+            if CFG.agent_bilevel_replan_agent_fallback:
+                # No suffix of the executed skeleton refines from here;
+                # fall through to pay for a fresh agent sketch.
+                logging.info("Suffix replan failed; querying the agent for "
+                             "a fresh sketch.")
+                return None
+            reason = "no suffix of the executed sketch refines from here"
+        else:
+            reason = "no execution replans left"
+        remaining = list(exec_plan[failed_idx + 1:])
+        logging.warning(
+            "Subgoal divergence after step %d (%s): %s. Resuming the "
+            "remaining %d step(s) open-loop; the divergence stands "
+            "recorded and the goal check decides the episode.", failed_idx,
+            failed_name, reason, len(remaining))
+        return self._plan_to_policy(remaining, sketch=steps[failed_idx + 1:])
 
     def _nudge_final_submission(self) -> Optional[Callable[[State], Action]]:
         """One short follow-up query on the LAST attempt, after its query ended
@@ -1187,6 +1200,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
             assert sketch is not None
             status = SubgoalExecutionStatus(sketch=list(sketch))
             self._exec_status = status
+            self._exec_plan = list(plan)
 
         def _option_policy(state: State) -> _Option:
             del state  # unused
