@@ -8,11 +8,60 @@ only way to start a cascade is the fan.
 Run it:
 
 ```bash
-PYTHONHASHSEED=0 .venv/bin/python scripts/local/launch_simp.py \
-    -c predicatorv3/exp_domino_fan.yaml
+scripts/domino_fan/run_rung.sh 1        # or 2, 4
+scripts/domino_fan/run_rung.sh --declare 1   # the button-free variant
 ```
 
-`exp_domino_fan.yaml` carries the whole ladder; un-skip one arm at a time.
+## Results
+
+| rung | what it is handed | result |
+|-----:|-------------------|--------|
+| 1 | ground-truth simulator and predicates; the process planner plans | 1/1 &middot; **0.900** |
+| 2 | ground-truth simulator and predicates; the AGENT plans | 1/1 &middot; **0.950** |
+| 3 | structure only, parameters fitted from data | *skipped, see below* |
+| 4 | **the base simulator alone** | 1/1 &middot; **0.950** |
+
+Reward is `1 - 0.05 x blues consumed`, so 0.950 is a one-block solve
+and 0.900 a two-block one. Rung 4 matches rung 2 and beats the oracle
+while being handed none of the model.
+
+**Rung 3 is skipped on purpose.** Fitting the wind's magnitude is not
+a learnable problem here: the wind acts for about two steps before the
+start block tips, so the whole observation is "tipped or did not", and
+1.5 N and 2.0 N produce identical trajectories. Measure it yourself
+with `scripts/domino_debug/probe_wind_identifiability.py`. Contrast
+`pybullet_fan`, which fits the same parameter happily because a ball's
+entire trajectory is wind. What a wind parameter is pushing decides
+whether it can be fitted.
+
+## What rung 4 discovered
+
+`discovered_simulator.py` and `discovered_predicates.py` in this
+directory are the agent's own, copied from run_20260831_202652. Its
+goal text never contained the words "wind" or "fan", and its predicate
+vocabulary was stripped to `Holding` alone.
+
+It found the mechanism by comparing its model against reality: "exactly
+one step after `fan_0.is_on` flips to 1 ... the GREEN domino - the one
+nearest the fan along the fan's facing axis - begins to translate in +x
+and to roll ... Nothing else moves." It modelled it as a force through
+the engine rather than a feature overwrite, because "the engine must
+resolve the resulting contacts (that is what produces the cascade)".
+
+It also found something the hand-written ground-truth simulator does
+not model. The wind is **occluded**: a staged blue on the fan's axis
+shows roll exactly 0.000 until the toppling green reaches it, and "a
+sub-threshold force would have produced a visible lean", so an upright
+domino blocks the beam. `domino_fan/gt_simulator.py` sidesteps this by
+applying wind only to whichever block is painted green - a role lookup,
+not physics.
+
+And it rebuilt the vocabulary it had been denied: `_toppled`,
+`_upright`, `_fan_on`, `_fan_off`, `_switch_on`, and `_bridges_gap` -
+its own `InFront`, named for what it does.
+
+The test layout has a 0.294 m gap against the 0.196 m it practised on,
+so the model generalized rather than memorizing one scene.
 
 ## oracle_solve.gif
 
