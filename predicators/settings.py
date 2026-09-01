@@ -897,6 +897,20 @@ class GlobalSettings:
     # against the centre-of-mass push and the never-ending wind, and no
     # longer holds.
     domino_fan_wind_force = 1.5
+
+    # Wind force for the blow-to-goal task (N). Applied at the block's
+    # CENTRE OF MASS, so the block slides instead of tipping - the whole
+    # point of that task is that the distance travelled is a continuous,
+    # monotone function of this number, which is what makes it fittable
+    # at all. In pybullet_domino_fan the same parameter is NOT fittable,
+    # because there the wind tips a block in about two steps and every
+    # force above threshold looks the same (see
+    # scripts/domino_debug/probe_wind_identifiability.py).
+    domino_blow_wind_force = 0.35
+    # Steps the fan blows for once the robot has declared. Bounded so
+    # the block travels a finite, repeatable distance rather than being
+    # pushed until the episode ends.
+    domino_blow_wind_steps = 60
     # Sides carrying a fan + switch in pybullet_domino_fan, in order
     # left, right, down, up. One is the point of the task: the robot has
     # a single switch to find and press. Four is the ball task's layout

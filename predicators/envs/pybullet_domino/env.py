@@ -18,6 +18,8 @@ from predicators.envs.pybullet_domino.components.base_component import \
     DominoEnvComponent
 from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
+from predicators.envs.pybullet_domino.components.goal_region_component \
+    import GoalRegionComponent
 from predicators.envs.pybullet_domino.components.fan_component import \
     FanComponent
 from predicators.envs.pybullet_domino.components.grid_component import \
@@ -1054,9 +1056,15 @@ class PyBulletDominoFanEnv(PyBulletDominoComposedEnv):
         # along side 0. The other three fans would be distractors the
         # planner still has to ground, and being opposed they cancel.
         fan_comp = self._make_fan_component(bounds)
-        super().__init__(components=[domino_comp, fan_comp],
-                         use_gui=use_gui,
-                         **kwargs)
+        components = [domino_comp, fan_comp]
+        components += self._extra_components(bounds, domino_comp)
+        super().__init__(components=components, use_gui=use_gui, **kwargs)
+
+    def _extra_components(self, bounds: Dict[str, float],
+                          domino_comp: DominoComponent) -> List[Any]:
+        """Components beyond the dominoes and the fan. None by default."""
+        del bounds, domino_comp
+        return []
 
     def _make_fan_component(self, bounds: Dict[str, float]) -> FanComponent:
         """The fan bank for this env. Overridden where the switch is
@@ -1143,6 +1151,105 @@ class PyBulletDominoDeclareEnv(PyBulletDominoFanEnv):
             if self._fan_component is not None:
                 self._fan_component.set_fans_on(True)
         super()._domain_specific_step()
+
+
+class PyBulletDominoBlowEnv(PyBulletDominoDeclareEnv):
+    """Place a block so the wind carries it INTO a goal region.
+
+    The scene reads left to right: fan, goal patch, staged block. The
+    robot picks the block up, puts it down somewhere between the fan
+    and the patch, and declares finished; the fan then blows for a
+    bounded number of steps and the block slides. It scores if the
+    block comes to rest inside the patch.
+
+    This task exists because of what pybullet_domino_fan could NOT
+    teach. There the wind tips a standing domino in about two steps,
+    so every force above the tipping threshold produces the same
+    observation and ``wind_force`` is unfittable - 1.5 N and 2.0 N give
+    identical trajectories (measured by
+    scripts/domino_debug/probe_wind_identifiability.py). Here the wind
+    pushes through the block's CENTRE OF MASS, so it slides rather than
+    tips and the distance it travels is a continuous, monotone function
+    of the force. That is the same reason pybullet_fan can fit this
+    parameter and the domino env cannot: what the wind is pushing
+    decides whether its strength leaves a trace.
+
+    And the goal is a bounded REGION, not a point, which is what stops
+    the degenerate policy. Placing the block as close to the fan as
+    possible - the obvious way to avoid learning anything - overshoots
+    the far edge. Placing it safely far never arrives. Only a band of
+    placements works, and its position depends on how hard this fan
+    blows, so the robot cannot reach the goal without having learned
+    that.
+    """
+
+    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
+        self._goal_region_component: Optional[GoalRegionComponent] = None
+        super().__init__(use_gui=use_gui, **kwargs)
+        self._wind_steps_left: int = 0
+
+    def _extra_components(self, bounds: Dict[str, float],
+                          domino_comp: DominoComponent) -> List[Any]:
+        """The patch the block has to end up in."""
+        self._goal_region_component = GoalRegionComponent(
+            workspace_bounds=bounds,
+            table_height=self.table_height,
+            domino_type=domino_comp.domino_type)
+        return [self._goal_region_component]
+
+    @classmethod
+    def get_name(cls) -> str:
+        return "pybullet_domino_blow"
+
+    def _set_domain_specific_state(self, state: State) -> None:
+        super()._set_domain_specific_state(state)
+        # A fresh episode gets a fresh gust budget, and the wind aims at
+        # the movable block through its centre so the block slides.
+        self._wind_steps_left = CFG.domino_blow_wind_steps
+        self._wire_blow_target(state)
+
+    def _wire_blow_target(self, state: State) -> None:
+        """Aim the fan at the block it is supposed to move.
+
+        z_offset 0.0 is the whole difference from the cascade envs: a
+        force through the centre of mass is pure translation. In
+        pybullet_domino_fan that same setting was a BUG - the start
+        block slid a metre and a half into the target without ever
+        tipping, "solving" a bridge task with no bridge - and here it
+        is the mechanism.
+        """
+        if self._fan_component is None or self._domino_component is None:
+            return
+        movable = [
+            obj for obj in state
+            if obj.type == self._domino_component.domino_type
+            # pylint: disable-next=protected-access
+            and self._domino_component._MovableBlock_holds(state, [obj])
+        ]
+        if not movable:
+            return
+        block = movable[0]
+        self._fan_component.set_lateral_alignment(float(
+            state.get(block, "y")))
+        self._fan_component.set_wind_target(
+            block.id,
+            z_offset=0.0,
+            stop_when_toppled=False,
+            force=CFG.domino_blow_wind_force)
+
+    def _domain_specific_step(self) -> None:
+        super()._domain_specific_step()
+        # The gust is finite. Without a budget the block is pushed until
+        # the episode horizon and its resting place says nothing about
+        # the force - every force large enough to move it at all ends up
+        # against the far wall, which is the saturation this env was
+        # built to avoid.
+        if self._fan_component is None:
+            return
+        if self._fan_component.any_fan_on() and self._wind_steps_left > 0:
+            self._wind_steps_left -= 1
+            if self._wind_steps_left == 0:
+                self._fan_component.set_fans_on(False)
 
 
 class PyBulletDominoFanRampEnv(PyBulletDominoComposedEnv):
