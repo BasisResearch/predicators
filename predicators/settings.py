@@ -325,6 +325,19 @@ class GlobalSettings:
             }
         })
     pybullet_ik_validate = True
+    # Kinematically pin welded assemblies while HELD. The rule layer's
+    # contract for a rigid attachment ("the pair moves as one rigid
+    # body" - commands.Attach) and the motion planner's carried-shape
+    # model both promise rigidity, but JOINT_FIXED constraints are
+    # enforced by capped iterative impulses and flex ~9-12 deg under a
+    # carried load (scripts/weld_sag_probe.py; solver iterations buy
+    # ~25%, constraint erp measurably nothing). With this flag, after
+    # each step's dynamics every weld partner of the held body is
+    # re-posed through the constraints' own declared frames and its
+    # velocity zeroed - rigid by construction (probe: exactly 0 deg /
+    # 0 mm) - while resting and released assemblies keep normal
+    # constraint physics (plus any env re-anchoring machinery).
+    pybullet_pin_held_weld_assemblies = False
 
     # IKFast parameters
     ikfast_max_time = 0.05
@@ -478,6 +491,13 @@ class GlobalSettings:
     # EE yaw relative to the pushed object's yaw during Push. None (the
     # default) takes it from the robot.
     skill_push_ee_yaw_offset = None
+    # Place settle-stroke preload (N): when > 0, the guarded settle ends
+    # at this much support normal force instead of first touch, pressing
+    # the arm's position-control sag out against the support before the
+    # release (see create_place_skill's settle_preload_force). 0 keeps
+    # the first-touch behavior. Read by envs whose place skill enables
+    # the settle stroke (currently pybullet_bridge).
+    skill_place_settle_preload_force = 0.0
 
     # coffee env parameters
     coffee_num_cups_train = [1, 2]

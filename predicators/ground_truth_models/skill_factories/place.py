@@ -47,23 +47,23 @@ from predicators.structs import Array, Object, ParameterizedOption, State, Type
 _SETTLE_CONTACT_DIST = 1e-4
 
 
-def _held_assembly_in_contact(state: State) -> bool:
-    """True when the held object, or any body rigidly attached to it, touches a
-    body outside the held assembly (the robot excluded).
+def _held_assembly_external_contacts(state: State) -> list:
+    """Contact points between the held assembly and bodies outside it.
 
-    Attached partners matter: a carried multi-body assembly usually
-    touches down through an OUTER member, not the grasped one. The
-    assembly is discovered generically by BFS over the client's fixed
-    constraints, skipping the grasp constraint (any fixed constraint
-    involving the robot body).
+    The assembly is the held object plus every body rigidly attached to
+    it (the robot excluded). Attached partners matter: a carried multi-
+    body assembly usually touches down through an OUTER member, not the
+    grasped one. The assembly is discovered generically by BFS over the
+    client's fixed constraints, skipping the grasp constraint (any fixed
+    constraint involving the robot body).
     """
     sim_state = getattr(state, "simulator_state", None)
     if not isinstance(sim_state, dict):
-        return False
+        return []
     client = sim_state.get("physics_client_id")
     robot_id = sim_state.get("robot_id")
     if client is None:
-        return False
+        return []
     held_id: Optional[int] = None
     for obj in state:
         if "is_held" in obj.type.feature_names and \
@@ -71,7 +71,7 @@ def _held_assembly_in_contact(state: State) -> bool:
             held_id = getattr(obj, "id", None)
             break
     if held_id is None:
-        return False
+        return []
     edges = []
     for i in range(p.getNumConstraints(physicsClientId=client)):
         cid = p.getConstraintUniqueId(i, physicsClientId=client)
@@ -89,14 +89,32 @@ def _held_assembly_in_contact(state: State) -> bool:
                 if nxt not in assembly:
                     assembly.add(nxt)
                     frontier.append(nxt)
+    contacts = []
     for body in assembly:
         for cp in p.getContactPoints(bodyA=body, physicsClientId=client):
             other = cp[2]
             if other == robot_id or other in assembly:
                 continue
-            if cp[8] < _SETTLE_CONTACT_DIST:
-                return True
-    return False
+            contacts.append(cp)
+    return contacts
+
+
+def _held_assembly_in_contact(state: State) -> bool:
+    """True when the held assembly touches any body outside it."""
+    return any(cp[8] < _SETTLE_CONTACT_DIST
+               for cp in _held_assembly_external_contacts(state))
+
+
+def _held_assembly_contact_force(state: State) -> float:
+    """Total normal force (N) the held assembly presses on external bodies.
+
+    Summed over real (non-separated) contact points; 0.0 when nothing
+    touches. Used by the preload variant of the settle stroke to press
+    the arm's position-control sag out against the support BEFORE the
+    release, instead of discharging it into the released object.
+    """
+    return sum(cp[9] for cp in _held_assembly_external_contacts(state)
+               if cp[8] < _SETTLE_CONTACT_DIST)
 
 
 # Canonical continuous parameters for Place.
@@ -117,6 +135,7 @@ def create_place_skill(
     compensate_held_offset: bool = False,
     compensate_held_z: bool = False,
     settle_to_contact_depth: Optional[float] = None,
+    settle_preload_force: Optional[float] = None,
     verify_xy_tol: Optional[float] = None,
     verify_max_retries: int = 2,
 ) -> ParameterizedOption:
@@ -192,6 +211,19 @@ def create_place_skill(
             drop. Note the release-clearance check still validates
             the finger-opening sweep at ``release_z``, an upper bound
             of the actual release pose.
+        settle_preload_force: If set (requires
+            ``settle_to_contact_depth``), the settle stroke ends when
+            the held assembly presses on its support with at least this
+            total normal force (N), instead of at the FIRST touch.
+            Rationale: under position control the arm sags under
+            gravity + payload, and a first-touch release leaves that
+            elastic strain stored in the plant - opening the fingers
+            then discharges it into the released object, dragging it
+            millimetres toward the robot base (the dominant
+            post-release drift). Pressing to a small preload discharges
+            the sag into the support BEFORE the release. The
+            depth-reached fallback still bounds the stroke, so an
+            unreachable threshold degrades to the plain settle.
         verify_xy_tol: If set (requires ``settle_to_contact_depth``),
             verify BEFORE releasing that the still-held object's xy is
             within this many meters of the commanded ``(target_x,
@@ -347,10 +379,14 @@ def create_place_skill(
         params: Array,
         cfg: SkillConfig,
     ) -> bool:
-        # Contact ends the stroke; reaching the full depth (nothing
+        # Contact (or, under settle_preload_force, contact carrying the
+        # preload) ends the stroke; reaching the full depth (nothing
         # under the object within the budget) is the fallback so the
         # phase always terminates.
-        if _held_assembly_in_contact(state):
+        if settle_preload_force is not None:
+            if _held_assembly_contact_force(state) >= settle_preload_force:
+                return True
+        elif _held_assembly_in_contact(state):
             return True
         robot_obj = objects[0]
         current = (state.get(robot_obj,

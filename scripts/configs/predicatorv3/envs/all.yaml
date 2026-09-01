@@ -392,6 +392,13 @@ ENVS:
       # (12 of 19 options already cost ~483 steps), so give explore
       # episodes enough room to finish an experiment.
       max_num_steps_interaction_request: 1000
+      # Place release preload (commit 1c1bb93b): press 3 N into the
+      # support before opening, discharging the arm's position-control
+      # sag into the table instead of the released block (post-release
+      # drift +4.5 mm -> +0.2 mm). Regression: oracle arm 1/1 with 6/6
+      # validation rollouts (job 21301072, 2026-08-26); seat-onto-legs
+      # disturbance measured at ~1 mm / ~1 deg.
+      skill_place_settle_preload_force: 3.0
       # Unweighted skeleton search is slow on the multi-joint goal;
       # with weight 10 plans land in ~1.5 s.
       process_planning_heuristic_weight: 10.0
@@ -410,3 +417,10 @@ ENVS:
       # margin turns those into unrecoverable BiRRT start/goal
       # rejections.
       pybullet_birrt_contact_margin: -0.005
+      # Kinematic pin of welded assemblies while held (commit 1cd3cebd):
+      # carried bonded beams are rigid by construction (probe: 0.00 deg
+      # / 0.0 mm joint drift vs ~9-12 deg unpinned; solver iterations
+      # bought ~25%, constraint erp nothing). Regression: oracle arm
+      # 1/1 with pin + preload together (job 21320581, 2026-08-26);
+      # seat-onto-legs disturbance ~2 mm / ~3 deg with bonds intact.
+      pybullet_pin_held_weld_assemblies: True
