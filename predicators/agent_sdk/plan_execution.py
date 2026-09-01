@@ -78,6 +78,11 @@ class ForwardResult:
     # real, horizon-capped executor would spend to first reach the goal), or
     # None if the goal was never reached.
     actions_to_goal: Optional[int] = None
+    # Closed-loop policy runs only (``execute_policy_forward``): the fatal
+    # policy-code error that ended the episode (get_option raised, returned
+    # an unparsable line, or ungroundable option), or None. Fixed-plan
+    # execution never sets it.
+    policy_error: Optional[str] = None
 
     @property
     def executed_all(self) -> bool:

@@ -45,6 +45,10 @@ RETRACTION_TOOL_NAMES = [
 TESTING_TOOL_NAMES = [
     "evaluate_predicate_on_trajectory",
     "evaluate_option_plan",
+    # Closed-loop policy mode (agent_solve_policy_mode): validates and
+    # captures the agent-written policy.py. Only offered on solve
+    # rosters when the mode is on.
+    "evaluate_policy",
 ]
 PLANNING_TOOL_NAMES = [
     "generate_bilevel_plan",

@@ -180,6 +180,20 @@ def test_record_journal_tool_writes_stamped_entry(tmp_path):
     assert "tried yaw 0-15 deg" in content
 
 
+def test_record_journal_tool_stamps_learning_cycle(tmp_path):
+    """During a synthesis session the header names the learning cycle."""
+    utils.reset_config({"agent_solve_use_journal": True})
+    ctx = _make_ctx(sandbox_dir=str(tmp_path))
+    ctx.learn_cycle_index = 2
+    # learn_cycle_index wins even if a stale test_task_idx is set.
+    ctx.test_task_idx = 0
+    text = _call(_get_tool(ctx, "record_journal"),
+                 {"entry": "- glue latch needs 3 in-zone steps"})
+    assert "Recorded" in text
+    content = journal_mod.read_journal(str(tmp_path))
+    assert "### Agent notes (learning cycle 2)" in content
+
+
 def test_record_journal_tool_rejects_empty(tmp_path):
     """An empty entry is an error, not a silent no-op."""
     utils.reset_config({"agent_solve_use_journal": True})
@@ -407,3 +421,19 @@ def test_solve_prompt_includes_journal_section():
                                            all_predicates={_ReachedHi},
                                            all_options={_Move})
     assert "## Solve Journal" not in prompt_no_journal
+
+
+def test_read_strategy_absent_present_and_truncated(tmp_path):
+    """read_strategy: "" when absent, verbatim when small, head-kept cap."""
+    sandbox = str(tmp_path)
+    assert journal_mod.read_strategy(sandbox) == ""
+    assert journal_mod.read_strategy(None) == ""
+    with open(journal_mod.strategy_path(sandbox), "w", encoding="utf-8") as f:
+        f.write("## Approach\n- glue both faces\n")
+    assert "- glue both faces" in journal_mod.read_strategy(sandbox)
+    with open(journal_mod.strategy_path(sandbox), "w", encoding="utf-8") as f:
+        f.write("HEADLINE\n" + "x" * 10000)
+    content = journal_mod.read_strategy(sandbox)
+    assert content.startswith("HEADLINE")
+    assert "[strategy truncated at the prompt cap" in content
+    assert len(content) < 4300

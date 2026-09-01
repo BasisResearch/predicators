@@ -32,6 +32,7 @@ def lm_prefit(
     label: str,
     warm_start_breakdown_fn: Optional[Callable[[Dict[str, float]],
                                                None]] = None,
+    precomputed: Optional[Tuple[np.ndarray, Optional[np.ndarray]]] = None,
 ) -> Tuple[np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]:
     """Optional one-shot LM fit shared by the three fit entry points (per-
     transition, recurrent, and rollout).
@@ -54,6 +55,13 @@ def lm_prefit(
     the per-transition vs recurrent specifics; the optional
     ``warm_start_breakdown_fn`` lets the per-transition caller add its
     ``log_sse_breakdown`` to the warm-start log.
+
+    ``precomputed`` short-circuits the LM run with an already-computed
+    ``(theta_map, jac)`` from an identical earlier fit (same objective:
+    rules, specs, data). The Hessian diagnostic and warm-start SSE logs
+    are skipped too - the earlier fit already emitted them. LM residual
+    evals are full rollout passes at recurrent scale, so a caller that
+    just ran the fit must not pay for it twice.
     """
     walker_center = init_values
     lm_theta: Optional[np.ndarray] = None
@@ -62,23 +70,32 @@ def lm_prefit(
             or CFG.code_sim_learning_warm_start_with_lm
             or CFG.agent_explorer_info_seeking):
         return walker_center, lm_theta, lm_jac
-    theta_map, jac = lm_fit_fn()
+    if precomputed is not None:
+        theta_map, jac = precomputed
+    else:
+        theta_map, jac = lm_fit_fn()
     lm_theta = np.asarray(theta_map, dtype=float)
     if jac is not None and jac.size > 0:
         lm_jac = np.asarray(jac, dtype=float)
-        if CFG.code_sim_learning_log_hessian_identifiability:
+        if (precomputed is None
+                and CFG.code_sim_learning_log_hessian_identifiability):
             log_hessian_identifiability(jac, names, noise_sigma, prior_sigma)
     if CFG.code_sim_learning_warm_start_with_lm:
         walker_center = lm_theta
-        logger.info("Warm-starting %s MCMC walkers from LM MAP estimate.",
-                    label)
-        lm_params = {n: float(lm_theta[i]) for i, n in enumerate(names)}
-        lm_sse = sse_fn(lm_params)
-        logger.info(
-            "After %s LM warm start — SSE: %.6f  log-likelihood: "
-            "%.2f", label, lm_sse, -0.5 * lm_sse / (noise_sigma**2))
-        if warm_start_breakdown_fn is not None:
-            warm_start_breakdown_fn(lm_params)
+        if precomputed is not None:
+            logger.info(
+                "Reusing the earlier LM MAP as the %s MCMC warm start "
+                "(LM refit skipped).", label)
+        else:
+            logger.info("Warm-starting %s MCMC walkers from LM MAP estimate.",
+                        label)
+            lm_params = {n: float(lm_theta[i]) for i, n in enumerate(names)}
+            lm_sse = sse_fn(lm_params)
+            logger.info(
+                "After %s LM warm start - SSE: %.6f  log-likelihood: "
+                "%.2f", label, lm_sse, -0.5 * lm_sse / (noise_sigma**2))
+            if warm_start_breakdown_fn is not None:
+                warm_start_breakdown_fn(lm_params)
     return walker_center, lm_theta, lm_jac
 
 

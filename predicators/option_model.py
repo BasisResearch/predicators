@@ -205,7 +205,15 @@ class _OracleOptionModel(_OptionModelBase):
             # Treat PyBullet physics engine errors the same as planned
             # execution failures (e.g. GUI/Metal crash on macOS).
             self.last_execution_failure = str(e)
-            return state, 0
+            # Return the LAST simulated state, not the pre-option state:
+            # a skill that raises mid-execution (e.g. post-release
+            # placement verification, after the fingers already opened)
+            # leaves the real env at that partial state, and closed-loop
+            # consumers continue from it. Callers that treat 0 actions as
+            # a hard failure never read the state, so this only changes
+            # the honest-continuation case.
+            partial = last_state if last_state is not DefaultState else state
+            return partial, 0
         # Note that in the case of using a PyBullet environment, the
         # second return value (num_actions) will be an underestimate
         # since we are not actually rolling out the option in the full

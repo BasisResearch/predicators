@@ -13,6 +13,8 @@ ENVS:
   bridge:
     SKIP: False
 APPROACHES:
+  # Regression check PASSED 2026-08-24 (job 21143332 solved 1/1 in 22
+  # min after the Place post-release verification revert); re-skipped.
   agent_oracle_hybrid_sim:
     SKIP: True
   agent_po_predicate_invention_al:
@@ -21,3 +23,26 @@ APPROACHES:
       skip_initial_test: True
       bilevel_plan_without_sim: True # for the demonstrator
       agent_solve_max_attempts: 1
+      # Skip the once-per-cycle exploration-posterior emcee fit (up to 5h
+      # wall per cycle at bridge scale for a ~0.1% log-prob gain over the
+      # LM warm start). The info-seeking ensemble falls back to a Laplace
+      # draw from the solver fit's jacobian; gate/threshold params with a
+      # flat likelihood get prior-width spread, degrading gracefully.
+      agent_explorer_info_mcmc_steps: 0
+    # Self-resume from the latest per-cycle checkpoint on requeue /
+    # resubmission of the identical command (12h mit_normal cap; or run
+    # on mit_preemptable via PREDICATORS_ENGAGING_PARTITION).
+    # (store_true arg, so it lives in ARGS, not FLAGS.)
+    ARGS:
+      - auto_resume
+  # Closed-loop policy-mode arm (same learner; the solve deliverable is
+  # a per-task policy.py executed without an LLM at test time).
+  agent_po_predicate_invention_al_policy:
+    SKIP: False
+    FLAGS:
+      skip_initial_test: True
+      bilevel_plan_without_sim: True # for the demonstrator
+      agent_solve_max_attempts: 1
+      agent_explorer_info_mcmc_steps: 0 # see the arm above
+    ARGS:
+      - auto_resume

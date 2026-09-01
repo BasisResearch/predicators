@@ -80,6 +80,27 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
     def get_name(cls) -> str:
         return "agent_sim_predicate_invention"
 
+    # ── Checkpointing ───────────────────────────────────────────
+
+    # Own suffix: this subclass's checkpoints additionally rely on the
+    # restored predicates.py (invented predicates rehydrate from it).
+    _save_suffix: str = "AgentSimPredInv"
+
+    def _rehydrate_extra_artifacts(self, base: str) -> None:
+        """Reload invented predicates from the restored predicates.py.
+
+        Called by the parent AFTER ``_fitted_params`` is restored, so
+        predicate lambdas closing over ``params[...]`` see the fitted
+        values.
+        """
+        predicates_file = os.path.join(base, "predicates.py")
+        if not os.path.isfile(predicates_file):
+            return
+        self._learned_predicates = self._load_predicates_from_module_file(
+            predicates_file)
+        logger.info("Rehydrated %d learned predicate(s) from checkpoint.",
+                    len(self._learned_predicates))
+
     # ── Predicate set ───────────────────────────────────────────
 
     def _get_all_predicates(self) -> Set[Predicate]:

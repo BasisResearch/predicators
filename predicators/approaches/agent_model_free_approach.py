@@ -382,6 +382,11 @@ and update before doing anything else.**"""
         # is exposed only by AgentModelBasedApproach.)
         if CFG.agent_planner_use_simulator:
             tools.append("evaluate_option_plan")
+            # Closed-loop policy mode: the delivery gate for the
+            # agent-written policy.py (evaluate_option_plan stays as a
+            # probe but no longer captures).
+            if CFG.agent_solve_policy_mode:
+                tools.append("evaluate_policy")
             if CFG.agent_planner_use_explore_python:
                 tools.append("explore_python")
         if CFG.agent_solve_use_journal:
@@ -398,6 +403,12 @@ and update before doing anything else.**"""
         if dataset.trajectories:
             self._tool_context.example_state = \
                 dataset.trajectories[0].states[0]
+        # Post-offline checkpoint: main.py's --load_approach path loads
+        # cycle None before the online loop, which previously had no
+        # file to read for this approach family (save only ran at the
+        # end of each online cycle). Hook so subclasses that learn more
+        # afterwards checkpoint once, after their own learning.
+        self._checkpoint_after_offline_learning()
 
     def get_interaction_requests(self) -> List[InteractionRequest]:
         # Explore sessions carry their own phase tag (see the mixin's
@@ -471,7 +482,11 @@ and update before doing anything else.**"""
             self._run_id, self._online_learning_cycle, len(results),
             len(self._online_trajectories))
 
-        self.save(self._online_learning_cycle)
+        # Hook (default: save now) so subclasses that learn more after
+        # this method can checkpoint ONCE, after their learning, instead
+        # of writing a pre-learn file under the same cycle name that a
+        # preemption between the two writes would leave looking complete.
+        self._checkpoint_after_interaction_results(self._online_learning_cycle)
         self._online_learning_cycle += 1
 
     # ------------------------------------------------------------------ #
@@ -1135,8 +1150,24 @@ Output ONLY the option plan lines at the end, after any analysis."""
         been refreshed, but before the tool context is re-synced.
         """
 
+    def _checkpoint_after_offline_learning(self) -> None:
+        """Checkpoint hook at the end of offline learning (see above)."""
+        self.save(None)
+
+    def _checkpoint_after_interaction_results(self, cycle: int) -> None:
+        """Checkpoint hook at the end of an online cycle's data collection,
+        BEFORE the cycle counter increments (see above)."""
+        self.save(cycle)
+
     def save(self, online_learning_cycle: Optional[int] = None) -> None:
-        """Save approach state to disk."""
+        """Save approach state to disk.
+
+        The pickled ``online_learning_cycle`` is the cycle the FILE
+        denotes (``_c`` means "cycle c completed"), so a subclass that
+        saves after the counter already advanced still writes a
+        consistent checkpoint; ``_None`` (post-offline) records the live
+        counter (0).
+        """
         save_path = utils.get_approach_save_path_str()
         path = f"{save_path}_{online_learning_cycle}.{self._save_suffix}"
         save_dict = {
@@ -1145,7 +1176,8 @@ Output ONLY the option plan lines at the end, after any analysis."""
             "online_trajectories":
             self._online_trajectories,
             "online_learning_cycle":
-            self._online_learning_cycle,
+            (online_learning_cycle if online_learning_cycle is not None else
+             self._online_learning_cycle),
             "run_id":
             self._run_id,
             "agent_session_id":
@@ -1164,7 +1196,13 @@ Output ONLY the option plan lines at the end, after any analysis."""
 
         self._offline_dataset = save_dict["offline_dataset"]
         self._online_trajectories = save_dict["online_trajectories"]
-        self._online_learning_cycle = save_dict["online_learning_cycle"] + 1
+        # ``_c`` means cycle c completed -> resume at c+1; the
+        # post-offline ``_None`` file means no online cycle completed ->
+        # resume at its recorded counter (0), NOT +1 (which would write
+        # cycle 0's checkpoint as ``_1`` and break the next load).
+        saved_cycle = save_dict["online_learning_cycle"]
+        self._online_learning_cycle = (saved_cycle + 1 if online_learning_cycle
+                                       is not None else saved_cycle)
         # pylint: disable=attribute-defined-outside-init
         # (_agent_session_id is initialized via the agent-session mixin.)
         self._agent_session_id = save_dict.get("agent_session_id")

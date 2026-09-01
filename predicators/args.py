@@ -40,6 +40,11 @@ def create_arg_parser(env_required: bool = True,
     # cycle at skip_until_cycle, and then learning will proceed
     # normally (without loading) from there.
     parser.add_argument("--restart_learning", action="store_true")
+    # Self-resuming runs (Slurm requeue / resubmission): scan for the
+    # latest checkpoint of this exact config and, when one exists, set
+    # load_approach + restart_learning + skip_until_cycle to continue
+    # from it; start fresh when none exists. See main._maybe_auto_resume.
+    parser.add_argument("--auto_resume", action="store_true")
     parser.add_argument("--load_data", action="store_true")
     parser.add_argument("--load_atoms", action="store_true")
     parser.add_argument("--save_atoms", action="store_true")

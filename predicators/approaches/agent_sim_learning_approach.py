@@ -23,6 +23,7 @@ import hashlib
 import inspect
 import logging
 import os
+import subprocess
 from contextlib import contextmanager
 from typing import Any, Callable, Collection, Dict, FrozenSet, Iterator, \
     List, Optional, Sequence, Set, Tuple
@@ -33,10 +34,10 @@ import pybullet
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.agent_sdk.tools import SAMPLER_SYNTHESIS_TOOL_NAMES, \
-    SYNTHESIS_TOOL_NAMES, _SnapshotTarget, create_synthesis_tools, \
-    evaluate_states_with, finalize_versioned_snapshot, \
-    make_write_snapshot_hook
+from predicators.agent_sdk.tools import JOURNAL_TOOL_NAMES, \
+    SAMPLER_SYNTHESIS_TOOL_NAMES, SYNTHESIS_TOOL_NAMES, _SnapshotTarget, \
+    create_synthesis_tools, evaluate_states_with, \
+    finalize_versioned_snapshot, make_write_snapshot_hook
 from predicators.agent_sdk.tools.inspection import render_options_digest, \
     render_trajectory_digest, render_types_digest
 from predicators.approaches.agent_model_based_approach import \
@@ -648,6 +649,22 @@ class _SynthesisPaths:
     sandbox_dir_for_agent: Optional[str]
 
 
+def _describe_git_revision() -> str:
+    """Best-effort ``git describe`` of the running code, for checkpoint version
+    stamping ("unknown" outside a repo or without git)."""
+    try:
+        out = subprocess.run(["git", "describe", "--always", "--dirty"],
+                             cwd=os.path.dirname(os.path.abspath(__file__)),
+                             capture_output=True,
+                             text=True,
+                             timeout=10,
+                             check=False)
+        return out.stdout.strip() or "unknown"
+    except (OSError, subprocess.SubprocessError):
+        # TimeoutExpired is a SubprocessError, not an OSError.
+        return "unknown"
+
+
 # ── Approach ─────────────────────────────────────────────────────
 
 
@@ -944,6 +961,14 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # ground-truth ones), expose the evaluate_sampler tool.
         if self._do_synthesize_samplers:
             names += list(SAMPLER_SYNTHESIS_TOOL_NAMES)
+        # The run's solve journal is also writable from learn sessions:
+        # what the learn phase discovers about the domain is exactly what
+        # future fresh-context solve attempts need (agents were already
+        # appending to journal.md by hand, bypassing the size cap and the
+        # facts-only guidance). The flag name reads "solve" but gates the
+        # run's journal channel as a whole.
+        if CFG.agent_solve_use_journal:
+            names += list(JOURNAL_TOOL_NAMES)
         return names
 
     # ── Subclass hooks ──────────────────────────────────────────
@@ -1065,11 +1090,256 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     def learn_from_offline_dataset(self, dataset: Dataset) -> None:
         super().learn_from_offline_dataset(dataset)
         self._learn_simulator(self._get_all_trajectories())
+        # The single post-offline checkpoint, AFTER the simulator learn
+        # (the base hook is a no-op for this class, see below).
+        self.save(None)
 
     def learn_from_interaction_results(
             self, results: Sequence[InteractionResult]) -> None:
+        # Capture the index BEFORE super() increments it: the checkpoint
+        # below must be the one this cycle's filename denotes.
+        cycle = self._online_learning_cycle
         super().learn_from_interaction_results(results)
         self._learn_simulator(self._get_all_trajectories())
+        # The single per-cycle checkpoint, AFTER this cycle's simulator
+        # learning, so a resume never re-pays a completed learn and never
+        # mistakes a pre-learn file for a completed cycle. (The base hook
+        # that would have saved pre-learn is a no-op for this class.)
+        self.save(cycle)
+
+    def _checkpoint_after_offline_learning(self) -> None:
+        """No-op: this class checkpoints after its own simulator learn."""
+
+    def _checkpoint_after_interaction_results(self, cycle: int) -> None:
+        """No-op: this class checkpoints after its own simulator learn."""
+        del cycle
+
+    # ── Checkpointing ────────────────────────────────────────────
+    # The base checkpoint (AgentModelFreeApproach.save/load) persists
+    # the datasets + cycle counter. This approach's real state is split
+    # between plain fitted values (pickled below) and the sandbox
+    # artifacts the agent wrote (simulator.py / predicates.py / ...),
+    # which are embedded as file CONTENTS - run dirs are minted per run
+    # and pruned, so a path reference to the old run's sandbox would be
+    # fragile. Closures (_residual_rules, _learned_simulator, the option
+    # model, learned predicates/samplers) are never pickled: they are
+    # rebuilt from the restored files in _rehydrate_from_artifacts.
+
+    _save_suffix: str = "AgentSimLearner"
+
+    _CHECKPOINT_SANDBOX_FILES = ("simulator.py", "predicates.py",
+                                 "samplers.py", "ground_samplers.py",
+                                 "notes.md", "journal.md", "strategy.md")
+    _CHECKPOINT_SANDBOX_DIRS = ("simulator_versions", "predicates_versions",
+                                "samplers_versions")
+    _CHECKPOINT_MAX_FILE_BYTES = 2 * 1024 * 1024
+
+    def _checkpoint_sandbox_dir(self) -> str:
+        """The run's sandbox root - the SAME base the synthesis paths use,
+        so artifacts are collected from and restored to where
+        ``_rehydrate_from_artifacts`` (via ``_resolve_synthesis_paths``)
+        looks for them on every sandbox backend."""
+        return self._resolve_synthesis_paths().base
+
+    def _collect_sandbox_artifacts(self) -> Dict[str, bytes]:
+        """Curated sandbox files as {relative path: content} for the
+        checkpoint.
+
+        Skips session logs, reference copies, images, and git state -
+        bulky and reconstructable. Oversized files are skipped with a
+        warning rather than failing the save.
+        """
+        base = self._checkpoint_sandbox_dir()
+        rel_paths: List[str] = [
+            f for f in self._CHECKPOINT_SANDBOX_FILES
+            if os.path.isfile(os.path.join(base, f))
+        ]
+        for dirname in self._CHECKPOINT_SANDBOX_DIRS:
+            dirpath = os.path.join(base, dirname)
+            if not os.path.isdir(dirpath):
+                continue
+            for fname in sorted(os.listdir(dirpath)):
+                fpath = os.path.join(dirpath, fname)
+                if os.path.isfile(fpath):
+                    rel_paths.append(os.path.join(dirname, fname))
+        files: Dict[str, bytes] = {}
+        for rel in rel_paths:
+            fpath = os.path.join(base, rel)
+            size = os.path.getsize(fpath)
+            if size > self._CHECKPOINT_MAX_FILE_BYTES:
+                logger.warning(
+                    "Checkpoint skipping oversized sandbox file %s "
+                    "(%d bytes).", rel, size)
+                continue
+            with open(fpath, "rb") as f:
+                files[rel] = f.read()
+        return files
+
+    def _restore_sandbox_artifacts(self, files: Dict[str, bytes]) -> None:
+        """Write embedded sandbox files into THIS run's sandbox.
+
+        Safe against the lazy sandbox setup: ``setup_sandbox_directory``
+        only writes reference/CLAUDE.md/hooks and seeds notes.md when
+        missing, so restoring first never gets clobbered.
+        """
+        base = self._checkpoint_sandbox_dir()
+        for rel, content in files.items():
+            fpath = os.path.join(base, rel)
+            os.makedirs(os.path.dirname(fpath), exist_ok=True)
+            with open(fpath, "wb") as f:
+                f.write(content)
+        if files:
+            logger.info("Restored %d sandbox artifact(s) into %s.", len(files),
+                        base)
+
+    def _extra_save_state(self) -> Dict[str, Any]:
+        return {
+            "fitted_params":
+            dict(self._fitted_params),
+            "fit_sse":
+            self._fit_sse,
+            "param_specs":
+            list(self._param_specs),
+            "physical_param_specs":
+            list(self._physical_param_specs),
+            "last_fit_result":
+            self._last_fit_result,
+            "param_ensemble":
+            list(self._param_ensemble),
+            "identified_physical_params":
+            dict(self._identified_physical_params),
+            "identified_physical_sigma_points":
+            list(self._identified_physical_sigma_points),
+            "sysid_fit_history":
+            dict(self._sysid_fit_history),
+            "residual_features":
+            dict(self._residual_features),
+            "current_simulator_version":
+            self._current_simulator_version,
+            "current_predicates_version":
+            self._current_predicates_version,
+            "current_samplers_version":
+            self._current_samplers_version,
+            "sandbox_files":
+            self._collect_sandbox_artifacts(),
+            "git_describe":
+            _describe_git_revision(),
+        }
+
+    def _load_extra_save_state(self, save_dict: Dict[str, Any]) -> None:
+        saved_rev = save_dict.get("git_describe")
+        current_rev = _describe_git_revision()
+        if saved_rev and saved_rev != current_rev:
+            logger.warning(
+                "Checkpoint was written at git revision %s but this run "
+                "is at %s - resuming across code versions is untested.",
+                saved_rev, current_rev)
+        # In-place update: _ParamsView holders (invented predicate and
+        # sampler closures) alias this exact dict object.
+        self._fitted_params.clear()
+        self._fitted_params.update(save_dict.get("fitted_params") or {})
+        self._fit_sse = save_dict.get("fit_sse", float("inf"))
+        self._param_specs = list(save_dict.get("param_specs") or [])
+        self._physical_param_specs = list(
+            save_dict.get("physical_param_specs") or [])
+        self._last_fit_result = save_dict.get("last_fit_result")
+        self._param_ensemble = list(save_dict.get("param_ensemble") or [])
+        self._identified_physical_params = dict(
+            save_dict.get("identified_physical_params") or {})
+        self._sysid_fit_history = dict(
+            save_dict.get("sysid_fit_history") or {})
+        self._residual_features = dict(
+            save_dict.get("residual_features") or {})
+        self._current_simulator_version = save_dict.get(
+            "current_simulator_version")
+        self._current_predicates_version = save_dict.get(
+            "current_predicates_version")
+        # pylint: disable-next=attribute-defined-outside-init
+        # (initialized by SamplerLearningMixin's init hook)
+        self._current_samplers_version = save_dict.get(
+            "current_samplers_version")
+        self._restore_sandbox_artifacts(save_dict.get("sandbox_files") or {})
+        self._rehydrate_from_artifacts()
+        # AFTER rehydration: _apply_identified_physical_params clears
+        # the sigma points (they must never outlive the fit they came
+        # from), so the checkpointed points are restored last.
+        self._identified_physical_sigma_points = list(
+            save_dict.get("identified_physical_sigma_points") or [])
+
+    def _rehydrate_extra_artifacts(self, base: str) -> None:
+        """Subclass hook: reload extra artifacts (e.g. predicates.py)."""
+
+    def _rehydrate_from_artifacts(self) -> None:
+        """Rebuild the learned simulator/option model from restored files.
+
+        Order matters: simulator.py first (rules + latent init +
+        physical specs), then the option model, then identified physics
+        onto the base env, then subclass artifacts (predicates read the
+        already- restored ``_fitted_params``), then samplers and the
+        ensemble.
+        """
+        paths = self._resolve_synthesis_paths()
+        if not os.path.isfile(paths.simulator_file):
+            logger.info("Checkpoint carried no simulator.py; the initial "
+                        "option model stands (resume before the first "
+                        "successful synthesis).")
+            self._rehydrate_extra_artifacts(paths.base)
+            return
+        trajectories = self._get_all_trajectories()
+        self._fit_trajectories = list(trajectories)
+        rules, specs, declared_features, sim_ns = (
+            self._load_simulator_from_module_file(paths.simulator_file,
+                                                  trajectories))
+        if not rules or specs is None:
+            logger.warning(
+                "Restored simulator.py failed to load; continuing with "
+                "the initial option model (the next learn cycle will "
+                "rebuild it).")
+            self._rehydrate_extra_artifacts(paths.base)
+            return
+        self._residual_rules = rules
+        if declared_features:
+            self._residual_features = declared_features
+        self._latent_init = (read_latent_init(sim_ns) if isinstance(
+            sim_ns, dict) else None)
+        self._physical_param_specs = stamp_physical_spec_scales(
+            list((read_physical_param_specs(sim_ns) if isinstance(
+                sim_ns, dict) else None) or []), self._base_env)
+        # The agent may have edited simulator.py after the last fit:
+        # pickled fitted params are only valid for matching spec names.
+        spec_names = {s.name for s in specs}
+        if set(self._fitted_params) != spec_names:
+            logger.warning(
+                "Checkpointed fitted params %s do not match the restored "
+                "simulator's PARAM_SPECS %s; falling back to declared "
+                "init values.", sorted(self._fitted_params),
+                sorted(spec_names))
+            self._fitted_params.clear()
+            self._fitted_params.update({s.name: s.init_value for s in specs})
+        rules_ref, params_ref = self._residual_rules, self._fitted_params
+
+        def _step_fn(s: State, c: Any) -> Any:
+            return apply_rules(s, rules_ref, params_ref, cmds=c)
+
+        self._learned_simulator = LearnedSimulator(step_fn=_step_fn,
+                                                   name="agent_synthesized")
+        combined_sim = self._build_combined_simulator(self._learned_simulator)
+        self._option_model = self._build_option_model(combined_sim)
+        if self._identified_physical_params:
+            self._apply_identified_physical_params(
+                self._identified_physical_params)
+        self._rehydrate_extra_artifacts(paths.base)
+        if self._samplers_enabled():
+            sampler_paths = self._sampler_paths(paths.base)
+            self._synthesized_samplers = self._load_samplers_from_module_file(
+                sampler_paths["samplers_file"])
+        self._rebuild_param_ensemble()
+        logger.info(
+            "Rehydrated learned simulator from checkpoint artifacts "
+            "(%d rules, %d fitted params, %d learned predicates, "
+            "%d samplers).", len(rules), len(self._fitted_params),
+            len(getattr(self, "_learned_predicates", set()) or set()),
+            len(self._synthesized_samplers))
 
     def _learn_simulator(self, trajectories: List[LowLevelTrajectory]) -> None:
         """Synthesize rules, fit parameters, and build the option model."""
@@ -1531,6 +1801,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             self._tool_context.probe_option_model_provider = None
             self._tool_context.probe_fit_provider = None
             self._tool_context.probe_residuals_provider = None
+            self._tool_context.learn_cycle_index = None
             self._learning_mode = False
             self._close_agent_session()
         return self._load_synthesis_artifacts(trajectories, inferred_hint,
@@ -1632,6 +1903,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         Everything installed here is cleared by the caller's ``finally``
         once the session query returns.
         """
+        # Label tool output (e.g. record_journal headers) with the
+        # learning cycle for the duration of this session.
+        self._tool_context.learn_cycle_index = self._learning_cycle_index()
         # Build dynamic synthesis tools and attach them to the tool
         # context *before* opening the session. The attached set is
         # filtered against ``_get_synthesis_tool_names`` so that method
@@ -1833,7 +2107,30 @@ other structural commitments (e.g. whether base-sim parameters are \
 declared for identification, when the environment discloses them). \
 Later cycles read this record before deciding what to keep. Iterate \
 with `Edit` and re-score; every successful write is snapshotted and \
-version-tagged (see the system prompt's Tools section).{probe_note}"""
+version-tagged (see the system prompt's Tools section).{probe_note}
+
+Evidence discipline for rules that WRITE physical state (poses, \
+velocities): ground them in recorded transitions the base sim \
+mispredicts. A mechanism you suspect but have never observed \
+end-to-end in the data is a HYPOTHESIS - record it in the decision \
+record with the experiment that would confirm it (so the next \
+exploration phase can run that experiment), instead of shipping a \
+speculative rule; a speculative pose-writer fabricates states the \
+environment never produces, and plans validated against it fail in \
+reality. The converse error is just as costly: do not delete a rule \
+whose mechanism you have confirmed merely because one fit metric is \
+noisy - decide from the recorded evidence either way.
+
+Separately, maintain `./strategy.md`: a natural-language DOMAIN \
+STRATEGY for solving tasks in this environment - the recommended \
+approach and step ordering, the mechanisms that matter and how to \
+trigger them, parameter formulas expressed relative to the scene \
+(never hard-coded to one task's coordinates), and known pitfalls. \
+Future solve sessions read it as advisory reference (clearly framed \
+as possibly wrong), so state uncertainty honestly. Unlike the \
+append-only journal, strategy.md is a LIVING document: REWRITE it \
+freely this cycle wherever new evidence corrects or supersedes \
+earlier advice, rather than appending contradictions."""
 
         extra_message = self._extra_synthesis_message(extra_paths)
         if extra_message:
@@ -2002,19 +2299,33 @@ version-tagged (see the system prompt's Tools section).{probe_note}"""
             logger.info("Skipping separate active-experiment fit: the joint "
                         "rollout sysID posterior is reused for exploration.")
             return
+        # Reuse the solver fit's LM MAP + jacobian instead of re-running
+        # the (expensive, full-data) LM fit for the identical objective.
+        # Only safe when the solver fit was LM-only: with real solver
+        # MCMC its point_estimate is the MCMC MAP, not the LM MAP the
+        # jacobian was computed at.
+        lm_seed: Optional[Tuple[np.ndarray, Optional[np.ndarray]]] = None
+        prev = self._last_fit_result
+        if (prev is not None and CFG.code_sim_learning_num_mcmc_steps == 0
+                and prev.samples.shape[0] == 1
+                and list(prev.names) == [s.name for s in specs]):
+            theta = np.array([prev.point_estimate[n] for n in prev.names])
+            lm_seed = (theta, prev.jacobian)
         if has_latent_rules(rules):
             fit_result, sse = self._fit_parameters_recurrent(
                 rules,
                 specs,
                 base_pred_triples,
                 residual_features,
-                num_steps=num_steps)
+                num_steps=num_steps,
+                lm_seed=lm_seed)
         else:
             fit_result, sse = fit_rule_parameters(rules,
                                                   specs,
                                                   base_pred_triples,
                                                   residual_features,
-                                                  num_steps=num_steps)
+                                                  num_steps=num_steps,
+                                                  lm_seed=lm_seed)
         self._last_fit_result = fit_result
         logger.info(
             "Fitted active-experiment posterior with %d MCMC steps "
@@ -2631,6 +2942,7 @@ version-tagged (see the system prompt's Tools section).{probe_note}"""
         base_pred_triples: List[Tuple[State, Action, State]],
         residual_features: Dict[str, List[str]],
         num_steps: Optional[int] = None,
+        lm_seed: Optional[Tuple[np.ndarray, Optional[np.ndarray]]] = None,
     ) -> Tuple[FitResult, float]:
         """MCMC over the recurrent (per-trajectory) SSE.
 
@@ -2654,7 +2966,8 @@ version-tagged (see the system prompt's Tools section).{probe_note}"""
                                           groups,
                                           self._latent_init,
                                           residual_features,
-                                          num_steps=num_steps)
+                                          num_steps=num_steps,
+                                          lm_seed=lm_seed)
 
     def _oracle_param_sse_recurrent(
         self,

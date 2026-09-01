@@ -31,13 +31,14 @@ def _make_task(evaluator=None) -> Task:
                 evaluator=evaluator)
 
 
-def _render(task: Task, journal: str = "") -> str:
+def _render(task: Task, journal: str = "", strategy: str = "") -> str:
     return build_solve_prompt(task,
                               all_predicates=set(),
                               all_options=set(),
                               propose_params=True,
                               require_tool_validation=True,
                               journal=journal,
+                              strategy=strategy,
                               physics_margin=True)
 
 
@@ -151,3 +152,14 @@ def test_explore_mode_early_stop_note_credits_exploration_plans() -> None:
             "training") in prompt
     assert "learned model solves training" not in prompt
     assert "the plan is truncated just after that step" in prompt
+
+
+def test_domain_strategy_block_is_advisory() -> None:
+    """strategy.md content renders as an advisory section; absent without."""
+    utils.reset_config({"seed": 0})
+    prompt = _render(_make_task(None), strategy="## Glue first\n- dab twice")
+    assert "## Domain Strategy (advisory, written during learning)" in prompt
+    assert "- dab twice" in prompt
+    assert "can be wrong or stale" in prompt
+    assert "you are NOT limited to it" in prompt
+    assert "## Domain Strategy" not in _render(_make_task(None))
