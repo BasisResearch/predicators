@@ -1692,6 +1692,15 @@ class GlobalSettings:
     # returns the call's printed output so partial sweep results
     # survive. 0 disables.
     agent_sdk_synthesis_python_call_timeout = 1800.0
+    # Wall-clock cap for one canonical ``sim.fit()``. The fit owns its
+    # budget: the enclosing run_python call's cap is paused for its
+    # duration (see agent_sdk.tools.budget.suspend_budget_watchdog), so
+    # a long rollout system-ID fit is never stopped mid-way by the
+    # per-call limit. Probes never fit implicitly: after an edit they run
+    # the candidate at the last fit's values (declared init values for
+    # new params) and report UNFITTED until the agent fits the current
+    # file. 0 disables the cap.
+    agent_sdk_fit_call_timeout = 3600.0
     # Test-time closed-loop recovery. After each option in the refined plan
     # finishes, the subgoal_annotations execution monitor checks the
     # sketch's subgoal annotation for that step against the REAL state; on
@@ -1834,6 +1843,27 @@ class GlobalSettings:
     # Ensemble size used to estimate disagreement. 1 disables scoring
     # (every candidate scores 0) and reduces to first-feasible.
     agent_explorer_info_ensemble_size = 6
+    # Exploration keeps the agent's explicit continuous parameters: a
+    # proposed value is a decision, not a seed. Refinement re-proposes a
+    # pinned step's own params on each attempt (the belief's motion
+    # planning and physics vary per rollout) and never samples a
+    # replacement for it; info-seeking boundary probing is limited to
+    # steps the agent left unspecified. Off restores seed-then-search
+    # (run_20260828_173502 traj8: a proposed [0.827, 1.148, 0.44, 0]
+    # butt Place executed as a sampled [1.081, 1.218, 0.484, -1.59];
+    # the agents then stripped their SeatedOn/LegAtSite annotations to
+    # keep refinement from wandering, blinding the divergence monitor).
+    agent_explorer_pin_proposed_params = True
+    agent_explorer_pinned_step_retries = 3
+    # A plan the explore session validated through the capture gate
+    # (evaluate_option_plan / refine_plan_sketch: goal reached in
+    # agent_plan_validation_rollouts fresh belief rollouts) is executed
+    # verbatim as the episode's solve attempt with mental_model_solved=
+    # True, and the cycle's remaining requests on that task replay it
+    # without a new query - so a certified plan that solves for real on
+    # every attempt satisfies the train-driven early-stop rule. Off
+    # feeds the capture into the experiment search as seeds instead.
+    agent_explorer_replay_certified_plan = True
     # Per-parameter jitter as a fraction of the ParamSpec box width, for
     # the uniform-fallback ensemble only (see calibrated flag below).
     agent_explorer_info_perturb_frac = 0.15

@@ -34,8 +34,17 @@ def build_candidate_option_model(
     residual_features: Dict[str, List[str]],
     base_pred_triples: List[Tuple[State, Action, State]],
     latent_init: Any = None,
+    fit: bool = True,
 ) -> Tuple[Any, Dict[str, float], float]:
-    """MCMC-fit ``specs`` and build the candidate's option model.
+    """Fit ``specs`` (unless ``fit=False``) and build the candidate's option
+    model.
+
+    ``fit=False`` builds the candidate at :func:`carry_over_params`
+    (the last published fit where a spec still exists and the value
+    lies in its box, the declared init value otherwise) and returns
+    ``nan`` for the SSE: fitting is the agent's explicit ``sim.fit``
+    call, never a side effect of probing (see
+    ``AgentSimLearningApproach._make_candidate_probe_model_provider``).
 
     The front half of the synthesis-session probe: every rollout must
     exercise the candidate simulator at its *deployed* (fitted)
@@ -71,6 +80,12 @@ def build_candidate_option_model(
     if latent:
         approach._latent_init = latent_init
 
+    if not fit:
+        params = carry_over_params(approach._fitted_params, specs)
+        approach._fitted_params.clear()
+        approach._fitted_params.update(params)
+        return _finish_candidate_model(approach, rules, params), params, \
+            float("nan")
     try:
         if has_physics_rules(rules):
             # Physics-command rules act through engine stepping, so the
@@ -95,6 +110,30 @@ def build_candidate_option_model(
     # In place (clear + update, never replace): see docstring.
     approach._fitted_params.clear()
     approach._fitted_params.update(params)
+    return _finish_candidate_model(approach, rules, params), params, fit_sse
+
+
+def carry_over_params(fitted: Dict[str, float],
+                      specs: List[ParamSpec]) -> Dict[str, float]:
+    """Parameter values for an UNFITTED candidate: the last fit's value where
+    the spec still exists and the value lies inside its box, the declared
+    ``init_value`` otherwise."""
+    out: Dict[str, float] = {}
+    for spec in specs:
+        val = fitted.get(spec.name)
+        lo = spec.lo if spec.lo is not None else -float("inf")
+        hi = spec.hi if spec.hi is not None else float("inf")
+        if val is not None and lo <= val <= hi:
+            out[spec.name] = float(val)
+        else:
+            out[spec.name] = float(spec.init_value)
+    return out
+
+
+def _finish_candidate_model(approach: "SynthesisBackend", rules: List,
+                            params: Dict[str, float]) -> Any:
+    """Build the combined simulator + option model over published rules."""
+    # pylint: disable=protected-access
 
     # Fully-observable rules run through this `learned` object; for
     # recurrent rules _build_combined_simulator bypasses it and threads
@@ -104,4 +143,4 @@ def build_candidate_option_model(
         apply_rules(s, _r, _p, cmds=c),
         name="agent_in_session")
     combined_sim = approach._build_combined_simulator(learned)
-    return approach._build_option_model(combined_sim), params, fit_sse
+    return approach._build_option_model(combined_sim)

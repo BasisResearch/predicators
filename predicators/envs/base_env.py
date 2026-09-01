@@ -214,7 +214,7 @@ class BaseEnv(abc.ABC):
         this env has no per-instance world state worth isolating (the caller
         then reuses the long-lived instance).
 
-        Used by ``main._run_testing`` under
+        Used by ``run.testing.run_testing`` under
         ``CFG.test_fresh_env_per_episode`` so a test episode's physics
         cannot depend on what the long-lived env executed before it. The
         already-generated task lists are shared with the fresh instance,

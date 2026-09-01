@@ -8,8 +8,8 @@ from predicators.datasets import create_dataset
 from predicators.envs import create_new_env
 from predicators.execution_monitoring import create_execution_monitor
 from predicators.ground_truth_models import get_gt_options
-from predicators.main import _run_pipeline
 from predicators.perception import create_perceiver
+from predicators.run.online_learning import run_pipeline
 from predicators.settings import CFG
 from predicators.structs import Action, GroundAtom, GroundAtomsHoldQuery, \
     InteractionRequest, InteractionResult, Predicate
@@ -117,7 +117,7 @@ def test_interaction():
     predicates, _ = utils.parse_config_excluded_predicates(env)
     dataset = create_dataset(env, train_tasks, get_gt_options(env.get_name()),
                              predicates)
-    _run_pipeline(env, cogman, train_tasks, dataset)
+    run_pipeline(env, cogman, train_tasks, dataset)
     utils.update_config({
         "approach": "bridge_policy",
         "load_data": True,
@@ -126,11 +126,11 @@ def test_interaction():
     env = create_new_env("cover")
     # Invalid query type.
     with pytest.raises(AssertionError) as e:
-        _run_pipeline(env, cogman, train_tasks, dataset)
+        run_pipeline(env, cogman, train_tasks, dataset)
     assert "Disallowed query" in str(e)
     # Learning-based approaches expect a dataset.
     with pytest.raises(AssertionError) as e:
-        _run_pipeline(env, cogman, train_tasks)
+        run_pipeline(env, cogman, train_tasks)
     assert "Missing offline dataset" in str(e)
     # Test loading the approach.
     utils.update_config({
@@ -138,7 +138,7 @@ def test_interaction():
         "load_data": True,
         "load_approach": True
     })
-    _run_pipeline(env, cogman, train_tasks, dataset)
+    run_pipeline(env, cogman, train_tasks, dataset)
     # Should succeed because all cycles are skipped. Note that we must
     # reset_config instead of update_config because of known issues with
     # update_config and default args.
@@ -154,7 +154,7 @@ def test_interaction():
         "make_interaction_videos": True,
         "max_num_steps_interaction_request": 3,
     })
-    _run_pipeline(env, cogman, train_tasks, dataset)
+    run_pipeline(env, cogman, train_tasks, dataset)
     # Tests for CFG.allow_interaction_in_demo_tasks. An error should be raised
     # because the agent makes a request about a task where a demonstration was
     # generated.
@@ -172,7 +172,7 @@ def test_interaction():
         "max_num_steps_interaction_request": 3,
     })
     with pytest.raises(RuntimeError) as e:
-        _run_pipeline(env, cogman, train_tasks, dataset)
+        run_pipeline(env, cogman, train_tasks, dataset)
     assert "Interaction requests cannot be on demo tasks" in str(e)
     # This should succeed since requests are about the last three train tasks.
     utils.reset_config({
@@ -189,4 +189,4 @@ def test_interaction():
         "max_num_steps_interaction_request": 3,
     })
     env = create_new_env("cover")
-    _run_pipeline(env, cogman, train_tasks, dataset)
+    run_pipeline(env, cogman, train_tasks, dataset)

@@ -13,7 +13,7 @@ Parallels ``AgentPlanExplorer`` for session plumbing and
 
 import logging
 import os
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set
 
 import numpy as np
 from gym.spaces import Box
@@ -25,8 +25,8 @@ from predicators.agent_sdk.session_base import AgentSessionFatalError, \
     query_fatal_error
 from predicators.agent_sdk.session_manager import SessionManagerProtocol, \
     run_query_sync
-from predicators.agent_sdk.tools import ToolContext, agent_render_resolution, \
-    load_ground_sampler_fns
+from predicators.agent_sdk.tools import PlanCapture, ToolContext, \
+    agent_render_resolution, load_ground_sampler_fns
 from predicators.explorers.base_explorer import BaseExplorer
 from predicators.settings import CFG
 from predicators.structs import Action, ExplorationStrategy, \
@@ -67,6 +67,22 @@ class AgentBilevelExplorer(BaseExplorer):
         # leak if refinement below throws or falls back to random before
         # producing one.
         self._tool_context.last_mental_model_solved = None
+
+        # A plan this cycle already certified on this task (see the
+        # capture branch below) is replayed for the cycle's remaining
+        # requests without a new query: the train-driven early-stop rule
+        # needs EVERY attempt of the cycle to solve, and a second real
+        # execution of the certified plan is the cheapest evidence.
+        certified = self._tool_context.cycle_certified_plans.get(
+            train_task_idx)
+        if certified is not None and \
+                CFG.agent_explorer_replay_certified_plan:
+            logging.info(
+                "agent_bilevel explorer: replaying this cycle's "
+                "belief-certified plan for train task %d (%d steps) "
+                "without a new query.", train_task_idx, len(certified))
+            self._tool_context.last_mental_model_solved = True
+            return self._certified_plan_strategy(certified)
 
         # Point the agent's interactive tools (refine_plan_sketch,
         # evaluate_option_plan, the sim probe) at the EXPLORE task. They
@@ -132,7 +148,42 @@ class AgentBilevelExplorer(BaseExplorer):
                     "explore query died without the agent doing any work "
                     f"({dead}); not falling back to random exploration.")
             plan_text = self._extract_option_plan_text(responses)
-            if not plan_text:
+            # The session's tool capture: a goal-reaching plan the agent
+            # validated in the belief through the capture gate
+            # (evaluate_option_plan / refine_plan_sketch, N fresh
+            # rollouts). ``reached_goal`` is the gate's verdict.
+            capture = self._tool_context.take_plan_capture()
+            if CFG.agent_explorer_replay_certified_plan and capture.plan \
+                    and capture.reached_goal is True:
+                # Certified: the mental model solves the task with THIS
+                # plan, so run it verbatim as a solve attempt instead of
+                # re-searching (or boundary-probing) its parameters. A
+                # real success now counts for early stopping.
+                plan = list(capture.plan)
+                logging.info(
+                    "agent_bilevel explorer: the agent's tool-validated "
+                    "plan passed the belief's capture gate (%s); executing "
+                    "it verbatim as this episode's solve attempt (mental "
+                    "model solved the goal).", capture.validation_summary
+                    or "goal reached")
+                if capture.sketch:
+                    self._tool_context.last_sketch_subgoals = [
+                        (s.subgoal_atoms, s.subgoal_neg_atoms)
+                        for s in capture.sketch
+                    ]
+                    self._tool_context.last_sketch_options = [
+                        (s.option.name, [o.name for o in s.objects])
+                        for s in capture.sketch
+                    ]
+                self._tool_context.last_mental_model_solved = True
+                self._tool_context.cycle_certified_plans[train_task_idx] = plan
+                self._tool_context.cycle_scheduled_plans.append(
+                    self._format_plan(plan) +
+                    "\n  NOTE: belief-certified; executes verbatim as a "
+                    "solve attempt and is replayed for this cycle's "
+                    "remaining episodes.")
+                return self._certified_plan_strategy(plan)
+            if not plan_text and not capture.plan:
                 raise ValueError("agent returned empty plan text")
 
             gs_fns, gs_err = load_ground_sampler_fns(self._tool_context)
@@ -148,7 +199,7 @@ class AgentBilevelExplorer(BaseExplorer):
                 agent_bilevel_use_llm_initial_params,
                 parse_ground_samplers=CFG.agent_bilevel_ground_samplers,
                 ground_sampler_fns=gs_fns or None,
-            )
+            ) if plan_text else []
             if not sketch:
                 # Final message didn't parse into a sketch, but the agent may
                 # have submitted + simulator-validated a goal-reaching plan via
@@ -158,7 +209,7 @@ class AgentBilevelExplorer(BaseExplorer):
                 # the info-gain search below rather than replaying verbatim.
                 # Mirrors the test solver's preference for the tool-validated
                 # capture over the final text.
-                sketch = self._sketch_from_capture() or []
+                sketch = self._sketch_from_capture(capture) or []
             if not sketch:
                 raise ValueError("parsed empty plan sketch")
 
@@ -257,6 +308,8 @@ class AgentBilevelExplorer(BaseExplorer):
                 info_n_feasible_target=info_n_feasible_target,
                 parameterized_samplers=self._tool_context.
                 parameterized_samplers,
+                pin_proposed_params=CFG.agent_explorer_pin_proposed_params,
+                pinned_step_retries=CFG.agent_explorer_pinned_step_retries,
             )
             plan, success = outcome.plan, outcome.success
             # Record the honest verdict so get_interaction_requests can stamp
@@ -326,7 +379,8 @@ class AgentBilevelExplorer(BaseExplorer):
     # ------------------------------------------------------------------ #
 
     def _sketch_from_capture(
-            self) -> Optional[List[bilevel_sketch.SketchStep]]:
+            self,
+            capture: PlanCapture) -> Optional[List[bilevel_sketch.SketchStep]]:
         """Rebuild a sketch from a captured, tool-validated plan, or None.
 
         ``evaluate_option_plan`` / ``refine_plan_sketch`` stash a
@@ -338,9 +392,8 @@ class AgentBilevelExplorer(BaseExplorer):
         ``initial_params``, so the info-gain refinement below seeds them
         as the first candidate in each step's pool (see
         ``_sample_info_seeking``) rather than replaying them verbatim.
-        Consume (clear) the capture so it can't be reused.
+        The capture was already taken (consumed) by the caller.
         """
-        capture = self._tool_context.take_plan_capture()
         plan = capture.plan
         captured_sketch = capture.sketch
         if not plan or not captured_sketch:
@@ -362,6 +415,27 @@ class AgentBilevelExplorer(BaseExplorer):
             "agent's tool-validated plan from capture (%d steps); seeding its "
             "continuous params into the info-gain search.", len(seeded))
         return seeded
+
+    @staticmethod
+    def _format_plan(plan: Sequence[Any]) -> str:
+        """One indented ``i: Option(objs)[params]`` line per grounded
+        option."""
+        lines = []
+        for i, opt in enumerate(plan):
+            obj_s = ", ".join(o.name for o in opt.objects)
+            par_s = ", ".join(f"{p:.4f}" for p in opt.params)
+            lines.append(f"  {i}: {opt.name}({obj_s})[{par_s}]")
+        return "\n".join(lines)
+
+    def _certified_plan_strategy(self,
+                                 plan: Sequence[Any]) -> ExplorationStrategy:
+        """Execute a belief-certified grounded plan verbatim."""
+        logging.info("agent_bilevel explorer: certified plan:\n%s",
+                     self._format_plan(plan))
+        policy = utils.option_plan_to_policy(
+            list(plan),
+            abstract_function=lambda s: utils.abstract(s, self._predicates))
+        return self._wrap_policy(policy), lambda _: False
 
     def _wrap_policy(
             self, policy: Callable[[State],
@@ -444,12 +518,16 @@ class AgentBilevelExplorer(BaseExplorer):
                 "cover as many as its step budget allows:\n" + ledger)
         if CFG.agent_explorer_info_seeking:
             parts.append(
-                "Refinement will actively choose continuous parameters "
-                "that straddle the learned model's decision boundaries, "
-                "so each annotated step doubles as an experiment that "
-                "reveals where the model is wrong. Prefer a sketch whose "
-                "subgoal annotations exercise the geometry/timing you "
-                "are least sure the learned model has right.")
+                "Your explicit continuous parameters execute exactly as "
+                "written. To find the parameters a step could be run at "
+                "to teach the model most, call "
+                "`sim.suggest_probes(plan_text)`: it rolls your sketch "
+                "forward on your own parameters and, per annotated step, "
+                "ranks feasible alternatives by the learned model's "
+                "ensemble disagreement on the step's subgoal atoms. Adopt "
+                "one by writing it into your sketch, only on a step whose "
+                "failure the episode can afford; annotate steps with the "
+                "geometry/timing you are least sure the model has right.")
             disagreement = self._build_disagreement_summary()
             if disagreement:
                 parts.append(disagreement)

@@ -14,8 +14,8 @@ from predicators.datasets import create_dataset
 from predicators.envs.cover import CoverEnv
 from predicators.execution_monitoring import create_execution_monitor
 from predicators.ground_truth_models import get_gt_options
-from predicators.main import _generate_interaction_results
 from predicators.perception import create_perceiver
+from predicators.run.online_learning import generate_interaction_results
 from predicators.settings import CFG
 from predicators.structs import NSRT, Action, Array, Dataset, Object, State
 from predicators.teacher import Teacher
@@ -79,7 +79,7 @@ def test_interactive_learning_approach(predicate_classifier_model,
     perceiver = create_perceiver("trivial")
     exec_monitor = create_execution_monitor("trivial")
     cogman = CogMan(approach, perceiver, exec_monitor)
-    interaction_results, _, _ = _generate_interaction_results(
+    interaction_results, _, _ = generate_interaction_results(
         cogman, env, teacher, interaction_requests)
     approach.learn_from_interaction_results(interaction_results)
     approach.load(online_learning_cycle=0)
@@ -97,21 +97,21 @@ def test_interactive_learning_approach(predicate_classifier_model,
         "explorer": "random_options",
     })
     interaction_requests = approach.get_interaction_requests()
-    _generate_interaction_results(cogman, env, teacher, interaction_requests)
+    generate_interaction_results(cogman, env, teacher, interaction_requests)
     # Test explorer do nothing.
     utils.update_config({
         "explorer": "no_explore",
     })
     interaction_requests = approach.get_interaction_requests()
     assert interaction_requests
-    _generate_interaction_results(cogman, env, teacher, interaction_requests)
+    generate_interaction_results(cogman, env, teacher, interaction_requests)
     # Test that glib falls back to random if no solvable task can be found.
     utils.update_config({
         "explorer": "glib",
         "timeout": 0.0,
     })
     interaction_requests = approach.get_interaction_requests()
-    _generate_interaction_results(cogman, env, teacher, interaction_requests)
+    generate_interaction_results(cogman, env, teacher, interaction_requests)
     # Test that glib also falls back when there are no non-static predicates.
     approach2 = InteractiveLearningApproach(initial_predicates,
                                             get_gt_options(env.get_name()),
@@ -127,7 +127,7 @@ def test_interactive_learning_approach(predicate_classifier_model,
     approach._best_score = -np.inf  # pylint: disable=protected-access
     interaction_requests = approach.get_interaction_requests()
     cogman = CogMan(approach, perceiver, exec_monitor)
-    interaction_results, query_cost, _ = _generate_interaction_results(
+    interaction_results, query_cost, _ = generate_interaction_results(
         cogman, env, teacher, interaction_requests)
     assert len(interaction_results) == 1
     interaction_result = interaction_results[0]
@@ -147,7 +147,7 @@ def test_interactive_learning_approach(predicate_classifier_model,
     })
     interaction_requests = approach.get_interaction_requests()
     cogman = CogMan(approach, perceiver, exec_monitor)
-    _generate_interaction_results(cogman, env, teacher, interaction_requests)
+    generate_interaction_results(cogman, env, teacher, interaction_requests)
     # Test with entropy score function and score threshold.
     utils.update_config({
         "interactive_query_policy": "threshold",
@@ -155,19 +155,19 @@ def test_interactive_learning_approach(predicate_classifier_model,
         "interactive_score_threshold": 0.5,
     })
     interaction_requests = approach.get_interaction_requests()
-    _generate_interaction_results(cogman, env, teacher, interaction_requests)
+    generate_interaction_results(cogman, env, teacher, interaction_requests)
     # Test with BALD score function and score threshold.
     utils.update_config({
         "interactive_score_function": "BALD",
     })
     interaction_requests = approach.get_interaction_requests()
-    _generate_interaction_results(cogman, env, teacher, interaction_requests)
+    generate_interaction_results(cogman, env, teacher, interaction_requests)
     # Test with variance score function and score threshold.
     utils.update_config({
         "interactive_score_function": "variance",
     })
     interaction_requests = approach.get_interaction_requests()
-    _generate_interaction_results(cogman, env, teacher, interaction_requests)
+    generate_interaction_results(cogman, env, teacher, interaction_requests)
     # Test with greedy lookahead action strategy.
     utils.update_config({
         "explorer": "greedy_lookahead",
@@ -175,7 +175,7 @@ def test_interactive_learning_approach(predicate_classifier_model,
         "greedy_lookahead_max_traj_length": 1,
     })
     interaction_requests = approach.get_interaction_requests()
-    _generate_interaction_results(cogman, env, teacher, interaction_requests)
+    generate_interaction_results(cogman, env, teacher, interaction_requests)
 
     # Cover greedy lookahead edge cases.
     def _policy(s: State, memory: Dict, objects: Sequence[Object],
@@ -199,11 +199,11 @@ def test_interactive_learning_approach(predicate_classifier_model,
     approach._nsrts = new_nsrts  # pylint: disable=protected-access
     interaction_requests = approach.get_interaction_requests()
     cogman = CogMan(approach, perceiver, exec_monitor)
-    _generate_interaction_results(cogman, env, teacher, interaction_requests)
+    generate_interaction_results(cogman, env, teacher, interaction_requests)
     # Force no applicable NSRTs
     approach._nsrts = set()  # pylint: disable=protected-access
     interaction_requests = approach.get_interaction_requests()
-    _generate_interaction_results(cogman, env, teacher, interaction_requests)
+    generate_interaction_results(cogman, env, teacher, interaction_requests)
     # Cover unrecognized explorer.
     utils.update_config({
         "explorer": "not a real action strategy",
