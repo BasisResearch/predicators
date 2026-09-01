@@ -1693,17 +1693,21 @@ class GlobalSettings:
     # that settled off-target), CogMan re-invokes solve(), which resumes a
     # re-refined suffix of the executed sketch from the current state,
     # instead of running the rest of the stale plan open-loop. Value =
-    # recoveries per test episode, shared across chained replans; 0
-    # disables (legacy open-loop execution). Requires --execution_monitor
+    # recoveries per test episode, shared across chained replans; when no
+    # suffix refines (or the budget is spent) the remaining plan resumes
+    # open-loop rather than failing the episode. 0 disables (legacy
+    # open-loop execution). Requires --execution_monitor
     # subgoal_annotations (enforced at approach construction).
     agent_bilevel_max_execution_replans = 0
     # When an execution replan's suffix refinement fails, whether to fall
     # back to querying the agent for a fresh sketch - a brand-new
     # full-turn-budget session. Default False: the cheap suffix replan is
-    # the only recovery, and the episode fails when no suffix of the
-    # executed sketch refines from the diverged state. Re-opening the
-    # agent budget is especially wasteful after a best-effort (non-solve)
-    # capture, whose execution diverges by construction.
+    # the only recovery, and when no suffix of the executed sketch
+    # refines from the diverged state the remaining plan resumes
+    # open-loop (the divergence is logged; the goal check decides the
+    # episode). Re-opening the agent budget is especially wasteful after
+    # a best-effort (non-solve) capture, whose execution diverges by
+    # construction.
     agent_bilevel_replan_agent_fallback = False
     # log state pretty_str before/after each step
     agent_bilevel_log_state = False
