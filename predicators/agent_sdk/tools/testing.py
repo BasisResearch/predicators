@@ -44,7 +44,8 @@ def _parameter_margin_sweep(
         fresh_scope: Callable[..., Any], rollout: Callable[[], Tuple[bool,
                                                                      str]],
         subject: str) -> Tuple[List[str], Optional[str], str]:
-    """Margin sweep over BOTH parameter-uncertainty sources of one
+    """Margin sweep over BOTH parameter-uncertainty sources of one.
+
     capture-eligible submission - the single code path behind the
     physics-margin and rule-parameter gates of ``evaluate_option_plan``
     and ``evaluate_policy``.

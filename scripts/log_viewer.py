@@ -1028,10 +1028,10 @@ def test_results_str(summary: Dict[str, Any]) -> str:
     """The run's test phases as e.g. "c3 0/1 (r 0.00) → c4 1/1 (r 0.90)".
 
     Each phase is prefixed with its true learning-cycle id from the
-    log's cycle banners ("init" for the pre-learning test), so an
-    auto-resumed run reads c3, c4, ... rather than looking like a fresh
-    run's first rounds. The prefix is omitted for logs without banners
-    (and the reward tag for logs that predate avg_test_reward).
+    log's cycle banners ("init" for the pre-learning test), so an auto-
+    resumed run reads c3, c4, ... rather than looking like a fresh run's
+    first rounds. The prefix is omitted for logs without banners (and
+    the reward tag for logs that predate avg_test_reward).
     """
     parts = []
     cycles = summary.get("test_cycles", [])

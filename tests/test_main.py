@@ -3,7 +3,8 @@ import os
 import shutil
 import sys
 import tempfile
-from typing import Callable
+from collections import defaultdict
+from typing import Callable, Dict
 
 import pytest
 
@@ -341,10 +342,9 @@ def test_skip_initial_test():
 
 
 def test_perfect_test_streak_from_disk():
-    """Test-driven early stopping's consecutive-perfect-test streak is
-    re-derived from the saved per-cycle results, so an --auto_resume
-    relaunch continues the count instead of restarting it."""
-    from collections import defaultdict
+    """Test-driven early stopping's consecutive-perfect-test streak is re-
+    derived from the saved per-cycle results, so an --auto_resume relaunch
+    continues the count instead of restarting it."""
     parent_dir = os.path.dirname(__file__)
     results_dir = os.path.join(parent_dir, "_fake_results_streak")
     utils.reset_config({
@@ -355,7 +355,7 @@ def test_perfect_test_streak_from_disk():
     })
 
     def _fake_results(num_solved: int, num_total: int) -> dict:
-        results = defaultdict(float)
+        results: Dict[str, float] = defaultdict(float)
         results["num_solved"] = num_solved
         results["num_total"] = num_total
         return results

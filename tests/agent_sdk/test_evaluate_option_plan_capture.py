@@ -574,7 +574,8 @@ def test_rule_param_sensitive_plan_is_not_captured():
     Regression for the bridge cycles 5-7: plans centered on marginal
     operating points of uncertain learned constants (a glue dab at 16 mm
     of the true 20 mm radius) passed 5/5 nominal validation rollouts and
-    the (empty) physics sweep, then failed in the real environment."""
+    the (empty) physics sweep, then failed in the real environment.
+    """
     utils.reset_config({
         "agent_plan_validation_rollouts": 3,
         "agent_plan_validation_fresh_env": True,

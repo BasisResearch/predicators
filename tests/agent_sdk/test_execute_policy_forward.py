@@ -205,9 +205,9 @@ def get_option(state, memory):
 
 
 def test_noop_livelock_identical_completions_is_fatal():
-    """K consecutive clean completions of one identical command that
-    change nothing observable end the episode as a livelock, before the
-    option budget is burned."""
+    """K consecutive clean completions of one identical command that change
+    nothing observable end the episode as a livelock, before the option budget
+    is burned."""
     fn, task = _fn("def get_option(state, memory):\n"
                    "    return 'Move(block0:block)[0.5]'\n")
     r = execute_policy_forward(task,

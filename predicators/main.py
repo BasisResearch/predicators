@@ -142,8 +142,8 @@ def _test_results_exist(online_learning_cycle: Optional[int]) -> bool:
 
 def _load_test_solve_rate(
         online_learning_cycle: Optional[int]) -> Optional[float]:
-    """num_solved / num_total from a cycle's saved test results, or None if
-    the cycle has no saved results (or an empty test set)."""
+    """num_solved / num_total from a cycle's saved test results, or None if the
+    cycle has no saved results (or an empty test set)."""
     outfile = (f"{CFG.results_dir}/{utils.get_config_path_str()}__"
                f"{online_learning_cycle}.pkl")
     if not os.path.isfile(outfile):
@@ -161,8 +161,8 @@ def _perfect_test_streak_from_disk(newest_cycle: int) -> int:
 
     Walks the per-cycle results pickles backward from ``newest_cycle``,
     so an --auto_resume relaunch continues the consecutive-perfect-test
-    count that test-driven early stopping requires instead of
-    restarting it. A fresh run (newest_cycle -1) seeds 0.
+    count that test-driven early stopping requires instead of restarting
+    it. A fresh run (newest_cycle -1) seeds 0.
     """
     streak = 0
     for cycle in range(newest_cycle, -1, -1):

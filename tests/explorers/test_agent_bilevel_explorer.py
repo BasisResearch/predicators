@@ -452,9 +452,9 @@ def test_experiment_guidance_gated_by_info_seeking():
 
 
 def test_experiment_guidance_injects_open_questions_ledger(tmp_path):
-    """The learn phase's open_questions.md ledger reaches the explore
-    query verbatim, independent of the info-seeking flag, and an
-    oversized ledger keeps its head (the ranking's top)."""
+    """The learn phase's open_questions.md ledger reaches the explore query
+    verbatim, independent of the info-seeking flag, and an oversized ledger
+    keeps its head (the ranking's top)."""
     _reset_config(agent_explorer_info_seeking=False)
     explorer, tool_context = _make_explorer(MagicMock(), MagicMock())
     # No sandbox / no file => no section (and no crash).
