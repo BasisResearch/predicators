@@ -74,8 +74,11 @@ def test_create_synthesis_tools_matches_constant(tmp_path) -> None:
     # No simulator file yet: the runners report it instead of raising.
     report = toolkit.fit_runner()
     assert "simulator.py" in report and "Write" in report
+    # The residuals runner deliberately scores the BASE simulator alone
+    # when no file exists yet (a cycle-0 learn's map of missing
+    # mechanisms), tagged no_simulator_yet.
     report = toolkit.residuals_runner()
-    assert "simulator.py" in report and "Write" in report
+    assert "no_simulator_yet" in report
 
 
 def test_sysid_fit_gate_traj_idxs_vs_fixed(tmp_path) -> None:

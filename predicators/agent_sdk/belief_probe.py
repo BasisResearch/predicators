@@ -33,8 +33,8 @@ import functools
 import logging
 import os
 import time
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, \
-    Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, \
+    Sequence, Tuple, Union
 
 from predicators import utils
 from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig, \
@@ -401,6 +401,52 @@ class ProbeRefineResult(_StrLikeResult):
         return "\n".join(lines)
 
 
+@dataclasses.dataclass(repr=False)
+class ProbeGatherResult(_StrLikeResult):
+    """Outcome of one ``BeliefProbe.gather`` call.
+
+    One status line per handle; the full reports stay on the handles
+    (``print(handle.result)`` for a done handle, ``handle.error`` for a
+    failed one). ``pending`` handles are still running - keep them and
+    gather again later. ``stale`` flags done handles whose rollout ran
+    under an older ``simulator.py`` than the current file.
+    """
+    done: List[Any]
+    pending: List[Any]
+    stale: List[Any]
+    current_tag: Optional[str]
+
+    def __repr__(self) -> str:
+        lines = [
+            f"Gather: {len(self.done)} done, {len(self.pending)} pending."
+        ]
+        for h in self.done:
+            head = f"  handle {h.index}"
+            if not h.ok:
+                first = str(h.error).splitlines()[0] if h.error else "unknown"
+                lines.append(f"{head}: FAILED - {first}")
+                continue
+            r = h.result
+            if isinstance(r, ProbeTrialsResult):
+                summary = (f"trials {r.successes}/{len(r.trials)} reached "
+                           "the goal")
+            elif isinstance(r, ProbeResult):
+                summary = f"goal_reached={r.goal_reached}"
+            else:
+                summary = type(r).__name__
+            lines.append(f"{head}: {summary} - print(handle.result) for the "
+                         "full report")
+        for h in self.pending:
+            lines.append(f"  handle {h.index}: still running")
+        if self.stale:
+            idxs = ", ".join(str(h.index) for h in self.stale)
+            lines.append(
+                f"NOTE: handle(s) {idxs} ran under an OLDER simulator.py "
+                "than the current file - their results describe the model "
+                "as of their launch, not your latest edits.")
+        return "\n".join(lines)
+
+
 class BeliefProbe:
     """Stateful exploration handle over the belief simulator.
 
@@ -451,6 +497,8 @@ class BeliefProbe:
         # the task evaluator's staging rules reference the true init, so
         # a verdict from any other start would be silently wrong.
         self._pristine = False
+        # Lazy fork registry for run_async (created on first use).
+        self._async_registry: Optional[Any] = None
 
     # ── State control ────────────────────────────────────────────
 
@@ -1572,6 +1620,98 @@ class BeliefProbe:
         ]
         return ProbeResult(step_dicts, result.goal_reached, final_atoms,
                            result.final_state, notices)
+
+    # ── Async rollouts (launch now, gather later) ────────────────
+
+    def _model_tag(self) -> Optional[str]:
+        """Identity of the current belief model, stamped on handles.
+
+        The sandbox ``simulator.py`` mtime: cheap, monotone under the
+        agent's edits, and enough to flag results that predate the
+        current file.
+        """
+        sandbox = getattr(self._ctx, "sandbox_dir", None)
+        if not sandbox:
+            return None
+        path = os.path.join(sandbox, "simulator.py")
+        try:
+            return f"simulator.py@{os.path.getmtime(path):.3f}"
+        except OSError:
+            return None
+
+    def run_async(self, plan_text: str, **kwargs: Any) -> Any:
+        """Launch ``run(plan_text, ...)`` in a forked child; return a handle
+        immediately.
+
+        Launch several independent runs, keep working (edit the model,
+        fit, think - even across ``run_python`` calls, handles survive
+        in the namespace), then collect with ``gather``. Two semantic
+        differences from ``run``: the session state does NOT advance
+        (the child executes on a forked copy - a measurement, not
+        navigation), and rendering is unavailable (``render`` is forced
+        off). The child snapshots the session AND the belief model at
+        launch, so results describe the model as of the launch;
+        ``gather`` flags results whose ``simulator.py`` is older than
+        the current file. When parallel workers are disabled the run
+        executes inline (under a snapshot, so the no-advance semantics
+        hold) and the returned handle is already done.
+        """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.async_rollouts import \
+            AsyncRolloutRegistry, CompletedRollout, async_rollouts_available
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.settings import CFG
+        ctx = self._ctx
+        _check_time_budget(ctx)
+        kwargs["render"] = False
+        _count_rollout(ctx, max(1, int(kwargs.get("trials", 1))))
+        tag = self._model_tag()
+        workers = int(getattr(CFG, "agent_validation_parallel_workers", 0))
+        if workers <= 1 or not async_rollouts_available():
+            sid = self.snapshot()
+            try:
+                return CompletedRollout(result=self.run(plan_text, **kwargs),
+                                        tag=tag)
+            except Exception as e:  # pylint: disable=broad-except
+                return CompletedRollout(error=f"{type(e).__name__}: {e}",
+                                        tag=tag)
+            finally:
+                self.restore(sid)
+                self.drop(sid)
+        if self._async_registry is None:
+            self._async_registry = AsyncRolloutRegistry(max_workers=workers)
+        job = functools.partial(self.run, plan_text, **kwargs)
+        return self._async_registry.launch(job, tag=tag)
+
+    def gather(self,
+               handles: Sequence[Any],
+               timeout: Optional[float] = None) -> ProbeGatherResult:
+        """Wait for ``run_async`` handles and summarize their statuses.
+
+        Blocks up to ``timeout`` seconds (default 1500, under the
+        session's per-call watchdog) while pumping queued launches.
+        Details stay on the handles: ``print(handle.result)`` for a
+        done one, ``handle.error`` for a failed one. Pending handles
+        are still running - keep them and gather again later.
+        """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.async_rollouts import AsyncRollout
+        _check_time_budget(self._ctx)
+        live = [h for h in handles if isinstance(h, AsyncRollout)]
+        if live and self._async_registry is not None:
+            self._async_registry.gather(
+                live, timeout=1500.0 if timeout is None else timeout)
+        done = [h for h in handles if h.done()]
+        pending = [h for h in handles if not h.done()]
+        current = self._model_tag()
+        stale = [
+            h for h in done
+            if h.tag is not None and current is not None and h.tag != current
+        ]
+        return ProbeGatherResult(done=done,
+                                 pending=pending,
+                                 stale=stale,
+                                 current_tag=current)
 
     def refine(self,
                sketch_text: str,

@@ -96,3 +96,25 @@ def test_in_scope_feature_not_duplicated_out_of_scope(tmp_path) -> None:
     assert "traj 0 step 5" in report
     outside = report.split("OUTSIDE")[-1] if "OUTSIDE" in report else ""
     assert "ball.x" not in outside
+
+
+def test_missing_simulator_scores_base_divergence(tmp_path) -> None:
+    """With no simulator.py at all (cycle 0), the report scores the base
+    simulator alone: everything is out of scope, so the drifting feature shows
+    up as a candidate missing mechanism (fit_params is a no-op)."""
+    toolkit = create_synthesis_tools(exec_ns={},
+                                     base_pred_triples=_drifting_triples(),
+                                     inferred_residual_features={},
+                                     simulator_file=str(tmp_path /
+                                                        "simulator.py"),
+                                     versions_dir=str(tmp_path / "versions"),
+                                     approach=cast(SynthesisBackend,
+                                                   _NoApproach()))
+    report = toolkit.residuals_runner(fit_params=True)
+    assert "no_simulator_yet" in report
+    assert "ball.x" in report
+    assert "6/6 differ" in report
+    assert "traj 0 step 5" in report
+    assert "ball.y" not in report
+    # The open-loop / physics modes need a real file.
+    assert "write the file first" in toolkit.residuals_runner(rollout=True)

@@ -1,5 +1,6 @@
 """Synthesis-session tools for sim learning (create_synthesis_tools)."""
 import dataclasses
+import os
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -1034,8 +1035,11 @@ def create_synthesis_tools(
         A final section lists every feature that differs from the data
         but sits OUTSIDE the scored scope - no rule predicts it, so
         the combined model falls back to the base prediction there;
-        each such feature is a candidate missing mechanism. Uses
-        init_value params by default;
+        each such feature is a candidate missing mechanism. With no
+        ``simulator.py`` on disk yet (a fresh cycle-0 session) the
+        report scores the BASE simulator alone: everything is out of
+        scope, so it is the map of candidate mechanisms the first
+        file needs to cover. Uses init_value params by default;
         ``fit_params=True`` MCMC-fits first (diagnostic only - nothing
         is published). Tolerance: ``|pred - obs| > rel_tol * |obs| +
         abs_tol``. Each call snapshots the simulator file into
@@ -1057,30 +1061,50 @@ def create_synthesis_tools(
         per-step residuals cannot see.
         """
         p = path or simulator_file
-        rules, specs, declared, latent_init, _physical_specs, version_tag, \
-            err = _snapshot_and_load(p)
-        if err:
-            return str(err)
-        if not rollout and (sweep_params is not None or phys_params):
-            return (f"[{version_tag}] Error: sweep_params/phys_params apply "
-                    "to the open-loop report only - pass rollout=True.")
-        if not rollout and has_physics_rules(rules):
-            # Command-emitting rules act through engine stepping, which
-            # the per-transition report cannot replay; auto-route to the
-            # open-loop report rather than scoring a commands-free
-            # prediction and reporting phantom residuals.
-            note = (f"[{version_tag}] Note: RESIDUAL_RULES emit physics "
-                    "commands (a `cmds` parameter), so the per-transition "
-                    "report cannot score them; showing the OPEN-LOOP "
-                    "rollout report instead (equivalent to rollout=True).")
-            report = _run_rollout_residuals(rules, specs, latent_init,
-                                            version_tag, sweep_num_points,
-                                            sweep_params, phys_params)
-            return note + "\n\n" + report
-        if rollout:
-            return _run_rollout_residuals(rules, specs, latent_init,
-                                          version_tag, sweep_num_points,
-                                          sweep_params, phys_params)
+        if not os.path.isfile(p):
+            # No simulator.py yet (a fresh cycle-0 learn session): score
+            # the BASE simulator alone. Everything is out of scope, so
+            # the report is the map of candidate missing mechanisms the
+            # first simulator.py needs to cover. The open-loop /
+            # physical-parameter modes need a real file.
+            if rollout or sweep_params is not None or phys_params:
+                return ("Error: no simulator.py exists yet - the open-loop "
+                        "/ physical-parameter report needs one; write the "
+                        "file first.")
+            rules: List[Any] = []
+            specs: List[Any] = []
+            declared: Dict[str, List[str]] = {}
+            latent_init = None
+            version_tag = "no_simulator_yet"
+            fit_params = False  # nothing to fit
+        else:
+            rules, specs, declared, latent_init, _physical_specs, \
+                version_tag, err = _snapshot_and_load(p)
+            if err:
+                return str(err)
+            if not rollout and (sweep_params is not None or phys_params):
+                return (f"[{version_tag}] Error: sweep_params/phys_params "
+                        "apply to the open-loop report only - pass "
+                        "rollout=True.")
+            if not rollout and has_physics_rules(rules):
+                # Command-emitting rules act through engine stepping,
+                # which the per-transition report cannot replay;
+                # auto-route to the open-loop report rather than scoring
+                # a commands-free prediction and reporting phantom
+                # residuals.
+                note = (f"[{version_tag}] Note: RESIDUAL_RULES emit physics "
+                        "commands (a `cmds` parameter), so the "
+                        "per-transition report cannot score them; showing "
+                        "the OPEN-LOOP rollout report instead (equivalent "
+                        "to rollout=True).")
+                report = _run_rollout_residuals(rules, specs, latent_init,
+                                                version_tag, sweep_num_points,
+                                                sweep_params, phys_params)
+                return note + "\n\n" + report
+            if rollout:
+                return _run_rollout_residuals(rules, specs, latent_init,
+                                              version_tag, sweep_num_points,
+                                              sweep_params, phys_params)
 
         residual_features = (declared if isinstance(declared, dict) else
                              inferred_residual_features)

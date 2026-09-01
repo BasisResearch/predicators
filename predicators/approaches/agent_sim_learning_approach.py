@@ -2047,20 +2047,35 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # as `sim.residuals()` against every subsequent edit, so this is
         # the first data point of an iteration loop, not a one-shot.
         divergence_block = ""
-        if (prior_state_block
-                and self._tool_context.probe_residuals_provider is not None):
+        if self._tool_context.probe_residuals_provider is not None:
             try:
                 report = self._tool_context.probe_residuals_provider(
                     max_transitions=100000, fit_params=True)
-                divergence_block = (
-                    "## Where the prior model diverges from the data\n"
-                    "Computed just now from the prior cycle's "
-                    "`simulator.py` with its params refit to all "
-                    "trajectories above - remaining mismatches need "
-                    "structural fixes, not tuning. Re-score any edit "
-                    "with `sim.residuals()` (same report, current "
-                    "file):\n\n"
-                    f"{report}\n\n")
+                if prior_state_block:
+                    divergence_block = (
+                        "## Where the prior model diverges from the data\n"
+                        "Computed just now from the prior cycle's "
+                        "`simulator.py` with its params refit to all "
+                        "trajectories above - remaining mismatches need "
+                        "structural fixes, not tuning. Re-score any edit "
+                        "with `sim.residuals()` (same report, current "
+                        "file):\n\n"
+                        f"{report}\n\n")
+                else:
+                    # Cycle 0: no prior model, so the "prior" is the bare
+                    # base simulator and every mismatch is an unmodeled
+                    # mechanism - the map of what the first simulator.py
+                    # needs to cover.
+                    divergence_block = (
+                        "## Where the base simulator diverges from the "
+                        "data\n"
+                        "No prior model exists yet, so every feature "
+                        "below is an unmodeled mechanism: this is the map "
+                        "of what your `simulator.py` needs to cover, each "
+                        "with its worst transition located in the data. "
+                        "Re-score any edit with `sim.residuals()` (same "
+                        "report, current file):\n\n"
+                        f"{report}\n\n")
             except Exception as e:  # pylint: disable=broad-except
                 logger.warning("Skipping start-of-session residual report: %s",
                                e)
