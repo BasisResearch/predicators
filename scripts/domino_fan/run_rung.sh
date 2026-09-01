@@ -12,6 +12,10 @@
 #
 #   scripts/domino_fan/run_rung.sh --declare 1
 #
+# SEED=1 repeats a rung on another seed, for a second opinion:
+#
+#   SEED=1 scripts/domino_fan/run_rung.sh 4
+#
 # Each rung gives the agent less and asks it to recover more:
 #   1  GT simulator + GT predicates, process planner plans.
 #   2  GT simulator + GT predicates, the AGENT plans.
@@ -35,6 +39,12 @@ if [ "${1:-}" = "--declare" ]; then
   ENV_KEY="domino_declare"
   shift
 fi
+
+# Which random seed to run. A rung's result on one seed is an anecdote:
+# the agent's exploration is not deterministic, so a repeat with a
+# different seed is the cheapest evidence that a result is the method
+# rather than the draw. Runs land in seed<N>/ and show as separate rows.
+SEED="${SEED:-0}"
 [ $# -ge 1 ] || usage
 
 run_one() {
@@ -55,11 +65,11 @@ run_one() {
 
   # experiment_id is built by cluster_utils as "<env key>-<arm key>",
   # so it is domino_fan-<arm>; the dashboard maps that back to a rung.
-  local cfg="scripts/configs/predicatorv3/_${ENV_KEY}_rung${rung}.yaml"
+  local cfg="scripts/configs/predicatorv3/_${ENV_KEY}_rung${rung}_s${SEED}.yaml"
   # Generated, not hand-edited: every arm parked except this one.
-  $PY - "$rung" "$arm" "$ENV_KEY" > "$cfg" <<'PYEOF'
+  $PY - "$rung" "$arm" "$ENV_KEY" "$SEED" > "$cfg" <<'PYEOF'
 import sys
-rung, arm, env_key = sys.argv[1], sys.argv[2], sys.argv[3]
+rung, arm, env_key, seed = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 arms = ["oracle", "agent_model_based_planning", "agent_param_learning",
         "agent_po_predicate_invention_al"]
 lines = [
@@ -70,6 +80,8 @@ lines = [
     "  - common.yaml",
     "  - envs/all.yaml",
     "  - approaches/all.yaml",
+    f"START_SEED: {seed}",
+    "NUM_SEEDS: 1",
     "ENVS:",
     f"  {env_key}:",
     "    SKIP: False",
@@ -123,10 +135,11 @@ print("\n".join(lines))
 PYEOF
 
   echo "=========================================================="
-  echo "  RUNG $rung  ->  $arm"
+  echo "  RUNG $rung  ->  $arm   (seed $SEED)"
   echo "  logs/*/${ENV_KEY}-$arm/   (rung $rung: $exp)"
   echo "=========================================================="
-  PYTHONHASHSEED=0 $PY scripts/local/launch_simp.py -c "predicatorv3/_${ENV_KEY}_rung${rung}.yaml"
+  PYTHONHASHSEED=0 $PY scripts/local/launch_simp.py \
+      -c "predicatorv3/_${ENV_KEY}_rung${rung}_s${SEED}.yaml"
 }
 
 if [ "$1" = "all" ]; then
