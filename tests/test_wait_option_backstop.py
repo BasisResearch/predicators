@@ -124,9 +124,11 @@ def _make_neg_only_wait_option(neg_atom: GroundAtom):
 
 
 def test_neg_only_wait_waits_and_hits_backstop() -> None:
-    """A Wait with only NOT targets that never clear waits to the step
-    cap instead of crashing (an assert on the missing positive-target
-    key used to kill the whole episode - 2026-08-27 bridge_demo1 run)."""
+    """A Wait with only NOT targets that never clear waits to the step cap
+    instead of crashing (an assert on the missing positive-target.
+
+    key used to kill the whole episode - 2026-08-27 bridge_demo1 run).
+    """
     utils.reset_config({
         "wait_option_terminate_on_atom_change": True,
         "wait_option_max_steps": 5,
