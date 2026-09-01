@@ -1,14 +1,12 @@
 """Tests for agent SDK tool enhancements.
 
 Validates:
-1. inspect_options with option_name saves source code to sandbox
-2. evaluate_option_plan always saves scene images
-3. evaluate_option_plan shows "Missing goal atoms" when goal not achieved
-4. evaluate_option_plan shows object poses on failure
-5. propose_options saves code to sandbox/proposed_code/
-6. format_object_poses helper
-7. render_scene_image helper
-8. _sync_tool_context sets ctx.env from option model
+1. submit_plan always saves scene images
+2. submit_plan shows "Missing goal atoms" when goal not achieved
+3. submit_plan shows object poses on failure
+4. format_object_poses helper
+5. render_scene_image helper
+6. _sync_tool_context sets ctx.env from option model
 
 Usage:
     python tests/test_agent_sdk_tools.py
@@ -21,7 +19,6 @@ import os
 import tempfile
 from typing import Any
 
-import numpy as np
 import pytest
 
 # Bootstrap circular imports
@@ -43,8 +40,6 @@ _CFG_OVERRIDES = {
     "num_test_tasks": 1,
     "skill_phase_use_motion_planning": True,
     "pybullet_ik_validate": False,
-    "agent_sdk_propose_options": True,
-    "agent_planner_use_explore_python": True,
     # Match the experiment configs: without this, an option whose
     # first action no-ops against residual env state (wrist drift
     # from earlier tests) is killed as "stuck", making the
@@ -85,10 +80,6 @@ def _setup(sandbox_dir: str | None = None) -> tuple[Any, Any]:
     # Extract env from option model (same as _sync_tool_context does)
     if hasattr(option_model, '_simulator'):
         ctx.env = getattr(option_model._simulator, '__self__', None)
-
-    # Create sandbox subdirectories
-    if sandbox_dir:
-        os.makedirs(os.path.join(sandbox_dir, "proposed_code"), exist_ok=True)
 
     return ctx, env
 
@@ -134,111 +125,6 @@ def ctx() -> Any:
 # ===== Tests =====
 
 
-def test_inspect_options_list_all(ctx: Any) -> None:
-    """inspect_options with no args lists all options."""
-    tools = _make_tools(ctx, ["inspect_options"])
-    result = _run(tools["inspect_options"]({}))
-    text = result["content"][0]["text"]
-    assert "Current options:" in text
-    assert "Pick" in text or "Place" in text or "Push" in text
-    print("  PASS: inspect_options (list all)")
-
-
-def test_inspect_options_detail(ctx: Any) -> None:
-    """inspect_options with option_name saves source to sandbox."""
-    tools = _make_tools(ctx, ["inspect_options"])
-
-    # Pick an option that exists
-    opt_names = [o.name for o in ctx.options]
-    test_name = opt_names[0]
-
-    result = _run(tools["inspect_options"]({"option_name": test_name}))
-    text = result["content"][0]["text"]
-
-    # Should have the option header
-    assert f"## {test_name}" in text
-    # Should have params info
-    assert "params_dim" in text
-
-    if ctx.sandbox_dir:
-        # Should point to the saved file
-        assert f"./proposed_code/{test_name}.py" in text
-        # File should exist in sandbox
-        saved_path = os.path.join(ctx.sandbox_dir, "proposed_code",
-                                  f"{test_name}.py")
-        assert os.path.exists(saved_path), \
-            f"Expected file at {saved_path}"
-        # File should have content
-        with open(saved_path, encoding='utf-8') as f:
-            content = f.read()
-        assert len(content) > 0
-        print(f"  PASS: inspect_options (detail for '{test_name}', "
-              f"saved to sandbox)")
-    else:
-        # Fallback: should inline source code
-        assert "Source Code" in text
-        print(f"  PASS: inspect_options (detail for '{test_name}', "
-              f"inlined — no sandbox)")
-
-
-def test_inspect_options_unknown(ctx: Any) -> None:
-    """inspect_options with unknown option_name returns error."""
-    tools = _make_tools(ctx, ["inspect_options"])
-    result = _run(tools["inspect_options"]({
-        "option_name": "NonExistentOption"
-    }))
-    assert result.get("is_error", False)
-    assert "Unknown option" in result["content"][0]["text"]
-    print("  PASS: inspect_options (unknown option)")
-
-
-def test_inspect_options_proposed_code(ctx: Any) -> None:
-    """inspect_options returns path for option with code saved to sandbox."""
-    from predicators.agent_sdk.tools.results import _save_option_to_sandbox
-
-    # Save proposal code to sandbox
-    proposal_code = "# test proposal code\nx = 1"
-    _save_option_to_sandbox(ctx, "TestOpt", proposal_code)
-
-    # Create a dummy option with that name
-    from gym.spaces import Box
-
-    from predicators.structs import ParameterizedOption
-    dummy_opt = ParameterizedOption(
-        name="TestOpt",
-        types=[],
-        params_space=Box(low=np.array([]), high=np.array([])),
-        policy=lambda s, m, o, p: None,  # type: ignore[arg-type, return-value]
-        initiable=lambda s, m, o, p: True,
-        terminal=lambda s, m, o, p: True,
-    )
-    ctx.options = ctx.options | {dummy_opt}
-
-    tools = _make_tools(ctx, ["inspect_options"])
-    result = _run(tools["inspect_options"]({"option_name": "TestOpt"}))
-    text = result["content"][0]["text"]
-
-    if ctx.sandbox_dir:
-        assert "./proposed_code/TestOpt.py" in text
-        # Verify file content
-        saved_path = os.path.join(ctx.sandbox_dir, "proposed_code",
-                                  "TestOpt.py")
-        with open(saved_path, encoding='utf-8') as f:
-            assert "# test proposal code" in f.read()
-    else:
-        # No sandbox — source inlined
-        assert "Source Code" in text
-
-    # Clean up
-    ctx.options = {o for o in ctx.options if o.name != "TestOpt"}
-    if ctx.sandbox_dir:
-        saved_path = os.path.join(ctx.sandbox_dir, "proposed_code",
-                                  "TestOpt.py")
-        if os.path.exists(saved_path):
-            os.remove(saved_path)
-    print("  PASS: inspect_options (proposed code in sandbox)")
-
-
 def _get_valid_option_plan_step(ctx: Any) -> dict[str, Any] | None:
     """Find a valid single-step option plan for testing."""
     # Find option with fewest type requirements
@@ -278,8 +164,8 @@ def _get_valid_option_plan_step(ctx: Any) -> dict[str, Any] | None:
 
 
 def _plan_to_text(plan: Any, ctx: Any) -> str:
-    """Render structured option-plan steps as the text grammar that
-    evaluate_option_plan now expects (typed object refs + params in [])."""
+    """Render structured option-plan steps as the text grammar that submit_plan
+    now expects (typed object refs + params in [])."""
     type_of = {o.name: o.type.name for o in ctx.current_task.init}
     lines = []
     for step in plan:
@@ -291,19 +177,16 @@ def _plan_to_text(plan: Any, ctx: Any) -> str:
 
 
 def test_option_plan_missing_goal_atoms(ctx: Any) -> None:
-    """evaluate_option_plan reports missing goal atoms when goal not
-    achieved."""
-    tools = _make_tools(ctx, ["evaluate_option_plan"])
+    """submit_plan reports missing goal atoms when goal not achieved."""
+    tools = _make_tools(ctx, ["submit_plan"])
 
     step = _get_valid_option_plan_step(ctx)
     assert step is not None, "No valid option found for testing"
     plan = [step]
 
-    result = _run(tools["evaluate_option_plan"]({
-        "plan":
-        _plan_to_text(plan, ctx),
-        "include_atoms":
-        True,
+    result = _run(tools["submit_plan"]({
+        "plan": _plan_to_text(plan, ctx),
+        "include_atoms": True,
     }))
     text = result["content"][0]["text"]
 
@@ -315,43 +198,32 @@ def test_option_plan_missing_goal_atoms(ctx: Any) -> None:
         # agents).
         assert ("Missing goal atoms:" in text
                 or "Goal (natural language):" in text)
-        print("  PASS: evaluate_option_plan (failure diagnostic shown)")
+        print("  PASS: submit_plan (failure diagnostic shown)")
     elif "Goal achieved: True" in text:
         assert "Missing goal atoms:" not in text
-        print("  PASS: evaluate_option_plan (goal achieved, no missing atoms)")
+        print("  PASS: submit_plan (goal achieved, no missing atoms)")
     else:
         # Plan failed early (grounding error, NOT INITIABLE, etc.)
         assert ("NOT INITIABLE" in text or "FAILURE REASON:" in text
                 or "EXECUTION ERROR" in text or "Failed to ground" in text)
-        print("  PASS: evaluate_option_plan (plan failed early, "
+        print("  PASS: submit_plan (plan failed early, "
               "goal check not reached)")
 
 
 def test_option_plan_description_submission_split(ctx: Any) -> None:
-    """With explore_python on, evaluate_option_plan's description routes
-    exploration to the probe and frames this tool as the submission path; with
-    it off, the description is unchanged."""
+    """submit_plan's description routes exploration to the probe and frames
+    this tool as the submission path."""
     from predicators.agent_sdk.tools import create_mcp_tools
-    prior = CFG.agent_planner_use_explore_python
-    try:
-        pred_utils.update_config({"agent_planner_use_explore_python": True})
-        tool_obj = create_mcp_tools(ctx,
-                                    tool_names=["evaluate_option_plan"])[0]
-        desc = getattr(tool_obj, "description", "")
-        assert "explore_python" in desc and "SUBMIT" in desc
-        pred_utils.update_config({"agent_planner_use_explore_python": False})
-        tool_obj = create_mcp_tools(ctx,
-                                    tool_names=["evaluate_option_plan"])[0]
-        assert "explore_python" not in getattr(tool_obj, "description", "")
-    finally:
-        pred_utils.update_config({"agent_planner_use_explore_python": prior})
-    print("  PASS: evaluate_option_plan (submission-split description)")
+    tool_obj = create_mcp_tools(ctx, tool_names=["submit_plan"])[0]
+    desc = getattr(tool_obj, "description", "")
+    assert "run_python" in desc and "SUBMIT" in desc
+    print("  PASS: submit_plan (submission-split description)")
 
 
-def test_explore_python_render_annotations(ctx: Any) -> None:
+def test_run_python_render_annotations(ctx: Any) -> None:
     """sim.render(annotations=...) overlays temporary geometry for one render
     (bodies removed after) and surfaces bad annotations as loud errors."""
-    tools = _make_tools(ctx, ["explore_python"])
+    tools = _make_tools(ctx, ["run_python"])
     with tempfile.TemporaryDirectory() as img_dir:
         prior_dir = ctx.image_save_dir
         ctx.image_save_dir = img_dir
@@ -364,44 +236,44 @@ path = sim.render("ann", annotations=[
 ])
 print("saved", path is not None)
 """
-            result = _run(tools["explore_python"]({"code": code}))
+            result = _run(tools["run_python"]({"code": code}))
             text = result["content"][0]["text"]
             assert "saved True" in text
             assert len(os.listdir(img_dir)) == 1
             # A malformed annotation errors loudly (after cleanup).
             bad = 'sim.render("bad", annotations=[{"type": "line"}])'
-            result = _run(tools["explore_python"]({"code": bad}))
+            result = _run(tools["run_python"]({"code": bad}))
             assert "Error" in result["content"][0]["text"]
         finally:
             ctx.image_save_dir = prior_dir
-    print("  PASS: explore_python (annotated render)")
+    print("  PASS: run_python (annotated render)")
 
 
-def test_explore_python_unknown_mod_object(ctx: Any) -> None:
+def test_run_python_unknown_mod_object(ctx: Any) -> None:
     """A reset() modification naming an unknown object is a loud error."""
-    tools = _make_tools(ctx, ["explore_python"])
-    result = _run(tools["explore_python"]({
+    tools = _make_tools(ctx, ["run_python"])
+    result = _run(tools["run_python"]({
         "code":
         'sim.reset(mods={"no_such_object": {"x": 0.5}})'
     }))
     assert "Unknown object 'no_such_object'" in result["content"][0]["text"]
-    print("  PASS: explore_python (unknown mod object error)")
+    print("  PASS: run_python (unknown mod object error)")
 
 
-def test_explore_python_exec_and_persistence(ctx: Any) -> None:
-    """The solve-phase explore_python executes code and keeps its namespace."""
-    tools = _make_tools(ctx, ["explore_python"])
-    result = _run(tools["explore_python"]({"code": "x = 21\nprint(x * 2)"}))
+def test_run_python_exec_and_persistence(ctx: Any) -> None:
+    """The solve-phase run_python executes code and keeps its namespace."""
+    tools = _make_tools(ctx, ["run_python"])
+    result = _run(tools["run_python"]({"code": "x = 21\nprint(x * 2)"}))
     assert result["content"][0]["text"].strip() == "42"
-    result = _run(tools["explore_python"]({"code": "print(x + 1)"}))
+    result = _run(tools["run_python"]({"code": "print(x + 1)"}))
     assert result["content"][0]["text"].strip() == "22"
-    print("  PASS: explore_python (exec + persistent namespace)")
+    print("  PASS: run_python (exec + persistent namespace)")
 
 
-def test_explore_python_probe_sim(ctx: Any) -> None:
+def test_run_python_probe_sim(ctx: Any) -> None:
     """BeliefProbe: reset with mods, full-precision state, run from the
     modified state, snapshot/restore - and nothing is ever captured."""
-    tools = _make_tools(ctx, ["explore_python"])
+    tools = _make_tools(ctx, ["run_python"])
     domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
     robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
     ctx.capture_goal_reaching_plans = True
@@ -423,7 +295,7 @@ sim.restore(sid)
 print("restx", sim.state("{domino.name}")["x"])
 print("natoms", len(sim.atoms()))
 """
-            result = _run(tools["explore_python"]({"code": code}))
+            result = _run(tools["run_python"]({"code": code}))
             saved = [f for f in os.listdir(tmpdir) if f.endswith(".png")]
     finally:
         ctx.capture_goal_reaching_plans = False
@@ -433,7 +305,7 @@ print("natoms", len(sim.atoms()))
     assert "steps 1" in text
     assert "restx 0.95" in text
     assert "natoms" in text
-    # sim.run saves the same per-step audit images evaluate_option_plan
+    # sim.run saves the same per-step audit images submit_plan
     # does, and reports their paths on each step; render=False (for
     # tight sweep loops) skips the render entirely.
     assert "quietimg None" in text
@@ -445,14 +317,13 @@ print("natoms", len(sim.atoms()))
         print("  NOTE: rendering not available, image save not checked")
     # The probe carries no scoring surface: nothing it ran was captured.
     assert ctx.solved_plan is None
-    print(
-        "  PASS: explore_python (BeliefProbe reset/run/snapshot, no capture)")
+    print("  PASS: run_python (BeliefProbe reset/run/snapshot, no capture)")
 
 
-def test_explore_python_probe_refine(ctx: Any) -> None:
+def test_run_python_probe_refine(ctx: Any) -> None:
     """BeliefProbe.refine searches params from the current state, reports per-
     step samples and a refined plan line, and captures nothing."""
-    tools = _make_tools(ctx, ["explore_python"])
+    tools = _make_tools(ctx, ["run_python"])
     domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
     robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
     ctx.capture_goal_reaching_plans = True
@@ -467,7 +338,7 @@ print("success", res.success)
 print("samples", res.total_samples, res.step_samples)
 print("line", res.plan_lines[0])
 """
-        result = _run(tools["explore_python"]({"code": code}))
+        result = _run(tools["run_python"]({"code": code}))
     finally:
         ctx.capture_goal_reaching_plans = False
     text = result["content"][0]["text"]
@@ -475,13 +346,13 @@ print("line", res.plan_lines[0])
     assert "samples" in text
     assert "line Pick(" in text and "Holding(" in text
     assert ctx.solved_plan is None
-    print("  PASS: explore_python (BeliefProbe.refine, no capture)")
+    print("  PASS: run_python (BeliefProbe.refine, no capture)")
 
 
-def test_explore_python_probe_refine_verdict_line(ctx: Any) -> None:
+def test_run_python_probe_refine_verdict_line(ctx: Any) -> None:
     """A refine SUCCESS carries a Verdict line saying exactly what it certifies
     (bare SUCCESS used to be read as goal-reached)."""
-    tools = _make_tools(ctx, ["explore_python"])
+    tools = _make_tools(ctx, ["run_python"])
     domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
     robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
     code = f"""
@@ -492,18 +363,18 @@ res = sim.refine(
     timeout=45)
 print(res)
 """
-    result = _run(tools["explore_python"]({"code": code}))
+    result = _run(tools["run_python"]({"code": code}))
     text = result["content"][0]["text"]
     assert "Verdict: executed" in text
     assert "require_goal=True" in text
-    print("  PASS: explore_python (refine verdict line)")
+    print("  PASS: run_python (refine verdict line)")
 
 
-def test_explore_python_probe_strlike_and_region_note(ctx: Any) -> None:
+def test_run_python_probe_strlike_and_region_note(ctx: Any) -> None:
     """ProbeResult supports string slicing/containment, and a `~` region
     annotation is IGNORED with a NOTE when ground samplers are off (previously
     a hard error that cost turns of syntax guessing)."""
-    tools = _make_tools(ctx, ["explore_python"])
+    tools = _make_tools(ctx, ["run_python"])
     robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
     assert not CFG.agent_bilevel_ground_samplers
     code = f"""
@@ -513,19 +384,19 @@ print("contains", "Goal reached" in res)
 print("slice_ok", len(res[-40:]) > 0)
 print(res)
 """
-    result = _run(tools["explore_python"]({"code": code}))
+    result = _run(tools["run_python"]({"code": code}))
     text = result["content"][0]["text"]
     assert "contains True" in text
     assert "slice_ok True" in text
     assert "region annotation was IGNORED" in text
     assert "uniform" in text
-    print("  PASS: explore_python (str-like result + region note)")
+    print("  PASS: run_python (str-like result + region note)")
 
 
-def test_explore_python_probe_trials(ctx: Any) -> None:
+def test_run_python_probe_trials(ctx: Any) -> None:
     """sim.run(plan, trials=N) reports per-trial outcomes and a success count
     without advancing the current state."""
-    tools = _make_tools(ctx, ["explore_python"])
+    tools = _make_tools(ctx, ["run_python"])
     domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
     robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
     code = f"""
@@ -536,7 +407,7 @@ print(res)
 print("n_trials", len(res.trials))
 print("kept", abs(sim.state("{domino.name}")["x"] - before) < 1e-9)
 """
-    result = _run(tools["explore_python"]({"code": code}))
+    result = _run(tools["run_python"]({"code": code}))
     text = result["content"][0]["text"]
     assert "Trials:" in text
     assert "n_trials 2" in text
@@ -544,17 +415,17 @@ print("kept", abs(sim.state("{domino.name}")["x"] - before) < 1e-9)
     # say the trials shared the session env (correlated).
     assert "shared session env" in text
     assert "kept True" in text
-    print("  PASS: explore_python (trials=N)")
+    print("  PASS: run_python (trials=N)")
 
 
-def test_explore_python_refine_require_solved_guards(ctx: Any) -> None:
+def test_run_python_refine_require_solved_guards(ctx: Any) -> None:
     """require_solved refuses to run from a modified start, and from a task.
 
     with no evaluator - both before any search. (The gate's accept/reject
     semantics are covered deterministically in
     test_bilevel_sketch_samplers.py with fake option models.)
     """
-    tools = _make_tools(ctx, ["explore_python"])
+    tools = _make_tools(ctx, ["run_python"])
     domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
     robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
     plan_line = (f"Pick({robot.name}:robot, {domino.name}:domino)[0.06] "
@@ -564,7 +435,7 @@ def test_explore_python_refine_require_solved_guards(ctx: Any) -> None:
     # Modified start: refused outright.
     code = (f'sim.reset(mods={{"{domino.name}": {{"x": 0.9}}}})\n'
             f'sim.refine("{plan_line}", require_solved=True)')
-    result = _run(tools["explore_python"]({"code": code}))
+    result = _run(tools["run_python"]({"code": code}))
     assert "unmodified initial state" in result["content"][0]["text"]
 
     # Pristine start but the task defines no evaluator: refused.
@@ -573,32 +444,32 @@ def test_explore_python_refine_require_solved_guards(ctx: Any) -> None:
     try:
         ctx.current_task = dataclasses.replace(saved_task, evaluator=None)
         code = f'sim.reset()\nsim.refine("{plan_line}", require_solved=True)'
-        result = _run(tools["explore_python"]({"code": code}))
+        result = _run(tools["run_python"]({"code": code}))
         assert "defines no task evaluator" in result["content"][0]["text"]
     finally:
         ctx.current_task = saved_task
-    print("  PASS: explore_python (require_solved guards)")
+    print("  PASS: run_python (require_solved guards)")
 
 
-def test_explore_python_run_solved_guards(ctx: Any) -> None:
+def test_run_python_run_solved_guards(ctx: Any) -> None:
     """sim.run(solved=True) refuses single runs, modified starts, and tasks
     with no evaluator; contacts=True refuses trials mode."""
-    tools = _make_tools(ctx, ["explore_python"])
+    tools = _make_tools(ctx, ["run_python"])
     domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
     robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
     wait_line = f"Wait({robot.name}:robot)[]"
 
     code = f'sim.reset()\nsim.run("{wait_line}", solved=True)'
-    result = _run(tools["explore_python"]({"code": code}))
+    result = _run(tools["run_python"]({"code": code}))
     assert "needs trials >= 2" in result["content"][0]["text"]
 
     code = f'sim.reset()\nsim.run("{wait_line}", trials=2, contacts=True)'
-    result = _run(tools["explore_python"]({"code": code}))
+    result = _run(tools["run_python"]({"code": code}))
     assert "single-run mode" in result["content"][0]["text"]
 
     code = (f'sim.reset(mods={{"{domino.name}": {{"x": 0.9}}}})\n'
             f'sim.run("{wait_line}", trials=2, solved=True)')
-    result = _run(tools["explore_python"]({"code": code}))
+    result = _run(tools["run_python"]({"code": code}))
     assert "unmodified initial state" in result["content"][0]["text"]
 
     import dataclasses
@@ -606,17 +477,17 @@ def test_explore_python_run_solved_guards(ctx: Any) -> None:
     try:
         ctx.current_task = dataclasses.replace(saved_task, evaluator=None)
         code = f'sim.reset()\nsim.run("{wait_line}", trials=2, solved=True)'
-        result = _run(tools["explore_python"]({"code": code}))
+        result = _run(tools["run_python"]({"code": code}))
         assert "defines no task evaluator" in result["content"][0]["text"]
     finally:
         ctx.current_task = saved_task
-    print("  PASS: explore_python (run solved/contacts guards)")
+    print("  PASS: run_python (run solved/contacts guards)")
 
 
-def test_explore_python_run_solved_trials(ctx: Any) -> None:
+def test_run_python_run_solved_trials(ctx: Any) -> None:
     """sim.run(trials=N, solved=True) reports a per-trial task-evaluator
     verdict and a solved count in the headline."""
-    tools = _make_tools(ctx, ["explore_python"])
+    tools = _make_tools(ctx, ["run_python"])
     robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
     code = f"""
 sim.reset()
@@ -624,19 +495,19 @@ res = sim.run("Wait({robot.name}:robot)[]", trials=2, solved=True)
 print(res)
 print("verdicts", [t["solved"] for t in res.trials])
 """
-    result = _run(tools["explore_python"]({"code": code}))
+    result = _run(tools["run_python"]({"code": code}))
     text = result["content"][0]["text"]
     assert "scored solved=True by the task evaluator" in text
     assert "evaluator: solved=" in text
     # A Wait-only plan cannot reach the goal, so no trial scores a solve.
     assert "verdicts [False, False]" in text
-    print("  PASS: explore_python (trials solved verdicts)")
+    print("  PASS: run_python (trials solved verdicts)")
 
 
-def test_explore_python_run_contacts(ctx: Any) -> None:
+def test_run_python_run_contacts(ctx: Any) -> None:
     """sim.run(contacts=True) reports per-step contact-pair spans; a Pick must
     show a robot-link contact with the grasped domino."""
-    tools = _make_tools(ctx, ["explore_python"])
+    tools = _make_tools(ctx, ["run_python"])
     domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
     robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
     code = f"""
@@ -645,19 +516,19 @@ res = sim.run("Pick({robot.name}:robot, {domino.name}:domino)[0.05]",
               render=False, contacts=True)
 print(res)
 """
-    result = _run(tools["explore_python"]({"code": code}))
+    result = _run(tools["run_python"]({"code": code}))
     text = result["content"][0]["text"]
     assert "contact recording unavailable" not in text
     assert "Contacts:" in text
     # The grasp squeeze puts a robot link in contact with the domino.
     assert "robot:" in text
     assert domino.name in text.split("Contacts:", 1)[1]
-    print("  PASS: explore_python (contact recording)")
+    print("  PASS: run_python (contact recording)")
 
 
 def test_option_plan_not_initiable_shows_poses(ctx: Any) -> None:
-    """evaluate_option_plan shows object poses when option is NOT INITIABLE."""
-    tools = _make_tools(ctx, ["evaluate_option_plan"])
+    """submit_plan shows object poses when option is NOT INITIABLE."""
+    tools = _make_tools(ctx, ["submit_plan"])
 
     # Find Place option and try it without Pick first
     place_opt = None
@@ -667,7 +538,7 @@ def test_option_plan_not_initiable_shows_poses(ctx: Any) -> None:
             break
 
     if place_opt is None:
-        print("  SKIP: evaluate_option_plan (no Place option)")
+        print("  SKIP: submit_plan (no Place option)")
         return
 
     # Build object names from types
@@ -689,37 +560,34 @@ def test_option_plan_not_initiable_shows_poses(ctx: Any) -> None:
         "params": params,
     }]
 
-    result = _run(tools["evaluate_option_plan"]({
-        "plan":
-        _plan_to_text(plan, ctx),
+    result = _run(tools["submit_plan"]({
+        "plan": _plan_to_text(plan, ctx),
     }))
     text = result["content"][0]["text"]
 
     if "NOT INITIABLE" in text:
         assert "Object poses at failure:" in text
-        print("  PASS: evaluate_option_plan (NOT INITIABLE shows poses)")
+        print("  PASS: submit_plan (NOT INITIABLE shows poses)")
     elif "Failed to ground" in text:
-        print("  SKIP: evaluate_option_plan (Place could not be grounded)")
+        print("  SKIP: submit_plan (Place could not be grounded)")
     else:
-        print("  SKIP: evaluate_option_plan (Place was initiable, "
+        print("  SKIP: submit_plan (Place was initiable, "
               "can't test NOT INITIABLE path)")
 
 
 def test_option_plan_saves_images(ctx: Any) -> None:
-    """evaluate_option_plan always saves scene images (never returns
-    inline)."""
+    """submit_plan always saves scene images (never returns inline)."""
     with tempfile.TemporaryDirectory() as tmpdir:
         ctx.image_save_dir = tmpdir
 
-        tools = _make_tools(ctx, ["evaluate_option_plan"])
+        tools = _make_tools(ctx, ["submit_plan"])
 
         step = _get_valid_option_plan_step(ctx)
         assert step is not None, "No valid option found for testing"
         plan = [step]
 
-        result = _run(tools["evaluate_option_plan"]({
-            "plan":
-            _plan_to_text(plan, ctx),
+        result = _run(tools["submit_plan"]({
+            "plan": _plan_to_text(plan, ctx),
         }))
 
         content = result["content"]
@@ -730,25 +598,23 @@ def test_option_plan_saves_images(ctx: Any) -> None:
         # Check files were saved if env rendering works
         saved = [f for f in os.listdir(tmpdir) if f.endswith(".png")]
         if saved:
-            print(f"  PASS: evaluate_option_plan ({len(saved)} images saved)")
+            print(f"  PASS: submit_plan ({len(saved)} images saved)")
         else:
-            print("  SKIP: evaluate_option_plan (rendering not available)")
+            print("  SKIP: submit_plan (rendering not available)")
 
         ctx.image_save_dir = None
 
 
 def test_option_plan_failure_shows_poses(ctx: Any) -> None:
-    """evaluate_option_plan shows object poses when option returns 0
-    actions."""
-    tools = _make_tools(ctx, ["evaluate_option_plan"])
+    """submit_plan shows object poses when option returns 0 actions."""
+    tools = _make_tools(ctx, ["submit_plan"])
 
     step = _get_valid_option_plan_step(ctx)
     assert step is not None, "No valid option found for testing"
     plan = [step]
 
-    result = _run(tools["evaluate_option_plan"]({
-        "plan":
-        _plan_to_text(plan, ctx),
+    result = _run(tools["submit_plan"]({
+        "plan": _plan_to_text(plan, ctx),
     }))
     text = result["content"][0]["text"]
 
@@ -758,12 +624,12 @@ def test_option_plan_failure_shows_poses(ctx: Any) -> None:
             or "Testing option plan" in text)
     if "FAILURE REASON:" in text:
         assert "Object poses at failure:" in text
-        print("  PASS: evaluate_option_plan (failure shows poses)")
+        print("  PASS: submit_plan (failure shows poses)")
     elif "NOT INITIABLE" in text:
         assert "Object poses at failure:" in text
-        print("  PASS: evaluate_option_plan (NOT INITIABLE shows poses)")
+        print("  PASS: submit_plan (NOT INITIABLE shows poses)")
     else:
-        print("  PASS: evaluate_option_plan (no failures in output)")
+        print("  PASS: submit_plan (no failures in output)")
 
 
 def testformat_object_poses(ctx: Any) -> None:
@@ -824,59 +690,6 @@ def test_render_scene_no_env(ctx: Any) -> None:
     print("  PASS: render_scene_image (no env → None)")
 
 
-def test_propose_options_saves_to_sandbox(ctx: Any) -> None:
-    """propose_options saves proposal code to sandbox/proposed_code/."""
-    tools = _make_tools(ctx, ["propose_options"])
-
-    # Get type names for a valid proposal
-    type_names = {t.name: t for t in ctx.types}
-    robot_type_name = "robot" if "robot" in type_names else list(type_names)[0]
-
-    code = f"""\
-from gym.spaces import Box
-import numpy as np
-
-proposed_options = [
-    ParameterizedOption(
-        name="TestProposed",
-        types=[{robot_type_name}_type],
-        params_space=Box(low=np.array([0.0]), high=np.array([1.0])),
-        policy=lambda s, m, o, p: Action(np.zeros(s.get(o[0], "x").shape if hasattr(s.get(o[0], "x"), "shape") else (1,))),
-        initiable=lambda s, m, o, p: True,
-        terminal=lambda s, m, o, p: True,
-    )
-]
-"""
-
-    result = _run(tools["propose_options"]({
-        "code":
-        code,
-        "description":
-        "Test option for unit test",
-    }))
-    text = result["content"][0]["text"]
-
-    if "Successfully proposed" in text:
-        if ctx.sandbox_dir:
-            saved_path = os.path.join(ctx.sandbox_dir, "proposed_code",
-                                      "TestProposed.py")
-            assert os.path.exists(saved_path), \
-                f"Expected file at {saved_path}"
-            with open(saved_path, encoding='utf-8') as f:
-                content = f.read()
-            assert "proposed_options" in content
-            print("  PASS: propose_options (code saved to sandbox)")
-            os.remove(saved_path)
-        else:
-            print("  PASS: propose_options (no sandbox, code not saved)")
-
-        # Clean up
-        ctx.options = {o for o in ctx.options if o.name != "TestProposed"}
-    else:
-        # Code execution might fail due to env-specific types
-        print(f"  SKIP: propose_options (code failed: {text[:100]})")
-
-
 def test_sync_tool_context_sets_env() -> None:
     """_sync_tool_context extracts env from option model."""
     pred_utils.reset_config(_CFG_OVERRIDES)
@@ -919,32 +732,21 @@ def main() -> None:
 
         print("=== Tool Enhancement Tests ===\n")
 
-        # inspect_options tests
-        print("1. inspect_options tests:")
-        test_inspect_options_list_all(ctx)
-        test_inspect_options_detail(ctx)
-        test_inspect_options_unknown(ctx)
-        test_inspect_options_proposed_code(ctx)
-
-        # evaluate_option_plan tests
-        print("\n2. evaluate_option_plan tests:")
+        # submit_plan tests
+        print("1. submit_plan tests:")
         test_option_plan_missing_goal_atoms(ctx)
         test_option_plan_not_initiable_shows_poses(ctx)
         test_option_plan_saves_images(ctx)
         test_option_plan_failure_shows_poses(ctx)
 
         # Helper function tests
-        print("\n3. Helper function tests:")
+        print("\n2. Helper function tests:")
         testformat_object_poses(ctx)
         testrender_scene_image(ctx)
         test_render_scene_no_env(ctx)
 
-        # propose_options test
-        print("\n4. propose_options tests:")
-        test_propose_options_saves_to_sandbox(ctx)
-
         # _sync_tool_context test (creates fresh env)
-        print("\n5. Context sync tests:")
+        print("\n3. Context sync tests:")
         test_sync_tool_context_sets_env()
 
         print("\n=== All tests passed! ===")

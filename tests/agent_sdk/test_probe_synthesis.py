@@ -1,4 +1,4 @@
-"""Tests for the synthesis-phase behavior of the explore_python probe.
+"""Tests for the synthesis-phase behavior of the ``sim`` probe.
 
 Covers the ``ctx.probe_option_model_provider`` hook: model resolution
 (candidate provider vs. the solve-phase ``ctx.option_model`` fallback),
@@ -177,22 +177,22 @@ def test_candidate_probe_model_provider_glue(tmp_path, monkeypatch) -> None:
 
 
 def test_probe_descriptions_follow_phase() -> None:
-    """The probe surface follows the session: explore_python (solve-only)
-    carries the belief-simulator + evaluate_option_plan wording, while in
-    synthesis the probe rides inside run_python, whose description carries the
-    candidate-simulator + evaluate_plan_refinement wording."""
-    utils.reset_config({"agent_planner_use_explore_python": True})
+    """The probe surface follows the session: the solve-phase run_python
+    carries the belief-simulator + submit_plan wording, while the synthesis
+    run_python's description carries the candidate-simulator +
+    evaluate_plan_refinement wording."""
+    utils.reset_config({})
 
     def _desc(ctx: ToolContext) -> str:
-        (tool, ) = (t for t in create_mcp_tools(ctx, ["explore_python"])
-                    if getattr(t, "name", "") == "explore_python")
+        (tool, ) = (t for t in create_mcp_tools(ctx, ["run_python"])
+                    if getattr(t, "name", "") == "run_python")
         description = getattr(tool, "description", "")
         assert description
         return description
 
     solve_desc = _desc(ToolContext())
     assert "belief simulator" in solve_desc
-    assert "evaluate_option_plan" in solve_desc
+    assert "submit_plan" in solve_desc
     # The solve namespace also carries the recorded real trajectories.
     assert "trajectories" in solve_desc
     assert "describe_trajectory" in solve_desc
@@ -219,8 +219,6 @@ def test_probe_descriptions_follow_phase() -> None:
     # The fit/refine/forward-run protocol replaced the old validation
     # tool, and the probe is unconditional in synthesis sessions.
     assert "evaluate_plan_refinement" not in synth_desc
-    utils.reset_config({"agent_planner_use_explore_python": False})
-    assert "CANDIDATE simulator" in _run_python_desc()
 
 
 def test_probe_namespace_contract() -> None:

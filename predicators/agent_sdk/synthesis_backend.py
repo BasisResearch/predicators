@@ -2,8 +2,8 @@
 
 :class:`SynthesisBackend` declares exactly the approach surface that the
 synthesis tool factories in :mod:`predicators.agent_sdk.tools`
-(``create_synthesis_tools``, ``create_predicate_synthesis_tools``,
-``create_sampler_synthesis_tools``) and the approach-layer validation
+(``create_synthesis_tools``, ``make_predicate_quality_loader``,
+``make_sampler_loader``) and the approach-layer validation
 glue in :mod:`predicators.approaches.synthesis_validation` dereference.
 It exists so those modules can be typed against the contract instead of
 importing the concrete ``AgentSimLearningApproach`` - the import that
@@ -64,8 +64,15 @@ class SynthesisBackend(Protocol):
     _residual_rules: Optional[List]
     _latent_init: Any
 
-    def _publish_probe_fit(self, params: Dict[str, float], version_tag: str,
-                           simulator_file: str) -> None:
+    def _publish_probe_fit(
+        self,
+        params: Dict[str, float],
+        version_tag: str,
+        simulator_file: str,
+        fit_result: Optional[FitResult] = None,
+        sse: float = float("nan"),
+        applied_physical: Optional[Dict[str, float]] = None,
+    ) -> None:
         """Deploy a canonical ``sim.fit`` result to the candidate probe."""
 
     # ── Vocabulary / engine accessors ────────────────────────────
@@ -142,7 +149,7 @@ class SynthesisBackend(Protocol):
 
 
 class PredicateSynthesisBackend(SynthesisBackend, Protocol):
-    """The extra surface ``create_predicate_synthesis_tools`` needs.
+    """The extra surface ``make_predicate_quality_loader`` needs.
 
     Only the predicate-invention subclass provides these, so they live
     off the core protocol.
@@ -157,7 +164,7 @@ class PredicateSynthesisBackend(SynthesisBackend, Protocol):
 
 
 class SamplerSynthesisBackend(Protocol):
-    """The narrow surface ``create_sampler_synthesis_tools`` needs.
+    """The narrow surface ``make_sampler_loader`` needs.
 
     ``SamplerLearningMixin`` satisfies this directly (its declared host-
     class contract covers every member), so the mixin can pass ``self``

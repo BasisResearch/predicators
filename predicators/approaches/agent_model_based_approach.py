@@ -2,10 +2,10 @@
 
 The agent plans a sequence of parameterized skills with object bindings,
 subgoal atoms after each step, and continuous parameters, and must
-DELIVER it as an ``evaluate_option_plan`` capture on the current task -
+DELIVER it as an ``submit_plan`` capture on the current task -
 nothing it did not validate in the simulator (the model) is ever
 executed. A backtracking parameter search remains available to the agent
-as a tool (``refine_plan_sketch`` / ``sim.refine``) and to mid-episode
+as a probe method (``sim.refine``) and to mid-episode
 suffix replans, but there is no approach-side refinement of unvalidated
 sketches.
 
@@ -33,8 +33,7 @@ from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.session_base import AgentSessionFatalError, \
     query_fatal_error
 from predicators.agent_sdk.sketch_types import SketchStep as _SketchStep
-from predicators.agent_sdk.tools import BUILTIN_TOOLS, \
-    explore_python_replaces_tools, load_ground_sampler_fns
+from predicators.agent_sdk.tools import BUILTIN_TOOLS, load_ground_sampler_fns
 from predicators.approaches import ApproachFailure
 from predicators.approaches.agent_model_free_approach import \
     AgentModelFreeApproach
@@ -63,7 +62,7 @@ _JOURNAL_GOAL_MAX_CHARS = 400
 _FINAL_SUBMIT_NUDGE = (
     "You are out of exploration budget for this attempt. Do NOT explore "
     "further. In as few tool calls as possible, submit your single best "
-    "plan NOW via evaluate_option_plan on the current task (omit "
+    "plan NOW via submit_plan on the current task (omit "
     "task_idx), using the best parameters you have already validated. "
     "It is captured as your answer even if it does not fully reach the "
     "goal or does not score as a solve; then finish.")
@@ -74,7 +73,7 @@ _FINAL_SUBMIT_NUDGE = (
 _FINAL_SUBMIT_POLICY_NUDGE = (
     "You are out of exploration budget for this attempt. Do NOT explore "
     "further. In as few tool calls as possible, submit your current best "
-    "./policy.py NOW via evaluate_policy on the current task. It is "
+    "./policy.py NOW via submit_policy on the current task. It is "
     "captured as your answer even if it does not fully reach the goal or "
     "does not score as a solve; then finish.")
 
@@ -206,31 +205,13 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         """No synthesis phase in this approach - declare an empty set."""
         return []
 
-    def _get_solve_tool_names(self) -> Optional[List[str]]:
-        # Bilevel solving hands continuous refinement to a search, so the
-        # agent also gets refine_plan_sketch (backtracking refinement +
-        # forward validation on a param-free sketch). Needs a simulator.
-        # explore_python's sim.refine subsumes it (same search core, from
-        # any state); when explore_python is on, the standalone tool is
-        # offered only if the keep-replaced-tools flag asks for both.
-        tools = list(super()._get_solve_tool_names() or [])
-        if CFG.agent_planner_use_simulator and \
-                not explore_python_replaces_tools():
-            tools.append("refine_plan_sketch")
-        return tools
-
     # ------------------------------------------------------------------ #
     # System prompt (simplified - no parameter tuning workflow)
     # ------------------------------------------------------------------ #
 
     def _get_agent_system_prompt(self) -> str:
         propose = CFG.agent_bilevel_use_llm_initial_params
-        # When explore_python replaces the standalone refine tool, every
-        # guidance mention must point at the probe equivalent instead of
-        # a tool the session lacks.
-        probe_replaces = explore_python_replaces_tools()
-        refine_ref = ("sim.refine (in explore_python)"
-                      if probe_replaces else "refine_plan_sketch")
+        refine_ref = "sim.refine (in run_python)"
         # What a sketch step consists of (shared between modes).
         if propose:
             sketch_desc = (
@@ -264,7 +245,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
                 "write ./policy.py with `get_option(state, memory)` "
                 "returning ONE plan line (the same sketch grammar) from "
                 "the actual current state, or None when finished, then "
-                "run evaluate_policy on the current task until it "
+                "run submit_policy on the current task until it "
                 "reaches the goal - that validated policy.py snapshot is "
                 "your ONLY accepted output. Option failures do NOT end "
                 "an episode: they arrive in memory['last_failure'] and "
@@ -281,18 +262,18 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
                 "(sim.run / sim.refine) but are not the deliverable.")
         else:
             contract = (
-                "You DELIVER by running evaluate_option_plan with "
+                "You DELIVER by running submit_plan with "
                 "per-step subgoals on the current task until it reaches "
                 "the goal - that captured plan is your ONLY accepted "
-                "output, so do not finish until evaluate_option_plan "
+                "output, so do not finish until submit_plan "
                 "reaches the goal.")
         job = ("Your job is to produce a plan - " + sketch_desc +
                " - that reaches the goal. " + contract + "\n"
-               "evaluate_option_plan runs your EXACT parameters with no "
+               "submit_plan runs your EXACT parameters with no "
                "sampling, so every parameter must be right. To find working "
                f"values you MAY use {refine_ref} while reasoning (it "
                "searches for parameters but is slower); read the parameters "
-               "it reports and submit them via evaluate_option_plan. Use "
+               "it reports and submit them via submit_plan. Use "
                "whatever tools help.")
         # Parameter-effort and ground-sampler guidance live in the query's
         # Instructions (sketch_prompts.build_solve_prompt) - single source.
@@ -301,7 +282,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         # the output-token overflow, and testing is often faster than deriving.
         brevity = (
             " Keep your reasoning concise: prefer making a concrete attempt "
-            f"and testing it with {refine_ref} / evaluate_option_plan to "
+            f"and testing it with {refine_ref} / submit_plan to "
             "let the simulator tell you what's wrong.")
         params_clause = job + brevity + "\n\n"
         # Keep the subgoal-annotation template's option format consistent with
@@ -357,11 +338,15 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         """Build prompt asking for a plan sketch without continuous params."""
         journal_text = ""
         strategy_text = ""
+        attempts_text = ""
         if CFG.agent_solve_use_journal:
             # pylint: disable-next=import-outside-toplevel
             from predicators.agent_sdk import journal as journal_mod
             journal_text = journal_mod.read_journal(
                 self._tool_context.sandbox_dir)
+            attempts_text = journal_mod.read_journal(
+                self._tool_context.sandbox_dir,
+                filename=journal_mod.ATTEMPTS_FILENAME)
             strategy_text = journal_mod.read_strategy(
                 self._tool_context.sandbox_dir)
         return bilevel_sketch.build_solve_prompt(
@@ -376,6 +361,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
             ground_samplers=CFG.agent_bilevel_ground_samplers,
             journal=journal_text,
             strategy=strategy_text,
+            attempts=attempts_text,
             physics_margin=CFG.agent_plan_validation_physics_margin,
             policy_mode=CFG.agent_solve_policy_mode,
         )
@@ -455,7 +441,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
                 # entries in later sessions sharing this ToolContext.
                 ctx.attempt_deadline = None
                 # Policy mode is scoped to solve attempts: left armed, it
-                # would silently disable evaluate_option_plan's capture
+                # would silently disable submit_plan's capture
                 # gate for the EXPLORER's queries, which deliver sketches
                 # even in policy-mode configs.
                 ctx.policy_capture_mode = False
@@ -558,7 +544,8 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
                 sandbox_dir,
                 header,
                 "\n".join(body_lines),
-                max_chars=journal_mod.MAX_AUTO_ENTRY_CHARS)
+                max_chars=journal_mod.MAX_AUTO_ENTRY_CHARS,
+                filename=journal_mod.ATTEMPTS_FILENAME)
         except OSError as e:
             logging.warning("Journal entry %r failed: %s", header, e)
             return False
@@ -600,12 +587,12 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
     def _record_attempt_in_journal(self, attempt: int, max_attempts: int,
                                    policy: Optional[Any],
                                    info: Optional[_CaptureInfo]) -> None:
-        """Auto-append this attempt's factual record to the solve journal.
+        """Auto-append this attempt's factual record to the attempt log.
 
         The harness-written record (outcome, budget spent, captured or
-        best refused plan) guarantees the journal's essentials even when
-        the agent records nothing; agent-authored lessons arrive
-        separately via the record_journal tool.
+        best refused plan) guarantees the essentials of every attempt
+        are on record even when the agent writes nothing; the agent's
+        own lessons live in journal.md, which it edits directly.
         """
         if not self._journal_active():
             return
@@ -656,7 +643,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
 
         The attempt's budgets are the wall clock
         (``agent_solve_attempt_wall_clock``) and the query's turn cap;
-        the only deliverable is an ``evaluate_option_plan`` capture
+        the only deliverable is an ``submit_plan`` capture
         (consumed via :meth:`_consume_validated_plan`).
 
         However that query ends - a spent budget, an unparseable sketch,
@@ -670,11 +657,11 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         """
         self._sync_tool_context()
         self._tool_context.current_task = task
-        # Let evaluate_option_plan record a goal-reaching
+        # Let submit_plan record a goal-reaching
         # plan on this task into solved_plan/solved_sketch (consumed below).
         self._tool_context.capture_goal_reaching_plans = True
-        # Policy mode: the deliverable is policy.py via evaluate_policy;
-        # evaluate_option_plan stays available for probing but cannot
+        # Policy mode: the deliverable is policy.py via submit_policy;
+        # submit_plan stays available for probing but cannot
         # capture.
         self._tool_context.policy_capture_mode = CFG.agent_solve_policy_mode
         # LLM-free bypass: a prewritten policy.py as the captured
@@ -704,21 +691,21 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
             raise
         except Exception as e:  # pylint: disable=broad-except
             # The agent may have validated a working plan via
-            # refine_plan_sketch even if its final text didn't parse.
+            # submit_plan even if its final text didn't parse.
             policy = self._consume_validated_plan()
             if policy is not None:
                 return policy
             logging.warning("[%s] Solve query failed: %s", self._run_id, e)
         else:
             # Fast path: the agent already refined + forward-validated
-            # a plan on this task via refine_plan_sketch - return it
+            # a plan on this task via submit_plan - return it
             # directly instead of re-refining the (possibly different)
             # final-text sketch.
             policy = self._consume_validated_plan()
             if policy is not None:
                 return policy
             # The agent must itself reach a confirmed
-            # evaluate_option_plan capture (consumed above) so we
+            # submit_plan capture (consumed above) so we
             # never execute a plan it didn't verify.
             logging.info("[%s] Query ended without a validated plan.",
                          self._run_id)
@@ -1001,15 +988,14 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         nudge = (_FINAL_SUBMIT_POLICY_NUDGE
                  if CFG.agent_solve_policy_mode else _FINAL_SUBMIT_NUDGE)
         if CFG.agent_solve_use_journal:
-            nudge += (
-                " If an earlier attempt's entry in the Solve Journal "
-                "records a better plan (captured or refused) than "
-                "anything from this attempt, resubmit that plan instead."
-                " After the submission, call record_journal ONCE with a "
-                "short factual entry for later fresh-context attempts and "
-                "tasks: what you tried (exact parameters), the key "
-                "measurements, and what to try differently - facts and "
-                "measurements only, no verdicts like 'impossible'.")
+            nudge += (" If an earlier attempt's entry in the Attempt Log "
+                      "records a better plan (captured or refused) than "
+                      "anything from this attempt, resubmit that plan instead."
+                      " After the submission, append ONE short factual entry "
+                      "to ./journal.md for later fresh-context attempts and "
+                      "tasks: what you tried (exact parameters), the key "
+                      "measurements, and what to try differently - facts and "
+                      "measurements only, no verdicts like 'impossible'.")
         # SUSPEND (not clear) the attempt deadline for the nudge query:
         # its cooperative refusals and the sandbox interrupt backstop
         # must not block the submission (or the journal entry) itself.
@@ -1045,12 +1031,11 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
     def _consume_validated_plan(self) -> Optional[Callable[[State], Action]]:
         """Return a policy from an agent-validated plan, or None.
 
-        ``evaluate_option_plan`` records a captured (goal-reaching,
-        validated) plan on the current solve task into the tool context.
-        Returning that exact simulator-verified plan guarantees the
-        agent's tool-validated answer is what executes, and avoids a
-        fresh refinement that with a different seed might not reproduce
-        it.
+        ``submit_plan`` records a captured (goal-reaching, validated)
+        plan on the current solve task into the tool context. Returning
+        that exact simulator-verified plan guarantees the agent's tool-
+        validated answer is what executes, and avoids a fresh refinement
+        that with a different seed might not reproduce it.
         """
         capture = self._tool_context.take_plan_capture()
         if capture.policy_source:

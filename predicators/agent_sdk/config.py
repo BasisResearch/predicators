@@ -55,9 +55,8 @@ class SessionConfig:
 class RefinementConfig:
     """Plan-sketch refinement: search budgets, gates, and ground samplers.
 
-    Consumed at handler entry by ``refine_plan_sketch`` /
-    ``evaluate_option_plan`` (tools.py) and by the probe's ``refine``
-    (belief_probe.py).
+    Consumed at handler entry by ``submit_plan`` (tools/testing.py) and
+    by the probe's ``refine`` (belief_probe.py).
     """
     ground_samplers: bool
     refinement_timeout_per_step: float
@@ -65,7 +64,6 @@ class RefinementConfig:
     max_samples_per_step: int
     check_subgoals: bool
     log_state: bool
-    refine_evaluator_attempts: int
     use_llm_initial_params: bool
 
     @classmethod
@@ -80,8 +78,6 @@ class RefinementConfig:
             max_samples_per_step=CFG.agent_bilevel_max_samples_per_step,
             check_subgoals=CFG.agent_bilevel_check_subgoals,
             log_state=CFG.agent_bilevel_log_state,
-            refine_evaluator_attempts=(
-                CFG.agent_bilevel_refine_evaluator_attempts),
             use_llm_initial_params=CFG.agent_bilevel_use_llm_initial_params,
         )
 
@@ -90,9 +86,9 @@ class RefinementConfig:
 class ValidationConfig:
     """Capture-validation rollouts and the cross-attempt journal.
 
-    Consumed at handler entry by ``evaluate_option_plan`` (tools.py) and
-    the probe's ``run(trials=N)`` (belief_probe.py); ``use_journal``
-    gates the ``record_journal`` tool.
+    Consumed at handler entry by ``submit_plan`` (tools.py) and the
+    probe's ``run(trials=N)`` (belief_probe.py); ``use_journal`` gates
+    the journal / attempt-log channel.
     """
     rollouts: int
     rollouts_after_flaky: int
@@ -120,36 +116,19 @@ class ValidationConfig:
 class ToolSurfaceConfig:
     """Which optional tools a session offers, and their surface knobs.
 
-    Consumed by the tool builders in tools.py (gates + descriptions
-    baked at build time), the proposal handlers (call-time gates), image
-    sizing, and the sandbox CLAUDE.md builder (sandbox_prompts.py).
+    Consumed by the tool builders (descriptions baked at build time) and
+    image sizing.
     """
-    use_explore_python: bool
-    explore_python_keep_replaced_tools: bool
     use_base_simulator: bool
-    explore_python_call_timeout: float
+    python_call_timeout: float
     image_max_px: int
-    propose_types: bool
-    propose_predicates: bool
-    propose_processes: bool
-    propose_options: bool
-    propose_objects: bool
 
     @classmethod
     def from_cfg(cls) -> "ToolSurfaceConfig":
         """Read the tool-surface flags from the live ``CFG``."""
         # Flags keep their names for experiment-yaml compatibility.
         return cls(
-            use_explore_python=CFG.agent_planner_use_explore_python,
-            explore_python_keep_replaced_tools=(
-                CFG.agent_planner_explore_python_keep_replaced_tools),
             use_base_simulator=CFG.agent_planner_use_base_simulator,
-            explore_python_call_timeout=(
-                CFG.agent_sdk_explore_python_call_timeout),
+            python_call_timeout=(CFG.agent_sdk_python_call_timeout),
             image_max_px=CFG.agent_sdk_image_max_px,
-            propose_types=CFG.agent_sdk_propose_types,
-            propose_predicates=CFG.agent_sdk_propose_predicates,
-            propose_processes=CFG.agent_sdk_propose_processes,
-            propose_options=CFG.agent_sdk_propose_options,
-            propose_objects=CFG.agent_sdk_propose_objects,
         )

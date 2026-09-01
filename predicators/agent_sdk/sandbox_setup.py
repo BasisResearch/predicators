@@ -196,7 +196,7 @@ def setup_sandbox_directory(
     - ``.claude/settings.json`` with PreToolUse hooks
     - ``.claude/validate_sandbox.py`` hook script
     - ``.git/`` marker so Claude CLI treats the sandbox as project root
-    - ``session_logs/``, ``test_images/``, ``proposed_code/`` subdirectories
+    - ``session_logs/``, ``test_images/`` subdirectories
     - ``full_system_prompt[_{phase}].md`` in *log_dir* for easy inspection
 
     Args:
@@ -257,7 +257,7 @@ def setup_sandbox_directory(
     (sandbox / "CLAUDE.md").write_text(claude_md_content, encoding="utf-8")
 
     # 6. Create subdirectories and seed files
-    for subdir in ("session_logs", "test_images", "proposed_code"):
+    for subdir in ("session_logs", "test_images"):
         (sandbox / subdir).mkdir(exist_ok=True)
     # Seed empty scratchpad if enabled
     if seed_scratchpad:

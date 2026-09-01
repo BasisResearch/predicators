@@ -31,9 +31,8 @@ from predicators import utils
 from predicators.agent_sdk.rendering import save_task_state_image
 from predicators.agent_sdk.session_base import AgentSessionFatalError, \
     query_fatal_error
-from predicators.agent_sdk.tools import agent_render_resolution, \
-    explore_python_replaces_tools
-from predicators.agent_sdk.tools.inspection import render_options_digest, \
+from predicators.agent_sdk.tools import agent_render_resolution
+from predicators.agent_sdk.tools.digests import render_options_digest, \
     render_types_digest
 from predicators.approaches import ApproachFailure
 from predicators.approaches.agent_session_mixin import AgentSessionMixin
@@ -118,6 +117,7 @@ class AgentModelFreeApproach(AgentSessionMixin, BaseApproach):
         # entries persist across cycles while one evaluation's test-task
         # entries never leak into the next evaluation.
         self._pre_test_journal: Optional[str] = None
+        self._pre_test_attempts: Optional[str] = None
         self._pre_test_journal_valid = False
         # Scene renders attempted this episode. The first is the true initial
         # state; later ones come from mid-episode replans and get distinct
@@ -215,7 +215,7 @@ class AgentModelFreeApproach(AgentSessionMixin, BaseApproach):
         Honors two CFG knobs:
 
         * ``agent_planner_use_simulator`` -- when False, returns ``None``
-          so the agent gets no ``evaluate_option_plan`` rollouts and must
+          so the agent gets no ``submit_plan`` rollouts and must
           plan open-loop from data + LLM reasoning (the model-free
           baseline).
         * ``agent_planner_use_base_simulator`` -- when True (and a
@@ -258,9 +258,9 @@ class AgentModelFreeApproach(AgentSessionMixin, BaseApproach):
 ## Scratchpad - CRITICAL
 You MUST maintain `./notes.md` as your working memory. \
 **Read it at the very start of the session** and **read it \
-again before every evaluate_option_plan call** to remind yourself \
+again before every submit_plan call** to remind yourself \
 what you already tried. **Update it immediately after every \
-evaluate_option_plan call** - no exceptions.
+submit_plan call** - no exceptions.
 
 Use this exact format for each option you are tuning:
 
@@ -302,7 +302,7 @@ and update before doing anything else.**"""
         if use_scratchpad:
             steps.append(
                 "**Read `./notes.md` before every test**, then **update it "
-                "immediately after every evaluate_option_plan call**. Record "
+                "immediately after every submit_plan call**. Record "
                 "what you tried, what happened, and what you learned. "
                 "This is your memory - without it you will repeat failures.")
         steps += [
@@ -361,37 +361,23 @@ and update before doing anything else.**"""
         return files
 
     def _get_solve_tool_names(self) -> Optional[List[str]]:
-        # inspect_types / inspect_options are never offered: their
-        # digests are static per session, so the solve prompt injects
-        # them directly (same renderers - see _build_solve_prompt);
-        # a zero-turn prompt section beats a one-turn tool call that
-        # every fresh-context attempt would re-pay.
+        # Type / option digests are static per session, so the solve
+        # prompt injects them directly (see _build_solve_prompt); the
+        # trajectory and task digests live in run_python's namespace
+        # (`trajectories` / `describe_trajectory` / `sim.task()`).
+        # Every remaining tool needs a simulator: submit_plan
+        # rolls fully-specified plans out through the option model and
+        # run_python probes it, so a planner without a simulator
+        # gets neither.
         tools = []
-        # When the probe is present it subsumes the remaining inspect
-        # tools too: `trajectories` / `describe_trajectory` in
-        # explore_python's namespace and `sim.task()`. The extra
-        # use_simulator guard keeps them for (hypothetical) sim-free
-        # configs where explore_python itself is never offered below.
-        probe_subsumes = (CFG.agent_planner_use_simulator
-                          and explore_python_replaces_tools())
-        if not probe_subsumes:
-            tools += ["inspect_trajectories", "inspect_train_tasks"]
-        # The remaining tools require a simulator: evaluate_option_plan
-        # rolls fully-specified plans out through the option model.
-        # None are offered when the planner has no simulator.
-        # (refine_plan_sketch, which backtracking-refines a param-free sketch,
-        # is exposed only by AgentModelBasedApproach.)
         if CFG.agent_planner_use_simulator:
-            tools.append("evaluate_option_plan")
+            tools.append("submit_plan")
             # Closed-loop policy mode: the delivery gate for the
-            # agent-written policy.py (evaluate_option_plan stays as a
+            # agent-written policy.py (submit_plan stays as a
             # probe but no longer captures).
             if CFG.agent_solve_policy_mode:
-                tools.append("evaluate_policy")
-            if CFG.agent_planner_use_explore_python:
-                tools.append("explore_python")
-        if CFG.agent_solve_use_journal:
-            tools.append("record_journal")
+                tools.append("submit_policy")
+            tools.append("run_python")
         return tools
 
     # ------------------------------------------------------------------ #
@@ -659,21 +645,24 @@ and update before doing anything else.**"""
                     and self._tool_context.sandbox_dir)
 
     def _snapshot_journal_for_test_phase(self) -> None:
-        """Capture the learning-only journal content at test-phase entry.
+        """Capture the learning-only journal and attempt log at test start.
 
-        The snapshot is what ``end_test_phase`` rolls the journal back
+        The snapshots are what ``end_test_phase`` rolls both files back
         to. A failed capture leaves ``_pre_test_journal_valid`` False so
         the rollback is skipped rather than destroying learning entries.
         """
         self._pre_test_journal = None
+        self._pre_test_attempts = None
         self._pre_test_journal_valid = False
         if not self._journal_active():
             return
         # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk import journal as journal_mod
+        sandbox_dir = self._tool_context.sandbox_dir
         try:
-            self._pre_test_journal = journal_mod.read_raw(
-                self._tool_context.sandbox_dir)
+            self._pre_test_journal = journal_mod.read_raw(sandbox_dir)
+            self._pre_test_attempts = journal_mod.read_raw(
+                sandbox_dir, filename=journal_mod.ATTEMPTS_FILENAME)
             self._pre_test_journal_valid = True
         except OSError as e:
             logging.warning(
@@ -682,21 +671,25 @@ and update before doing anything else.**"""
                 self._run_id, e)
 
     def _archive_and_rollback_test_journal(self) -> None:
-        """Archive the test-phase journal, then roll it back.
+        """Archive the test-phase journal and attempt log, then roll back.
 
         Each evaluation must be independent of previous evaluations:
-        entries recorded while solving test tasks (harness auto-entries
-        and agent notes) would otherwise leak this evaluation's test
-        tasks into the next one. Learning entries - the pre-test
-        snapshot - persist across cycles. Before the rollback, the full
-        journal (learning + this evaluation's additions) is copied to
-        the run's log dir, which lives outside the sandbox so the agent
-        cannot read it, for later inspection.
+        content written while solving test tasks (harness attempt-log
+        entries and the agent's own journal notes) would otherwise leak
+        this evaluation's test tasks into the next one. Learning content
+        - the pre-test snapshots - persists across cycles. Before the
+        rollback, both files (learning + this evaluation's additions)
+        are copied to the run's log dir, which lives outside the sandbox
+        so the agent cannot read them, for later inspection.
         """
         if not self._pre_test_journal_valid:
             return
-        snapshot = self._pre_test_journal
+        snapshots = {
+            "journal": self._pre_test_journal,
+            "attempts": self._pre_test_attempts,
+        }
         self._pre_test_journal = None
+        self._pre_test_attempts = None
         self._pre_test_journal_valid = False
         sandbox_dir = self._tool_context.sandbox_dir
         if not self._journal_active():
@@ -704,25 +697,31 @@ and update before doing anything else.**"""
         assert sandbox_dir is not None
         # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk import journal as journal_mod
+        filenames = {
+            "journal": journal_mod.JOURNAL_FILENAME,
+            "attempts": journal_mod.ATTEMPTS_FILENAME,
+        }
+        # One archive per evaluation phase, named by the 0-based cycle
+        # whose learning it evaluates (matching main.py's "ONLINE
+        # LEARNING CYCLE i"). The counter has already advanced past that
+        # cycle's learn, so subtract 1; the pre-learning initial test
+        # archives as "initial". A same-cycle re-eval overwrites its own
+        # file.
+        eval_cycle = self._online_learning_cycle - 1
+        label = "initial" if eval_cycle < 0 else f"cycle{eval_cycle}"
         try:
-            content = journal_mod.read_raw(sandbox_dir)
-            if content is not None:
-                # One archive per evaluation phase, named by the 0-based
-                # cycle whose learning it evaluates (matching main.py's
-                # "ONLINE LEARNING CYCLE i"). The counter has already
-                # advanced past that cycle's learn, so subtract 1; the
-                # pre-learning initial test archives as "initial". A
-                # same-cycle re-eval overwrites its own file.
-                eval_cycle = self._online_learning_cycle - 1
-                label = "initial" if eval_cycle < 0 else f"cycle{eval_cycle}"
-                archive_path = os.path.join(self._get_log_dir(),
-                                            f"journal_eval_{label}.md")
-                with open(archive_path, "w", encoding="utf-8") as f:
-                    f.write(content)
-                logging.info(
-                    "[%s] Archived the test-phase solve journal to %s",
-                    self._run_id, archive_path)
-            journal_mod.restore(sandbox_dir, snapshot)
+            for kind, filename in filenames.items():
+                content = journal_mod.read_raw(sandbox_dir, filename=filename)
+                if content is not None:
+                    archive_path = os.path.join(self._get_log_dir(),
+                                                f"{kind}_eval_{label}.md")
+                    with open(archive_path, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    logging.info("[%s] Archived the test-phase %s to %s",
+                                 self._run_id, filename, archive_path)
+                journal_mod.restore(sandbox_dir,
+                                    snapshots[kind],
+                                    filename=filename)
         except OSError as e:
             logging.warning(
                 "[%s] Failed to archive/roll back the test-phase solve "
@@ -772,12 +771,11 @@ and update before doing anything else.**"""
     def _solve_prompt_visualize_line(self) -> str:
         """The stuck-step visualization bullet: the probe's staging + render is
         the only visualization surface, so the bullet appears only when
-        explore_python is offered."""
-        if CFG.agent_planner_use_simulator and \
-                CFG.agent_planner_use_explore_python:
+        run_python is offered."""
+        if CFG.agent_planner_use_simulator:
             return (
-                "- **Use explore_python when stuck** - after 3+ failures on "
-                "the same step, STOP testing and use explore_python "
+                "- **Use run_python when stuck** - after 3+ failures on "
+                "the same step, STOP testing and use run_python "
                 "(`sim.reset(mods={...})`, then `sim.render(...)`) to move "
                 "the object to several candidate positions and "
                 "orientations. It's free (no physics). Find the right "
@@ -789,7 +787,7 @@ and update before doing anything else.**"""
         if CFG.agent_planner_use_scratchpad:
             return (
                 "- **Read `./notes.md` before every "
-                "evaluate_option_plan call** "
+                "submit_plan call** "
                 "and **update it immediately after each call** - append a "
                 "row to the parameter table and update the explored-ranges "
                 "summary. If you realize you forgot to update, STOP and "
@@ -816,9 +814,8 @@ and update before doing anything else.**"""
             if a.predicate in visible_preds
         ]
 
-        # Types and options: the same digests the inspect_types /
-        # inspect_options tools would serve, injected here so those
-        # tools need not be offered (see _get_solve_tool_names).
+        # Types and options: static per-session digests, injected here
+        # instead of costing a tool turn (see _get_solve_tool_names).
         types_digest = render_types_digest(self._tool_context.types)
         options_digest = render_options_digest(
             self._get_all_options(),
@@ -1093,10 +1090,10 @@ Output ONLY the option plan lines at the end, after any analysis."""
     def _sync_tool_context(self) -> None:
         """Push current approach state into the shared ToolContext.
 
-        The MCP tools (inspect_options, evaluate_option_plan, etc.) read
-        from the ToolContext dataclass, not the approach directly. This
-        keeps them in sync after mutations (e.g. new trajectories
-        collected, options added). Called before each solve and learning
+        The MCP tools (submit_plan, run_python, etc.) read from the
+        ToolContext dataclass, not the approach directly. This keeps
+        them in sync after mutations (e.g. new trajectories collected,
+        options added). Called before each solve and learning
         interaction. Subclasses should call super() and then set
         additional fields (e.g. skill_factory_context).
         """

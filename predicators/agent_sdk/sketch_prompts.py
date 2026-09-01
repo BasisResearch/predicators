@@ -28,6 +28,7 @@ def build_solve_prompt(
     ground_samplers: bool = False,
     journal: str = "",
     strategy: str = "",
+    attempts: str = "",
     physics_margin: bool = False,
     policy_mode: bool = False,
 ) -> str:
@@ -52,7 +53,7 @@ def build_solve_prompt(
     ``[...]`` per step; the search refines them and samples on failure".
 
     ``require_tool_validation`` tells the agent it MUST submit a
-    goal-reaching ``evaluate_option_plan`` run on the current task (the
+    goal-reaching ``submit_plan`` run on the current task (the
     captured, validated plan is the only output) - used when the approach
     has no refinement fallback. When False, validation is merely
     encouraged.
@@ -67,11 +68,11 @@ def build_solve_prompt(
     proving such a mechanism's absence instead of submitting the
     experiment that would let it be learned.
 
-    ``journal`` is the run's solve-journal content (see
-    ``predicators/agent_sdk/journal.py``): the curated record of earlier
-    attempts' outcomes and lessons, injected so fresh-context sessions
-    inherit what worked (and what was already swept) without inheriting
-    failed attempts' conclusions.
+    ``journal`` is the agent's own notebook (``journal.md``) and
+    ``attempts`` the harness's attempt log (``attempts.md``); see
+    ``predicators/agent_sdk/journal.py``. Both are injected so
+    fresh-context sessions inherit what worked (and what was already
+    swept) without inheriting failed attempts' conclusions.
 
     ``strategy`` is the learn-phase-maintained domain strategy document
     (``strategy.md``): the learn agent's best current natural-language
@@ -81,8 +82,8 @@ def build_solve_prompt(
     re-verify rather than inherit.
 
     ``policy_mode`` (``CFG.agent_solve_policy_mode``): the deliverable
-    becomes a closed-loop ./policy.py validated via ``evaluate_policy``
-    instead of a fixed evaluate_option_plan capture; the submit and
+    becomes a closed-loop ./policy.py validated via ``submit_policy``
+    instead of a fixed submit_plan capture; the submit and
     closing guidance swap to the policy contract.
 
     ``physics_margin`` is the caller-threaded value of
@@ -97,7 +98,7 @@ def build_solve_prompt(
         "explore_mode accepts an uncaptured experiment sketch, which "
         "contradicts the hard capture gate of require_tool_validation")
     assert not policy_mode or require_tool_validation, (
-        "policy_mode is a hard capture gate (evaluate_policy), so it "
+        "policy_mode is a hard capture gate (submit_policy), so it "
         "requires require_tool_validation")
 
     init_state = task.init
@@ -173,7 +174,7 @@ def build_solve_prompt(
                 "not certify does not count. Once the belief model can "
                 "validate a goal-reaching plan, submitting it (even "
                 "unchanged) is how the loop concludes." +
-                (" A plan that passes evaluate_option_plan's validation "
+                (" A plan that passes submit_plan's validation "
                  "gate (goal reached in every fresh belief rollout) is "
                  "executed VERBATIM as this episode's solve attempt and "
                  "replayed for the cycle's remaining episodes; only an "
@@ -219,26 +220,18 @@ def build_solve_prompt(
             "sketch is a valid deliverable, and grinding for a validated "
             "plan the model cannot produce is wasted budget. An "
             "experiment's information comes from the steps the belief "
-            "model cannot predict. Before running, your sketch's "
-            "continuous parameters are refined in the belief model. " +
-            ("Every explicit parameter you propose executes exactly as "
-             "written (a step whose proposal fails a belief rollout is "
-             "retried, never re-sampled); refinement searches only the "
-             "steps you leave without parameters. "
-             if CFG.agent_explorer_pin_proposed_params else "") +
-            "When refinement cannot establish a step's annotated "
-            "subgoals the plan still runs in full: the refined prefix "
-            "executes as searched, the failing step executes its "
-            "closest attempt, and every LATER step falls back to the "
-            "explicit parameters you proposed for it - stopping only "
-            "at the first later step that has parameters to choose but "
-            "no proposal. So propose explicit parameters for every "
-            "step (any step after a model-refuted one runs exactly "
-            "those), and follow each uncertified step with a step "
-            "whose outcome reveals whether the mechanism worked - a "
-            "short plan that exercises the unknown beats a long one "
-            "that spends the episode's steps on what the model already "
-            "predicts.\n\n"
+            "model cannot predict. Your sketch runs in the real "
+            "environment EXACTLY as written: every explicit parameter "
+            "executes verbatim, nothing is searched or substituted, and "
+            "a step you leave without parameters gets one uniform draw "
+            "from the option's box - so propose explicit parameters for "
+            "every step. Validate in the belief model yourself where it "
+            "supports the plan (`sim.run`, `sim.refine`, then "
+            "`submit_plan` to submit), and follow each "
+            "uncertified step with a step whose outcome reveals whether "
+            "the mechanism worked - a short plan that exercises the "
+            "unknown beats a long one that spends the episode's steps "
+            "on what the model already predicts.\n\n"
             "Experiment design - one episode, many measurements. Before "
             "sketching, list the mechanisms the goal depends on and "
             "mark each KNOWN (the belief model has predicted it "
@@ -257,14 +250,12 @@ def build_solve_prompt(
             "pinned this way is a cycle of drift-by-refit avoided "
             "later. When combining probes, annotate the subgoals of "
             "steps whose mechanism the belief model already CONTAINS "
-            "(annotations there drive boundary-probing refinement and "
-            "cost nothing). For a mechanism the model entirely LACKS, "
-            "annotate what SHOULD happen and give that step and every "
-            "step after it explicit parameters: refinement will fail "
-            "there and the rest of the plan runs on your proposed "
-            "parameters instead of searched ones - the annotation "
-            "documents the disagreement to measure, and your "
-            "parameters keep the later probes exactly as designed. "
+            "(annotations there let `sim.suggest_probes` rank probes and "
+            "let the execution monitor catch divergence, and cost "
+            "nothing). For a mechanism the model entirely LACKS, "
+            "annotate what SHOULD happen: the annotation documents the "
+            "disagreement to measure, and your explicit parameters keep "
+            "the later probes exactly as designed. "
             "Spend no steps re-demonstrating what the model already "
             "predicts well beyond what later probes need as setup.\n\n"
             "When the belief model has learned no dynamics at all yet "
@@ -276,9 +267,9 @@ def build_solve_prompt(
             "sees each mechanism at least once, instead of spending the "
             "episode polishing a single goal attempt whose failure "
             "reveals only its first missing mechanism.\n\n"
-            "Ledger upkeep is part of the deliverable. Record "
-            "measurements with record_journal as you go (entries are "
-            "size-capped, so lead with the numbers), and when a result "
+            "Ledger upkeep is part of the deliverable. Append "
+            "measurements to ./journal.md as you go (a short entry per "
+            "experiment - lead with the numbers), and when a result "
             "settles an open question or opens a new one, edit "
             "open_questions.md directly with the file tools - the next "
             "learning phase designs its work from that file, and a "
@@ -322,28 +313,39 @@ def build_solve_prompt(
             "depart from it whenever your own measurements disagree.\n\n"
             f"{strategy}\n")
 
+    attempts_section = ""
+    if attempts:
+        attempts_section = (
+            "\n## Attempt Log (recorded by the harness)\n"
+            "Outcomes of earlier solve attempts and tasks in this run, "
+            "recorded automatically in ./attempts.md (do not edit it): "
+            "each task's goal and initial state, and per attempt the "
+            "outcome, the budget spent, and the captured or best refused "
+            "plan. Facts, not advice.\n\n"
+            f"{attempts}\n")
     journal_section = ""
-    if journal:
+    if journal or attempts:
         journal_section = (
-            "\n## Solve Journal (record of earlier attempts)\n"
-            "You start with fresh context. The journal below is this run's "
-            "persistent record from earlier solve attempts and tasks: "
-            "auto-recorded outcomes (captured plans, rewards, budgets) "
-            "plus agent-recorded lessons. Use it - reproduce what worked, "
-            "do not repeat parameter sweeps it already covers - but treat "
-            "any recorded conclusion skeptically: re-verify cheap claims "
-            "rather than inheriting them, especially from failed "
-            "attempts.\n"
+            "\n## Solve Journal (./journal.md)\n"
+            "You start with fresh context. The journal is this run's "
+            "persistent notebook, written by earlier solve and learning "
+            "sessions with the file tools; with the attempt log it is "
+            "the record of what was tried. Use it - reproduce what "
+            "worked, do not repeat parameter sweeps it already covers - "
+            "but treat any recorded conclusion skeptically: re-verify "
+            "cheap claims rather than inheriting them, especially from "
+            "failed attempts.\n"
             "Journal protocol for this attempt:\n"
-            "- A design the journal records as having reached the goal in "
-            "the REAL environment is the INCUMBENT: reproduce it unless "
-            "the journal also records it failing since, or a model update "
-            "invalidates one of its steps. Every deviation from an "
-            "execution-validated design - reordering steps, dropping a "
-            "Wait, retargeting a parameter - is a NEW experiment carrying "
-            "first-execution risk that belief validation does NOT retire "
-            "(real option durations and placement scatter differ), so "
-            "deviate only for a recorded reason and record that reason.\n"
+            "- A design the attempt log records as having reached the "
+            "goal in the REAL environment is the INCUMBENT: reproduce it "
+            "unless the record also shows it failing since, or a model "
+            "update invalidates one of its steps. Every deviation from "
+            "an execution-validated design - reordering steps, dropping "
+            "a Wait, retargeting a parameter - is a NEW experiment "
+            "carrying first-execution risk that belief validation does "
+            "NOT retire (real option durations and placement scatter "
+            "differ), so deviate only for a recorded reason and record "
+            "that reason.\n"
             "- FIRST list the journal's untried leads, then execute or "
             "explicitly retire (with a measurement) each promising lead "
             "BEFORE re-opening a family an earlier attempt already marked "
@@ -358,9 +360,13 @@ def build_solve_prompt(
             "recommends it), BOTH demote to open questions: design the "
             "cheap experiment that decides between them instead of "
             "silently trusting either.\n"
-            "Add your own lessons for future attempts with the "
-            "record_journal tool (facts and measurements only).\n\n"
-            f"{journal}\n")
+            "Add your own lessons for future attempts by appending a "
+            "short entry to ./journal.md with the file tools: a `### ` "
+            "header naming the task and attempt, then a few bullets of "
+            "facts and measurements only - exact parameters, what was "
+            "measured, what to try differently; no verdicts like "
+            "'impossible'.\n\n"
+            f"{journal or '(no journal entries yet)'}\n")
 
     goal_nl_section = ""
     if task.goal_nl:
@@ -398,23 +404,18 @@ def build_solve_prompt(
             line += f" — {pred.natural_language_assertion(names)}"
         pred_strs.append(line)
 
-    # Tool-availability-aware references: when explore_python replaces
-    # the standalone refine tool (see
-    # agent_planner_explore_python_keep_replaced_tools), guidance must
-    # point at the probe equivalents instead of tools the session lacks.
-    # ``tool_names=None`` keeps the legacy all-tools wording.
+    # Tool-availability-aware references: guidance must not name a
+    # capability the session lacks (a simulator-free session has no
+    # probe). ``tool_names=None`` means the full surface.
     tool_set = set(tool_names) if tool_names is not None else None
 
     def _has_tool(name: str) -> bool:
         return tool_set is None or name in tool_set
 
-    probe_refine = (not _has_tool("refine_plan_sketch")
-                    and _has_tool("explore_python"))
-    refine_ref = ("`sim.refine` (in `explore_python`)"
-                  if probe_refine else "`refine_plan_sketch`")
-    if _has_tool("explore_python"):
+    refine_ref = "`sim.refine` (in `run_python`)"
+    if _has_tool("run_python"):
         visualize_advice = (
-            "- Use `explore_python` (`sim.reset(mods={...})`, then "
+            "- Use `run_python` (`sim.reset(mods={...})`, then "
             "`sim.render(...)`) to move objects to candidate positions and "
             "orientations for free (no physics) and find the right region "
             "visually before testing.\n")
@@ -428,7 +429,7 @@ def build_solve_prompt(
     # change the skeleton.
     deep_tune_advice = (
         "deep-tune just that step (it needs precise values from you), then "
-        "re-test it. When deep-tuning a step with `evaluate_option_plan`:\n"
+        "re-test it. When deep-tuning a step with `submit_plan`:\n"
         "- Inspect the rendered images in `./test_images/` to see what "
         "actually happened.\n"
         "- For a failure like an IK error or collision, use the image and "
@@ -528,7 +529,7 @@ def build_solve_prompt(
                 "physical parameter - a design can pass just above and "
                 "just below a value and fail exactly at it - so tune "
                 "designs that pass the WHOLE range: pre-check with "
-                "`sim.run(plan_text, physics_sweep=True)` in explore_python "
+                "`sim.run(plan_text, physics_sweep=True)` in run_python "
                 "(same points as the gate, one deterministic rollout each) "
                 "instead of discovering rejections one submission at a "
                 "time. ")
@@ -551,17 +552,17 @@ def build_solve_prompt(
                 "operating point to a learned threshold) and widen it if "
                 "it is smaller than the measured execution scatter. ")
         submit_guidance = (
-            "SUBMIT via `evaluate_option_plan`: pass your full plan as text "
+            "SUBMIT via `submit_plan`: pass your full plan as text "
             "(one option per line, `Option(obj:type)[params] -> {subgoals}`, "
             "with EXACT params) and run it on the CURRENT task (omit "
             "task_idx). When it reaches the goal, that plan is captured as "
-            "your answer, so do NOT finish until evaluate_option_plan "
+            "your answer, so do NOT finish until submit_plan "
             "CONFIRMS the capture. A goal-reaching plan is re-run several "
             "times before capture (simulation varies across runs; each "
             "rollout reports the motion-planner seed it ran at); if it is "
             "reported FLAKY, reproduce the failed rollout exactly (pass "
-            "its reported seed as rollout_seed to evaluate_option_plan, or "
-            "`sim.run(plan_text, seed=...)` in explore_python) to see WHY, "
+            "its reported seed as rollout_seed to submit_plan, or "
+            "`sim.run(plan_text, seed=...)` in run_python) to see WHY, "
             "then add margin to the fragile step and resubmit. For a plan "
             "you suspect is marginal, request a stricter gate up front "
             "with validation_rollouts=N (more repeats; never fewer than "
@@ -584,8 +585,8 @@ def build_solve_prompt(
             "It runs your EXACT parameters with no sampling. To find "
             f"working parameters you MAY use {refine_ref} (it searches "
             "but is slower); read the parameters it reports and submit them "
-            "via evaluate_option_plan. If a step does not reach its subgoal, "
-            + stuck_advice)
+            "via submit_plan. If a step does not reach its subgoal, " +
+            stuck_advice)
     elif propose_params:
         submit_guidance = (
             f"You may validate with {refine_ref} (it tries your "
@@ -607,7 +608,7 @@ def build_solve_prompt(
             "    def get_option(state, memory):\n"
             "        ...\n\n"
             "- `state`: the current State object (read-only copy). Same "
-            "API as explore_python: `state.get(obj, 'feature')`, iterate "
+            "API as run_python: `state.get(obj, 'feature')`, iterate "
             "objects with `for obj in state`, `obj.name`, `obj.type`.\n"
             "- `memory`: a dict, initially empty, persisting across calls "
             "within ONE episode (phase flags, counters, cached "
@@ -641,18 +642,18 @@ def build_solve_prompt(
             f"{CFG.agent_policy_max_repeated_noops} times in a row also "
             "ends the episode - if your stage logic is not advancing, "
             "fix the stage test, do not re-send the same command.\n"
-            "SUBMIT via `evaluate_policy` on the CURRENT task until it "
+            "SUBMIT via `submit_policy` on the CURRENT task until it "
             "reaches the goal across all validation rollouts - the "
             "validated policy.py snapshot (taken at call time; later "
             "edits need a new call) is your ONLY accepted output. Test "
-            "recovery behavior first: in explore_python, "
+            "recovery behavior first: in run_python, "
             "`sim.run_policy()` runs ./policy.py from the CURRENT probe "
             "state (including perturbed or mid-plan states), so check "
             "that the policy recovers from off-nominal states, not just "
             "the initial one. " + margin_guidance)
         closing_block = (
             "Your answer is ONLY accepted from a goal-reaching "
-            "`evaluate_policy` run on the CURRENT task; final text alone "
+            "`submit_policy` run on the CURRENT task; final text alone "
             "is discarded, so never finish without that validated run. "
             "After the goal-reaching run, summarize the policy's strategy "
             "as your final text.")
@@ -664,7 +665,7 @@ def build_solve_prompt(
         # text sketch and finish, wasting the whole attempt.
         closing_block = (
             "Your answer is ONLY accepted from a goal-reaching "
-            "`evaluate_option_plan` run on the CURRENT task; final text "
+            "`submit_plan` run on the CURRENT task; final text "
             "alone is discarded, so never finish without that validated "
             "run. Tool calls are permitted on every turn of this "
             "conversation. If an earlier context summary says a turn was "
@@ -714,7 +715,8 @@ def build_solve_prompt(
 
 ## Available Predicates (for subgoal annotations)
 {chr(10).join(pred_strs)}
-{trajectory_summary}{tools_str}{strategy_section}{journal_section}\
+{trajectory_summary}{tools_str}{strategy_section}{attempts_section}\
+{journal_section}\
 {scheduled_plans_section}
 ## Instructions
 Use your available tools to inspect the environment before producing the plan.

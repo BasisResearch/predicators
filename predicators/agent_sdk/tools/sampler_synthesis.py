@@ -1,5 +1,4 @@
-"""Sampler-synthesis tools (create_sampler_synthesis_tools)."""
-import os
+"""The ``sim.samplers()`` loader for sampler-synthesis sessions."""
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -8,23 +7,21 @@ from predicators.agent_sdk.proposal_exec import build_exec_context, \
     load_learned_samplers
 from predicators.agent_sdk.synthesis_backend import SamplerSynthesisBackend
 from predicators.agent_sdk.tools.params_view import _ParamsView
-from predicators.agent_sdk.tools.results import _make_coercing_tool, \
-    _make_spilling_text_result
 from predicators.agent_sdk.tools.sandbox_guard import _scrub_host_paths
 from predicators.agent_sdk.tools.snapshots import _ArtifactSnapshotter
 from predicators.settings import CFG
 from predicators.structs import Object
 
 
-def create_sampler_synthesis_tools(
+def make_sampler_loader(
     samplers_file: str,
     samplers_versions_dir: str,
     approach: SamplerSynthesisBackend,
     cycle_index_provider: Optional[Callable[[], int]] = None,
-) -> list:
-    """Create the per-skill sampler-synthesis tool.
+) -> Callable[[], str]:
+    """Build the ``sim.samplers()`` loader for one synthesis session.
 
-    Returns ``[evaluate_sampler]``. On each call the tool loads
+    On each call the loader loads
     ``samplers.py`` fresh (snapshotting into ``samplers_versions_dir``),
     validates the ``LEARNED_SAMPLERS`` dict (option name -> callable),
     installs it into ``approach._synthesized_samplers`` so refinement
@@ -40,13 +37,9 @@ def create_sampler_synthesis_tools(
     # pylint: disable=import-outside-toplevel
     import traceback  # pylint: disable=redefined-outer-name,reimported
 
-    from claude_agent_sdk import tool as _sdk_tool
-    tool = _make_coercing_tool(_sdk_tool)
-
     from predicators.code_sim_learning.fit_space import ParamSpec
 
     # pylint: enable=import-outside-toplevel
-    _text = _make_spilling_text_result(os.path.dirname(samplers_file))
     _snapshotter = _ArtifactSnapshotter(
         live_file=samplers_file,
         versions_dir=samplers_versions_dir,
@@ -136,43 +129,18 @@ def create_sampler_synthesis_tools(
         return (f"  {name}: OK — {n_draws} draws, {in_box}/{n_draws} "
                 f"within the params box.")
 
-    @tool(
-        "evaluate_sampler",
-        "Load LEARNED_SAMPLERS (fresh from `samplers.py`) and install "
-        "them as the per-skill samplers used by refinement. Each entry "
-        "maps an option name to a function "
-        "(state, subgoal_atoms, rng, objects) -> params array (the same "
-        "signature as the env's NSRT samplers); refinement calls it "
-        "instead of drawing uniformly so the sampler can aim continuous "
-        "params at the step's subgoal, then clips the result to the box. "
-        "At steps with no subgoal annotation, subgoal_atoms is the empty "
-        "set - the sampler must handle that without crashing. A sketch "
-        "step carrying a `~ [widths]` region annotation bypasses the "
-        "sampler (precedence: per-step region > per-skill sampler > "
-        "uniform); samplers are the reusable cross-task prior, regions a "
-        "per-call override. "
-        "Reports a per-option sanity check (return shape + within-box) "
-        "over a representative train-task state. After loading, the "
-        "samplers used by sim.refine are updated — so call "
-        "this any time you edit samplers.py before re-running "
-        "refinement. Snapshots samplers.py into samplers_versions/; "
-        "output tagged [cycle_XXX_vers_YYY].",
-        {
-            "type": "object",
-            "properties": {},
-        },
-    )
-    async def evaluate_sampler(args: Dict[str, Any]) -> Dict[str, Any]:
-        del args
+    def sampler_report() -> str:
+        """Reload samplers.py, install LEARNED_SAMPLERS, and report the per-
+        option sanity check."""
         try:
             samplers, version_tag, err, warnings = (
                 _snapshot_and_load_samplers(samplers_file))
         except Exception:  # pylint: disable=broad-except
-            return _text(f"Error loading samplers.py:\n"
-                         f"{_scrub_host_paths(traceback.format_exc())}")
+            return (f"Error loading samplers.py:\n"
+                    f"{_scrub_host_paths(traceback.format_exc())}")
 
         if err is not None:
-            return _text(err)
+            return err
 
         prefix = f"[{version_tag}]"
         lines = [
@@ -189,7 +157,7 @@ def create_sampler_synthesis_tools(
             lines.append("")
             lines.append("LEARNED_SAMPLERS is empty — add "
                          "{\"OptionName\": fn} entries to samplers.py.")
-            return _text("\n".join(lines))
+            return "\n".join(lines)
 
         lines.append("")
         lines.append("Sanity check (representative train-task state):")
@@ -199,6 +167,6 @@ def create_sampler_synthesis_tools(
         lines.append("Now call sim.refine with a sketch that "
                      "uses these options to measure the samples-to-refine "
                      "improvement.")
-        return _text("\n".join(lines))
+        return "\n".join(lines)
 
-    return [evaluate_sampler]
+    return sampler_report

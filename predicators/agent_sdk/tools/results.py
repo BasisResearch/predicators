@@ -5,7 +5,6 @@ import os
 from typing import Any, Callable, Dict, Optional
 
 from predicators.agent_sdk.config import RefinementConfig
-from predicators.agent_sdk.tools.context import ToolContext
 
 
 def session_log_filename(query_count: int,
@@ -53,7 +52,7 @@ def _make_coercing_tool(tool: Callable) -> Callable:
 
     Harness-side JSON-schema validation rejects ``"0"`` for an
     ``integer`` property before the handler ever runs (agents lost
-    whole tools to it - ``inspect_trajectories`` went 0-for-6 in
+    whole tools to it - a trajectory-inspection tool went 0-for-6 in
     run_20260717_154753 seed2), and which tools accept strings was
     inconsistent. This wrapper loosens every top-level ``integer`` /
     ``number`` property to also accept a string, then coerces the value
@@ -169,21 +168,3 @@ def _make_spilling_text_result(
         return _text_result("\n".join(parts))
 
     return _text
-
-
-def _save_option_to_sandbox(ctx: ToolContext, option_name: str,
-                            code: str) -> Optional[str]:
-    """Save option source code to sandbox/proposed_code/<name>.py.
-
-    Returns the relative path (e.g. ``./proposed_code/Pick.py``) or None
-    if the sandbox directory is not set.
-    """
-    if ctx.sandbox_dir is None:
-        return None
-    proposed_dir = os.path.join(ctx.sandbox_dir, "proposed_code")
-    os.makedirs(proposed_dir, exist_ok=True)
-    filename = f"{option_name}.py"
-    filepath = os.path.join(proposed_dir, filename)
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.write(code)
-    return f"./proposed_code/{filename}"

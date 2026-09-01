@@ -292,7 +292,7 @@ def _draw_params(search: _RefinementState, ctx: _RefineContext,
     return sample_params(step.option, rng_)
 
 
-def _ground(step: SketchStep, params: np.ndarray) -> _Option:
+def ground_step(step: SketchStep, params: np.ndarray) -> _Option:
     """Ground a step's option with the given params.
 
     Wait steps inject ``wait_target_atoms`` / ``wait_target_neg_atoms``
@@ -321,12 +321,12 @@ def ground_seeded_step(step: SketchStep) -> Optional[_Option]:
     """
     box = step.option.params_space
     if box.shape[0] == 0:
-        return _ground(step, np.array([], dtype=np.float32))
+        return ground_step(step, np.array([], dtype=np.float32))
     if step.initial_params is None:
         return None
     params = np.clip(np.asarray(step.initial_params, dtype=np.float32),
                      box.low, box.high).astype(np.float32)
-    return _ground(step, params)
+    return ground_step(step, params)
 
 
 def _info_seeking_applies(ctx: _RefineContext, step: SketchStep) -> bool:
@@ -479,7 +479,7 @@ def _sample_info_seeking(search: _RefinementState, ctx: _RefineContext,
             idx not in search.llm_params_tried:
         search.llm_params_tried.add(idx)
         box = step.option.params_space
-        llm_grounded = _ground(
+        llm_grounded = ground_step(
             step,
             np.clip(np.asarray(step.initial_params, dtype=np.float32), box.low,
                     box.high).astype(np.float32))
@@ -493,7 +493,8 @@ def _sample_info_seeking(search: _RefinementState, ctx: _RefineContext,
             if len(scored) > n_pooled_before else "infeasible — not pooled")
 
     while len(scored) < ctx.info_n_feasible_target and n_draws < draw_cap:
-        grounded = _ground(step, _draw_params(search, ctx, step, state, rng_))
+        grounded = ground_step(step,
+                               _draw_params(search, ctx, step, state, rng_))
         n_draws += 1
         _consider(grounded)
     pool.spent += n_draws
@@ -559,7 +560,7 @@ def _sample_step(search: _RefinementState, ctx: _RefineContext, idx: int,
         box = step.option.params_space
         params = np.clip(np.asarray(step.initial_params, dtype=np.float32),
                          box.low, box.high).astype(np.float32)
-        return _ground(step, params)
+        return ground_step(step, params)
     # Plain path: on the first arrival at this step, try the LLM-proposed
     # params (if any) before any sampling. Clipping avoids ground()'s
     # out-of-box ValueError; arity is already validated by the parser.
@@ -571,8 +572,8 @@ def _sample_step(search: _RefinementState, ctx: _RefineContext, idx: int,
                          box.low, box.high).astype(np.float32)
         logging.debug("[%s] step %d %s: trying LLM-proposed params %s",
                       ctx.run_id, idx, step.option.name, params.tolist())
-        return _ground(step, params)
-    return _ground(step, _draw_params(search, ctx, step, state, rng_))
+        return ground_step(step, params)
+    return ground_step(step, _draw_params(search, ctx, step, state, rng_))
 
 
 def _validate_step(search: _RefinementState, ctx: _RefineContext, idx: int,
@@ -1108,7 +1109,7 @@ def suggest_probes(
                 np.asarray(step.initial_params, dtype=np.float32), box.low,
                 box.high).astype(np.float32) if step.initial_params is not None
                       else np.array([], dtype=np.float32))
-            nominal = _ground(step, params)
+            nominal = ground_step(step, params)
         nominal_next = _roll(nominal) if nominal is not None else None
         nominal_ok: Optional[bool] = None
         nominal_score: Optional[float] = None
@@ -1127,8 +1128,8 @@ def suggest_probes(
         best_next: Optional[State] = None
         if has_params and atoms:
             for _ in range(max_draws):
-                grounded = _ground(step,
-                                   _draw_params(search, ctx, step, state, rng))
+                grounded = ground_step(
+                    step, _draw_params(search, ctx, step, state, rng))
                 n_draws += 1
                 nxt = _roll(grounded)
                 if nxt is None or not atoms.issubset(

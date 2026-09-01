@@ -1,4 +1,4 @@
-"""Capture-gating tests for the ``evaluate_option_plan`` tool.
+"""Capture-gating tests for the ``submit_plan`` tool.
 
 Drives the real MCP tool handler with a fake option model (no PyBullet),
 covering the two gates in front of ``ctx.solved_plan``:
@@ -123,7 +123,7 @@ def _call_tool(ctx, plan_text=_PLAN_TEXT, extra_args=None):
     """Invoke the real tool handler once against ``ctx``."""
     tools = {
         t.name: t.handler
-        for t in create_mcp_tools(ctx, tool_names=["evaluate_option_plan"])
+        for t in create_mcp_tools(ctx, tool_names=["submit_plan"])
     }
     try:
         loop = asyncio.get_event_loop()
@@ -133,8 +133,7 @@ def _call_tool(ctx, plan_text=_PLAN_TEXT, extra_args=None):
     call_args = {"plan": plan_text}
     if extra_args:
         call_args.update(extra_args)
-    result: Any = loop.run_until_complete(
-        tools["evaluate_option_plan"](call_args))
+    result: Any = loop.run_until_complete(tools["submit_plan"](call_args))
     return result["content"][0]["text"]
 
 
@@ -768,7 +767,7 @@ def test_validation_rollouts_arg_cannot_lower_the_gate():
 
 def test_flaky_report_names_seeds_and_reproduction_path():
     """A FLAKY rejection names each rollout's planner seed and tells the agent
-    how to reproduce the failed rollout (``rollout_seed``)."""
+    how to reproduce the failed rollout (``sim.run(plan, seed=S)``)."""
     model = _Model(succeed_first_n=1)
     text, _ = _run_tool(model, rollouts=3)
     from predicators.settings import \
@@ -776,49 +775,7 @@ def test_flaky_report_names_seeds_and_reproduction_path():
     base = CFG.seed
     assert f"rollout 1 (planner seed {base}): goal reached" in text
     assert f"(planner seed {base + 1}): FAILED" in text
-    assert "rollout_seed=" in text
-
-
-def test_rollout_seed_with_trials_runs_consecutive_seeds():
-    """``rollout_seed=S`` + ``validation_rollouts=N`` runs N diagnostic trials
-    at planner seeds S..S+N-1 (mirroring ``sim.run(plan, trials=N, seed=S)``),
-    reports each with its seed, and still never captures."""
-    model = _SeedRecordingModel2()
-    text, ctx = _run_tool(model,
-                          rollouts=5,
-                          extra_args={
-                              "rollout_seed": 900,
-                              "validation_rollouts": 3
-                          })
-    # Exactly the requested 3 trials - the configured gate (5) does not
-    # inflate a diagnostic run.
-    assert model.seeds == [900, 901, 902]
-    assert "Diagnostic trials: 3/3 reached the goal" in text
-    assert "rollout 2 (planner seed 901): goal reached" in text
-    assert "rollout 3 (planner seed 902): goal reached" in text
-    assert "Captured as the current answer" not in text
-    assert ctx.solved_plan is None
-
-
-def test_rollout_seed_is_diagnostic_only():
-    """A seeded rollout runs at exactly the given planner seed.
-
-    It reports fully and is never captured - agent-chosen seeds must
-    not pass the capture gate.
-    """
-    model = _SeedRecordingModel2()
-    text, ctx = _run_tool(model, rollouts=3, extra_args={"rollout_seed": 4242})
-    assert "DIAGNOSTIC rollout at planner seed 4242" in text
-    assert model.seeds == [4242]  # no validation repeats either
-    assert "Goal achieved: True" in text
-    assert "Captured as the current answer" not in text
-    assert "Validated" not in text
-    assert ctx.solved_plan is None
-    from predicators.settings import \
-        CFG  # pylint: disable=import-outside-toplevel
-
-    # The base seed is restored after the seeded rollout.
-    assert CFG.seed != 4242
+    assert "sim.run(plan, seed=" in text
 
 
 # ---------------------------------------------------------------------------

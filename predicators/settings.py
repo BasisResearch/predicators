@@ -1512,17 +1512,11 @@ class GlobalSettings:
     agent_sdk_image_max_px = 512
     # Max size (bytes) of a single newline-delimited JSON message the agent SDK
     # subprocess transport will buffer. The SDK default is 1 MB, which a tool
-    # result embedding a base64 scene image (e.g. inspect_train_tasks with
-    # include_image=True at 900x900) can exceed -> "JSON message exceeded
+    # result embedding a base64 scene image (e.g. a sim.render() at
+    # 900x900) can exceed -> "JSON message exceeded
     # maximum buffer size". 20 MB comfortably fits full-res scene images.
     agent_sdk_max_buffer_size = 20 * 1024 * 1024
     agent_sdk_resume_session = True  # resume previous session if available
-    agent_sdk_propose_types = True
-    agent_sdk_propose_predicates = True
-    agent_sdk_propose_objects = True
-    agent_sdk_propose_processes = True
-    agent_sdk_propose_options = True
-    agent_sdk_auto_select_predicates = True  # run hill-climbing after proposals
     agent_sdk_max_trajectories_in_context = 3
     agent_sdk_log_agent_responses = True
 
@@ -1538,23 +1532,8 @@ class GlobalSettings:
 
     # Agent planner approach settings
     agent_planner_use_scratchpad = False  # include notes.md scratchpad
-    # Include the solve-phase explore_python tool: a persistent Python
-    # namespace over the BeliefProbe exploration facade (set the sim to any task
-    # state or a modified copy, run option plans from it, read full-precision
-    # features, render, snapshot/restore) so the agent writes sweep loops in
-    # one call instead of one evaluate_option_plan round-trip per probe.
-    # Exploratory only: nothing run through it can be captured as the answer.
-    agent_planner_use_explore_python = False
-    # When explore_python is on, whether the tools it subsumes
-    # (refine_plan_sketch -> sim.refine; inspect_trajectories /
-    # inspect_train_tasks -> trajectories / describe_trajectory /
-    # sim.task() in the probe namespace) are STILL offered alongside it.
-    # Default False: one surface per capability, so the agent's habits
-    # don't split across redundant tools. No effect when
-    # agent_planner_use_explore_python is False.
-    agent_planner_explore_python_keep_replaced_tools = False
     # Whether the planner is given a simulator to test candidate plans with
-    # (the evaluate_option_plan tool / option-model rollouts). When False, the
+    # (the submit_plan tool / option-model rollouts). When False, the
     # agent must plan open-loop from trajectory data and LLM reasoning alone
     # -- the genuinely model-free baseline.
     agent_planner_use_simulator = True
@@ -1568,10 +1547,6 @@ class GlobalSettings:
 
     # Agent bilevel approach settings
     agent_bilevel_max_samples_per_step = 50  # param samples per step
-    # Total refine_plan_sketch attempts (fresh rng each) when a refined
-    # plan reaches the goal atoms but the task evaluator scores it as a
-    # non-solve; all attempts share the one tool-call timeout budget.
-    agent_bilevel_refine_evaluator_attempts = 3
     agent_bilevel_check_subgoals = True  # check subgoal atoms after each step
     # When True, the agent proposes per-step continuous parameters inside the
     # plan sketch (`Option(obj:type)[p1, p2] -> {subgoals}`). Refinement tries
@@ -1614,7 +1589,7 @@ class GlobalSettings:
     # submission nudge.
     agent_solve_max_attempts = 1
     # Wall-clock budget per solve attempt, in seconds (0 disables). The
-    # turn cap bounds turns, not compute - one explore_python sweep hid
+    # turn cap bounds turns, not compute - one run_python sweep hid
     # 47k rollouts (~7 h) inside a single turn. On expiry, exploration
     # tools refuse with a submit-now message and the approach runs the
     # same best-effort submission flow as turn-cap exhaustion.
@@ -1625,10 +1600,10 @@ class GlobalSettings:
     # raw transcript history, which also carries the *wrong* conclusions
     # of failed attempts.
     agent_solve_fresh_context = False
-    # Persistent per-run solve journal (<sandbox>/journal.md): the harness
-    # auto-records each attempt's outcome + captured plan, the agent adds
-    # lessons via the record_journal tool, and the journal is injected
-    # into every solve prompt. Entries are capped and guided to record
+    # Persistent per-run solve journal: the harness logs each attempt's
+    # outcome + captured plan to <sandbox>/attempts.md, the agent keeps
+    # its own lessons in <sandbox>/journal.md with the file tools, and
+    # both are injected into every solve prompt. The prompts ask for
     # facts/measurements rather than verdicts, so failed attempts steer
     # later ones away from repeated sweeps without re-importing their
     # anchoring mistakes.
@@ -1636,7 +1611,7 @@ class GlobalSettings:
     # Closed-loop policy mode: the solve agent's deliverable is a per-task
     # PROGRAM (<sandbox>/policy.py with get_option(state, memory) -> next
     # plan line or None) validated in the belief model via the
-    # evaluate_policy tool and executed at test time WITHOUT an LLM in
+    # submit_policy tool and executed at test time WITHOUT an LLM in
     # the loop. Option failures are surfaced to the policy (via
     # memory["last_failure"]) instead of ending the episode, so recovery
     # (re-place a drifted block, re-aim after a BiRRT refusal) is the
@@ -1674,7 +1649,7 @@ class GlobalSettings:
     # would otherwise silently continue the old run; a Slurm requeue or
     # a prompt resubmission of a live run is always recent.
     auto_resume_max_age_hours = 36.0
-    # Per-call wall-clock limit for explore_python code execution, in
+    # Per-call wall-clock limit for solve-session run_python calls, in
     # seconds (0 disables). Enforced cooperatively at every probe sim
     # call, plus a hard async-exception watchdog for sim-free code (a
     # pure-Python loop blocks the event loop, so nothing else can stop
@@ -1683,7 +1658,7 @@ class GlobalSettings:
     # session for hours. Synthesis sessions (candidate-simulator probes,
     # whose rollouts are far slower and whose reset can trigger a
     # refit) are exempt from THIS cap and get the generous one below.
-    agent_sdk_explore_python_call_timeout = 600.0
+    agent_sdk_python_call_timeout = 600.0
     # Standalone hard cap on one synthesis-session run_python call.
     # Sized for legitimate slow work (candidate-sim rollouts, refits)
     # while still killing runaway in-call sweeps: run_20260826_151728's
@@ -1726,14 +1701,14 @@ class GlobalSettings:
     # under scripts/; the file may be a bare name or an absolute path.
     agent_bilevel_plan_sketch_dir = "plan_sketches"
     agent_bilevel_plan_sketch_file = ""
-    # When refine_plan_sketch is called without an explicit timeout,
-    # the tool computes
+    # When a sketch refinement runs without an explicit timeout, the
+    # caller computes
     #   max(_min, _per_step * len(sketch))
     # so plans with more steps automatically get more wall-clock budget.
     agent_bilevel_refinement_timeout_per_step = 30.0  # seconds per step
     agent_bilevel_refinement_timeout_min = 30.0  # floor on auto-scaled timeout
     # Total number of belief-sim rollouts a goal-reaching plan must pass in
-    # evaluate_option_plan before it is captured as the agent's answer. The
+    # submit_plan before it is captured as the agent's answer. The
     # shared sim env is nondeterministic across repeats (motion-planner
     # sampling, physics-solver state), so repeats sample the same execution
     # variability the real rollout will - a flaky plan is reported to the
@@ -1828,35 +1803,19 @@ class GlobalSettings:
     # option-model rollouts per search node: plain steps spend one per
     # backtracking attempt (classic semantics); info-seeking steps spend
     # the same budget pooling candidates (see refine_sketch).
-    agent_bilevel_explorer_max_samples_per_step = 50
 
-    # Active-experiment-design exploration: refinement picks the feasible
-    # continuous parameters the learned model is most *uncertain* about
-    # (ensemble disagreement on the step's subgoal atoms) instead of the
-    # first feasible sample, pushing probes toward learned decision
-    # boundaries. Off ⇒ identical to plain feasibility search.
+    # Active-experiment-design exploration: build the learned model's
+    # parameter ensemble so the agent can rank candidate probes by the
+    # ensemble's disagreement on a step's subgoal atoms
+    # (sim.suggest_probes) and the capture gate can sweep the rule-param
+    # margin. The agent decides what to run; the harness never moves
+    # its parameters. Off => no ensemble is built.
     agent_explorer_info_seeking = False
-    # Feasible candidates pooled per step before proposing the most
-    # informative; the pool doubles as the node's ranked retry stock and
-    # attempt cap (see bilevel_sketch.refine_sketch). 1 disables.
-    agent_explorer_info_n_feasible_target = 8
     # Ensemble size used to estimate disagreement. 1 disables scoring
     # (every candidate scores 0) and reduces to first-feasible.
     agent_explorer_info_ensemble_size = 6
-    # Exploration keeps the agent's explicit continuous parameters: a
-    # proposed value is a decision, not a seed. Refinement re-proposes a
-    # pinned step's own params on each attempt (the belief's motion
-    # planning and physics vary per rollout) and never samples a
-    # replacement for it; info-seeking boundary probing is limited to
-    # steps the agent left unspecified. Off restores seed-then-search
-    # (run_20260828_173502 traj8: a proposed [0.827, 1.148, 0.44, 0]
-    # butt Place executed as a sampled [1.081, 1.218, 0.484, -1.59];
-    # the agents then stripped their SeatedOn/LegAtSite annotations to
-    # keep refinement from wandering, blinding the divergence monitor).
-    agent_explorer_pin_proposed_params = True
-    agent_explorer_pinned_step_retries = 3
     # A plan the explore session validated through the capture gate
-    # (evaluate_option_plan / refine_plan_sketch: goal reached in
+    # (submit_plan: goal reached in
     # agent_plan_validation_rollouts fresh belief rollouts) is executed
     # verbatim as the episode's solve attempt with mental_model_solved=
     # True, and the cycle's remaining requests on that task replay it
@@ -2169,7 +2128,7 @@ class GlobalSettings:
     # sketch step's subgoal, instead of bilevel refinement drawing them
     # uniformly from the option's box. The agent authors a versioned
     # ``samplers.py`` (LEARNED_SAMPLERS keyed by option name) and tunes it
-    # with the ``evaluate_sampler`` tool. Sampler learning rides along in
+    # with ``sim.samplers()``. Sampler learning rides along in
     # the sim/predicate synthesis session when one runs
     # (oracle_sim_program=False); when no synthesis session runs
     # (oracle_sim_program=True) it gets a dedicated session of its own.

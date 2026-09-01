@@ -1,4 +1,4 @@
-"""The explore_python solve-phase exploration tool."""
+"""The solve-phase ``run_python`` tool over the belief probe."""
 from typing import Any, Callable, Dict
 
 from predicators.agent_sdk.config import ToolSurfaceConfig
@@ -11,9 +11,9 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
     """The BeliefProbe surface description, shared by every prompt/tool surface
     that offers the probe.
 
-    Solve sessions offer it through the standalone ``explore_python``
-    tool; synthesis sessions bind the same facade as ``sim`` inside
-    ``run_python``'s namespace. One renderer so the two descriptions
+    Solve sessions bind it as ``sim`` in ``run_python``'s namespace over
+    the deployed belief model; synthesis sessions bind the same facade
+    over the candidate simulator. One renderer so the two descriptions
     cannot drift. ``synthesis_probe`` selects the candidate-simulator
     wording (task_idx-required resets, ``sim.fit``, and the
     fit/refine/forward-run validation protocol).
@@ -89,7 +89,7 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
             "`sim.run(plan_text, render=True, trials=1, solved=False, "
             "contacts=False)` executes an option "
             "plan FROM THE CURRENT "
-            "STATE (same grammar as evaluate_option_plan; print the result "
+            "STATE (same grammar as submit_plan; print the result "
             "for per-step outcomes incl. saved per-step scene-image paths - "
             "view them with the Read tool; pass render=False inside tight "
             "sweep loops) and advances the state; `-> {subgoals}` "
@@ -147,7 +147,7 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
             "`sim.refine(sketch_text, timeout=60, require_goal=False, "
             "require_solved=False)` runs "
             "backtracking parameter search FROM THE CURRENT STATE (same "
-            "grammar/search as refine_plan_sketch"
+            "grammar as submit_plan"
             f"{_region_syntax_blurb()}; "
             "success = each step establishes its `-> {subgoals}` "
             "annotation, and the result's Verdict line states what it "
@@ -162,25 +162,21 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
 
 def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
                              tool: Callable) -> Dict[str, Any]:
-    """Solve-phase ``explore_python`` over the BeliefProbe exploration facade.
+    """Solve-phase ``run_python`` over the BeliefProbe exploration facade.
 
     The namespace is the probe facade, numpy, and the collected real
     trajectories as read-only evidence (see ``build_probe_namespace`` -
     nothing evaluator-shaped beyond the probe's gated paths): the probe
-    reuses the exact machinery behind ``evaluate_option_plan`` (same
+    reuses the exact machinery behind ``submit_plan`` (same
     plan grammar, same option-model executor, same renderer) but
     carries no scoring surface - nothing run here can be captured as
     the answer, so it is safe to hand the agent as a freely composable
-    physics probe. Built only when the session's config opts in: the
-    ``tool_names=None`` legacy surface would otherwise grant every
-    default-configured session an in-process exec tool. Synthesis
-    sessions do not surface this tool at all - there the same facade is
-    merged into ``run_python``'s namespace (one exec namespace per
-    session; see ``_get_synthesis_tool_names``).
+    physics probe. Synthesis sessions attach their own ``run_python``
+    (fit data + the candidate-simulator probe in one namespace; see
+    ``_get_synthesis_tool_names``), and ``create_mcp_tools`` skips this
+    instance when one is attached.
     """
     surface_cfg = ToolSurfaceConfig.from_cfg()
-    if not surface_cfg.use_explore_python:
-        return {}
     # pylint: disable-next=import-outside-toplevel
     from predicators.agent_sdk.belief_probe import build_probe_namespace
 
@@ -188,14 +184,15 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
         "EXPLORATORY "
         "ONLY: nothing run here is captured as your answer - preview "
         "the evaluator's verdict with sim.run(solved=True), then "
-        "validate and submit the final plan via evaluate_option_plan "
+        "validate and submit the final plan via submit_plan "
         "from the true initial state.")
-    explore_python = _make_python_exec_tool(
+    run_python = _make_python_exec_tool(
         tool,
-        name="explore_python",
+        name="run_python",
         description=(
-            "Execute Python code for cheap physics/geometry exploration in "
-            "a persistent namespace (variables survive across calls - "
+            "Execute Python code (`code`, or `path` to a .py file you "
+            "wrote in the sandbox) for cheap physics/geometry exploration "
+            "in a persistent namespace (variables survive across calls - "
             "define helpers and sweep loops once, reuse them). Available: " +
             belief_probe_blurb(synthesis_probe=False) +
             " Also bound: `np`; `trajectories` (the recorded REAL "
@@ -207,19 +204,18 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
             "digest of one of them. "
             "print() output is "
             "returned; oversize output is spilled to "
-            "`tool_outputs/explore_python/` (Read/Grep it back). " +
+            "`tool_outputs/run_python/` (Read/Grep it back). " +
             (f"Each call has a "
-             f"{surface_cfg.explore_python_call_timeout:.0f}s "
+             f"{surface_cfg.python_call_timeout:.0f}s "
              "wall-clock limit (checked between sim calls, plus a hard stop "
              "for sim-free code; printed output up to the stop is "
              "returned): budget sweeps accordingly - "
              "prefer coarse-to-fine over exhaustive grids, and print "
-             "intermediate bests so partial results survive a stop. "
-             if surface_cfg.explore_python_call_timeout > 0 else "") +
-            f"{submit_desc}"),
+             "intermediate bests so partial results survive a stop. " if
+             surface_cfg.python_call_timeout > 0 else "") + f"{submit_desc}"),
         exec_ns=build_probe_namespace(ctx),
         sandbox_dir=ctx.sandbox_dir,
         text_result=_text_result,
         budget_ctx=ctx,
     )
-    return {"explore_python": explore_python}
+    return {"run_python": run_python}

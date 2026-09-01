@@ -3,11 +3,6 @@ from typing import List, Optional
 
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.exploration import _build_exploration_tools
-from predicators.agent_sdk.tools.inspection import _build_inspection_tools
-from predicators.agent_sdk.tools.journal_tools import _build_journal_tools
-from predicators.agent_sdk.tools.planning import _build_planning_tools
-from predicators.agent_sdk.tools.proposals import _build_proposal_tools, \
-    _build_retraction_tools
 from predicators.agent_sdk.tools.results import _make_coercing_tool, \
     _make_spilling_text_result
 from predicators.agent_sdk.tools.testing import _build_testing_tools
@@ -34,18 +29,21 @@ def create_mcp_tools(ctx: ToolContext,
     # routes through the spiller with no call-site edits.
     _text_result = _make_spilling_text_result(ctx.sandbox_dir)
 
+    # A session-specific instance attached to ``ctx.extra_mcp_tools``
+    # wins over the static builder of the same name: synthesis sessions
+    # attach their own ``run_python`` (fit data + candidate-simulator
+    # probe in one namespace), so the solve-phase instance is neither
+    # built nor offered there.
+    extra_names = {getattr(t, "name", "") for t in ctx.extra_mcp_tools}
     _all = {
-        **_build_inspection_tools(ctx, _text_result, tool),
-        **_build_proposal_tools(ctx, _text_result, tool),
-        **_build_retraction_tools(ctx, _text_result, tool),
         **_build_testing_tools(ctx, _text_result, tool),
-        **_build_planning_tools(ctx, _text_result, tool),
-        **_build_exploration_tools(ctx, _text_result, tool),
-        **_build_journal_tools(ctx, _text_result, tool),
+        **({} if "run_python" in extra_names else _build_exploration_tools(
+               ctx, _text_result, tool)),
     }
     if tool_names is None:
         tools = list(_all.values())
     else:
         tools = [_all[n] for n in tool_names if n in _all]
+    tools = [t for t in tools if getattr(t, "name", "") not in extra_names]
     tools.extend(ctx.extra_mcp_tools)
     return tools

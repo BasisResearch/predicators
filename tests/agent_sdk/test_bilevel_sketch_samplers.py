@@ -638,9 +638,9 @@ def test_execute_plan_forward_continues_past_zero_action_failure():
 
 
 def test_execute_plan_forward_stop_on_failure_aborts():
-    """With stop_on_failure (the evaluate_option_plan path), a 0-action step
-    aborts execution like the real executor: later steps don't run and the goal
-    is not reached."""
+    """With stop_on_failure (the submit_plan path), a 0-action step aborts
+    execution like the real executor: later steps don't run and the goal is not
+    reached."""
     plan = [
         _Stuck.ground([_block], np.array([0.5], dtype=np.float32)),
         _Move.ground([_block], np.array([0.95], dtype=np.float32)),
@@ -728,8 +728,8 @@ def test_execute_plan_forward_not_initiable_stops():
 def test_refine_and_validate_report_returns_plan():
     """refine_and_validate_report yields (success, report, plan).
 
-    The grounded plan is what refine_plan_sketch captures so the
-    approach can return the simulator-verified answer directly.
+    The grounded plan is what the refinement captures so the approach
+    can return the simulator-verified answer directly.
     """
     step = SketchStep(option=_Move,
                       objects=[_block],

@@ -162,7 +162,7 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
             await self.start_session()
 
         # Wall-clock backstop for the solve attempt deadline: the probe
-        # and explore_python enforce it cooperatively (tool calls refuse
+        # and run_python enforce it cooperatively (tool calls refuse
         # past the deadline), so normally the agent wraps up on its own;
         # interrupt only if the turn stream is still going long after.
         # The approach clears attempt_deadline before its final-submission
@@ -189,20 +189,6 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
             log_path=log_path,
             kind=kind,
             on_entry=_maybe_interrupt_on_deadline)
-
-        # Log proposals (matches Docker sandbox logging)
-        proposals = self._tool_context.iteration_proposals
-        if proposals.proposed_options or proposals.retract_option_names:
-            logger.info(
-                "Local sandbox proposals: proposed_options=%s, "
-                "retract=%s",
-                [o.name for o in proposals.proposed_options],
-                sorted(proposals.retract_option_names),
-            )
-            logger.info(
-                "After local sandbox query: tool_context.options=%s",
-                sorted(o.name for o in self._tool_context.options),
-            )
 
         return collected
 

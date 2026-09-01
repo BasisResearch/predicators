@@ -120,7 +120,6 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "responses": collected,
-        "iteration_proposals": ctx.iteration_proposals,
     }
 
 
@@ -318,7 +317,6 @@ def main() -> None:
                 "type": "error",
                 "error": str(e)
             }],
-            "iteration_proposals": None,
         }
 
     # Save output

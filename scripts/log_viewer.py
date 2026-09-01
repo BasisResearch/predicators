@@ -26,7 +26,8 @@ Format contracts this viewer relies on:
     from format_conversation_markdown() in agent_sdk/log_formatter.py
   * "Captured as the current answer"/"NOT CAPTURED" capture verdicts and
     "Goal achieved: True|False" rollout lines inside tool-result blocks,
-    from evaluate_option_plan in agent_sdk/tools/testing.py
+    from submit_plan (formerly evaluate_option_plan) in
+    agent_sdk/tools/testing.py
   * "Test results: defaultdict(..., {...})" lines in info.log
 
 Format contracts, continued:
@@ -81,7 +82,8 @@ INTERACTION_CYCLE_VIDEO_RE = re.compile(r"__cycle([^.]*)\.mp4$")
 RESULT_RE = re.compile(
     r"\*\*Result:\*\* (\d+) turns, \$([\d.]+) this solve, \$([\d.]+) total")
 GOAL_RE = re.compile(r"Goal achieved: (True|False)")
-# Session-level capture verdicts from evaluate_option_plan (agent_sdk/
+# Session-level capture verdicts from submit_plan (formerly
+# evaluate_option_plan; agent_sdk/
 # tools/testing.py). A "Goal achieved" line only says one sim rollout
 # reached the goal atoms; the capture verdict is what decides whether the
 # session actually produced an answer. A best-effort capture (budget
@@ -809,7 +811,8 @@ def _parse_episode(path: str) -> Dict[str, Any]:
     info: Dict[str, Any] = {}
     captures = CAPTURED_RE.findall(text)
     if captures or NOT_CAPTURED_RE.search(text):
-        # The session used evaluate_option_plan: its capture verdicts are
+        # The session used submit_plan (formerly evaluate_option_plan):
+        # its capture verdicts are
         # the agent-side outcome. "Goal achieved" lines are per-rollout
         # goal-atom checks that stay True even when the evaluator rejects
         # the plan (solved=False), so they must not decide the session.

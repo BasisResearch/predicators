@@ -1,4 +1,4 @@
-"""Testing tools, including the evaluate_option_plan capture surface."""
+"""Testing tools, including the submit_plan capture surface."""
 import contextlib
 import functools
 import logging
@@ -9,15 +9,14 @@ import numpy as np
 
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
-from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig, \
-    ValidationConfig
+from predicators.agent_sdk.config import RefinementConfig, ValidationConfig
 from predicators.agent_sdk.parallel_rollouts import \
     prefetch_parallel as _prefetch_parallel
 from predicators.agent_sdk.tools.budget import _budget_footer
 from predicators.agent_sdk.tools.capture import BestEffortReason, \
     CaptureDecision, _decide_capture
 from predicators.agent_sdk.tools.context import ToolContext, \
-    _capture_task_key, absolute_rollout_seed, decorrelated_rollout_seed
+    _capture_task_key, decorrelated_rollout_seed
 from predicators.agent_sdk.tools.results import _error_result
 from predicators.agent_sdk.tools.scene import format_object_poses, \
     render_scene_image
@@ -65,8 +64,8 @@ def _parameter_margin_sweep(
     """Margin sweep over BOTH parameter-uncertainty sources of one.
 
     capture-eligible submission - the single code path behind the
-    physics-margin and rule-parameter gates of ``evaluate_option_plan``
-    and ``evaluate_policy``.
+    physics-margin and rule-parameter gates of ``submit_plan``
+    and ``submit_policy``.
 
     The execution repeats before this all run AT the fitted parameters,
     so they cannot see a submission whose success band excludes the
@@ -163,127 +162,40 @@ def _parameter_margin_sweep(
 
 def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                          tool: Callable) -> Dict[str, Any]:
-    """Evaluation tools (run predicates / option plans against tasks)."""
-
-    @tool(
-        "evaluate_predicate_on_trajectory",
-        "Evaluate a predicate's truth value across timesteps in a trajectory",
-        {
-            "type": "object",
-            "properties": {
-                "predicate_name": {
-                    "type": "string",
-                    "description": "Name of the predicate to test"
-                },
-                "traj_idx": {
-                    "type": "integer",
-                    "description": "Trajectory index"
-                },
-                "object_names": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "description": "Object names to ground the predicate on"
-                },
-            },
-            "required": ["predicate_name", "traj_idx", "object_names"],
-        },
-    )
-    async def evaluate_predicate_on_trajectory(
-            args: Dict[str, Any]) -> Dict[str, Any]:
-        pred_name = args["predicate_name"]
-        traj_idx = args["traj_idx"]
-        object_names = args["object_names"]
-
-        # Find the predicate
-        all_preds = ctx.predicates | ctx.iteration_proposals.proposed_predicates
-        pred = None
-        for p in all_preds:
-            if p.name == pred_name:
-                pred = p
-                break
-        if pred is None:
-            return _error_result(f"Predicate '{pred_name}' not found.")
-
-        all_trajs = ctx.offline_trajectories + ctx.online_trajectories
-        if not all_trajs:
-            return _error_result("No trajectories available yet.")
-        if traj_idx < 0 or traj_idx >= len(all_trajs):
-            return _error_result(f"Invalid traj_idx {traj_idx}. "
-                                 f"Available: 0-{len(all_trajs)-1}")
-
-        traj = all_trajs[traj_idx]
-
-        # Find objects by name
-        objects = []
-        for name in object_names:
-            found = None
-            for obj in traj.states[0]:
-                if obj.name == name:
-                    found = obj
-                    break
-            if found is None:
-                avail = [o.name for o in sorted(traj.states[0], key=str)]
-                return _error_result(f"Object '{name}' not found in "
-                                     f"trajectory {traj_idx}. "
-                                     f"Available: {avail}")
-            objects.append(found)
-
-        results = []
-        for t_step, state in enumerate(traj.states):
-            try:
-                val = pred.holds(state, objects)
-                results.append(f"t={t_step}: {val}")
-            except Exception as e:  # pylint: disable=broad-except
-                results.append(f"t={t_step}: ERROR ({e})")
-
-        return _text_result(
-            f"Predicate {pred_name}({', '.join(object_names)}) "
-            f"over trajectory {traj_idx}:\n" + "\n".join(results))
+    """Evaluation tools (option plans / policies against tasks)."""
 
     # Tool descriptions bake config values at BUILD time (session open);
     # the handlers below re-read config at CALL time.
     _gs_eval_doc = (
         "Runs your exact params with NO sampling (a `~` ground-sampler "
         "annotation - `~ [w1, w2]` region or `~ my_sampler` - is accepted "
-        "but IGNORED here; only refine_plan_sketch uses it). "
+        "but IGNORED here; only `sim.refine` uses it). "
         if RefinementConfig.from_cfg().ground_samplers else
         "Runs your exact params with NO sampling. ")
 
-    # When the session carries explore_python, the two surfaces divide
-    # cleanly: exploration (modified states, partial plans, sweeps)
-    # belongs in the probe, and this tool is the SUBMISSION path.
-    _probe_split_doc = (
-        " This tool always runs from the task's TRUE initial state and is "
-        "the ONLY path that captures an answer: do your exploration "
-        "(modified states, partial plans, parameter sweeps) in "
-        "explore_python, then validate and SUBMIT the final plan here."
-        if ToolSurfaceConfig.from_cfg().use_explore_python else "")
-
     @tool(
-        "evaluate_option_plan",
-        "Execute a fully-specified plan on a task via the option model and "
-        "report the result at each step. `plan` is text — one option per "
-        "line, same grammar as refine_plan_sketch: "
-        "`Option(obj1:type1, obj2:type2)[param1, param2] -> {Atom(obj:type), "
-        "...}` (typed object refs; EXACT continuous params in `[]`, `[]` for "
-        "none; optional `-> {atoms}` subgoals, prefix NOT to require false). "
-        + _gs_eval_doc + "Use include_states/"
-        "include_atoms to control output. If the plan reaches the goal on the "
-        "CURRENT task (omit task_idx), it is captured as your answer, and the "
-        "per-step subgoals make it execute closed-loop (monitored, with "
-        "replan-on-divergence). Capture is gated: a goal-reaching plan is "
-        "re-run several times (simulation varies across runs; each rollout "
-        "reports the motion-planner seed it ran at) and a FLAKY plan is "
-        "reported instead of captured - add margin and resubmit. "
-        "`validation_rollouts` requests a STRICTER gate for this "
-        "submission (more rollouts; never fewer than configured). "
-        "`rollout_seed` re-runs the plan at that exact planner seed "
-        "with full per-step reporting - use it to reproduce and debug a "
-        "reported failed rollout; combine with validation_rollouts=N for "
-        "N seeded trials at consecutive seeds. A seeded run is diagnostic "
-        "only and is never captured. "
+        "submit_plan",
+        "SUBMIT a fully-specified plan as your answer for the CURRENT task. "
+        "`plan` is text - one option per line, same grammar as `sim.run` / "
+        "`sim.refine`: `Option(obj1:type1, obj2:type2)[param1, param2] -> "
+        "{Atom(obj:type), ...}` (typed object refs; EXACT continuous params "
+        "in `[]`, `[]` for none; optional `-> {atoms}` subgoals, prefix NOT "
+        "to require false). " + _gs_eval_doc +
+        "The plan is rolled out from the task's TRUE initial state through "
+        "the belief model and reported step by step (include_states/"
+        "include_atoms control the report). If it reaches the goal it is "
+        "captured as your answer, and the per-step subgoals make it execute "
+        "closed-loop (monitored, with replan-on-divergence). Capture is "
+        "gated: a goal-reaching plan is re-run several times (simulation "
+        "varies across runs; each rollout reports the motion-planner seed "
+        "it ran at) and a FLAKY plan is reported instead of captured - "
+        "reproduce a failed rollout with `sim.run(plan, seed=S)` in "
+        "run_python, add margin, and resubmit. `validation_rollouts` "
+        "requests a STRICTER gate for this submission (more rollouts; never "
+        "fewer than configured). This is the ONLY path that captures an "
+        "answer: explore (other tasks, modified states, partial plans, "
+        "parameter sweeps, seeded reproductions) with `sim` in run_python, "
+        "then submit the final plan here. "
         "When identified physical parameters are active, it is also re-run "
         "at a grid of perturbations spanning +-1 sigma of those parameters "
         "(the physics fit's own uncertainty); a PARAM-SENSITIVE plan is "
@@ -292,7 +204,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         "When the task has an evaluator, a goal-reaching plan the evaluator "
         "still scores as a non-solve (no success credit in its reward) is "
         "NOT captured (the real env applies the same scoring, so it could "
-        "never count as a solve)." + _probe_split_doc,
+        "never count as a solve).",
         {
             "type": "object",
             "properties": {
@@ -321,13 +233,6 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                     "Include atoms added/deleted after each step",
                     "default": True
                 },
-                "task_idx": {
-                    "type":
-                    "integer",
-                    "description":
-                    "Train task index to test on. Omit to use "
-                    "the current solve-time task."
-                },
                 "validation_rollouts": {
                     "type":
                     "integer",
@@ -336,27 +241,13 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                     "rollouts a goal-reaching submission must pass. The "
                     "effective count is max(configured gate, this) - it can "
                     "raise the gate but never lower it. Use before "
-                    "committing a plan you suspect is marginal. Combined "
-                    "with rollout_seed=S it instead runs exactly this many "
-                    "DIAGNOSTIC trials at planner seeds S, S+1, ... (each "
-                    "outcome reported with its seed; never captured).",
-                },
-                "rollout_seed": {
-                    "type":
-                    "integer",
-                    "description":
-                    "Diagnostic: run the plan at this exact motion-planner "
-                    "seed (as reported per rollout in validation output) "
-                    "with full per-step reporting, to reproduce a failed "
-                    "validation rollout. Add validation_rollouts=N to run "
-                    "N trials at seeds S, S+1, ..., like sim.run(plan, "
-                    "trials=N, seed=S). A seeded run is never captured.",
+                    "committing a plan you suspect is marginal.",
                 },
             },
             "required": ["plan"],
         },
     )
-    async def evaluate_option_plan(args: Dict[str, Any]) -> Dict[str, Any]:
+    async def submit_plan(args: Dict[str, Any]) -> Dict[str, Any]:
         refine_cfg = RefinementConfig.from_cfg()
         validation_cfg = ValidationConfig.from_cfg()
         ctx.test_call_id += 1
@@ -369,46 +260,40 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         if ctx.option_model is None:
             return _error_result("No option model available in ToolContext.")
 
-        # Sync the option model's option map with all current options
-        # (GT + proposed) so it stays in sync after propose/retract.
-        all_options = ctx.options | ctx.iteration_proposals.proposed_options
+        all_options = ctx.options
         opt_map = {o.name: o for o in all_options}
         model = ctx.option_model
         model._name_to_parameterized_option = (  # type: ignore[attr-defined]  # pylint: disable=protected-access
             opt_map)
 
-        task_idx = args.get("task_idx")
         plan_text = (args.get("plan") or "").strip()
         include_states = args.get("include_states", False)
         include_atoms = args.get("include_atoms", True)
         requested_rollouts = args.get("validation_rollouts")
-        diagnostic_seed = args.get("rollout_seed")
         if requested_rollouts is not None and (not isinstance(
                 requested_rollouts, int) or requested_rollouts < 1):
             return _error_result(
                 "validation_rollouts must be a positive integer.")
-        if diagnostic_seed is not None and not isinstance(
-                diagnostic_seed, int):
-            return _error_result("rollout_seed must be an integer.")
 
-        resolved, task_err = _resolve_task(ctx, task_idx)
+        # Always the CURRENT task from its true initial state: this is
+        # the submission path, and exploration on other tasks or from
+        # modified states lives on the probe (sim.run).
+        resolved, task_err = _resolve_task(ctx, None)
         if task_err is not None:
             return task_err
         assert resolved is not None
         task = resolved.task
         task_label = resolved.label
-        is_current = resolved.is_current
 
         lines = [f"Testing option plan on task {task_label}:"]
         saved_image_paths: List[str] = []
 
-        all_predicates = (ctx.predicates
-                          | ctx.iteration_proposals.proposed_predicates)
+        all_predicates = ctx.predicates
 
         if not plan_text:
             return _error_result("`plan` is required (option plan text).")
         # Parse the text plan into a sketch (options + objects + exact params +
-        # subgoals) using the SAME grammar/parser as refine_plan_sketch.
+        # subgoals) using the SAME grammar/parser as sim.refine.
         types = set(ctx.types)
         for opt in all_options:
             types.update(opt.types)
@@ -490,11 +375,6 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 step_line += ("\n  State:\n" +
                               post.dict_str(indent=4, num_decimal_points=4))
             lines.append(step_line)
-            # A seeded diagnostic rollout runs on a FRESH env (when the
-            # session provides one), but the renderer draws the shared
-            # session env - its stale scene would be misleading.
-            if diagnostic_seed is not None and diag_fresh_scope is not None:
-                return
             img_block = render_scene_image(ctx, f"step_{i}_{opt.name}")
             if img_block and img_block.get("saved_path"):
                 saved_image_paths.append(img_block["saved_path"])
@@ -505,37 +385,13 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # continue past a collision and report a goal that the real rollout —
         # which ends the episode at that failed option — never reaches.
         ctx.attempt_rollout_count += 1
-        # A seeded diagnostic rollout reproduces a validation repeat
-        # faithfully: fresh env (when the session provides one) plus the
-        # requested planner seed. diag_fresh_scope is also read by
-        # _report_step to skip stale-env renders.
-        diag_fresh_scope = (ctx.validation_env_scope
-                            if diagnostic_seed is not None
-                            and validation_cfg.fresh_env else None)
-        if diagnostic_seed is not None:
-            trials_note = (
-                f"; running {min(requested_rollouts, _MAX_REQUESTED_ROLLOUTS)}"
-                " diagnostic trials at consecutive seeds"
-                if requested_rollouts is not None and requested_rollouts > 1
-                else "; validation repeats skipped")
-            lines.append(
-                f"DIAGNOSTIC rollout at planner seed {diagnostic_seed}" +
-                (" on a fresh simulator env"
-                 if diag_fresh_scope is not None else "") +
-                f" - never captured{trials_note}. Resubmit without "
-                "rollout_seed to capture.")
-        with (diag_fresh_scope() if diag_fresh_scope is not None else
-              contextlib.nullcontext()), \
-                absolute_rollout_seed(diagnostic_seed):
-            result = bilevel_sketch.execute_plan_forward(
-                task,
-                grounded_plan,
-                ctx.option_model,
-                predicates=all_predicates,
-                sketch=sketch_steps,
-                on_step=_report_step,
-                stop_on_failure=True)
-
+        result = bilevel_sketch.execute_plan_forward(task,
+                                                     grounded_plan,
+                                                     ctx.option_model,
+                                                     predicates=all_predicates,
+                                                     sketch=sketch_steps,
+                                                     on_step=_report_step,
+                                                     stop_on_failure=True)
         final_atoms = utils.abstract(result.final_state, ctx.predicates)
         # Use the env's goal-check (its own classifiers); robust to invented
         # predicates that don't reuse env names.
@@ -669,12 +525,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 lines.append(
                     f"NOTE: validation_rollouts={requested_rollouts} capped "
                     f"at {_MAX_REQUESTED_ROLLOUTS}.")
-            # With rollout_seed the request means "this many diagnostic
-            # trials", exactly as asked - there is no capture gate to
-            # protect, so neither the configured gate nor the flaky
-            # escalation inflates it.
-            if diagnostic_seed is None:
-                n_rollouts = max(n_rollouts, capped_request)
+            n_rollouts = max(n_rollouts, capped_request)
         # Fresh env per validation rollout when the approach provides one:
         # repeats on the shared env are correlated (its reset cannot
         # reconstruct state exactly), so only fresh envs sample the same
@@ -691,9 +542,9 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # excluded: they run under deliberately perturbed physics.
         passing_validation_posts: List[List[Optional[State]]] = []
         base_planner_seed = CFG.seed
-        if (ctx.capture_goal_reaching_plans and is_current and goal_achieved
+        if (ctx.capture_goal_reaching_plans and goal_achieved
                 and not evaluator_rejected and grounded_plan
-                and diagnostic_seed is None and n_rollouts > 1):
+                and n_rollouts > 1):
             # Run ALL validation rollouts even after a failure: the
             # per-rollout outcome list distinguishes failure modes (a
             # physics-tail fizzle vs. an IK stall vs. a certificate
@@ -748,45 +599,6 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                     "across runs; repeats sample that execution "
                     f"variability{fresh_note}).")
 
-        # Diagnostic trials: rollout_seed combined with
-        # validation_rollouts=N runs N rollouts at planner seeds
-        # S, S+1, ..., S+N-1 (rollout 1, reported step by step above,
-        # ran at S) - the same contract as explore_python's
-        # ``sim.run(plan, trials=N, seed=S)``. Reported only: a seeded
-        # run never captures and never arms the flaky escalation.
-        if (diagnostic_seed is not None and grounded_plan
-                and capped_request is not None and capped_request > 1):
-            r1_ok = (result.first_failure_idx is None and result.goal_reached)
-            if r1_ok:
-                r1_line = "goal reached"
-            elif result.first_failure_idx is not None:
-                r1_line = "FAILED - see the step report above"
-            else:
-                r1_line = "goal NOT reached"
-            diag_outcomes = [
-                f"rollout 1 (planner seed {diagnostic_seed}): {r1_line}"
-            ]
-            for repeat_idx in range(2, capped_request + 1):
-                ctx.attempt_rollout_count += 1
-                repeat_seed = diagnostic_seed + repeat_idx - 1
-                with (fresh_scope() if fresh_scope is not None else
-                      contextlib.nullcontext()), \
-                        absolute_rollout_seed(repeat_seed):
-                    ok, why, _ = _validation_rollout()
-                if ok:
-                    diag_outcomes.append(f"rollout {repeat_idx} (planner seed "
-                                         f"{repeat_seed}): goal reached")
-                else:
-                    diag_outcomes.append(f"rollout {repeat_idx} (planner seed "
-                                         f"{repeat_seed}): FAILED - {why}")
-            n_ok_diag = sum(1 for o in diag_outcomes
-                            if o.endswith("goal reached"))
-            per_diag = "\n".join(f"  {o}" for o in diag_outcomes)
-            lines.append(
-                f"Diagnostic trials: {n_ok_diag}/{capped_request} reached "
-                f"the goal (planner seeds {diagnostic_seed}-"
-                f"{diagnostic_seed + capped_request - 1}):\n{per_diag}")
-
         # Parameter-margin gates (see _parameter_margin_sweep): the
         # execution repeats above all run AT the fitted parameters, so
         # they cannot see a plan whose success band excludes the fit's
@@ -795,8 +607,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         param_sensitive_detail: Optional[str] = None
         margin_outcomes: List[str] = []
         if (fresh_scope is not None and ctx.capture_goal_reaching_plans
-                and is_current and goal_achieved and not evaluator_rejected
-                and grounded_plan and diagnostic_seed is None
+                and goal_achieved and not evaluator_rejected and grounded_plan
                 and flaky_detail is None):
             margin_outcomes, param_sensitive_detail, margin_note = \
                 _parameter_margin_sweep(
@@ -825,16 +636,12 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # also documents the best-effort-mode semantics); the branches
         # below apply its ctx mutations and format its messages.
         capture_outcome = _decide_capture(
-            # A seeded diagnostic rollout is never captured: letting the
-            # agent choose the planner seed of a capturing rollout would
-            # let a cherry-picked known-good seed bypass the gate.
             # In policy mode the deliverable is policy.py (via
-            # evaluate_policy); this tool remains a probe but can no
+            # submit_policy); this tool remains a probe but can no
             # longer capture the answer.
             capture_enabled=(ctx.capture_goal_reaching_plans
-                             and not ctx.policy_capture_mode
-                             and diagnostic_seed is None),
-            is_current_task=is_current,
+                             and not ctx.policy_capture_mode),
+            is_current_task=True,
             have_plan=bool(grounded_plan),
             goal_achieved=goal_achieved,
             evaluator_rejected=evaluator_rejected,
@@ -1023,8 +830,8 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 "real environment samples the same variability - a plan "
                 "that only sometimes succeeds in simulation will likely "
                 "fail for real. To debug a failed rollout first, re-run "
-                "it exactly: call this tool with rollout_seed=<the failed "
-                "rollout's planner seed> for full per-step reporting at "
+                "it exactly in run_python: sim.run(plan, seed=<the failed "
+                "rollout's planner seed>) gives full per-step reporting at "
                 "that seed. Then add margin (e.g. tighter spacing, aim "
                 "impacts closer to the middle of the fall path) and "
                 "resubmit. Because this task has now produced a flaky "
@@ -1059,11 +866,6 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 "same scoring, so executing this plan cannot count as a "
                 "solve. Find a plan whose rollout the evaluator scores "
                 "solved=True.")
-        elif decision is CaptureDecision.WRONG_TASK_NOTE:
-            lines.append(
-                f"NOTE: this ran on train task {task_label}, NOT the current "
-                "task, so it is NOT captured as your answer. To submit, "
-                "re-run the plan on the current task (omit task_idx).")
         if result.first_failure_idx is not None:
             fr = result.steps[result.first_failure_idx].failure_reason
             lines.append(
@@ -1125,7 +927,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                             _budget_footer(ctx, rollouts_before))
 
     @tool(
-        "evaluate_policy",
+        "submit_policy",
         "Validate ./policy.py - your closed-loop `get_option(state, memory)` "
         "program - on the CURRENT task and capture it as your answer. The "
         "policy source is SNAPSHOTTED at call time (later edits need a new "
@@ -1140,14 +942,13 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         "one identical line that keeps completing with no state change "
         "(its no-op livelock twin) DO end it. Capture "
         "is gated like "
-        "evaluate_option_plan: the goal-reaching rollout is repeated "
+        "submit_plan: the goal-reaching rollout is repeated "
         "several times (fresh simulator env + varied planner seed per "
         "repeat, fresh memory per episode) and a FLAKY policy is reported "
         "instead of captured; physics-margin perturbations apply too. "
-        "`validation_rollouts` requests a stricter gate; `rollout_seed` "
-        "runs one diagnostic rollout at that planner seed (never "
-        "captured). Test recovery behavior first with sim.run_policy() in "
-        "explore_python, which runs ./policy.py from the CURRENT probe "
+        "`validation_rollouts` requests a stricter gate. Test recovery "
+        "behavior first with sim.run_policy() in "
+        "run_python, which runs ./policy.py from the CURRENT probe "
         "state (including perturbed or mid-plan states).",
         {
             "type": "object",
@@ -1160,15 +961,6 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                     "rollouts a goal-reaching policy must pass (effective "
                     "count is max(configured, this); never fewer).",
                 },
-                "rollout_seed": {
-                    "type":
-                    "integer",
-                    "description":
-                    "Diagnostic: run ONE rollout at this exact motion-"
-                    "planner seed with full per-step reporting, to "
-                    "reproduce a reported failed validation rollout. Never "
-                    "captured.",
-                },
                 "include_atoms": {
                     "type": "boolean",
                     "description":
@@ -1178,7 +970,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             },
         },
     )
-    async def evaluate_policy(args: Dict[str, Any]) -> Dict[str, Any]:
+    async def submit_policy(args: Dict[str, Any]) -> Dict[str, Any]:
         # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk.policy_execution import \
             build_policy_option_fn, execute_policy_forward
@@ -1187,26 +979,22 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         rollouts_before = ctx.attempt_rollout_count
         if not ctx.policy_capture_mode:
             return _error_result(
-                "evaluate_policy is only available in policy mode "
+                "submit_policy is only available in policy mode "
                 "(agent_solve_policy_mode); submit plans via "
-                "evaluate_option_plan instead.")
+                "submit_plan instead.")
         if ctx.option_model is None:
             return _error_result("No option model available in ToolContext.")
-        all_options = ctx.options | ctx.iteration_proposals.proposed_options
+        all_options = ctx.options
         model = ctx.option_model
         model._name_to_parameterized_option = (  # type: ignore[attr-defined]  # pylint: disable=protected-access
             {o.name: o
              for o in all_options})
         requested_rollouts = args.get("validation_rollouts")
-        diagnostic_seed = args.get("rollout_seed")
         include_atoms = args.get("include_atoms", True)
         if requested_rollouts is not None and (not isinstance(
                 requested_rollouts, int) or requested_rollouts < 1):
             return _error_result(
                 "validation_rollouts must be a positive integer.")
-        if diagnostic_seed is not None and not isinstance(
-                diagnostic_seed, int):
-            return _error_result("rollout_seed must be an integer.")
 
         resolved, task_err = _resolve_task(ctx, None)
         if task_err is not None:
@@ -1224,8 +1012,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         with open(policy_path, "r", encoding="utf-8") as f:
             policy_source = f.read()
 
-        all_predicates = (ctx.predicates
-                          | ctx.iteration_proposals.proposed_predicates)
+        all_predicates = ctx.predicates
         types = set(ctx.types)
         for opt in all_options:
             types.update(opt.types)
@@ -1269,30 +1056,17 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 step_line += (f"\n  Added:   {{{added_s}}}"
                               f"\n  Deleted: {{{del_s}}}")
             lines.append(step_line)
-            if diagnostic_seed is not None and diag_fresh_scope is not None:
-                return
             img_block = render_scene_image(ctx, f"policy_step_{i}_{opt.name}")
             if img_block and img_block.get("saved_path"):
                 saved_image_paths.append(img_block["saved_path"])
 
         ctx.attempt_rollout_count += 1
-        diag_fresh_scope = (ctx.validation_env_scope
-                            if diagnostic_seed is not None
-                            and validation_cfg.fresh_env else None)
-        if diagnostic_seed is not None:
-            lines.append(
-                f"DIAGNOSTIC rollout at planner seed {diagnostic_seed} - "
-                "never captured. Call again without rollout_seed to "
-                "capture.")
-        with (diag_fresh_scope() if diag_fresh_scope is not None else
-              contextlib.nullcontext()), \
-                absolute_rollout_seed(diagnostic_seed):
-            result = execute_policy_forward(task,
-                                            option_fn,
-                                            model,
-                                            predicates=all_predicates,
-                                            max_policy_options=max_opts,
-                                            on_step=_report_step)
+        result = execute_policy_forward(task,
+                                        option_fn,
+                                        model,
+                                        predicates=all_predicates,
+                                        max_policy_options=max_opts,
+                                        on_step=_report_step)
 
         goal_reached = result.goal_reached
         within_horizon = (result.actions_to_goal is not None
@@ -1376,7 +1150,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         capture_task_key = _capture_task_key(ctx)
         if capture_task_key in ctx.flaky_capture_task_keys:
             n_rollouts = max(n_rollouts, validation_cfg.rollouts_after_flaky)
-        if requested_rollouts is not None and diagnostic_seed is None:
+        if requested_rollouts is not None:
             n_rollouts = max(n_rollouts,
                              min(requested_rollouts, _MAX_REQUESTED_ROLLOUTS))
         fresh_scope = (ctx.validation_env_scope
@@ -1384,8 +1158,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         rollout_outcomes: List[str] = []
         base_planner_seed = CFG.seed
         if (ctx.capture_goal_reaching_plans and goal_achieved
-                and not evaluator_rejected and diagnostic_seed is None
-                and n_rollouts > 1):
+                and not evaluator_rejected and n_rollouts > 1):
 
             def _policy_repeat_rollout(repeat_idx: int) -> Tuple[bool, str]:
                 with (fresh_scope() if fresh_scope is not None else
@@ -1423,13 +1196,13 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                     f"{base_planner_seed + n_rollouts - 1}; fresh env and "
                     "fresh policy memory per rollout).")
 
-        # Parameter-margin gates, mirroring evaluate_option_plan (one
+        # Parameter-margin gates, mirroring submit_plan (one
         # shared code path: see _parameter_margin_sweep).
         param_sensitive_detail: Optional[str] = None
         margin_outcomes: List[str] = []
         if (fresh_scope is not None and ctx.capture_goal_reaching_plans
                 and goal_achieved and not evaluator_rejected
-                and diagnostic_seed is None and flaky_detail is None):
+                and flaky_detail is None):
             margin_outcomes, param_sensitive_detail, margin_note = \
                 _parameter_margin_sweep(ctx, validation_cfg, fresh_scope,
                                         _policy_validation_rollout, "policy")
@@ -1437,8 +1210,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
 
         capture_outcome = _decide_capture(
             capture_enabled=(ctx.capture_goal_reaching_plans
-                             and ctx.policy_capture_mode
-                             and diagnostic_seed is None),
+                             and ctx.policy_capture_mode),
             is_current_task=True,
             have_plan=True,
             goal_achieved=goal_achieved,
@@ -1526,7 +1298,6 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                             _budget_footer(ctx, rollouts_before))
 
     return {
-        "evaluate_predicate_on_trajectory": evaluate_predicate_on_trajectory,
-        "evaluate_option_plan": evaluate_option_plan,
-        "evaluate_policy": evaluate_policy,
+        "submit_plan": submit_plan,
+        "submit_policy": submit_policy,
     }

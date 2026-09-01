@@ -16,7 +16,7 @@ class _EvalStateCollector:
     """Per-step states + option labels of one rollout, for evaluator verdicts.
 
     The single collector behind every surface that scores a belief-sim
-    rollout (``evaluate_option_plan``'s first and validation rollouts,
+    rollout (``submit_plan``'s first and validation rollouts,
     ``_belief_rollout_verdict``). The cascade certificate needs per-step
     states (topple-onset analysis); option-boundary states give garbage
     verdicts, so prefer the option model's ``last_trajectory`` and flag
@@ -86,8 +86,8 @@ def make_solved_check(
 ) -> Callable[[List[State], List[Any], bool], Tuple[bool, str]]:
     """Build the evaluator gate used inside refinement searches.
 
-    One policy for every surface (the MCP ``refine_plan_sketch`` and
-    ``BeliefProbe.refine``), so identical parameters can never get
+    One policy for every surface (``BeliefProbe.refine`` and the
+    explorer's refinement), so identical parameters can never get
     contradictory verdicts across tools:
     - a coarse rollout (option-boundary states only) never blocks, the
       same rule the capture path applies (a coarse certificate can
@@ -194,11 +194,9 @@ def load_ground_sampler_fns(
         return {}, None
     with open(path, "r", encoding="utf-8") as f:
         code = f.read()
-    exec_ctx = build_exec_context(
-        types=ctx.types,
-        predicates=ctx.predicates
-        | ctx.iteration_proposals.proposed_predicates,
-        options=ctx.options | ctx.iteration_proposals.proposed_options)
+    exec_ctx = build_exec_context(types=ctx.types,
+                                  predicates=ctx.predicates,
+                                  options=ctx.options)
     fns, warnings, err = load_ground_samplers(code, exec_ctx)
     if err is not None:
         return {}, f"Error loading {path}:\n{err}"
@@ -214,7 +212,7 @@ def _belief_rollout_verdict(
     """Execute ``grounded_plan`` in the belief sim and score it with the task's
     evaluator, returning ``(verdict, coarse)`` or None.
 
-    Used by ``refine_plan_sketch``, whose internal refinement rollouts
+    Used by the refinement search, whose internal rollouts
     don't expose per-step states; costs one extra plan rollout. Fully
     failure-tolerant: any problem returns None.
     """

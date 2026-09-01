@@ -16,6 +16,7 @@ import pytest
 from gym.spaces import Box
 
 from predicators import utils
+from predicators.agent_sdk.belief_probe import BeliefProbe
 from predicators.agent_sdk.sketch_parsing import format_step_line, \
     parse_sketch_from_text, strip_region_annotations
 from predicators.agent_sdk.sketch_refinement import refine_sketch
@@ -452,14 +453,14 @@ def test_named_ground_sampler_deterministic_flag_caps_step():
 # --------------------------------------------------------------------------- #
 
 
-def _run_tool(tool_name, args, ground_samplers=True, sandbox_dir=None):
+def _tool_ctx(ground_samplers=True, sandbox_dir=None):
     utils.reset_config({
         "agent_bilevel_use_llm_initial_params": True,
         "agent_bilevel_max_samples_per_step": 200,
         "agent_bilevel_ground_samplers": ground_samplers,
     })
     task = _task_hi()
-    ctx = ToolContext(
+    return ToolContext(
         types={_block_type},
         predicates={_ReachedHi},
         processes=set(),
@@ -470,6 +471,10 @@ def _run_tool(tool_name, args, ground_samplers=True, sandbox_dir=None):
         current_task=task,
         sandbox_dir=sandbox_dir,
     )
+
+
+def _run_tool(tool_name, args, ground_samplers=True, sandbox_dir=None):
+    ctx = _tool_ctx(ground_samplers=ground_samplers, sandbox_dir=sandbox_dir)
     tools = {
         t.name: t.handler
         for t in create_mcp_tools(ctx, tool_names=[tool_name])
@@ -483,36 +488,37 @@ def _run_tool(tool_name, args, ground_samplers=True, sandbox_dir=None):
     return result["content"][0]["text"]
 
 
-def test_refine_plan_sketch_tool_accepts_region_grammar():
-    """The MCP handler parses the region and searches inside its window."""
-    text = _run_tool(
-        "refine_plan_sketch", {
-            "plan": ("Move(block0:block)[0.85] ~ [0.1] -> "
-                     "{ReachedHi(block0:block)}"),
-            "timeout":
-            10,
-        })
-    assert "SUCCESS" in text
-    assert "Parameters found" in text
+def _probe_refine(plan, ground_samplers=True, sandbox_dir=None):
+    """``sim.refine`` on the fake model - the agent-facing refinement
+    surface (same parser and search core as the explorer's refinement)."""
+    ctx = _tool_ctx(ground_samplers=ground_samplers, sandbox_dir=sandbox_dir)
+    return BeliefProbe(ctx).reset(task_idx=0).refine(plan, timeout=10)
+
+
+def _first_param(result):
+    return float(result.plan_lines[0].split("[")[1].split("]")[0])
+
+
+def test_probe_refine_accepts_region_grammar():
+    """The probe parses the region and searches inside its window."""
+    res = _probe_refine("Move(block0:block)[0.85] ~ [0.1] -> "
+                        "{ReachedHi(block0:block)}")
+    assert res.success
+    assert "SUCCESS" in str(res)
     # The reported parameter came from the window's passing band.
-    param = float(text.split("Move(block0)[")[1].split("]")[0])
-    assert 0.9 <= param <= 0.95
+    assert 0.9 <= _first_param(res) <= 0.95
 
 
-def test_refine_plan_sketch_tool_rejects_bad_region():
-    """Strict tool parsing surfaces a malformed region as a clear error."""
-    text = _run_tool("refine_plan_sketch", {
-        "plan": "Move(block0:block)[0.85] ~ [0.1, 0.2]",
-        "timeout": 10,
-    })
-    assert "Could not parse plan sketch" in text
-    assert "expects 1" in text
+def test_probe_refine_rejects_bad_region():
+    """Strict parsing surfaces a malformed region as a clear error."""
+    with pytest.raises(ValueError, match="expects 1"):
+        _probe_refine("Move(block0:block)[0.85] ~ [0.1, 0.2]")
 
 
-def test_evaluate_option_plan_ignores_region():
-    """evaluate_option_plan runs the exact center; the region is inert."""
+def test_submit_plan_ignores_region():
+    """submit_plan runs the exact center; the region is inert."""
     text = _run_tool(
-        "evaluate_option_plan", {
+        "submit_plan", {
             "plan": ("Move(block0:block)[0.95] ~ [0.05] -> "
                      "{ReachedHi(block0:block)}"),
             "include_states":
@@ -526,26 +532,22 @@ def test_evaluate_option_plan_ignores_region():
     assert "Goal achieved: True" in text
 
 
-def test_refine_plan_sketch_tool_ignores_region_when_disabled():
+def test_probe_refine_ignores_region_when_disabled():
     """With agent_bilevel_ground_samplers off, the annotation is a no-op.
 
     The params still seed the search but sampling stays uniform, and
     the report says so - baseline arms still cannot use the channel,
     but agents no longer burn turns on an error.
     """
-    text = _run_tool("refine_plan_sketch", {
-        "plan": ("Move(block0:block)[0.85] ~ [0.1] -> "
-                 "{ReachedHi(block0:block)}"),
-        "timeout":
-        10,
-    },
-                     ground_samplers=False)
-    assert "Could not parse plan sketch" not in text
-    assert "IGNORED" in text
-    assert "uniform" in text
+    res = _probe_refine(
+        "Move(block0:block)[0.85] ~ [0.1] -> "
+        "{ReachedHi(block0:block)}",
+        ground_samplers=False)
+    assert "IGNORED" in res.note
+    assert "uniform" in res.note
 
 
-def test_refine_plan_sketch_tool_named_ground_sampler(tmp_path):
+def test_probe_refine_named_ground_sampler(tmp_path):
     """A `~ name` reference loads GROUND_SAMPLERS from the sandbox and confines
     the step's draws to the function's distribution."""
     (tmp_path / "ground_samplers.py").write_text("""\
@@ -556,42 +558,28 @@ def _hi_band(state, subgoal_atoms, rng, objects):
 GROUND_SAMPLERS = {"hi_band": _hi_band}
 """,
                                                  encoding="utf-8")
-    text = _run_tool("refine_plan_sketch", {
-        "plan": ("Move(block0:block)[0.1] ~ hi_band -> "
-                 "{ReachedHi(block0:block)}"),
-        "timeout":
-        10,
-    },
-                     sandbox_dir=str(tmp_path))
-    assert "SUCCESS" in text
-    param = float(text.split("Move(block0)[")[1].split("]")[0])
+    res = _probe_refine(
+        "Move(block0:block)[0.1] ~ hi_band -> "
+        "{ReachedHi(block0:block)}",
+        sandbox_dir=str(tmp_path))
+    assert res.success
     # The failing center 0.1 was tried once; the named sampler landed a
     # value inside its own band.
-    assert 0.9 <= param <= 0.95
+    assert 0.9 <= _first_param(res) <= 0.95
 
 
-def test_refine_plan_sketch_tool_unknown_named_sampler(tmp_path):
-    """An unresolvable `~ name` is a clear strict error, listing what is
-    loaded."""
-    text = _run_tool("refine_plan_sketch", {
-        "plan": "Move(block0:block)[0.1] ~ nope",
-        "timeout": 10,
-    },
-                     sandbox_dir=str(tmp_path))
-    assert "Could not parse plan sketch" in text
-    assert "unknown ground sampler 'nope'" in text
+def test_probe_refine_unknown_named_sampler(tmp_path):
+    """An unresolvable `~ name` is a clear strict error."""
+    with pytest.raises(ValueError, match="unknown ground sampler 'nope'"):
+        _probe_refine("Move(block0:block)[0.1] ~ nope",
+                      sandbox_dir=str(tmp_path))
 
 
-def test_refine_plan_sketch_tool_broken_ground_samplers_file(tmp_path):
+def test_probe_refine_broken_ground_samplers_file(tmp_path):
     """A ground_samplers.py that fails to exec is surfaced as an error the
     agent can fix, not silently ignored."""
     (tmp_path / "ground_samplers.py").write_text("raise RuntimeError('bad')\n",
                                                  encoding="utf-8")
-    text = _run_tool("refine_plan_sketch", {
-        "plan": "Move(block0:block)[0.95]",
-        "timeout": 10,
-    },
-                     sandbox_dir=str(tmp_path))
-    assert "Error loading" in text
-    assert "bad" in text
-    assert "Parameters found" not in text
+    with pytest.raises(ValueError, match="Error loading") as excinfo:
+        _probe_refine("Move(block0:block)[0.95]", sandbox_dir=str(tmp_path))
+    assert "bad" in str(excinfo.value)

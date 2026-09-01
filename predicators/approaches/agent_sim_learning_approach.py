@@ -36,11 +36,10 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.agent_sdk.session_base import AgentSessionFatalError, \
     max_session_log_number, query_fatal_error
-from predicators.agent_sdk.tools import JOURNAL_TOOL_NAMES, \
-    SAMPLER_SYNTHESIS_TOOL_NAMES, SYNTHESIS_TOOL_NAMES, _SnapshotTarget, \
-    create_synthesis_tools, evaluate_states_with, \
+from predicators.agent_sdk.tools import SYNTHESIS_TOOL_NAMES, \
+    _SnapshotTarget, create_synthesis_tools, evaluate_states_with, \
     finalize_versioned_snapshot, make_write_snapshot_hook
-from predicators.agent_sdk.tools.inspection import render_options_digest, \
+from predicators.agent_sdk.tools.digests import render_options_digest, \
     render_trajectory_digest, render_types_digest
 from predicators.approaches.agent_model_based_approach import \
     AgentModelBasedApproach
@@ -975,10 +974,11 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         No inspect tools: the type/option digests are injected into the
         learn message (see :meth:`_build_synthesis_learn_message`) and
         trajectory access lives in ``run_python`` (``trajectories`` +
-        ``describe_trajectory``). No ``explore_python`` either: in
-        synthesis sessions the probe rides inside ``run_python``'s
-        namespace as ``sim`` (one exec namespace per session - a helper
-        defined next to the data is visible to probe sweeps). In the
+        ``describe_trajectory``). The probe rides inside that same
+        ``run_python`` namespace as ``sim`` (one exec namespace per
+        session - a helper defined next to the data is visible to probe
+        sweeps; the solve-phase instance of the tool is not built when
+        this one is attached). In the
         agent-synthesis session the probe runs against the CANDIDATE
         simulator.py via ctx.probe_option_model_provider (installed in
         _synthesize_with_agent); in the oracle-sim-program sampler
@@ -986,18 +986,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         ctx.option_model, which there IS the deployed belief model.
         """
         names: List[str] = list(SYNTHESIS_TOOL_NAMES)
-        # When the agent is learning samplers in this session (not using
-        # ground-truth ones), expose the evaluate_sampler tool.
-        if self._do_synthesize_samplers:
-            names += list(SAMPLER_SYNTHESIS_TOOL_NAMES)
-        # The run's solve journal is also writable from learn sessions:
-        # what the learn phase discovers about the domain is exactly what
-        # future fresh-context solve attempts need (agents were already
-        # appending to journal.md by hand, bypassing the size cap and the
-        # facts-only guidance). The flag name reads "solve" but gates the
-        # run's journal channel as a whole.
-        if CFG.agent_solve_use_journal:
-            names += list(JOURNAL_TOOL_NAMES)
         return names
 
     # ── Subclass hooks ──────────────────────────────────────────
@@ -1022,16 +1010,21 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         del base
         return {}
 
-    def _extra_synthesis_tools(
+    def _install_extra_synthesis_surfaces(
         self,
         exec_ns: Dict[str, Any],
         base_pred_triples: List[Tuple[State, Action, State]],
         inferred_hint: Dict[str, List[str]],
         extra_paths: Dict[str, str],
-    ) -> List[Any]:
-        """Return additional MCP tools to append to the synthesis tool list."""
+    ) -> None:
+        """Install per-arm probe surfaces for the synthesis session.
+
+        Subclasses register loaders in
+        ``self._tool_context.probe_artifact_loaders`` (the backends of
+        ``sim.predicates()`` / ``sim.samplers()``); the base arm has
+        none.
+        """
         del exec_ns, base_pred_triples, inferred_hint, extra_paths
-        return []
 
     def _extra_synthesis_message(self, extra_paths: Dict[str, str]) -> str:
         """Return text to append to the agent's first synthesis message.
@@ -1161,8 +1154,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
     _CHECKPOINT_SANDBOX_FILES = ("simulator.py", "predicates.py",
                                  "samplers.py", "ground_samplers.py",
-                                 "notes.md", "journal.md", "strategy.md",
-                                 "open_questions.md")
+                                 "notes.md", "journal.md", "attempts.md",
+                                 "strategy.md", "open_questions.md")
     _CHECKPOINT_SANDBOX_DIRS = ("simulator_versions", "predicates_versions",
                                 "samplers_versions")
     _CHECKPOINT_MAX_FILE_BYTES = 2 * 1024 * 1024
@@ -1524,14 +1517,26 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             setattr(self, "_probe_fit_state_store", state)
         return state
 
-    def _publish_probe_fit(self, params: Dict[str, float], version_tag: str,
-                           simulator_file: str) -> None:
+    def _publish_probe_fit(
+        self,
+        params: Dict[str, float],
+        version_tag: str,
+        simulator_file: str,
+        fit_result: Optional[FitResult] = None,
+        sse: float = float("nan"),
+        applied_physical: Optional[Dict[str, float]] = None,
+    ) -> None:
         """Deploy a canonical ``sim.fit`` result to the candidate probe.
 
         Publishes the fitted values in place (invented predicates hold a
         live view over ``_fitted_params``), records the fitted file
         content, and drops the cached probe model so the next probe
-        rebuilds at these values without fitting again.
+        rebuilds at these values without fitting again. The full
+        ``fit_result`` (point estimate plus the Laplace bundle the
+        exploration ensemble is calibrated from), its ``sse``, and the
+        physical values actually applied to the planning env are kept
+        so the cycle's deployed model can be exactly this fit (see
+        :meth:`_published_fit_for_file`).
         """
         self._fitted_params.clear()
         self._fitted_params.update(params)
@@ -1542,10 +1547,40 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         state = self._probe_fit_state()
         state["digest"] = digest
         state["version"] = version_tag
+        state["fit_result"] = fit_result
+        state["sse"] = sse
+        state["applied_physical"] = dict(applied_physical or {})
         self._probe_model_cache().clear()
         self._tool_context.probe_param_status = f"fitted ({version_tag})"
         logger.info("Synthesis probe: sim.fit deployed %d params (%s).",
                     len(params), version_tag)
+
+    def _published_fit_for_file(
+        self,
+        simulator_file: str,
+        expected_names: Collection[str],
+    ) -> Optional[Tuple[FitResult, float, str]]:
+        """The agent's last canonical ``sim.fit`` of exactly this file.
+
+        Returns ``(fit_result, sse, version_tag)`` when the last
+        published fit ran on the current content of ``simulator_file``
+        and over exactly ``expected_names``; ``None`` when nothing was
+        published, the file changed after the fit (an UNFITTED edit), or
+        the parameter set differs (a spec added or dropped after the
+        fit).
+        """
+        state = self._probe_fit_state()
+        fit = state.get("fit_result")
+        if fit is None or not os.path.isfile(simulator_file):
+            return None
+        with open(simulator_file, "rb") as f:
+            digest = hashlib.sha256(f.read()).hexdigest()
+        if state.get("digest") != digest:
+            return None
+        if set(fit.names) != set(expected_names):
+            return None
+        return fit, float(state.get("sse",
+                                    float("nan"))), str(state.get("version"))
 
     def _make_candidate_probe_model_provider(
         self,
@@ -1554,7 +1589,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         base_pred_triples: List[Tuple[State, Action, State]],
         inferred_hint: Dict[str, List[str]],
     ) -> Callable[[], _OracleOptionModel]:
-        """Lazy option-model builder behind the synthesis explore_python.
+        """Lazy option-model builder behind the synthesis run_python.
 
         The returned callable is installed as
         ``ctx.probe_option_model_provider`` for the synthesis session:
@@ -1578,7 +1613,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         def _provider() -> _OracleOptionModel:
             if not os.path.isfile(simulator_file):
                 raise RuntimeError(
-                    "explore_python probe: no candidate simulator yet - "
+                    "run_python probe: no candidate simulator yet - "
                     "write ./simulator.py (RESIDUAL_RULES / PARAM_SPECS / "
                     "RESIDUAL_FEATURES) first; the probe runs against it.")
             with open(simulator_file, "rb") as f:
@@ -1591,7 +1626,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                     simulator_file, trajectories)
             if rules is None or specs is None:
                 raise RuntimeError(
-                    "explore_python probe: ./simulator.py failed to load "
+                    "run_python probe: ./simulator.py failed to load "
                     "(exec error, or RESIDUAL_RULES / PARAM_SPECS missing) - "
                     "fix the file and probe again.")
             residual_features = (features
@@ -1932,6 +1967,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         finally:
             self._tool_context.extra_session_hooks = {}
             self._tool_context.extra_mcp_tools = []
+            self._tool_context.probe_artifact_loaders.clear()
             self._tool_context.probe_option_model_provider = None
             self._tool_context.probe_fit_provider = None
             self._tool_context.probe_param_status = None
@@ -1995,8 +2031,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             "ParamSpec":
             ParamSpec,
         }
-        # Curated per-trajectory digest (same renderer the old
-        # inspect_trajectories tool used), for a first look before
+        # Curated per-trajectory digest, for a first look before
         # ad-hoc exploration over the raw ``trajectories`` objects.
         all_predicates = self._get_all_predicates()
 
@@ -2038,7 +2073,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         Everything installed here is cleared by the caller's ``finally``
         once the session query returns.
         """
-        # Label tool output (e.g. record_journal headers) with the
+        # Label tool output (e.g. attempt-log headers) with the
         # learning cycle for the duration of this session.
         self._tool_context.learn_cycle_index = self._learning_cycle_index()
         # Build dynamic synthesis tools and attach them to the tool
@@ -2062,11 +2097,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             budget_check=lambda: _check_time_budget(self._tool_context),
         )
         tools = list(toolkit.tools)
-        tools.extend(
-            self._extra_synthesis_tools(exec_ns, base_pred_triples,
-                                        inferred_hint, extra_paths))
+        self._install_extra_synthesis_surfaces(exec_ns, base_pred_triples,
+                                               inferred_hint, extra_paths)
         if self._do_synthesize_samplers:
-            tools.extend(self._make_sampler_tools(sampler_paths))
+            self._install_sampler_surface(sampler_paths)
         declared = set(self._get_synthesis_tool_names() or ())
         self._tool_context.extra_mcp_tools = [
             t for t in tools if getattr(t, "name", "") in declared
@@ -2076,8 +2110,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # wraps the real env), then merge the probe facade into
         # run_python's namespace: synthesis sessions offer ONE exec
         # namespace, so helpers defined next to the data are visible to
-        # probe sweeps (no explore_python tool here - the roster method
-        # documents the policy). Unconditional: with fit / refine /
+        # probe sweeps (create_mcp_tools skips the solve-phase instance
+        # when this one is attached). Unconditional: with fit / refine /
         # forward-validation all living on ``sim``, the probe IS the
         # validation surface, so a synthesis session without it would
         # have no way to test what it writes. Only ``sim``/``BeliefProbe``
@@ -2130,9 +2164,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         n_interaction = n_trajs - n_demos
         predicate_listing = self._format_predicate_signatures(
             self._get_all_predicates())
-        # Static per-session digests, injected instead of offering the
-        # inspect_types / inspect_options tools (same renderers, zero
-        # turns; see the roster note in _get_synthesis_tool_names).
+        # Static per-session digests, injected instead of costing a tool
+        # turn (see the roster note in _get_synthesis_tool_names).
         types_digest = render_types_digest(self._tool_context.types)
         options_digest = render_options_digest(
             self._tool_context.options,
@@ -2186,19 +2219,17 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # `sim` forward-rolls the CANDIDATE simulator. One sentence so
         # the two are not conflated; details live in the tool
         # description.
-        probe_note = ""
-        if CFG.agent_planner_use_explore_python:
-            probe_note = (
-                "\n\nThe `sim` probe inside `run_python` forward-rolls "
-                "the CANDIDATE simulator you are editing at the params "
-                "of your last `sim.fit()` - it never fits on its own, so "
-                "after a structural edit its results are marked UNFITTED "
-                "until you run `sim.fit()` on the current file; pass "
-                "task_idx explicitly to `sim.reset`, `sim.task(task_idx)` "
-                "for a task digest). Its rollouts "
-                "are candidate predictions - do not mix them up with the "
-                "recorded real `trajectories`. Usage and the validation "
-                "protocol are in the system prompt's Tools section.")
+        probe_note = (
+            "\n\nThe `sim` probe inside `run_python` forward-rolls "
+            "the CANDIDATE simulator you are editing at the params "
+            "of your last `sim.fit()` - it never fits on its own, so "
+            "after a structural edit its results are marked UNFITTED "
+            "until you run `sim.fit()` on the current file; pass "
+            "task_idx explicitly to `sim.reset`, `sim.task(task_idx)` "
+            "for a task digest). Its rollouts "
+            "are candidate predictions - do not mix them up with the "
+            "recorded real `trajectories`. Usage and the validation "
+            "protocol are in the system prompt's Tools section.")
         # Tool surface of the (just-opened) synthesis session, rendered
         # the same way the solve/explore prompts list theirs.
         # ``tool_names`` already merges the sandbox built-ins with the
@@ -2319,8 +2350,9 @@ your point estimate is caught in simulation instead of failing a \
 real test episode. A literal is earned only once the data brackets \
 the constant from both sides with margin to spare.
 
-Before ending the session, run `sim.fit()` on the final file (the \
-deployed model is fit from exactly that file; a GO verdict on \
+Before ending the session, run `sim.fit()` on the final file (that \
+fit IS the model deployed for this cycle - end without one and the \
+harness fits on its own and logs the deviation; a GO verdict on \
 UNFITTED values is worthless) and then a GO/NO-GO check: refine a \
 full solve of the train task in your candidate simulator and validate \
 it with several trials (`sim.refine` / `sim.run(plan, trials=5)`). \
@@ -2350,7 +2382,9 @@ trigger them, parameter formulas expressed relative to the scene \
 (never hard-coded to one task's coordinates), and known pitfalls. \
 Future solve sessions read it as advisory reference (clearly framed \
 as possibly wrong), so state uncertainty honestly. Unlike the \
-append-only journal, strategy.md is a LIVING document: REWRITE it \
+journal (`./journal.md`, an append-only log of facts and \
+measurements that you may also add to), strategy.md is a LIVING \
+document: REWRITE it \
 freely this cycle wherever new evidence corrects or supersedes \
 earlier advice, rather than appending contradictions."""
 
@@ -2459,25 +2493,51 @@ earlier advice, rather than appending contradictions."""
             self._last_fit_result = None
             self._fit_sse = float("inf")
         else:
-            # This is the solver/test-time fit. It deliberately follows
-            # CFG.code_sim_learning_num_mcmc_steps; any extra
-            # info-seeking MCMC is run below and is not published into
-            # _fitted_params.
-            if self._physical_param_specs or has_physics_rules(rules):
-                # System ID: physical + rule params fit jointly against
-                # free-running rollouts (teacher-forced triples cannot
-                # see physical params - no velocities in State - and
-                # cannot see physics-command rules either, whose effects
-                # only exist through engine stepping).
-                fit_result, self._fit_sse = (
-                    self._fit_parameters_joint_rollout(rules, specs,
-                                                       residual_features))
-            elif has_latent_rules(rules):
-                fit_result, self._fit_sse = self._fit_parameters_recurrent(
-                    rules, specs, base_pred_triples, residual_features)
+            # The deployed model is the agent's own canonical sim.fit of
+            # the final simulator.py: the values its GO/NO-GO check
+            # validated, with the Laplace bundle the exploration ensemble
+            # is calibrated from. The harness fits only when no such fit
+            # exists (session ended UNFITTED, ran out of turns, or an
+            # oracle sim program with no session at all), and says so.
+            expected = [s.name for s in self._physical_param_specs
+                        ] + [s.name for s in specs]
+            published = None
+            if self._probe_fit_state().get("fit_result") is not None:
+                published = self._published_fit_for_file(
+                    self._resolve_synthesis_paths().simulator_file, expected)
+            if published is not None:
+                fit_result, self._fit_sse, version = published
+                logger.info(
+                    "Deploying the agent's published sim.fit (%s) of the "
+                    "final simulator.py: %d params, SSE %.6f.", version,
+                    len(expected), self._fit_sse)
+                applied = self._probe_fit_state().get("applied_physical")
+                if self._physical_param_specs and applied:
+                    self._apply_identified_physical_params(dict(applied))
             else:
-                fit_result, self._fit_sse = fit_rule_parameters(
-                    rules, specs, base_pred_triples, residual_features)
+                if CFG.agent_sim_learn_oracle_sim_program:
+                    logger.info("Oracle sim program: fitting its "
+                                "parameters on the harness side.")
+                else:
+                    logger.warning(
+                        "FIT FALLBACK: the learn session ended without a "
+                        "canonical sim.fit() of the final simulator.py "
+                        "(last published fit: %s). Fitting on the "
+                        "harness side - the deployed parameters were "
+                        "never validated by the agent's GO check.",
+                        self._probe_fit_state().get("version") or "none")
+                if self._physical_param_specs or has_physics_rules(rules):
+                    fit_result, self._fit_sse = (
+                        self._fit_parameters_joint_rollout(
+                            rules, specs, residual_features))
+                elif has_latent_rules(rules):
+                    fit_result, self._fit_sse = \
+                        self._fit_parameters_recurrent(
+                            rules, specs, base_pred_triples,
+                            residual_features)
+                else:
+                    fit_result, self._fit_sse = fit_rule_parameters(
+                        rules, specs, base_pred_triples, residual_features)
             self._last_fit_result = fit_result
             self._fitted_params.clear()
             self._fitted_params.update(fit_result.point_estimate)
@@ -3302,12 +3362,12 @@ earlier advice, rather than appending contradictions."""
     ) -> List[Optional[Dict[str, Any]]]:
         """Roll a trajectory through the rules; return per-step latent.
 
-        Used by :func:`evaluate_predicate_quality` so latent-aware
-        predicates can be scored against meaningful latent values.
-        Returned list aligns with ``traj.states``; entry ``i`` is the
-        latent *before* predicates are evaluated at state ``i``. If no
-        rules are loaded, every entry is ``None`` so latent-aware
-        classifiers fall back to their default branch.
+        Used by ``sim.predicates()`` so latent-aware predicates can be
+        scored against meaningful latent values. Returned list aligns
+        with ``traj.states``; entry ``i`` is the latent *before*
+        predicates are evaluated at state ``i``. If no rules are loaded,
+        every entry is ``None`` so latent-aware classifiers fall back to
+        their default branch.
         """
         if not self._residual_rules:
             return [None] * len(traj.states)
@@ -3806,7 +3866,7 @@ files to see exactly which rules and predicates produced each failed plan.
         session env is never touched.
 
         Installed as ``ToolContext.validation_env_scope`` so
-        ``evaluate_option_plan``'s capture-validation rollouts each sample
+        ``submit_plan``'s capture-validation rollouts each sample
         a fresh physics world. The shared ``_base_env``'s reset cannot
         reconstruct state exactly (solver warm-start state, velocity
         residuals, near-matching bodies skipped by the reconstruction diff

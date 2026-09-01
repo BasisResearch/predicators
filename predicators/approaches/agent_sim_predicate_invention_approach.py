@@ -39,11 +39,10 @@ Example command (partially observable)::
 
 import logging
 import os
-from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
+from typing import Any, Dict, FrozenSet, List, Set, Tuple
 
-from predicators.agent_sdk.tools import PREDICATE_SYNTHESIS_TOOL_NAMES, \
-    _SnapshotTarget, create_predicate_synthesis_tools, \
-    finalize_versioned_snapshot
+from predicators.agent_sdk.tools import _SnapshotTarget, \
+    finalize_versioned_snapshot, make_predicate_quality_loader
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
 from predicators.settings import CFG
@@ -108,22 +107,6 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
 
     # ── Agent session hooks ─────────────────────────────────────
 
-    def _get_synthesis_tool_names(self) -> Optional[List[str]]:
-        """Add the predicate-synthesis callable to the synthesis surface.
-
-        Adds ``evaluate_predicate_quality`` (built by
-        :meth:`_extra_synthesis_tools`). Scene work (staging states,
-        rendering with overlays to verify geometric thresholds) lives on
-        the ``sim`` probe inside ``run_python``.
-        """
-        names = super()._get_synthesis_tool_names()
-        if names is None:
-            return None
-        for extra in PREDICATE_SYNTHESIS_TOOL_NAMES:
-            if extra not in names:
-                names.append(extra)
-        return names
-
     # ── Synthesis hooks ──────────────────────────────────────────
 
     def _compute_extra_synthesis_paths(self, base: str) -> Dict[str, str]:
@@ -143,22 +126,23 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
             "predicates_file_for_agent": predicates_file_for_agent,
         }
 
-    def _extra_synthesis_tools(
+    def _install_extra_synthesis_surfaces(
         self,
         exec_ns: Dict[str, Any],
         base_pred_triples: List[Tuple[State, Action, State]],
         inferred_hint: Dict[str, List[str]],
         extra_paths: Dict[str, str],
-    ) -> List[Any]:
+    ) -> None:
         del exec_ns, base_pred_triples, inferred_hint
-        trajectories = self._get_all_trajectories()
-        return create_predicate_synthesis_tools(
-            predicates_file=extra_paths["predicates_file"],
-            predicates_versions_dir=extra_paths["predicates_versions_dir"],
-            approach=self,
-            trajectories=trajectories,
-            cycle_index_provider=self._learning_cycle_index,
-        )
+        self._tool_context.probe_artifact_loaders["predicates"] = \
+            make_predicate_quality_loader(
+                predicates_file=extra_paths["predicates_file"],
+                predicates_versions_dir=extra_paths[
+                    "predicates_versions_dir"],
+                approach=self,
+                trajectories=self._get_all_trajectories(),
+                cycle_index_provider=self._learning_cycle_index,
+            )
 
     def _build_write_snapshot_targets(
         self,
@@ -203,7 +187,7 @@ relevant rule feature stops advancing). That's evidence the threshold \
 is too loose; tighten it or share the gating parameter with the rule \
 via `params[...]` so MCMC can fit them jointly.
 
-Workflow: edit `predicates.py`, call `evaluate_predicate_quality` \
+Workflow: edit `predicates.py`, call `sim.predicates()` in `run_python` \
 (fast, also reloads predicates into the live set), then run \
 `sim.refine` / `sim.run` with sketches that reference your invented \
 names. Any predicate you reference in a sketch must exist in \
@@ -237,11 +221,10 @@ names. Any predicate you reference in a sketch must exist in \
     def _synthesis_workflow_extra(self) -> str:
         # The base workflow's step 4 depends on invented predicates:
         # sketches can only reference predicates that already exist.
-        return (
-            "\nStep 4's sketches need subgoal predicates that do not "
-            "exist until you invent them: before validating, write them "
-            "to `predicates.py` and load with `evaluate_predicate_quality` "
-            "(see \"Predicate Invention\").")
+        return ("\nStep 4's sketches need subgoal predicates that do not "
+                "exist until you invent them: before validating, write them "
+                "to `predicates.py` and load with `sim.predicates()` "
+                "(see \"Predicate Invention\").")
 
     def _extra_synthesis_system_prompt(self) -> str:
         # The scene workbench is the sim probe inside run_python (the
@@ -487,7 +470,7 @@ outlet, joint base vs. tool tip, housing vs. handle), so use one \
 __SCENE_RENDER_REF__ render to confirm what's actually where - and \
 `run_python` for the numeric sweep over trajectory states.
 
-Validate with `evaluate_predicate_quality` (cheap; reports first-flip step, \
+Validate with `sim.predicates()` (cheap; reports first-flip step, \
 monotonicity, coverage across all available trajectories). On goal-reaching \
 trajectories (`reached_goal=True` in `describe_trajectory`) a milestone \
 predicate should flip False→True exactly once and stay true; on failed \
@@ -497,7 +480,7 @@ signal for spotting an over-loose threshold (predicate fires, downstream \
 physics doesn't follow). A placement predicate should be true exactly \
 when an object is at its intended location and false otherwise.
 
-`evaluate_predicate_quality` is also the loader: it updates the predicate \
+`sim.predicates()` is also the loader: it updates the predicate \
 set used by `sim.refine`. Call it after every edit to \
 `predicates.py` before re-running plan refinement.
 
@@ -513,7 +496,7 @@ visible for the agent to learn from.
 # Predicate-side latent guidance appended (after the base class's
 # simulator-side recurrent tutorial) under ``CFG.partially_observable``.
 # Invention-only: it teaches the optional ``latent`` classifier kwarg
-# and the latent materialisation in ``evaluate_predicate_quality``,
+# and the latent materialisation in ``sim.predicates()``,
 # which non-invention arms have no use for.
 _RECURRENT_PREDICATE_SECTION = """\
 ### Predicate signature
@@ -549,7 +532,7 @@ but only work when the observable carries enough signal.
 
 ### Diagnostics
 
-`evaluate_predicate_quality` rolls each trajectory through your
+`sim.predicates()` rolls each trajectory through your
 simulator to materialise the latent before scoring classifiers, so
 latent-aware predicates get a real block there. Use the eval
 report to localise failures (bad rule chain vs. bad threshold).

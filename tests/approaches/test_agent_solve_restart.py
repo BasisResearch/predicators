@@ -185,7 +185,8 @@ def test_journal_auto_entries_record_each_attempt(tmp_path):
     ])
     approach._solve_attempt = script
     approach._solve(task, timeout=10)
-    content = journal_mod.read_journal(str(tmp_path))
+    content = journal_mod.read_journal(str(tmp_path),
+                                       filename=journal_mod.ATTEMPTS_FILENAME)
     assert "### task 0 attempt 1/2 (auto)" in content
     assert "- outcome: no capture" in content
     assert "### task 0 attempt 2/2 (auto)" in content
@@ -346,15 +347,17 @@ def test_journal_task_context_written_once_even_on_resolve(tmp_path):
     approach._solve_attempt = script
     approach._solve(task, timeout=10)
     approach._solve(task, timeout=10)
-    content = journal_mod.read_journal(str(tmp_path))
+    content = journal_mod.read_journal(str(tmp_path),
+                                       filename=journal_mod.ATTEMPTS_FILENAME)
     assert content.count("### task 0 goal + initial state (auto)") == 1
     assert content.index("- goal:") < content.index("- outcome:")
 
 
 def test_test_phase_journal_archived_and_rolled_back(tmp_path):
-    """Learning entries persist across evaluations; each evaluation's own
-    entries are archived outside the sandbox, then rolled back so the next
-    evaluation starts from learning knowledge only (no test-task leaks)."""
+    """Learning content persists across evaluations; each evaluation's own
+    additions (harness attempt-log entries and agent journal notes) are
+    archived outside the sandbox, then rolled back so the next evaluation
+    starts from learning knowledge only (no test-task leaks)."""
     sandbox = tmp_path / "sandbox"
     log_dir = tmp_path / "run_logs"
     approach, task = _make_approach(
@@ -365,48 +368,59 @@ def test_test_phase_journal_archived_and_rolled_back(tmp_path):
         },
         sandbox_dir=str(sandbox))
     ctx = approach._tool_context
-    # A learning-phase entry, recorded before any evaluation.
-    journal_mod.append_entry(str(sandbox), "Agent notes (pre-test phase)",
-                             "- learning fact")
-    # First evaluation: one test-task solve writes auto entries.
+    attempts = journal_mod.ATTEMPTS_FILENAME
+    # A learning-phase note, written by the agent before any evaluation.
+    sandbox.mkdir(parents=True, exist_ok=True)
+    (sandbox / journal_mod.JOURNAL_FILENAME).write_text(
+        "### learn cycle notes\n- learning fact\n", encoding="utf-8")
+    # First evaluation: one test-task solve writes attempt-log entries
+    # and the agent adds a note.
     approach.begin_test_phase()
     ctx.test_task_idx = 0
     script = _AttemptScript(approach, [("validated", 0.95),
                                        ("validated", 0.96)])
     approach._solve_attempt = script
     approach._solve(task, timeout=10)
-    content = journal_mod.read_journal(str(sandbox))
-    assert "- learning fact" in content  # learning knowledge visible in eval
+    with open(sandbox / journal_mod.JOURNAL_FILENAME, "a",
+              encoding="utf-8") as f:
+        f.write("### task 0 attempt 1\n- eval-time note\n")
+    content = journal_mod.read_journal(str(sandbox), filename=attempts)
     assert "### task 0 goal + initial state (auto)" in content
+    assert "- learning fact" in journal_mod.read_journal(str(sandbox))
     approach.end_test_phase()
-    # Rolled back: the learning entry survives, eval entries are gone.
-    content = journal_mod.read_journal(str(sandbox))
-    assert "- learning fact" in content
-    assert "task 0" not in content
-    # The full eval journal was archived outside the sandbox first, one
-    # copy per evaluation phase. This first evaluation precedes any
-    # online learning, so it archives as the initial test.
-    archived = (log_dir / "journal_eval_initial.md").read_text()
-    assert "- learning fact" in archived
+    # Rolled back: learning content survives, eval additions are gone.
+    assert "task 0" not in journal_mod.read_journal(str(sandbox),
+                                                    filename=attempts)
+    notes = journal_mod.read_journal(str(sandbox))
+    assert "- learning fact" in notes
+    assert "eval-time note" not in notes
+    # Both files were archived outside the sandbox first, one copy per
+    # evaluation phase. This first evaluation precedes any online
+    # learning, so it archives as the initial test.
+    archived = (log_dir / "attempts_eval_initial.md").read_text()
     assert "### task 0 goal + initial state (auto)" in archived
+    archived_notes = (log_dir / "journal_eval_initial.md").read_text()
+    assert "- learning fact" in archived_notes
+    assert "eval-time note" in archived_notes
     # Second evaluation on the same task, after a learning phase advanced
     # the cycle: the context-entry dedup key was rolled back too, so the
-    # goal + init entry is re-written (else the journal's attempt records
-    # would be uninterpretable).
+    # goal + init entry is re-written (else the attempt records would be
+    # uninterpretable).
     approach._online_learning_cycle = 1
     approach.begin_test_phase()
     ctx.test_task_idx = 0
     approach._solve(task, timeout=10)
-    content = journal_mod.read_journal(str(sandbox))
+    content = journal_mod.read_journal(str(sandbox), filename=attempts)
     assert content.count("### task 0 goal + initial state (auto)") == 1
     approach.end_test_phase()
     # The second evaluation ran after cycle 0's learn advanced the
     # counter to 1, so it archives under the 0-based cycle it evaluates.
-    assert sorted(p.name for p in log_dir.glob("journal_eval*.md")) == [
-        "journal_eval_cycle0.md", "journal_eval_initial.md"
+    assert sorted(p.name for p in log_dir.glob("attempts_eval*.md")) == [
+        "attempts_eval_cycle0.md", "attempts_eval_initial.md"
     ]
     assert journal_mod.read_raw(str(sandbox)) is not None
-    assert "task 0" not in journal_mod.read_journal(str(sandbox))
+    assert "task 0" not in journal_mod.read_journal(str(sandbox),
+                                                    filename=attempts)
 
 
 def test_test_phase_journal_rollback_noop_without_journal(tmp_path):
@@ -438,7 +452,8 @@ def test_journal_records_best_refused_submission(tmp_path):
     approach._solve_attempt = _attempt
     with pytest.raises(ApproachFailure):
         approach._solve(task, timeout=10)
-    content = journal_mod.read_journal(str(tmp_path))
+    content = journal_mod.read_journal(str(tmp_path),
+                                       filename=journal_mod.ATTEMPTS_FILENAME)
     assert ("- best refused submission (evaluator reward -0.05, "
             "not captured):") in content
     assert "Move(block0:block)[0.87]" in content

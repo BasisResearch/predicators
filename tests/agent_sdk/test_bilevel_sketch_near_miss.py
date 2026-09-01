@@ -4,7 +4,7 @@ A failed backtracking search now records the deepest rollout that
 executed but failed validation - the failing step's exact params, the
 missing atoms, and that rollout's post-state - and
 ``refine_and_validate_report`` surfaces it, so a failed
-refine_plan_sketch call returns a gradient instead of only the stuck
+sim.refine call returns a gradient instead of only the stuck
 step's name.
 """
 

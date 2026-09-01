@@ -1,28 +1,25 @@
-"""Predicate-invention synthesis tools (predicate invention loop)."""
-import os
+"""The ``sim.predicates()`` loader for predicate-invention sessions."""
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from predicators.agent_sdk.proposal_exec import build_exec_context, \
     exec_code_safely, validate_predicate
 from predicators.agent_sdk.synthesis_backend import PredicateSynthesisBackend
 from predicators.agent_sdk.tools.params_view import _ParamsView
-from predicators.agent_sdk.tools.results import _make_coercing_tool, \
-    _make_spilling_text_result
 from predicators.agent_sdk.tools.sandbox_guard import _scrub_host_paths
 from predicators.agent_sdk.tools.snapshots import _ArtifactSnapshotter
 from predicators.structs import LowLevelTrajectory, Predicate, State, Type
 
 
-def create_predicate_synthesis_tools(
+def make_predicate_quality_loader(
     predicates_file: str,
     predicates_versions_dir: str,
     approach: PredicateSynthesisBackend,
     trajectories: List[LowLevelTrajectory],
     cycle_index_provider: Optional[Callable[[], int]] = None,
-) -> list:
-    """Create the predicate-invention synthesis tool.
+) -> Callable[..., str]:
+    """Build the ``sim.predicates()`` loader for one synthesis session.
 
-    Returns ``[evaluate_predicate_quality]``. The tool loads
+    The loader loads
     ``predicates.py`` fresh on each call (snapshotting into
     ``predicates_versions_dir`` as
     ``cycle_XXX_vers_YYY_predicates.py``), validates each
@@ -46,16 +43,9 @@ def create_predicate_synthesis_tools(
     # pylint: disable=import-outside-toplevel
     import traceback  # pylint: disable=redefined-outer-name,reimported
 
-    from claude_agent_sdk import tool as _sdk_tool
-    tool = _make_coercing_tool(_sdk_tool)
-
     from predicators.code_sim_learning.fit_space import ParamSpec
 
     # pylint: enable=import-outside-toplevel
-    # ``predicates_file`` lives at ``<sandbox>/predicates.py``, so its
-    # parent is the sandbox root — spill oversize output there rather than
-    # letting the agent SDK dump it outside the sandbox.
-    _text = _make_spilling_text_result(os.path.dirname(predicates_file))
     _snapshotter = _ArtifactSnapshotter(
         live_file=predicates_file,
         versions_dir=predicates_versions_dir,
@@ -174,51 +164,22 @@ def create_predicate_synthesis_tools(
         rec(0, [], set())
         return out
 
-    @tool(
-        "evaluate_predicate_quality",
-        "Load LEARNED_PREDICATES (fresh from `predicates.py`) and "
-        "report milestone behaviour over demo trajectories. For each "
-        "predicate × each grounding, evaluates pred.holds(state) at "
-        "every step and reports: coverage (ever-true / ever-false), "
-        "transition counts, first-flip step, and monotonicity (ideal "
-        "milestone flips False->True exactly once and stays true). "
-        "After loading, the predicate set used by "
-        "sim.refine is updated — so call this tool any "
-        "time you edit predicates.py before re-running refinement. "
-        "Snapshots the predicates file into predicates_versions/; "
-        "output tagged [cycle_XXX_vers_YYY].",
-        {
-            "type": "object",
-            "properties": {
-                "max_trajectories": {
-                    "type": "integer",
-                    "description": "Max trajectories to scan "
-                    "(default 10).",
-                },
-                "max_groundings_per_predicate": {
-                    "type":
-                    "integer",
-                    "description":
-                    "Max object groundings to evaluate "
-                    "per predicate (default 4).",
-                },
-            },
-        },
-    )
-    async def evaluate_predicate_quality(
-            args: Dict[str, Any]) -> Dict[str, Any]:
-        max_trajs = int(args.get("max_trajectories", 10))
-        max_groundings = int(args.get("max_groundings_per_predicate", 4))
+    def predicate_quality(max_trajectories: int = 10,
+                          max_groundings_per_predicate: int = 4) -> str:
+        """Reload predicates.py, install LEARNED_PREDICATES, and report
+        milestone behaviour over the recorded trajectories."""
+        max_trajs = int(max_trajectories)
+        max_groundings = int(max_groundings_per_predicate)
 
         try:
             preds, version_tag, err, warnings = (
                 _snapshot_and_load_predicates(predicates_file))
         except Exception:  # pylint: disable=broad-except
-            return _text(f"Error loading predicates.py:\n"
-                         f"{_scrub_host_paths(traceback.format_exc())}")
+            return (f"Error loading predicates.py:\n"
+                    f"{_scrub_host_paths(traceback.format_exc())}")
 
         if err is not None:
-            return _text(err)
+            return err
 
         prefix = f"[{version_tag}]"
         scanned = trajectories[:max_trajs]
@@ -237,7 +198,7 @@ def create_predicate_synthesis_tools(
             lines.append("")
             lines.append("LEARNED_PREDICATES is empty — add "
                          "Predicate(...) entries to predicates.py.")
-            return _text("\n".join(lines))
+            return "\n".join(lines)
 
         # Pre-materialise per-step `latent` per trajectory. For
         # recurrent approaches this rolls the trajectory through the
@@ -320,6 +281,6 @@ def create_predicate_synthesis_tools(
             for el in error_lines[:max_trajs]:
                 lines.append(el)
 
-        return _text("\n".join(lines))
+        return "\n".join(lines)
 
-    return [evaluate_predicate_quality]
+    return predicate_quality

@@ -115,7 +115,7 @@ def test_explore_mode_experiment_delivery_contract() -> None:
     assert "This is an EXPLORE query" in prompt
     solve_prompt = _render(_make_task(None))
     assert "This is an EXPLORE query" not in solve_prompt
-    assert "do NOT finish until evaluate_option_plan CONFIRMS" in solve_prompt
+    assert "do NOT finish until submit_plan CONFIRMS" in solve_prompt
     # The contract must survive param-free sketch mode too (the search
     # finds continuous params, but the delivery semantics are the same).
     sketch_prompt = _render_explore(_make_task(None), propose_params=False)
@@ -151,8 +151,9 @@ def test_explore_mode_early_stop_note_credits_exploration_plans() -> None:
     assert ("The loop concludes early once the exploration plans solve "
             "training") in prompt
     assert "learned model solves training" not in prompt
-    assert "the plan still runs in full" in prompt
-    assert "falls back to the explicit parameters you proposed" in prompt
+    assert "runs in the real environment EXACTLY as written" in prompt
+    assert "nothing is searched or substituted" in prompt
+    assert "falls back to the explicit parameters" not in prompt
     assert "truncated just after that step" not in prompt
 
 

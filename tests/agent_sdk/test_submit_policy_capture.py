@@ -1,6 +1,6 @@
-"""Capture-gating tests for the ``evaluate_policy`` tool (policy mode).
+"""Capture-gating tests for the ``submit_policy`` tool (policy mode).
 
-Mirrors test_evaluate_option_plan_capture.py's fixtures: drives the real
+Mirrors test_submit_plan_capture.py's fixtures: drives the real
 MCP handler with a fake option model, covering the policy-mode gates in
 front of ``ctx.solved_policy_source`` - multi-rollout validation with
 fresh policy memory per rollout, source snapshotting, the
@@ -100,15 +100,15 @@ def _write_policy(sandbox_dir, source):
 def _call_tool(ctx, extra_args=None):
     tools = {
         t.name: t.handler
-        for t in create_mcp_tools(ctx, tool_names=["evaluate_policy"])
+        for t in create_mcp_tools(ctx, tool_names=["submit_policy"])
     }
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-    result: Any = loop.run_until_complete(tools["evaluate_policy"](extra_args
-                                                                   or {}))
+    result: Any = loop.run_until_complete(tools["submit_policy"](extra_args
+                                                                 or {}))
     return result["content"][0]["text"]
 
 
@@ -169,17 +169,6 @@ def test_source_snapshot_not_rereading_file(tmp_path):
     assert ctx.solved_policy_source is not None
     _write_policy(sandbox, "def get_option(state, memory):\n    return None\n")
     assert "Move(block0:block)" in ctx.solved_policy_source
-
-
-def test_diagnostic_seed_never_captures(tmp_path):
-    """A seeded diagnostic rollout is reported but never captured."""
-    model = _Model()
-    text, ctx, _ = _run_tool(model,
-                             tmp_path,
-                             rollouts=1,
-                             extra_args={"rollout_seed": 999})
-    assert "DIAGNOSTIC rollout at planner seed 999" in text
-    assert ctx.solved_policy_source is None
 
 
 def test_recovered_option_failure_still_captures(tmp_path):

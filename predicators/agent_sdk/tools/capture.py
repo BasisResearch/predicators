@@ -1,4 +1,4 @@
-"""The ``evaluate_option_plan`` capture decision, as a pure function.
+"""The ``submit_plan`` capture decision, as a pure function.
 
 :func:`_decide_capture` encodes the run-verified capture gates in one
 side-effect-free place: the handler in ``testing.py`` computes the
@@ -13,7 +13,7 @@ from typing import Optional
 
 
 class CaptureDecision(enum.Enum):
-    """What ``evaluate_option_plan`` does with the submitted plan."""
+    """What ``submit_plan`` does with the submitted plan."""
     # Goal reached, evaluator-certified, every validation rollout passed:
     # captured and marked as a validated solve.
     VALIDATED_CAPTURE = "validated_capture"
@@ -71,7 +71,7 @@ def _decide_capture(*,
                     best_effort_mode: bool,
                     have_validated_capture: bool,
                     param_sensitive: bool = False) -> CaptureOutcome:
-    """Decide what ``evaluate_option_plan`` does with an evaluated plan.
+    """Decide what ``submit_plan`` does with an evaluated plan.
 
     Pure: no ctx access, no I/O - the caller supplies exactly what the
     gates read and applies the side effects the decision calls for.

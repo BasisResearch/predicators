@@ -1,4 +1,4 @@
-"""Tests for the ``evaluate_sampler`` sampler-synthesis MCP tool.
+"""Tests for the ``sim.samplers()`` loader (make_sampler_loader).
 
 Drives the real tool handler against a stub approach: loading
 ``LEARNED_SAMPLERS`` from ``samplers.py``, installing the validated dict
@@ -6,16 +6,16 @@ onto the approach, skip warnings for bad entries, error paths, snapshot
 versioning, and the sanity check's empty-subgoal-set contract.
 """
 
-import asyncio
 from typing import Any, Dict, Set
 
 import numpy as np
 from gym.spaces import Box
 
 from predicators import utils
+from predicators.agent_sdk.belief_probe import BeliefProbe
 from predicators.agent_sdk.proposal_exec import build_exec_context, \
     load_ground_samplers
-from predicators.agent_sdk.tools import create_sampler_synthesis_tools
+from predicators.agent_sdk.tools import ToolContext, make_sampler_loader
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, Type
 
@@ -36,7 +36,7 @@ _Move = ParameterizedOption(
 
 
 class _StubApproach:
-    """The minimal approach surface create_sampler_synthesis_tools uses."""
+    """The minimal approach surface make_sampler_loader uses."""
 
     def __init__(self):
         init = State({_block: np.array([0.0], dtype=np.float32)})
@@ -52,27 +52,23 @@ class _StubApproach:
         return {_Move}
 
 
-def _run_evaluate_sampler(tmp_path, code=None):
+def _run_sampler_loader(tmp_path, code=None):
     utils.reset_config({"seed": 0})
     samplers_file = str(tmp_path / "samplers.py")
     if code is not None:
         with open(samplers_file, "w", encoding="utf-8") as f:
             f.write(code)
     approach = _StubApproach()
-    tools = create_sampler_synthesis_tools(
+    loader = make_sampler_loader(
         samplers_file=samplers_file,
         samplers_versions_dir=str(tmp_path / "samplers_versions"),
         approach=approach,
         cycle_index_provider=lambda: 1,
     )
-    handlers = {t.name: t.handler for t in tools}
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    result: Any = loop.run_until_complete(handlers["evaluate_sampler"]({}))
-    return result["content"][0]["text"], approach
+    # Through the probe, exactly as the agent reaches it.
+    ctx = ToolContext()
+    ctx.probe_artifact_loaders["samplers"] = loader
+    return BeliefProbe(ctx).samplers(), approach
 
 
 _GOOD = """\
@@ -87,7 +83,7 @@ LEARNED_SAMPLERS = {"Move": _move_sampler}
 def test_evaluate_sampler_installs_valid_samplers(tmp_path):
     """A valid samplers.py is installed onto the approach and passes the sanity
     check."""
-    text, approach = _run_evaluate_sampler(tmp_path, _GOOD)
+    text, approach = _run_sampler_loader(tmp_path, _GOOD)
     assert "1 per-skill sampler(s) installed" in text
     assert "Move: OK" in text
     assert "3/3 within the params box" in text
@@ -98,7 +94,7 @@ def test_evaluate_sampler_installs_valid_samplers(tmp_path):
 def test_evaluate_sampler_warns_unknown_option(tmp_path):
     """An entry keyed by a non-option name is skipped with a warning."""
     code = _GOOD + "\nLEARNED_SAMPLERS['Teleport'] = _move_sampler\n"
-    text, approach = _run_evaluate_sampler(tmp_path, code)
+    text, approach = _run_sampler_loader(tmp_path, code)
     assert "Skipped 'Teleport' (not a known option name" in text
     assert set(approach._synthesized_samplers) == {"Move"}  # pylint: disable=protected-access
 
@@ -106,15 +102,15 @@ def test_evaluate_sampler_warns_unknown_option(tmp_path):
 def test_evaluate_sampler_warns_non_callable(tmp_path):
     """A non-callable value is skipped with a warning."""
     code = _GOOD + "\nLEARNED_SAMPLERS['Move'] = 3.0\n"
-    text, approach = _run_evaluate_sampler(tmp_path, code)
+    text, approach = _run_sampler_loader(tmp_path, code)
     assert "Skipped 'Move' (value is not callable" in text
     assert not approach._synthesized_samplers  # pylint: disable=protected-access
 
 
 def test_evaluate_sampler_reports_exec_error(tmp_path):
     """A samplers.py that raises at import time reports the traceback."""
-    text, approach = _run_evaluate_sampler(tmp_path,
-                                           "raise RuntimeError('boom')")
+    text, approach = _run_sampler_loader(tmp_path,
+                                         "raise RuntimeError('boom')")
     assert "Error executing" in text
     assert "boom" in text
     assert not approach._synthesized_samplers  # pylint: disable=protected-access
@@ -122,19 +118,19 @@ def test_evaluate_sampler_reports_exec_error(tmp_path):
 
 def test_evaluate_sampler_reports_missing_symbol(tmp_path):
     """A file without LEARNED_SAMPLERS names the missing symbol."""
-    text, _ = _run_evaluate_sampler(tmp_path, "x = 1\n")
+    text, _ = _run_sampler_loader(tmp_path, "x = 1\n")
     assert "LEARNED_SAMPLERS" in text
 
 
 def test_evaluate_sampler_missing_file_hint(tmp_path):
     """A missing samplers.py returns the Write hint, not a crash."""
-    text, _ = _run_evaluate_sampler(tmp_path, code=None)
+    text, _ = _run_sampler_loader(tmp_path, code=None)
     assert "Use Write to create it" in text
 
 
 def test_evaluate_sampler_empty_dict_message(tmp_path):
     """An empty LEARNED_SAMPLERS asks for entries instead of sanity lines."""
-    text, _ = _run_evaluate_sampler(tmp_path, "LEARNED_SAMPLERS = {}\n")
+    text, _ = _run_sampler_loader(tmp_path, "LEARNED_SAMPLERS = {}\n")
     assert "LEARNED_SAMPLERS is empty" in text
     assert "Sanity check" not in text
 
@@ -145,22 +141,15 @@ def test_evaluate_sampler_version_tag_bumps_on_edit(tmp_path):
     utils.reset_config({"seed": 0})
     samplers_file = tmp_path / "samplers.py"
     samplers_file.write_text(_GOOD, encoding="utf-8")
-    tools = create_sampler_synthesis_tools(
+    loader = make_sampler_loader(
         samplers_file=str(samplers_file),
         samplers_versions_dir=str(tmp_path / "samplers_versions"),
         approach=_StubApproach(),
         cycle_index_provider=lambda: 1,
     )
-    handler = {t.name: t.handler for t in tools}["evaluate_sampler"]
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
 
     def _tag():
-        result: Any = loop.run_until_complete(handler({}))
-        return result["content"][0]["text"].split("]")[0].lstrip("[")
+        return loader().split("]")[0].lstrip("[")
 
     tag1 = _tag()
     tag2 = _tag()  # unchanged file: same tag (snapshot deduped)
@@ -184,7 +173,7 @@ def _needs_subgoal(state, subgoal_atoms, rng, objects):
 
 LEARNED_SAMPLERS = {"Move": _needs_subgoal}
 """
-    text, _ = _run_evaluate_sampler(tmp_path, code)
+    text, _ = _run_sampler_loader(tmp_path, code)
     assert "ERROR" in text
     assert "subgoal_atoms=set()" in text
     assert "must not crash on an empty set" in text
@@ -235,6 +224,18 @@ def _bad_shape(state, subgoal_atoms, rng, objects):
 
 LEARNED_SAMPLERS = {"Move": _bad_shape}
 """
-    text, _ = _run_evaluate_sampler(tmp_path, code)
+    text, _ = _run_sampler_loader(tmp_path, code)
     assert "ERROR" in text
     assert "returned shape (2,), expected (1,)" in text
+
+
+def test_probe_samplers_unavailable_without_a_loader():
+    """Outside a sampler-synthesis session the probe has no samplers.py surface
+    and says so instead of silently doing nothing."""
+    probe = BeliefProbe(ToolContext())
+    try:
+        probe.samplers()
+    except RuntimeError as e:
+        assert "sim.samplers is unavailable" in str(e)
+    else:
+        raise AssertionError("sim.samplers() must raise without a loader")
