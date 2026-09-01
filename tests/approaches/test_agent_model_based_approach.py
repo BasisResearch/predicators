@@ -1705,8 +1705,8 @@ def _broken_option():
 
 
 def test_execution_policy_stuck_loop_is_fatal():
-    """K consecutive failures of one identical command end the episode
-    before the option budget is burned (mirrors execute_policy_forward)."""
+    """K consecutive failures of one identical command end the episode before
+    the option budget is burned (mirrors execute_policy_forward)."""
     from predicators.approaches import ApproachFailure
     approach, _, _ = _make_approach()
     utils.reset_config({
@@ -1734,8 +1734,8 @@ def test_execution_policy_stuck_loop_is_fatal():
 
 
 def test_execution_policy_stuck_loop_resets_on_changed_params():
-    """Adapting the parameters after each failure avoids the guard: the
-    episode runs to the option budget instead."""
+    """Adapting the parameters after each failure avoids the guard: the episode
+    runs to the option budget instead."""
     from predicators.approaches import ApproachFailure
     approach, _, _ = _make_approach()
     utils.reset_config({
@@ -1763,12 +1763,11 @@ def test_execution_policy_stuck_loop_resets_on_changed_params():
 
 
 def test_execution_policy_stuck_loop_on_mid_execution_raise():
-    """The guard also counts a skill that raises from inside its own
-    policy (e.g. a motion-planning refusal), whose exception carries no
-    last_failed_option of its own: option_policy_to_policy attributes it
-    to the executing option, so K identical re-issues end the episode
-    instead of burning the option budget (2026-08-25 policy-arm cycle-4
-    test)."""
+    """The guard also counts a skill that raises from inside its own policy
+    (e.g. a motion-planning refusal), whose exception carries no
+    last_failed_option of its own: option_policy_to_policy attributes it to the
+    executing option, so K identical re-issues end the episode instead of
+    burning the option budget (2026-08-25 policy-arm cycle-4 test)."""
     from predicators.approaches import ApproachFailure
     approach, _, _ = _make_approach()
     utils.reset_config({

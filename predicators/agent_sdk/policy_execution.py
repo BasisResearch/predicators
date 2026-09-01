@@ -65,8 +65,8 @@ def option_repeat_key(option: _Option) -> Tuple[str, Tuple[str, ...], bytes]:
 
     Two options are "the same command" when they share the option, the
     ground objects, and (to 1e-6) the continuous parameters. Used by
-    both executors to detect a policy that keeps re-issuing an
-    identical failing command instead of adapting.
+    both executors to detect a policy that keeps re-issuing an identical
+    failing command instead of adapting.
     """
     return (option.name, tuple(o.name for o in option.objects),
             np.round(np.asarray(option.params, dtype=float), 6).tobytes())
