@@ -48,7 +48,14 @@ APPROACHES:
       partially_observable: True
       agent_explorer_info_seeking: True
       execution_monitor: "subgoal_annotations"
-      agent_bilevel_max_execution_replans: 2
+      # Suffix replanning never succeeded in any bridge run (0/4
+      # divergence events recovered, ~8 futile refinement attempts of up
+      # to 600 s each; measured 2026-09-01 across seeds 0-4), so eval
+      # execution runs open-loop like the 2026-08-30 generation that
+      # solved 2/2. 0 also disarms the divergence monitor - re-raise to
+      # re-enable it (divergences then resume open-loop after the failed
+      # refinement, 8cccfe42).
+      agent_bilevel_max_execution_replans: 0
       agent_bilevel_use_llm_initial_params: True # LLM proposes params
       agent_sdk_max_agent_turns_per_iteration: 200
       agent_sdk_image_max_px: 900
