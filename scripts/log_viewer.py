@@ -150,14 +150,22 @@ CODE_EXTS = {".py"}
 # Episode-grid geometry, in px. A task always gets TASK_W of space no
 # matter how many times it was retried, so its chips land at the same x in
 # every run and experiment; retries stack inside that space. MISC_W holds
-# the round's explore/learn chips, which are unbounded and so wrap too.
+# a cycle's explore/learn chips: sized so the standard trio (two explore
+# chips with their reward mark, one learn chip) fits on one line, with
+# space-joined chips wrapping onto further lines for busier cycles
+# instead of overflowing the fixed-layout column (the overflow used to
+# spill under the neighboring test-results text).
 TASK_W = 108
 ROUND_W = 34
-MISC_W = 3 * TASK_W
+MISC_W = 390
 # Fixed widths for the remaining columns of the index runs table, in the
-# order they are declared there. None is the episodes column, whose width
-# depends on the task count and is filled in at render time.
-RUN_COL_W = (30, 200, 62, 96, None, 178, 68, 132, 132, 72)
+# order they are declared there: checkbox, run (merged with seed, plus
+# the resume lineage marker), status, episodes (None: width depends on
+# the task count and is filled in at render time), test results, cost,
+# started, modified, time. MUST match the column count of table_head and
+# run_row - a stale entry shifts every later column's width one slot
+# over and the fixed-layout table collapses into overlapping cells.
+RUN_COL_W = (30, 240, 96, None, 178, 68, 132, 132, 72)
 # Episodes of one run, in file order; see _parse_episode for the fields.
 EpList = List[Dict[str, Any]]
 # A run's videos as {(task, cycle tag): [(filename, is_failure)]}.
@@ -858,6 +866,7 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
     round_cycles: List[Optional[int]] = []
     current: Dict[int, Dict[str, Any]] = {}
     explore: Dict[int, Dict[str, Any]] = {}
+    session_cycles: Dict[int, Optional[int]] = {}
     test_round: Dict[int, int] = {}
     pending: List[int] = []
     pending_test: List[int] = []
@@ -934,6 +943,15 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
                     continue
                 m = SAVED_EP_RE.search(line)
                 if m:
+                    # Every session's transcript-save line appears while
+                    # its true cycle's banner is still active (explores
+                    # save before their episodes run, learn saves before
+                    # the closing test, the test saves before the next
+                    # banner), so this map is the authoritative
+                    # session -> cycle assignment; None = saved before
+                    # the first banner (offline learning / pre-loop
+                    # eval).
+                    session_cycles[int(m.group(1))] = cycle
                     if m.group(2) == "explore":
                         pending.append(int(m.group(1)))
                     elif m.group(2) == "learn":
@@ -973,6 +991,8 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
         "round_cycles": round_cycles,
         "explore": explore,
         "test_round": test_round,
+        "session_cycles": session_cycles,
+        "last_cycle": cycle,
         "resume_cycle": resume_cycle,
         "done": done,
         "video_rel": video_rel,
@@ -1057,16 +1077,50 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
     round_cycles = parsed.get("round_cycles", [])
     explore_verdicts = parsed.get("explore", {})
     test_round = parsed.get("test_round", {})
-    # ep["round"] (learn episodes seen so far) drives only the grid-row
-    # layout; env verdicts pair by the stream-order test_round map, since
-    # the learn count offset from the round index varies per config.
-    # ep["cycle_tag"] is the authoritative video-name cycle tag from the
-    # log's ONLINE LEARNING CYCLE banners; the learn count is only its
-    # fallback (see episode_videos), being wrong for auto-resumed runs.
+    # ep["round"] drives only the grid-row layout; env verdicts pair by
+    # the stream-order test_round map. With cycle banners in the log a
+    # row IS one true learning cycle - its explores, its learn, and the
+    # eval that closes it (each session's save line falls inside its
+    # cycle's banner; see the parser) - and a pre-loop/offline eval,
+    # saved before the first banner, gets its own top row. The legacy
+    # learns-seen-so-far rule (which wrongly grouped a cycle's closing
+    # eval with the NEXT cycle's explores) remains only for banner-less
+    # logs. ep["cycle_tag"] is the authoritative video-name cycle tag;
+    # the learn count is only its fallback (see episode_videos), being
+    # wrong for auto-resumed runs.
+    session_cycles = parsed.get("session_cycles", {})
+    tagged_cycles = sorted(
+        {c
+         for c in session_cycles.values() if c is not None})
+    use_cycle_rows = bool(tagged_cycles)
+    cycle_rank = {c: k for k, c in enumerate(tagged_cycles)}
+    has_init_row = any(c is None for c in session_cycles.values())
+    row_offset = 1 if has_init_row else 0
+    last_cycle = parsed.get("last_cycle")
+
+    def _cycle_row(ep: Dict[str, Any]) -> Optional[int]:
+        if not use_cycle_rows:
+            return None
+        if ep["num"] in session_cycles:
+            c = session_cycles[ep["num"]]
+        else:
+            # No save line yet: the session is still running, so it
+            # belongs to the newest banner's cycle.
+            c = last_cycle
+        if c is None:
+            return 0
+        if c not in cycle_rank:
+            return len(cycle_rank) + row_offset
+        return cycle_rank[c] + row_offset
+
     learn_seen = 0
     interactions_seen = 0
     for ep in episodes:
-        ep["round"] = learn_seen
+        cycle_row = _cycle_row(ep)
+        ep["round"] = cycle_row if cycle_row is not None else learn_seen
+        if cycle_row is not None and "cycle_tag" not in ep:
+            c = session_cycles.get(ep["num"], last_cycle)
+            ep["cycle_tag"] = "cycleNone" if c is None else f"cycle{c}"
         if ep["kind"] == "learn":
             learn_seen += 1
             interactions_seen = 0
@@ -1963,6 +2017,31 @@ function paintAutoBtn() {
   var b = $('#arbtn');
   if (b) b.textContent = 'auto-refresh: ' + (autoOn() ? 'on' : 'off');
 }
+// Displayed timezone: the server (and every run/session NAME) lives in
+// MIT time, but the viewer may not. Times rendered through .ts spans
+// carry raw epochs and are formatted client-side in the chosen zone;
+// the uk <-> mit choice is remembered per browser. Run and session
+// names remain raw MIT wall-clock identifiers either way.
+var TZ_ZONES = { uk: 'Europe/London', mit: 'America/New_York' };
+function tzPref() {
+  var v = localStorage.getItem('lv-tz');
+  return (v === 'mit' || v === 'uk') ? v : 'uk';
+}
+function toggleTz() {
+  localStorage.setItem('lv-tz', tzPref() === 'uk' ? 'mit' : 'uk');
+  renderTimes();
+}
+function renderTimes() {
+  var zone = TZ_ZONES[tzPref()];
+  document.querySelectorAll('.ts[data-ts]').forEach(function(el) {
+    var d = new Date(parseFloat(el.dataset.ts) * 1000);
+    el.textContent = d.toLocaleString('sv-SE', {
+      timeZone: zone, year: 'numeric', month: '2-digit',
+      day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  });
+  var b = $('#tzbtn');
+  if (b) b.textContent = 'tz: ' + tzPref();
+}
 function showRefreshPill() {
   if ($('#refreshpill')) return;
   var p = document.createElement('button');
@@ -1986,6 +2065,7 @@ function pollStamp() {
 }
 document.addEventListener('DOMContentLoaded', function() {
   paintAutoBtn();
+  renderTimes();
   paintSortBtn();
   applySort();
   pollStamp();
@@ -2020,13 +2100,16 @@ function filterLog() {
 
 def page(title: str, topbar_extra: str, body: str) -> str:
     """Wrap body in the full HTML page shell (topbar, CSS, and JS)."""
-    return (
-        "<!doctype html><html><head><meta charset='utf-8'>"
-        f"<title>{esc(title)}</title><style>{CSS}</style>"
-        f"<script>{JS}</script></head>"
-        "<body><div class='topbar'><h1><a href='/'>log viewer</a></h1>"
-        f"{topbar_extra}<button id='arbtn' onclick='toggleAuto()'></button>"
-        f"</div>{body}</body></html>")
+    return ("<!doctype html><html><head><meta charset='utf-8'>"
+            f"<title>{esc(title)}</title><style>{CSS}</style>"
+            f"<script>{JS}</script></head>"
+            "<body><div class='topbar'><h1><a href='/'>log viewer</a></h1>"
+            f"{topbar_extra}<button id='tzbtn' onclick='toggleTz()' "
+            "title='Displayed timezone: uk = Europe/London, mit = "
+            "America/New_York (server local; run names stay MIT wall "
+            "clock)'></button>"
+            "<button id='arbtn' onclick='toggleAuto()'></button>"
+            f"</div>{body}</body></html>")
 
 
 def chip(label: Any, cls: str = "", title: str = "") -> str:
@@ -2120,11 +2203,14 @@ def grid_width(layout: Dict[str, Any]) -> int:
 
 def episode_grid(episodes: EpList,
                  layout: Optional[Dict[str, Any]] = None) -> str:
-    """Chips laid out one row per test round, one column per task.
+    """Chips laid out one row per learning cycle (explores, learn, then the
+    closing eval), one column per task; a pre-loop/offline eval gets its own
+    top row.
 
     Vertical alignment makes it easy to compare a task's outcome against
-    earlier rounds and against other runs; retries within a round stack
-    inside their task's column rather than widening it.
+    earlier cycles and against other runs; retries within a cycle stack
+    inside their task's column rather than widening it. (Banner-less
+    logs fall back to learns-seen-so-far rows.)
     """
     if layout is None:
         layout = grid_layout([episodes])
@@ -2155,15 +2241,20 @@ def episode_grid(episodes: EpList,
                     label = f"c{tag[5:]}"
                     break
             cells.append(f"<td class='muted rnd'>{label}</td>")
+        # Within a row, phases read in their temporal order: the cycle's
+        # explore/learn sessions first, then the eval that closes it.
+        if layout["misc"]:
+            # Space-joined: adjacent inline-block chips provide no break
+            # opportunity on their own, so without the separator a long
+            # chip run cannot wrap and overflows the fixed column.
+            chips = " ".join(_misc_chip(ep) for ep in misc.get(rnd, []))
+            cells.append(f"<td class='misc'>{chips}</td>")
         for task in layout["tasks"]:
             # One retry per line: two short chips would otherwise share a
             # line while longer ones stack, making the column read ragged.
             chips = "".join(f"<div>{_test_chip(ep)}</div>"
                             for ep in tests.get(rnd, {}).get(task, []))
             cells.append(f"<td class='task'>{chips}</td>")
-        if layout["misc"]:
-            chips = "".join(_misc_chip(ep) for ep in misc.get(rnd, []))
-            cells.append(f"<td class='misc'>{chips}</td>")
         rows.append(f"<tr>{''.join(cells)}</tr>")
     return (f"<table class='epgrid' style='width:{grid_width(layout)}px'>"
             f"{''.join(rows)}</table>")
@@ -2229,6 +2320,15 @@ def _misc_chip(ep: Dict[str, Any]) -> str:
 # ----------------------------------------------------------------- pages
 
 
+def _display_run_id(run_name: str) -> str:
+    """Run dir name for display: the constant ``run_`` prefix dropped.
+
+    Display only - links, copy paths, and filter keys keep the real dir
+    name.
+    """
+    return run_name[4:] if run_name.startswith("run_") else run_name
+
+
 def _prev_run_rel(run_rel: str) -> Optional[str]:
     """The same experiment's most recent earlier run dir, if any.
 
@@ -2257,14 +2357,34 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
     """Table row summarizing one run for the index page."""
     eps = summary.get("episodes", [])
     tr_str = test_results_str(summary) or "-"
+    # Auto-resumed run: mark the RUN cell with the cycle it continued at
+    # and the run whose checkpoints it continued from (it describes the
+    # run's lifecycle, not its test outcomes).
+    resume_mark = ""
     if summary.get("resume_cycle") is not None:
-        # Auto-resumed run: mark the row with the cycle it continued at.
-        tr_str = f"↻c{summary['resume_cycle']} {tr_str}"
+        prev_rel = _prev_run_rel(r["rel"])
+        if prev_rel is not None:
+            # The cycle it continued at is already visible as the grid's
+            # first row label, so the marker only names the lineage.
+            prev_name = os.path.basename(prev_rel)
+            resume_mark = (
+                " <span class='muted' title='auto-resumed run: continued "
+                f"at cycle {summary['resume_cycle']} from this run&#39;s "
+                f"checkpoints'>(re. <a href='/run?d={q(prev_rel)}'>"
+                f"{esc(_display_run_id(prev_name))}/"
+                f"{esc(r['seed'])}</a>)</span>")
     cost = summary.get("total_cost", 0.0)
     fmt = "%Y-%m-%d %H:%M"
     start_ts = _run_start_ts(r["name"], r["mtime"])
-    sstr = datetime.datetime.fromtimestamp(start_ts).strftime(fmt)
-    mstr = datetime.datetime.fromtimestamp(r["activity"]).strftime(fmt)
+    # Server-local (MIT) text is only the no-JS fallback: renderTimes()
+    # re-renders every .ts span client-side in the viewer's chosen
+    # timezone (uk/mit toggle in the topbar).
+    sstr = (
+        f"<span class='ts' data-ts='{start_ts:.0f}'>"
+        f"{datetime.datetime.fromtimestamp(start_ts).strftime(fmt)}</span>")
+    mstr = (f"<span class='ts' data-ts='{r['activity']:.0f}'>"
+            f"{datetime.datetime.fromtimestamp(r['activity']).strftime(fmt)}"
+            "</span>")
     dur_str = _fmt_duration(max(0.0, r["activity"] - start_ts))
     status, _ = run_status(r, summary, live, is_newest)
     # The status joins the filter key, so "running" narrows to live runs.
@@ -2291,10 +2411,11 @@ def run_row(r: Dict[str, Any], summary: Dict[str, Any], layout: Dict[str, Any],
             f"data-start='{start_ts:.0f}'>"
             f"<td><input type='checkbox' class='cmp' value='{esc(r['rel'])}'>"
             "</td>"
-            f"<td><a href='/run?d={q(r['rel'])}'>{esc(r['name'])}</a>"
+            f"<td><a href='/run?d={q(r['rel'])}'>"
+            f"{esc(_display_run_id(r['name']))}/{esc(r['seed'])}</a>"
+            f"{resume_mark}"
             f"<button class='copybtn' data-copy='{esc(copy_path)}' "
             f"title='Copy run path'>⧉</button>{del_btn}</td>"
-            f"<td>{esc(r['seed'])}</td>"
             f"<td>{status_chip(r, summary, live, is_newest)}{kill_btn}</td>"
             f"<td>{episode_grid(eps, layout)}</td>"
             f"<td>{esc(tr_str)}</td>"
@@ -2336,7 +2457,7 @@ def index_page() -> str:
     if not runs:
         body.append(
             f"<p>No run_* directories found under {esc(LOGS_ROOT)}.</p>")
-    table_head = ("<tr><th></th><th>run</th><th>seed</th><th>status</th>"
+    table_head = ("<tr><th></th><th>run</th><th>status</th>"
                   "<th>episodes</th><th>test results (info.log)</th>"
                   "<th>cost</th><th>started</th><th>modified</th>"
                   "<th>time</th></tr>")
