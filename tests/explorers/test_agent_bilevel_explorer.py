@@ -384,6 +384,7 @@ def test_experiment_guidance_injects_open_questions_ledger(tmp_path):
     guidance = explorer._build_experiment_guidance()  # pylint: disable=protected-access
     assert ledger in guidance
     assert "OPEN QUESTIONS" in guidance
+    assert "The TOP entry is mandatory" in guidance
     # Info-seeking on: both the ledger and the boundary-probing note.
     _reset_config(agent_explorer_info_seeking=True)
     guidance = explorer._build_experiment_guidance()  # pylint: disable=protected-access
