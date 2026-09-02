@@ -47,7 +47,7 @@ def transition(obs, latent, option, rng):
 '''
 
 
-def _cover():
+def _cover() -> Any:
     utils.reset_config({
         "env": "cover",
         "num_train_tasks": 2,
@@ -104,13 +104,16 @@ def test_program_option_model_steps_and_carries_latent() -> None:
     assert nxt.get(robot, "hand") == pytest.approx(0.3)
     # The latent was seeded from initial_latent (a draw in {0, 1}) and
     # advanced by the transition; the input state was not mutated.
+    assert nxt.latent is not None
     assert nxt.latent["count"] in (1, 2)
     assert init.latent is None
     nxt2, _ = model.get_next_state_and_num_actions(nxt, option)
+    assert nxt2.latent is not None
     assert nxt2.latent["count"] == nxt.latent["count"] + 1
     # The override pins every latent-less start.
     model.initial_latent_override = {"count": 40}
     nxt3, _ = model.get_next_state_and_num_actions(init, option)
+    assert nxt3.latent is not None
     assert nxt3.latent["count"] == 41
     model.initial_latent_override = None
     assert model.last_execution_failure is None

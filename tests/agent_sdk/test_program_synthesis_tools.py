@@ -1,5 +1,6 @@
 """Tests for the program-world-model synthesis tool surface."""
 import os
+from typing import Any
 
 import numpy as np
 
@@ -27,7 +28,7 @@ def transition(obs, latent, option, rng):
 '''
 
 
-def _setup(tmp_path):
+def _setup(tmp_path: Any) -> Any:
     utils.reset_config({
         "env": "cover",
         "num_train_tasks": 2,

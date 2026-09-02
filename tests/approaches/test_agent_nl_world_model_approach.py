@@ -19,7 +19,7 @@ from predicators.structs import Task
 _NOTES = "# Mechanisms\n- the hand moves to the PickPlace parameter\n"
 
 
-def _cover():
+def _cover() -> Any:
     utils.reset_config({
         "env": "cover",
         "num_train_tasks": 2,
@@ -55,7 +55,8 @@ def _bare(env: Any, train_tasks: List[Task], options: Any,
     approach._get_log_dir = lambda: log_dir  # type: ignore[method-assign]
     approach._get_all_options = lambda: options  # type: ignore[method-assign]
     approach._get_all_trajectories = lambda: []  # type: ignore[method-assign]
-    approach._offline_dataset = SimpleNamespace(trajectories=[])
+    approach._offline_dataset = SimpleNamespace(  # type: ignore[assignment]
+        trajectories=[])
     approach._online_trajectories = []
     approach._option_model = None
     approach._synthesized_samplers = {}
@@ -137,7 +138,8 @@ def test_notes_reach_the_solve_and_explore_prompts(tmp_path) -> None:
     approach._learning_mode = False
     explorer = AgentModelFreeExplorer(set(env.predicates), options, env.types,
                                       env.action_space, train_tasks, 10,
-                                      approach._tool_context, None)
+                                      approach._tool_context,
+                                      None)  # type: ignore[arg-type]
     explore_prompt = explorer._build_exploration_prompt(0)
     assert "hand moves to the PickPlace parameter" in explore_prompt
     assert explore_prompt.index("World model notes") < \

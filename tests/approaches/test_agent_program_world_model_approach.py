@@ -32,7 +32,7 @@ def transition(obs, latent, option, rng):
 '''
 
 
-def _cover():
+def _cover() -> Any:
     utils.reset_config({
         "env": "cover",
         "num_train_tasks": 2,
@@ -157,8 +157,9 @@ def test_rehydrate_from_world_model_file(tmp_path, monkeypatch) -> None:
     with open(wm["world_model_file"], "w", encoding="utf-8") as f:
         f.write(_PROGRAM)
     approach._rehydrate_from_artifacts()
-    assert approach._program is not None
-    assert approach._program.latent_features == {"robot": ["phase"]}
+    program = getattr(approach, "_program")
+    assert program is not None
+    assert program.latent_features == {"robot": ["phase"]}
     assert "world_model.py" in approach._CHECKPOINT_SANDBOX_FILES
     assert "world_model_versions" in approach._CHECKPOINT_SANDBOX_DIRS
 
