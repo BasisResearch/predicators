@@ -24,32 +24,8 @@ _DEPRECATED_APPROACH_ALIASES = {
     "agent_bilevel": "agent_model_based",
 }
 
-# Deprecated CLI aliases from before the agent approaches' model-free /
-# model-based rename (2026-08-30); old commands and configs still pass
-# them.
-_DEPRECATED_APPROACH_ALIASES = {
-    "agent_planner": "agent_model_free",
-    "agent_bilevel": "agent_model_based",
-}
-
-# Deprecated CLI aliases from before the agent approaches' model-free /
-# model-based rename (2026-08-30); old commands and configs still pass
-# them.
-_DEPRECATED_APPROACH_ALIASES = {
-    "agent_planner": "agent_model_free",
-    "agent_bilevel": "agent_model_based",
-}
-
 
 def _get_approach_cls_from_name(name: str) -> TypingType[BaseApproach]:
-    if name in _DEPRECATED_APPROACH_ALIASES:
-        logging.warning("Approach name %r is deprecated; use %r.", name,
-                        _DEPRECATED_APPROACH_ALIASES[name])
-        name = _DEPRECATED_APPROACH_ALIASES[name]
-    if name in _DEPRECATED_APPROACH_ALIASES:
-        logging.warning("Approach name %r is deprecated; use %r.", name,
-                        _DEPRECATED_APPROACH_ALIASES[name])
-        name = _DEPRECATED_APPROACH_ALIASES[name]
     if name in _DEPRECATED_APPROACH_ALIASES:
         logging.warning("Approach name %r is deprecated; use %r.", name,
                         _DEPRECATED_APPROACH_ALIASES[name])
