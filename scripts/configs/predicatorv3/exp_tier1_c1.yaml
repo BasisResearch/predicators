@@ -1,0 +1,24 @@
+# Tier-1 first pass: C1 on the three unrun domains, 1 seed, 1 test task.
+# Usage: python scripts/engaging/launch.py -c predicatorv3/exp_tier1_c1.yaml
+---
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ENVS:
+  domino_high_friction_turn:
+    SKIP: False
+  fan:
+    SKIP: False
+    FLAGS:
+      agent_sim_provide_base_sim_source: True
+  boil:
+    SKIP: False
+APPROACHES:
+  # C1 keeps its pre-loop test (A1) and tests the final model only, as in the sweeps.
+  sim_predicator:
+    SKIP: False
+    FLAGS:
+      skip_test_until_last_ite_or_early_stopping: True
+    ARGS:
+      - auto_resume
