@@ -1816,6 +1816,8 @@ th.cmphdr { font-size: 9px; letter-spacing: .08em; cursor: help; }
   border: 1px solid var(--border2); color: var(--muted); }
 .trig-declare { border-color: var(--ok); color: var(--ok);
   background: var(--ok-dim); }
+.trig-blow { border-color: var(--warn); color: var(--warn);
+  background: var(--warn-dim); }
 /* The "what is happening right now" panel above the run table. */
 .livepanel { border: 1px solid var(--border); border-radius: 8px;
   background: var(--panel); padding: 12px 14px; margin: 0 0 14px; }
@@ -2450,6 +2452,9 @@ _TRIGGER_BY_ENV = {
     "domino_fan": ("BUTTON", "the robot presses a switch to start the fan"),
     "domino_declare":
     ("DECLARE", "no switch: the robot declares finished and the fan starts"),
+    "domino_blow":
+    ("BLOW", "place a block so the wind knocks it FLAT into a goal region; "
+     "the only env here where the wind's strength is fittable"),
 }
 
 
@@ -2591,7 +2596,11 @@ def rung_badge(exp: str) -> str:
         return ""
     num, what = entry
     word, how = trigger
-    cls = "trig trig-declare" if env_key == "domino_declare" else "trig"
+    cls = "trig"
+    if env_key == "domino_declare":
+        cls = "trig trig-declare"
+    elif env_key == "domino_blow":
+        cls = "trig trig-blow"
     return (f"<span class='rung' title='{esc(what)}'>RUNG {num}</span>"
             f"<span class='{cls}' title='{esc(how)}'>{word}</span>")
 

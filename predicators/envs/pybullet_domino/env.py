@@ -512,6 +512,13 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                     stop_when_toppled=True,
                     force=CFG.domino_fan_wind_force)
                 return
+        if CFG.env == "pybullet_domino_blow":
+            # Expected, not a fault: the blow task has one plain block
+            # and no chain, so there is no green start block to aim at
+            # and PyBulletDominoBlowEnv re-aims the wind itself right
+            # after this. Warning about it filled the logs with a line
+            # that reads like a broken scene.
+            return
         logging.warning(
             "Fan env has no start (green) domino in this task; leaving the "
             "wind target unchanged.")
@@ -1265,9 +1272,6 @@ class PyBulletDominoBlowEnv(PyBulletDominoFanEnv):
         if self._fan_component is None:
             return
         if self._fan_component.any_fan_on() and self._wind_steps_left > 0:
-            if self._wind_steps_left == CFG.domino_blow_wind_steps:
-                logging.info("[blow] gust starts, budget=%d",
-                             self._wind_steps_left)
             self._wind_steps_left -= 1
             if self._wind_steps_left == 0:
                 self._fan_component.set_fans_on(False)
