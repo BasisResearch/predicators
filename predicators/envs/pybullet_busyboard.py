@@ -54,10 +54,26 @@ Example commands::
     # Watch a board with the GUI, no agent.
     python predicators/envs/pybullet_busyboard.py
 
+    # Oracle demo via bilevel process planning (solves 10/10).
+    python predicators/main.py --env pybullet_busyboard \
+        --approach oracle_process_planning --seed 0 \
+        --num_train_tasks 0 --num_test_tasks 10 \
+        --sesame_check_expected_atoms False
+
     # Learning run (partially observable).
     python predicators/main.py --env pybullet_busyboard \
         --approach agent_sim_predicate_invention --seed 0 \
         --partially_observable True
+
+``--sesame_check_expected_atoms False`` is required for the same reason
+``pybullet_bridge`` needs it. A lamp's lighting is a delayed effect of a
+drive condition, so the exact tick on which it lands depends on how many
+low-level steps the surrounding options happen to take. The symbolic
+delay places it on one tick; physics may deliver it on the one before or
+after, and the per-step atom check then rejects a plan that reaches the
+goal. Delay tuning does not fix this - the check is off-by-one against
+physics in both directions at once, and a sweep over delay values and
+option durations moves which tasks fail without ever clearing all ten.
 """
 from typing import Any, ClassVar, Dict, List, Sequence, Set, Tuple
 
@@ -259,12 +275,10 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
     # Fully observable: the charge is a visible feature, so a learner sees
     # the accumulation directly and only the wiring is hidden.
     _lamp_type_fo = Type("lamp",
-                         ["x", "y", "z", "rot", "brightness", "charge"],
-                         sim_features=["id", "charge"])
+                         ["x", "y", "z", "rot", "brightness", "charge"])
     # Partially observable: charge is dropped. The learner sees only the
     # brightness readout and must postulate the accumulator itself.
-    _lamp_type_po = Type("lamp", ["x", "y", "z", "rot", "brightness"],
-                         sim_features=["id", "charge"])
+    _lamp_type_po = Type("lamp", ["x", "y", "z", "rot", "brightness"])
 
     @classmethod
     def _lamp_type_for_run(cls) -> Type:
@@ -284,6 +298,15 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
         # How much of the (max-size) board this task actually uses.
         self._num_active_buttons: int = 0
         self._num_active_lamps: int = 0
+        # Hidden per-lamp charge, keyed by object NAME rather than held in
+        # each lamp Object's sim_data. Bilevel planning runs a second env
+        # instance built by the option model, and that instance owns its
+        # own Object instances: identical in name and type, but with
+        # separate sim_data. Charge kept there accumulated on one set of
+        # objects while the state was read off the other, so the planner
+        # saw a board whose lamps never charged. A name-keyed store is
+        # instance-independent, which is what the two env copies need.
+        self._charges: Dict[str, float] = {}
 
         super().__init__(use_gui, **kwargs)
 
@@ -447,7 +470,7 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
         if obj.type.name == "button" and feature == "is_on":
             return float(self._is_button_on(obj))
         if obj.type.name == "lamp":
-            charge = float(obj.charge or 0.0)
+            charge = self._charges.get(obj.name, 0.0)
             if feature == "charge":
                 return charge
             if feature == "brightness":
@@ -491,9 +514,9 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
                 brightness = float(state.get(lamp, "brightness"))
                 charge = self.BRIGHTNESS_ONSET + \
                     brightness / self.BRIGHTNESS_RAMP
-            lamp.charge = float(np.clip(charge, 0.0, 1.0))
-            self._set_lamp_brightness_visual(lamp,
-                                             self._brightness(lamp.charge))
+            self._charges[lamp.name] = float(np.clip(charge, 0.0, 1.0))
+            self._set_lamp_brightness_visual(
+                lamp, self._brightness(self._charges[lamp.name]))
 
         self._park_unused_bodies(len(buttons), len(lamps))
 
@@ -522,12 +545,12 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
         for i, lamp in enumerate(lamps):
             if i >= len(self._driver):
                 continue
-            charge = float(lamp.charge or 0.0)
+            charge = self._charges.get(lamp.name, 0.0)
             if self._driven(button_on, self._driver[i], self._enabler[i]):
                 charge = min(1.0, charge + self.charge_rate())
             else:
                 charge = max(0.0, charge - self.decay_rate())
-            lamp.charge = charge
+            self._charges[lamp.name] = charge
             self._set_lamp_brightness_visual(lamp, self._brightness(charge))
 
     def reset(self,
