@@ -136,8 +136,15 @@ for a in arms:
         flags += [
             "      num_online_learning_cycles: 2",
             "      code_sim_learning_rollout_grid_seed_points: 5",
-            "      code_sim_learning_rollout_grid_sweep_passes: 1",
         ]
+        # One sweep pass is right where the fit cannot succeed anyway.
+        # On domino_blow it can and it must: the wind's magnitude sets
+        # how far the block travels, and a block that travels wrong
+        # misses the goal region, so a fit starved of passes fails the
+        # task for a reason that is not the agent's. A wide posterior is
+        # acceptable there; a fit that never moves is not.
+        flags.append("      code_sim_learning_rollout_grid_sweep_passes: "
+                     + ("2" if env_key == "domino_blow" else "1"))
     lines += ["    FLAGS:"] + flags
 print("\n".join(lines))
 PYEOF
