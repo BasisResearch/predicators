@@ -90,8 +90,11 @@ class MapleQProcessApproach(OnlineProcessLearningAndPlanningApproach):
             logging.debug(f"taking option: {option}")
             return option
 
+        preds = self._get_current_predicates()
         return utils.option_policy_to_policy(
-            _option_policy, max_option_steps=CFG.max_num_steps_option_rollout)
+            _option_policy,
+            max_option_steps=CFG.max_num_steps_option_rollout,
+            abstract_function=lambda s: utils.abstract(s, preds))
 
     def _create_explorer(self) -> BaseExplorer:
         """Create a new explorer at the beginning of each interaction cycle."""

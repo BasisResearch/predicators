@@ -296,7 +296,12 @@ def _execute_policy(cogman: CogMan, task_idx: int, env_task: EnvironmentTask,
     except utils.EnvironmentFailure as e:
         logging.info(f"Environment failed with error: {e}")
         caught_exception = True
-    except (ApproachTimeout, ApproachFailure) as e:
+    except (ApproachTimeout, ApproachFailure,
+            utils.OptionExecutionFailure) as e:
+        # OptionExecutionFailure (an option that never terminated or a
+        # plan that ran out) reaches here from approaches that hand the
+        # option-policy wrapper straight to the cogman without wrapping
+        # its failures; it is this task failing, not the run.
         logging.info(f"Approach failed at execution time with error: {e}")
         if isinstance(e, ApproachTimeout):
             metrics.num_execution_timeouts += 1
