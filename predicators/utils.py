@@ -1913,7 +1913,6 @@ def option_policy_to_policy(
         wait_terminate_reason = "Wait terminated"
         if CFG.wait_option_terminate_on_atom_change \
                 and cur_option.name == "Wait":
-            assert abstract_function is not None
             assert last_state is not None
             # A Wait may be annotated with positive targets, negative
             # (NOT ...) targets, or both; check_wait_target_atoms
@@ -1928,9 +1927,16 @@ def option_policy_to_policy(
                 cur_option.memory.get("wait_target_neg_atoms") or set()
             targets_desc = (f"{sorted(map(str, target_atoms))} "
                             f"NOT {sorted(map(str, neg_target_atoms))}")
-            result = check_wait_target_atoms(cur_option, state,
-                                             abstract_function)
+            if abstract_function is None:
+                # No abstraction wired (a caller that executes plans
+                # without a model): the targets cannot be checked, so
+                # the Wait runs to the step backstop below.
+                result: Optional[bool] = False
+            else:
+                result = check_wait_target_atoms(cur_option, state,
+                                                 abstract_function)
             if result is True:
+                assert abstract_function is not None
                 cur_atoms = abstract_function(state)
                 logging.debug("Wait terminating: target atoms satisfied. "
                               f"Targets: {targets_desc}, "
@@ -1956,8 +1962,9 @@ def option_policy_to_policy(
                     wait_terminate = True
                     wait_terminate_reason = (
                         "Wait step cap (target atoms NOT satisfied)")
-                elif num_cur_option_steps <= 1 or \
-                        num_cur_option_steps % 25 == 0:
+                elif abstract_function is not None and (
+                        num_cur_option_steps <= 1
+                        or num_cur_option_steps % 25 == 0):
                     wait_debug = _format_wait_target_debug(
                         state, target_atoms, neg_target_atoms,
                         abstract_function)
@@ -1967,6 +1974,7 @@ def option_policy_to_policy(
                         num_cur_option_steps)
             elif result is None:
                 # No targets specified: fall back to any-atom-change
+                assert abstract_function is not None
                 cur_atoms = abstract_function(state)
                 prev_atoms = abstract_function(last_state)
                 if cur_atoms != prev_atoms:

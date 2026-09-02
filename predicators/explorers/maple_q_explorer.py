@@ -45,8 +45,13 @@ class MapleQExplorer(BaseExplorer):
             return self._q_function.get_option(state, \
                                                goal, num_samples, "train")
 
+        # The wrapper needs the abstraction to end a Wait on an atom
+        # change (wait_option_terminate_on_atom_change), and the oracle
+        # process set always contains Wait.
         policy = utils.option_policy_to_policy(
-            _option_policy, max_option_steps=CFG.max_num_steps_option_rollout)
+            _option_policy,
+            max_option_steps=CFG.max_num_steps_option_rollout,
+            abstract_function=lambda s: utils.abstract(s, self._predicates))
 
         # Never terminate.
         terminal = lambda s: False

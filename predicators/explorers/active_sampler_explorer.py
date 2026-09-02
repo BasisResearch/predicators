@@ -319,7 +319,8 @@ class ActiveSamplerExplorer(BaseExplorer):
         # Finalize policy.
         policy = utils.option_policy_to_policy(
             _wrapped_option_policy,
-            max_option_steps=CFG.max_num_steps_option_rollout)
+            max_option_steps=CFG.max_num_steps_option_rollout,
+            abstract_function=lambda s: utils.abstract(s, self._predicates))
 
         # Catch exceptions and update the ground op history.
         def _wrapped_policy(state: State) -> Action:
