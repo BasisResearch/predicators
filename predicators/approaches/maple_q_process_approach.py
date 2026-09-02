@@ -62,6 +62,11 @@ class MapleQProcessApproach(OnlineProcessLearningAndPlanningApproach):
             num_lookahead_samples=CFG.
             active_sampler_learning_num_lookahead_samples,
             predicates=self._get_current_predicates())
+        # Ground the oracle processes now: the loop skips the offline
+        # learn (and with it the grounding below) when there are no
+        # demos, and the first exploration episode needs applicable
+        # actions from its first step.
+        self._ground_endogenous_processes()
 
     @classmethod
     def get_name(cls) -> str:
@@ -128,15 +133,7 @@ class MapleQProcessApproach(OnlineProcessLearningAndPlanningApproach):
         # super()._learn_processes(trajectories, online_learning_cycle,
         #                          annotations)
         # Ground current endogenous processes for Q-learning.
-        all_ground_processes: Set[_GroundCausalProcess] = set()
-        all_objects = {o for t in self._train_tasks for o in t.init}
-        for process in self._get_current_endogenous_processes():
-            all_ground_processes.update(
-                utils.all_ground_nsrts(process,
-                                       all_objects))  # type: ignore[arg-type]
-        goals = [t.goal for t in self._train_tasks]
-        self._q_function.set_grounding(
-            all_objects, goals, all_ground_processes)  # type: ignore[arg-type]
+        self._ground_endogenous_processes()
         # Refresh segmentation by option changes.
         prev_segmenter = CFG.segmenter
         try:
@@ -173,6 +170,19 @@ class MapleQProcessApproach(OnlineProcessLearningAndPlanningApproach):
                         self._last_seen_segment_traj_idx,
                         "interaction_goals": self._interaction_goals,
                     }, f)
+
+    def _ground_endogenous_processes(self) -> None:
+        """Ground the current endogenous processes over the train tasks'
+        objects and hand them to the Q-function."""
+        all_ground_processes: Set[_GroundCausalProcess] = set()
+        all_objects = {o for t in self._train_tasks for o in t.init}
+        for process in self._get_current_endogenous_processes():
+            all_ground_processes.update(
+                utils.all_ground_nsrts(process,
+                                       all_objects))  # type: ignore[arg-type]
+        goals = [t.goal for t in self._train_tasks]
+        self._q_function.set_grounding(
+            all_objects, goals, all_ground_processes)  # type: ignore[arg-type]
 
     def _update_maple_data(self) -> None:
         start_idx = self._last_seen_segment_traj_idx + 1

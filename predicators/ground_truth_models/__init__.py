@@ -1,5 +1,6 @@
 """Implements ground-truth NSRTs and options."""
 import abc
+import logging
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set
@@ -222,6 +223,7 @@ def get_gt_nsrts(env_name: str, predicates_to_keep: Set[Predicate],
     env_options = get_gt_options(env_name)
     assert predicates_to_keep.issubset(env.predicates)
     assert options_to_keep.issubset(env_options)
+    nsrts: Optional[Set[NSRT]] = None
     for cls in utils.get_all_subclasses(GroundTruthNSRTFactory):
         if not cls.__abstractmethods__ and env_name in cls.get_env_names():
             factory = cls()
@@ -231,9 +233,27 @@ def get_gt_nsrts(env_name: str, predicates_to_keep: Set[Predicate],
             types = {t.name: t for t in env.types}
             predicates = {p.name: p for p in env.predicates}
             options = {o.name: o for o in env_options}
-            nsrts = factory.get_nsrts(env_name, types, predicates, options)
+            try:
+                nsrts = factory.get_nsrts(env_name, types, predicates, options)
+            except KeyError as e:
+                # A factory written for an earlier option/predicate/type
+                # vocabulary of the env (the process-planning envs keep
+                # theirs next to options_legacy.py).
+                logging.warning(
+                    "Ground-truth NSRT factory %s is stale for %s (missing "
+                    "%s); deriving NSRTs from the oracle processes.",
+                    cls.__name__, env_name, e)
             break
-    else:  # pragma: no cover
+    if nsrts is None and _has_process_factory(env_name):
+        # The process-planning envs model their skills as endogenous
+        # processes; each one is an NSRT (preconditions = the start
+        # condition, the same effects, option, and sampler).
+        nsrts = nsrts_from_processes(
+            get_gt_processes(env_name,
+                             predicates_to_keep,
+                             options_to_keep,
+                             only_endogenous=True))
+    if nsrts is None:  # pragma: no cover
         raise NotImplementedError("Ground-truth NSRTs not implemented for "
                                   f"env: {env_name}")
     # Filter out excluded predicates from NSRTs, and filter out NSRTs whose
@@ -245,6 +265,33 @@ def get_gt_nsrts(env_name: str, predicates_to_keep: Set[Predicate],
         nsrt = nsrt.filter_predicates(predicates_to_keep)
         final_nsrts.add(nsrt)
     return final_nsrts
+
+
+def _has_process_factory(env_name: str) -> bool:
+    return any(not cls.__abstractmethods__ and env_name in cls.get_env_names()
+               for cls in utils.get_all_subclasses(GroundTruthProcessFactory))
+
+
+def nsrts_from_processes(processes: Set[CausalProcess]) -> Set[NSRT]:
+    """The NSRT view of a set of endogenous processes (exogenous ones, which no
+    option triggers, are skipped)."""
+    nsrts: Set[NSRT] = set()
+    for process in processes:
+        if not isinstance(process, EndogenousProcess):
+            continue
+        nsrts.add(
+            NSRT(
+                process.name,
+                list(process.parameters),
+                set(process.condition_at_start),
+                set(process.add_effects),
+                set(process.delete_effects),
+                set(process.ignore_effects),
+                process.option,
+                list(process.option_vars),
+                process._sampler,  # pylint: disable=protected-access
+            ))
+    return nsrts
 
 
 def get_gt_processes(env_name: str,
