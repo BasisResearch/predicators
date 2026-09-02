@@ -1022,6 +1022,17 @@ class GlobalSettings:
     gnn_use_validation_set = True
 
     # parameters for GNN option policy approach
+    # GNN dynamics + shooting baseline (gnn_dynamics_shooting, paper arm
+    # C5): how many previous pre-option states ride along as node
+    # features (so a hidden mechanism is inferable from the recent
+    # past), the longest option sequence one shooting try samples, how
+    # many tries a plan query gets before failing, and whether the plan
+    # is re-shot from the observed state after every option (MPC) or
+    # executed open-loop.
+    gnn_dynamics_history_len = 2
+    gnn_dynamics_max_plan_length = 30
+    gnn_dynamics_shooting_max_tries = 200
+    gnn_dynamics_replan_every_option = True
     gnn_option_policy_solve_with_shooting = True
     gnn_option_policy_shooting_variance = 0.1
     gnn_option_policy_shooting_max_samples = 100
