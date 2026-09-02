@@ -144,7 +144,7 @@ def test_charge_is_delayed_and_conjunctive(env_module):
         env._set_button_on(buttons[env._driver[idx]], True)
         for _ in range(40):
             env.step(hold)
-        assert float(lamps[idx].charge) == 0.0
+        assert env._charges[lamps[idx].name] == 0.0
 
         # Adding the enabler starts the accumulation, but the lamp stays
         # visibly dark well past the point where it is already charging.
@@ -152,7 +152,7 @@ def test_charge_is_delayed_and_conjunctive(env_module):
         for _ in range(10):
             env.step(hold)
         state = env._get_state()
-        assert float(lamps[idx].charge) > 0.0
+        assert env._charges[lamps[idx].name] > 0.0
         assert float(state.get(lamps[idx], "brightness")) == 0.0
         assert not env._LampOn_holds(state, [lamps[idx]])
 
@@ -168,7 +168,7 @@ def test_charge_is_delayed_and_conjunctive(env_module):
             env.step(hold)
         state = env._get_state()
         assert env._LampOff_holds(state, [lamps[idx]])
-        assert float(lamps[idx].charge) == 0.0
+        assert env._charges[lamps[idx].name] == 0.0
 
 
 def test_charge_is_hidden_under_partial_observability():

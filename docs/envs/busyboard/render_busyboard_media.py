@@ -209,7 +209,7 @@ def _draw_panel(env: PyBulletBusyBoardEnv, state: State, task: EnvironmentTask,
     y += 24
     bar_w = PANEL_W - 2 * x0 - 130
     for i, lamp in enumerate(lamps):
-        charge = float(lamp.charge or 0.0)
+        charge = env._charges.get(lamp.name, 0.0)  # pylint: disable=protected-access
         brightness = float(state.get(lamp, "brightness"))
         draw.text((x0, y + 1), f"lamp{i}", font=small, fill=INK)
         draw.rectangle((x0 + 48, y, x0 + 48 + bar_w, y + 13),
