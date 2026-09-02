@@ -69,14 +69,16 @@ def run_pipeline(env: BaseEnv,
 def initial_test_due() -> bool:
     """Whether the pre-loop test runs.
 
-    On a fresh start it runs unless a flag skips it. On an
+    Governed by ``skip_initial_test`` alone; the per-cycle tests have
+    their own switch (``skip_test_until_last_ite_or_early_stopping``),
+    so a run can evaluate the unlearned model and then only the final
+    one. On a fresh start it runs unless skipped. On an
     ``--auto_resume`` relaunch that found only the post-offline
     checkpoint (``skip_until_cycle`` 0) it runs again when no pre-loop
     result was saved: a requeue mid-test would otherwise skip the one
     evaluation a zero-cycle arm has.
     """
-    if (CFG.skip_test_until_last_ite_or_early_stopping
-            or CFG.skip_initial_test):
+    if CFG.skip_initial_test:
         return False
     if CFG.skip_until_cycle < 0:
         return True

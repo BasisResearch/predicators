@@ -24,7 +24,7 @@ def test_initial_test_due(tmp_path) -> None:
         **base, "skip_test_until_last_ite_or_early_stopping":
         True
     })
-    assert not initial_test_due()
+    assert initial_test_due()  # only the per-cycle tests are deferred
     # A plain --load_approach --skip_until_cycle 0 still skips it.
     utils.reset_config({**base, "skip_until_cycle": 0})
     assert not initial_test_due()

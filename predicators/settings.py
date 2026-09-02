@@ -32,12 +32,15 @@ class GlobalSettings:
     num_online_learning_cycles = 10
     online_learning_max_transitions = float("inf")
     online_learning_early_stopping = False
+    # When True, the online loop tests only the final model (last cycle or
+    # the early-stopping cycle). The pre-loop test is governed separately
+    # by skip_initial_test.
     skip_test_until_last_ite_or_early_stopping = False
     # When True, skip only the pre-loop (cycle-0) test that evaluates the
     # offline-learned model before any online learning. Per-cycle testing is
     # unaffected, so the learning-progression curve is still measured; only
     # the (usually predictable) evaluation of the uncalibrated initial model
-    # is saved. Subsumed by skip_test_until_last_ite_or_early_stopping.
+    # is saved.
     skip_initial_test = False
     # just for plotting
     online_learning_early_stopping_by_test_solve_rate = False
@@ -999,10 +1002,12 @@ class GlobalSettings:
     # busyboard env
     # Use skill-factory-based option implementations
     busyboard_use_skill_factories = True
-    # Board size. Test boards are larger than train boards, so a learner must
-    # re-identify a wiring over more buttons and lamps than it ever saw - the
-    # rule (a conjunctive drive feeding a delayed accumulator) transfers, the
-    # bindings do not.
+    # Board size. Test boards are larger than train boards and EXTEND them:
+    # every lamp of the smallest train board keeps its drive condition on
+    # every board, and the buttons and lamps a test board adds are decoys or
+    # a new lamp that goals only ever ask to keep dark. So what a learner
+    # finds out about the train board is true at test; test asks whether it
+    # trusts that on a busier board and leaves unfamiliar buttons alone.
     busyboard_num_buttons_train = [3]
     busyboard_num_buttons_test = [4, 5]
     busyboard_num_lamps_train = [2]
@@ -1012,12 +1017,14 @@ class GlobalSettings:
     # relation that undirected play confounds; set to 0.0 to ablate it and
     # recover a one-to-one board.
     busyboard_interlock_prob = 0.5
-    # One wiring per run (projected onto each board size) rather than a fresh
+    # One wiring per run (extended onto each board size) rather than a fresh
     # one per task. True is what today's fitting stack supports: PARAM_SPECS
     # resolves once, before any task is chosen, so a hidden quantity that
     # varied per task would have no home in a fitted model. False is the
-    # setting this domain exists to motivate - a model whose STRUCTURE is
-    # re-identified every episode - and needs a per-task parameter scope.
+    # harder setting held in reserve - a model whose STRUCTURE is
+    # re-identified every episode by a policy that experiments before it
+    # commits - and needs a per-task parameter scope and a belief simulator
+    # that can represent an unknown wiring.
     busyboard_fixed_wiring = True
     # Decorrelates the wiring draw from every other use of CFG.seed, so
     # changing the wiring does not also reshuffle the task distribution.
