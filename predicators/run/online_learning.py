@@ -7,6 +7,7 @@ interaction episodes it learns from.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import List, Optional, Sequence, Tuple
 
@@ -14,7 +15,7 @@ from predicators import utils
 from predicators.cogman import CogMan, run_episode_and_get_observations
 from predicators.envs import BaseEnv
 from predicators.run.checkpoints import ApproachCheckpoints, \
-    InflightInteractions, test_results_exist
+    InflightInteractions, test_results_exist, test_results_path
 from predicators.run.early_stopping import EarlyStopping, below_reward_bar_msg
 from predicators.run.testing import format_test_results_line, run_testing, \
     save_test_results
@@ -38,7 +39,8 @@ def run_pipeline(env: BaseEnv,
 
         # Run initial evaluation if needed
         initial_test_summary: Optional[Tuple[str, Metrics]] = None
-        if initial_test_due():
+        if initial_test_due(
+                ApproachCheckpoints.for_cogman(cogman).mtime(None)):
             results = run_testing(env, cogman, online_learning_cycle=None)
             results.update({
                 "num_offline_transitions": num_offline_trans,
@@ -66,7 +68,7 @@ def run_pipeline(env: BaseEnv,
         save_test_results(results, online_learning_cycle=None)
 
 
-def initial_test_due() -> bool:
+def initial_test_due(checkpoint_mtime: Optional[float] = None) -> bool:
     """Whether the pre-loop test runs.
 
     Governed by ``skip_initial_test`` alone; the per-cycle tests have
@@ -75,15 +77,21 @@ def initial_test_due() -> bool:
     one. On a fresh start it runs unless skipped. On an
     ``--auto_resume`` relaunch that found only the post-offline
     checkpoint (``skip_until_cycle`` 0) it runs again when no pre-loop
-    result was saved: a requeue mid-test would otherwise skip the one
-    evaluation a zero-cycle arm has.
+    result was saved by this lineage: a requeue mid-test would otherwise
+    skip the one evaluation a zero-cycle arm has. A result file older
+    than the checkpoint (``checkpoint_mtime``) belongs to an earlier run
+    of the same config and does not count.
     """
     if CFG.skip_initial_test:
         return False
     if CFG.skip_until_cycle < 0:
         return True
-    return (bool(getattr(CFG, "auto_resume", False))
-            and CFG.skip_until_cycle == 0 and not test_results_exist(None))
+    if not getattr(CFG, "auto_resume", False) or CFG.skip_until_cycle != 0:
+        return False
+    if not test_results_exist(None):
+        return True
+    return (checkpoint_mtime is not None
+            and os.path.getmtime(test_results_path(None)) < checkpoint_mtime)
 
 
 def _handle_offline_learning(

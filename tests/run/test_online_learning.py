@@ -36,6 +36,10 @@ def test_initial_test_due(tmp_path) -> None:
         f.write(b"")
     assert os.path.isfile(checkpoints.test_results_path(None))
     assert not initial_test_due()
+    # ... and a result older than the checkpoint is an earlier run's.
+    written = os.path.getmtime(checkpoints.test_results_path(None))
+    assert initial_test_due(checkpoint_mtime=written + 10.0)
+    assert not initial_test_due(checkpoint_mtime=written - 10.0)
     # Past cycle 0 the loop owns testing.
     utils.reset_config({**base, "skip_until_cycle": 1, "auto_resume": True})
     assert not initial_test_due()
