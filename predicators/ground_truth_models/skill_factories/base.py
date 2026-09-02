@@ -661,11 +661,16 @@ class PhaseSkill:
                 target_pose.orientation)
         return current_pose, target_pose, finger_status
 
-    def _held_contact_liftoff_applies(self, phase: Phase) -> bool:
+    def _held_contact_liftoff_applies(self, phase: Phase, state: State,
+                                      memory: Dict, objects: Sequence[Object],
+                                      params: Array) -> bool:
         """Whether a BiRRT refusal should become an incremental-IK lift-off.
 
-        True when the phase tolerates shallow held-object contact (a
-        retreat/lift whose motion leaves contact) and the planner's
+        True when the phase tolerates shallow held-object contact, its
+        target lies ABOVE the current end effector (a retreat or lift,
+        whose motion leaves the contact - a place descend carries the
+        same tolerance flag but moves into its support, and pressing on
+        with incremental IK there is not a lift-off), and the planner's
         diagnostics name ONLY start-configuration contacts of the held
         object: no goal contact (the target itself is infeasible) and no
         robot-body contact (the arm, not the payload, is wedged).
@@ -675,9 +680,13 @@ class PhaseSkill:
         diags = self._last_plan_diagnostics
         if not diags:
             return False
-        return all(
-            d.startswith("START: ") and not d.startswith("START: robot ")
-            for d in diags)
+        if not all(
+                d.startswith("START: ") and not d.startswith("START: robot ")
+                for d in diags):
+            return False
+        current_pose, target_pose, _ = self._phase_targets(
+            phase, state, memory, objects, params)
+        return target_pose.position[2] > current_pose.position[2] + 1e-3
 
     def _check_ik_stall(self, phase: Phase, state: State, memory: Dict,
                         objects: Sequence[Object], params: Array) -> None:
@@ -1127,12 +1136,14 @@ class PhaseSkill:
                         "[%s/%s] BiRRT failed; falling back to "
                         "incremental IK.", self._name, phase.name)
                     memory[traj_key] = None
-                elif self._held_contact_liftoff_applies(phase):
-                    # A retreat-type phase (one that tolerates shallow
-                    # held-object contact) whose ONLY blocker is the held
-                    # object pressed into a bystander at the start: the
-                    # phase's motion leaves that contact, so refusing to
-                    # plan from it aborts the safest move available.
+                elif self._held_contact_liftoff_applies(
+                        phase, state, memory, objects, params):
+                    # A retreat/lift (tolerates shallow held-object
+                    # contact, target above the end effector) whose ONLY
+                    # blocker is the held object pressed into a bystander
+                    # at the start: the phase's motion leaves that
+                    # contact, so refusing to plan from it aborts the
+                    # safest move available.
                     # Incremental IK lifts straight off toward the
                     # phase target under the stall guard. Measured on the
                     # 2026-09-02 bridge seed3 rerun: a glue dab's bottle
