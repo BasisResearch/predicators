@@ -125,7 +125,7 @@ class AgentModelFreeExplorer(AgentExplorerBase):
 
 ## Available Options
 {chr(10).join(option_strs)}
-{traj_summary}{tools_str}
+{traj_summary}{self._world_model_notes_block()}{tools_str}
 ## Instructions
 Use your available tools to inspect the environment and test your plan before committing to it.
 

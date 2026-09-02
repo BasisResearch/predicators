@@ -160,6 +160,12 @@ class ToolContext:
     # so the next exploration targets the gaps. None ⇒ no fit ran yet
     # (or it had no weak spots).
     sysid_diagnostics: Optional[str] = None
+    # The natural-language world-model arm's document (world_model.md
+    # content) and its agent-visible path: the solve prompt and the
+    # model-free explorer quote it into every task message. Empty
+    # everywhere else.
+    world_model_notes: str = ""
+    world_model_notes_path: str = ""
     # Set by submit_plan / submit_policy when a plan is verified
     # to reach the goal on the CURRENT solve task: the simulator-verified plan
     # (grounded options with found params) and the parallel subgoal sketch.

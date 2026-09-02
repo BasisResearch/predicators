@@ -320,3 +320,86 @@ def render_program_zero_shot_message() -> str:
     """The no-data note for the program arm's first message."""
     return render("learn_program_message", "zero_shot")
 
+
+# ---------------------------------------------------------------------------
+# Natural-language world model arm (C3)
+# ---------------------------------------------------------------------------
+
+
+def build_notes_learn_system_prompt() -> str:
+    """Compose the natural-language world-model learn system prompt."""
+    return _join([
+        render("learn_notes_system", "intro"),
+        render("learn_notes_system", "produce"),
+        render("learn_notes_system", "tools"),
+        render("learn_notes_system", "deliverables"),
+        render("learn_notes_system", "workflow"),
+    ])
+
+
+def render_notes_solve_system_section() -> str:
+    """The solve / explore system-prompt section naming the document."""
+    return render("learn_notes_system", "solve_system")
+
+
+def render_world_model_notes_block(notes: str, notes_path: str) -> str:
+    """The document, quoted into a task message; empty when no notes."""
+    if not notes.strip():
+        return ""
+    return render("learn_notes_system",
+                  "notes_block",
+                  notes_path=notes_path,
+                  notes=notes.strip("\n"))
+
+
+def build_notes_learn_message(
+        *,
+        n_trajs: int,
+        n_transitions: int,
+        n_demos: int,
+        n_interaction: int,
+        trajectory_listing: str,
+        structs_ref: str,
+        predicate_listing: str,
+        types_digest: str,
+        options_digest: str,
+        notes_file: str,
+        goal_nls: Sequence[str] = (),
+        has_prior_notes: bool = False,
+        objective_block: str = "",
+        tools_block: str = "",
+        extra_messages: Sequence[str] = (),
+) -> str:
+    """Compose the natural-language world-model learn first message."""
+    goals = [g for g in dict.fromkeys(goal_nls) if g]
+    goal_block = (render("learn_notes_message",
+                         "goal",
+                         goals="\n".join(f"- {g}"
+                                         for g in goals)) if goals else "")
+    prior_block = (render("learn_notes_message",
+                          "prior_notes",
+                          notes_file=notes_file) if has_prior_notes else "")
+    body = render(
+        "learn_notes_message",
+        "skeleton",
+        n_trajs=str(n_trajs),
+        n_transitions=str(n_transitions),
+        n_demos=str(n_demos),
+        n_interaction=str(n_interaction),
+        trajectory_listing=trajectory_listing.strip("\n"),
+        objective_block=objective_block,
+        goal_block=goal_block,
+        prior_notes_block=prior_block,
+        structs_ref=structs_ref,
+        predicate_listing=predicate_listing,
+        types_digest=types_digest.strip("\n"),
+        options_digest=options_digest.strip("\n"),
+        tools_block=tools_block,
+        notes_file=notes_file,
+    )
+    return _join([body, *extra_messages])
+
+
+def render_notes_zero_shot_message() -> str:
+    """The no-data note for the natural-language arm's first message."""
+    return render("learn_notes_message", "zero_shot")
