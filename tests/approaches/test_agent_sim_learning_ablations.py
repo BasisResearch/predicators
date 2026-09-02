@@ -1,11 +1,11 @@
 """Tests for the sim-learning ablation flags.
 
-* ``agent_sim_learn_param_uncertainty`` (A5): nothing consumes a
+* ``agent_sim_learn_param_uncertainty`` (A6+A7): nothing consumes a
   parameter posterior - no physics-margin points, no rule-parameter
   ensemble.
-* ``agent_sim_learn_declared_params_only`` (A3): no estimation runs;
+* ``agent_sim_learn_declared_params_only`` (A4): no estimation runs;
   the declaration is the estimate and its box the plausible interval.
-* ``agent_sim_learn_zero_shot`` (A1): the synthesis session runs with
+* ``agent_sim_learn_zero_shot`` (A2): the synthesis session runs with
   no recorded transitions.
 """
 # pylint: disable=protected-access
@@ -40,7 +40,7 @@ class _RegistryEnv:
 
 
 def _bare_approach() -> Any:
-    approach = asla.AgentSimLearningApproach.__new__(
+    approach: Any = asla.AgentSimLearningApproach.__new__(
         asla.AgentSimLearningApproach)
     approach._base_env = _RegistryEnv()
     approach._identified_physical_params = {}
@@ -103,7 +103,7 @@ def test_declared_interval_report_feeds_the_margin_hull() -> None:
 
 
 def test_deploy_declared_params_uses_the_declaration_as_the_estimate() -> None:
-    """A3: inits deploy as the estimate, boxes as margins and ensemble."""
+    """A4: inits deploy as the estimate, boxes as margins and ensemble."""
     utils.reset_config({
         "agent_sim_learn_declared_params_only": True,
         "agent_explorer_info_seeking": True,
@@ -140,8 +140,34 @@ def test_deploy_declared_params_uses_the_declaration_as_the_estimate() -> None:
     assert approach._fit_sse == 1.5
 
 
+def test_rule_param_margin_alone_builds_the_ensemble() -> None:
+    """A6 (info-seeking off, gate on) keeps the validation ensemble; with both
+    consumers off (A6+A7) none is built."""
+    utils.reset_config({
+        "agent_sim_learn_declared_params_only": True,
+        "agent_explorer_info_seeking": False,
+        "agent_plan_validation_rule_param_margin": True,
+        "agent_explorer_info_ensemble_size": 5,
+    })
+    approach = _bare_approach()
+    approach._physical_param_specs = list(_PHYS_SPECS)
+    approach._fit_params_after_synthesis([], list(_RULE_SPECS),
+                                         [("s", "a", "s2")], {})
+    assert len(approach._param_ensemble) == 5
+    utils.reset_config({
+        "agent_sim_learn_declared_params_only": True,
+        "agent_explorer_info_seeking": False,
+        "agent_plan_validation_rule_param_margin": False,
+    })
+    approach = _bare_approach()
+    approach._physical_param_specs = list(_PHYS_SPECS)
+    approach._fit_params_after_synthesis([], list(_RULE_SPECS),
+                                         [("s", "a", "s2")], {})
+    assert not approach._param_ensemble
+
+
 def test_deploy_declared_params_without_data_has_no_sse() -> None:
-    """A3 with nothing recorded: inits deploy, no SSE, no ensemble."""
+    """A4 with nothing recorded: inits deploy, no SSE, no ensemble."""
     utils.reset_config({
         "agent_sim_learn_declared_params_only": True,
         "agent_explorer_info_seeking": False,
@@ -156,7 +182,7 @@ def test_deploy_declared_params_without_data_has_no_sse() -> None:
 
 
 def test_no_uncertainty_flag_removes_margins_and_ensemble() -> None:
-    """A5: point estimates deploy; no margin points, no ensemble."""
+    """A6+A7: point estimates deploy; no margin points, no ensemble."""
     utils.reset_config({
         "agent_sim_learn_declared_params_only": True,
         "agent_sim_learn_param_uncertainty": False,
@@ -197,7 +223,7 @@ def test_no_data_seeding_applies_declared_physical_inits() -> None:
 def test_zero_shot_flag_gates_data_free_synthesis() -> None:
     """With no transitions, _learn_simulator returns early unless the zero-shot
     flag is set, in which case synthesis runs on empty data."""
-    approach = asla.AgentSimLearningApproach.__new__(
+    approach: Any = asla.AgentSimLearningApproach.__new__(
         asla.AgentSimLearningApproach)
     approach._explainability_cache = {}
     approach._sysid_fit_cache = {}
@@ -247,7 +273,7 @@ def test_declared_params_prompt_section_is_flag_gated() -> None:
 
 
 def test_estimation_surfaces_refuse_under_declared_params(tmp_path) -> None:
-    """A3: sim.fit, fit_params and sweep_params refuse; the plain report
+    """A4: sim.fit, fit_params and sweep_params refuse; the plain report
     runs."""
     utils.reset_config({"agent_sim_learn_declared_params_only": True})
     toolkit = create_synthesis_tools(exec_ns={},

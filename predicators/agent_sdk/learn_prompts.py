@@ -48,7 +48,7 @@ def build_learn_system_prompt(
     ``latent_extra_sections`` follow the recurrent-rules tutorial (only
     rendered when ``partially_observable``); ``workflow_extra`` is
     appended to the workflow's validation step. ``declared_params_only``
-    adds the no-estimation section (ablation A3): every parameter is
+    adds the no-estimation section (ablation A4): every parameter is
     used as declared, so the declaration is the estimate.
     """
     signature = render(
@@ -237,7 +237,7 @@ def render_partial_observability_message() -> str:
 
 
 def render_zero_shot_message() -> str:
-    """The no-data note for the first message (ablation A1)."""
+    """The no-data note for the first message (ablation A2)."""
     return render("learn_message", "zero_shot")
 
 

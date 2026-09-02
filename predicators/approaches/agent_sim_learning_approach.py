@@ -901,7 +901,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             base_pred_triples = []
             inferred_hint = {}
         else:
-            # Zero-shot synthesis (ablation A1): the session runs with
+            # Zero-shot synthesis (ablation A2): the session runs with
             # nothing recorded, so the artifacts come from the task
             # description, the scene and the agent's own knowledge; the
             # params deploy at their declared inits.
@@ -1187,18 +1187,23 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         return fit_num_steps
 
     def _rebuild_param_ensemble(self) -> None:
-        """Rebuild the active-experiment parameter ensemble.
+        """Rebuild the learned model's rule-parameter ensemble.
 
-        No-op (clears the ensemble) unless info-seeking exploration is
-        enabled and a fit has populated ``_fitted_params``. The ensemble
-        can use an exploration-only posterior even when solver params
-        remain at the global-budget point estimate.
+        Two consumers share it: info-seeking exploration (off under
+        ablation A6) and the capture gate's rule-param margin (off under
+        ablation A7). Built when either is on, a fit has populated
+        ``_fitted_params`` and parameter uncertainty is in use; cleared
+        otherwise. The ensemble can use an exploration-only posterior
+        even when solver params remain at the global-budget point
+        estimate.
 
         Picks the most *calibrated* ensemble the fit affords, preferring
         spreads that reflect real posterior uncertainty over uniform
         jitter (see :meth:`_select_param_ensemble`).
         """
-        if (not CFG.agent_explorer_info_seeking or not self._fitted_params
+        wanted = (CFG.agent_explorer_info_seeking
+                  or CFG.agent_plan_validation_rule_param_margin)
+        if (not wanted or not self._fitted_params
                 or not CFG.agent_sim_learn_param_uncertainty):
             self._param_ensemble = []
             return
@@ -1885,8 +1890,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     ) -> List[Dict[str, float]]:
         """The capture gate's physics-margin grid for ``applied``.
 
-        Empty under ``agent_sim_learn_param_uncertainty`` False (ablation
-        A5: point estimates only, so there is no width to sweep) - the
+        Empty under ``agent_sim_learn_param_uncertainty`` False (ablations
+        A6+A7 combined: point estimates only, so there is no width to
+        sweep) - the
         single place that decides, so the joint fit, the published-fit
         deploy and the declared-params deploy cannot disagree.
         """
@@ -1905,7 +1911,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         base_pred_triples: List[Tuple[State, Action, State]],
         residual_features: Dict[str, List[str]],
     ) -> None:
-        """Deploy the agent's declaration as the estimate (ablation A3).
+        """Deploy the agent's declaration as the estimate (ablation A4).
 
         No fit runs. Every rule param takes its ``init_value``; the
         declared physical inits are applied to the planning env; the

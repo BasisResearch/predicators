@@ -1847,8 +1847,8 @@ class GlobalSettings:
     # sweep cannot catch these: it perturbs identified base-physics
     # params, while a learned rule constant baked near a data boundary
     # carries its own posterior uncertainty. No-op unless the approach
-    # installs the ensemble providers (see rule_param_margin_provider),
-    # which requires agent_explorer_info_seeking's ensemble.
+    # installs the ensemble providers (see rule_param_margin_provider);
+    # this flag alone is enough for the ensemble to be built.
     agent_plan_validation_rule_param_margin = False
     # Fork-parallel rollouts: the capture gate's repeat rollouts, its
     # physics/rule-param margin sweeps, the belief probe's
@@ -1877,7 +1877,8 @@ class GlobalSettings:
     # ensemble's disagreement on a step's subgoal atoms
     # (sim.suggest_probes) and the capture gate can sweep the rule-param
     # margin. The agent decides what to run; the harness never moves
-    # its parameters. Off => no ensemble is built.
+    # its parameters. Off => the ensemble is built only when the
+    # rule-param margin gate asks for it.
     agent_explorer_info_seeking = False
     # Ensemble size used to estimate disagreement. 1 disables scoring
     # (every candidate scores 0) and reduces to first-feasible.
@@ -2184,15 +2185,15 @@ class GlobalSettings:
     agent_sim_learn_oracle_sim_program = False
     # Relative scale for perturbing oracle parameter init_values before MCMC.
     agent_sim_learn_oracle_sim_param_noise_scale = 0.2
-    # Ablation A5 ("no uncertainty"): when False, nothing consumes a
-    # posterior over the model parameters. The physics-margin sigma
+    # Ablations A6+A7 combined ("no uncertainty"): when False, nothing
+    # consumes a posterior over the model parameters. The physics-margin sigma
     # points are never built (so the capture gate's physics margin and
     # the probe's physics_sweep have nothing to sweep) and the
     # rule-parameter ensemble stays empty (so the rule-param margin and
     # the info-seeking disagreement score have nothing to score). Fits
     # still run; only their point estimates are used.
     agent_sim_learn_param_uncertainty = True
-    # Ablation A3 ("no parameter fitting"): when True, no parameter
+    # Ablation A4 ("no parameter fitting"): when True, no parameter
     # estimation runs anywhere - not sim.fit (it refuses), not the
     # harness-side fallback fit, not the exploration posterior, not the
     # residual report's fit_params / sweep_params. Each parameter's
@@ -2212,7 +2213,7 @@ class GlobalSettings:
     agent_program_belief_particles = 6
     agent_program_kernel_bandwidth = 0.2
     agent_program_score_max_examples = 3
-    # Ablation A1 ("zero-shot synthesis"): when True, the synthesis
+    # Ablation A2 ("zero-shot synthesis"): when True, the synthesis
     # session runs even when no transition has been recorded, so the
     # agent writes its artifacts from the task description, the scene
     # and its own knowledge. Pair with no demos and
