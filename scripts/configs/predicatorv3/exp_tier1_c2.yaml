@@ -1,0 +1,25 @@
+# Tier-1 first pass: C2 (model-free agent) on all four domains, 1 seed, 1 test task.
+# Usage: python scripts/engaging/launch.py -c predicatorv3/exp_tier1_c2.yaml --partition mit_preemptable
+---
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ENVS:
+  domino_high_friction_turn:
+    SKIP: False
+  fan:
+    SKIP: False
+  boil:
+    SKIP: False
+  bridge:
+    SKIP: False
+APPROACHES:
+  # C2 has no simulator to plan against, so no pre-loop test; final model only, as in the sweeps.
+  agent_model_free_planning:
+    SKIP: False
+    FLAGS:
+      skip_initial_test: True
+      skip_test_until_last_ite_or_early_stopping: True
+    ARGS:
+      - auto_resume
