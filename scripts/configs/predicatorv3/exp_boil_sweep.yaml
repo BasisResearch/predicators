@@ -10,12 +10,11 @@ ENVS:
   boil:
     SKIP: False
 APPROACHES:
-# Learning arms skip the pre-loop test; U1, A1 and A2 (no cycles) are evaluated by it.
+# Learning arms skip the pre-loop test; U1 and A2 (no cycles) are evaluated by it.
+# C1 keeps it: its pre-loop test is A1 (no learning).
   # C1
   sim_predicator:
     SKIP: False
-    FLAGS:
-      skip_initial_test: True
     ARGS:
       - auto_resume
   # C1 in policy mode (parked; the paper's C1 is plan mode).
@@ -67,11 +66,6 @@ APPROACHES:
     FLAGS:
       partially_observable: True
       agent_bilevel_max_execution_replans: 0
-    ARGS:
-      - auto_resume
-  # A1
-  sim_predicator_no_learning:
-    SKIP: False
     ARGS:
       - auto_resume
   # A2

@@ -287,7 +287,7 @@ APPROACHES:
   # ---- ABLATIONS (OURS minus one component, paper A1-A8; merge *ours_flags) ----
 
   # A1: no learning; plans are made, checked and run on the base engine.
-  # Same measurement as C1's pre-loop test, as its own job.
+  # The sweeps measure it as C1's pre-loop test; parked here for standalone reruns.
   sim_predicator_no_learning:
     NAME: "agent_sim_predicate_invention"
     SKIP: True

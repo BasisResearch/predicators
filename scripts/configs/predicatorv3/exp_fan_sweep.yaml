@@ -10,12 +10,12 @@ ENVS:
   fan:
     SKIP: False
 APPROACHES:
-# Learning arms skip the pre-loop test; U1, A1 and A2 (no cycles) are evaluated by it.
+# Learning arms skip the pre-loop test; U1 and A2 (no cycles) are evaluated by it.
+# C1 keeps it: its pre-loop test is A1 (no learning).
   # C1 (base-sim source surfaced, as in exp_fan.yaml, on every arm with a base sim)
   sim_predicator:
     SKIP: False
     FLAGS:
-      skip_initial_test: True
       agent_sim_provide_base_sim_source: True
     ARGS:
       - auto_resume
@@ -65,13 +65,6 @@ APPROACHES:
       skip_initial_test: True
   # U1
   agent_oracle_hybrid_sim:
-    SKIP: False
-    FLAGS:
-      agent_sim_provide_base_sim_source: True
-    ARGS:
-      - auto_resume
-  # A1
-  sim_predicator_no_learning:
     SKIP: False
     FLAGS:
       agent_sim_provide_base_sim_source: True
