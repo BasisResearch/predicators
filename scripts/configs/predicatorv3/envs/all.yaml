@@ -427,3 +427,23 @@ ENVS:
       # 1/1 with pin + preload together (job 21320581, 2026-08-26);
       # seat-onto-legs disturbance ~2 mm / ~3 deg with bonds intact.
       pybullet_pin_held_weld_assemblies: True
+  busyboard:
+    NAME: "pybullet_busyboard"
+    # Parked by default; exp_busyboard.yaml un-skips it.
+    SKIP: True
+    FLAGS:
+      max_initial_demos: 0
+      # A press is ~22 low-level steps and a lamp needs ~48 driven ones
+      # to light, so a three-press plan runs past the common 500 cap and
+      # every refinement would be rejected on the horizon check.
+      horizon: 2000
+      # REQUIRED here, for the same reason pybullet_bridge needs it. A
+      # lamp's lighting is a delayed effect of a drive condition, so the
+      # tick it lands on depends on how many low-level steps the
+      # surrounding options happen to take; the symbolic delay places it
+      # on one tick and physics may deliver it on the neighbouring one,
+      # and the per-step atom check then rejects a plan that reaches the
+      # goal. Measured 2026-09-01 on oracle_process_planning over 10 test
+      # tasks: 8/10 with the check on, 10/10 with it off, at either
+      # candidate delay value.
+      sesame_check_expected_atoms: False
