@@ -38,9 +38,7 @@ def run_pipeline(env: BaseEnv,
 
         # Run initial evaluation if needed
         initial_test_summary: Optional[Tuple[str, Metrics]] = None
-        if CFG.skip_until_cycle < 0 and \
-           not CFG.skip_test_until_last_ite_or_early_stopping and \
-           not CFG.skip_initial_test:
+        if initial_test_due():
             results = run_testing(env, cogman, online_learning_cycle=None)
             results.update({
                 "num_offline_transitions": num_offline_trans,
@@ -66,6 +64,24 @@ def run_pipeline(env: BaseEnv,
             "learning_time": 0.0
         })
         save_test_results(results, online_learning_cycle=None)
+
+
+def initial_test_due() -> bool:
+    """Whether the pre-loop test runs.
+
+    On a fresh start it runs unless a flag skips it. On an
+    ``--auto_resume`` relaunch that found only the post-offline
+    checkpoint (``skip_until_cycle`` 0) it runs again when no pre-loop
+    result was saved: a requeue mid-test would otherwise skip the one
+    evaluation a zero-cycle arm has.
+    """
+    if (CFG.skip_test_until_last_ite_or_early_stopping
+            or CFG.skip_initial_test):
+        return False
+    if CFG.skip_until_cycle < 0:
+        return True
+    return (bool(getattr(CFG, "auto_resume", False))
+            and CFG.skip_until_cycle == 0 and not test_results_exist(None))
 
 
 def _handle_offline_learning(
