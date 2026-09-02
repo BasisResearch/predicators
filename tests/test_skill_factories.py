@@ -101,6 +101,12 @@ def _make_obj() -> Object:
     return Object("obj0", _OBJ_TYPE)
 
 
+def _phases_of(opt: ParameterizedOption):
+    """The PhaseSkill phases behind a built option (its policy is the skill's
+    bound method)."""
+    return opt.policy.__self__._phases  # type: ignore[attr-defined]  # pylint: disable=protected-access
+
+
 def _build_state(
     robot_obj: Object,
     robot,
@@ -1107,6 +1113,85 @@ class TestCreatePickSkill:
         opt = self._make_pick(robot)
         assert isinstance(opt, ParameterizedOption)
         assert opt.name == "Pick"
+
+    def test_default_descends_fully_open(self, robot_scene):
+        """Without a half-gap callback the pick keeps its four phases and
+        descends with the fingers opening."""
+        _, robot = robot_scene
+        config = SkillConfig(
+            robot=robot,
+            open_fingers_joint=robot.open_fingers,
+            closed_fingers_joint=robot.closed_fingers,
+            fingers_state_to_joint=_fingers_state_to_joint,
+            transport_z=0.8,
+        )
+        opt = create_pick_skill(
+            name="Pick",
+            types=[_ROBOT_TYPE, _OBJ_TYPE],
+            config=config,
+            get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
+        )
+        assert [ph.name for ph in _phases_of(opt)
+                ] == ["MoveAbove", "MoveToGrasp", "Grasp", "LiftSlightly"]
+
+    def test_half_gap_adds_pre_open_and_holds_width(self, robot_scene):
+        """With a half-gap callback a PreOpen finger phase precedes the
+        descent, the descent holds the width, and the PreOpen target is half-
+        gap + half the pose tolerance, clipped to the finger range."""
+        _, robot = robot_scene
+        config = SkillConfig(
+            robot=robot,
+            open_fingers_joint=robot.open_fingers,
+            closed_fingers_joint=robot.closed_fingers,
+            fingers_state_to_joint=_fingers_state_to_joint,
+            transport_z=0.8,
+        )
+        opt = create_pick_skill(
+            name="Pick",
+            types=[_ROBOT_TYPE, _OBJ_TYPE],
+            config=config,
+            get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
+            approach_open=True,
+            descend_finger_half_gap_fn=lambda s, o, p_, c: 0.02,
+        )
+        phases = {ph.name: ph for ph in _phases_of(opt)}
+        assert list(phases) == [
+            "MoveAbove", "PreOpen", "MoveToGrasp", "Grasp", "LiftSlightly"
+        ]
+        assert phases["PreOpen"].action_type == PhaseAction.CHANGE_FINGERS
+        assert phases["PreOpen"].finger_direction == "close"
+        robot_obj = _make_robot_obj()
+        obj = _make_obj()
+        state = _make_home_state(robot_obj,
+                                 robot,
+                                 obj=obj,
+                                 obj_xyz=(1.35, 0.75, 0.4))
+        _, target = phases["PreOpen"].target_fn(state, [robot_obj, obj],
+                                                np.zeros(1, dtype=np.float32),
+                                                config)
+        expected = _fingers_state_to_joint(
+            robot, 0.02 + 0.5 * float(np.sqrt(config.move_to_pose_tol)))
+        assert abs(target - expected) < 1e-9
+        # The descent holds the pre-set width instead of opening.
+        _, _, status = phases["MoveToGrasp"].target_fn(
+            state, [robot_obj, obj], np.zeros(1, dtype=np.float32), config)
+        assert status == "hold"
+        # A half gap wider than the hand clips to fully open.
+        wide = create_pick_skill(
+            name="PickWide",
+            types=[_ROBOT_TYPE, _OBJ_TYPE],
+            config=config,
+            get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
+            approach_open=True,
+            descend_finger_half_gap_fn=lambda s, o, p_, c: 10.0,
+        )
+        _, target = {ph.name: ph
+                     for ph in _phases_of(wide)
+                     }["PreOpen"].target_fn(state, [robot_obj, obj],
+                                            np.zeros(1, dtype=np.float32),
+                                            config)
+        assert abs(target -
+                   max(robot.open_fingers, robot.closed_fingers)) < 1e-9
 
     def test_pick_policy_returns_valid_action(self, robot_scene):
         """Test pick policy returns valid action."""

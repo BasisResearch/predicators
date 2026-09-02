@@ -42,7 +42,7 @@ Example::
     )
 """
 
-from typing import Optional, Sequence, Tuple
+from typing import Callable, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -53,6 +53,11 @@ from predicators.ground_truth_models.skill_factories.move_to import \
 from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
 # Canonical continuous parameters for Pick.
+# The target object's half-width across the finger axis, in the State's
+# finger units (see create_pick_skill's descend_finger_half_gap_fn).
+TargetHalfGapFn = Callable[[State, Sequence[Object], Array, SkillConfig],
+                           float]
+
 _PICK_PARAMS = [
     ("grasp_z_offset (height above object origin to close gripper; low "
      "values can put the gripper in contact with the object or its support "
@@ -71,6 +76,7 @@ def create_pick_skill(
     lift_dz: float = 0.01,
     verify_lift: bool = False,
     param_defs: Optional[Sequence[Tuple[str, float, float]]] = None,
+    descend_finger_half_gap_fn: Optional[TargetHalfGapFn] = None,
 ) -> ParameterizedOption:
     """Create a multi-phase pick skill that grasps and lifts an object.
 
@@ -134,6 +140,24 @@ def create_pick_skill(
             reach edge the fingers close on nothing. Narrow it when the
             env knows its object and its robot -- the dead ends are what
             a sampler spends its budget on.
+        descend_finger_half_gap_fn: When given, the descent runs with
+            the fingers pre-set to the object's half-width across the
+            finger axis (this callback, in the State's finger units -
+            the units of the env's ``open_fingers``/``closed_fingers``)
+            plus a slack of half the executor's pose tolerance
+            (``0.5 * sqrt(config.move_to_pose_tol)``), instead of fully
+            open: a ``PreOpen`` finger phase after ``MoveAbove`` sets
+            the width and ``MoveToGrasp`` then holds it. A fully open
+            gripper on a narrow object carries each finger well past the
+            object's face, and that overhang is what clips a close
+            neighbor (measured 2026-09-02 on bridge: a finger 9.9 mm
+            into the next staged block from every arm branch, so the
+            grasp pose was refused outright). The slack keeps the target
+            object's own top edges clear of the narrowed fingers under
+            the lateral positioning error the pose tolerance permits;
+            narrower would trade neighbor clearance for self-clipping.
+            The BiRRT goal check scores the descent at the held width,
+            so the narrower footprint is what gets validated.
 
     Returns:
         A ``ParameterizedOption`` implementing the pick skill.
@@ -213,16 +237,47 @@ def create_pick_skill(
         # by its support and gains at most a third of the lift.
         return bool(z_now - _shared["rest_pose_z"] >= 0.5 * lift_dz)
 
+    def _pre_open_target(
+        state: State,
+        objects: Sequence[Object],
+        params: Array,
+        cfg: SkillConfig,
+    ) -> Tuple[float, float]:
+        assert descend_finger_half_gap_fn is not None
+        robot_obj = objects[0]
+        current = cfg.fingers_state_to_joint(cfg.robot,
+                                             state.get(robot_obj, "fingers"))
+        half_gap = descend_finger_half_gap_fn(state, objects, params, cfg)
+        slack = 0.5 * float(np.sqrt(cfg.move_to_pose_tol))
+        target = cfg.fingers_state_to_joint(cfg.robot, half_gap + slack)
+        lo, hi = sorted((cfg.closed_fingers_joint, cfg.open_fingers_joint))
+        return current, float(np.clip(target, lo, hi))
+
     phases = []
-    phases.extend([
+    phases.append(
         make_move_to_phase("MoveAbove", _above_pose,
-                           "open" if approach_open else "closed"),
+                           "open" if approach_open else "closed"))
+    descend_finger_status = "open"
+    if descend_finger_half_gap_fn is not None:
+        # Pre-set the fingers to the object's width (+ slack) at transport
+        # height, then descend holding that width: see the
+        # descend_finger_half_gap_fn docstring.
+        phases.append(
+            Phase(
+                name="PreOpen",
+                action_type=PhaseAction.CHANGE_FINGERS,
+                target_fn=_pre_open_target,
+                terminal_fn=None,
+                finger_direction="close" if approach_open else "open",
+            ))
+        descend_finger_status = "hold"
+    phases.extend([
         # Validate the grasp goal IK: the gripper descends to envelop the
         # target, and an imprecise (unvalidated) IK config can clip the target
         # object, making BiRRT reject a reachable grasp. See Phase.validate_ik.
         make_move_to_phase("MoveToGrasp",
                            _descend_pose,
-                           "open",
+                           descend_finger_status,
                            validate_ik=True),
         Phase(
             name="Grasp",
