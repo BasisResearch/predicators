@@ -1,74 +1,43 @@
-# Thin launcher: run the bridge experiment.
+# Bridge launcher: un-skips the bridge env and the OURS arm(s).
 # Usage: python scripts/local/launch_simp.py -c predicatorv3/exp_bridge.yaml --parallel
-# Env definitions live in envs/all.yaml and approach definitions in
-# approaches/all.yaml (all parked by default); this file only un-skips the
-# env + arm(s) it runs. To run a baseline sweep, flip additional arms'
-# SKIP to False here.
 ---
 includes:
   - common.yaml
   - envs/all.yaml
   - approaches/all.yaml
-# Seed 3 rerun on the stall fix 621190a1b (the welded-row carry-pick
-# LiftSlightly stall killed the cycle-2 eval and explore ep 010 of the
-# prior attempt). Prior checkpoints parked in
-# saved_approaches/backup_pre_stallfix_relaunch_20260902/ so
-# auto_resume starts fresh at cycle 0.
-START_SEED: 3
-NUM_SEEDS: 1
+# Seed-3 rerun on the stall fix 621190a1b; prior checkpoints parked in
+# saved_approaches/backup_pre_stallfix_relaunch_20260902/ so auto_resume starts fresh.
 ENVS:
   bridge:
     SKIP: False
 APPROACHES:
-  # Regression check PASSED 2026-08-24 (job 21143332 solved 1/1 in 22
-  # min after the Place post-release verification revert); re-skipped.
   agent_oracle_hybrid_sim:
-    SKIP: True
+    SKIP: True # regression passed 2026-08-24 (1/1)
   sim_predicator:
     SKIP: False
     FLAGS:
       skip_initial_test: True
       bilevel_plan_without_sim: True # for the demonstrator
       agent_solve_max_attempts: 1
-      # Early stopping stays train-driven (common.yaml): test tasks are
-      # evaluation-only and must never feed a training/termination
-      # decision. The path to firing the 2/2 train criterion is making
-      # attempts reliable (max-margin plans, precise skills), not
-      # peeking at test outcomes.
-      # A submission must also survive the calibrated posterior members
-      # of the learned rule constants: three straight test failures
-      # (cycles 5-7) came from plans centered on marginal operating
-      # points (a glue dab at 16 mm of the true 20 mm radius) that
-      # passed 5/5 nominal validation rollouts.
+      # Submissions must also survive the posterior members of the rule
+      # constants: marginal operating points passed 5/5 nominal rollouts.
       agent_plan_validation_rule_param_margin: True
-      # Skip the once-per-cycle exploration-posterior emcee fit (up to 5h
-      # wall per cycle at bridge scale for a ~0.1% log-prob gain over the
-      # LM warm start). The info-seeking ensemble falls back to a Laplace
-      # draw from the solver fit's jacobian; gate/threshold params with a
-      # flat likelihood get prior-width spread, degrading gracefully.
+      # Skip the per-cycle exploration-posterior MCMC (hours per cycle for a
+      # ~0.1% log-prob gain); the ensemble falls back to a Laplace draw.
       agent_explorer_info_mcmc_steps: 0
-      # Fork-parallel validation/margin/probe rollouts - the one config
-      # difference the bridge_v2 generation tested (2026-08-26/27):
-      # E2E-validated by the oracle regression (job 21336925, 1/1) and
-      # live in the v2 learning arms; benchmark 3.74x at 4 workers
-      # (job 21336169). Sized to the launcher's --cpus-per-task=8.
+      # Fork-parallel validation rollouts, sized to --cpus-per-task=8.
       agent_validation_parallel_workers: 6
-    # Self-resume from the latest per-cycle checkpoint on requeue /
-    # resubmission of the identical command (12h mit_normal cap; or run
-    # on mit_preemptable via PREDICATORS_ENGAGING_PARTITION).
-    # (store_true arg, so it lives in ARGS, not FLAGS.)
     ARGS:
-      - auto_resume
-  # Closed-loop policy-mode arm (same learner; the solve deliverable is
-  # a per-task policy.py executed without an LLM at test time).
+      - auto_resume # resume the latest per-cycle checkpoint on requeue
+  # Same learner; the solve deliverable is a per-task closed-loop policy.py.
   sim_predicator_policy:
-    SKIP: True # plan arm only for the seed-3 stall-fix rerun
+    SKIP: True # plan arm only for the seed-3 rerun
     FLAGS:
       skip_initial_test: True
       bilevel_plan_without_sim: True # for the demonstrator
       agent_solve_max_attempts: 1
-      agent_explorer_info_mcmc_steps: 0 # see the arm above
-      agent_plan_validation_rule_param_margin: True # see the arm above
-      agent_validation_parallel_workers: 6 # see the arm above
+      agent_explorer_info_mcmc_steps: 0
+      agent_plan_validation_rule_param_margin: True
+      agent_validation_parallel_workers: 6
     ARGS:
       - auto_resume
