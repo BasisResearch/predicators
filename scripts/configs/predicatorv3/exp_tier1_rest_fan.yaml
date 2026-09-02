@@ -1,0 +1,15 @@
+# Tier-1 first pass on fan: every sweep arm except C1/C2 (run separately), 1 seed, 1 test task.
+# Usage: python scripts/engaging/launch.py -c predicatorv3/exp_tier1_rest_fan.yaml --partition mit_preemptable
+---
+includes:
+  - exp_fan_sweep.yaml
+NUM_SEEDS: 1
+ENVS:
+  fan:
+    FLAGS:
+      num_test_tasks: 1
+APPROACHES:
+  sim_predicator:
+    SKIP: True
+  agent_model_free_planning:
+    SKIP: True
