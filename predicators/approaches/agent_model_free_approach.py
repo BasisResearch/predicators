@@ -20,6 +20,7 @@ import datetime
 import inspect as _inspect
 import logging
 import os
+import subprocess
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, \
     cast
 
@@ -119,6 +120,9 @@ class AgentModelFreeApproach(AgentSessionMixin, BaseApproach):
         # entries persist across cycles while one evaluation's test-task
         # entries never leak into the next evaluation.
         self._pre_test_journal: Optional[str] = None
+        # Sandbox commit taken at begin_test_phase; end_test_phase
+        # archives what the phase added and resets the tree to it.
+        self._pre_test_sandbox_rev: Optional[str] = None
         self._pre_test_attempts: Optional[str] = None
         self._pre_test_journal_valid = False
         # Scene renders attempted this episode. The first is the true initial
@@ -625,6 +629,7 @@ and update before doing anything else.**"""
         else:
             self._pre_test_conversation_log = None
         self._snapshot_journal_for_test_phase()
+        self._snapshot_sandbox_for_test_phase()
 
     def end_test_phase(self) -> None:
         """Restore the conversation log and journal to pre-test state."""
@@ -639,6 +644,64 @@ and update before doing anything else.**"""
             log[:] = self._pre_test_conversation_log
         self._pre_test_conversation_log = None
         self._archive_and_rollback_test_journal()
+        self._archive_and_rollback_test_sandbox()
+
+    def _eval_phase_label(self) -> str:
+        """Name of the evaluation phase now running, for archives.
+
+        The 0-based cycle whose learning it evaluates (matching
+        main.py's "ONLINE LEARNING CYCLE i"): the counter has already
+        advanced past that cycle's learn, so subtract 1; the pre-
+        learning initial test is "initial".
+        """
+        eval_cycle = self._online_learning_cycle - 1
+        return "initial" if eval_cycle < 0 else f"cycle{eval_cycle}"
+
+    def _snapshot_sandbox_for_test_phase(self) -> None:
+        """Commit the sandbox tree so end_test_phase can restore it."""
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk import sandbox_setup
+        self._pre_test_sandbox_rev = None
+        try:
+            self._pre_test_sandbox_rev = sandbox_setup.snapshot_sandbox(
+                self._tool_context.sandbox_dir)
+        except (OSError, subprocess.SubprocessError) as e:
+            logging.warning(
+                "[%s] Failed to snapshot the sandbox at test-phase start; "
+                "its test-phase files will NOT be rolled back: %s",
+                self._run_id, e)
+
+    def _archive_and_rollback_test_sandbox(self) -> None:
+        """Archive everything the test phase wrote into the sandbox, then
+        restore the pre-test tree.
+
+        The journal rollback above covers two files; this covers the
+        rest (test-phase session logs, scene images, notes, scripts and
+        plan files the agent wrote), so no evaluation leaves anything a
+        later learn/explore session or evaluation can read. The archive
+        lives in the run's log dir, outside the sandbox.
+        """
+        rev = self._pre_test_sandbox_rev
+        self._pre_test_sandbox_rev = None
+        sandbox_dir = self._tool_context.sandbox_dir
+        if rev is None or not sandbox_dir:
+            return
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk import sandbox_setup
+        archive_dir = os.path.join(self._get_log_dir(),
+                                   f"sandbox_eval_{self._eval_phase_label()}")
+        try:
+            archived = sandbox_setup.rollback_sandbox(sandbox_dir, rev,
+                                                      archive_dir)
+        except (OSError, subprocess.SubprocessError) as e:
+            logging.warning(
+                "[%s] Failed to roll back the test-phase sandbox: %s",
+                self._run_id, e)
+            return
+        logging.info(
+            "[%s] Rolled the sandbox back to its pre-test snapshot; %d "
+            "test-phase file(s) archived to %s", self._run_id, len(archived),
+            archive_dir)
 
     def _journal_active(self) -> bool:
         """Whether solve-journal entries can be written at all."""
@@ -708,8 +771,7 @@ and update before doing anything else.**"""
         # cycle's learn, so subtract 1; the pre-learning initial test
         # archives as "initial". A same-cycle re-eval overwrites its own
         # file.
-        eval_cycle = self._online_learning_cycle - 1
-        label = "initial" if eval_cycle < 0 else f"cycle{eval_cycle}"
+        label = self._eval_phase_label()
         try:
             for kind, filename in filenames.items():
                 content = journal_mod.read_raw(sandbox_dir, filename=filename)

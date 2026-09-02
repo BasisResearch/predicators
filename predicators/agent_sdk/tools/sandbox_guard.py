@@ -52,6 +52,13 @@ _SANDBOX_HIDDEN_STATE_RE = re.compile(
 # for shell-command strings; sharing the alternation keeps the two
 # guards covering the same modules by construction.
 SANDBOX_HIDDEN_MODULES_PATTERN = r"predicators\.(?:envs|ground_truth_models)\b"
+# Shell / interpreter forms that would start a python without the
+# sandbox's sitecustomize guard (PYTHONPATH edits, ``env -i``, and the
+# -S / -I / -E interpreter flags). Screened by the Bash hook and by the
+# guard's own subprocess check, never by ``run_python`` (in-process).
+SANDBOX_PYTHON_BYPASS_PATTERN = (
+    r"(?:^|[\s;&|(`])(?:PYTHONPATH=|unset\s+PYTHONPATH|env\s+-i\b"
+    r"|(?:\S*/)?python[0-9.]*\s+(?:-[a-zA-Z]+\s+(?:\S+\s+)?)*-[a-zA-Z]*[SIE])")
 _SANDBOX_PREDICATORS_IMPORT_RE = re.compile(
     r"^\s*(?:from|import)\s+" + SANDBOX_HIDDEN_MODULES_PATTERN, re.MULTILINE)
 # Host filesystem prefixes scrubbed from tracebacks surfaced to agents:

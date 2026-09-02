@@ -42,7 +42,8 @@ from typing import Any, Dict, List, Optional
 from predicators.agent_sdk.config import SessionConfig
 from predicators.agent_sdk.log_formatter import format_conversation_markdown
 from predicators.agent_sdk.sandbox_prompts import build_sandbox_system_prompt
-from predicators.agent_sdk.sandbox_setup import git_commit_all
+from predicators.agent_sdk.sandbox_setup import export_trajectories, \
+    git_commit_all, pyguard_env
 from predicators.agent_sdk.session_base import SandboxSessionManagerBase, \
     build_agent_options, build_sandbox_mcp, max_session_log_number
 from predicators.agent_sdk.tools import ToolContext, session_log_filename
@@ -128,6 +129,9 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
             cwd=self._sandbox_dir,
             setting_sources=["project", "local"],
             hooks=extra_hooks,
+            # Every python the agent starts loads the sandbox's
+            # sitecustomize guard (sandbox_setup.write_pyguard).
+            env=pyguard_env(self._sandbox_dir),
         )
 
         self._client = ClaudeSDKClient(options=options)
@@ -152,6 +156,7 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
 
         # Ensure sandbox exists before creating the log file.
         self._ensure_sandbox_dir()
+        self._export_data()
 
         # Create and commit the log file BEFORE starting the session so that
         # Claude Code's Glob (which indexes files at session startup) can
@@ -268,6 +273,20 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
             # own logs, so it is worth a visible warning.
             logger.warning("git commit of session log failed: %s", e)
         return filepath
+
+    def _export_data(self) -> None:
+        """Refresh ``data/trajectories.pkl`` from the tool context so the
+        agent's own scripts read the same training data the prompts and tool
+        namespace expose."""
+        ctx = self._tool_context
+        trajectories = list(getattr(ctx, "offline_trajectories", []) or []) + \
+            list(getattr(ctx, "online_trajectories", []) or [])
+        try:
+            if export_trajectories(self._sandbox_dir, trajectories):
+                logger.info("Sandbox data refreshed: %d trajectories.",
+                            len(trajectories))
+        except Exception as e:  # pylint: disable=broad-except
+            logger.warning("Sandbox data export failed: %s", e)
 
     def _flush_log(self, filepath: str, response: List[Dict[str,
                                                             Any]]) -> None:

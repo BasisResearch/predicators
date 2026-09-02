@@ -268,15 +268,17 @@ def build_agent_options(*,
                         reasoning_effort: str = "",
                         cwd: Optional[str] = None,
                         setting_sources: Optional[List[str]] = None,
-                        hooks: Optional[Dict[str, Any]] = None) -> Any:
+                        hooks: Optional[Dict[str, Any]] = None,
+                        env: Optional[Dict[str, str]] = None) -> Any:
     """Assemble the ``ClaudeAgentOptions`` shared by all session managers.
 
     Pure function of its arguments (no ``CFG`` reads) so the Docker
     runner can call it in-container with values shipped in
-    ``query_input``.  ``cwd`` and ``setting_sources`` are only passed
-    for the local sandbox; ``hooks`` only when non-empty.  Raises
-    ``ValueError`` when ``reasoning_effort`` is invalid (see
-    ``validate_reasoning_effort``).
+    ``query_input``.  ``cwd``, ``setting_sources`` and ``env`` (extra
+    environment for the CLI and everything it spawns, e.g. the sandbox's
+    PYTHONPATH guard) are only passed for the local sandbox; ``hooks``
+    only when non-empty.  Raises ``ValueError`` when
+    ``reasoning_effort`` is invalid (see ``validate_reasoning_effort``).
     """
     # pylint: disable=import-outside-toplevel
     from claude_agent_sdk import ClaudeAgentOptions
@@ -295,6 +297,8 @@ def build_agent_options(*,
         extra["cwd"] = cwd
     if setting_sources is not None:
         extra["setting_sources"] = setting_sources
+    if env:
+        extra["env"] = dict(env)
     return ClaudeAgentOptions(
         allowed_tools=allowed_tools,
         # Disallowing ToolSearch turns off tool-search deferral, so
