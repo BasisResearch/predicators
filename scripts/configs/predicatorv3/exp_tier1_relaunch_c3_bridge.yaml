@@ -1,0 +1,18 @@
+# Relaunch of the tier-1 C3 bridge run that crashed on a Wait; 1 seed, 1 test task.
+# Usage: python scripts/engaging/launch.py -c predicatorv3/exp_tier1_relaunch_c3_bridge.yaml --partition mit_preemptable
+---
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ENVS:
+  bridge:
+    SKIP: False
+APPROACHES:
+  nl_world_model:
+    SKIP: False
+    FLAGS:
+      skip_initial_test: True
+      skip_test_until_last_ite_or_early_stopping: True
+    ARGS:
+      - auto_resume
