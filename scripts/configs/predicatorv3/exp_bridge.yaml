@@ -17,16 +17,6 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      bilevel_plan_without_sim: True # for the demonstrator
-      agent_solve_max_attempts: 1
-      # Submissions must also survive the posterior members of the rule
-      # constants: marginal operating points passed 5/5 nominal rollouts.
-      agent_plan_validation_rule_param_margin: True
-      # Skip the per-cycle exploration-posterior MCMC (hours per cycle for a
-      # ~0.1% log-prob gain); the ensemble falls back to a Laplace draw.
-      agent_explorer_info_mcmc_steps: 0
-      # Fork-parallel validation rollouts, sized to --cpus-per-task=8.
-      agent_validation_parallel_workers: 6
     ARGS:
       - auto_resume # resume the latest per-cycle checkpoint on requeue
   # Same learner; the solve deliverable is a per-task closed-loop policy.py.
@@ -34,10 +24,5 @@ APPROACHES:
     SKIP: True # plan arm only for the seed-3 rerun
     FLAGS:
       skip_initial_test: True
-      bilevel_plan_without_sim: True # for the demonstrator
-      agent_solve_max_attempts: 1
-      agent_explorer_info_mcmc_steps: 0
-      agent_plan_validation_rule_param_margin: True
-      agent_validation_parallel_workers: 6
     ARGS:
       - auto_resume

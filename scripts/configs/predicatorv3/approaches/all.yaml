@@ -25,11 +25,15 @@ APPROACHES:
       agent_bilevel_use_llm_initial_params: True # LLM proposes params
       agent_sdk_max_agent_turns_per_iteration: 200
       agent_sdk_image_max_px: 900
-      agent_solve_max_attempts: 5
+      agent_solve_max_attempts: 1
       agent_solve_attempt_wall_clock: 2700
       agent_solve_fresh_context: True
       agent_solve_use_journal: True
       agent_plan_validation_physics_margin: True
+      agent_plan_validation_rule_param_margin: True
+      agent_explorer_info_mcmc_steps: 0
+      agent_validation_parallel_workers: 6
+      bilevel_plan_without_sim: True # for the demonstrator
       code_sim_learning_rollout_min_posterior_width: 0.1
 
   # C1 in policy mode: the solve deliverable is a per-task closed-loop
@@ -52,11 +56,15 @@ APPROACHES:
       agent_bilevel_use_llm_initial_params: True # LLM proposes params
       agent_sdk_max_agent_turns_per_iteration: 200
       agent_sdk_image_max_px: 900
-      agent_solve_max_attempts: 5
+      agent_solve_max_attempts: 1
       agent_solve_attempt_wall_clock: 2700
       agent_solve_fresh_context: True
       agent_solve_use_journal: True
       agent_plan_validation_physics_margin: True
+      agent_plan_validation_rule_param_margin: True
+      agent_explorer_info_mcmc_steps: 0
+      agent_validation_parallel_workers: 6
+      bilevel_plan_without_sim: True # for the demonstrator
       code_sim_learning_rollout_min_posterior_width: 0.1
 
   # ---- ORACLES  (given a GT world model, ordered from most GT handed in to least) ----
@@ -97,10 +105,13 @@ APPROACHES:
       agent_bilevel_max_execution_replans: 2
       agent_sdk_max_agent_turns_per_iteration: 200
       agent_sdk_image_max_px: 900
-      agent_solve_max_attempts: 5
+      agent_solve_max_attempts: 1
       agent_solve_attempt_wall_clock: 2700
       agent_solve_fresh_context: True
       agent_solve_use_journal: True
+      agent_plan_validation_rule_param_margin: True
+      agent_explorer_info_mcmc_steps: 0
+      agent_validation_parallel_workers: 6
   # GT hybrid sim + GT predicates; learn only the params.
   agent_param_learning:
     NAME: "agent_sim_learning"
@@ -168,6 +179,11 @@ APPROACHES:
       agent_planner_use_simulator: False
       agent_planner_use_scratchpad: True
       agent_solve_use_journal: True
+      bilevel_plan_without_sim: True # for the demonstrator
+      agent_solve_max_attempts: 1
+      agent_solve_attempt_wall_clock: 2700
+      agent_sdk_max_agent_turns_per_iteration: 200
+      agent_sdk_image_max_px: 900
   # C6: NSRT learning with oracle predicates, samplers and full observability
   # (flags from configs/ExoPredicator/causal_predicator_baselines.yaml).
   operator_learning:
@@ -203,10 +219,11 @@ APPROACHES:
       partially_observable: True
       agent_sdk_max_agent_turns_per_iteration: 200
       agent_sdk_image_max_px: 900
-      agent_solve_max_attempts: 5
+      agent_solve_max_attempts: 1
       agent_solve_attempt_wall_clock: 2700
       agent_solve_fresh_context: True
       agent_solve_use_journal: True
+      bilevel_plan_without_sim: True # for the demonstrator
   # C4 (Pinductor form): OURS' loop, but the model is an option-level program
   # with a hidden state, scored by sim.score; belief particles drive the gate.
   code_world_model:
@@ -216,7 +233,6 @@ APPROACHES:
       <<: *ours_flags
       agent_explorer_info_seeking: False
       agent_plan_validation_physics_margin: False
-      agent_plan_validation_rule_param_margin: True # the belief-particle sweep
   # C5: a GNN transition model over the object features (history-conditioned),
   # same interaction budget as the agent arms, planned by shooting.
   gnn_dynamics:
