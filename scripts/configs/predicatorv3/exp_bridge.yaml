@@ -9,6 +9,13 @@ includes:
   - common.yaml
   - envs/all.yaml
   - approaches/all.yaml
+# Seed 3 rerun on the stall fix 621190a1b (the welded-row carry-pick
+# LiftSlightly stall killed the cycle-2 eval and explore ep 010 of the
+# prior attempt). Prior checkpoints parked in
+# saved_approaches/backup_pre_stallfix_relaunch_20260902/ so
+# auto_resume starts fresh at cycle 0.
+START_SEED: 3
+NUM_SEEDS: 1
 ENVS:
   bridge:
     SKIP: False
@@ -55,7 +62,7 @@ APPROACHES:
   # Closed-loop policy-mode arm (same learner; the solve deliverable is
   # a per-task policy.py executed without an LLM at test time).
   sim_predicator_policy:
-    SKIP: False
+    SKIP: True # plan arm only for the seed-3 stall-fix rerun
     FLAGS:
       skip_initial_test: True
       bilevel_plan_without_sim: True # for the demonstrator
