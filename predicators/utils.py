@@ -13,6 +13,7 @@ import importlib
 import io
 import itertools
 import logging
+import math
 import os
 import pkgutil
 import re
@@ -1858,11 +1859,24 @@ def wait_rollout_step_cap() -> int:
     the bridge configures the backstop at 120 against a 1000-step
     rollout cap, so a notice keyed on the rollout cap alone can never
     fire in exactly the runs it was written for.
+
+    Both ceilings may be infinite - ``wait_option_max_steps`` defaults to
+    ``inf``, and only an env that configures a backstop (the bridge's
+    120) makes it finite - so the minimum is taken in float space and
+    narrowed to int afterwards. Converting each ceiling first raised
+    ``OverflowError: cannot convert float infinity to integer`` on every
+    env that left the default, which took Wait out of the agent's
+    vocabulary entirely (submit_plan and single-trial sim.run both land
+    here).
     """
-    cap = int(CFG.max_num_steps_option_rollout)
+    cap = float(CFG.max_num_steps_option_rollout)
     if CFG.wait_option_terminate_on_atom_change:
-        cap = min(cap, int(CFG.wait_option_max_steps))
-    return cap
+        cap = min(cap, float(CFG.wait_option_max_steps))
+    if math.isinf(cap):
+        # No ceiling is configured; report one no rollout can reach so
+        # that "did this Wait stall?" is simply never true.
+        return sys.maxsize
+    return int(cap)
 
 
 def option_policy_to_policy(
