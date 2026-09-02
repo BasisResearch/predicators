@@ -346,3 +346,63 @@ def test_run_streamed_query_retries_after_limit(tmp_path, monkeypatch):
     assert len(sleeps) == 1 and sleeps[0] > 0
     assert collected == healthy_resp
     assert BaseAgentSessionManager._consecutive_fatal_queries == 0
+
+
+def test_run_streamed_query_polls_after_the_reset(tmp_path, monkeypatch):
+    """A limit that outlives its stated reset is polled every _LIMIT_POLL_SECS,
+    every wait pauses the attempt clock by the same amount, and the total wait
+    is capped."""
+    mgr = _make_base_manager(tmp_path)
+    limit_resp = [
+        _text_entry("You've hit your session limit · resets 5:10pm "
+                    "(America/New_York)"),
+    ]
+    healthy_resp = [_text_entry("fine"), _result_entry()]
+    responses = [
+        list(limit_resp),
+        list(limit_resp),
+        list(limit_resp),
+        list(healthy_resp)
+    ]
+
+    async def _fake_stream(_client, message, **_kwargs):
+        del message
+        return responses.pop(0)
+
+    sleeps = []
+
+    async def _fake_sleep(secs):
+        sleeps.append(secs)
+
+    class _Ctx:
+        attempt_start = 100.0
+        attempt_deadline = 2800.0
+        python_call_deadline = None
+        paused = 0.0
+
+        def pause_attempt_clock(self, seconds):
+            """Shift the armed marks like the real ToolContext does."""
+            self.paused += seconds
+            self.attempt_start += seconds
+            self.attempt_deadline += seconds
+
+    ctx = _Ctx()
+    monkeypatch.setattr(sb, "stream_agent_response", _fake_stream)
+    monkeypatch.setattr(sb.asyncio, "sleep", _fake_sleep)
+    mgr._client = object()
+    mgr._tool_context = ctx
+    collected = asyncio.run(
+        mgr._run_streamed_query("do the thing", log_path=None, kind="test"))
+    assert collected == healthy_resp
+    assert len(sleeps) == 3
+    assert sleeps[0] > sb._LIMIT_POLL_SECS
+    assert sleeps[1] == sleeps[2] == sb._LIMIT_POLL_SECS
+    assert ctx.paused == sum(sleeps)
+    assert ctx.attempt_deadline == 2800.0 + sum(sleeps)
+    # Past the total cap the limited response is handed back as-is.
+    monkeypatch.setattr(sb, "_LIMIT_MAX_TOTAL_WAIT_SECS", 1.0)
+    responses[:] = [list(limit_resp), list(healthy_resp)]
+    sleeps.clear()
+    collected = asyncio.run(
+        mgr._run_streamed_query("again", log_path=None, kind="test"))
+    assert collected == limit_resp and not sleeps

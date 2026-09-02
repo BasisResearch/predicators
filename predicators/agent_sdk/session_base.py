@@ -85,10 +85,15 @@ _LIMIT_RESET_SLACK_SECS = 180.0
 # Never sleep longer than this per attempt: a mis-parsed far-future
 # reset must not turn the job into a silent day-long zombie.
 _LIMIT_MAX_WAIT_SECS = 6 * 3600.0
-# Retries per query on a usage-limit response. Two waits cover a reset
-# that lands mid-retry; a limit that persists past them falls through
-# to the ordinary fatal-query termination.
-_LIMIT_MAX_RETRIES = 2
+# Retry policy for a usage-limited query: the first wait runs to the
+# banner's stated reset, after which the query is re-issued every
+# _LIMIT_POLL_SECS until it goes through (the banner keeps naming the
+# reset that just passed, so its time is no guide any more). A query
+# gives up after _LIMIT_MAX_TOTAL_WAIT_SECS of waiting and falls through
+# to the ordinary fatal-query termination; the Slurm self-requeue and
+# auto_resume cover anything longer.
+_LIMIT_POLL_SECS = 600.0
+_LIMIT_MAX_TOTAL_WAIT_SECS = 12 * 3600.0
 
 
 def usage_limit_wait_seconds(reason: Optional[str],
@@ -599,7 +604,9 @@ class BaseAgentSessionManager:
         # handed to the caller as a dead response: the phase that issued
         # it (a learn, a solve attempt) would otherwise consume the
         # failure and permanently skip its work on a transient outage.
-        for attempt in range(_LIMIT_MAX_RETRIES + 1):
+        waited = 0.0
+        retries = 0
+        while True:
             collected = await stream_agent_response(
                 self._client,
                 message,
@@ -611,13 +618,26 @@ class BaseAgentSessionManager:
             )
             reason = query_fatal_error(collected)
             wait = usage_limit_wait_seconds(reason)
-            if wait is None or attempt >= _LIMIT_MAX_RETRIES:
+            if wait is None:
                 break
+            if retries > 0:
+                wait = _LIMIT_POLL_SECS
+            if waited + wait > _LIMIT_MAX_TOTAL_WAIT_SECS:
+                logger.error(
+                    "%s query is still usage-limited after %.0f s of "
+                    "waiting; giving up on it.", self._log_label, waited)
+                break
+            retries += 1
             logger.warning(
-                "%s query hit a usage limit (%s); waiting %.0f s for the "
-                "stated reset, then retrying (%d/%d).", self._log_label,
-                reason, wait, attempt + 1, _LIMIT_MAX_RETRIES)
+                "%s query hit a usage limit (%s); waiting %.0f s (%s), "
+                "then retrying (retry %d, %.0f s waited so far). The "
+                "attempt's wall-clock budget is paused meanwhile.",
+                self._log_label, reason, wait,
+                "until the stated reset" if retries == 1 else "poll", retries,
+                waited)
             await asyncio.sleep(wait)
+            waited += wait
+            self._pause_attempt_clock(wait)
         elapsed = time.perf_counter() - start
         logger.info("[agent-interaction] kind=%s took %.2fs (%d messages)",
                     kind, elapsed, len(collected))
@@ -635,6 +655,14 @@ class BaseAgentSessionManager:
         })
         self._track_fatal_response(collected)
         return collected
+
+    def _pause_attempt_clock(self, seconds: float) -> None:
+        """Keep time spent waiting out a usage limit off the attempt's wall-
+        clock budgets (see ``ToolContext.pause_attempt_clock``)."""
+        ctx = getattr(self, "_tool_context", None)
+        pause = getattr(ctx, "pause_attempt_clock", None)
+        if pause is not None:
+            pause(seconds)
 
     def _track_fatal_response(self, response: List[Dict[str, Any]]) -> None:
         """Terminate the run after consecutive fatally-broken queries.
