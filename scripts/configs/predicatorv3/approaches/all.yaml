@@ -1,44 +1,15 @@
-# Canonical menu of approaches (the "arms"). Every approach is defined here
-# exactly once and parked with SKIP: True by default. Thin launcher configs
-# (oracle.yaml, exp_*.yaml) include this file and only flip the
-# SKIP of the arm(s) they want to run, plus any per-experiment ENVS overrides.
-#
-# Arms are grouped by how much ground truth (GT) they are handed vs. what they
-# must learn, forming a ladder from most-oracle (upper bound) down to the
-# weakest baselines:
-#   OURS         - the method: PO, no GT; learn predicates + hybrid sim + params
-#   ORACLES      - given a GT world model (GT sim / params); upper bounds,
-#                  ablations of OURS, and the oracle-sim agent_model_free baseline
-#   BASELINES    - lower bounds (no world model or no learning)
-#   DEMONSTRATOR - the demo source (oracle process planning) + scripted/manual
-#
-# Merge note: launchers override scalars cleanly ({SKIP: False}), but the
-# include merge CONCATENATES lists. Keep list-valued FLAGS (e.g.
-# agent_sim_learn_kept_predicates_names) defined here and do not
-# try to override them from a launcher.
+# Canonical arm menu (paper ids on each entry, C7 dropped); all parked, the
+# exp_*.yaml launchers un-skip. List-valued FLAGS live only here (merges concat).
 APPROACHES:
 
-  # ======================================================================
-  # OURS
-  # ======================================================================
-  # Ours: partially observable, no GT; learn predicates, hybrid sim, and
-  # params (LLM proposes initial params). Includes the physics-margin
-  # capture gate: captures must also survive +-1-posterior-sigma
-  # perturbations of the identified physical params (sigma = the sysID
-  # fit's reported width, floored by
-  # code_sim_learning_rollout_min_posterior_width). Motivated by
-  # run_20260723_091108 seed1: a capture validated 8/8 at fitted
-  # lateral_friction 0.5319 failed deterministically at true 0.5 - the
-  # execution-validation repeats cannot see zero margin to parameter
-  # error.
-  # The PO behavior comes from the partially_observable flag below (it
-  # switches the synthesis prompt to the recurrent 5-arg rule form and
-  # the env / GT-simulator dispatch to their PO variants); there is no
-  # separate PO approach class.
+  # ---- OURS ----
+
+  # C1: PO, no GT; learns predicates, hybrid sim and params, with the
+  # physics-margin gate. Its FLAGS block is the anchor the ABLATIONS merge.
   sim_predicator:
     NAME: "agent_sim_predicate_invention"
     SKIP: True
-    FLAGS:
+    FLAGS: &ours_flags
       demonstrator: "oracle_process_planning"
       explorer: "agent_model_based"
       terminate_on_goal_reached_and_option_terminated: True
@@ -48,13 +19,8 @@ APPROACHES:
       partially_observable: True
       agent_explorer_info_seeking: True
       execution_monitor: "subgoal_annotations"
-      # Suffix replanning never succeeded in any bridge run (0/4
-      # divergence events recovered, ~8 futile refinement attempts of up
-      # to 600 s each; measured 2026-09-01 across seeds 0-4), so eval
-      # execution runs open-loop like the 2026-08-30 generation that
-      # solved 2/2. 0 also disarms the divergence monitor - re-raise to
-      # re-enable it (divergences then resume open-loop after the failed
-      # refinement, 8cccfe42).
+      # Open-loop execution: suffix replanning never recovered a bridge
+      # divergence (0/4, 2026-09-01). 0 also disarms the divergence monitor.
       agent_bilevel_max_execution_replans: 0
       agent_bilevel_use_llm_initial_params: True # LLM proposes params
       agent_sdk_max_agent_turns_per_iteration: 200
@@ -66,11 +32,8 @@ APPROACHES:
       agent_plan_validation_physics_margin: True
       code_sim_learning_rollout_min_posterior_width: 0.1
 
-  # Same arm, but the solve deliverable is a per-task closed-loop
-  # policy.py (agent_solve_policy_mode) instead of a fixed captured
-  # plan: option failures are surfaced to the policy, which owns
-  # recovery - so the sketch-divergence replan machinery is off
-  # (mutually exclusive by construction).
+  # C1 in policy mode: the solve deliverable is a per-task closed-loop
+  # policy.py that owns recovery, so the replan machinery is off.
   sim_predicator_policy:
     NAME: "agent_sim_predicate_invention"
     SKIP: True
@@ -96,18 +59,10 @@ APPROACHES:
       agent_plan_validation_physics_margin: True
       code_sim_learning_rollout_min_posterior_width: 0.1
 
-  # ======================================================================
-  # ORACLES  (given a GT world model; the GT-mono-sim arm first, then the
-  #           GT-hybrid-sim ladder ordered from most GT handed in down to
-  #           least)
-  # ======================================================================
-  # Oracle: GT monolithic sim as world model + GT predicates. Even with
-  # use_llm_initial_params False the LLM delivers a full, concrete,
-  # exact-parameter plan and validates it in the sim via
-  # submit_plan -- there is no approach-side backtracking
-  # fallback. On top of plain agent_model_free it has sim.refine (an
-  # agent-invokable per-step backtracking parameter search) plus
-  # the sketch / per-step-subgoal scaffolding.
+  # ---- ORACLES  (given a GT world model, ordered from most GT handed in to least) ----
+
+  # GT monolithic sim + GT predicates; the agent plans against it with
+  # submit_plan / sim.refine and the sketch scaffolding.
   agent_oracle_mono_sim:
     NAME: "agent_model_based"
     SKIP: True
@@ -120,15 +75,8 @@ APPROACHES:
       option_model_use_gui: True
       agent_bilevel_log_state: False
       agent_bilevel_plan_sketch_file: "tests/approaches/test_data/boil_plan_sketch.txt"
-  # Oracle (upper bound): GT hybrid sim + GT base-sim physical params
-  # (true friction), as if all learning had already succeeded.
-  # Includes the 200-turn sandbox budget (2026-07-15 sweeps: every failed
-  # test episode exhausted the default 50-turn budget), run_python,
-  # and the solve restart loop: up to 5 time-boxed (45 min) attempts,
-  # each on a fresh conversation, with cross-attempt knowledge travelling
-  # through the solve journal (run_20260717_23xx family split: the same
-  # tasks solved in 9-32 min or burned 2-11 h anchored on wrong
-  # conclusions, so several short independent attempts beat one long one).
+  # U1 (upper bound): GT hybrid sim + true physical params, as if learning had
+  # succeeded; same solve budget as C1 (5 time-boxed attempts + journal).
   agent_oracle_hybrid_sim:
     NAME: "agent_sim_learning"
     SKIP: True
@@ -153,7 +101,7 @@ APPROACHES:
       agent_solve_attempt_wall_clock: 2700
       agent_solve_fresh_context: True
       agent_solve_use_journal: True
-  # Oracle: GT hybrid sim + GT predicates; learn only the params.
+  # GT hybrid sim + GT predicates; learn only the params.
   agent_param_learning:
     NAME: "agent_sim_learning"
     SKIP: True
@@ -168,61 +116,9 @@ APPROACHES:
       agent_bilevel_plan_sketch_file: "tests/approaches/test_data/boil_plan_sketch.txt"
       agent_sim_learn_oracle_sim_program: True
       agent_sim_learn_oracle_sim_params: False
-      agent_sim_learn_oracle_sim_param_noise_scale: 1.0 # 1.0 allows successful planning but insatisficing plan; 0.8 produces satisficing plan
+      agent_sim_learn_oracle_sim_param_noise_scale: 1.0 # 0.8 gives a satisficing plan
       code_sim_learning_num_mcmc_steps: 0
-  # # agent_oracle_hybrid_sim + agent-synthesized per-skill samplers: the
-  # # agent writes samplers.py (LEARNED_SAMPLERS) in a dedicated synthesis
-  # # session, and bilevel refinement then draws each option's params from
-  # # its sampler instead of uniformly (per-step `~ [widths]` regions still
-  # # override per step). Compare against agent_oracle_hybrid_sim to
-  # # measure what the reusable cross-task sampler prior adds.
-  # agent_oracle_hybrid_sim_sampler:
-  #   NAME: "agent_sim_learning"
-  #   SKIP: True
-  #   FLAGS:
-  #     demonstrator: "oracle_process_planning"
-  #     bilevel_plan_without_sim: True # for the demonstrator
-  #     explorer: "agent_model_based"
-  #     terminate_on_goal_reached_and_option_terminated: True
-  #     agent_sdk_use_local_sandbox: True
-  #     option_model_terminate_on_repeat: False
-  #     option_model_use_gui: False
-  #     agent_bilevel_log_state: False
-  #     agent_sim_learn_oracle_sim_program: True
-  #     agent_sim_learn_oracle_sim_params: True
-  #     agent_bilevel_use_llm_initial_params: True
-  #     num_online_learning_cycles: 0
-  #     execution_monitor: "subgoal_annotations"
-  #     agent_bilevel_max_execution_replans: 2
-  #     agent_sim_learn_parameterized_samplers: True
-  # # agent_oracle_hybrid_sim + GROUND samplers: the agent may attach a
-  # # per-step sampling prior to any sketch step - a uniform window
-  # # `~ [w1, w2]` around its proposed params, or `~ name` referencing a
-  # # function it wrote in ground_samplers.py (reloaded on every
-  # # sim.refine call). No learning session; the channel is pure
-  # # sketch grammar, enabled by agent_bilevel_ground_samplers. Compare
-  # # against agent_oracle_hybrid_sim (which never sees the grammar) to
-  # # measure what per-call ground sampling adds.
-  # agent_oracle_hybrid_sim_ground_sampler:
-  #   NAME: "agent_sim_learning"
-  #   SKIP: True
-  #   FLAGS:
-  #     demonstrator: "oracle_process_planning"
-  #     bilevel_plan_without_sim: True # for the demonstrator
-  #     explorer: "agent_model_based"
-  #     terminate_on_goal_reached_and_option_terminated: True
-  #     agent_sdk_use_local_sandbox: True
-  #     option_model_terminate_on_repeat: False
-  #     option_model_use_gui: False
-  #     agent_bilevel_log_state: False
-  #     agent_sim_learn_oracle_sim_program: True
-  #     agent_sim_learn_oracle_sim_params: True
-  #     agent_bilevel_use_llm_initial_params: True
-  #     num_online_learning_cycles: 0
-  #     execution_monitor: "subgoal_annotations"
-  #     agent_bilevel_max_execution_replans: 2
-  #     agent_bilevel_ground_samplers: True
-  # Oracle: GT predicates; learn the hybrid sim and its params.
+  # GT predicates; learn the hybrid sim and its params.
   agent_sim_learning:
     NAME: "agent_sim_learning"
     SKIP: True
@@ -238,8 +134,7 @@ APPROACHES:
       agent_sim_learn_oracle_sim_program: False
       agent_sim_learn_oracle_sim_params: False
       code_sim_learning_num_mcmc_steps: 0
-  # Oracle / fully-observable ablation of OURS: sees full state, no GT models;
-  # learn predicates, hybrid sim, and params.
+  # Fully-observable OURS: full state, no GT models.
   agent_fo_predicate_invention:
     NAME: "agent_sim_predicate_invention"
     SKIP: True
@@ -257,11 +152,10 @@ APPROACHES:
       code_sim_learning_num_mcmc_steps: 0
       agent_sim_learn_kept_predicates_names: ["Holding"]
 
-  # ======================================================================
-  # BASELINES  (lower bounds / alternative learners)
-  # ======================================================================
-  # Baseline: agent planning does NOT have a simulator / world model
-  # (agent_model_free with agent_planner_use_simulator: False).
+  # ---- BASELINES  (lower bounds / alternative learners) ----
+
+  # C2: the same agent with no simulator (agent_planner_use_simulator False);
+  # memory carries across trials via the session, notes.md and the journal.
   agent_model_free_planning:
     NAME: "agent_model_free"
     SKIP: True
@@ -272,8 +166,89 @@ APPROACHES:
       agent_sdk_use_local_sandbox: True
       option_model_terminate_on_repeat: False
       agent_planner_use_simulator: False
-  # Baseline (no learning): our pipeline on the base sim with LLM initial
-  # params but no param learning (agent_sim_learn_oracle_sim_params False).
+      agent_planner_use_scratchpad: True
+      agent_solve_use_journal: True
+  # C6: NSRT learning with oracle predicates, samplers and full observability
+  # (flags from configs/ExoPredicator/causal_predicator_baselines.yaml).
+  operator_learning:
+    NAME: "online_nsrt_learning"
+    SKIP: True
+    FLAGS:
+      demonstrator: "oracle_process_planning"
+      bilevel_plan_without_sim: True
+      explorer: "exploit_planning"
+      terminate_on_goal_reached_and_option_terminated: True
+      bilevel_planning_explorer_enumerate_plans: True
+      exploit_bilevel_planning_explorer_fallback_explorer: "RandomNSRTs"
+      skip_test_until_last_ite_or_early_stopping: True
+      online_learning_assert_no_exclude_pred: False
+      disable_harmlessness_check: True
+      sampler_learner: "oracle"
+      option_learner: "no_learning"
+      clustering_learner_check_effect_equality: False
+  # C3: OURS' loop, but the model is a text document (world_model.md) the
+  # agent writes and reasons over; no code, no simulator, same inputs as OURS.
+  nl_world_model:
+    NAME: "agent_nl_world_model"
+    SKIP: True
+    FLAGS:
+      demonstrator: "oracle_process_planning"
+      explorer: "agent_model_free"
+      terminate_on_goal_reached_and_option_terminated: True
+      agent_sdk_use_local_sandbox: True
+      option_model_terminate_on_repeat: False
+      agent_planner_use_simulator: False
+      agent_planner_use_scratchpad: True
+      agent_sim_learn_kept_predicates_names: ["Holding"]
+      partially_observable: True
+      agent_sdk_max_agent_turns_per_iteration: 200
+      agent_sdk_image_max_px: 900
+      agent_solve_max_attempts: 5
+      agent_solve_attempt_wall_clock: 2700
+      agent_solve_fresh_context: True
+      agent_solve_use_journal: True
+  # C4 (Pinductor form): OURS' loop, but the model is an option-level program
+  # with a hidden state, scored by sim.score; belief particles drive the gate.
+  code_world_model:
+    NAME: "agent_program_world_model"
+    SKIP: True
+    FLAGS:
+      <<: *ours_flags
+      agent_explorer_info_seeking: False
+      agent_plan_validation_physics_margin: False
+      agent_plan_validation_rule_param_margin: True # the belief-particle sweep
+  # C5: a GNN transition model over the object features (history-conditioned),
+  # same interaction budget as the agent arms, planned by shooting.
+  gnn_dynamics:
+    NAME: "gnn_dynamics_shooting"
+    SKIP: True
+    FLAGS:
+      demonstrator: "oracle_process_planning"
+      bilevel_plan_without_sim: True
+      explorer: "random_options"
+      terminate_on_goal_reached_and_option_terminated: True
+      partially_observable: True # same observation as OURS
+      gnn_num_epochs: 5000
+      gnn_use_validation_set: True
+      gnn_do_normalization: True
+      gnn_dynamics_history_len: 2
+  # C8: MAPLE-Q with oracle operators and samplers, same interaction budget as
+  # the agent arms (ExoPredicator flags minus its data sizing).
+  maple_q:
+    NAME: "maple_q_with_process"
+    SKIP: True
+    FLAGS:
+      demonstrator: "oracle_process_planning"
+      bilevel_plan_without_sim: True
+      explorer: "maple_q"
+      strips_learner: "oracle"
+      sampler_learner: "oracle"
+      only_learn_exogenous_processes: True
+      online_learning_assert_no_exclude_pred: False
+      maple_q_same_hla_option_param_space: False
+      mlp_regressor_max_itr: 640000
+      active_sampler_learning_batch_size: 512
+  # No learning: our pipeline on the base sim with LLM initial params.
   agent_base_sim_no_learning:
     NAME: "agent_sim_learning"
     SKIP: True
@@ -293,12 +268,63 @@ APPROACHES:
       execution_monitor: "subgoal_annotations"
       agent_bilevel_max_execution_replans: 2
 
-  # ======================================================================
-  # DEMONSTRATOR / SCRIPTED  (demo source used by every agent arm above,
-  #                           also runnable standalone; + manual control)
-  # ======================================================================
-  # Oracle: process planning + bilevel refinement with GT models. This is the
-  # `demonstrator` every agent arm consumes; oracle.yaml runs it standalone.
+  # ---- ABLATIONS (OURS minus one component, paper A1-A6; merge *ours_flags) ----
+
+  # A2: scripted random-options exploration instead of the agent explorer.
+  sim_predicator_undirected_explore:
+    NAME: "agent_sim_predicate_invention"
+    SKIP: True
+    FLAGS:
+      <<: *ours_flags
+      explorer: "random_options"
+      agent_explorer_info_seeking: False
+  # A4: execute the first goal-reaching capture (1 rollout, no margins).
+  sim_predicator_no_validation:
+    NAME: "agent_sim_predicate_invention"
+    SKIP: True
+    FLAGS:
+      <<: *ours_flags
+      agent_plan_validation_rollouts: 1
+      agent_plan_validation_rollouts_after_flaky: 1
+      agent_plan_validation_physics_margin: False
+      agent_plan_validation_rule_param_margin: False
+  # A5: point estimates only; every consumer of a parameter posterior is off.
+  sim_predicator_no_uncertainty:
+    NAME: "agent_sim_predicate_invention"
+    SKIP: True
+    FLAGS:
+      <<: *ours_flags
+      agent_sim_learn_param_uncertainty: False
+      agent_plan_validation_physics_margin: False
+      agent_plan_validation_rule_param_margin: False
+      agent_explorer_info_seeking: False
+  # A6: no invented predicates (the non-inventing class, Holding + goal_nl).
+  sim_predicator_no_predicates:
+    NAME: "agent_sim_learning"
+    SKIP: True
+    FLAGS:
+      <<: *ours_flags
+  # A3: no parameter fitting; declared inits are the estimate, [lo, hi] the
+  # interval the margins and the ensemble sample from.
+  sim_predicator_no_param_fit:
+    NAME: "agent_sim_predicate_invention"
+    SKIP: True
+    FLAGS:
+      <<: *ours_flags
+      agent_sim_learn_declared_params_only: True
+  # A1: one data-free synthesis session, then solve (no online learning).
+  sim_predicator_zero_shot:
+    NAME: "agent_sim_predicate_invention"
+    SKIP: True
+    FLAGS:
+      <<: *ours_flags
+      agent_sim_learn_zero_shot: True
+      num_online_learning_cycles: 0
+
+  # ---- DEMONSTRATOR / SCRIPTED  (the demo source every agent arm consumes) ----
+
+  # Oracle process planning + bilevel refinement with GT models; oracle.yaml
+  # runs it standalone.
   oracle:
     NAME: "oracle_process_planning"
     SKIP: True

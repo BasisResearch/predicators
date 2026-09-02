@@ -1,0 +1,111 @@
+# BOIL sweep over every paper arm (C7 dropped), 5 seeds each.
+# Usage: python scripts/engaging/launch.py -c predicatorv3/exp_boil_sweep.yaml
+---
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+NUM_SEEDS: 5
+ENVS:
+  boil:
+    SKIP: False
+APPROACHES:
+# Learning arms skip the pre-loop test; U1 and A1 (no cycles) are evaluated by it.
+  # C1
+  sim_predicator:
+    SKIP: False
+    FLAGS:
+      skip_initial_test: True
+    ARGS:
+      - auto_resume
+  # C1 in policy mode (parked; the paper's C1 is plan mode).
+  sim_predicator_policy:
+    SKIP: True
+    FLAGS:
+      skip_initial_test: True
+    ARGS:
+      - auto_resume
+  # C2
+  agent_model_free_planning:
+    SKIP: False
+    FLAGS:
+      skip_initial_test: True
+    ARGS:
+      - auto_resume
+  # C3
+  nl_world_model:
+    SKIP: False
+    FLAGS:
+      skip_initial_test: True
+    ARGS:
+      - auto_resume
+  # C4
+  code_world_model:
+    SKIP: False
+    FLAGS:
+      skip_initial_test: True
+    ARGS:
+      - auto_resume
+  # C5
+  gnn_dynamics:
+    SKIP: False
+    FLAGS:
+      skip_initial_test: True
+  # C6
+  operator_learning:
+    SKIP: False
+    FLAGS:
+      skip_initial_test: True
+  # C8
+  maple_q:
+    SKIP: False
+    FLAGS:
+      skip_initial_test: True
+  # U1 (PO and open-loop, like C1)
+  agent_oracle_hybrid_sim:
+    SKIP: False
+    FLAGS:
+      partially_observable: True
+      agent_bilevel_max_execution_replans: 0
+    ARGS:
+      - auto_resume
+  # A1
+  sim_predicator_zero_shot:
+    SKIP: False
+    ARGS:
+      - auto_resume
+  # A2
+  sim_predicator_undirected_explore:
+    SKIP: False
+    FLAGS:
+      skip_initial_test: True
+    ARGS:
+      - auto_resume
+  # A3
+  sim_predicator_no_param_fit:
+    SKIP: False
+    FLAGS:
+      skip_initial_test: True
+    ARGS:
+      - auto_resume
+  # A4
+  sim_predicator_no_validation:
+    SKIP: False
+    FLAGS:
+      skip_initial_test: True
+    ARGS:
+      - auto_resume
+  # A5
+  sim_predicator_no_uncertainty:
+    SKIP: False
+    FLAGS:
+      skip_initial_test: True
+    ARGS:
+      - auto_resume
+  # A6
+  sim_predicator_no_predicates:
+    SKIP: False
+    FLAGS:
+      skip_initial_test: True
+    ARGS:
+      - auto_resume
