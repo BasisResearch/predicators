@@ -15,6 +15,8 @@ from predicators.agent_sdk.parallel_rollouts import \
 from predicators.agent_sdk.tools.budget import _budget_footer
 from predicators.agent_sdk.tools.capture import BestEffortReason, \
     CaptureDecision, _decide_capture
+from predicators.agent_sdk.tools.clearance import RobotClearanceProbe, \
+    phase_skill_of
 from predicators.agent_sdk.tools.context import ToolContext, \
     _capture_task_key, decorrelated_rollout_seed
 from predicators.agent_sdk.tools.results import _error_result
@@ -363,9 +365,28 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # verdict below (see _EvalStateCollector for why per-step states).
         eval_collector = _EvalStateCollector(model, task.init)
 
+        # Robot-clearance probe (see tools/clearance.py): rollout 1 and
+        # every validation repeat feed it their low-level trajectories,
+        # and its verdict joins the margin gates below. None when the
+        # plan's skills carry no planning simulator to measure on.
+        clearance_probe: Optional[RobotClearanceProbe] = None
+        probe_skill = phase_skill_of(grounded_plan)
+        if probe_skill is not None:
+            clearance_probe = RobotClearanceProbe(probe_skill)
+        rollout_counter = [1]
+
+        def _probe_clearance(label: str, outcome: Any) -> None:
+            if clearance_probe is None:
+                return
+            traj = getattr(model, "last_trajectory", None)
+            states = getattr(traj, "states", None)
+            if states:
+                clearance_probe.observe(label, outcome.option, states)
+
         # Per-step report callback, driven by the shared forward executor.
         def _report_step(i: int, outcome: Any) -> None:
             eval_collector.collect(outcome)
+            _probe_clearance("rollout 1", outcome)
             opt = outcome.option
             sig = f"{opt.name}({[o.name for o in opt.objects]})"
             if not outcome.initiable:
@@ -510,13 +531,20 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             intersection filter.
             """
             v_collector = _EvalStateCollector(model, task.init)
+            rollout_counter[0] += 1
+            rollout_label = f"rollout {rollout_counter[0]}"
+
+            def _on_validation_step(i: int, outcome: Any) -> None:
+                v_collector.on_step(i, outcome)
+                _probe_clearance(rollout_label, outcome)
+
             r = bilevel_sketch.execute_plan_forward(
                 task,
                 grounded_plan,
                 model,
                 predicates=all_predicates,
                 sketch=sketch_steps,
-                on_step=v_collector.on_step,
+                on_step=_on_validation_step,
                 stop_on_failure=True)
             posts: List[Optional[State]] = [s.post_state for s in r.steps]
             posts += [None] * (len(grounded_plan) - len(posts))
@@ -665,6 +693,22 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                     lambda: _validation_rollout()[:2], "plan")
             validation_note += margin_note
 
+        # Clearance gate (see tools/clearance.py): the rollouts above
+        # certify the plan against the belief's own execution
+        # variability, not against the real executor's realization slop;
+        # a robot link passing inside that slop of a bystander is a
+        # margin-free plan whether or not every rollout cleared it.
+        clearance_detail: Optional[str] = None
+        clearance_summary = ""
+        if (clearance_probe is not None and goal_achieved
+                and not evaluator_rejected and grounded_plan
+                and flaky_detail is None):
+            clearance_ok, clearance_summary, clearance_why = \
+                clearance_probe.verdict()
+            if not clearance_ok:
+                clearance_detail = clearance_why
+        any_margin_detail = param_sensitive_detail or clearance_detail
+
         def _stash_uncaptured_submission() -> None:
             """Remember the best refused submission of this attempt.
 
@@ -699,7 +743,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             flaky=flaky_detail is not None,
             best_effort_mode=ctx.capture_best_effort_plan,
             have_validated_capture=bool(ctx.solved_plan_reached_goal),
-            param_sensitive=param_sensitive_detail is not None)
+            param_sensitive=any_margin_detail is not None)
         decision = capture_outcome.decision
         captured = capture_outcome.captured
         if captured:
@@ -824,6 +868,8 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                                   if "FAILED" not in o)
                 summary_bits.append(f"physics margin: {n_margin_ok}/"
                                     f"{len(margin_outcomes)} points ok")
+            if clearance_summary:
+                summary_bits.append(clearance_summary)
             ctx.solved_plan_validation_summary = "; ".join(summary_bits)
             n_annot = sum(1 for s in captured_sketch
                           if s.subgoal_atoms or s.subgoal_neg_atoms)
@@ -852,7 +898,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             else:
                 assert reason is BestEffortReason.PARAM_SENSITIVE
                 best_effort_note = (" (best-effort: failed "
-                                    f"{param_sensitive_detail}; accepted "
+                                    f"{any_margin_detail}; accepted "
                                     "because the attempt budget is exhausted "
                                     "- it executes for its honest reward but "
                                     "may fail under the true physics)")
@@ -911,6 +957,20 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 f"submission, captures require {escalated_n}/{escalated_n} "
                 "successful rollouts: fix the margin rather than "
                 "resubmitting near-identical parameters.")
+        elif (decision is CaptureDecision.PARAM_SENSITIVE_NO_CAPTURE
+              and param_sensitive_detail is None):
+            _stash_uncaptured_submission()
+            lines.append(
+                "CLEARANCE-SENSITIVE (plan NOT captured): every validation "
+                f"rollout reached the goal, but {clearance_detail}. The "
+                "real executor realizes each move anywhere within that "
+                "slop (pose tolerance, grasp height, landing scatter), so "
+                "a plan this tight succeeds in the belief by the luck of "
+                "the draw and fails for real on the next one. Widen the "
+                "margin at that step: stage and place objects farther "
+                "apart than the gripper's footprint, hover higher above "
+                "faces, or grasp farther from the neighbor - then "
+                "resubmit.")
         elif decision is CaptureDecision.PARAM_SENSITIVE_NO_CAPTURE:
             _stash_uncaptured_submission()
             per_point = "\n".join(f"  {o}" for o in margin_outcomes)
