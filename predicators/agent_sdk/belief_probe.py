@@ -756,6 +756,29 @@ class BeliefProbe:
                 "during learning; the solve-time belief model is fixed.")
         return provider(path=path, traj_idxs=traj_idxs, fixed=fixed)
 
+    def score(self,
+              traj_idxs: Optional[List[int]] = None,
+              num_particles: Optional[int] = None,
+              path: Optional[str] = None) -> str:
+        """Score the candidate world model on the recorded trajectories.
+
+        Program-world-model synthesis sessions only. The particle-filter
+        kernel pseudo-likelihood of the current ``world_model.py`` (or
+        ``path``) over the hidden state, with per-feature errors and the
+        worst transitions; ``traj_idxs`` restricts the data,
+        ``num_particles`` overrides the belief size.
+        """
+        ctx = self._ctx
+        _check_time_budget(ctx)
+        provider = ctx.probe_score_provider
+        if provider is None:
+            raise RuntimeError(
+                "sim.score is unavailable in this session: scoring happens "
+                "in a program-world-model learning session.")
+        return provider(path=path,
+                        traj_idxs=traj_idxs,
+                        num_particles=num_particles)
+
     def predicates(self,
                    max_trajectories: int = 10,
                    max_groundings_per_predicate: int = 4) -> str:

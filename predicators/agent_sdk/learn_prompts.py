@@ -240,3 +240,83 @@ def render_zero_shot_message() -> str:
     """The no-data note for the first message (ablation A1)."""
     return render("learn_message", "zero_shot")
 
+
+# ---------------------------------------------------------------------------
+# Program world model arm (C4)
+# ---------------------------------------------------------------------------
+
+
+def build_program_learn_system_prompt(
+        *,
+        scene_viz_hint: str,
+        extra_sections: Sequence[str] = (),
+        workflow_extra: str = "",
+) -> str:
+    """Compose the program-world-model synthesis system prompt.
+
+    ``extra_sections`` (predicate invention) follow the validation
+    guidance; the plan-format section is shared with the residual arm's
+    template. ``scene_viz_hint`` is accepted for parity with the
+    residual builder (the program template names the probe surface
+    itself) and is not rendered.
+    """
+    del scene_viz_hint
+    parts = [
+        render("learn_program_system", "intro"),
+        render("learn_program_system", "produce"),
+        render("learn_program_system", "modeling"),
+        render("learn_program_system", "tools"),
+        render("learn_program_system", "validation"),
+        *extra_sections,
+        render("learn_system", "plan_format"),
+        render("learn_program_system", "deliverables"),
+        render("learn_program_system",
+               "workflow",
+               workflow_extra=(" " +
+                               workflow_extra) if workflow_extra else ""),
+    ]
+    return _join(parts)
+
+
+def build_program_learn_message(
+        *,
+        n_trajs: int,
+        n_transitions: int,
+        n_demos: int,
+        n_interaction: int,
+        trajectory_listing: str,
+        structs_ref: str,
+        predicate_listing: str,
+        types_digest: str,
+        options_digest: str,
+        world_model_file: str,
+        objective_block: str = "",
+        prior_state_block: str = "",
+        tools_block: str = "",
+        extra_messages: Sequence[str] = (),
+) -> str:
+    """Compose the program-world-model synthesis session's first message."""
+    body = render(
+        "learn_program_message",
+        "skeleton",
+        n_trajs=str(n_trajs),
+        n_transitions=str(n_transitions),
+        n_demos=str(n_demos),
+        n_interaction=str(n_interaction),
+        trajectory_listing=trajectory_listing.strip("\n"),
+        objective_block=objective_block,
+        prior_state_block=prior_state_block,
+        structs_ref=structs_ref,
+        predicate_listing=predicate_listing,
+        types_digest=types_digest.strip("\n"),
+        options_digest=options_digest.strip("\n"),
+        tools_block=tools_block,
+        world_model_file=world_model_file,
+    )
+    return _join([body, *extra_messages])
+
+
+def render_program_zero_shot_message() -> str:
+    """The no-data note for the program arm's first message."""
+    return render("learn_program_message", "zero_shot")
+

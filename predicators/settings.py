@@ -2161,6 +2161,16 @@ class GlobalSettings:
     # from it, so sampling and perturbed rollouts are untouched and
     # only estimation is removed.
     agent_sim_learn_declared_params_only = False
+    # Program world model arm (agent_program_world_model, paper arm C4 in
+    # the form of Pinductor): the belief over the program's hidden state
+    # is a particle set of this size (drawn from the program's
+    # initial_latent; the capture gate re-rolls every submission under
+    # each particle), the score's distance kernel is
+    # exp(-distance / bandwidth) with distances in feature-std units,
+    # and the score report shows this many worst transitions.
+    agent_program_belief_particles = 6
+    agent_program_kernel_bandwidth = 0.2
+    agent_program_score_max_examples = 3
     # Ablation A1 ("zero-shot synthesis"): when True, the synthesis
     # session runs even when no transition has been recorded, so the
     # agent writes its artifacts from the task description, the scene

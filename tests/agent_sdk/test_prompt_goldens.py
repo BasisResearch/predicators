@@ -321,3 +321,39 @@ def test_golden_learn_message() -> None:
                     "Goal (natural language): switch the fixture on."),
                 learn_prompts.render_partial_observability_message(),
             ]))
+
+
+def test_golden_learn_program_system() -> None:
+    """The program-world-model learn system prompt with predicate invention
+    (paper arm C4)."""
+    _check_golden(
+        "learn_program_system",
+        learn_prompts.build_program_learn_system_prompt(
+            scene_viz_hint="stage and render the scene",
+            extra_sections=[
+                learn_prompts.render_predicate_invention_section(
+                    "the scene workbench"),
+            ],
+            workflow_extra=learn_prompts.render_predicate_workflow_extra()))
+
+
+def test_golden_learn_program_message() -> None:
+    """The program-world-model learn first message, zero-shot variant."""
+    _check_golden(
+        "learn_program_message",
+        learn_prompts.build_program_learn_message(
+            n_trajs=0,
+            n_transitions=0,
+            n_demos=0,
+            n_interaction=0,
+            trajectory_listing="",
+            structs_ref="./reference/structs.py",
+            predicate_listing="- Holding(robot:robot, block:block)",
+            types_digest="- robot: hand\n- block: x, y, held",
+            options_digest="- Pick(robot:robot, block:block)[]",
+            world_model_file="./world_model.py",
+            tools_block=learn_prompts.render_tools_block(["run_python"]),
+            extra_messages=[
+                learn_prompts.render_program_zero_shot_message(),
+            ]))
+

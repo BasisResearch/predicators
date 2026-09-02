@@ -140,12 +140,12 @@ def _parameter_margin_sweep(
             ctx.attempt_rollout_count += 1
             pre = member_prefetched[member_idx]
             ok, why = pre if pre is not None else _member_rollout(point)
-            desc = (f"rule-param ensemble member "
+            desc = (f"{ctx.rule_param_margin_label} "
                     f"{member_idx + 1}/{len(rule_points)}")
             if ok:
                 outcomes.append(f"{desc}: goal reached")
             else:
-                shown = ", ".join(f"{k}={v:.4g}"
+                shown = ", ".join(f"{k}={_fmt_point_value(v)}"
                                   for k, v in sorted(point.items())[:8])
                 if len(point) > 8:
                     shown += ", ..."
@@ -155,9 +155,18 @@ def _parameter_margin_sweep(
         if rule_points and detail is None:
             note += (
                 f" Rule-parameter margin check passed: the {subject} also "
-                f"reached the goal under all {len(rule_points)} calibrated "
-                "posterior members of the learned rule parameters.")
+                f"reached the goal under all {len(rule_points)} "
+                f"{ctx.rule_param_margin_note}.")
     return outcomes, detail, note
+
+
+def _fmt_point_value(value: Any) -> str:
+    """A margin point's value for a report: numbers compactly, anything else (a
+    belief particle's nested latent) by its repr, truncated."""
+    if isinstance(value, (int, float, np.floating, np.integer)):
+        return f"{float(value):.4g}"
+    text = repr(value)
+    return text if len(text) <= 40 else text[:37] + "..."
 
 
 def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
