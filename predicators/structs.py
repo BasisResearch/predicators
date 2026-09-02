@@ -27,7 +27,6 @@ from tabulate import tabulate
 from torch import Tensor
 
 import predicators.pretrained_model_interface
-import predicators.utils as utils  # pylint: disable=consider-using-from-import
 from predicators.settings import CFG
 
 # pylint: enable=wrong-import-position
@@ -3630,3 +3629,9 @@ BridgeDataset = List[Tuple[Set[_Option], _GroundNSRT, Set[GroundAtom], State]]
 Mask = NDArray[np.bool_]
 ClassificationEpisode = Tuple[str, List[Video], List[int], List[Video],
                               List[int]]
+
+# Imported last so that ``import predicators.structs`` works from a fresh
+# interpreter (an agent's sandbox script): utils imports this module's
+# names at load time, so importing it before they exist raises a partial
+# import error. Everything above only touches ``utils`` inside methods.
+import predicators.utils as utils  # isort: skip  # pylint: disable=consider-using-from-import,wrong-import-position
