@@ -282,6 +282,7 @@ _DWELL_COUNT_KEY = "dwell_count_{}"  # post-terminal hold steps taken
 _STROKE_BEST_KEY = "stroke_best_{}"  # gentle stroke: best EE distance
 _STROKE_NOPROG_KEY = "stroke_noprog_{}"  # gentle stroke: no-progress steps
 _IK_STALL_COUNT_KEY = "ik_stall_count_{}"  # steps since last improvement
+_IK_STALL_DONE_KEY = "ik_stall_done_{}"  # stall accepted as arrival (verified)
 _AIM_OFFSET_KEY = "aim_offset"  # option-scoped learned xy aim (meters)
 _PHASE_RETRY_KEY = "phase_retries_{}"  # verified-advance retries used
 
@@ -580,6 +581,11 @@ class PhaseSkill:
             return bool((target_val - current_val)**2 < tol)
 
         # MOVE_TO_POSE
+        if memory.get(_IK_STALL_DONE_KEY.format(id(phase))):
+            # A verified stall (see _check_ik_stall) accepted the plant's
+            # steady state as arrival; the pose terminal would hold the
+            # phase open forever at the unreachable residual.
+            return True
         if phase.use_motion_planning:
             return self._birrt_phase_is_terminal(phase, state, memory, objects,
                                                  params)
@@ -681,6 +687,25 @@ class PhaseSkill:
             return
         memory[count_key] = memory.get(count_key, 0) + 1
         if memory[count_key] >= self._ik_stall_window:
+            if phase.verify_fn is not None and phase.verify_fn(
+                    state, objects, params, self._config):
+                # The plant's steady state fell short of the pose target,
+                # but the phase's own success criterion already holds -
+                # the shortfall is sag, not obstruction, so arriving is
+                # the honest verdict. Measured on the 2026-09-02 bridge
+                # seed3 cycle-2 eval: lifting the welded 3-span row by
+                # its middle block settled the EE at 10.0-10.4 mm from
+                # the lift target against the 10 mm terminal tolerance -
+                # object risen well past the verify bar - and the abort
+                # turned a sub-millimeter residual into episode death (a
+                # same-plan replay converged just inside and succeeded).
+                logging.warning(
+                    "[%s/%s] incremental-IK stalled %.3f m short of the "
+                    "target, but the phase's verification already passes; "
+                    "completing the phase at the plant's steady state "
+                    "instead of aborting.", self._name, phase.name, dist)
+                memory[_IK_STALL_DONE_KEY.format(pid)] = True
+                return
             tgt = target_pose.position
             contact_report = self._stall_contact_report(
                 cast(utils.PyBulletState, state))

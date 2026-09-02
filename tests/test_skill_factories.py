@@ -1341,6 +1341,52 @@ class TestIkStallAbort:
                                  _EE_HOME[1], _EE_HOME[2])
             skill._check_ik_stall(phase, state, memory, [robot_obj], params)  # pylint: disable=protected-access
 
+    def test_stall_with_passing_verify_completes_phase(self, robot_scene,
+                                                       caplog):
+        """A stall on a phase whose own verification already holds is accepted
+        as arrival: the phase terminates instead of aborting.
+
+        Regression for the 2026-09-02 bridge seed3 cycle-2 eval: lifting
+        the welded 3-span row settled the end effector 10.0-10.4 mm from
+        the lift target against the 10 mm terminal tolerance - the object
+        risen well past the lift-verify bar - and the abort turned a
+        sub-millimeter sag residual into episode death.
+        """
+        _, robot = robot_scene
+        target = (_EE_HOME[0] + 0.5, _EE_HOME[1], _EE_HOME[2])
+        skill, phase, robot_obj = self._make_skill_and_phase(robot, target)
+        object.__setattr__(phase, "verify_fn",
+                           lambda state, objs, params, cfg: True)
+        state = _build_state(robot_obj, robot, *_EE_HOME)
+        memory: dict = {}
+        params = np.zeros(0, dtype=np.float32)
+        for _ in range(PhaseSkill._ik_stall_window):  # pylint: disable=protected-access
+            skill._check_ik_stall(phase, state, memory, [robot_obj], params)  # pylint: disable=protected-access
+        assert not skill._phase_is_terminal(  # pylint: disable=protected-access
+            phase, state, memory, [robot_obj], params)
+        with caplog.at_level("WARNING"):
+            # Window expiry: no raise, the phase completes.
+            skill._check_ik_stall(phase, state, memory, [robot_obj], params)  # pylint: disable=protected-access
+        assert skill._phase_is_terminal(  # pylint: disable=protected-access
+            phase, state, memory, [robot_obj], params)
+        assert any("verification already passes" in r.getMessage()
+                   for r in caplog.records)
+
+    def test_stall_with_failing_verify_still_aborts(self, robot_scene):
+        """A failing verification keeps the honest stall abort."""
+        _, robot = robot_scene
+        target = (_EE_HOME[0] + 0.5, _EE_HOME[1], _EE_HOME[2])
+        skill, phase, robot_obj = self._make_skill_and_phase(robot, target)
+        object.__setattr__(phase, "verify_fn",
+                           lambda state, objs, params, cfg: False)
+        state = _build_state(robot_obj, robot, *_EE_HOME)
+        memory: dict = {}
+        params = np.zeros(0, dtype=np.float32)
+        for _ in range(PhaseSkill._ik_stall_window):  # pylint: disable=protected-access
+            skill._check_ik_stall(phase, state, memory, [robot_obj], params)  # pylint: disable=protected-access
+        with pytest.raises(utils.OptionExecutionFailure):
+            skill._check_ik_stall(phase, state, memory, [robot_obj], params)  # pylint: disable=protected-access
+
 
 # ---------------------------------------------------------------------------
 # PhaseSkill._solve_goal_ik_candidates acceptance logic
