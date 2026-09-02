@@ -34,6 +34,7 @@ def build_learn_system_prompt(
     extra_sections: Sequence[str] = (),
     latent_extra_sections: Sequence[str] = (),
     workflow_extra: str = "",
+    declared_params_only: bool = False,
 ) -> str:
     """Compose the synthesis system prompt.
 
@@ -46,7 +47,9 @@ def build_learn_system_prompt(
     predicate invention) are inserted after the validation guidance;
     ``latent_extra_sections`` follow the recurrent-rules tutorial (only
     rendered when ``partially_observable``); ``workflow_extra`` is
-    appended to the workflow's validation step.
+    appended to the workflow's validation step. ``declared_params_only``
+    adds the no-estimation section (ablation A3): every parameter is
+    used as declared, so the declaration is the estimate.
     """
     signature = render(
         "learn_system",
@@ -64,6 +67,8 @@ def build_learn_system_prompt(
                residual_rule_signature=residual_rule_signature,
                scene_viz_hint=scene_viz_hint),
         render("learn_system", "paramspec"),
+        render("learn_system", "declared_params")
+        if declared_params_only else "",
         render("learn_system", "preinjected"),
         render("learn_system", "tools"),
         render("learn_system", "validation"),
@@ -229,3 +234,9 @@ def render_predicate_invention_message(predicates_file: str,
 def render_partial_observability_message() -> str:
     """The short partial-observability note for the first message."""
     return render("learn_partial_observability", "message")
+
+
+def render_zero_shot_message() -> str:
+    """The no-data note for the first message (ablation A1)."""
+    return render("learn_message", "zero_shot")
+

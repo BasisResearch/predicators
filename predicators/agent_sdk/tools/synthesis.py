@@ -130,6 +130,20 @@ def moving_feature_scope(
     return {t: sorted(fs) for t, fs in out.items()}
 
 
+# Ablation A3 (agent_sim_learn_declared_params_only): every estimation
+# surface refuses with the same note, so the agent is told once what
+# replaces it rather than left to discover a silently absent tool.
+_NO_ESTIMATION_NOTE = (
+    "{what} is unavailable: parameter estimation is disabled in this "
+    "run. Every ParamSpec / PHYSICAL_PARAMS entry is used exactly as "
+    "declared - init_value as the point estimate, [lo, hi] as the "
+    "plausible interval the validation gate and the exploration "
+    "ensemble sample from. Choose them from your knowledge of the "
+    "mechanism and from qualitative checks at the declared values "
+    "(sim.residuals() with no fit, sim.run / sim.refine rollouts, "
+    "describe_trajectory), then edit simulator.py.")
+
+
 def create_synthesis_tools(
     exec_ns: Dict[str, Any],
     base_pred_triples: list,
@@ -686,6 +700,8 @@ def create_synthesis_tools(
         call snapshots the simulator file into simulator_versions/ and
         tags output ``[cycle_XXX_vers_YYY]``.
         """
+        if CFG.agent_sim_learn_declared_params_only:
+            return _NO_ESTIMATION_NOTE.format(what="sim.fit")
         p = path or simulator_file
         rules, specs, declared, latent_init, physical_specs, version_tag, \
             err = _snapshot_and_load(p)
@@ -1218,6 +1234,11 @@ def create_synthesis_tools(
         answers whether the base physics is globally faithful, which
         per-step residuals cannot see.
         """
+        if CFG.agent_sim_learn_declared_params_only and (
+                fit_params or sweep_params is not None):
+            what = ("sim.residuals(fit_params=True)"
+                    if fit_params else "sim.residuals(sweep_params=...)")
+            return _NO_ESTIMATION_NOTE.format(what=what)
         if path is not None:
             # Resolve a relative path against the sandbox (where the
             # canonical simulator.py lives), never the process cwd, and

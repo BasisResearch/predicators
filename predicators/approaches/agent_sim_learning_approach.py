@@ -51,7 +51,8 @@ from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
     mean_bernoulli_entropy, perturbation_ensemble, \
     posterior_subsample_ensemble
 from predicators.code_sim_learning.commands import CommandBuffer
-from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
+from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
+    declared_interval_fit_result, declared_interval_report
 from predicators.code_sim_learning.fitting import FIT_NOISE_SIGMA, \
     compute_sse, compute_sse_recurrent, fit_rule_parameters, \
     fit_rule_parameters_latent, log_param_changes, log_sse_breakdown
@@ -80,6 +81,10 @@ from predicators.structs import Action, Dataset, DerivedPredicate, \
     Predicate, State, Task, Type, step_option_labels
 
 logger = logging.getLogger(__name__)
+
+# Rows in the stand-in fit result under agent_sim_learn_declared_params_only:
+# uniform draws over the declared boxes that the ensemble subsamples.
+_DECLARED_INTERVAL_SAMPLES = 64
 
 
 def _fit_space_dist(a: float, b: float, scale: str) -> float:
@@ -194,6 +199,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # Physics-margin points for the capture gate (+-1 posterior sigma
         # of the latest applied fit): a callable so the tool always sees
         # the current fit, not the one deployed when the session opened.
+        # Under agent_sim_learn_param_uncertainty False the points are
+        # never built (see _physics_margin_points), so this returns [].
         self._tool_context.physics_margin_provider = \
             lambda: list(self._identified_physical_sigma_points)
         # Rule-parameter margin points for the capture gate: the
@@ -603,12 +610,16 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
     _save_suffix: str = "AgentSimLearner"
 
-    _CHECKPOINT_SANDBOX_FILES = ("simulator.py", "predicates.py",
-                                 "samplers.py", "ground_samplers.py",
-                                 "notes.md", "journal.md", "attempts.md",
-                                 "strategy.md", "open_questions.md")
-    _CHECKPOINT_SANDBOX_DIRS = ("simulator_versions", "predicates_versions",
-                                "samplers_versions")
+    _CHECKPOINT_SANDBOX_FILES: Tuple[str,
+                                     ...] = ("simulator.py", "predicates.py",
+                                             "samplers.py",
+                                             "ground_samplers.py", "notes.md",
+                                             "journal.md", "attempts.md",
+                                             "strategy.md",
+                                             "open_questions.md")
+    _CHECKPOINT_SANDBOX_DIRS: Tuple[str, ...] = ("simulator_versions",
+                                                 "predicates_versions",
+                                                 "samplers_versions")
     _CHECKPOINT_MAX_FILE_BYTES = 2 * 1024 * 1024
 
     def _checkpoint_sandbox_dir(self) -> str:
@@ -854,7 +865,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         #   base sim's one-step prediction. The rules run on top of that
         #   prediction; SSE compares against s_{t+1}.
         obs_triples = self._extract_obs_triples(trajectories)
-        if not obs_triples and not CFG.agent_sim_learn_oracle_sim_program:
+        if (not obs_triples and not CFG.agent_sim_learn_oracle_sim_program
+                and not CFG.agent_sim_learn_zero_shot):
             logger.warning("No step transitions; skipping simulator learning.")
             return
         if obs_triples:
@@ -879,13 +891,22 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 obs_triples, base_pred_triples)
             logger.info("Residual features (data-driven hint): %s",
                         inferred_hint)
-        else:
+        elif CFG.agent_sim_learn_oracle_sim_program:
             # The oracle sim program is data-free (rules and parameter
             # inits come from get_gt_simulator), so a run whose every
             # demo failed still gets a working option model; the fit
             # below degrades to the declared inits.
             logger.warning("No step transitions; loading oracle sim "
                            "program without data.")
+            base_pred_triples = []
+            inferred_hint = {}
+        else:
+            # Zero-shot synthesis (ablation A1): the session runs with
+            # nothing recorded, so the artifacts come from the task
+            # description, the scene and the agent's own knowledge; the
+            # params deploy at their declared inits.
+            logger.info("Zero-shot synthesis: no step transitions; the "
+                        "agent writes its artifacts without data.")
             base_pred_triples = []
             inferred_hint = {}
 
@@ -1102,7 +1123,11 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 base_pred_triples,
                 latent_init=latent_init,
                 fit=False)
-            if fit_state.get("digest") == digest:
+            if CFG.agent_sim_learn_declared_params_only:
+                status = ("at the DECLARED values of the current "
+                          "simulator.py (parameter estimation is disabled "
+                          "in this run)")
+            elif fit_state.get("digest") == digest:
                 status = f"fitted ({fit_state.get('version')})"
             else:
                 status = (
@@ -1173,7 +1198,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         spreads that reflect real posterior uncertainty over uniform
         jitter (see :meth:`_select_param_ensemble`).
         """
-        if (not CFG.agent_explorer_info_seeking or not self._fitted_params):
+        if (not CFG.agent_explorer_info_seeking or not self._fitted_params
+                or not CFG.agent_sim_learn_param_uncertainty):
             self._param_ensemble = []
             return
         num_members = CFG.agent_explorer_info_ensemble_size
@@ -1625,10 +1651,12 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # mismatch is an unmodeled mechanism.
         prior_state_block = self._format_prior_state_block(paths.base)
         divergence_block = ""
-        if self._tool_context.probe_residuals_provider is not None:
+        if (self._tool_context.probe_residuals_provider is not None
+                and obs_triples):
             try:
                 report = self._tool_context.probe_residuals_provider(
-                    max_transitions=100000, fit_params=True)
+                    max_transitions=100000,
+                    fit_params=not CFG.agent_sim_learn_declared_params_only)
                 divergence_block = learn_prompts.render_divergence_block(
                     report, has_prior_model=bool(prior_state_block))
             except Exception as e:  # pylint: disable=broad-except
@@ -1637,6 +1665,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         session_tool_names = (self._agent_session.tool_names
                               if self._agent_session is not None else [])
         extra_messages = []
+        if not trajectories and CFG.agent_sim_learn_zero_shot:
+            extra_messages.append(learn_prompts.render_zero_shot_message())
         extra_message = self._extra_synthesis_message(extra_paths)
         if extra_message:
             extra_messages.append(extra_message)
@@ -1753,14 +1783,24 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             else:
                 logger.info("No transitions; skipping oracle-param SSE.")
                 self._fit_sse = float("inf")
+        elif CFG.agent_sim_learn_declared_params_only:
+            self._deploy_declared_params(rules, specs, base_pred_triples,
+                                         residual_features)
         elif not base_pred_triples:
-            # No data to fit against (e.g. every demo failed): seed from
-            # the declared inits so the simulator still builds; later
-            # cycles refit once transitions arrive.
+            # No data to fit against (e.g. every demo failed, or a
+            # zero-shot learn): seed from the declared inits so the
+            # simulator still builds; later cycles refit once
+            # transitions arrive. The declared physical inits go to the
+            # planning env too - the agent's stated belief, not the
+            # registry default, is what its plans were written against.
             logger.warning("No transitions to fit; seeding params from "
                            "declared inits.")
             self._fitted_params.clear()
             self._fitted_params.update({s.name: s.init_value for s in specs})
+            if self._physical_param_specs:
+                self._apply_identified_physical_params(
+                    {s.name: s.init_value
+                     for s in self._physical_param_specs})
             self._last_fit_result = None
             self._fit_sse = float("inf")
         else:
@@ -1790,8 +1830,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                     # resets the points, so set them after).
                     self._apply_identified_physical_params(dict(applied))
                     self._cycle_applied_physical = dict(applied)
-                    self._identified_physical_sigma_points = list(
-                        self._probe_fit_state().get("sigma_points") or [])
+                    if CFG.agent_sim_learn_param_uncertainty:
+                        self._identified_physical_sigma_points = list(
+                            self._probe_fit_state().get("sigma_points") or [])
             else:
                 if CFG.agent_sim_learn_oracle_sim_program:
                     logger.info("Oracle sim program: fitting its "
@@ -1835,6 +1876,73 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # matches the joint rollout fit's theta layout.
         self._param_specs = list(self._physical_param_specs) + list(specs)
         self._rebuild_param_ensemble()
+
+    def _physics_margin_points(
+        self,
+        applied: Dict[str, float],
+        report: Dict[str, Dict[str, Any]],
+        physical_specs: List[ParamSpec],
+    ) -> List[Dict[str, float]]:
+        """The capture gate's physics-margin grid for ``applied``.
+
+        Empty under ``agent_sim_learn_param_uncertainty`` False (ablation
+        A5: point estimates only, so there is no width to sweep) - the
+        single place that decides, so the joint fit, the published-fit
+        deploy and the declared-params deploy cannot disagree.
+        """
+        if not CFG.agent_sim_learn_param_uncertainty:
+            return []
+        return physics_sigma_points(
+            applied,
+            report,
+            physical_specs,
+            num_points=CFG.agent_plan_validation_physics_margin_points)
+
+    def _deploy_declared_params(
+        self,
+        rules: List,
+        specs: List[ParamSpec],
+        base_pred_triples: List[Tuple[State, Action, State]],
+        residual_features: Dict[str, List[str]],
+    ) -> None:
+        """Deploy the agent's declaration as the estimate (ablation A3).
+
+        No fit runs. Every rule param takes its ``init_value``; the
+        declared physical inits are applied to the planning env; the
+        physics-margin grid spans each physical param's declared
+        ``[lo, hi]`` box (the plausible interval) and the standing fit
+        result is a uniform draw over every declared box, so the
+        rule-parameter ensemble - the rule-param margin and the
+        info-seeking disagreement score - samples the agent's intervals
+        exactly as it would sample a posterior. The SSE is logged for
+        the record only.
+        """
+        physical_specs = list(self._physical_param_specs)
+        self._fitted_params.clear()
+        self._fitted_params.update({s.name: s.init_value for s in specs})
+        if physical_specs:
+            applied = {s.name: s.init_value for s in physical_specs}
+            self._apply_identified_physical_params(applied)
+            self._cycle_applied_physical = dict(applied)
+            self._identified_physical_sigma_points = \
+                self._physics_margin_points(
+                    applied, declared_interval_report(physical_specs),
+                    physical_specs)
+        self._last_fit_result = declared_interval_fit_result(
+            physical_specs + list(specs),
+            num_samples=_DECLARED_INTERVAL_SAMPLES,
+            rng=self._rng)
+        if base_pred_triples:
+            self._fit_sse = self._oracle_param_sse(rules, base_pred_triples,
+                                                   residual_features,
+                                                   FIT_NOISE_SIGMA)
+        else:
+            self._fit_sse = float("inf")
+        logger.info(
+            "Parameter estimation disabled: deployed %d rule and %d "
+            "physical params at their declared inits (SSE %.6f); margins "
+            "and ensemble span the declared intervals.", len(specs),
+            len(physical_specs), self._fit_sse)
 
     def _maybe_refit_exploration_posterior(
         self,
@@ -2199,11 +2307,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # Physics-margin points for the capture gate: the fit's posterior
         # widths (floored, see identifiability_report) turned into a grid
         # of perturbations spanning +-1 sigma of the applied values.
-        self._identified_physical_sigma_points = physics_sigma_points(
-            outcome.applied,
-            outcome.report,
-            physical_specs,
-            num_points=CFG.agent_plan_validation_physics_margin_points)
+        self._identified_physical_sigma_points = self._physics_margin_points(
+            outcome.applied, outcome.report, physical_specs)
         if self._identified_physical_sigma_points:
             logger.info("Physics-margin points for capture validation: %s",
                         [{k: f"{v:.4f}"
@@ -3321,6 +3426,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             extra_sections=self._extra_synthesis_system_prompt_sections(),
             latent_extra_sections=self._extra_synthesis_latent_sections(),
             workflow_extra=self._synthesis_workflow_extra(),
+            declared_params_only=CFG.agent_sim_learn_declared_params_only,
         )
 
     def _synthesis_workflow_extra(self) -> str:

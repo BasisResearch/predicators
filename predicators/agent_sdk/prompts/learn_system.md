@@ -340,6 +340,30 @@ ParamSpec(name: str, init_value: float,
 Bounds shape both the fit's prior and the warm-start clamp. Set
 `lo=0.0` for non-negative rates and similar constraints.
 
+<!-- section: declared_params -->
+### Parameter estimation is DISABLED in this run
+
+No parameter is fitted from data, by you or by the harness: `sim.fit`
+refuses, `sim.residuals(fit_params=True)` and `sweep_params=` are
+unavailable, and the deployed model uses every `ParamSpec` and
+`PHYSICAL_PARAMS` entry exactly as you declared it. That makes the
+declaration itself the estimate:
+
+- `init_value` is the point estimate the planner uses. Choose it from
+  your knowledge of the mechanism and from what the recorded data
+  shows qualitatively (`sim.residuals()` at the declared values,
+  `sim.run` / `sim.refine` rollouts, `describe_trajectory`); do not
+  leave a placeholder.
+- `lo` / `hi` is the plausible interval. It is used as such: the
+  validation gate re-rolls plans at values across this interval and the
+  exploration ensemble is drawn uniformly from it, so a box that is too
+  wide rejects every plan and one that is too narrow hides your own
+  uncertainty. Declare a finite box for every parameter.
+
+Everywhere the rest of this prompt says to fit, score, or refit a
+parameter, read "declare it and check the rollouts at the declared
+values" instead.
+
 <!-- section: preinjected -->
 ### Pre-injected when `simulator.py` is executed
 

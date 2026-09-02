@@ -146,3 +146,18 @@ versions are in `./simulator_versions/` and `./predicates_versions/`
 (named `cycle_XXX_vers_YYY_*.py`); cross-reference the roster's
 provenance tags against those files to see which rules and predicates
 produced each failed plan.
+
+<!-- section: zero_shot -->
+## Zero-shot synthesis
+
+No trajectory has been recorded and none will be before you finish:
+this session is the whole learning phase, and what you write here is
+what the planner uses on the test tasks. The trajectory counts above
+are zero for that reason, and there is no residual scan or divergence
+report to read. Build the simulator and its parameters from the task
+description, the object types and options, the scene (`sim.task`,
+`sim.reset`, `sim.render`) and your own knowledge of the mechanisms
+involved, and validate the result with `sim.refine` / `sim.run`
+rollouts of a full plan; `sim.fit` and `sim.residuals` have no data to
+work with. State each mechanism you commit to, and the evidence you
+would want for it, in the decision record.

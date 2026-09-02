@@ -214,3 +214,62 @@ def scalar_to_fit_space(spec: ParamSpec, value: float) -> float:
 def scalar_from_fit_space(spec: ParamSpec, z: float) -> float:
     """Inverse of :func:`scalar_to_fit_space`."""
     return float(np.exp(z)) if is_log(spec) else float(z)
+
+
+def declared_interval_report(
+        param_specs: List[ParamSpec]) -> Dict[str, Dict[str, Any]]:
+    """A physics-margin ``report`` whose hull is each param's declared box.
+
+    Consumed by :func:`identifiability.physics_sigma_points` when no fit
+    ran (``agent_sim_learn_declared_params_only``): the
+    ``candidate_values`` are the declared ``lo`` / ``hi`` bounds, so the
+    margin sweep spans the agent's plausible interval instead of a
+    posterior width. A param that declares no finite bound contributes
+    nothing on that side; with no finite bound on either side its
+    interval is unknown and the margin check is honestly vacuous for it.
+    """
+    report: Dict[str, Dict[str, Any]] = {}
+    for spec in param_specs:
+        cands = [
+            float(b) for b in (spec.lo, spec.hi)
+            if b is not None and np.isfinite(b)
+        ]
+        report[spec.name] = {
+            "posterior_std": float("nan"),
+            "candidate_values": cands,
+        }
+    return report
+
+
+def declared_interval_fit_result(param_specs: List[ParamSpec],
+                                 num_samples: int,
+                                 rng: np.random.Generator) -> FitResult:
+    """A ``FitResult`` standing in for a fit that never ran.
+
+    Sample 0 is the declared init (the MAP: the only sample with
+    log-prob 0); the remaining ``num_samples - 1`` rows are uniform
+    draws over each param's declared box in FIT space (geometric for
+    log-scale params), so the ensemble machinery (posterior
+    subsampling) yields members spread over the agent's plausible
+    intervals rather than around a fitted point. A param without a
+    finite box on both sides stays at its init in every sample: an
+    interval it never declared is not something to sample from.
+    """
+    assert num_samples >= 1
+    names = [s.name for s in param_specs]
+    inits = np.array([s.init_value for s in param_specs], dtype=float)
+    samples = np.tile(inits, (num_samples, 1))
+    if num_samples > 1 and param_specs:
+        lo_z, hi_z = fit_space_bounds(param_specs)
+        boxed = np.isfinite(lo_z) & np.isfinite(hi_z) & (hi_z > lo_z)
+        draws_z = rng.uniform(lo_z[boxed],
+                              hi_z[boxed],
+                              size=(num_samples - 1, int(boxed.sum())))
+        boxed_specs = [s for s, b in zip(param_specs, boxed) if b]
+        samples[1:, boxed] = rows_from_fit_space(boxed_specs, draws_z)
+    log_probs = np.full(num_samples, -1.0)
+    log_probs[0] = 0.0
+    return FitResult(names=names,
+                     samples=samples,
+                     log_probs=log_probs,
+                     scales=[s.scale for s in param_specs])

@@ -2132,6 +2132,30 @@ class GlobalSettings:
     agent_sim_learn_oracle_sim_program = False
     # Relative scale for perturbing oracle parameter init_values before MCMC.
     agent_sim_learn_oracle_sim_param_noise_scale = 0.2
+    # Ablation A5 ("no uncertainty"): when False, nothing consumes a
+    # posterior over the model parameters. The physics-margin sigma
+    # points are never built (so the capture gate's physics margin and
+    # the probe's physics_sweep have nothing to sweep) and the
+    # rule-parameter ensemble stays empty (so the rule-param margin and
+    # the info-seeking disagreement score have nothing to score). Fits
+    # still run; only their point estimates are used.
+    agent_sim_learn_param_uncertainty = True
+    # Ablation A3 ("no parameter fitting"): when True, no parameter
+    # estimation runs anywhere - not sim.fit (it refuses), not the
+    # harness-side fallback fit, not the exploration posterior, not the
+    # residual report's fit_params / sweep_params. Each parameter's
+    # declared init_value is its point estimate and its declared
+    # [lo, hi] box is its plausible interval: the physics-margin points
+    # span the box and the rule-parameter ensemble is drawn uniformly
+    # from it, so sampling and perturbed rollouts are untouched and
+    # only estimation is removed.
+    agent_sim_learn_declared_params_only = False
+    # Ablation A1 ("zero-shot synthesis"): when True, the synthesis
+    # session runs even when no transition has been recorded, so the
+    # agent writes its artifacts from the task description, the scene
+    # and its own knowledge. Pair with no demos and
+    # num_online_learning_cycles 0 for one learn, one solve, done.
+    agent_sim_learn_zero_shot = False
     # When True, use GT parameter values directly, skipping MCMC fitting.
     # Also grants planning base sims the TRUE physical params (e.g. the true
     # domino friction even when domino_planning_friction is set) — as if all
