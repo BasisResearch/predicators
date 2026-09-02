@@ -661,6 +661,24 @@ class PhaseSkill:
                 target_pose.orientation)
         return current_pose, target_pose, finger_status
 
+    def _held_contact_liftoff_applies(self, phase: Phase) -> bool:
+        """Whether a BiRRT refusal should become an incremental-IK lift-off.
+
+        True when the phase tolerates shallow held-object contact (a
+        retreat/lift whose motion leaves contact) and the planner's
+        diagnostics name ONLY start-configuration contacts of the held
+        object: no goal contact (the target itself is infeasible) and no
+        robot-body contact (the arm, not the payload, is wedged).
+        """
+        if not phase.allow_shallow_held_object_contacts:
+            return False
+        diags = self._last_plan_diagnostics
+        if not diags:
+            return False
+        return all(
+            d.startswith("START: ") and not d.startswith("START: robot ")
+            for d in diags)
+
     def _check_ik_stall(self, phase: Phase, state: State, memory: Dict,
                         objects: Sequence[Object], params: Array) -> None:
         """Abort the option when incremental IK stops making progress.
@@ -1108,6 +1126,25 @@ class PhaseSkill:
                     logging.debug(
                         "[%s/%s] BiRRT failed; falling back to "
                         "incremental IK.", self._name, phase.name)
+                    memory[traj_key] = None
+                elif self._held_contact_liftoff_applies(phase):
+                    # A retreat-type phase (one that tolerates shallow
+                    # held-object contact) whose ONLY blocker is the held
+                    # object pressed into a bystander at the start: the
+                    # phase's motion leaves that contact, so refusing to
+                    # plan from it aborts the safest move available.
+                    # Incremental IK lifts straight off toward the
+                    # phase target under the stall guard. Measured on the
+                    # 2026-09-02 bridge seed3 rerun: a glue dab's bottle
+                    # tip settled 6.5 mm into a block (past the 5 mm
+                    # shallow allowance) and the retreat's refusal ended
+                    # a belief-certified episode with the dab already
+                    # delivered.
+                    logging.warning(
+                        "[%s/%s] BiRRT refused a start in held-object "
+                        "contact (%s); lifting off with incremental IK "
+                        "instead of aborting.", self._name, phase.name,
+                        "; ".join(self._last_plan_diagnostics))
                     memory[traj_key] = None
                 else:
                     detail = ""

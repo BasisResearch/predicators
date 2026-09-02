@@ -1388,6 +1388,77 @@ class TestIkStallAbort:
             skill._check_ik_stall(phase, state, memory, [robot_obj], params)  # pylint: disable=protected-access
 
 
+class TestHeldContactLiftoff:
+    """A retreat-type phase refused by BiRRT for a held-object START contact
+    lifts off with incremental IK instead of aborting."""
+
+    def _make(self, robot, diagnostics, allow_shallow):
+        config = _make_config(robot)
+        # Any non-None simulator selects the simulator planning branch;
+        # the planner itself is stubbed below.
+        object.__setattr__(config, "simulator", object())
+        robot_obj = _make_robot_obj()
+        home_orn = p.getQuaternionFromEuler([0, np.pi / 2, -np.pi])
+
+        def target_fn(state, _objects, _params, _cfg):
+            x = state.get(robot_obj, "x")
+            y = state.get(robot_obj, "y")
+            z = state.get(robot_obj, "z")
+            return (Pose((x, y, z), home_orn), Pose((x, y, z + 0.05),
+                                                    home_orn), "hold")
+
+        phase = Phase(
+            name="Retreat",
+            action_type=PhaseAction.MOVE_TO_POSE,
+            target_fn=target_fn,
+            use_motion_planning=True,
+            allow_shallow_held_object_contacts=allow_shallow,
+        )
+        skill = PhaseSkill("Dab", [_ROBOT_TYPE], Box(0, 1, (0, )), config,
+                           [phase])
+
+        def _refuse(*_args, **_kwargs):
+            skill._last_plan_diagnostics = list(diagnostics)  # pylint: disable=protected-access
+            return None
+
+        skill._plan_with_simulator = _refuse  # pylint: disable=protected-access
+        return skill, phase, robot_obj
+
+    def test_held_object_start_contact_lifts_off(self, robot_scene, caplog):
+        _, robot = robot_scene
+        skill, phase, robot_obj = self._make(
+            robot, ["START: held object within -0.0065 m of span1"], True)
+        state = _build_state(robot_obj, robot, *_EE_HOME)
+        memory: dict = {}
+        params = np.zeros(0, dtype=np.float32)
+        with caplog.at_level("WARNING"):
+            action = skill._execute_move_birrt(  # pylint: disable=protected-access
+                phase, state, memory, [robot_obj], params)
+        assert isinstance(action, Action)
+        assert memory[_BIRRT_TRAJ_KEY.format(id(phase))] is None
+        assert any("lifting off" in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.parametrize("diagnostics, allow_shallow", [
+        (["START: held object within -0.0065 m of span1"], False),
+        (["START: robot within -0.0040 m of span1"], True),
+        (["GOAL: held object within -0.0065 m of span1"], True),
+        ([
+            "START: held object within -0.0065 m of span1",
+            "GOAL: robot within -0.0099 m of span1"
+        ], True),
+    ])
+    def test_other_refusals_still_abort(self, robot_scene, diagnostics,
+                                        allow_shallow):
+        """Robot-body contact, goal contact, or a phase that does not tolerate
+        held contact keep the honest planner refusal."""
+        _, robot = robot_scene
+        skill, phase, robot_obj = self._make(robot, diagnostics, allow_shallow)
+        state = _build_state(robot_obj, robot, *_EE_HOME)
+        with pytest.raises(utils.OptionExecutionFailure, match="BiRRT"):
+            skill._execute_move_birrt(  # pylint: disable=protected-access
+                phase, state, {}, [robot_obj], np.zeros(0, dtype=np.float32))
+
+
 # ---------------------------------------------------------------------------
 # PhaseSkill._solve_goal_ik_candidates acceptance logic
 # ---------------------------------------------------------------------------
