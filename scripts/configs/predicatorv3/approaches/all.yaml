@@ -264,7 +264,7 @@ APPROACHES:
       maple_q_same_hla_option_param_space: False
       mlp_regressor_max_itr: 640000
       active_sampler_learning_batch_size: 512
-  # No learning: our pipeline on the base sim with LLM initial params.
+  # Oracle residual program with LLM-guessed params, no learning (not a paper arm).
   agent_base_sim_no_learning:
     NAME: "agent_sim_learning"
     SKIP: True
@@ -284,9 +284,25 @@ APPROACHES:
       execution_monitor: "subgoal_annotations"
       agent_bilevel_max_execution_replans: 2
 
-  # ---- ABLATIONS (OURS minus one component, paper A1-A6; merge *ours_flags) ----
+  # ---- ABLATIONS (OURS minus one component, paper A1-A8; merge *ours_flags) ----
 
-  # A2: scripted random-options exploration instead of the agent explorer.
+  # A1: no learning; plans are made, checked and run on the base engine.
+  # Same measurement as C1's pre-loop test, as its own job.
+  sim_predicator_no_learning:
+    NAME: "agent_sim_predicate_invention"
+    SKIP: True
+    FLAGS:
+      <<: *ours_flags
+      num_online_learning_cycles: 0
+  # A2: one data-free synthesis session, then solve (no online learning).
+  sim_predicator_zero_shot:
+    NAME: "agent_sim_predicate_invention"
+    SKIP: True
+    FLAGS:
+      <<: *ours_flags
+      agent_sim_learn_zero_shot: True
+      num_online_learning_cycles: 0
+  # A3: scripted random-options exploration instead of the agent explorer.
   sim_predicator_undirected_explore:
     NAME: "agent_sim_predicate_invention"
     SKIP: True
@@ -294,7 +310,15 @@ APPROACHES:
       <<: *ours_flags
       explorer: "random_options"
       agent_explorer_info_seeking: False
-  # A4: execute the first goal-reaching capture (1 rollout, no margins).
+  # A4: no parameter fitting; declared inits are the estimate, [lo, hi] the
+  # interval the margins and the ensemble sample from.
+  sim_predicator_no_param_fit:
+    NAME: "agent_sim_predicate_invention"
+    SKIP: True
+    FLAGS:
+      <<: *ours_flags
+      agent_sim_learn_declared_params_only: True
+  # A5: execute the first goal-reaching capture (1 rollout, no margins).
   sim_predicator_no_validation:
     NAME: "agent_sim_predicate_invention"
     SKIP: True
@@ -304,7 +328,24 @@ APPROACHES:
       agent_plan_validation_rollouts_after_flaky: 1
       agent_plan_validation_physics_margin: False
       agent_plan_validation_rule_param_margin: False
-  # A5: point estimates only; every consumer of a parameter posterior is off.
+  # A6: experiments under the point estimate (no ensemble-disagreement
+  # probe scoring); the validation gate keeps its margins.
+  sim_predicator_explore_no_disagreement:
+    NAME: "agent_sim_predicate_invention"
+    SKIP: True
+    FLAGS:
+      <<: *ours_flags
+      agent_explorer_info_seeking: False
+  # A7: validation under the point estimate (no perturbed rollouts, no
+  # ensemble members); experiments keep the ensemble.
+  sim_predicator_validation_no_uncertainty:
+    NAME: "agent_sim_predicate_invention"
+    SKIP: True
+    FLAGS:
+      <<: *ours_flags
+      agent_plan_validation_physics_margin: False
+      agent_plan_validation_rule_param_margin: False
+  # A6+A7 combined: point estimates only; every consumer of a posterior is off.
   sim_predicator_no_uncertainty:
     NAME: "agent_sim_predicate_invention"
     SKIP: True
@@ -314,28 +355,12 @@ APPROACHES:
       agent_plan_validation_physics_margin: False
       agent_plan_validation_rule_param_margin: False
       agent_explorer_info_seeking: False
-  # A6: no invented predicates (the non-inventing class, Holding + goal_nl).
+  # A8: no invented predicates (the non-inventing class, Holding + goal_nl).
   sim_predicator_no_predicates:
     NAME: "agent_sim_learning"
     SKIP: True
     FLAGS:
       <<: *ours_flags
-  # A3: no parameter fitting; declared inits are the estimate, [lo, hi] the
-  # interval the margins and the ensemble sample from.
-  sim_predicator_no_param_fit:
-    NAME: "agent_sim_predicate_invention"
-    SKIP: True
-    FLAGS:
-      <<: *ours_flags
-      agent_sim_learn_declared_params_only: True
-  # A1: one data-free synthesis session, then solve (no online learning).
-  sim_predicator_zero_shot:
-    NAME: "agent_sim_predicate_invention"
-    SKIP: True
-    FLAGS:
-      <<: *ours_flags
-      agent_sim_learn_zero_shot: True
-      num_online_learning_cycles: 0
 
   # ---- DEMONSTRATOR / SCRIPTED  (the demo source every agent arm consumes) ----
 

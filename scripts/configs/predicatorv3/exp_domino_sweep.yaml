@@ -10,7 +10,7 @@ ENVS:
   domino_high_friction_turn: # exp_domino.yaml's env
     SKIP: False
 APPROACHES:
-# Learning arms skip the pre-loop test; U1 and A1 (no cycles) are evaluated by it.
+# Learning arms skip the pre-loop test; U1, A1 and A2 (no cycles) are evaluated by it.
   # C1
   sim_predicator:
     SKIP: False
@@ -69,39 +69,51 @@ APPROACHES:
     ARGS:
       - auto_resume
   # A1
-  sim_predicator_zero_shot:
+  sim_predicator_no_learning:
     SKIP: False
     ARGS:
       - auto_resume
   # A2
+  sim_predicator_zero_shot:
+    SKIP: False
+    ARGS:
+      - auto_resume
+  # A3
   sim_predicator_undirected_explore:
     SKIP: False
     FLAGS:
       skip_initial_test: True
     ARGS:
       - auto_resume
-  # A3
+  # A4 (the rule-param margin samples the declared intervals here)
   sim_predicator_no_param_fit:
     SKIP: False
     FLAGS:
       skip_initial_test: True
     ARGS:
       - auto_resume
-  # A4
+  # A5
   sim_predicator_no_validation:
     SKIP: False
     FLAGS:
       skip_initial_test: True
     ARGS:
       - auto_resume
-  # A5
-  sim_predicator_no_uncertainty:
+  # A6
+  sim_predicator_explore_no_disagreement:
     SKIP: False
     FLAGS:
       skip_initial_test: True
     ARGS:
       - auto_resume
-  # A6
+  # A7
+  sim_predicator_validation_no_uncertainty:
+    SKIP: False
+    FLAGS:
+      skip_initial_test: True
+    ARGS:
+      - auto_resume
+  # A8
   sim_predicator_no_predicates:
     SKIP: False
     FLAGS:
