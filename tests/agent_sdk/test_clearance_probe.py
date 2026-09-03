@@ -143,7 +143,7 @@ def test_push_contact_object_is_the_body_at_the_target_pose() -> None:
     target = (1.0, 1.452, 0.65)
     assert object_at_pose(state, target, {robot, faucet}) == switch
     # The robot is the nearest posed body but is excluded.
-    assert object_at_pose(state, (1.0, 1.45, 0.69), {robot, faucet}) \
+    assert object_at_pose(state, (1.0, 1.45, 0.66), {robot, faucet}) \
         == switch
     # Nothing within the radius: no contact target.
     assert object_at_pose(state, (2.0, 2.0, 0.65), {robot, faucet}) is None

@@ -78,7 +78,7 @@ _PUSH_PARAMS = [
 # A push target pose is computed from the pose of the body it strikes,
 # so that body sits within a few millimetres of it; anything farther is
 # not the push's target.
-CONTACT_TARGET_RADIUS = 0.05
+CONTACT_TARGET_RADIUS = 0.02
 
 
 def object_at_pose(state: State,
