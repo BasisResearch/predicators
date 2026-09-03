@@ -1014,9 +1014,11 @@ class GlobalSettings:
     busyboard_num_lamps_test = [2, 3]
     # Probability that a lamp's drive is conjunctive (needs a second
     # "enabler" button on as well as its driver). This is the many-to-one
-    # relation that undirected play confounds; set to 0.0 to ablate it and
-    # recover a one-to-one board.
-    busyboard_interlock_prob = 0.5
+    # relation that undirected play confounds. At 1.0 every lamp is an
+    # interlock, so every goal needs a combination of buttons rather than
+    # a single press; 0.5 mixes plain and conjunctive drives; 0.0 ablates
+    # the interlock and recovers a one-to-one board.
+    busyboard_interlock_prob = 1.0
     # One wiring per run (extended onto each board size) rather than a fresh
     # one per task. True is what today's fitting stack supports: PARAM_SPECS
     # resolves once, before any task is chosen, so a hidden quantity that
