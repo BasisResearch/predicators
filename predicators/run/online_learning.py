@@ -94,6 +94,27 @@ def initial_test_due(checkpoint_mtime: Optional[float] = None) -> bool:
             and os.path.getmtime(test_results_path(None)) < checkpoint_mtime)
 
 
+def resumed_cycle_test_due(cycle: int,
+                           checkpoint_mtime: Optional[float] = None) -> bool:
+    """Whether a resumed run must test ``cycle`` before continuing.
+
+    A cycle's checkpoint is written at the end of its learn, before its
+    test, so a kill during the test leaves a loadable cycle with no
+    result. The test is due when per-cycle testing is on and no result
+    for the cycle was saved by this lineage: a result file older than
+    the cycle's checkpoint (``checkpoint_mtime``) belongs to an earlier
+    run of the same config and does not count (bridge seed 3,
+    2026-09-03: a cycle-0 result from the previous day's run hid a
+    cycle-0 test that a requeue had cut short).
+    """
+    if CFG.skip_test_until_last_ite_or_early_stopping:
+        return False
+    if not test_results_exist(cycle):
+        return True
+    return (checkpoint_mtime is not None
+            and os.path.getmtime(test_results_path(cycle)) < checkpoint_mtime)
+
+
 def _handle_offline_learning(
         cogman: CogMan,
         offline_dataset: Dataset) -> Tuple[int, float, float, dict]:
@@ -199,9 +220,8 @@ def run_online_learning_loop(
             # before its test; a kill during the test phase leaves a
             # loadable cycle i-1 with no test results. Run that test
             # first so the resumed run loses no evaluation datapoint.
-            if (i == CFG.skip_until_cycle
-                    and not CFG.skip_test_until_last_ite_or_early_stopping
-                    and not test_results_exist(i - 1)):
+            if i == CFG.skip_until_cycle and resumed_cycle_test_due(
+                    i - 1, checkpoints.mtime(i - 1)):
                 logging.info(
                     "Resumed past cycle %d whose test never ran; testing "
                     "it now before continuing.", i - 1)

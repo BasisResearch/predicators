@@ -1,9 +1,10 @@
-"""Tests for run.online_learning's pre-loop test gate."""
+"""Tests for run.online_learning's pre-loop and resumed-cycle test gates."""
 import os
 
 from predicators import utils
 from predicators.run import checkpoints
-from predicators.run.online_learning import initial_test_due
+from predicators.run.online_learning import initial_test_due, \
+    resumed_cycle_test_due
 
 
 def test_initial_test_due(tmp_path) -> None:
@@ -43,3 +44,30 @@ def test_initial_test_due(tmp_path) -> None:
     # Past cycle 0 the loop owns testing.
     utils.reset_config({**base, "skip_until_cycle": 1, "auto_resume": True})
     assert not initial_test_due()
+
+
+def test_resumed_cycle_test_due(tmp_path) -> None:
+    """A resume past a cycle whose test never ran re-tests it, unless
+    per-cycle testing is off or this lineage already saved the result; a
+    result older than the cycle's checkpoint is an earlier run's."""
+    base = {
+        "results_dir": str(tmp_path),
+        "env": "cover",
+        "approach": "random_actions",
+        "seed": 0
+    }
+    utils.reset_config(base)
+    assert resumed_cycle_test_due(0)
+    utils.reset_config({
+        **base, "skip_test_until_last_ite_or_early_stopping":
+        True
+    })
+    assert not resumed_cycle_test_due(0)
+    utils.reset_config(base)
+    with open(checkpoints.test_results_path(0), "wb") as f:
+        f.write(b"")
+    assert not resumed_cycle_test_due(0)
+    written = os.path.getmtime(checkpoints.test_results_path(0))
+    assert resumed_cycle_test_due(0, checkpoint_mtime=written + 10.0)
+    assert not resumed_cycle_test_due(0, checkpoint_mtime=written - 10.0)
+    assert resumed_cycle_test_due(1, checkpoint_mtime=written - 10.0)
