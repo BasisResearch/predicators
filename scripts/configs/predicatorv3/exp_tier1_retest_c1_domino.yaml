@@ -1,0 +1,24 @@
+# Re-test of tier-1 C1 on domino from its cycle-0 checkpoint (the final model:
+# cycle 1 early-stopped with learning skipped). The recorded cycle-0 test was
+# wasted by a harness bug (the 529 retry loop charged the API outage to the
+# attempt clock, fixed in 897567434), so this loads the checkpoint and runs
+# the test only, overwriting that result; the old pickle is backed up.
+# Usage: python scripts/engaging/launch.py -c predicatorv3/exp_tier1_retest_c1_domino.yaml
+---
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ENVS:
+  domino_high_friction_turn:
+    SKIP: False
+    FLAGS:
+      # Only the "all cycles already completed" final-test path runs.
+      num_online_learning_cycles: 1
+      skip_until_cycle: 1
+      skip_initial_test: True
+APPROACHES:
+  sim_predicator:
+    SKIP: False
+    ARGS:
+      - load_approach
