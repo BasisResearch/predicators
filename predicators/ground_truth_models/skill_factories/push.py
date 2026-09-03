@@ -47,7 +47,8 @@ Example::
     )
 """
 
-from typing import Callable, List, Sequence, Tuple
+import math
+from typing import Callable, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
@@ -73,6 +74,35 @@ _PUSH_PARAMS = [
      "descend into the target/support and can stall, near-max values may "
      "pass over a short target)", 0.0, 0.11),
 ]
+
+# A push target pose is computed from the pose of the body it strikes,
+# so that body sits within a few millimetres of it; anything farther is
+# not the push's target.
+CONTACT_TARGET_RADIUS = 0.05
+
+
+def object_at_pose(state: State,
+                   pose: Tuple[float, float, float],
+                   exclude: Set[Object],
+                   radius: float = CONTACT_TARGET_RADIUS) -> Optional[Object]:
+    """The posed object nearest ``pose`` within ``radius``, or None.
+
+    Objects without x/y/z features and those in ``exclude`` (a
+    grounding's own arguments, the robot) are skipped.
+    """
+    best: Optional[Object] = None
+    best_dist = radius
+    for obj in state:
+        if obj in exclude:
+            continue
+        feats = obj.type.feature_names
+        if not {"x", "y", "z"}.issubset(feats):
+            continue
+        dist = math.sqrt(
+            sum((state.get(obj, f) - v)**2 for f, v in zip("xyz", pose)))
+        if dist < best_dist:
+            best, best_dist = obj, dist
+    return best
 
 
 def resolve_ee_yaw_offset(config: SkillConfig) -> float:
@@ -125,6 +155,15 @@ def create_push_skill(
 
     params_space, params_description = build_params_space(_PUSH_PARAMS)
     _empty = np.array([], dtype=np.float32)
+
+    def _contact_objects(state: State,
+                         objects: Sequence[Object]) -> Set[Object]:
+        # The body at the target pose is what the push is for (a
+        # faucet's switch, a fan's switch): it is exempt from clearance
+        # checks like an argument, see PhaseSkill.contact_objects.
+        x, y, z, _ = get_target_pose_fn(state, objects, _empty, config)
+        target = object_at_pose(state, (x, y, z), exclude=set(objects))
+        return set() if target is None else {target}
 
     # -- Standard 4-waypoint trajectory ----------------------------------
 
@@ -252,4 +291,5 @@ def create_push_skill(
                       config,
                       phases,
                       params_description=params_description,
-                      base_mode="home").build()
+                      base_mode="home",
+                      contact_objects_fn=_contact_objects).build()

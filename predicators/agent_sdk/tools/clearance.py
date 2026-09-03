@@ -14,8 +14,14 @@ rollout had cleared).
 low-level trajectory, the minimum distance between the robot's links
 and every body the executor would treat as a bystander - excluding the
 held object and its welded attachments (the skill factory's own
-planning-scene reconstruction decides that) and the current option's
-argument objects (a pick's fingers straddle their target by design).
+planning-scene reconstruction decides that), the current option's
+argument objects (a pick's fingers straddle their target by design),
+the bodies the option's skill declares it contacts (a push strikes its
+appliance's switch, a separate body: boil/fan 2026-09-02 refused every
+plan at -3 to -14 mm against the switch being pushed) and the object
+held when the option starts (a Place releases it and retreats past it
+at a distance set by the grasp, not by the executor's slop: domino
+2026-09-02 refused every plan at ~5 mm against the domino just placed).
 The verdict compares that minimum against the executor's pose slop,
 ``sqrt(move_to_pose_tol)``, read from the plan's own skills, so the
 bar is the executor's and not a domain constant.
@@ -80,6 +86,8 @@ class RobotClearanceProbe:
                 states: Sequence[Any]) -> None:
         """Probe one option's trajectory states (best-effort diagnostic)."""
         exempt = {o.name for o in option.objects}
+        if states:
+            exempt |= self._designed_contacts(option, states[0])
         last = len(states) - 1
         for k, state in enumerate(states):
             if k % self._stride and k != last:
@@ -95,6 +103,39 @@ class RobotClearanceProbe:
                 self.where = (f"{label}, step {option.name}"
                               f"({', '.join(o.name for o in option.objects)})"
                               f" vs {body}")
+
+    def _designed_contacts(self, option: _Option, state: Any) -> set:
+        """Names of the bodies this option touches by design: the ones its
+        skill declares (a push's switch, see ``PhaseSkill.contact_objects``)
+        and the object it holds when it starts (a Place's fingers open around
+        the block they release, and their retreat clears it by the grasp
+        geometry, not by the executor's pose slop).
+
+        Best-effort: a failing lookup exempts
+        nothing.
+        """
+        names: set = set()
+        skill = getattr(getattr(option.parent, "policy", None), "__self__",
+                        None)
+        contacts = getattr(skill, "contact_objects", None)
+        if contacts is not None:
+            try:
+                names |= {o.name for o in contacts(state, option.objects)}
+            except Exception as e:  # pylint: disable=broad-except
+                logging.debug("Clearance probe: contact lookup failed: %s", e)
+        try:
+            held = self._held_object_name(state)
+        except Exception as e:  # pylint: disable=broad-except
+            logging.debug("Clearance probe: held lookup failed: %s", e)
+            held = None
+        if held is not None:
+            names.add(held)
+        return names
+
+    def _held_object_name(self, state: Any) -> Optional[str]:
+        """The name of the object held in ``state``, if any."""
+        _, _, names, held, _ = self._skill._sim_collision_context(state)  # pylint: disable=protected-access
+        return None if held is None else names.get(held)
 
     def _min_robot_clearance(self, state: Any,
                              exempt: set) -> Tuple[float, str]:

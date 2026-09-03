@@ -229,6 +229,9 @@ def _fmt_option_params(params: Array) -> str:
 # (state, objects, params, config) -> (x, y, z, yaw)
 TargetPoseFn = Callable[[State, Sequence[Object], Array, SkillConfig],
                         Tuple[float, float, float, float]]
+# Objects a skill contacts by design beyond its arguments, for a
+# grounding; see ``PhaseSkill.contact_objects``.
+ContactObjectsFn = Callable[[State, Sequence[Object]], Set[Object]]
 
 # ---------------------------------------------------------------------------
 # Internal type aliases for Phase target functions
@@ -418,14 +421,16 @@ class PhaseSkill:
         option = PhaseSkill("Pick", types, params_space, config, phases).build()
     """
 
-    def __init__(self,
-                 name: str,
-                 types: Sequence[Type],
-                 params_space: Box,
-                 config: SkillConfig,
-                 phases: List[Phase],
-                 params_description: Optional[Tuple[str, ...]] = None,
-                 base_mode: Optional[str] = None) -> None:
+    def __init__(
+            self,
+            name: str,
+            types: Sequence[Type],
+            params_space: Box,
+            config: SkillConfig,
+            phases: List[Phase],
+            params_description: Optional[Tuple[str, ...]] = None,
+            base_mode: Optional[str] = None,
+            contact_objects_fn: Optional[ContactObjectsFn] = None) -> None:
         assert len(phases) > 0
         self._name = name
         self._types = types
@@ -433,6 +438,9 @@ class PhaseSkill:
         self._config = config
         self._phases = phases
         self._params_description = params_description
+        # Objects the skill touches by design beyond its arguments (a
+        # push's switch); see ``contact_objects``.
+        self._contact_objects_fn = contact_objects_fn
         # Mobile-base positioning mode for this skill (None disables it):
         #   "home"        park at the robot's home base (good offset to press a
         #                 switch; diagonal fixed-base reach for far targets).
@@ -457,6 +465,22 @@ class PhaseSkill:
             terminal=self._terminal,
             params_description=self._params_description,
         )
+
+    def contact_objects(self, state: State,
+                        objects: Sequence[Object]) -> Set[Object]:
+        """Objects this skill contacts by design that are not among its
+        arguments, for the given grounding.
+
+        A push skill's argument is the appliance (faucet, burner, fan)
+        while the body its finger strikes is that appliance's switch, a
+        separate object. Robot-clearance checks (the capture gate's
+        bystander probe) exempt these along with the arguments: the
+        contact is the skill's purpose, not a margin-free near miss.
+        Empty when the skill declares none.
+        """
+        if self._contact_objects_fn is None:
+            return set()
+        return set(self._contact_objects_fn(state, objects))
 
     def _initiable(self, state: State, memory: Dict, objects: Sequence[Object],
                    params: Array) -> bool:
