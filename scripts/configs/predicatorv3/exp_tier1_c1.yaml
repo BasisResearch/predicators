@@ -15,7 +15,7 @@ ENVS:
   boil:
     SKIP: False
 APPROACHES:
-  # C1 keeps its pre-loop test (A1) and tests the final model only, as in the sweeps.
+  # C1 keeps its pre-loop test (A1) and tests after every cycle, as in the sweeps.
   sim_predicator:
     SKIP: False
     ARGS:
