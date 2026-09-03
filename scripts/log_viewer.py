@@ -1197,6 +1197,12 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
 
     learn_seen = 0
     interactions_seen = 0
+    # The cycle whose verdict-earning explore sessions interactions_seen
+    # is counting. Keyed by the verdict's own cycle, not by learn
+    # sessions: an arm with no learn phase (agent_model_free) never
+    # reset the counter, so its explore sessions were numbered 2, 4, 5
+    # ... across the run and matched no __ep<i>__cycle<C> video.
+    interactions_cycle: Optional[Any] = None
     for ep in episodes:
         cycle_row = _cycle_row(ep)
         ep["round"] = cycle_row if cycle_row is not None else learn_seen
@@ -1205,7 +1211,6 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
             ep["cycle_tag"] = "cycleNone" if c is None else f"cycle{c}"
         if ep["kind"] == "learn":
             learn_seen += 1
-            interactions_seen = 0
         if ep["kind"] == "explore":
             verdict = explore_verdicts.get(ep["num"])
             if verdict is not None and "accepted" in verdict:
@@ -1218,6 +1223,11 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
                 # Interaction episodes execute in session order, so this
                 # session's episode -- and its __ep<i> video -- is the
                 # i-th among the cycle's verdict-earning explore sessions.
+                cycle_key = (verdict.get("cycle") if verdict.get("cycle")
+                             is not None else ep.get("cycle_tag", learn_seen))
+                if cycle_key != interactions_cycle:
+                    interactions_cycle = cycle_key
+                    interactions_seen = 0
                 ep["interaction_idx"] = interactions_seen
                 interactions_seen += 1
             if verdict is not None and verdict.get("certified"):

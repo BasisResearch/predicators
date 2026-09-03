@@ -16,7 +16,7 @@ The query never restates a rule from the system prompt; the split is
 what keeps each rule stated exactly once.
 """
 import re
-from typing import Optional, Sequence, Set
+from typing import List, Optional, Sequence, Set
 
 from predicators import utils
 from predicators.agent_sdk.prompt_templates import render
@@ -343,19 +343,45 @@ def build_solve_prompt(
     return _join([body])
 
 
-def summarize_trajectories(trajectories: Sequence[LowLevelTrajectory],
-                           predicates: Set[Predicate]) -> str:
+def _executed_options(traj: LowLevelTrajectory) -> List[str]:
+    """The option sequence a trajectory executed, consecutive repeats
+    collapsed, from the options its actions carry; empty when the actions carry
+    none (a demo replayed from raw actions, or a pickle that dropped them)."""
+    out: List[str] = []
+    for act in traj.actions:
+        if not act.has_option():
+            continue
+        opt = act.get_option()
+        text = f"{opt.name}({', '.join(o.name for o in opt.objects)})"
+        if not out or out[-1] != text:
+            out.append(text)
+    return out
+
+
+def summarize_trajectories(
+        trajectories: Sequence[LowLevelTrajectory],
+        predicates: Set[Predicate],
+        train_tasks: Optional[Sequence[Task]] = None) -> str:
     """The ``## Trajectory Summary`` query section, or "".
 
     Per recent trajectory (the last
-    ``CFG.agent_sdk_max_trajectories_in_context``), the atoms gained and
-    lost between its first and last state. Shared by the solve approach
-    and the explorers.
+    ``CFG.agent_sdk_max_trajectories_in_context``): the option plan it
+    executed, the env's verdict on it (reward and whether the goal
+    atoms held at the end, when the episode was evaluated), and the
+    atoms gained and lost between its first and last state. Shared by
+    the solve approach and the explorers.
+
+    Trajectories are numbered by their index in the full list, so a
+    number means the same episode in every session of a run. The
+    verdict lines are what an agent with no learn phase otherwise never
+    sees: the model-free arm's cycle-1 session used to read only
+    "Trajectory 0: 42 steps" for an episode whose plan had failed.
     """
     if not trajectories:
         return ""
     max_trajs = CFG.agent_sdk_max_trajectories_in_context
     recent = trajectories[-max_trajs:]
+    first = len(trajectories) - len(recent)
     lines = [
         f"\n## Trajectory Summary ({len(trajectories)} total, "
         f"showing last {len(recent)})"
@@ -366,7 +392,29 @@ def summarize_trajectories(trajectories: Sequence[LowLevelTrajectory],
         final_atoms = utils.abstract(traj.states[-1], predicates)
         new_atoms = final_atoms - init_atoms
         lost_atoms = init_atoms - final_atoms
-        lines.append(f"\nTrajectory {i}: {n_steps} steps")
+        lines.append(f"\nTrajectory {first + i}: {n_steps} steps")
+        executed = _executed_options(traj)
+        if executed:
+            lines.append("  Executed: " + " -> ".join(executed))
+        verdict: List[str] = []
+        reward = traj.env_reward
+        if reward is not None:
+            verdict.append(f"env reward {reward:.2f}")
+        terminated = traj.env_terminated
+        if terminated is not None:
+            verdict.append("goal atoms held at the end"
+                           if terminated else "goal NOT reached")
+        elif train_tasks is not None:
+            try:
+                task = train_tasks[traj.train_task_idx]
+            except (IndexError, ValueError, AttributeError):
+                task = None
+            if task is not None:
+                held = task.goal_holds(traj.states[-1])
+                verdict.append("goal atoms held at the end"
+                               if held else "goal NOT reached")
+        if verdict:
+            lines.append("  Outcome: " + ", ".join(verdict))
         if new_atoms:
             lines.append(
                 "  Gained: " +

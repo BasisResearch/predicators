@@ -986,7 +986,8 @@ Output ONLY the option plan lines at the end, after any analysis."""
     def _build_trajectory_summary(self) -> str:
         """Summarize trajectory data for context."""
         return summarize_trajectories(self._get_all_trajectories(),
-                                      self._get_all_predicates())
+                                      self._get_all_predicates(),
+                                      train_tasks=self._train_tasks)
 
     def _solve_prompt_extra_sections(self) -> str:
         """Subclass hook: sections inserted into the solve prompt after the

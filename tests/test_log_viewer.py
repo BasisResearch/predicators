@@ -359,3 +359,49 @@ def test_leaf_groups_pool_by_agent_and_env_across_families() -> None:
         [old["rel"]],
     ]
     assert leaves[("sim_predicator", "boil")] == [[boil]]
+
+
+def test_interaction_index_resets_per_cycle_without_learn_sessions(
+        tmp_path: Path) -> None:
+    """An arm with no learn phase (agent_model_free) numbers each cycle's
+    verdict-earning explore sessions from 0, so the second cycle's sessions
+    match their __ep0/__ep1 videos.
+
+    The counter used to reset only on a learn session and ran 0, 1, 2, 3
+    ... across the whole run.
+    """
+    # pylint: disable=import-outside-toplevel
+    from scripts import log_viewer
+    run = tmp_path / "fam" / "exp" / "seed0" / "run_20260902_152641"
+    run.mkdir(parents=True)
+    names = [
+        "001_explore_20260902_152643", "002_explore_20260902_152729",
+        "003_explore_20260902_152908", "004_explore_20260902_152949"
+    ]
+    for name in names:
+        (run / f"{name}.md").write_text("# q\n", encoding="utf-8")
+    (run / "info.log").write_text("\n".join([
+        "ONLINE LEARNING CYCLE 0",
+        _SAVE.format(name=names[0]),
+        _SAVE.format(name=names[1]),
+        _VERDICT.format(r="0.00", t="False", a="False"),
+        _VERDICT.format(r="0.00", t="False", a="False"),
+        "ONLINE LEARNING CYCLE 1",
+        _SAVE.format(name=names[2]),
+        _SAVE.format(name=names[3]),
+        _VERDICT.format(r="0.00", t="False", a="False"),
+        _VERDICT.format(r="1.00", t="True", a="True"),
+    ]) + "\n",
+                                  encoding="utf-8")
+    old_root = log_viewer.LOGS_ROOT
+    log_viewer.LOGS_ROOT = str(tmp_path)
+    try:
+        summary = log_viewer.run_summary("fam/exp/seed0/run_20260902_152641")
+    finally:
+        log_viewer.LOGS_ROOT = old_root
+    assert summary is not None
+    by_num = {e["num"]: e for e in summary["episodes"]}
+    assert [by_num[n]["interaction_idx"] for n in (1, 2, 3, 4)] == \
+        [0, 1, 0, 1]
+    assert [by_num[n]["cycle_tag"] for n in (1, 2, 3, 4)] == \
+        ["cycle0", "cycle0", "cycle1", "cycle1"]

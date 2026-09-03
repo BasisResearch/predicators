@@ -56,7 +56,9 @@ class AgentExplorerBase(BaseExplorer):
         """Summarize trajectory data for the agent."""
         all_trajs = (self._tool_context.offline_trajectories +
                      self._tool_context.online_trajectories)
-        return summarize_trajectories(all_trajs, self._predicates)
+        return summarize_trajectories(all_trajs,
+                                      self._predicates,
+                                      train_tasks=self._train_tasks)
 
     def _world_model_notes_block(self) -> str:
         """The natural-language world model quoted into the explore prompt
