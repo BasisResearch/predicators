@@ -95,6 +95,23 @@ def test_pyguard_allows_a_sandbox_under_the_repo_logs(tmp_path) -> None:
     del tmp_path
 
 
+def test_pyguard_lets_the_interpreter_open_a_script(tmp_path) -> None:
+    """``python3 script.py`` opens the script from C with no Python frame on
+    the stack; the guard must let that read through (the sandbox's PreToolUse
+    hook and every agent-written script start that way)."""
+    sandbox = str(tmp_path)
+    write_pyguard(sandbox, str(find_repo_root()))
+    (tmp_path / "script.py").write_text("print('script ok')")
+    env = {**os.environ, **pyguard_env(sandbox)}
+    res = subprocess.run([sys.executable, "script.py"],
+                         cwd=sandbox,
+                         env=env,
+                         capture_output=True,
+                         text=True,
+                         check=False)
+    assert res.returncode == 0 and "script ok" in res.stdout, res.stderr
+
+
 def _traj(n: int) -> LowLevelTrajectory:
     # pylint: disable=import-outside-toplevel
     from predicators.structs import Action, State

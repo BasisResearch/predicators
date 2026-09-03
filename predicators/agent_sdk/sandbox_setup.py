@@ -259,7 +259,13 @@ def _importing():
     # loader.get_source, linecache and inspect reach get_data by other
     # routes and stay refused, so source lines cached for warnings or
     # tracebacks never pass either.
-    caller = sys._getframe(2)
+    try:
+        caller = sys._getframe(2)
+    except ValueError:
+        # No Python frames yet: the interpreter opening the script named
+        # on its command line. That read is not an import, and an
+        # exception here would make ``python script.py`` fail to start.
+        return False
     outer = caller.f_back
     return ("importlib._bootstrap_external" in caller.f_code.co_filename
             and caller.f_code.co_name == "get_data" and outer is not None
