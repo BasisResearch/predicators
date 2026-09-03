@@ -1909,6 +1909,10 @@ function setAllDetails(open) {
 }
 
 // Index page: filter + selected-only toggle + collapsible groups.
+// A group's open state is the user's, persisted in localStorage on
+// every toggle (manual, expand/collapse all, or the one-off expansion
+// when a filter changes) and restored on each auto-refresh reload - so
+// nothing on a reload reopens a collapsed group.
 function groupKey(d) { return 'lv-grp:' + d.dataset.key; }
 function restoreGroups() {
   $all('details.grp').forEach(function(d) {
@@ -1919,16 +1923,14 @@ function restoreGroups() {
 document.addEventListener('DOMContentLoaded', restoreGroups);
 document.addEventListener('toggle', function(e) {
   var d = e.target;
-  if (d.classList && d.classList.contains('grp') && !window._filtering)
+  if (d.classList && d.classList.contains('grp'))
     localStorage.setItem(groupKey(d), d.open ? '1' : '0');
 }, true);
 function setAllGroups(open) {
-  window._filtering = true;
   $all('details.grp').forEach(function(d) {
     d.open = open;
     localStorage.setItem(groupKey(d), open ? '1' : '0');
   });
-  window._filtering = false;
 }
 // Run selection: checkbox state is persisted per tab (sessionStorage)
 // so the auto-refresh reloads keep it; it drives the show-selected
@@ -1960,7 +1962,7 @@ function toggleSelOnly() {
   }
   sessionStorage.setItem('lv-selonly', selOnly() ? '0' : '1');
   paintSelBtn();
-  applyRunVisibility();
+  applyRunVisibility(true);
 }
 function paintSelBtn() {
   var b = $('#selbtn');
@@ -1976,7 +1978,7 @@ function liveOnly() { return localStorage.getItem('lv-liveonly') === '1'; }
 function toggleLiveOnly() {
   localStorage.setItem('lv-liveonly', liveOnly() ? '0' : '1');
   paintLiveBtn();
-  applyRunVisibility();
+  applyRunVisibility(true);
 }
 function paintLiveBtn() {
   var b = $('#livebtn');
@@ -1986,12 +1988,17 @@ function paintLiveBtn() {
   }).length;
   b.textContent = liveOnly() ? 'show: running (' + n + ')' : 'show: any status';
 }
-function applyRunVisibility() {
+// Hides the rows (and then the groups) the active filters exclude.
+// With ``expand`` - passed only when the user just changed a filter -
+// every group that still has a match opens, so the matches are in
+// view; that open state persists like a manual toggle. A reload never
+// passes it, so a collapsed group stays collapsed across refreshes
+// even while a filter such as show-running is on.
+function applyRunVisibility(expand) {
   var text = (sessionStorage.getItem('lv-filter') || '').toLowerCase();
   var only = selOnly();
   var live = liveOnly();
   var narrowing = !!text || only || live;
-  window._filtering = true;
   $all('.runrow').forEach(function(row) {
     var hide = !!text && row.dataset.key.indexOf(text) === -1;
     if (!hide && only) {
@@ -2006,21 +2013,19 @@ function applyRunVisibility() {
       return !r.classList.contains('hidden');
     });
     d.classList.toggle('hidden', !any);
-    if (narrowing) d.open = any;
+    if (expand && narrowing && any) d.open = true;
   });
   $all('details.grp.family').forEach(function(d) {
     var any = $all('details.grp.exp', d).some(function(x) {
       return !x.classList.contains('hidden');
     });
     d.classList.toggle('hidden', !any);
-    if (narrowing) d.open = any;
+    if (expand && narrowing && any) d.open = true;
   });
-  if (!narrowing) restoreGroups();
-  window._filtering = false;
 }
 function filterRuns(text) {
   sessionStorage.setItem('lv-filter', text.toLowerCase());
-  applyRunVisibility();
+  applyRunVisibility(true);
 }
 // Index page: nest the (agent, env) leaf tables under agent headers
 // (agent > env) or env headers (env > agent). The server renders each
