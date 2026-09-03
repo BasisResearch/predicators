@@ -13,6 +13,5 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
     ARGS:
       - auto_resume

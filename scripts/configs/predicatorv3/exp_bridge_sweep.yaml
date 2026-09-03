@@ -12,13 +12,11 @@ ENVS:
     FLAGS:
       num_test_tasks: 5
 APPROACHES:
-# Learning arms test only their final model and skip the pre-loop test; U1 and A2
-# (no cycles) are evaluated by it, and C1 keeps it as A1 (no learning).
+# Every arm is tested after every learning cycle. Learning arms skip the pre-loop
+# test; U1 and A2 (no cycles) are evaluated by it, and C1 keeps it as A1 (no learning).
   # C1
   sim_predicator:
     SKIP: False
-    FLAGS:
-      skip_test_until_last_ite_or_early_stopping: True
     ARGS:
       - auto_resume
   # C1 in policy mode (parked; the paper's C1 is plan mode).
@@ -26,7 +24,6 @@ APPROACHES:
     SKIP: True
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
     ARGS:
       - auto_resume
   # C2 (same per-attempt solve budget as C1)
@@ -34,7 +31,6 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
     ARGS:
       - auto_resume
   # C3
@@ -42,7 +38,6 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
     ARGS:
       - auto_resume
   # C4
@@ -50,7 +45,6 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
     ARGS:
       - auto_resume
   # C5
@@ -58,19 +52,16 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
   # C6
   operator_learning:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
   # C8 (same interaction budget as the agent arms)
   maple_q:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
   # U1 (PO and open-loop, like C1)
   agent_oracle_hybrid_sim:
     SKIP: False
@@ -89,7 +80,6 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
     ARGS:
       - auto_resume
   # A4 (the rule-param margin samples the declared intervals here)
@@ -97,7 +87,6 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
     ARGS:
       - auto_resume
   # A5
@@ -105,7 +94,6 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
     ARGS:
       - auto_resume
   # A6
@@ -113,7 +101,6 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
     ARGS:
       - auto_resume
   # A7
@@ -121,7 +108,6 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
     ARGS:
       - auto_resume
   # A8
@@ -129,6 +115,5 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
     ARGS:
       - auto_resume

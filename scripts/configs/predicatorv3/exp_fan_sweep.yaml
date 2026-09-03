@@ -12,13 +12,12 @@ ENVS:
     FLAGS:
       num_test_tasks: 5
 APPROACHES:
-# Learning arms test only their final model and skip the pre-loop test; U1 and A2
-# (no cycles) are evaluated by it, and C1 keeps it as A1 (no learning).
+# Every arm is tested after every learning cycle. Learning arms skip the pre-loop
+# test; U1 and A2 (no cycles) are evaluated by it, and C1 keeps it as A1 (no learning).
   # C1 (base-sim source surfaced, as in exp_fan.yaml, on every arm with a base sim)
   sim_predicator:
     SKIP: False
     FLAGS:
-      skip_test_until_last_ite_or_early_stopping: True
       agent_sim_provide_base_sim_source: True
     ARGS:
       - auto_resume
@@ -27,7 +26,6 @@ APPROACHES:
     SKIP: True
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
       agent_sim_provide_base_sim_source: True
     ARGS:
       - auto_resume
@@ -36,7 +34,6 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
     ARGS:
       - auto_resume
   # C3
@@ -44,7 +41,6 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
     ARGS:
       - auto_resume
   # C4
@@ -52,7 +48,6 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
     ARGS:
       - auto_resume
   # C5
@@ -60,19 +55,16 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
   # C6
   operator_learning:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
   # C8
   maple_q:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
   # U1
   agent_oracle_hybrid_sim:
     SKIP: False
@@ -92,7 +84,6 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
       agent_sim_provide_base_sim_source: True
     ARGS:
       - auto_resume
@@ -101,7 +92,6 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
       agent_sim_provide_base_sim_source: True
     ARGS:
       - auto_resume
@@ -110,7 +100,6 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
       agent_sim_provide_base_sim_source: True
     ARGS:
       - auto_resume
@@ -119,7 +108,6 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
       agent_sim_provide_base_sim_source: True
     ARGS:
       - auto_resume
@@ -128,7 +116,6 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
       agent_sim_provide_base_sim_source: True
     ARGS:
       - auto_resume
@@ -137,7 +124,6 @@ APPROACHES:
     SKIP: False
     FLAGS:
       skip_initial_test: True
-      skip_test_until_last_ite_or_early_stopping: True
       agent_sim_provide_base_sim_source: True
     ARGS:
       - auto_resume

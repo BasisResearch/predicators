@@ -18,7 +18,5 @@ APPROACHES:
   # C1 keeps its pre-loop test (A1) and tests the final model only, as in the sweeps.
   sim_predicator:
     SKIP: False
-    FLAGS:
-      skip_test_until_last_ite_or_early_stopping: True
     ARGS:
       - auto_resume
