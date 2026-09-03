@@ -278,3 +278,31 @@ def test_ground_truth_simulator_reproduces_the_env(env_module):
 
     assert steps > 100
     assert disagreements <= len(buttons[:2])
+
+
+def test_colours_are_distinct_and_stable(env_module):
+    """Every button and lamp has its own colour, the same on every board."""
+    _, env = env_module
+    seen = {}
+    for task in env._generate_train_tasks() + env._generate_test_tasks():
+        state = task.init
+        colours = {}
+        for obj in state:
+            if obj.type.name not in ("button", "lamp"):
+                continue
+            colour = int(state.get(obj, "color"))
+            name = env.color_name(colour)
+            colours[obj.name] = name
+            assert seen.setdefault(obj.name, name) == name
+        # Distinct within a board, and named the way text refers to them.
+        assert len(set(colours.values())) == len(colours)
+        assert colours["button0"] == "red"
+        assert colours["lamp0"] == "yellow"
+        assert "the yellow lamp (lamp0)" in task.goal_nl
+    # The live readout agrees with the task's init state.
+    env.reset("train", 0)
+    live = env._get_state()
+    init = env.get_task("train", 0).init
+    for obj in init:
+        if obj.type.name in ("button", "lamp"):
+            assert live.get(obj, "color") == init.get(obj, "color")

@@ -274,11 +274,11 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
     # =========================================================================
     # Fully observable: the charge is a visible feature, so a learner sees
     # the accumulation directly and only the wiring is hidden.
-    _lamp_type_fo = Type("lamp",
-                         ["x", "y", "z", "rot", "brightness", "charge"])
+    _lamp_type_fo = Type(
+        "lamp", ["x", "y", "z", "rot", "color", "brightness", "charge"])
     # Partially observable: charge is dropped. The learner sees only the
     # brightness readout and must postulate the accumulator itself.
-    _lamp_type_po = Type("lamp", ["x", "y", "z", "rot", "brightness"])
+    _lamp_type_po = Type("lamp", ["x", "y", "z", "rot", "color", "brightness"])
 
     @classmethod
     def _lamp_type_for_run(cls) -> Type:
@@ -464,12 +464,32 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
         return driver, enabler, target
 
     # =========================================================================
+    # LABELS
+    # =========================================================================
+    @classmethod
+    def button_label(cls, button_idx: int) -> str:
+        """How to name a button in text: colour first, then its id."""
+        return (f"the {cls.color_name(cls.button_color_index(button_idx))} "
+                f"button (button{button_idx})")
+
+    @classmethod
+    def lamp_label(cls, lamp_idx: int) -> str:
+        """How to name a lamp in text: colour first, then its id."""
+        return (f"the {cls.color_name(cls.lamp_color_index(lamp_idx))} "
+                f"lamp (lamp{lamp_idx})")
+
+    # =========================================================================
     # STATE READ / WRITE
     # =========================================================================
     def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
-        if obj.type.name == "button" and feature == "is_on":
-            return float(self._is_button_on(obj))
+        if obj.type.name == "button":
+            if feature == "is_on":
+                return float(self._is_button_on(obj))
+            if feature == "color":
+                return float(self.button_color_index(self._buttons.index(obj)))
         if obj.type.name == "lamp":
+            if feature == "color":
+                return float(self.lamp_color_index(self._lamps.index(obj)))
             charge = self._charges.get(obj.name, 0.0)
             if feature == "charge":
                 return charge
@@ -518,6 +538,7 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
             self._set_lamp_brightness_visual(
                 lamp, self._brightness(self._charges[lamp.name]))
 
+        self._seat_lamp_bases(state, lamps)
         self._park_unused_bodies(len(buttons), len(lamps))
 
     @classmethod
@@ -560,9 +581,10 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
         """Install this task's wiring before any state is applied.
 
         Redundant under ``busyboard_fixed_wiring``, where
-        ``_set_domain_specific_state`` re-derives the same wiring from the
-        board; load-bearing when the wiring varies per task, which is the
-        only route by which a per-task wiring reaches the env at all.
+        ``_set_domain_specific_state`` re-derives the same wiring from
+        the board; load-bearing when the wiring varies per task, which
+        is the only route by which a per-task wiring reaches the env at
+        all.
         """
         task = self.get_task(train_or_test, task_idx)
         self._install_wiring(task.offline_task_metrics)
@@ -638,24 +660,28 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
             # Every board starts fully off: all buttons released, every lamp
             # dark and uncharged. The agent's information about this board
             # therefore comes entirely from what it does to it.
-            for (x, y), button in zip(self.button_layout(num_buttons),
-                                      self._buttons[:num_buttons]):
+            for i, ((x, y), button) in enumerate(
+                    zip(self.button_layout(num_buttons),
+                        self._buttons[:num_buttons])):
                 init_dict[button] = {
                     "x": x,
                     "y": y,
-                    "z": self.table_height,
+                    "z": self.board_top,
                     "rot": self.button_rot,
+                    "color": float(self.button_color_index(i)),
                     "is_on": 0.0,
                 }
 
-            lamp_z = self.table_height + self.lamp_half_extents[2]
-            for x, lamp in zip(self._row_xs(num_lamps, self.lamp_x_gap),
-                               self._lamps[:num_lamps]):
+            lamp_z = self.lamp_z
+            for i, (x, lamp) in enumerate(
+                    zip(self._row_xs(num_lamps, self.lamp_x_gap),
+                        self._lamps[:num_lamps])):
                 lamp_dict = {
                     "x": x,
                     "y": self.lamp_y,
                     "z": lamp_z,
                     "rot": 0.0,
+                    "color": float(self.lamp_color_index(i)),
                     "brightness": 0.0,
                 }
                 if "charge" in self._lamp_type.feature_names:
@@ -669,14 +695,8 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
                 pred = self._LampOn if want_on else self._LampOff
                 goal_atoms.add(GroundAtom(pred, [lamp]))
 
-            lit = [
-                lamp.name for lamp, t in zip(self._lamps[:num_lamps], target)
-                if t
-            ]
-            dark = [
-                lamp.name for lamp, t in zip(self._lamps[:num_lamps], target)
-                if not t
-            ]
+            lit = [self.lamp_label(i) for i, t in enumerate(target) if t]
+            dark = [self.lamp_label(i) for i, t in enumerate(target) if not t]
             goal_nl = ("Use the buttons to leave " + f"{', '.join(lit)} lit" +
                        (f" and {', '.join(dark)} dark." if dark else "."))
 
