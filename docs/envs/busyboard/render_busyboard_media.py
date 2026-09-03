@@ -25,13 +25,18 @@ board:
 * ``delayed_credit`` - the confound. A lamp finishes charging in the
   middle of an unrelated button press, so the press that gets the credit
   is not the press that caused it.
+
+Task cards (``task_<split>_<idx>.png``): the initial board of one task
+with its goal and the oracle's press set written underneath, for a spread
+of seed-0 train and test tasks that covers every goal type and board size.
 """
 
 import os
 import textwrap
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import imageio.v2 as imageio
+import matplotlib
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
@@ -54,11 +59,18 @@ FPS = 12
 # clear the switch body and cross the slider's travel.
 PUSH_PARAMS = np.array([0.07, 0.05], dtype=np.float32)
 
+# matplotlib ships DejaVu with the package, so its copy is the one path
+# that exists on every machine the script runs on.
+_MPL_FONTS = os.path.join(matplotlib.get_data_path(), "fonts", "ttf")
 _FONT_DIRS = ("/System/Library/Fonts/Supplemental/Arial.ttf",
               "/System/Library/Fonts/Helvetica.ttc",
-              "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
+              "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+              "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+              os.path.join(_MPL_FONTS, "DejaVuSans.ttf"))
 _MONO_DIRS = ("/System/Library/Fonts/Menlo.ttc",
-              "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf")
+              "/usr/share/fonts/dejavu/DejaVuSansMono.ttf",
+              "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+              os.path.join(_MPL_FONTS, "DejaVuSansMono.ttf"))
 
 INK = (28, 30, 34)
 MUTED = (120, 126, 134)
@@ -72,8 +84,8 @@ RULE = (214, 216, 220)
 def _font(paths: Sequence[str], size: int) -> Any:
     """First available font at ``size``, falling back to PIL's default.
 
-    Returns ``Any`` because PIL ships no stubs for its font constructors,
-    and the two of them do not even share a return type.
+    Returns ``Any`` because PIL ships no stubs for its font
+    constructors, and the two of them do not even share a return type.
     """
     for path in paths:
         if os.path.exists(path):
@@ -82,7 +94,7 @@ def _font(paths: Sequence[str], size: int) -> Any:
                     path, size)  # type: ignore[no-untyped-call]
             except OSError:
                 continue
-    return ImageFont.load_default()
+    return ImageFont.load_default(size)
 
 
 # ── Board bookkeeping ────────────────────────────────────────────
@@ -123,12 +135,26 @@ def _solving_buttons(env: PyBulletBusyBoardEnv, task: EnvironmentTask,
     raise RuntimeError("Goal is unrealizable, which task generation forbids.")
 
 
+def _bname(button_idx: int) -> str:
+    """Compact button name for the panel, e.g. ``red b0``."""
+    env_cls = PyBulletBusyBoardEnv
+    return (f"{env_cls.color_name(env_cls.button_color_index(button_idx))} "
+            f"b{button_idx}")
+
+
+def _lname(lamp_idx: int) -> str:
+    """Compact lamp name for the panel, e.g. ``yellow lamp0``."""
+    env_cls = PyBulletBusyBoardEnv
+    return (f"{env_cls.color_name(env_cls.lamp_color_index(lamp_idx))} "
+            f"lamp{lamp_idx}")
+
+
 def _condition_str(driver: int, enabler: int) -> str:
-    """Human-readable drive condition, e.g. ``button1 AND button2``."""
+    """Human-readable drive condition, e.g. ``green b1 AND blue b2``."""
     if enabler == NO_ENABLER:
-        return f"button{driver}"
+        return _bname(driver)
     lo, hi = min(driver, enabler), max(driver, enabler)
-    return f"button{lo} AND button{hi}"
+    return f"{_bname(lo)} AND {_bname(hi)}"
 
 
 # ── Annotation panel ─────────────────────────────────────────────
@@ -174,7 +200,7 @@ def _draw_panel(env: PyBulletBusyBoardEnv, state: State, task: EnvironmentTask,
     y += 22
     for i, (driver, enabler) in enumerate(wiring):
         draw.text((x0 + 6, y),
-                  f"lamp{i} <- {_condition_str(driver, enabler)}",
+                  f"{_lname(i)} <- {_condition_str(driver, enabler)}",
                   font=mono,
                   fill=INK)
         y += 19
@@ -207,27 +233,34 @@ def _draw_panel(env: PyBulletBusyBoardEnv, state: State, task: EnvironmentTask,
               font=h2,
               fill=MUTED)
     y += 24
+    # Room for "magenta" at the small size before the bar starts.
+    label_w = 70
     bar_w = PANEL_W - 2 * x0 - 130
     for i, lamp in enumerate(lamps):
         charge = env._charges.get(lamp.name, 0.0)  # pylint: disable=protected-access
         brightness = float(state.get(lamp, "brightness"))
-        draw.text((x0, y + 1), f"lamp{i}", font=small, fill=INK)
-        draw.rectangle((x0 + 48, y, x0 + 48 + bar_w, y + 13),
+        env_cls = PyBulletBusyBoardEnv
+        draw.text((x0, y + 1),
+                  env_cls.color_name(env_cls.lamp_color_index(i)),
+                  font=small,
+                  fill=INK)
+        draw.rectangle((x0 + label_w, y, x0 + label_w + bar_w, y + 13),
                        fill=(233, 235, 238),
                        outline=RULE)
-        draw.rectangle(
-            (x0 + 48, y, x0 + 48 + max(1, int(bar_w * charge)), y + 13),
-            fill=(96, 132, 196))
-        onset_x = x0 + 48 + int(bar_w * env.BRIGHTNESS_ONSET)
+        draw.rectangle((x0 + label_w, y,
+                        x0 + label_w + max(1, int(bar_w * charge)), y + 13),
+                       fill=(96, 132, 196))
+        onset_x = x0 + label_w + int(bar_w * env.BRIGHTNESS_ONSET)
         draw.line((onset_x, y - 2, onset_x, y + 15), fill=(160, 60, 60))
         swatch = tuple(
             int((1 - brightness) * d + brightness * l)
             for d, l in zip((150, 154, 160), LIT))
-        draw.rectangle((x0 + 60 + bar_w, y, x0 + 84 + bar_w, y + 13),
-                       fill=swatch,
-                       outline=RULE)
+        draw.rectangle(
+            (x0 + label_w + 12 + bar_w, y, x0 + label_w + 36 + bar_w, y + 13),
+            fill=swatch,
+            outline=RULE)
         y += 26
-    draw.text((x0 + 48, y - 4),
+    draw.text((x0 + label_w, y - 4),
               "red mark = onset; left of it the lamp looks dead",
               font=small,
               fill=MUTED)
@@ -303,7 +336,7 @@ def _run_clip(env: PyBulletBusyBoardEnv, task: EnvironmentTask, split: str,
         if kind in ("press", "release"):
             button_idx = step[1]
             name = "PressButton" if kind == "press" else "ReleaseButton"
-            caption = f"{kind} button{button_idx}"
+            caption = f"{kind} {PyBulletBusyBoardEnv.button_label(button_idx)}"
             option = options[name].ground([robot, buttons[button_idx]],
                                           PUSH_PARAMS)
             option.initiable(state)
@@ -349,7 +382,7 @@ def _main() -> None:
         "env": "pybullet_busyboard",
         "seed": 0,
         "num_train_tasks": 1,
-        "num_test_tasks": 3,
+        "num_test_tasks": 8,
         "pybullet_camera_width": FRAME_W,
         "pybullet_camera_height": FRAME_H,
     })
@@ -358,16 +391,25 @@ def _main() -> None:
     env._generate_train_tasks()  # pylint: disable=protected-access
     env._generate_test_tasks()  # pylint: disable=protected-access
 
-    for split, idx in (("train", 0), ("test", 0), ("test", 1)):
+    # One still per board size the run produces, and for the clips the
+    # smallest test board that carries every lamp - the busiest board that
+    # still reads clearly in a frame.
+    sizes: Dict[Tuple[int, int], Tuple[str, int]] = {}
+    for split, count in (("train", 1), ("test", 8)):
+        for idx in range(count):
+            env.reset(split, idx)
+            key = (env._num_active_buttons, env._num_active_lamps)  # pylint: disable=protected-access
+            sizes.setdefault(key, (split, idx))
+    for (num_buttons, num_lamps), (split, idx) in sorted(sizes.items()):
         env.reset(split, idx)
-        num_buttons = env._num_active_buttons  # pylint: disable=protected-access
-        num_lamps = env._num_active_lamps  # pylint: disable=protected-access
         name = f"init_{num_buttons}buttons_{num_lamps}lamps.png"
         imageio.imwrite(os.path.join(OUT_DIR, name),
                         env.render()[0].astype("uint8"))
         print("wrote", name)
 
-    split, idx = "test", 0
+    max_lamps = max(num_lamps for _, num_lamps in sizes)
+    split, idx = min((key, where) for key, where in sizes.items()
+                     if key[1] == max_lamps and where[0] == "test")[1]
     task = env.get_task(split, idx)
     env.reset(split, idx)
     num_buttons = env._num_active_buttons  # pylint: disable=protected-access
@@ -376,11 +418,25 @@ def _main() -> None:
     print(f"board {split}[{idx}]: {num_buttons} buttons, wiring {wiring}, "
           f"goal {_target(task, len(wiring))}, solving press set {solving}")
 
-    # The two buttons lamp0's drive condition needs, and one that is
-    # irrelevant to it - the cast for the interlock and confound clips.
-    lamp0_driver, lamp0_enabler = wiring[0]
+    # The cast for the interlock and confound clips: a lamp with a
+    # conjunctive drive, the two buttons it needs, and one button that is
+    # irrelevant to it.
+    conj = next(i for i, (_, e) in enumerate(wiring) if e != NO_ENABLER)
+    lamp0_driver, lamp0_enabler = wiring[conj]
+    held = {lamp0_driver, lamp0_enabler}
+
+    def _completes_another_lamp(button: int) -> bool:
+        """Whether pressing ``button`` on top of the held pair lights some
+        OTHER lamp, which would muddy a clip about this one."""
+        return any({d, e} - {NO_ENABLER} <= held | {button}
+                   for i, (d, e) in enumerate(wiring) if i != conj)
+
     irrelevant = next(b for b in range(num_buttons)
-                      if b not in (lamp0_driver, lamp0_enabler))
+                      if b not in held and not _completes_another_lamp(b))
+    lamp = PyBulletBusyBoardEnv.lamp_label(conj)
+    drv = PyBulletBusyBoardEnv.button_label(lamp0_driver)
+    enb = PyBulletBusyBoardEnv.button_label(lamp0_enabler)
+    other = PyBulletBusyBoardEnv.button_label(irrelevant)
 
     clips: List[Tuple[str, List[Step], bool]] = [
         ("oracle_solve", [("note", "The goal needs two lamps lit and one "
@@ -393,37 +449,35 @@ def _main() -> None:
            2 * FPS)] + [("press", b)
                         for b in range(num_buttons)] + [("wait", 110)], True),
         ("interlock", [
-            ("note", f"lamp0 needs button{lamp0_driver} AND "
-             f"button{lamp0_enabler}. Press just one of them.", 2 * FPS),
+            ("note", f"{lamp} needs {drv} AND {enb}. Press just one of "
+             "them.", 2 * FPS),
             ("press", lamp0_enabler),
             ("wait", 90),
             ("note", "Nothing. Not a slow response - the charge bar never "
              "left zero, so the drive condition was never met.", 3 * FPS),
             ("press", lamp0_driver),
             ("wait", 120),
-            ("note", "With both on, the charge climbs and lamp0 lights. "
+            ("note", f"With both on, the charge climbs and {lamp} lights. "
              "This conjunction is the relation prior busyboard "
              "benchmarks exclude by design.", 3 * FPS),
         ], False),
         (
             "delayed_credit",
             [
-                ("note", f"Press button{lamp0_driver}, then "
-                 f"button{lamp0_enabler}: lamp0's condition is now met and it "
-                 "starts charging invisibly.", 2 * FPS),
+                ("note", f"Press {drv}, then {enb}: the condition of "
+                 f"{lamp} is now met and it starts charging invisibly.",
+                 2 * FPS),
                 ("press", lamp0_driver),
                 ("press", lamp0_enabler),
                 ("wait", 26),
                 # Tenseless on purpose: this note is still on screen at the
                 # moment lamp0 lights, so "nothing is visible yet" would be
                 # false exactly when the viewer is looking at it.
-                ("note",
-                 f"button{irrelevant} is unrelated to lamp0. Watch the "
+                ("note", f"{other} is unrelated to {lamp}. Watch the "
                  "board during its press.", 2 * FPS),
                 ("press", irrelevant),
-                ("note",
-                 f"lamp0 lit during the button{irrelevant} press - but "
-                 f"button{irrelevant} had nothing to do with it. This is the "
+                ("note", f"{lamp} lit during the press of {other} - but "
+                 f"{other} had nothing to do with it. This is the "
                  "mis-attribution a press-and-look agent makes.", 4 * FPS),
                 ("wait", 90),
             ],
@@ -437,5 +491,102 @@ def _main() -> None:
             print(f"  {name}: solved={solved}")
 
 
+# ── Task cards ───────────────────────────────────────────────────
+
+# Task counts for the card sheet. Larger than an experiment's so that
+# every goal type and board size shows up; the seed-0 wiring is the same
+# at any count, only the goal draw differs.
+CARD_TRAIN_TASKS = 6
+CARD_TEST_TASKS = 12
+CARD_BAND_H = 150
+
+
+def _goal_str(target: Sequence[bool]) -> str:
+    """The goal in colour names, lit lamps first: ``cyan ON; yellow OFF``."""
+    env_cls = PyBulletBusyBoardEnv
+    names = [
+        env_cls.color_name(env_cls.lamp_color_index(i))
+        for i in range(len(target))
+    ]
+    lit = [n for n, t in zip(names, target) if t]
+    dark = [n for n, t in zip(names, target) if not t]
+    parts = []
+    if lit:
+        parts.append(", ".join(lit) + " ON")
+    if dark:
+        parts.append(", ".join(dark) + " OFF")
+    return "; ".join(parts)
+
+
+def _task_card(env: PyBulletBusyBoardEnv, task: EnvironmentTask, split: str,
+               idx: int) -> np.ndarray:
+    """The task's initial board with its goal and oracle answer beneath."""
+    env.reset(split, idx)
+    num_buttons = env._num_active_buttons  # pylint: disable=protected-access
+    num_lamps = env._num_active_lamps  # pylint: disable=protected-access
+    view = Image.fromarray(
+        env.render()[0].astype("uint8"))  # type: ignore[no-untyped-call]
+    canvas = Image.new("RGB", (FRAME_W, FRAME_H + CARD_BAND_H),
+                       (252, 252, 250))
+    canvas.paste(view, (0, 0))
+    draw = ImageDraw.Draw(canvas)
+    title = _font(_FONT_DIRS, 34)
+    body = _font(_FONT_DIRS, 30)
+    x0, y = 28, FRAME_H + 14
+    draw.text((x0, y), f"{split.capitalize()} task {idx}   "
+              f"{num_buttons} buttons, {num_lamps} lamps",
+              font=title,
+              fill=INK)
+    y += 46
+    target = _target(task, num_lamps)
+    draw.text((x0, y), f"Goal: {_goal_str(target)}", font=body, fill=INK)
+    y += 40
+    solving = _solving_buttons(env, task, num_buttons)
+    env_cls = PyBulletBusyBoardEnv
+    presses = " + ".join(
+        env_cls.color_name(env_cls.button_color_index(b)) for b in solving)
+    draw.text((x0, y),
+              f"Oracle answer: press {presses}, wait",
+              font=body,
+              fill=MUTED)
+    return np.asarray(canvas)
+
+
+def _render_task_cards() -> None:
+    """One card per distinct (board size, goal) seen in seed 0's tasks."""
+    utils.reset_config({
+        "env": "pybullet_busyboard",
+        "seed": 0,
+        "num_train_tasks": CARD_TRAIN_TASKS,
+        "num_test_tasks": CARD_TEST_TASKS,
+        "pybullet_camera_width": FRAME_W,
+        "pybullet_camera_height": FRAME_H,
+    })
+    env = PyBulletBusyBoardEnv(use_gui=False)
+    env._generate_train_tasks()  # pylint: disable=protected-access
+    env._generate_test_tasks()  # pylint: disable=protected-access
+    seen: Dict[Tuple[str, int, int, Tuple[bool, ...]], int] = {}
+    for split, count in (("train", CARD_TRAIN_TASKS), ("test",
+                                                       CARD_TEST_TASKS)):
+        for idx in range(count):
+            env.reset(split, idx)
+            task = env.get_task(split, idx)
+            num_lamps = env._num_active_lamps  # pylint: disable=protected-access
+            key = (
+                split,
+                env._num_active_buttons,
+                num_lamps,  # pylint: disable=protected-access
+                tuple(_target(task, num_lamps)))
+            seen.setdefault(key, idx)
+    for (split, num_buttons, num_lamps, target), idx in sorted(seen.items()):
+        task = env.get_task(split, idx)
+        name = f"task_{split}_{idx}.png"
+        imageio.imwrite(os.path.join(OUT_DIR, name),
+                        _task_card(env, task, split, idx))
+        print(f"wrote {name}: {num_buttons} buttons, {num_lamps} lamps, "
+              f"goal {_goal_str(target)}")
+
+
 if __name__ == "__main__":
     _main()
+    _render_task_cards()
