@@ -85,10 +85,11 @@ _LIMIT_RESET_SLACK_SECS = 180.0
 # Never sleep longer than this per attempt: a mis-parsed far-future
 # reset must not turn the job into a silent day-long zombie.
 _LIMIT_MAX_WAIT_SECS = 6 * 3600.0
-# Retry policy for a usage-limited query: the first wait runs to the
-# banner's stated reset, after which the query is re-issued every
-# _LIMIT_POLL_SECS until it goes through (the banner keeps naming the
-# reset that just passed, so its time is no guide any more). A query
+# Retry policy for a usage-limited query: re-issue it every
+# _LIMIT_POLL_SECS until it goes through. The banner's stated reset is
+# logged but not waited for: the limit can lift earlier (the account
+# behind the CLI is switched, or the window frees up), and after the
+# reset the banner keeps naming the time that just passed. A query
 # gives up after _LIMIT_MAX_TOTAL_WAIT_SECS of waiting and falls through
 # to the ordinary fatal-query termination; the Slurm self-requeue and
 # auto_resume cover anything longer.
@@ -617,11 +618,10 @@ class BaseAgentSessionManager:
                 on_error=self._recover_session,
             )
             reason = query_fatal_error(collected)
-            wait = usage_limit_wait_seconds(reason)
-            if wait is None:
+            stated_wait = usage_limit_wait_seconds(reason)
+            if stated_wait is None:
                 break
-            if retries > 0:
-                wait = _LIMIT_POLL_SECS
+            wait = _LIMIT_POLL_SECS
             if waited + wait > _LIMIT_MAX_TOTAL_WAIT_SECS:
                 logger.error(
                     "%s query is still usage-limited after %.0f s of "
@@ -629,12 +629,10 @@ class BaseAgentSessionManager:
                 break
             retries += 1
             logger.warning(
-                "%s query hit a usage limit (%s); waiting %.0f s (%s), "
-                "then retrying (retry %d, %.0f s waited so far). The "
+                "%s query hit a usage limit (%s; stated reset in %.0f s); "
+                "retrying in %.0f s (retry %d, %.0f s waited so far). The "
                 "attempt's wall-clock budget is paused meanwhile.",
-                self._log_label, reason, wait,
-                "until the stated reset" if retries == 1 else "poll", retries,
-                waited)
+                self._log_label, reason, stated_wait, wait, retries, waited)
             await asyncio.sleep(wait)
             waited += wait
             self._pause_attempt_clock(wait)

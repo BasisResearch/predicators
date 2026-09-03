@@ -349,9 +349,9 @@ def test_run_streamed_query_retries_after_limit(tmp_path, monkeypatch):
 
 
 def test_run_streamed_query_polls_after_the_reset(tmp_path, monkeypatch):
-    """A limit that outlives its stated reset is polled every _LIMIT_POLL_SECS,
-    every wait pauses the attempt clock by the same amount, and the total wait
-    is capped."""
+    """A limited query is polled every _LIMIT_POLL_SECS regardless of the
+    banner's stated reset (the limit can lift earlier), every wait pauses the
+    attempt clock by the same amount, and the total wait is capped."""
     mgr = _make_base_manager(tmp_path)
     limit_resp = [
         _text_entry("You've hit your session limit · resets 5:10pm "
@@ -394,9 +394,7 @@ def test_run_streamed_query_polls_after_the_reset(tmp_path, monkeypatch):
     collected = asyncio.run(
         mgr._run_streamed_query("do the thing", log_path=None, kind="test"))
     assert collected == healthy_resp
-    assert len(sleeps) == 3
-    assert sleeps[0] > sb._LIMIT_POLL_SECS
-    assert sleeps[1] == sleeps[2] == sb._LIMIT_POLL_SECS
+    assert sleeps == [sb._LIMIT_POLL_SECS] * 3
     assert ctx.paused == sum(sleeps)
     assert ctx.attempt_deadline == 2800.0 + sum(sleeps)
     # Past the total cap the limited response is handed back as-is.
