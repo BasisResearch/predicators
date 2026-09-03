@@ -4,8 +4,8 @@ scripts/log_viewer.py."""
 from pathlib import Path
 from typing import Any, Dict
 
-from scripts.log_viewer import _explore_results, _misc_chip, _parse_info_log, \
-    chain_summary, resume_chains
+from scripts.log_viewer import LiveProcs, _explore_results, _misc_chip, \
+    _parse_info_log, chain_summary, grid_layout, resume_chains, run_row
 
 _SAVE = ("INFO: Saved local sandbox query/response to logs/x/sandbox/"
          "session_logs/{name}.md")
@@ -282,3 +282,22 @@ def test_certified_chip_mark() -> None:
     assert "018 explore ✓ 1.00 ◆" in html
     assert "belief-certified" in html
     assert _explore_results([dict(ep, cycle_tag="cycle2")]) == [(2, 1, 1, 1.0)]
+
+
+def test_run_row_marks_live_rows_for_the_running_only_toggle() -> None:
+    """The index row carries data-live so the show-running toggle can hide dead
+    rows client-side; only a live (pinned or newest-unpinned) head run gets 1,
+    and a done run stays 0 even with a stale live process."""
+    layout = grid_layout([])
+    pinned = _run("run_20260827_121109")
+    dead = _run("run_20260827_150302")
+    done = _run("run_20260827_171610")
+    live: LiveProcs = ({("fam/exp", "seed0", pinned["name"])}, set())
+    summaries: Dict[str, Dict[str, Any]] = {}
+    row = run_row([pinned], {}, summaries, layout, live, False)
+    assert "data-live='1'" in row and "kill</button>" in row
+    row = run_row([dead], {}, summaries, layout, live, False)
+    assert "data-live='0'" in row and "kill</button>" not in row
+    row = run_row([done], {"done": True}, summaries, layout,
+                  (set(), {("fam/exp", "seed0")}), True)
+    assert "data-live='0'" in row

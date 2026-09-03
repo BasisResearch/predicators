@@ -1941,10 +1941,29 @@ function paintSelBtn() {
   var n = $all('input.sel:checked').length;
   b.textContent = selOnly() ? 'show: selected (' + n + ')' : 'show: all';
 }
+// Running-only toggle: keeps just the rows whose head run still has a
+// live process or Slurm job (data-live, set server-side by run_status).
+// A view preference rather than per-tab state, so it lives in
+// localStorage like the sort mode and survives new tabs.
+function liveOnly() { return localStorage.getItem('lv-liveonly') === '1'; }
+function toggleLiveOnly() {
+  localStorage.setItem('lv-liveonly', liveOnly() ? '0' : '1');
+  paintLiveBtn();
+  applyRunVisibility();
+}
+function paintLiveBtn() {
+  var b = $('#livebtn');
+  if (!b) return;
+  var n = $all('.runrow').filter(function(r) {
+    return r.dataset.live === '1';
+  }).length;
+  b.textContent = liveOnly() ? 'show: running (' + n + ')' : 'show: any status';
+}
 function applyRunVisibility() {
   var text = (sessionStorage.getItem('lv-filter') || '').toLowerCase();
   var only = selOnly();
-  var narrowing = !!text || only;
+  var live = liveOnly();
+  var narrowing = !!text || only || live;
   window._filtering = true;
   $all('.runrow').forEach(function(row) {
     var hide = !!text && row.dataset.key.indexOf(text) === -1;
@@ -1952,6 +1971,7 @@ function applyRunVisibility() {
       var cb = row.querySelector('input.sel');
       hide = !(cb && cb.checked);
     }
+    if (!hide && live) hide = row.dataset.live !== '1';
     row.classList.toggle('hidden', hide);
   });
   $all('details.grp.exp').forEach(function(d) {
@@ -2177,6 +2197,7 @@ document.addEventListener('DOMContentLoaded', function() {
   if (f) {
     f.value = sessionStorage.getItem('lv-filter') || '';
     restoreSelection();
+    paintLiveBtn();
     applyRunVisibility();
   }
   var r = window._restore;
@@ -2646,9 +2667,12 @@ def run_row(chain: List[Dict[str, Any]], summary: Dict[str, Any],
     run_cell = "".join(
         _run_cell_line(r, summaries.get(r["rel"], {}), r is head, is_live
                        and r is head) for r in chain)
+    # data-live feeds the running-only toggle (see liveOnly in the JS);
+    # the filter key's "running" word stays for free-text narrowing.
     return ("<tr class='runrow' "
             f"data-key='{esc(key)}' data-seed='{esc(head['seed'])}' "
-            f"data-start='{head_start:.0f}'>"
+            f"data-start='{head_start:.0f}' "
+            f"data-live='{1 if is_live else 0}'>"
             f"<td><input type='checkbox' class='sel' "
             f"value='{esc(head['rel'])}' "
             "onchange='selChanged(this)' title='Select this run for the "
@@ -2753,6 +2777,9 @@ def index_page() -> str:
               "<button id='selbtn' onclick='toggleSelOnly()' title='Show "
               "only the checked runs (grouped under their experiment "
               "tags; the selection survives refresh)'></button>"
+              "<button id='livebtn' onclick='toggleLiveOnly()' title='Show "
+              "only runs a local process or a Slurm job is still "
+              "running'></button>"
               f"<span class='crumb'>{esc(LOGS_ROOT)}</span>")
     return page("runs - log viewer", topbar, "".join(body))
 
