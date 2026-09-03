@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import Any, Dict
 
 from scripts.log_viewer import LiveProcs, _explore_results, _misc_chip, \
-    _parse_info_log, chain_summary, grid_layout, resume_chains, run_row
+    _parse_info_log, chain_summary, grid_layout, leaf_groups, resume_chains, \
+    run_row, split_exp
 
 _SAVE = ("INFO: Saved local sandbox query/response to logs/x/sandbox/"
          "session_logs/{name}.md")
@@ -301,3 +302,60 @@ def test_run_row_marks_live_rows_for_the_running_only_toggle() -> None:
     row = run_row([done], {"done": True}, summaries, layout,
                   (set(), {("fam/exp", "seed0")}), True)
     assert "data-live='0'" in row
+
+
+def test_split_exp_reads_env_and_agent_from_the_dir_name() -> None:
+    """<family>/<env>-<agent> splits at the first dash (env names carry
+    underscores, never dashes); a dir outside the layout keeps its family as
+    the env so it still gets a group."""
+    assert split_exp("agent_sim_predicate_invention/"
+                     "bridge-sim_predicator_validation_no_uncertainty") == (
+                         "bridge", "sim_predicator_validation_no_uncertainty")
+    assert split_exp(
+        "agent_model_free/domino_high_friction_turn-"
+        "agent_model_free_planning") == ("domino_high_friction_turn",
+                                         "agent_model_free_planning")
+    assert split_exp("place_drift/baseline") == ("place_drift", "baseline")
+    assert split_exp("(root)") == ("(root)", "(root)")
+
+
+def test_leaf_groups_pool_by_agent_and_env_across_families() -> None:
+    """Leaves key on (agent, env) whatever family dir the runs live in;
+    lineages never cross dirs; chains order newest head first across seeds,
+    numeric seed order breaking ties."""
+
+    def _r(exp: str, seed: str, name: str) -> dict:
+        return dict(_run(name, seed), exp=exp, rel=f"{exp}/{seed}/{name}")
+
+    old = _r("old_family/bridge-sim_predicator", "seed0",
+             "run_20260827_121109")
+    new = _r("agent_sim_predicate_invention/bridge-sim_predicator", "seed0",
+             "run_20260901_121109")
+    resumed = _r("agent_sim_predicate_invention/bridge-sim_predicator",
+                 "seed0", "run_20260901_150000")
+    s10 = _r("agent_sim_predicate_invention/bridge-sim_predicator", "seed10",
+             "run_20260901_130000")
+    s2 = _r("agent_sim_predicate_invention/bridge-sim_predicator", "seed2",
+            "run_20260901_130000")
+    s3 = _r("agent_sim_predicate_invention/bridge-sim_predicator", "seed3",
+            "run_20260901_140000")
+    boil = _r("agent_sim_predicate_invention/boil-sim_predicator", "seed0",
+              "run_20260901_121109")
+    summaries: Dict[str, Dict[str, Any]] = {
+        resumed["rel"]: {
+            "resume_cycle": 1
+        },
+    }
+    leaves = leaf_groups([boil, s2, s10, resumed, s3, new, old], summaries)
+    assert set(leaves) == {("sim_predicator", "bridge"),
+                           ("sim_predicator", "boil")}
+    bridge = [[r["rel"] for r in ch]
+              for ch in leaves[("sim_predicator", "bridge")]]
+    assert bridge == [
+        [new["rel"], resumed["rel"]],  # head started 15:00
+        [s3["rel"]],  # 14:00
+        [s2["rel"]],  # 13:00, tie with seed10 -> numeric seed order
+        [s10["rel"]],
+        [old["rel"]],
+    ]
+    assert leaves[("sim_predicator", "boil")] == [[boil]]
