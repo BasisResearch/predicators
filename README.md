@@ -30,8 +30,48 @@ A simple implementation of search-then-sample bilevel planning is provided in `p
 Predicators ships **RoboDisco** (Robot Model Discovery Benchmark), a collection of PyBullet manipulation environments exposed through a standard [Gymnasium](https://gymnasium.farama.org/) API and suitable for world-model learning, causal discovery, and RL research independent of the planning framework. See [`predicators/envs/README.md`](predicators/envs/README.md) for the env list, install instructions, quick-start code, standalone API, and getting-started notebook.
 
 ## Installation
+Make a conda environment and install dependencies there:
+```
+conda create -n predicators python=3.10.14
+conda activate predicators
+pip install --upgrade pip wheel setuptools
+```
+
+Install pytorch for your specific version of CUDA. For example, for CUDA 12.6, use:
+```
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+```
+
+```
+pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 --index-url https://download.pytorch.org/whl/cu128
+```
+
+Then install flashattention (which could be quite tricky)
+```
+pip install psutil
+pip install flash-attn==2.7.4.post1 --no-build-isolation
+```
+
+If you don't want to build wheel for flash-attn, which could take hours, see https://github.com/Dao-AILab/flash-attention/issues/1038
+Then, 
+download 'https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiTRUE-cp310-cp310-linux_x86_64.whl'
+Make sure it's compatible with your cuda and torch and python version
+And install it 
+```
+pip install ...
+```
+
+Finally, install everything else you would need for Point Transformers V3.
+```
+pip install spconv-cu126
+pip install transforms3d==0.4.2
+pip install timm==1.0.19 --no-deps
+pip install addict torch-scatter
+```
+
 * This repository uses Python versions 3.10-3.11. We recommend 3.10.14.
 * Run `pip install -e .` to install dependencies.
+
 
 ## Instructions For Running Code
 

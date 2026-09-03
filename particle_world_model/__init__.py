@@ -16,4 +16,9 @@ Demo entry points (run from the repo root)::
 
     python -m particle_world_model.run            # live particle visualization
     python -m particle_world_model.run_flow --human   # full tracking pipeline
+
+Learned flow world-model (needs the ``predicators2`` env for PTv3)::
+
+    python -m particle_world_model.train_ptv3_flow      # fit PTv3 on the .npz
+    python -m particle_world_model.rollout_ptv3_flow    # roll a trained model out
 """
