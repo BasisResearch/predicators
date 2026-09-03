@@ -1848,17 +1848,20 @@ def _format_wait_target_debug(
 
 
 def wait_rollout_step_cap() -> int:
-    """The step count at which a belief-rollout Wait is force-terminated.
+    """The step count at which a Wait is force-terminated.
 
-    Wait termination has two ceilings: the option model's
-    ``wait_option_max_steps`` backstop (active with
-    ``wait_option_terminate_on_atom_change``, mirroring the real
-    executor's branches in :func:`option_policy_to_policy`) and the
-    generic ``max_num_steps_option_rollout`` cap. Report code asking
-    "did this Wait stall?" must compare against whichever fires FIRST:
-    the bridge configures the backstop at 120 against a 1000-step
-    rollout cap, so a notice keyed on the rollout cap alone can never
-    fire in exactly the runs it was written for.
+    Wait termination has two ceilings: the ``wait_option_max_steps``
+    backstop (active with ``wait_option_terminate_on_atom_change``) and
+    the generic ``max_num_steps_option_rollout`` cap of belief rollouts.
+    The real executor (:func:`option_policy_to_policy`) backstops at
+    this same value, so a Wait ends at the same step for real as in the
+    belief rollouts that certified the plan: with the backstop left
+    infinite the belief still capped every Wait at the rollout cap
+    while the real Wait ran to the horizon (boil 2026-09-02: 430 real
+    actions against 100 in belief, dropping every later plan step).
+    Report code asking "did this Wait stall?" must compare against
+    whichever fires FIRST: the bridge configures the backstop at 120
+    against a 1000-step rollout cap.
     """
     cap = int(CFG.max_num_steps_option_rollout)
     if CFG.wait_option_terminate_on_atom_change and \
@@ -1945,7 +1948,7 @@ def option_policy_to_policy(
                 wait_terminate = True
                 wait_terminate_reason = "Wait target atoms satisfied"
             elif result is False:
-                if num_cur_option_steps >= CFG.wait_option_max_steps:
+                if num_cur_option_steps >= wait_rollout_step_cap():
                     # Backstop: a target atom the world never produces
                     # (e.g. a learned predicate that is unevaluable on
                     # real states) would otherwise pin the Wait until
@@ -1956,9 +1959,8 @@ def option_policy_to_policy(
                     # explicit signal instead of a silent stall.
                     logging.info(
                         "Wait terminating: target atoms not satisfied "
-                        "within %d steps (wait_option_max_steps "
-                        "backstop). Targets: %s", num_cur_option_steps,
-                        targets_desc)
+                        "within %d steps (Wait step-cap backstop). "
+                        "Targets: %s", num_cur_option_steps, targets_desc)
                     wait_terminate = True
                     wait_terminate_reason = (
                         "Wait step cap (target atoms NOT satisfied)")
@@ -1983,7 +1985,7 @@ def option_policy_to_policy(
                                   f"Del: {sorted(prev_atoms-cur_atoms)}")
                     wait_terminate = True
                     wait_terminate_reason = "atom change during Wait"
-                elif num_cur_option_steps >= CFG.wait_option_max_steps:
+                elif num_cur_option_steps >= wait_rollout_step_cap():
                     # Stranded-Wait bail-out: if the awaited change
                     # happened DURING the previous option, an
                     # any-change Wait never fires and the plan stalls
@@ -1992,7 +1994,7 @@ def option_policy_to_policy(
                     # check) proceed.
                     logging.info(
                         "Wait terminating: no atom change within "
-                        "%d steps (wait_option_max_steps).",
+                        "%d steps (Wait step-cap backstop).",
                         num_cur_option_steps)
                     wait_terminate = True
                     wait_terminate_reason = "Wait step cap (no atom change)"
