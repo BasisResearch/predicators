@@ -126,6 +126,17 @@ def make_predicate_quality_loader(
 
         # Mutate approach state so sim.refine sees the draft.
         approach._learned_predicates = set(valid)  # pylint: disable=protected-access
+        # The probe's refine / run / atoms read the session's ToolContext
+        # predicate set, which was snapshotted from the approach when the
+        # session opened. Refresh it, or the draft is reported as
+        # installed while every subgoal naming it is rejected with
+        # "available predicates: ['Holding']" and sim.atoms() stays
+        # empty (bridge seed-3 journal, cycle 0, 2026-09-03).
+        tool_context = getattr(approach, "_tool_context", None)
+        if tool_context is not None:
+            tool_context.predicates = (
+                set(approach._kept_initial_predicates)  # pylint: disable=protected-access
+                | set(valid))
         return valid, version_tag, None, warnings
 
     def _enumerate_groundings(

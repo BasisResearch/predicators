@@ -439,6 +439,10 @@ def create_synthesis_tools(
                 # no-survivor case, nothing is applied to the planning
                 # env and no sigma points are recorded.
                 trim_rule_names = {s.name for s in rule_specs}
+                # Pinned, with the finite SSE at the declared inits over
+                # every segment rather than nan: the deploy path logs
+                # it as an UNVALIDATED MODEL, and an earlier real fit of
+                # the same file content stays canonical instead.
                 approach._publish_probe_fit(  # pylint: disable=protected-access
                     {
                         n: v
@@ -449,7 +453,8 @@ def create_synthesis_tools(
                     version_tag,
                     simulator_file,
                     fit_result=outcome.fit_result,
-                    sse=float("nan"))
+                    sse=float(outcome.pre_sse),
+                    pinned=True)
                 if hasattr(approach, "_record_sysid_diagnostics"):
                     approach._record_sysid_diagnostics(  # pylint: disable=protected-access
                         {}, physical_names, 0, len(rollouts), outcome.traj_rms)

@@ -22,6 +22,7 @@ import dataclasses
 import hashlib
 import inspect
 import logging
+import math
 import os
 import subprocess
 from contextlib import contextmanager
@@ -998,6 +999,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         sse: float = float("nan"),
         applied_physical: Optional[Dict[str, float]] = None,
         sigma_points: Optional[List[Dict[str, float]]] = None,
+        pinned: bool = False,
     ) -> None:
         """Deploy a canonical ``sim.fit`` result to the candidate probe.
 
@@ -1010,18 +1012,40 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         physical values actually applied to the planning env are kept
         so the cycle's deployed model can be exactly this fit (see
         :meth:`_published_fit_for_file`).
+
+        ``pinned`` marks a fit that never ran: rollout sysID found no
+        trajectory explainable at any candidate parameters and left the
+        values at the declared inits. Such a publish must not displace
+        a real fit of the SAME file content: the earlier finite fit
+        stays canonical and the pinned attempt is only logged, so the
+        deployed model is never silently downgraded from a validated
+        fit to unvalidated inits (bridge seed 3, 2026-09-03: an "SSE
+        nan" model was deployed and every certification that cycle
+        ran against it). ``sse`` must be finite; a pinned fit reports
+        the SSE at the inits over all segments rather than nan.
         """
-        self._fitted_params.clear()
-        self._fitted_params.update(params)
         digest = None
         if os.path.isfile(simulator_file):
             with open(simulator_file, "rb") as f:
                 digest = hashlib.sha256(f.read()).hexdigest()
         state = self._probe_fit_state()
+        if pinned and state.get("fit_result") is not None and \
+                state.get("digest") == digest and \
+                not state.get("pinned", False) and \
+                math.isfinite(float(state.get("sse", float("nan")))):
+            logger.warning(
+                "sim.fit (%s) ran no fit (nothing explainable at any "
+                "params); keeping the earlier finite fit %s (SSE %.6f) of "
+                "the same simulator.py as canonical.", version_tag,
+                state.get("version"), float(state["sse"]))
+            return
+        self._fitted_params.clear()
+        self._fitted_params.update(params)
         state["digest"] = digest
         state["version"] = version_tag
         state["fit_result"] = fit_result
         state["sse"] = sse
+        state["pinned"] = bool(pinned)
         state["applied_physical"] = dict(applied_physical or {})
         state["sigma_points"] = list(sigma_points or [])
         self._probe_model_cache().clear()
@@ -1041,7 +1065,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         and over exactly ``expected_names``; ``None`` when nothing was
         published, the file changed after the fit (an UNFITTED edit), or
         the parameter set differs (a spec added or dropped after the
-        fit).
+        fit). A pinned publish (see :meth:`_publish_probe_fit`) is
+        returned like any other; :meth:`_published_fit_is_pinned` says
+        whether the values were ever fit.
         """
         state = self._probe_fit_state()
         fit = state.get("fit_result")
@@ -1055,6 +1081,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             return None
         return fit, float(state.get("sse",
                                     float("nan"))), str(state.get("version"))
+
+    def _published_fit_is_pinned(self) -> bool:
+        """Whether the canonical published fit never actually ran."""
+        return bool(self._probe_fit_state().get("pinned", False))
 
     def _make_candidate_probe_model_provider(
         self,
@@ -1833,10 +1863,30 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                     self._resolve_synthesis_paths().simulator_file, expected)
             if published is not None:
                 fit_result, self._fit_sse, version = published
-                logger.info(
-                    "Deploying the agent's published sim.fit (%s) of the "
-                    "final simulator.py: %d params, SSE %.6f.", version,
-                    len(expected), self._fit_sse)
+                if self._published_fit_is_pinned() or \
+                        not math.isfinite(self._fit_sse):
+                    # Deployed all the same - the cycle has no better
+                    # model, and refusing outright would strand the run
+                    # on a structure the next learn session is meant to
+                    # fix - but never as a validated fit: the SSE is the
+                    # value AT THE DECLARED INITS, and the certification
+                    # gates that trust this model are trusting an
+                    # unvalidated guess.
+                    logger.error(
+                        "UNVALIDATED MODEL: the agent's canonical sim.fit "
+                        "(%s) ran no fit - no recorded motion segment was "
+                        "explainable at any candidate parameters - so the "
+                        "deployed %d params are the DECLARED INITS "
+                        "(SSE at inits %.6f). Plans certified against "
+                        "this model are not evidence about the real "
+                        "environment; the next learn session must change "
+                        "the simulator's structure, not its numbers.", version,
+                        len(expected), self._fit_sse)
+                else:
+                    logger.info(
+                        "Deploying the agent's published sim.fit (%s) of "
+                        "the final simulator.py: %d params, SSE %.6f.",
+                        version, len(expected), self._fit_sse)
                 applied = self._probe_fit_state().get("applied_physical")
                 if self._physical_param_specs and applied:
                     # Mirror _fit_parameters_joint_rollout's deploy: the

@@ -26,3 +26,5 @@ APPROACHES:
     SKIP: True
   sim_predicator:
     SKIP: False
+    ARGS:
+      - auto_resume # resume the latest per-cycle checkpoint on requeue

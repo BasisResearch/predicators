@@ -325,6 +325,41 @@ def test_seat_weld_holds_pose(env_and_task):
     assert abs(final.get(span, "pitch")) < 0.05
 
 
+def test_seat_window_covers_measured_scatter(env_and_task):
+    """SeatedOn(span, leg) accepts a span whose centre sits 47 mm past the
+    leg's centre, and rejects one 70 mm past it.
+
+    47 mm is what a physically standing bridge measured on the seed-3
+    test (2026-09-03): 25 mm by construction (a 0.30 m row over sites
+    0.25 m apart), plus the leg's Place scatter and the row's weld
+    compression. At 60 mm the span end is still 10 mm short of the leg
+    centre, so 15 mm of the leg top carries it; at 70 mm the span end
+    is inside the leg top's far half and the joint is no seat.
+    """
+    env, task = env_and_task
+    env._set_state(task.init)
+    state = env._get_state()
+    blocks = state.get_objects(env._block_type)
+    leg = next(b for b in blocks if b.name == "leg0")
+    span = next(b for b in blocks if b.name == "span0")
+
+    def _seated_at(dx: float) -> bool:
+        s = state.copy()
+        s.set(span, "x", s.get(leg, "x") + dx)
+        s.set(span, "y", s.get(leg, "y"))
+        s.set(
+            span, "z",
+            s.get(leg, "z") + env.leg_half_extents[2] +
+            env.span_half_extents[2])
+        for feat in ("roll", "pitch", "yaw"):
+            s.set(span, feat, 0.0)
+        return env._SeatedOn_holds(s, [span, leg])
+
+    assert _seated_at(0.047)
+    assert _seated_at(-0.047)
+    assert not _seated_at(0.070)
+
+
 def test_welded_pair_does_not_creep(env_and_task):
     """A freshly welded resting pair must stay put while the scene idles.
 
