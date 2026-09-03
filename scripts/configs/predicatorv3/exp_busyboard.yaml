@@ -1,4 +1,4 @@
-# Thin launcher: run the busyboard experiment (agent_oracle_hybrid_sim arm).
+# Thin launcher: run the busyboard experiment (one arm at a time).
 # Usage: python scripts/local/launch_simp.py -c predicatorv3/exp_busyboard.yaml --parallel
 # Env definitions live in envs/all.yaml and approach definitions in
 # approaches/all.yaml (all parked by default); this file only un-skips the
@@ -21,5 +21,8 @@ ENVS:
   # oracle only, so they are not in env.predicates and an agent already
   # runs over the physical vocabulary without them.
 APPROACHES:
+  # Oracle hybrid-sim arm: solved 1/1 with the minimal plan (job 21840975).
   agent_oracle_hybrid_sim:
+    SKIP: True
+  sim_predicator:
     SKIP: False

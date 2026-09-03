@@ -5,8 +5,13 @@ includes:
   - common.yaml
   - envs/all.yaml
   - approaches/all.yaml
-# Seed-3 rerun on the stall fix 621190a1b; prior checkpoints parked in
-# saved_approaches/backup_pre_stallfix_relaunch_20260902/ so auto_resume starts fresh.
+# Seed-3 rerun on the 2026-09-02 execution fixes (stall completion
+# 621190a1b, retreat lift-off 7ac637ddd, partial-open descent 4dcc7121e,
+# clearance-aware certification); prior checkpoints parked in
+# saved_approaches/backup_pre_clearance_relaunch_20260902/ so auto_resume
+# starts fresh. Top-level scalars override common.yaml here only.
+START_SEED: 3
+NUM_SEEDS: 1
 ENVS:
   bridge:
     SKIP: False
