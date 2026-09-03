@@ -8,6 +8,7 @@ and the probe serves the same text from ``sim.task()`` and
 from typing import Any, Collection, Iterable, List, Optional, Union
 
 from predicators import utils
+from predicators.structs import excluded_object_type_names
 
 
 def render_types_digest(types: Iterable[Any]) -> str:
@@ -77,7 +78,10 @@ def render_task_digest(task: Any,
         goal_line = f"  Goal: {{{goal_str}}}"
     init_atoms = utils.abstract(task.init, predicates)
     atoms_str = ", ".join(str(a) for a in sorted(init_atoms))
-    objects = sorted(task.init, key=str)
+    excluded = excluded_object_type_names()
+    objects = [
+        o for o in sorted(task.init, key=str) if o.type.name not in excluded
+    ]
     obj_str = ", ".join(f"{o.name}:{o.type.name}" for o in objects)
     state_str = task.init.pretty_str()
     hint_line = ""
