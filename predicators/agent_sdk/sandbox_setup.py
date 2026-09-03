@@ -21,7 +21,7 @@ from predicators.agent_sdk.tools.sandbox_guard import \
 logger = logging.getLogger(__name__)
 
 # Timeout for the git calls that make sandbox files Glob-visible.
-GIT_TIMEOUT_S = 5
+GIT_TIMEOUT_S = 60
 
 # ---------------------------------------------------------------------------
 # Hook script that blocks Read/Write/Edit/Glob/Grep outside the sandbox.
