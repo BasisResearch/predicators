@@ -1008,10 +1008,25 @@ class GlobalSettings:
     # a new lamp that goals only ever ask to keep dark. So what a learner
     # finds out about the train board is true at test; test asks whether it
     # trusts that on a busier board and leaves unfamiliar buttons alone.
-    busyboard_num_buttons_train = [3]
-    busyboard_num_buttons_test = [4, 5]
-    busyboard_num_lamps_train = [2]
-    busyboard_num_lamps_test = [2, 3]
+    # Four training buttons rather than three: with every lamp an
+    # interlock, three buttons have exactly three distinct pairs, so a
+    # three-lamp board uses them all and no button setting lights two lamps
+    # without lighting the third. Four buttons give six pairs and leave
+    # room for goals that light two lamps and keep one dark.
+    busyboard_num_buttons_train = [4]
+    busyboard_num_buttons_test = [5, 6]
+    busyboard_num_lamps_train = [3]
+    busyboard_num_lamps_test = [4]
+    # Fewest lamps a goal asks to be lit, per split. Test goals need at
+    # least two, so solving one means composing two learned conditions
+    # (and holding their shared buttons) rather than reproducing a single
+    # training goal on a bigger board. Only core lamps can be lit targets,
+    # so the count has to be realizable from the training lamps alone;
+    # with every core lamp wired to core buttons, latching every core
+    # button lights them all and keeps the extension lamp dark, so a
+    # value up to the number of training lamps is always satisfiable.
+    busyboard_min_lit_train = 1
+    busyboard_min_lit_test = 2
     # Probability that a lamp's drive is conjunctive (needs a second
     # "enabler" button on as well as its driver). This is the many-to-one
     # relation that undirected play confounds. At 1.0 every lamp is an

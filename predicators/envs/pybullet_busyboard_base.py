@@ -35,8 +35,8 @@ Every button and every lamp has a fixed, distinct colour, carried in the
 state as the ``color`` feature (an index into ``COLOR_PALETTE``, whose
 names are the ones to use when talking about the board: "the red
 button", "the yellow lamp"). A button's colour is a stable identity
-across boards of every size - the red button on a five-button board is
-the same control as the red button on a three-button one - so a rule
+across boards of every size - the red button on a six-button board is
+the same control as the red button on a four-button one - so a rule
 stated in terms of colours means the same thing on every board. A lamp's
 body glows in its own colour as its brightness rises, from a dead grey
 at zero to fully saturated at one.
@@ -160,7 +160,9 @@ class PyBulletBusyBoardBaseEnv(PyBulletEnv):
     # Lamps: back row, out of the arm's way. Purely indicators - the robot
     # never touches them, so they are zero-mass static blocks.
     lamp_y: ClassVar[float] = 1.47
-    lamp_x_gap: ClassVar[float] = 0.26
+    # Four lamps at this gap span 0.75 with their bases, inside the
+    # board's 0.84 width; at the buttons' 0.26 they would overhang it.
+    lamp_x_gap: ClassVar[float] = 0.22
     lamp_half_extents: ClassVar[Tuple[float, float,
                                       float]] = (0.035, 0.035, 0.03)
     # Each bulb stands on a base in the lamp's own colour, a third of the
@@ -205,13 +207,15 @@ class PyBulletBusyBoardBaseEnv(PyBulletEnv):
                                            ("blue", (0.16, 0.34, 0.86, 1.0)),
                                            ("orange", (0.95, 0.55, 0.12, 1.0)),
                                            ("purple", (0.55, 0.22, 0.78, 1.0)),
+                                           ("black", (0.12, 0.12, 0.14, 1.0)),
                                            # Lamps.
                                            ("yellow", (1.0, 0.88, 0.15, 1.0)),
                                            ("cyan", (0.15, 0.90, 0.95, 1.0)),
                                            ("magenta", (0.95, 0.20, 0.80,
                                                         1.0)),
+                                           ("white", (1.0, 1.0, 1.0, 1.0)),
                                        ]
-    _num_button_colors: ClassVar[int] = 5
+    _num_button_colors: ClassVar[int] = 6
 
     # Lamp colour ramp: brightness 0 is a dead grey bulb, brightness 1 the
     # lamp's own palette colour fully saturated. Intermediate values

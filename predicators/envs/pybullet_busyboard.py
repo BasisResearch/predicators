@@ -51,7 +51,10 @@ test board adds are either decoys or a new lamp that goals only ever
 ask to keep dark. So the relation learned in training is true at test,
 the way glue chemistry or fan thrust is in the other domains, and what
 test asks is whether the agent trusts it on a bigger board with more
-distractors - and leaves alone the buttons it knows nothing about.
+distractors - and leaves alone the buttons it knows nothing about. Test
+goals also ask for at least two lamps lit (``busyboard_min_lit_test``),
+so they need two learned conditions composed, with any button the two
+share held, rather than one training goal repeated on a bigger board.
 
 **Decoys.** Some buttons drive nothing. Their existence is what makes
 "press everything" uninformative, and it is why goals require some
@@ -119,9 +122,9 @@ def legal_pairs(num_buttons: int) -> List[Tuple[int, int]]:
     This list is the domain's discrete hypothesis space per lamp:
     ``num_buttons`` plain drives plus ``num_buttons choose 2``
     conjunctive ones, the latter unordered because conjunction is
-    symmetric. For a 5-button board that is 15 conditions per lamp, so a
-    3-lamp board has 15 * 14 * 13 = 2730 distinct wirings once the
-    lamps' conditions are required to be distinct - small enough to
+    symmetric. For a 4-button board that is 10 conditions per lamp, so a
+    3-lamp board has 10 * 9 * 8 = 720 distinct wirings once the lamps'
+    conditions are required to be distinct - small enough to
     enumerate exactly, which is what makes information gain here
     measurable in bits against an optimal splitter.
     """
@@ -261,7 +264,7 @@ def canonical_wiring(num_buttons: int,
     is an extension button, so the core board's wiring is literally a
     sub-relation of every larger board's. So one wiring describes every
     board in a run, and what an agent learns about the lamps on a
-    3-button training board stays true of those lamps on a 5-button
+    4-button training board stays true of those lamps on a 6-button
     test board; the test board differs by the buttons and lamps it adds.
 
     Why a run-level constant rather than a fresh draw per task: the
@@ -478,13 +481,12 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
         return 0 <= enabler < len(button_on) and button_on[enabler]
 
     @classmethod
-    def _realizable_targets(
-            cls,
-            driver: Sequence[int],
-            enabler: Sequence[int],
-            num_buttons: int,
-            num_lit_candidates: Optional[int] = None
-    ) -> List[Tuple[bool, ...]]:
+    def _realizable_targets(cls,
+                            driver: Sequence[int],
+                            enabler: Sequence[int],
+                            num_buttons: int,
+                            num_lit_candidates: Optional[int] = None,
+                            min_lit: int = 1) -> List[Tuple[bool, ...]]:
         """Every lamp assignment some button setting realizes exactly.
 
         Exhaustive over the 2**num_buttons settings, which is a handful
@@ -503,15 +505,21 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
         only ever asked to stay dark, so what a test board adds is a
         button that must be left alone rather than a relation the agent
         never had a chance to learn.
+
+        ``min_lit`` is the fewest lamps a target may ask to be lit (at
+        least one either way). Above one it selects the goals that need
+        two or more drive conditions satisfied at once, which is how
+        the test split asks for composition rather than recall.
         """
         if num_lit_candidates is None:
             num_lit_candidates = len(driver)
+        min_lit = max(1, min_lit)
         targets = set()
         for mask in range(1 << num_buttons):
             button_on = [bool(mask >> b & 1) for b in range(num_buttons)]
             target = tuple(
                 cls._driven(button_on, d, e) for d, e in zip(driver, enabler))
-            if not any(target):
+            if sum(target) < min_lit:
                 continue
             if len(target) >= 2 and all(target):
                 continue
@@ -520,9 +528,9 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
             targets.add(target)
         return sorted(targets)
 
-    def _sample_board(
-            self, num_buttons: int, num_lamps: int, rng: np.random.Generator
-    ) -> Tuple[List[int], List[int], List[bool]]:
+    def _sample_board(self, num_buttons: int, num_lamps: int,
+                      rng: np.random.Generator,
+                      min_lit: int) -> Tuple[List[int], List[int], List[bool]]:
         """Pick this task's wiring and a goal assignment it can realize.
 
         With ``busyboard_fixed_wiring`` (the default) the wiring is the
@@ -534,7 +542,11 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
         them differ one lamp is lit and another is dark. Under the run-
         level wiring only core lamps may be lit targets, which leaves
         that argument intact because an extension lamp's driver is a
-        button no core lamp uses.
+        button no core lamp uses. ``min_lit`` (the split's
+        ``busyboard_min_lit_*``) narrows the draw to targets with at
+        least that many lamps lit; up to the number of core lamps it is
+        always satisfiable under the run-level wiring, since latching
+        every core button lights every core lamp and no extension lamp.
         """
         num_lit_candidates = num_lamps
         if CFG.busyboard_fixed_wiring:
@@ -555,12 +567,12 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
             driver, enabler = _dedupe_wiring(driver, enabler, num_buttons)
 
         targets = self._realizable_targets(driver, enabler, num_buttons,
-                                           num_lit_candidates)
+                                           num_lit_candidates, min_lit)
         if not targets:
             raise RuntimeError(
-                f"No non-trivial realizable goal on a {num_buttons}-button, "
-                f"{num_lamps}-lamp board with wiring "
-                f"{list(zip(driver, enabler))}.")
+                f"No non-trivial realizable goal with at least {min_lit} "
+                f"lamp(s) lit on a {num_buttons}-button, {num_lamps}-lamp "
+                f"board with wiring {list(zip(driver, enabler))}.")
         target = list(targets[int(rng.integers(0, len(targets)))])
         return driver, enabler, target
 
@@ -738,13 +750,15 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
                              busyboard_num_buttons_test)
         lamp_counts = list(CFG.busyboard_num_lamps_train if train else CFG.
                            busyboard_num_lamps_test)
+        min_lit = int(CFG.busyboard_min_lit_train if train else CFG.
+                      busyboard_min_lit_test)
 
         tasks = []
         for _ in range(num_tasks):
             num_buttons = int(rng.choice(button_counts))
             num_lamps = int(rng.choice(lamp_counts))
             driver, enabler, target = self._sample_board(
-                num_buttons, num_lamps, rng)
+                num_buttons, num_lamps, rng, min_lit)
 
             init_dict: Dict[Object, Dict[str, float]] = {
                 self._robot: {

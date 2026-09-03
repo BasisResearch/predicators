@@ -79,8 +79,8 @@ def test_wiring_conditions_are_distinct_at_every_board_size(env_module):
     must never collapse two of them together.
     """
     mod, _ = env_module
-    for num_buttons in (3, 4, 5):
-        for num_lamps in (1, 2, 3):
+    for num_buttons in (3, 4, 5, 6):
+        for num_lamps in (1, 2, 3, 4):
             driver, enabler = mod.canonical_wiring(num_buttons, num_lamps)
             conditions = [
                 mod.canonical_pair(d, e) for d, e in zip(driver, enabler)
@@ -292,9 +292,9 @@ def test_training_wiring_extends_to_every_test_board(env_module):
     from predicators.settings import \
         CFG  # pylint: disable=import-outside-toplevel
     core_buttons, core_lamps = mod.core_board()
-    assert (core_buttons, core_lamps) == (3, 2)
+    assert (core_buttons, core_lamps) == (4, 3)
     # The board sizes the distribution produces: train, then test.
-    sizes = [(3, 2), (4, 2), (4, 3), (5, 2), (5, 3)]
+    sizes = [(4, 3), (5, 4), (6, 4)]
     for seed in range(5):
         CFG.seed = seed
         core_driver, core_enabler = mod.canonical_wiring(
@@ -354,3 +354,35 @@ def test_colours_are_distinct_and_stable(env_module):
     for obj in init:
         if obj.type.name in ("button", "lamp"):
             assert live.get(obj, "color") == init.get(obj, "color")
+
+
+def test_test_goals_light_at_least_min_lit_lamps(env_module):
+    """Test goals compose conditions: at least ``busyboard_min_lit_test`` lamps
+    lit, while train goals may ask for a single lamp."""
+    del env_module  # only its config matters; this test builds its own env
+    from predicators.settings import \
+        CFG  # pylint: disable=import-outside-toplevel
+    _, env = _make_env(num_train_tasks=12, num_test_tasks=12)
+    assert CFG.busyboard_min_lit_test >= 2 > CFG.busyboard_min_lit_train
+
+    def _num_lit(task):
+        return sum(atom.predicate.name == "LampOn"
+                   for atom in task.goal_description)
+
+    test_lit = [_num_lit(t) for t in env._generate_test_tasks()]
+    assert min(test_lit) >= CFG.busyboard_min_lit_test
+    train_lit = [_num_lit(t) for t in env._generate_train_tasks()]
+    assert min(train_lit) >= CFG.busyboard_min_lit_train
+    assert 1 in train_lit, "training still has single-lamp goals"
+
+    # The filter itself, on a hand-built board: lamps needing {0,1} and
+    # {2,3} can be lit together (mask 0b1111 lights both), and a third
+    # lamp needing {0,2} makes "both of the first two, third dark"
+    # impossible, so with min_lit=2 the only targets light lamp 2 too or
+    # pair it with one of the others.
+    driver, enabler = [0, 2, 0], [1, 3, 2]
+    with_min = set(env._realizable_targets(driver, enabler, 4, min_lit=2))
+    assert with_min
+    assert all(sum(t) >= 2 for t in with_min)
+    assert with_min < set(env._realizable_targets(driver, enabler, 4))
+    assert (True, True, True) not in with_min, "all lit is trivial"

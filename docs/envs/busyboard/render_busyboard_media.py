@@ -42,8 +42,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 from predicators import utils
 from predicators.envs.pybullet_busyboard import NO_ENABLER, \
-    PyBulletBusyBoardEnv
+    PyBulletBusyBoardEnv, canonical_wiring, core_board
 from predicators.ground_truth_models import get_gt_options
+from predicators.settings import CFG
 from predicators.structs import EnvironmentTask, State
 
 OUT_DIR = "docs/envs/busyboard"
@@ -252,9 +253,12 @@ def _draw_panel(env: PyBulletBusyBoardEnv, state: State, task: EnvironmentTask,
                        fill=(96, 132, 196))
         onset_x = x0 + label_w + int(bar_w * env.BRIGHTNESS_ONSET)
         draw.line((onset_x, y - 2, onset_x, y + 15), fill=(160, 60, 60))
+        lit_rgb = tuple(
+            int(255 * c)
+            for c in env_cls.color_rgba(env_cls.lamp_color_index(i))[:3])
         swatch = tuple(
             int((1 - brightness) * d + brightness * l)
-            for d, l in zip((150, 154, 160), LIT))
+            for d, l in zip((150, 154, 160), lit_rgb))
         draw.rectangle(
             (x0 + label_w + 12 + bar_w, y, x0 + label_w + 36 + bar_w, y + 13),
             fill=swatch,
@@ -438,10 +442,12 @@ def _main() -> None:
     enb = PyBulletBusyBoardEnv.button_label(lamp0_enabler)
     other = PyBulletBusyBoardEnv.button_label(irrelevant)
 
+    target = _target(task, len(wiring))
+    goal_note = (f"The goal needs {sum(target)} lamps lit and "
+                 f"{len(target) - sum(target)} dark. Press exactly the "
+                 "buttons their drive conditions call for.")
     clips: List[Tuple[str, List[Step], bool]] = [
-        ("oracle_solve", [("note", "The goal needs two lamps lit and one "
-                           "dark. Press exactly the buttons their drive "
-                           "conditions call for.", 2 * FPS)] +
+        ("oracle_solve", [("note", goal_note, 2 * FPS)] +
          [("press", b) for b in solving] + [("wait", 110)], True),
         ("press_everything_fails",
          [("note",
@@ -587,6 +593,56 @@ def _render_task_cards() -> None:
               f"goal {_goal_str(target)}")
 
 
+def _print_goal_distribution(num_tasks: int = 120) -> None:
+    """Print, per split, how many sampled goals light 1, 2, ... lamps on.
+
+    each board size - the numbers behind the deck's distribution table.
+    """
+    for split in ("train", "test"):
+        counts: Dict[Tuple[str, int], int] = {}
+        env = PyBulletBusyBoardEnv(use_gui=False)
+        tasks = (
+            env._generate_train_tasks()  # pylint: disable=protected-access
+            if split == "train" else env._generate_test_tasks())  # pylint: disable=protected-access
+        for task in tasks:
+            num_lamps = sum(1 for o in task.init if o.type.name == "lamp")
+            num_buttons = sum(1 for o in task.init if o.type.name == "button")
+            board = f"{num_buttons} buttons, {num_lamps} lamps"
+            lit = sum(_target(task, num_lamps))
+            counts[(board, lit)] = counts.get((board, lit), 0) + 1
+        for (board, lit), n in sorted(counts.items()):
+            print(f"{split:5s} {board}: {lit} lit: {n}/{num_tasks}")
+        # The draw is uniform over the realizable targets of a board, so
+        # the exact shares follow from enumerating them.
+        min_lit = int(CFG.busyboard_min_lit_train if split ==
+                      "train" else CFG.busyboard_min_lit_test)
+        buttons = (CFG.busyboard_num_buttons_train
+                   if split == "train" else CFG.busyboard_num_buttons_test)
+        lamps = (CFG.busyboard_num_lamps_train
+                 if split == "train" else CFG.busyboard_num_lamps_test)
+        for num_buttons in buttons:
+            for num_lamps in lamps:
+                driver, enabler = canonical_wiring(num_buttons, num_lamps)
+                targets = env._realizable_targets(  # pylint: disable=protected-access
+                    driver, enabler, num_buttons,
+                    min(num_lamps,
+                        core_board()[1]), min_lit)
+                by_lit: Dict[int, int] = {}
+                for target in targets:
+                    by_lit[sum(target)] = by_lit.get(sum(target), 0) + 1
+                print(f"{split:5s} {num_buttons} buttons, {num_lamps} lamps: "
+                      f"exact {len(targets)} goals: " +
+                      ", ".join(f"{lit} lit x{n}"
+                                for lit, n in sorted(by_lit.items())))
+
+
 if __name__ == "__main__":
     _main()
     _render_task_cards()
+    utils.reset_config({
+        "env": "pybullet_busyboard",
+        "seed": 0,
+        "num_train_tasks": 120,
+        "num_test_tasks": 120,
+    })
+    _print_goal_distribution()
