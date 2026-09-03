@@ -280,6 +280,54 @@ def test_ground_truth_simulator_reproduces_the_env(env_module):
     assert disagreements <= len(buttons[:2])
 
 
+def test_training_wiring_extends_to_every_test_board(env_module):
+    """The core (training) board's wiring is a sub-relation of every board.
+
+    What an agent learns about a lamp on the training board has to stay
+    true of that lamp on every test board, so a core lamp keeps its
+    drive condition verbatim at every size, and the lamps a bigger board
+    adds draw their driver from the buttons it adds.
+    """
+    mod, _ = env_module
+    from predicators.settings import \
+        CFG  # pylint: disable=import-outside-toplevel
+    core_buttons, core_lamps = mod.core_board()
+    assert (core_buttons, core_lamps) == (3, 2)
+    # The board sizes the distribution produces: train, then test.
+    sizes = [(3, 2), (4, 2), (4, 3), (5, 2), (5, 3)]
+    for seed in range(5):
+        CFG.seed = seed
+        core_driver, core_enabler = mod.canonical_wiring(
+            core_buttons, core_lamps)
+        assert all(0 <= d < core_buttons for d in core_driver)
+        assert all(e == mod.NO_ENABLER or 0 <= e < core_buttons
+                   for e in core_enabler)
+        for num_buttons, num_lamps in sizes:
+            driver, enabler = mod.canonical_wiring(num_buttons, num_lamps)
+            assert driver[:core_lamps] == core_driver
+            assert enabler[:core_lamps] == core_enabler
+            # Canonical form orders a pair by index, so the extension
+            # button may sit in either slot; what matters is that the
+            # condition involves a button the training board lacks.
+            for d, e in zip(driver[core_lamps:], enabler[core_lamps:]):
+                assert any(core_buttons <= b < num_buttons for b in (d, e))
+
+
+def test_extension_lamps_are_only_ever_dark_targets(env_module):
+    """A lamp the training board never showed is never asked to be lit."""
+    mod, _ = env_module
+    _, env = _make_env(num_test_tasks=12)
+    _, core_lamps = mod.core_board()
+    saw_extension_lamp = False
+    for task in env._generate_test_tasks():
+        for atom in task.goal_description:
+            lamp_idx = int(atom.objects[0].name[len("lamp"):])
+            if lamp_idx >= core_lamps:
+                saw_extension_lamp = True
+                assert atom.predicate.name == "LampOff"
+    assert saw_extension_lamp
+
+
 def test_colours_are_distinct_and_stable(env_module):
     """Every button and lamp has its own colour, the same on every board."""
     _, env = env_module

@@ -44,6 +44,15 @@ zero through the early accumulation and only then ramps - the same
 latent-plus-monotone-readout shape as boil's ``bubbling_level``, so the
 rate is recoverable from the ramp while the onset stays hidden.
 
+**Training wiring extends to test.** The hidden wiring is fixed for a
+run and the test boards *extend* the training board: every lamp the
+agent trained on keeps its drive condition, and the buttons and lamps a
+test board adds are either decoys or a new lamp that goals only ever
+ask to keep dark. So the relation learned in training is true at test,
+the way glue chemistry or fan thrust is in the other domains, and what
+test asks is whether the agent trusts it on a bigger board with more
+distractors - and leaves alone the buttons it knows nothing about.
+
 **Decoys.** Some buttons drive nothing. Their existence is what makes
 "press everything" uninformative, and it is why goals require some
 lamps to stay OFF: a policy that simply latches every button on lights
@@ -75,7 +84,7 @@ goal. Delay tuning does not fix this - the check is off-by-one against
 physics in both directions at once, and a sweep over delay values and
 option durations moves which tasks fail without ever clearing all ten.
 """
-from typing import Any, ClassVar, Dict, List, Sequence, Set, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
@@ -156,34 +165,87 @@ def _dedupe_wiring(driver: List[int], enabler: List[int],
     return out_d, out_e
 
 
+def core_board() -> Tuple[int, int]:
+    """The smallest training board: (num_buttons, num_lamps).
+
+    The core board is the part of every board that training reveals. Its
+    lamps are the *core lamps* and its buttons the *core buttons*; every
+    other lamp and button a board may carry is an *extension*.
+    """
+    return (min(CFG.busyboard_num_buttons_train),
+            min(CFG.busyboard_num_lamps_train))
+
+
+def _remap_extension(index: int, core_buttons: int, num_buttons: int) -> int:
+    """Map a max-board extension button onto a smaller board.
+
+    Extension buttons are the indices at or above ``core_buttons``. On a
+    board with fewer of them the index folds into the extension range
+    that board does have, so an extension lamp still draws its drive
+    from a button training never showed. A board with no extension
+    buttons at all has nowhere else to put it and folds into the core.
+    """
+    if num_buttons > core_buttons:
+        return core_buttons + (index - core_buttons) % (num_buttons -
+                                                        core_buttons)
+    return index % num_buttons
+
+
 def project_wiring(driver_full: Sequence[int], enabler_full: Sequence[int],
                    num_buttons: int,
                    num_lamps: int) -> Tuple[List[int], List[int]]:
     """Project a max-board wiring onto a board of the requested size.
 
-    Takes the first ``num_lamps`` lamps and reduces button indices modulo
-    ``num_buttons``, then repairs the two ways that reduction can degrade
-    a drive condition: an enabler landing on its own driver (which would
-    silently turn a conjunctive drive into a plain one) and two lamps
-    landing on the same condition (which would make them
-    indistinguishable by any experiment).
+    The projection is an EXTENSION: the core board's wiring is a subset
+    of every larger board's wiring. Concretely, for the first
+    ``num_lamps`` lamps:
 
-    This is a pure function of the max-board wiring and the board size,
-    which is what lets ONE parameter vector be a correct model of every
-    board in a run: the ground-truth simulator carries the max-board
-    wiring in its params and applies this same projection to whatever
-    board the observation shows it.
+    * a core lamp keeps its drive condition verbatim, which is well
+      defined because ``canonical_wiring`` wires core lamps to core
+      buttons only;
+    * an extension lamp's driver folds into whatever extension buttons
+      this board has (see ``_remap_extension``), and its enabler folds
+      the same way if it is an extension button or stays put if it is a
+      core one.
+
+    Then the two ways folding can degrade a drive condition are
+    repaired: an enabler landing on its own driver (which would silently
+    turn a conjunctive drive into a plain one) and two lamps landing on
+    the same condition (which would make them indistinguishable by any
+    experiment).
+
+    So a rule learned about a core lamp on the training board is true of
+    that lamp on every test board, and the buttons a test board adds
+    either do nothing or feed a lamp the goals only ever ask to keep
+    dark. This is a pure function of the max-board wiring and the board
+    size, which is what lets ONE parameter vector be a correct model of
+    every board in a run: the ground-truth simulator carries the
+    max-board wiring in its params and applies this same projection to
+    whatever board the observation shows it.
     """
-    driver = [int(driver_full[i]) % num_buttons for i in range(num_lamps)]
+    core_buttons, core_lamps = core_board()
+    core_buttons = min(core_buttons, num_buttons)
+
+    def _fold(index: int, is_core_lamp: bool) -> int:
+        if is_core_lamp or index < core_buttons:
+            return index % core_buttons
+        return _remap_extension(index, core_buttons, num_buttons)
+
+    driver = [
+        _fold(int(driver_full[i]), i < core_lamps) for i in range(num_lamps)
+    ]
     enabler: List[int] = []
     for i in range(num_lamps):
         e = int(enabler_full[i])
         if e == NO_ENABLER or num_buttons < 2:
             enabler.append(NO_ENABLER)
             continue
-        e %= num_buttons
+        e = _fold(e, i < core_lamps)
         if e == driver[i]:
-            e = (e + 1) % num_buttons
+            # Bump within the range the lamp is allowed to use: core
+            # buttons for a core lamp, any button for an extension lamp.
+            limit = core_buttons if i < core_lamps else num_buttons
+            e = (e + 1) % limit
         enabler.append(e)
     return _dedupe_wiring(driver, enabler, num_buttons)
 
@@ -193,11 +255,14 @@ def canonical_wiring(num_buttons: int,
     """The run's wiring, reduced to a board of the requested size.
 
     Sampled once per seed over the largest board the task distribution
-    can produce, then projected onto smaller boards by taking the first
-    ``num_lamps`` lamps and reducing button indices modulo
-    ``num_buttons``. So one wiring describes every board in a run, and a
-    3-button training board and a 5-button test board are the same
-    relation seen at two sizes.
+    can produce, then projected onto smaller boards by extension (see
+    ``project_wiring``). The draw respects the extension contract: core
+    lamps are wired to core buttons only, and an extension lamp's driver
+    is an extension button, so the core board's wiring is literally a
+    sub-relation of every larger board's. So one wiring describes every
+    board in a run, and what an agent learns about the lamps on a
+    3-button training board stays true of those lamps on a 5-button
+    test board; the test board differs by the buttons and lamps it adds.
 
     Why a run-level constant rather than a fresh draw per task: the
     residual-simulator contract in this codebase resolves ``PARAM_SPECS``
@@ -218,15 +283,29 @@ def canonical_wiring(num_buttons: int,
     max_lamps = max(
         list(CFG.busyboard_num_lamps_train) +
         list(CFG.busyboard_num_lamps_test))
+    core_buttons, core_lamps = core_board()
 
-    driver_full = [int(rng.integers(0, max_buttons)) for _ in range(max_lamps)]
+    driver_full: List[int] = []
     enabler_full: List[int] = []
-    for d in driver_full:
-        if max_buttons < 2 or rng.random() >= CFG.busyboard_interlock_prob:
+    for i in range(max_lamps):
+        # A core lamp lives entirely on the core board; an extension lamp
+        # is driven by a button the core board does not have (falling
+        # back to any button when the distribution adds lamps but no
+        # buttons), and may take its enabler from anywhere.
+        if i < core_lamps:
+            driver_pool = list(range(core_buttons))
+            enabler_pool = list(range(core_buttons))
+        else:
+            driver_pool = list(range(core_buttons, max_buttons)) or list(
+                range(max_buttons))
+            enabler_pool = list(range(max_buttons))
+        d = int(rng.choice(driver_pool))
+        driver_full.append(d)
+        enabler_pool = [b for b in enabler_pool if b != d]
+        if not enabler_pool or rng.random() >= CFG.busyboard_interlock_prob:
             enabler_full.append(NO_ENABLER)
             continue
-        enabler_full.append(
-            int(rng.choice([b for b in range(max_buttons) if b != d])))
+        enabler_full.append(int(rng.choice(enabler_pool)))
 
     return project_wiring(driver_full, enabler_full, num_buttons, num_lamps)
 
@@ -399,8 +478,13 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
         return 0 <= enabler < len(button_on) and button_on[enabler]
 
     @classmethod
-    def _realizable_targets(cls, driver: Sequence[int], enabler: Sequence[int],
-                            num_buttons: int) -> List[Tuple[bool, ...]]:
+    def _realizable_targets(
+            cls,
+            driver: Sequence[int],
+            enabler: Sequence[int],
+            num_buttons: int,
+            num_lit_candidates: Optional[int] = None
+    ) -> List[Tuple[bool, ...]]:
         """Every lamp assignment some button setting realizes exactly.
 
         Exhaustive over the 2**num_buttons settings, which is a handful
@@ -412,7 +496,16 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
         the reason "latch every button" is not a policy, and the reason
         an agent has to know which button feeds which lamp rather than
         merely which buttons do something.
+
+        Only the first ``num_lit_candidates`` lamps may be asked to be
+        lit (default: all of them). Under the run-level wiring these are
+        the core lamps, the ones training reveals; an extension lamp is
+        only ever asked to stay dark, so what a test board adds is a
+        button that must be left alone rather than a relation the agent
+        never had a chance to learn.
         """
+        if num_lit_candidates is None:
+            num_lit_candidates = len(driver)
         targets = set()
         for mask in range(1 << num_buttons):
             button_on = [bool(mask >> b & 1) for b in range(num_buttons)]
@@ -421,6 +514,8 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
             if not any(target):
                 continue
             if len(target) >= 2 and all(target):
+                continue
+            if any(target[num_lit_candidates:]):
                 continue
             targets.add(target)
         return sorted(targets)
@@ -436,10 +531,15 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
         the exact set of realizable non-trivial assignments, which is
         never empty: distinct drive conditions are monotone boolean
         functions that differ somewhere, and at any input where two of
-        them differ one lamp is lit and another is dark.
+        them differ one lamp is lit and another is dark. Under the run-
+        level wiring only core lamps may be lit targets, which leaves
+        that argument intact because an extension lamp's driver is a
+        button no core lamp uses.
         """
+        num_lit_candidates = num_lamps
         if CFG.busyboard_fixed_wiring:
             driver, enabler = canonical_wiring(num_buttons, num_lamps)
+            num_lit_candidates = min(num_lamps, core_board()[1])
         else:
             driver = [
                 int(rng.integers(0, num_buttons)) for _ in range(num_lamps)
@@ -454,7 +554,8 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
                     int(rng.choice([b for b in range(num_buttons) if b != d])))
             driver, enabler = _dedupe_wiring(driver, enabler, num_buttons)
 
-        targets = self._realizable_targets(driver, enabler, num_buttons)
+        targets = self._realizable_targets(driver, enabler, num_buttons,
+                                           num_lit_candidates)
         if not targets:
             raise RuntimeError(
                 f"No non-trivial realizable goal on a {num_buttons}-button, "

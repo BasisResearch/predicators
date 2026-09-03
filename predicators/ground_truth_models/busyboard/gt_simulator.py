@@ -61,7 +61,7 @@ from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.utils import Params, ResidualUpdate, \
     objs_by_type
 from predicators.envs.pybullet_busyboard import NO_ENABLER, canonical_wiring, \
-    project_wiring
+    core_board, project_wiring
 from predicators.ground_truth_models import GroundTruthSimulatorFactory
 from predicators.settings import CFG
 from predicators.structs import State
@@ -189,22 +189,30 @@ def _build_param_specs() -> List[ParamSpec]:
         list(CFG.busyboard_num_lamps_train) +
         list(CFG.busyboard_num_lamps_test))
     driver, enabler = canonical_wiring(max_buttons, max_lamps)
+    core_buttons, core_lamps = core_board()
 
     specs = [
         ParamSpec("charge_rate", CFG.busyboard_charge_rate, lo=0.0, hi=1.0),
         ParamSpec("decay_rate", CFG.busyboard_decay_rate, lo=0.0, hi=1.0),
     ]
     for i in range(max_lamps):
+        # A core lamp is wired to core buttons only (the extension
+        # contract of ``project_wiring``), so its range is the core board's.
+        hi = float((core_buttons if i < core_lamps else max_buttons) - 1)
+        # Wiring slots are indices the rule rounds before use: discrete,
+        # so uncertainty jitter must not perturb them into a rewiring.
         specs.append(
             ParamSpec(f"driver_{i}",
                       float(driver[i]),
                       lo=0.0,
-                      hi=float(max_buttons - 1)))
+                      hi=hi,
+                      discrete=True))
         specs.append(
             ParamSpec(f"enabler_{i}",
                       float(enabler[i]),
                       lo=float(NO_ENABLER),
-                      hi=float(max_buttons - 1)))
+                      hi=hi,
+                      discrete=True))
     return specs
 
 
