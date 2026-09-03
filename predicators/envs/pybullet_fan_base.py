@@ -649,6 +649,29 @@ class PyBulletFanBaseEnv(PyBulletEnv):
                           position=(oov_x, oov_y, 0.0),
                           physics_client_id=self._physics_client_id)
 
+    def _boundary_named(self, obj: Object) -> Object:
+        """The env-owned boundary Object for ``obj`` (matched by name).
+
+        ``_set_state`` rebinds ``self._objects`` to the incoming State's
+        own Object instances, whose ``sim_data`` (body id, cached
+        extents) was written by whichever env produced that State. Every
+        rebuild of the slabs reassigns body ids (PyBullet hands freed
+        ids back in reverse), so a foreign instance's id can name a
+        different slab here: reading through it permuted the four
+        boundaries and rendered them as a cross through the arena (fan
+        test task, 2026-09-03). Only the env-owned instance tracks this
+        env's bodies.
+        """
+        for env_obj in self._boundaries:
+            if env_obj.name == obj.name:
+                return env_obj
+        return obj
+
+    def _get_object_state_dict(self, obj: Object) -> Dict[str, float]:
+        if obj.type == self._boundary_type:
+            obj = self._boundary_named(obj)
+        return super()._get_object_state_dict(obj)
+
     def _reset_single_object(self, obj: Object, state: State) -> None:
         """Skip the boundary slabs; they are rebuilt, not teleported.
 
@@ -834,8 +857,9 @@ class PyBulletFanBaseEnv(PyBulletEnv):
             return dims[("x_len", "y_len", "z_len").index(feature)]
         if obj.type == self._boundary_type and feature in ("x_len", "y_len",
                                                            "z_len"):
-            # Cached by _reposition_boundary_walls when it built the body.
-            cached = getattr(obj, feature)
+            # Cached by _reposition_boundary_walls when it built the body,
+            # on the env-owned instance (see _boundary_named).
+            cached = getattr(self._boundary_named(obj), feature)
             if cached is None:
                 raise ValueError(
                     f"Boundary {obj.name} has no body yet; "
