@@ -44,6 +44,39 @@ python -m particle_world_model.run_flow           # pipeline, offscreen (rgb_arr
 python -m particle_world_model.run_flow --human   # pipeline, PyBullet GUI
 ```
 
+## Viewing the PyBullet domains
+
+The particle pipeline runs on top of the `robodisco/Airport-v0` env. Both the
+Airport and Donut domains have a `__main__` GUI entry point (same pattern as the
+other concrete pybullet envs) — run from the repo root with the `predicators`
+conda env active:
+
+```bash
+python predicators/envs/pybullet_airport.py   # conveyor belt, items, button/pusher
+python predicators/envs/pybullet_donut.py     # donuts + target area
+```
+
+Each opens a PyBullet GUI window, loads train task 0, then holds the robot arm
+still in a loop so the scene stays put and you can interact with it. `Ctrl-C` in
+the terminal to quit.
+
+Mouse controls in the GUI:
+
+| Action | Control |
+|--------|---------|
+| Move a dynamic object (item / donut) | `Ctrl` + left-click-drag on the body |
+| Rotate camera | `Ctrl` + left-drag on empty space |
+| Pan camera | `Ctrl` + middle-drag (or `Ctrl` + right-drag) |
+| Zoom | scroll wheel |
+| Toggle side panels / debug overlays | `g` |
+
+There is also a scripted Airport demo that drives the pusher against the button
+instead of idling:
+
+```bash
+python scripts/show_airport_interaction.py
+```
+
 ## Dependencies
 
 Beyond the base `predicators` install:
