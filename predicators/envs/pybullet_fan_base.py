@@ -191,11 +191,9 @@ class PyBulletFanBaseEnv(PyBulletEnv):
     ball_friction: ClassVar[float] = 10.0
     ball_height_offset: ClassVar[float] = ball_radius
     # High linear damping acts as the ball's air/rolling resistance: it
-    # sets the terminal speed under a continuously held force. The wind
-    # (a held 0.06 N, see PyBulletFanEnv) terminal-velocities at the
-    # ~0.00224 m/action free-field speed the domain is tuned around,
-    # while staying far enough above the ~0.036 N stiction/seam creep
-    # threshold to roll reliably from rest and across the table seam.
+    # sets the terminal speed the ball reaches under any continuously
+    # held force, and keeps that force comfortably above the stiction /
+    # table-seam creep threshold so the ball rolls reliably from rest.
     ball_linear_damping: ClassVar[float] = 120.0
     ball_angular_damping: ClassVar[float] = 10.0
     ball_color: ClassVar[Tuple[float, float, float,
@@ -224,10 +222,9 @@ class PyBulletFanBaseEnv(PyBulletEnv):
     # equator (center sits ball_radius above the table): with lower
     # walls the ball leans on the wall's TOP EDGE while traveling along
     # a wall-adjacent row, and the slanted edge contact carries part of
-    # its weight like a rail - measured 2.3x the free-rolling wind speed
-    # (5.35 vs 2.28 mm/step), which breaks the constant-speed process
-    # model and the GT simulator. At 0.06 the contact is a plain side
-    # touch at the equator and travel speed matches free rolling.
+    # its weight like a rail, so a driven ball travels much faster
+    # there than on the open table. At 0.06 the contact is a plain
+    # side touch at the equator and travel speed matches free rolling.
     boundary_wall_height: ClassVar[float] = 0.06
     boundary_wall_thickness: ClassVar[float] = 0.002
     boundary_wall_color: ClassVar[Tuple[float, float, float,
@@ -240,10 +237,9 @@ class PyBulletFanBaseEnv(PyBulletEnv):
     target_mass: ClassVar[float] = 0.0
     # Match the table's lateral friction: the pad covers a full grid
     # cell that every final approach rolls across, and a slick pad
-    # (0.04, vs the table's 0.5) let the ball slide over it at ~2.2x
-    # the free-rolling wind speed (5.0 vs 2.28 mm/step), breaking the
-    # constant-speed process model and making the ball ping-pong across
-    # the target instead of resting on it.
+    # (0.04, vs the table's 0.5) let a driven ball slide over it about
+    # twice as fast as it rolls on the table, making it ping-pong
+    # across the target instead of resting on it.
     target_friction: ClassVar[float] = 0.5
     target_color: ClassVar[Tuple[float, float, float, float]] = (0, 1, 0, 1.0)
 
@@ -537,9 +533,9 @@ class PyBulletFanBaseEnv(PyBulletEnv):
             physics_client_id=physics_client_id)
         # Match the table's rolling friction (create_pybullet_block only
         # sets lateral). The pad covers the full target cell and the
-        # ball ROLLS ON TOP of it; with zero rolling resistance its
-        # steady-state wind speed triples there (6.7 vs 2.28 mm/step),
-        # so it shoots across the target instead of resting on it.
+        # ball ROLLS ON TOP of it; with zero rolling resistance a driven
+        # ball speeds up several-fold there and shoots across the
+        # target instead of resting on it.
         p.changeDynamics(target_id,
                          -1,
                          rollingFriction=0.001,
