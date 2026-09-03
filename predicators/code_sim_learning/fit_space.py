@@ -35,6 +35,14 @@ class ParamSpec:
     "4x smaller" and "4x larger" as equally plausible. Everything
     simulator- and caller-facing stays in linear units; only the
     optimizer's internal coordinates change.
+
+    ``discrete`` marks a parameter whose value is an index or a count
+    that the simulator rounds before use (a wiring slot, a selector).
+    Its behavioural effect is a staircase, so a small perturbation is
+    either a no-op or a jump to a different structure; uncertainty
+    jitter around a point estimate (see ``perturbation_ensemble``)
+    leaves it alone rather than manufacturing structural alternatives
+    that no data supports.
     """
 
     name: str
@@ -42,6 +50,7 @@ class ParamSpec:
     lo: Optional[float] = None
     hi: Optional[float] = None
     scale: str = "linear"
+    discrete: bool = False
 
     def __post_init__(self) -> None:
         if self.scale not in ("linear", "log"):
