@@ -1207,6 +1207,16 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 or not CFG.agent_sim_learn_param_uncertainty):
             self._param_ensemble = []
             return
+        if CFG.agent_sim_learn_oracle_sim_params:
+            # Oracle params carry no uncertainty: no fit ran, so the only
+            # ensemble on offer would be box jitter around the truth,
+            # which manufactures wrong models (a zero rate, a rewired
+            # lamp) that the capture gate would then demand every plan
+            # survive. Nothing to hedge against, so no ensemble.
+            self._param_ensemble = []
+            logger.info("Oracle sim params: no rule-parameter ensemble "
+                        "(nothing uncertain to sweep).")
+            return
         num_members = CFG.agent_explorer_info_ensemble_size
         self._param_ensemble, method = self._select_param_ensemble(num_members)
         logger.info(
