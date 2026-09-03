@@ -95,6 +95,13 @@ _LIMIT_MAX_WAIT_SECS = 6 * 3600.0
 # auto_resume cover anything longer.
 _LIMIT_POLL_SECS = 600.0
 _LIMIT_MAX_TOTAL_WAIT_SECS = 12 * 3600.0
+# A query the backend refuses with a server-side error (529 Overloaded,
+# 5xx) is fatal-shaped too (one turn, no tool call) but clears in
+# seconds to minutes; it is re-issued every _OVERLOAD_POLL_SECS under
+# the same total cap (boil C1 2026-09-03: one 529 on a learn query
+# killed the run with 'refusing to checkpoint this cycle as learned').
+_OVERLOAD_PATTERNS = ("overloaded", "api error: 529", "api error: 5")
+_OVERLOAD_POLL_SECS = 60.0
 
 
 def usage_limit_wait_seconds(reason: Optional[str],
@@ -174,6 +181,23 @@ class AgentSessionFatalError(Exception):
     queries without the agent ever running).  Every broad ``except``
     between a session query and ``main`` must re-raise it.
     """
+
+
+def transient_retry_wait_seconds(reason: Optional[str]) -> Optional[float]:
+    """How long to wait before re-issuing a query that died on a
+    transient backend condition, or ``None`` when ``reason`` is not one.
+
+    Usage/session-limit banners poll every ``_LIMIT_POLL_SECS``;
+    server-side overload / 5xx errors every ``_OVERLOAD_POLL_SECS``.
+    """
+    if reason is None:
+        return None
+    if usage_limit_wait_seconds(reason) is not None:
+        return _LIMIT_POLL_SECS
+    low = reason.lower()
+    if any(p in low for p in _OVERLOAD_PATTERNS):
+        return _OVERLOAD_POLL_SECS
+    return None
 
 
 def query_fatal_error(response: List[Dict[str, Any]]) -> Optional[str]:
@@ -618,21 +642,29 @@ class BaseAgentSessionManager:
                 on_error=self._recover_session,
             )
             reason = query_fatal_error(collected)
-            stated_wait = usage_limit_wait_seconds(reason)
-            if stated_wait is None:
+            wait = transient_retry_wait_seconds(reason)
+            if wait is None:
                 break
-            wait = _LIMIT_POLL_SECS
             if waited + wait > _LIMIT_MAX_TOTAL_WAIT_SECS:
                 logger.error(
-                    "%s query is still usage-limited after %.0f s of "
-                    "waiting; giving up on it.", self._log_label, waited)
+                    "%s query is still refused after %.0f s of waiting "
+                    "(%s); giving up on it.", self._log_label, waited, reason)
                 break
             retries += 1
-            logger.warning(
-                "%s query hit a usage limit (%s; stated reset in %.0f s); "
-                "retrying in %.0f s (retry %d, %.0f s waited so far). The "
-                "attempt's wall-clock budget is paused meanwhile.",
-                self._log_label, reason, stated_wait, wait, retries, waited)
+            stated_wait = usage_limit_wait_seconds(reason)
+            if stated_wait is not None:
+                logger.warning(
+                    "%s query hit a usage limit (%s; stated reset in "
+                    "%.0f s); retrying in %.0f s (retry %d, %.0f s waited "
+                    "so far). The attempt's wall-clock budget is paused "
+                    "meanwhile.", self._log_label, reason, stated_wait, wait,
+                    retries, waited)
+            else:
+                logger.warning(
+                    "%s query hit a server-side error (%s); retrying in "
+                    "%.0f s (retry %d, %.0f s waited so far). The "
+                    "attempt's wall-clock budget is paused meanwhile.",
+                    self._log_label, reason, wait, retries, waited)
             await asyncio.sleep(wait)
             waited += wait
             self._pause_attempt_clock(wait)

@@ -404,3 +404,41 @@ def test_run_streamed_query_polls_after_the_reset(tmp_path, monkeypatch):
     collected = asyncio.run(
         mgr._run_streamed_query("again", log_path=None, kind="test"))
     assert collected == limit_resp and not sleeps
+
+
+def test_run_streamed_query_retries_server_overload(tmp_path, monkeypatch):
+    """A query refused with a server-side error (529 Overloaded) is
+    re-issued every _OVERLOAD_POLL_SECS with the attempt clock paused,
+    and the healthy retry is what the caller receives."""
+    mgr = _make_base_manager(tmp_path)
+    overloaded = [
+        _result_entry(subtype="error",
+                      is_error=True,
+                      result="API Error: 529 Overloaded. This is a "
+                      "server-side issue, usually temporary.")
+    ]
+    healthy_resp = [_text_entry("fine"), _result_entry()]
+    responses = [list(overloaded), list(overloaded), list(healthy_resp)]
+
+    async def _fake_stream(_client, message, **_kwargs):
+        del message
+        return responses.pop(0)
+
+    sleeps = []
+
+    async def _fake_sleep(secs):
+        sleeps.append(secs)
+
+    paused = []
+    monkeypatch.setattr(sb, "stream_agent_response", _fake_stream)
+    monkeypatch.setattr(sb.asyncio, "sleep", _fake_sleep)
+    monkeypatch.setattr(mgr, "_pause_attempt_clock", paused.append)
+    mgr._client = object()
+    collected = asyncio.run(
+        mgr._run_streamed_query("learn", log_path=None, kind="test"))
+    assert collected == healthy_resp
+    assert sleeps == [sb._OVERLOAD_POLL_SECS] * 2
+    assert paused == sleeps
+    assert BaseAgentSessionManager._consecutive_fatal_queries == 0
+    assert sb.transient_retry_wait_seconds(
+        "error result: invalid api key") is None
