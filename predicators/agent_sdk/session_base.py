@@ -184,11 +184,11 @@ class AgentSessionFatalError(Exception):
 
 
 def transient_retry_wait_seconds(reason: Optional[str]) -> Optional[float]:
-    """How long to wait before re-issuing a query that died on a
-    transient backend condition, or ``None`` when ``reason`` is not one.
+    """How long to wait before re-issuing a query that died on a transient
+    backend condition, or ``None`` when ``reason`` is not one.
 
-    Usage/session-limit banners poll every ``_LIMIT_POLL_SECS``;
-    server-side overload / 5xx errors every ``_OVERLOAD_POLL_SECS``.
+    Usage/session-limit banners poll every ``_LIMIT_POLL_SECS``; server-
+    side overload / 5xx errors every ``_OVERLOAD_POLL_SECS``.
     """
     if reason is None:
         return None
@@ -197,6 +197,49 @@ def transient_retry_wait_seconds(reason: Optional[str]) -> Optional[float]:
     low = reason.lower()
     if any(p in low for p in _OVERLOAD_PATTERNS):
         return _OVERLOAD_POLL_SECS
+    return None
+
+
+# Sent in the same session when a turn that had already done work ended
+# on a transient backend error (a 5xx mid-turn leaves the agent's tool
+# calls in the conversation but no final answer). Re-sending the original
+# query would restart the work and duplicate the task text; this resumes
+# it instead.
+_CONTINUE_AFTER_TRANSIENT_ERROR = (
+    "Your previous turn was cut short by a transient server-side error "
+    "(not by anything you did). Your earlier tool calls and their "
+    "results in this conversation still stand. Continue from where you "
+    "left off.")
+
+
+def transient_turn_error(response: List[Dict[str, Any]]) -> Optional[str]:
+    """The transient backend error a turn ended on, or ``None``.
+
+    Unlike :func:`query_fatal_error` this does not care whether the
+    agent made tool calls: a 5xx / overload / usage-limit banner as the
+    turn's final assistant text or as its error result means the backend
+    cut the turn short, whatever work preceded it. Such a turn is
+    resumed in place (see ``_CONTINUE_AFTER_TRANSIENT_ERROR``) instead
+    of being handed to the caller as the agent's final answer, which
+    would end a solve attempt minutes into its budget.
+    """
+    last_text: Optional[str] = None
+    result_error: Optional[str] = None
+    for entry in response:
+        etype = entry.get("type")
+        if etype == "assistant":
+            for block in entry.get("content", []):
+                if block.get("type") == "text":
+                    last_text = str(block.get("text", ""))
+                elif block.get("type") == "tool_use":
+                    last_text = None
+        elif etype == "result" and entry.get("is_error") and \
+                entry.get("subtype") != "error_max_turns":
+            result_error = str(
+                entry.get("result") or entry.get("subtype") or "")
+    for text in (result_error, last_text):
+        if text and transient_retry_wait_seconds(text) is not None:
+            return text
     return None
 
 
@@ -625,49 +668,76 @@ class BaseAgentSessionManager:
 
         start = time.perf_counter()
         # A query the backend refuses with a usage/session-limit banner
-        # is retried after the banner's own reset time instead of being
+        # or a server-side error is retried after a wait instead of being
         # handed to the caller as a dead response: the phase that issued
         # it (a learn, a solve attempt) would otherwise consume the
         # failure and permanently skip its work on a transient outage.
+        # A turn cut short AFTER doing work is resumed in the same
+        # session with a continuation message; its entries are kept
+        # ahead of the resumed turn's so the transcript stays whole.
+        history: List[Dict[str, Any]] = []
+        outgoing = message
         waited = 0.0
         retries = 0
+
+        def _flush_with_history(collected: List[Dict[str, Any]]) -> None:
+            assert flush is not None
+            flush(history + collected)
+
         while True:
+            query_started = time.perf_counter()
             collected = await stream_agent_response(
                 self._client,
-                message,
+                outgoing,
                 log_label=self._log_label,
                 on_entry=on_entry,
                 on_result=self._account_result,
-                flush=flush,
+                flush=_flush_with_history if flush is not None else None,
                 on_error=self._recover_session,
             )
+            query_secs = time.perf_counter() - query_started
             reason = query_fatal_error(collected)
+            cut_short = reason is None
+            if cut_short:
+                reason = transient_turn_error(collected)
             wait = transient_retry_wait_seconds(reason)
             if wait is None:
                 break
-            if waited + wait > _LIMIT_MAX_TOTAL_WAIT_SECS:
+            # A refused query did no work, so the time the backend took
+            # to refuse it is waiting too: it is charged to nothing. A
+            # turn cut short mid-work keeps its own duration.
+            idle = wait + (0.0 if cut_short else query_secs)
+            if waited + idle > _LIMIT_MAX_TOTAL_WAIT_SECS:
                 logger.error(
                     "%s query is still refused after %.0f s of waiting "
                     "(%s); giving up on it.", self._log_label, waited, reason)
                 break
             retries += 1
             stated_wait = usage_limit_wait_seconds(reason)
+            how = ("was cut short mid-turn by" if cut_short else "hit")
             if stated_wait is not None:
                 logger.warning(
-                    "%s query hit a usage limit (%s; stated reset in "
-                    "%.0f s); retrying in %.0f s (retry %d, %.0f s waited "
+                    "%s query %s a usage limit (%s; stated reset in "
+                    "%.0f s); %s in %.0f s (retry %d, %.0f s waited "
                     "so far). The attempt's wall-clock budget is paused "
-                    "meanwhile.", self._log_label, reason, stated_wait, wait,
-                    retries, waited)
+                    "meanwhile.", self._log_label, how, reason, stated_wait,
+                    "resuming" if cut_short else "retrying", wait, retries,
+                    waited)
             else:
                 logger.warning(
-                    "%s query hit a server-side error (%s); retrying in "
+                    "%s query %s a server-side error (%s); %s in "
                     "%.0f s (retry %d, %.0f s waited so far). The "
                     "attempt's wall-clock budget is paused meanwhile.",
-                    self._log_label, reason, wait, retries, waited)
+                    self._log_label, how, reason,
+                    "resuming" if cut_short else "retrying", wait, retries,
+                    waited)
+            if cut_short:
+                history.extend(collected)
+                outgoing = _CONTINUE_AFTER_TRANSIENT_ERROR
             await asyncio.sleep(wait)
-            waited += wait
-            self._pause_attempt_clock(wait)
+            waited += idle
+            self._pause_attempt_clock(idle)
+        collected = history + collected
         elapsed = time.perf_counter() - start
         logger.info("[agent-interaction] kind=%s took %.2fs (%d messages)",
                     kind, elapsed, len(collected))
