@@ -284,3 +284,9 @@ ENVS:
       # tasks: 8/10 with the check on, 10/10 with it off, at either
       # candidate delay value.
       sesame_check_expected_atoms: False
+      # Every button press that lights nothing is free on this board, so
+      # nothing in the goal stops a plan from latching extra buttons. The
+      # necessity gate refuses a capture that still reaches the goal with
+      # a step removed (run_20260902_152811 pressed three of four buttons
+      # for a two-press goal).
+      agent_plan_validation_necessity: True

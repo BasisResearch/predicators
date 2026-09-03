@@ -28,6 +28,10 @@ class CaptureDecision(enum.Enum):
     # physics fit's parameter error, so it is refused (the real env may
     # sit anywhere in that range).
     PARAM_SENSITIVE_NO_CAPTURE = "param_sensitive_no_capture"
+    # Every gate above passed, but the plan still reaches the goal with
+    # one of its steps removed: that step is padding, the plan is not an
+    # explanation of the goal, and it is refused naming the step.
+    REDUNDANT_NO_CAPTURE = "redundant_no_capture"
     # Goal atoms reached via a route the task evaluator scores as a
     # non-solve: refused.
     REWARD_HACK_NO_CAPTURE = "reward_hack_no_capture"
@@ -44,6 +48,7 @@ class BestEffortReason(enum.Enum):
     REWARD_HACK = "reward_hack"  # evaluator scores the rollout a non-solve
     FLAKY = "flaky"  # a validation repeat failed
     PARAM_SENSITIVE = "param_sensitive"  # failed at perturbed physics
+    REDUNDANT = "redundant"  # reaches the goal without one of its steps
 
 
 @dataclass(frozen=True)
@@ -70,7 +75,8 @@ def _decide_capture(*,
                     flaky: bool,
                     best_effort_mode: bool,
                     have_validated_capture: bool,
-                    param_sensitive: bool = False) -> CaptureOutcome:
+                    param_sensitive: bool = False,
+                    redundant: bool = False) -> CaptureOutcome:
     """Decide what ``submit_plan`` does with an evaluated plan.
 
     Pure: no ctx access, no I/O - the caller supplies exactly what the
@@ -97,6 +103,8 @@ def _decide_capture(*,
     - ``param_sensitive``: execution validation passed but a rollout at
       +-1-posterior-sigma perturbed physical params failed - the plan
       has no margin to the physics fit's parameter error.
+    - ``redundant``: every other gate passed but the plan still reaches
+      the goal with one of its steps removed - that step is padding.
 
     With ``best_effort_mode`` (final-submission nudge after turn-cap
     exhaustion) capture the submission unconditionally: honest
@@ -112,7 +120,7 @@ def _decide_capture(*,
     # A best-effort capture never displaces a validated-solve capture.
     best_effort_capture = best_effort_mode and not have_validated_capture
     validated_solve = (goal_achieved and not reward_hack and not flaky
-                       and not param_sensitive)
+                       and not param_sensitive and not redundant)
     if (capture_enabled and is_current_task
             and (validated_solve or best_effort_capture) and have_plan):
         if validated_solve:
@@ -123,8 +131,10 @@ def _decide_capture(*,
             reason = BestEffortReason.REWARD_HACK
         elif flaky:
             reason = BestEffortReason.FLAKY
-        else:
+        elif param_sensitive:
             reason = BestEffortReason.PARAM_SENSITIVE
+        else:
+            reason = BestEffortReason.REDUNDANT
         return CaptureOutcome(CaptureDecision.BEST_EFFORT_CAPTURE, reason)
     if (capture_enabled and is_current_task and goal_achieved
             and not evaluator_rejected and flaky):
@@ -140,6 +150,13 @@ def _decide_capture(*,
         # validated 8/8 at the fitted friction failed deterministically
         # at the true value just outside the design's success band).
         return CaptureOutcome(CaptureDecision.PARAM_SENSITIVE_NO_CAPTURE)
+    if (capture_enabled and is_current_task and goal_achieved
+            and not evaluator_rejected and redundant):
+        # Loudly refuse padding: the plan reaches the goal without one of
+        # its steps, so that step explains nothing and only spends real
+        # episode steps (run_20260902_152811: three presses and a release
+        # for a goal the model reached with two presses and a Wait).
+        return CaptureOutcome(CaptureDecision.REDUNDANT_NO_CAPTURE)
     if capture_enabled and is_current_task and reward_hack:
         # Loudly refuse a reward hack: the rollout reaches the goal atoms
         # but the evaluator's certificate rejects the route (e.g. the

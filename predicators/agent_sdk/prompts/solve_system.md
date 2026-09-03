@@ -177,6 +177,16 @@ PARAM-SENSITIVE. A design that only works at the fitted point estimate
 of an uncertain constant fails either this gate or the real
 environment, whose true constant lies somewhere in that posterior.
 
+<!-- section: validation_gate_necessity -->
+Capture also requires every step to be necessary: the plan is re-run
+once per step with that step removed, and if the goal is still reached
+without a step the plan is reported REDUNDANT naming it. A captured plan
+is an explanation of how the goal comes about, so it must not carry
+steps whose absence changes nothing (a Wait on atoms that already hold,
+an action on an object your model says is uninvolved). Submit the
+shortest plan your model needs, and read a REDUNDANT report as evidence
+about the model: a step you believed necessary was not.
+
 <!-- section: principles -->
 ## Working principles
 

@@ -160,6 +160,7 @@ def test_golden_solve_system_plan() -> None:
                                   ground_samplers=True,
                                   physics_margin=True,
                                   rule_param_margin=True,
+                                  necessity=True,
                                   use_journal=True))
 
 

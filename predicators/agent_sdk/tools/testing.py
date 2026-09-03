@@ -3,7 +3,7 @@ import contextlib
 import functools
 import logging
 import os
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
@@ -162,6 +162,54 @@ def _parameter_margin_sweep(
     return outcomes, detail, note
 
 
+def _necessity_sweep(
+        ctx: ToolContext, fresh_scope: Callable[..., Any],
+        rollout_without: Callable[[int], Tuple[bool, str]],
+        step_names: Sequence[str]) -> Tuple[List[str], Optional[str], str]:
+    """Necessity gate: refuse a plan that still reaches the goal with one of
+    its steps removed.
+
+    ``rollout_without(k)`` runs the plan with step ``k`` deleted and
+    returns ``(goal reached, why not)``. A step whose removal leaves the
+    goal reached is padding: it explains nothing about how the goal
+    comes about, spends real episode steps, and if the model is wrong
+    about it can break the plan for real (run_20260902_152811: a
+    validated capture pressed three of four buttons and released one
+    that was never on, for a goal its own model reached with two
+    presses and a Wait).
+
+    Returns ``(outcome lines, redundant detail or None, suffix for the
+    validation note)``. A one-step plan has nothing to ablate.
+    """
+    outcomes: List[str] = []
+    detail: Optional[str] = None
+    if len(step_names) < 2:
+        return outcomes, detail, ""
+
+    def _ablated(k: int) -> Tuple[bool, str]:
+        with fresh_scope():
+            return rollout_without(k)
+
+    prefetched = _prefetch_parallel(
+        [functools.partial(_ablated, k) for k in range(len(step_names))],
+        "plan necessity")
+    for k, name in enumerate(step_names):
+        ctx.attempt_rollout_count += 1
+        pre = prefetched[k]
+        ok, why = pre if pre is not None else _ablated(k)
+        if ok:
+            outcomes.append(f"without step {k} ({name}): goal STILL reached")
+            if detail is None:
+                detail = f"step {k} ({name})"
+        else:
+            outcomes.append(f"without step {k} ({name}): {why}")
+    note = ""
+    if detail is None:
+        note = (f" Necessity check passed: removing any one of the "
+                f"{len(step_names)} steps loses the goal.")
+    return outcomes, detail, note
+
+
 def _fmt_point_value(value: Any) -> str:
     """A margin point's value for a report: numbers compactly, anything else (a
     belief particle's nested latent) by its repr, truncated."""
@@ -215,6 +263,10 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         "(the physics fit's own uncertainty); a PARAM-SENSITIVE plan is "
         "reported instead of captured - add design margin so it succeeds "
         "across the whole range. "
+        "When the necessity gate is on, it is also re-run once per step "
+        "with that step removed; a plan that still reaches the goal without "
+        "one of its steps is reported REDUNDANT naming the step, not "
+        "captured - submit the shortest plan your model needs. "
         "When the task has an evaluator, a goal-reaching plan the evaluator "
         "still scores as a non-solve (no success credit in its reward) is "
         "NOT captured (the real env applies the same scoring, so it could "
@@ -709,6 +761,45 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 clearance_detail = clearance_why
         any_margin_detail = param_sensitive_detail or clearance_detail
 
+        # Necessity gate (see _necessity_sweep): only a plan that cleared
+        # every gate above is worth ablating, and only a plan with more
+        # than one step can be.
+        redundant_detail: Optional[str] = None
+        necessity_outcomes: List[str] = []
+        if (validation_cfg.necessity and fresh_scope is not None
+                and ctx.capture_goal_reaching_plans and goal_achieved
+                and not evaluator_rejected and grounded_plan
+                and flaky_detail is None and any_margin_detail is None):
+
+            def _rollout_without(k: int) -> Tuple[bool, str]:
+                ablated_plan = grounded_plan[:k] + grounded_plan[k + 1:]
+                ablated_sketch = (sketch_steps[:k] + sketch_steps[k + 1:]
+                                  if sketch_steps is not None else None)
+                r = bilevel_sketch.execute_plan_forward(
+                    task,
+                    ablated_plan,
+                    model,
+                    predicates=all_predicates,
+                    sketch=ablated_sketch,
+                    stop_on_failure=True)
+                if r.first_failure_idx is not None:
+                    fr = r.steps[r.first_failure_idx].failure_reason
+                    return False, (f"step {r.first_failure_idx} of the "
+                                   f"shortened plan failed: {fr}")
+                if not r.goal_reached:
+                    missing = _missing_goal_atoms(task, r.final_state)
+                    missing_str = ", ".join(str(a) for a in sorted(missing))
+                    return False, ("goal not reached "
+                                   f"(missing: {{{missing_str}}})")
+                return True, ""
+
+            necessity_outcomes, redundant_detail, necessity_note = \
+                _necessity_sweep(
+                    ctx, fresh_scope, _rollout_without,
+                    [f"{g.name}({', '.join(o.name for o in g.objects)})"
+                     for g in grounded_plan])
+            validation_note += necessity_note
+
         def _stash_uncaptured_submission() -> None:
             """Remember the best refused submission of this attempt.
 
@@ -743,7 +834,8 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             flaky=flaky_detail is not None,
             best_effort_mode=ctx.capture_best_effort_plan,
             have_validated_capture=bool(ctx.solved_plan_reached_goal),
-            param_sensitive=any_margin_detail is not None)
+            param_sensitive=any_margin_detail is not None,
+            redundant=redundant_detail is not None)
         decision = capture_outcome.decision
         captured = capture_outcome.captured
         if captured:
@@ -895,13 +987,19 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                                     "exhausted - it executes for its honest "
                                     "reward but may not reproduce its "
                                     "solve)")
-            else:
-                assert reason is BestEffortReason.PARAM_SENSITIVE
+            elif reason is BestEffortReason.PARAM_SENSITIVE:
                 best_effort_note = (" (best-effort: failed "
                                     f"{any_margin_detail}; accepted "
                                     "because the attempt budget is exhausted "
                                     "- it executes for its honest reward but "
                                     "may fail under the true physics)")
+            else:
+                assert reason is BestEffortReason.REDUNDANT
+                best_effort_note = (" (best-effort: the plan also reaches "
+                                    f"the goal without {redundant_detail}; "
+                                    "accepted because the attempt budget is "
+                                    "exhausted - it executes for its honest "
+                                    "reward, padding included)")
             unverifiable_note = ""
             if unverifiable_dropped:
                 dropped_lines = "\n".join(f"  {d}"
@@ -957,6 +1055,22 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 f"submission, captures require {escalated_n}/{escalated_n} "
                 "successful rollouts: fix the margin rather than "
                 "resubmitting near-identical parameters.")
+        elif decision is CaptureDecision.REDUNDANT_NO_CAPTURE:
+            _stash_uncaptured_submission()
+            per_step = "\n".join(f"  {o}" for o in necessity_outcomes)
+            lines.append(
+                "REDUNDANT (plan NOT captured): every validation rollout "
+                f"reached the goal, but so does the plan without "
+                f"{redundant_detail}. A captured plan is an explanation of "
+                "how the goal comes about, and a step whose absence changes "
+                "nothing explains nothing: it only spends real episode "
+                "steps, and if your model is wrong about it, it can break "
+                "the plan for real. Per-step ablation:\n"
+                f"{per_step}\n"
+                "Drop the unnecessary step(s) and resubmit the shortest "
+                "plan your model needs. If you believed that step was "
+                "necessary, your model disagrees: check the belief before "
+                "resubmitting.")
         elif (decision is CaptureDecision.PARAM_SENSITIVE_NO_CAPTURE
               and param_sensitive_detail is None):
             _stash_uncaptured_submission()

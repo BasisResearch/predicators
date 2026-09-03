@@ -1859,6 +1859,19 @@ class GlobalSettings:
     # installs the ensemble providers (see rule_param_margin_provider);
     # this flag alone is enough for the ensemble to be built.
     agent_plan_validation_rule_param_margin = False
+    # Necessity gate on captures: after a goal-reaching plan passes every
+    # other gate, re-run it once per step with that step removed. If the
+    # goal is still reached without a step, the plan is refused as
+    # REDUNDANT naming that step. A captured plan is an explanation of the
+    # goal, and a step whose absence changes nothing explains nothing: it
+    # is padding (a Wait on atoms that already hold, a press of a button
+    # the model says does nothing) that costs real episode steps and, when
+    # the model is wrong about the step, can break the plan for real.
+    # run_20260902_152811: a validated capture pressed three of four
+    # buttons and released one that was never on, for a goal its own
+    # model reached with two presses and a Wait. Costs one rollout per
+    # plan step, run in parallel with the other sweeps' workers.
+    agent_plan_validation_necessity = False
     # Fork-parallel rollouts: the capture gate's repeat rollouts, its
     # physics/rule-param margin sweeps, the belief probe's
     # trials/physics_sweep modes, and the rollout-sysID objective (each

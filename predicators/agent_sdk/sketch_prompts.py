@@ -63,6 +63,7 @@ def build_solve_system_prompt(
     propose_params: bool = True,
     ground_samplers: bool = False,
     physics_margin: bool = False,
+    necessity: bool = False,
     rule_param_margin: bool = False,
     use_journal: bool = True,
     execute_certified_plan: bool = True,
@@ -123,6 +124,9 @@ def build_solve_system_prompt(
     if rule_param_margin:
         validation_gate += " " + render("solve_system",
                                         "validation_gate_rule_params")
+    if necessity:
+        validation_gate += " " + render("solve_system",
+                                        "validation_gate_necessity")
     tools = render("solve_system", "tools", validation_gate=validation_gate)
 
     principles = render("solve_system", "principles")

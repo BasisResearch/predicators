@@ -229,6 +229,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
             ground_samplers=CFG.agent_bilevel_ground_samplers,
             physics_margin=CFG.agent_plan_validation_physics_margin,
             rule_param_margin=CFG.agent_plan_validation_rule_param_margin,
+            necessity=CFG.agent_plan_validation_necessity,
             use_journal=CFG.agent_solve_use_journal,
             execute_certified_plan=CFG.agent_explorer_execute_certified_plan,
             early_stop_note=bilevel_sketch.build_early_stop_note(),
