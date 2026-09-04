@@ -356,7 +356,7 @@ Every arm in the paper is an agent playing the same env API, so the comparison i
 - Random low-level actions: the lower reference.
 - Low-level-only agents: the LLM agent with `env.*` only, no skill library.
 - Full agent: the skill library and the sandbox with simulator learning, predicate invention, and samplers.
-- Model-free agent: the skill library, the env tools, and `run_python` over the data only, no belief model.
+- Model-free agent (`agent_continual_model_free`): the skill library, the env tools, the sandbox and the journal, no belief model, no `sim`, no `run_python` and no learning session; its own code in the sandbox reads the recorded data.
 - Tool and prompt ablations: the same agent with a tool removed or a prompt section removed.
 - Fixed-schedule agents: scripted controllers that explore for K episodes, learn once, then attempt, expressed with the same tools. These are the phased-loop baselines re-expressed.
 
@@ -434,4 +434,5 @@ First agent result, boil seed 0, job 21964274 (2026-09-04): both levels won, 212
 The agent asked for no learning session and ran no model rollout: it measured the dynamics by probing the real environment, wrote a recipe into its journal, and replayed it on level 2.
 Under the current prices (a reset is one step, observation is free, a failed skill costs its steps) real probing was the cheaper policy; the cost pressure is open question 2 of the overview.
 
-Next: the remaining arms (model-free, primitive-only, fixed-schedule controllers), the level lists for all five envs, and the aggregation choice.
+The model-free arm landed on 2026-09-04 as `agent_continual_model_free`, sharing the play loop with the full agent through `ContinualPlayBase`.
+Next: the remaining arms (primitive-only, fixed-schedule controllers), the level lists for all five envs, and the aggregation choice.

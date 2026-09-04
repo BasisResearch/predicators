@@ -91,6 +91,11 @@ No learning session has run yet: there is no belief model behind
 `sim`, and `sim.run` / `sim.refine` are unavailable until one exists.
 Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps).
 
+<!-- section: learning_model_free -->
+This arm has no belief model and no learning session. Recorded
+episodes so far: __N_EPISODES__ (__N_STEPS__ steps), in
+`./data/trajectories.pkl`.
+
 <!-- section: learning_some -->
 Learning sessions so far: __N_LEARN__. Belief model version:
 __SIM_VERSION__; predicates version: __PRED_VERSION__; fit status:

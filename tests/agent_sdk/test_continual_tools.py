@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 
 from predicators import utils
 from predicators.agent_sdk.play_prompts import build_play_query, \
-    build_play_system_prompt, render_learning_status
+    build_play_system_prompt, render_data_status, render_learning_status
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
     PlayState, build_continual_tools, format_observation, parse_plan_lines
@@ -111,6 +111,22 @@ def test_tools_play_a_level_to_a_win(tmp_path: Any) -> None:
         obs = _call(tools, "env_observe")
         assert "[episode] NOT_FINISHED" in obs
         assert "[atoms]" in obs and "[objects]" in obs and "[ledger]" in obs
+        # The env's atoms are listed as the environment's, not the
+        # arm's, even without a simulator env on the context.
+        ctx.env = None
+        obs = _call(tools, "env_observe")
+        ctx.env = env
+        assert "[your predicates]" not in obs
+        assert "IsBlock(" in obs.split("[atoms]")[1].split("\n")[0]
+        # The tool subset an arm declares is what it gets.
+        subset = build_continual_tools(
+            ctx,
+            session,
+            state,
+            save_render=lambda tag: None,
+            tool_names=[n for n in CONTINUAL_TOOL_NAMES if n != "learn_run"])
+        assert [t.name for t in subset] == \
+            [n for n in CONTINUAL_TOOL_NAMES if n != "learn_run"]
         listing = _call(tools, "skills_list")
         assert "PickPlace" in listing and "One skill per line" in listing
         plan = _oracle_plan_text(approach, session.observe().level.task)
@@ -291,6 +307,19 @@ def test_parse_plan_lines_and_formatting(tmp_path: Any) -> None:
     for name in CONTINUAL_TOOL_NAMES:
         assert f"`{name}`" in system
     assert "charged\n  1000 steps" in system or "charged 1000 steps" in system
+    assert "## Learning" in system and "`sim`" in system
+    assert "when you want a learning session" in system
+    # The model-free arm's prompt describes neither a model nor tools it
+    # does not have.
+    free = build_play_system_prompt(
+        [n for n in CONTINUAL_TOOL_NAMES if n != "learn_run"])
+    assert "`learn_run`" not in free and "`run_python`" not in free
+    assert "`sim`" not in free and "## Learning" not in free
+    assert "simulator.py" not in free
+    assert "no learned model" in free and "learning session" not in free
+    assert "`session_end`" in free and "./data/trajectories.pkl" in free
+    data = render_data_status(n_episodes=3, n_steps=40)
+    assert "no belief model" in data and "3 (40 steps)" in data
     assert "Skill grammar" in system and "./test_images/" in system
     none = render_learning_status(n_learn=0,
                                   sim_version=None,

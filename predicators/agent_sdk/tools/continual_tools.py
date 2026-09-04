@@ -75,11 +75,20 @@ def visible_atoms(ctx: ToolContext, frame: State) -> Set[GroundAtom]:
     return utils.abstract(frame, set(ctx.predicates))
 
 
-def _split_atoms(ctx: ToolContext,
-                 atoms: Set[GroundAtom]) -> Tuple[List[str], List[str]]:
-    """(env-origin atoms, invented atoms) as sorted strings."""
-    env = ctx.env
-    env_names = {p.name for p in env.predicates} if env is not None else set()
+def _split_atoms(
+        ctx: ToolContext,
+        atoms: Set[GroundAtom],
+        env_names: Optional[Set[str]] = None) -> Tuple[List[str], List[str]]:
+    """(env-origin atoms, invented atoms) as sorted strings.
+
+    ``env_names`` are the env's own predicate names (the session knows
+    them); without them the simulator env on the context is asked, and
+    an arm with neither sees every atom as its own.
+    """
+    if env_names is None:
+        env = ctx.env
+        env_names = {p.name
+                     for p in env.predicates} if env is not None else set()
     env_origin = sorted(str(a) for a in atoms if a.predicate.name in env_names)
     invented = sorted(
         str(a) for a in atoms if a.predicate.name not in env_names)
@@ -92,9 +101,14 @@ def visible_goal(ctx: ToolContext, task: Task) -> List[str]:
     return sorted(str(a) for a in task.goal if a.predicate.name in names)
 
 
-def format_observation(obs: "ProtocolObservation", ctx: ToolContext, *,
-                       with_state: bool, render_path: Optional[str]) -> str:
-    """The observation as text (section 5.2)."""
+def format_observation(obs: "ProtocolObservation",
+                       ctx: ToolContext,
+                       *,
+                       with_state: bool,
+                       render_path: Optional[str],
+                       env_names: Optional[Set[str]] = None) -> str:
+    """The observation as text (section 5.2); ``env_names`` as in
+    :func:`_split_atoms`."""
     lines = []
     if obs.state is EpisodeState.GAME_OVER and not obs.ledger.resets_allowed:
         lines.append(f"[episode] GAME_OVER ({obs.reason}); this level has "
@@ -123,7 +137,8 @@ def format_observation(obs: "ProtocolObservation", ctx: ToolContext, *,
         lines.append(f"[evaluation] reward {obs.evaluation.reward:.3f}, "
                      f"terminated {obs.evaluation.terminated}")
     try:
-        env_origin, invented = _split_atoms(ctx, visible_atoms(ctx, obs.frame))
+        env_origin, invented = _split_atoms(ctx, visible_atoms(ctx, obs.frame),
+                                            env_names)
         note = ""
     except Exception as e:  # pylint: disable=broad-except
         env_origin, invented = [], []
@@ -279,13 +294,16 @@ def build_continual_tools(
         logging.exception("[continual tools] unexpected error")
         return _error_result(f"Error: {type(e).__name__}: {e}" + _footer())
 
+    env_names = {p.name for p in session.env_predicates}
+
     def _observe_text(with_state: bool, tag: str) -> str:
         obs = session.observe()
         render = save_render(tag)
         return format_observation(obs,
                                   ctx,
                                   with_state=with_state,
-                                  render_path=render)
+                                  render_path=render,
+                                  env_names=env_names)
 
     def _level_task() -> Task:
         obs = session.observe()
@@ -332,13 +350,11 @@ def build_continual_tools(
             return ended
         try:
             arr = np.asarray(args.get("action", []), dtype=np.float32)
-            env = ctx.env
-            if env is not None and hasattr(env, "action_space"):
-                shape = env.action_space.shape
-                if arr.shape != tuple(shape):
-                    return _error_result(
-                        f"action must have shape {tuple(shape)}, got "
-                        f"{arr.shape}" + _footer())
+            shape = tuple(session.action_space.shape)
+            if arr.shape != shape:
+                return _error_result(
+                    f"action must have shape {shape}, got {arr.shape}" +
+                    _footer())
             state.charged_calls += 1
             outcome = session.step(Action(arr))
             text = (f"step applied; episode {outcome.state.value}"

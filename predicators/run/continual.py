@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
+from gym.spaces import Box
 
 from predicators import utils
 from predicators.approaches import ApproachFailure, ApproachTimeout, \
@@ -286,6 +287,17 @@ class ProtocolSession:
         (section 4.6)."""
         return self._run.resets_allowed()
 
+    @property
+    def env_predicates(self) -> Set[Predicate]:
+        """The env's own predicates; an observation lists their atoms first,
+        apart from the arm's invented ones."""
+        return self._run.env_predicates
+
+    @property
+    def action_space(self) -> Box:
+        """The env's action space, the shape ``step`` takes."""
+        return self._run.action_space
+
     def level_card(self) -> LevelCard:
         """The scorecard of the level in progress."""
         return self._run.level_card()
@@ -396,6 +408,16 @@ class ContinualRun:
     def session(self) -> ProtocolSession:
         """The session handed to the controller."""
         return self._session
+
+    @property
+    def env_predicates(self) -> Set[Predicate]:
+        """The env's own predicates."""
+        return set(self._env.predicates)
+
+    @property
+    def action_space(self) -> Box:
+        """The env's action space."""
+        return self._env.action_space
 
     @property
     def skills(self) -> List[ParameterizedOption]:

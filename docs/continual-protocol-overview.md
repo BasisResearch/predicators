@@ -74,7 +74,9 @@ The figure we expect to show is the cumulative steps versus levels won curve.
   It plays through sessions, each a fresh context over its journal, with tools `env_observe`, `env_step`, `env_reset`, `env_end_run`, `skills_list`, `skills_invoke`, `skills_execute_plan`, `learn_run`, `session_end` and `run_python`.
   Every observation carries the object features, the atoms in its predicate vocabulary, and a render it can look at.
   A learning session, requested with `learn_run`, fits the belief model over every recorded episode and is free in steps.
-- Planned: a model-free agent, a primitive-only agent, and a fixed-schedule controller that reproduces the phased loop inside the protocol.
+- `agent_continual_model_free`: the model-free baseline, the same agent with the env and skill tools, the sandbox and the journal only: no belief model, no `sim`, no `run_python` and no learning session.
+  Its own code in the sandbox reads the recorded data; what it cannot read off the data it learns from the environment at the price of steps.
+- Planned: a primitive-only agent and a fixed-schedule controller that reproduces the phased loop inside the protocol.
 
 Preemption is handled: a requeued job replays the recorded actions to verify the environment state, reopens the agent's chat session by id, and books any lost progress separately from the agent's counts.
 

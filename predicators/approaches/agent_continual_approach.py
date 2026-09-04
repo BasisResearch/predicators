@@ -1,14 +1,24 @@
-"""The LLM agent arm of the continual protocol (docs/continual-protocol.md).
+"""The LLM agent arms of the continual protocol (docs/continual-protocol.md).
 
-``AgentContinualApproach`` plays one level at a time through play
-sessions: sandbox sessions of the existing SDK machinery whose tool
-surface is the protocol's env and skill tools (``agent_sdk.tools.
-continual_tools``) plus the belief probe. Between sessions the arm
-runs the learning the agent asked for (the inherited simulator
-synthesis, parameter fit and predicate invention), records the session
-in ``attempts.md``, refreshes the learning data from the recorded
-episodes, and checkpoints. A requeue resumes the interrupted session's
+``ContinualPlayBase`` plays one level at a time through play sessions:
+sandbox sessions of the existing SDK machinery whose tool surface is
+the protocol's env and skill tools (``agent_sdk.tools.continual_tools``).
+Between sessions it records the session in ``attempts.md``, refreshes
+the data from the recorded episodes, services what the session asked
+for, and checkpoints. A requeue resumes the interrupted session's
 transcript (section 6.6).
+
+Two arms share it:
+
+* ``AgentContinualApproach`` (``agent_continual``): C1's learner
+  (hybrid simulator synthesis, parameter fit, predicate invention). Its
+  sessions also get ``run_python`` with the belief probe ``sim`` and
+  ``learn_run``, which queues a learning session over every recorded
+  episode.
+* ``AgentContinualModelFreeApproach`` (``agent_continual_model_free``):
+  the model-free baseline. The same env and skill tools, sandbox and
+  journal, but no belief model, no ``sim`` and no learning session:
+  what it knows comes from the recorded data and the real environment.
 
 The harness never chooses for the agent: whether to act, reset, learn
 or end is decided inside the session; the loop here only services what
@@ -17,17 +27,19 @@ per-session wall clock and the idle-session limit.
 """
 from __future__ import annotations
 
+import abc
 import json
 import logging
 import os
 import shutil
 import time
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Set, \
+    Tuple
 
 from predicators import utils
 from predicators.agent_sdk import journal as journal_mod
 from predicators.agent_sdk.play_prompts import build_play_query, \
-    build_play_system_prompt, render_learning_status
+    build_play_system_prompt, render_data_status, render_learning_status
 from predicators.agent_sdk.session_base import AgentSessionFatalError, \
     query_fatal_error
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
@@ -55,11 +67,14 @@ def _run_ended(reason: str, note: str = "") -> Exception:
     return RunEnded(reason, note)
 
 
-class AgentContinualApproach(AgentSimPredicateInventionApproach):
-    """C1's learner (hybrid simulator, parameter fit, predicate invention)
-    playing under the continual protocol."""
+class ContinualPlayBase(AgentModelFreeApproach, abc.ABC):
+    """The play loop shared by the continual agent arms.
 
-    _save_suffix = "AgentContinual"
+    Abstract (no ``get_name``), so the approach registry skips it; the
+    arms declare their tool surface through :meth:`_continual_tool_names`
+    and their learning through :meth:`_service_learn` and
+    :meth:`_learning_status`.
+    """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -72,9 +87,24 @@ class AgentContinualApproach(AgentSimPredicateInventionApproach):
         self._episodes_at_last_learn = 0
         self._last_fit_status = ""
 
-    @classmethod
-    def get_name(cls) -> str:
-        return "agent_continual"
+    # -- The arm's declarations -------------------------------------------
+
+    @abc.abstractmethod
+    def _continual_tool_names(self) -> List[str]:
+        """The MCP tools of a play session, in prompt order."""
+
+    def _service_learn(self, session: ProtocolSession, note: str) -> None:
+        """Run the learning a session asked for; arms without a learning
+        session never get here (they offer no ``learn_run`` tool)."""
+        del session
+        logging.warning(
+            "[Continual agent] learning requested (%s) but this arm has no "
+            "learning session", note)
+
+    def _learning_status(self, session: ProtocolSession) -> str:
+        """The learning-status block of the query."""
+        n_eps, n_steps = self._episode_counts(session)
+        return render_data_status(n_episodes=n_eps, n_steps=n_steps)
 
     # -- Hooks the session machinery reads ------------------------------
 
@@ -100,7 +130,7 @@ class AgentContinualApproach(AgentSimPredicateInventionApproach):
                                         reset_cost=CFG.continual_reset_cost)
 
     def _get_solve_tool_names(self) -> Optional[List[str]]:
-        return ["run_python"] + list(CONTINUAL_TOOL_NAMES)
+        return list(self._continual_tool_names())
 
     # -- The controller contract ----------------------------------------
 
@@ -132,7 +162,7 @@ class AgentContinualApproach(AgentSimPredicateInventionApproach):
                 raise _run_ended(reason, note)
             learned = False
             if state.pending_learn is not None:
-                self._run_learn(session, state.pending_learn)
+                self._service_learn(session, state.pending_learn)
                 learned = True
             if state.pending_end_run is not None:
                 self.save(session.level_index)
@@ -151,7 +181,14 @@ class AgentContinualApproach(AgentSimPredicateInventionApproach):
         ctx = self._tool_context
         state = PlayState()
         ctx.extra_mcp_tools = build_continual_tools(
-            ctx, session, state, save_render=self._save_render)
+            ctx,
+            session,
+            state,
+            save_render=self._save_render,
+            tool_names=[
+                n for n in self._continual_tool_names()
+                if n in CONTINUAL_TOOL_NAMES
+            ])
         resume_id = self._resume_session_id()
         if resume_id is None:
             # Every session is a fresh context over the journal.
@@ -215,18 +252,10 @@ class AgentContinualApproach(AgentSimPredicateInventionApproach):
         observation = format_observation(obs,
                                          ctx,
                                          with_state=True,
-                                         render_path=render)
+                                         render_path=render,
+                                         env_names=_env_names(session))
         # The ledger is already the observation's last line; the query
         # shows it once more on its own so it cannot be missed.
-        n_eps, n_steps = self._episode_counts(session)
-        learning = render_learning_status(
-            n_learn=self._learn_runs,
-            sim_version=getattr(self, "_current_simulator_version", None),
-            pred_version=getattr(self, "_current_predicates_version", None),
-            fit_status=self._last_fit_status,
-            n_episodes=n_eps,
-            n_steps=n_steps,
-            n_new_episodes=max(0, n_eps - self._episodes_at_last_learn))
         return build_play_query(
             session_number=self._sessions_played + 1,
             resumed=resumed,
@@ -241,7 +270,7 @@ class AgentContinualApproach(AgentSimPredicateInventionApproach):
                 gt_options_ref_path=ctx.gt_options_ref_path),
             predicates=self._render_predicates(),
             types=render_types_digest(ctx.types),
-            learning=learning,
+            learning=self._learning_status(session),
             journal=journal_mod.read_journal(sandbox),
             attempts=journal_mod.read_journal(
                 sandbox, filename=journal_mod.ATTEMPTS_FILENAME),
@@ -280,63 +309,6 @@ class AgentContinualApproach(AgentSimPredicateInventionApproach):
             logging.debug("[Continual agent] render copy failed: %s", e)
             return None
         return f"./{os.path.basename(ctx.image_save_dir)}/{name}"
-
-    # -- Learning -----------------------------------------------------------
-
-    def _run_learn(self, session: ProtocolSession, note: str) -> None:
-        """Run the inherited learning over every recorded episode."""
-        self._close_agent_session()
-        trajectories = self._get_all_trajectories()
-        logging.info(
-            "[Continual agent] learning session %d requested (%s) over %d "
-            "trajectories", self._learn_runs + 1, note, len(trajectories))
-        t0 = time.time()
-        try:
-            self._learn_simulator(trajectories)
-            self._last_fit_status = self._fit_status_text()
-            outcome = "completed"
-        except AgentSessionFatalError:
-            raise
-        except Exception as e:  # pylint: disable=broad-except
-            logging.exception("[Continual agent] learning failed")
-            self._last_fit_status = f"last learning failed: {e}"
-            outcome = f"failed: {e}"
-        self._learn_runs += 1
-        n_eps, _ = self._episode_counts(session)
-        self._episodes_at_last_learn = n_eps
-        session.record_sandbox("learn_sessions", 1)
-        session.record_sandbox("fits", 1)
-        # The learner may have installed predicates: the runner's
-        # abstraction (Wait targets, divergence checks) follows.
-        self._sync_tool_context()
-        session.abstract_predicates = set(self._get_all_predicates())
-        journal_mod.append_entry(
-            self._tool_context.sandbox_dir or self._get_log_dir(),
-            f"Learning session {self._learn_runs} ({outcome}, "
-            f"{time.time() - t0:.0f} s)",
-            f"Requested with note: {note or '(none)'}. Trajectories: "
-            f"{len(trajectories)}. Simulator version: "
-            f"{getattr(self, '_current_simulator_version', None)}; "
-            f"predicates version: "
-            f"{getattr(self, '_current_predicates_version', None)}.",
-            filename=journal_mod.ATTEMPTS_FILENAME)
-        self.save(session.level_index)
-
-    def _fit_status_text(self) -> str:
-        """The last fit as one line for the prompt: the point estimate per
-        parameter and the posterior sample count, never the raw result (its
-        Jacobian dump is noise to the agent)."""
-        result = getattr(self, "_last_fit_result", None)
-        if result is None:
-            return "no fit result"
-        try:
-            estimate = dict(result.point_estimate)
-            n_samples = int(result.samples.shape[0])
-        except (AttributeError, TypeError, ValueError, IndexError):
-            return str(result)[:300]
-        params = ", ".join(f"{k}={v:.4g}" for k, v in estimate.items())
-        return (f"fitted {len(estimate)} parameter(s) from {n_samples} "
-                f"posterior sample(s): {params}")[:600]
 
     # -- Data ---------------------------------------------------------------
 
@@ -489,3 +461,114 @@ class AgentContinualApproach(AgentSimPredicateInventionApproach):
         self._episodes_at_last_learn = int(
             cont.get("episodes_at_last_learn", 0))
         self._last_fit_status = str(cont.get("last_fit_status", ""))
+
+
+def _env_names(session: ProtocolSession) -> Set[str]:
+    """The env's own predicate names, which the observation lists first."""
+    return {p.name for p in session.env_predicates}
+
+
+class AgentContinualApproach(ContinualPlayBase,
+                             AgentSimPredicateInventionApproach):
+    """C1's learner (hybrid simulator, parameter fit, predicate invention)
+    playing under the continual protocol."""
+
+    _save_suffix = "AgentContinual"
+
+    @classmethod
+    def get_name(cls) -> str:
+        return "agent_continual"
+
+    def _continual_tool_names(self) -> List[str]:
+        return ["run_python"] + list(CONTINUAL_TOOL_NAMES)
+
+    def _learning_status(self, session: ProtocolSession) -> str:
+        n_eps, n_steps = self._episode_counts(session)
+        return render_learning_status(
+            n_learn=self._learn_runs,
+            sim_version=getattr(self, "_current_simulator_version", None),
+            pred_version=getattr(self, "_current_predicates_version", None),
+            fit_status=self._last_fit_status,
+            n_episodes=n_eps,
+            n_steps=n_steps,
+            n_new_episodes=max(0, n_eps - self._episodes_at_last_learn))
+
+    def _service_learn(self, session: ProtocolSession, note: str) -> None:
+        self._run_learn(session, note)
+
+    # -- Learning -----------------------------------------------------------
+
+    def _run_learn(self, session: ProtocolSession, note: str) -> None:
+        """Run the inherited learning over every recorded episode."""
+        self._close_agent_session()
+        trajectories = self._get_all_trajectories()
+        logging.info(
+            "[Continual agent] learning session %d requested (%s) over %d "
+            "trajectories", self._learn_runs + 1, note, len(trajectories))
+        t0 = time.time()
+        try:
+            self._learn_simulator(trajectories)
+            self._last_fit_status = self._fit_status_text()
+            outcome = "completed"
+        except AgentSessionFatalError:
+            raise
+        except Exception as e:  # pylint: disable=broad-except
+            logging.exception("[Continual agent] learning failed")
+            self._last_fit_status = f"last learning failed: {e}"
+            outcome = f"failed: {e}"
+        self._learn_runs += 1
+        n_eps, _ = self._episode_counts(session)
+        self._episodes_at_last_learn = n_eps
+        session.record_sandbox("learn_sessions", 1)
+        session.record_sandbox("fits", 1)
+        # The learner may have installed predicates: the runner's
+        # abstraction (Wait targets, divergence checks) follows.
+        self._sync_tool_context()
+        session.abstract_predicates = set(self._get_all_predicates())
+        journal_mod.append_entry(
+            self._tool_context.sandbox_dir or self._get_log_dir(),
+            f"Learning session {self._learn_runs} ({outcome}, "
+            f"{time.time() - t0:.0f} s)",
+            f"Requested with note: {note or '(none)'}. Trajectories: "
+            f"{len(trajectories)}. Simulator version: "
+            f"{getattr(self, '_current_simulator_version', None)}; "
+            f"predicates version: "
+            f"{getattr(self, '_current_predicates_version', None)}.",
+            filename=journal_mod.ATTEMPTS_FILENAME)
+        self.save(session.level_index)
+
+    def _fit_status_text(self) -> str:
+        """The last fit as one line for the prompt: the point estimate per
+        parameter and the posterior sample count, never the raw result (its
+        Jacobian dump is noise to the agent)."""
+        result = getattr(self, "_last_fit_result", None)
+        if result is None:
+            return "no fit result"
+        try:
+            estimate = dict(result.point_estimate)
+            n_samples = int(result.samples.shape[0])
+        except (AttributeError, TypeError, ValueError, IndexError):
+            return str(result)[:300]
+        params = ", ".join(f"{k}={v:.4g}" for k, v in estimate.items())
+        return (f"fitted {len(estimate)} parameter(s) from {n_samples} "
+                f"posterior sample(s): {params}")[:600]
+
+
+class AgentContinualModelFreeApproach(ContinualPlayBase):
+    """The model-free baseline of the continual protocol: the env and skill
+    tools, the sandbox and the journal, and nothing else.
+
+    No belief model, no ``sim``, no ``run_python`` and no learning
+    session; the agent's own code in the sandbox reads the recorded
+    data. Run with ``agent_planner_use_simulator`` off, as the phased
+    ``agent_model_free`` arm is, so no simulator is built at all.
+    """
+
+    _save_suffix = "AgentContinualModelFree"
+
+    @classmethod
+    def get_name(cls) -> str:
+        return "agent_continual_model_free"
+
+    def _continual_tool_names(self) -> List[str]:
+        return [n for n in CONTINUAL_TOOL_NAMES if n != "learn_run"]

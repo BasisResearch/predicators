@@ -73,3 +73,18 @@ APPROACHES:
       code_sim_learning_rollout_min_posterior_width: 0.1
       continual_session_wall_clock: 2700
       continual_max_idle_sessions: 5
+  # The model-free baseline (section 6.7): the same env and skill tools,
+  # sandbox and journal, no belief model, no sim and no learning
+  # session. Flags mirror the phased agent_model_free_planning arm; no
+  # simulator is built at all.
+  agent_continual_model_free:
+    NAME: "agent_continual_model_free"
+    SKIP: True
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      agent_planner_use_simulator: False
+      agent_solve_use_journal: True
+      agent_sdk_max_agent_turns_per_iteration: 200
+      agent_sdk_image_max_px: 900
+      continual_session_wall_clock: 2700
+      continual_max_idle_sessions: 5

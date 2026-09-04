@@ -60,17 +60,35 @@ def render_tool_list(tool_names: Iterable[str]) -> str:
 def build_play_system_prompt(tool_names: Sequence[str],
                              reset_cost: int = 1) -> str:
     """The system prompt of every play session; ``reset_cost`` is the steps one
-    reset is charged (``continual_reset_cost``)."""
+    reset is charged (``continual_reset_cost``).
+
+    The tool surface selects the variant: an arm with ``run_python`` has
+    a belief model behind ``sim`` and one with ``learn_run`` can learn
+    it; the model-free arm has neither, and its prompt says so instead
+    of describing tools it does not have.
+    """
+    names = set(tool_names)
+    model = "run_python" in names
+    variant = "" if model else "_model_free"
     sections = [
-        render("play_system", "identity"),
+        render("play_system", "identity" + variant),
         render("play_system", "protocol", reset_cost=str(int(reset_cost))),
         render("play_system", "tools", tool_list=render_tool_list(tool_names)),
         render("play_system", "grammar"),
-        render("play_system", "sandbox"),
-        render("play_system", "learning"),
+        render("play_system",
+               "sandbox",
+               model_files=render("play_system",
+                                  "sandbox" + variant + "_files")),
+    ]
+    if "learn_run" in names:
+        sections.append(render("play_system", "learning"))
+    sections += [
         render("play_system", "journal"),
-        render("play_system", "session"),
-        render("play_system", "principles"),
+        render("play_system",
+               "session",
+               learn_clause=(", when you want a learning session"
+                             if "learn_run" in names else "")),
+        render("play_system", "principles" + variant),
     ]
     return "\n\n".join(sections)
 
@@ -94,6 +112,14 @@ def render_learning_status(*, n_learn: int, sim_version: Optional[str],
                   n_episodes=str(n_episodes),
                   n_steps=str(n_steps),
                   n_new=str(n_new_episodes))
+
+
+def render_data_status(*, n_episodes: int, n_steps: int) -> str:
+    """The learning-status block of an arm without a belief model."""
+    return render("play_query",
+                  "learning_model_free",
+                  n_episodes=str(n_episodes),
+                  n_steps=str(n_steps))
 
 
 def build_play_query(*, session_number: int, resumed: bool, level_number: int,
