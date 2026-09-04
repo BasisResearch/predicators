@@ -24,6 +24,7 @@ from predicators.run.controllers import OracleController, \
 from predicators.run.episode import EpisodeOver, EpisodeState
 from predicators.run.recording import LevelRecording, states_close
 from predicators.run.scorecard import RunCard
+from predicators.settings import CFG
 from predicators.structs import Action
 
 
@@ -51,6 +52,10 @@ def _config(tmp_path: Any, approach: str, **overrides: Any) -> None:
         200,
         "continual_render":
         False,
+        # Unit price so the counts below stay exact; the default price
+        # has its own test.
+        "continual_reset_cost":
+        1,
         "continual_scorecards_dir":
         os.path.join(str(tmp_path), "cards"),
         "continual_recordings_dir":
@@ -81,7 +86,8 @@ def _check_card_invariants(run: ContinualRun) -> None:
     on_disk = RunCard.load(run.card_path)
     assert on_disk.to_dict()["levels"] == card.to_dict()["levels"]
     for lv in card.levels:
-        assert lv.steps == sum(ep.steps for ep in lv.episodes) + lv.resets
+        assert lv.steps == sum(ep.steps for ep in lv.episodes) + \
+            lv.resets * CFG.continual_reset_cost
         if not lv.attempted:
             continue
         rec = LevelRecording(
@@ -444,6 +450,45 @@ def test_test_levels_have_no_resets_by_default(tmp_path: Any) -> None:
     assert card.end_reason == "all_levels_won"
     assert [lv.resets for lv in card.levels] == [0, 1, 1]
     assert not any(lv.lost for lv in card.levels)
+
+
+def test_reset_is_charged_its_price(tmp_path: Any) -> None:
+    """A reset is charged ``continual_reset_cost`` steps (1000 by default), the
+    ledger names the price, and the charge counts toward the cap."""
+    _config(tmp_path, "oracle", horizon=3, continual_steps_per_level=1500)
+    assert CFG.continual_reset_cost == 1
+    utils.update_config({"continual_reset_cost": 1000})
+    env, approach = _make("oracle")
+    seen: Dict[str, Any] = {}
+    zero = Action(np.zeros(env.action_space.shape, dtype=np.float32))
+
+    class _Probe:
+
+        def play_level(self, session: ProtocolSession) -> None:
+            """Exhaust the horizon, reset once, then let the oracle win."""
+            if session.level_index > 0:
+                OracleController(approach).play_level(session)
+                return
+            obs = session.observe()
+            assert "(1000 steps each)" in obs.ledger.footer()
+            assert obs.ledger.reset_cost == 1000
+            for _ in range(3):
+                session.step(zero)
+            obs = session.reset("expensive")
+            lv = session.level_card()
+            assert lv.steps == 1003 and lv.resets == 1
+            assert obs.ledger.level_steps == 1003
+            assert obs.ledger.steps_remaining == 4500 - 1003
+            OracleController(approach).play_level(session)
+            seen["ok"] = True
+
+    run = ContinualRun(env, approach, _Probe())
+    card = run.run()
+    assert seen["ok"] and card.end_reason == "all_levels_won"
+    lv = card.levels[0]
+    assert lv.won and lv.resets == 1 and lv.steps_before_first_win == lv.steps
+    assert lv.steps == 1003 + sum(ep.steps for ep in lv.episodes[1:])
+    _check_card_invariants(run)
 
 
 def test_controllers_stop_at_a_lost_test_level(tmp_path: Any) -> None:

@@ -9,7 +9,7 @@ The full design, with the reasoning behind each choice, is `docs/continual-proto
 The paper's main table moves from the phased explore, learn, test loop to a continual protocol modelled on ARC-AGI-3.
 An agent is dropped into one environment and plays its tasks in order, as levels, in one continuous run.
 The protocol charges for exactly one thing: a low-level environment step.
-A reset costs one step and is counted separately.
+A reset is charged `continual_reset_cost` steps (1000 by default) and is counted separately.
 Everything the agent does off-line is free: rollouts in its learned model, parameter fits, predicate and operator synthesis, code, and its own reasoning.
 Each run produces a scorecard of base metrics: levels won, steps and resets per level, and the steps before the first win.
 We record everything and choose how to aggregate later.
@@ -35,7 +35,7 @@ There is no train and test split any more; every level is recorded.
 
 Actions.
 The unit of account is one `env.step` call.
-A reset counts as one step and as one reset.
+A reset is charged `continual_reset_cost` steps (1000 by default, so a reset is a last resort) and counted as one reset.
 Skills (`Pick`, `Place`, `Push`, `Wait`, `MoveTo` and the rest of the option library) are not part of the protocol.
 They are an agent-side library that runs `env.step` until the controller terminates, and their steps are charged like any other.
 Our agent is offered the library; some baselines get only the primitive action space.
@@ -125,8 +125,8 @@ python scripts/aggregate_scorecards.py
 ## Open questions
 
 1. Aggregation: which number goes in the table (levels won, steps before the first win, the curve, a reset-weighted cost).
-2. Cost pressure: a reset costs one step, observation is free, and a failed skill costs only its steps, so on boil probing the real environment was cheaper than learning a model.
-   Options are a higher reset price, tighter caps derived from the oracle's step counts, a prompt that asks for a model before extended probing, or leaving the choice to the agent and reporting the steps.
+2. Cost pressure: in the first runs a reset cost one step, observation is free, and a failed skill costs only its steps, so on boil probing the real environment was cheaper than learning a model.
+   The reset price was raised to 1000 steps on 2026-09-04 (`continual_reset_cost`); tighter caps derived from the oracle's step counts remain an option.
 3. Level lists: every environment currently has one train and one test level; the paper needs the full lists.
 4. The remaining arms and the four other environments.
 5. The transcripts carry the agent's text but not its thinking blocks; the viewer shows thinking when the SDK returns it.

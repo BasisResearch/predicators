@@ -351,11 +351,12 @@ def build_continual_tools(
 
     @tool(
         "env_reset",
-        "Restart the current level from its initial state. Counts one "
-        "step and one reset. The only valid action after GAME_OVER on a "
-        "level with resets; on a level the observation marks 'no resets' "
-        "(test levels by default) it is refused and GAME_OVER ends the "
-        "level.", {
+        "Restart the current level from its initial state. Charged the "
+        "reset price in steps (the ledger names it; far more than a "
+        "primitive step) and one reset. The only valid action after "
+        "GAME_OVER on a level with resets; on a level the observation "
+        "marks 'no resets' (test levels by default) it is refused and "
+        "GAME_OVER ends the level.", {
             "type": "object",
             "properties": {
                 "note": {

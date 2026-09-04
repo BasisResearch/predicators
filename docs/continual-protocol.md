@@ -73,7 +73,8 @@ The "test tasks are eval-only" rule of the phased loop does not apply.
 
 The protocol's only primitive is the low-level env action: one `env.step(action)` call, one env step.
 The unit of account is the low-level step.
-`env.reset()` is counted as one step and separately as one reset.
+`env.reset()` is charged `continual_reset_cost` steps (1000 by default, far above a primitive step, so that a reset is a last resort) and separately counted as one reset.
+The ledger, the tool descriptions and the play prompt name the price.
 
 Skills are not part of the protocol.
 We use the vocabulary of Kaelbling and Lozano-Pérez, "Rationally Engineering Rational Robots" (2025), section 1.4.2:
@@ -120,7 +121,7 @@ Per level, for one run:
 
 - `won`: whether the level was won, and the step index at which it was won.
 - `lost`: the level ended in `GAME_OVER` with no reset available; it can no longer be won.
-- `steps`: low-level env steps on the level, including reset steps.
+- `steps`: low-level env steps on the level, including the reset charges.
 - `resets`: agent-initiated resets on the level.
 - `skill_invocations`: calls to skill controllers, with how many terminated in failure, for arms that use the library.
 - `game_overs`: episodes that ended in `GAME_OVER`, with the reason for each (`horizon`, `env_failure`, `rejected`, `irrecoverable`).
@@ -203,7 +204,7 @@ The protocol namespace, offered to every arm:
 
 - `env.observe()`: the current observation. Free.
 - `env.step(action)`: one low-level action. One step.
-- `env.reset(note=None)`: restart the current level. One step plus one reset.
+- `env.reset(note=None)`: restart the current level. `continual_reset_cost` steps plus one reset.
   Refused on a level without resets (`ResetUnavailable`); nothing is charged then.
 - `env.end_run(note)`: end the run for this env.
 
@@ -256,7 +257,7 @@ Levels are the same env family, so a learned model transfers directly and only t
 
 ### 5.4 Prompt
 
-One system prompt states the rules: what a step is, that a reset is a step and is counted separately, that the sandbox is free, what is recorded, and the loop.
+One system prompt states the rules: what a step is, what a reset costs and that it is counted separately, that the sandbox is free, what is recorded, and the loop.
 One per-session query carries the observation, the ledger, and the journal.
 The ARC template's objective sentence is the model: "Your objective is to WIN and avoid GAME_OVER while minimizing actions."
 The agent decides when a belief-model rollout is worth more than a real step.

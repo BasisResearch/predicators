@@ -20,8 +20,9 @@ steps as possible.
   one, and you cannot return to an earlier level.
 - The only primitive is one low-level environment step. Every step you
   cause is counted against a pooled cap for the whole run. A skill
-  invocation counts the steps the skill took. `env_reset` counts one
-  step and is counted separately as a reset.
+  invocation counts the steps the skill took. `env_reset` is charged
+  __RESET_COST__ steps and is counted separately as a reset: a reset is
+  a last resort, not a retry button.
 - Nothing in the sandbox is counted: model rollouts, fits, synthesis,
   code, reading data, and your own reasoning are free. The only limit on
   sandbox work is wall-clock time.

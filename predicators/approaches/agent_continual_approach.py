@@ -96,7 +96,8 @@ class AgentContinualApproach(AgentSimPredicateInventionApproach):
     def _get_agent_system_prompt(self) -> str:
         if self._learning_mode:
             return super()._get_agent_system_prompt()
-        return build_play_system_prompt(self._get_solve_tool_names() or [])
+        return build_play_system_prompt(self._get_solve_tool_names() or [],
+                                        reset_cost=CFG.continual_reset_cost)
 
     def _get_solve_tool_names(self) -> Optional[List[str]]:
         return ["run_python"] + list(CONTINUAL_TOOL_NAMES)

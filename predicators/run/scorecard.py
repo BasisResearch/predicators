@@ -54,7 +54,8 @@ class LevelCard:
     # The level ended in GAME_OVER with no reset available (a test level
     # unless continual_allow_test_resets): it can no longer be won.
     lost: bool = False
-    # Low-level env steps charged on the level, including reset steps.
+    # Low-level env steps charged on the level, including the reset
+    # charges (continual_reset_cost steps per agent reset).
     steps: int = 0
     resets: int = 0
     skill_invocations: int = 0

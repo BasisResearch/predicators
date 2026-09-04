@@ -53,6 +53,8 @@ def _setup(tmp_path: Any, **overrides: Any) -> Any:
         100,
         "continual_render":
         False,
+        "continual_reset_cost":
+        1,
         "continual_scorecards_dir":
         os.path.join(str(tmp_path), "cards"),
         "continual_recordings_dir":
@@ -284,9 +286,11 @@ def test_parse_plan_lines_and_formatting(tmp_path: Any) -> None:
     except ValueError as e:
         assert "no skill line" in str(e)
 
-    system = build_play_system_prompt(["run_python"] + CONTINUAL_TOOL_NAMES)
+    system = build_play_system_prompt(["run_python"] + CONTINUAL_TOOL_NAMES,
+                                      reset_cost=1000)
     for name in CONTINUAL_TOOL_NAMES:
         assert f"`{name}`" in system
+    assert "charged\n  1000 steps" in system or "charged 1000 steps" in system
     assert "Skill grammar" in system and "./test_images/" in system
     none = render_learning_status(n_learn=0,
                                   sim_version=None,

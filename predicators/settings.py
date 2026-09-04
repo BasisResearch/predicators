@@ -71,6 +71,10 @@ class GlobalSettings:
     # and, under the no-skipping rule, the run. Train levels always
     # allow resets.
     continual_allow_test_resets = False
+    # Steps charged for one agent reset (4.2). A reset is priced far
+    # above a primitive step so that it is a last resort, not a retry
+    # button; the ledger, the tools and the play prompt name the price.
+    continual_reset_cost = 1000
     # Pooled step cap per run: this many low-level steps per level,
     # summed over the run's levels (4.8). A guard, not a scoring term.
     continual_steps_per_level = 5000

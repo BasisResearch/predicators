@@ -20,8 +20,9 @@ TOOL_BLURBS = {
     "env_step":
     "one primitive action (a low-level action vector). One step.",
     "env_reset":
-    "restart the current level from its initial state. One step and "
-    "one reset. The only valid action after GAME_OVER.",
+    "restart the current level from its initial state. Charged the "
+    "reset price in steps and one reset. The only valid action after "
+    "GAME_OVER on a level with resets.",
     "env_end_run":
     "end the run for this environment (takes effect when the session "
     "ends). Forfeits every remaining level; a last resort.",
@@ -56,11 +57,13 @@ def render_tool_list(tool_names: Iterable[str]) -> str:
     return "\n".join(lines)
 
 
-def build_play_system_prompt(tool_names: Sequence[str]) -> str:
-    """The system prompt of every play session."""
+def build_play_system_prompt(tool_names: Sequence[str],
+                             reset_cost: int = 1) -> str:
+    """The system prompt of every play session; ``reset_cost`` is the steps one
+    reset is charged (``continual_reset_cost``)."""
     sections = [
         render("play_system", "identity"),
-        render("play_system", "protocol"),
+        render("play_system", "protocol", reset_cost=str(int(reset_cost))),
         render("play_system", "tools", tool_list=render_tool_list(tool_names)),
         render("play_system", "grammar"),
         render("play_system", "sandbox"),
