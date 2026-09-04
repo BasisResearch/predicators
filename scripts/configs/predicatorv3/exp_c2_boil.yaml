@@ -1,0 +1,20 @@
+# C2 (model-free planning agent) smoke run: boil, 1 seed, 1 test task.
+# Usage: python scripts/engaging/launch.py -c predicatorv3/exp_c2_boil.yaml --partition mit_preemptable
+# Tests after every learning cycle (common.yaml default); no pre-loop
+# test because C2 has no simulator to plan against. If this run completes
+# without harness errors, exp_c2_rest.yaml launches the other four envs.
+---
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ENVS:
+  boil:
+    SKIP: False
+APPROACHES:
+  agent_model_free_planning:
+    SKIP: False
+    FLAGS:
+      skip_initial_test: True
+    ARGS:
+      - auto_resume
