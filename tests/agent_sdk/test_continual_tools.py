@@ -267,6 +267,7 @@ def test_parse_plan_lines_and_formatting(tmp_path: Any) -> None:
                              handoff="")
     assert "first session of the run" in query
     assert "(empty: no journal yet)" in query and "(none)" in query
+    assert "not expressible" not in query
     query2 = build_play_query(session_number=3,
                               resumed=True,
                               level_number=2,
@@ -284,6 +285,7 @@ def test_parse_plan_lines_and_formatting(tmp_path: Any) -> None:
                               handoff="h")
     assert "interrupted by a compute preemption" in query2
     assert "do it" in query2 and "\nj\n" in query2
+    assert "not expressible in your predicates" in query2
 
     # format_observation on a live session.
     driver = _Driver()

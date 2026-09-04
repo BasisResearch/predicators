@@ -114,7 +114,9 @@ def build_play_query(*, session_number: int, resumed: bool, level_number: int,
         level_number=str(level_number),
         levels_total=str(levels_total),
         goal_nl=goal_nl or "(no description given; the atoms are the goal)",
-        goal_atoms=", ".join(goal_atoms) if goal_atoms else "(none)",
+        goal_atoms=", ".join(goal_atoms) if goal_atoms else
+        "(not expressible in your predicates; the goal description above "
+        "is the goal)",
         ledger=ledger,
         observation=observation,
         skills=skills,
