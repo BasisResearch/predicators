@@ -119,8 +119,8 @@ def _oracle_plan_lines(approach: Any, task: Any) -> List[str]:
 
 
 def test_replay_pairs_frames_with_reasoning(tmp_path: Any) -> None:
-    """A real cover run driven through the tools, with a transcript of the
-    same calls: the replay pairs each invocation with its call and text."""
+    """A real cover run driven through the tools, with a transcript of the same
+    calls: the replay pairs each invocation with its call and text."""
     utils.reset_config({
         "env":
         "cover",
@@ -234,20 +234,22 @@ def test_replay_pairs_frames_with_reasoning(tmp_path: Any) -> None:
     assert all(f["render"] for f in frames if f["event"] != "resume")
     assert any(f["marker"] for f in frames)
 
-    html = viewer.replay_page(run_id, 0)
+    html = viewer.fragment(run_id, "L1")
     assert html is not None
-    assert "window.FRAMES" in html and "Agent reasoning" in html
+    assert "id='replay-data'" in html and "Agent reasoning" in html
     assert "Download JSON" in html and "filmstrip" in html
+    assert "REPLAY.go(0)" in html and "<script>" not in html.split(
+        "id='replay-data'")[1]
     data = viewer.replay_json(run_id, 0)
     assert data is not None
     assert json.loads(data.decode("utf-8"))[0]["event"] == "level_start"
-    assert viewer.replay_page(run_id, 7) is None
+    assert viewer.fragment(run_id, "L8") is None
     assert viewer.replay_json("nope", 0) is None
 
-    session = viewer.session_page(run_id, "001_play_20200101_000000.md")
+    session = viewer.fragment(run_id, "session/001_play_20200101_000000.md")
     assert session is not None
     assert "Start clean." in session and "class='think'" in session
     assert "skills_execute_plan" in session and "id='turn-2'" in session
     assert "Now the plan." in session
-    level = viewer.level_page(run_id, 0)
-    assert level is not None and "/L1/replay" in level
+    level = viewer.fragment(run_id, "L1/events")
+    assert level is not None and "href='#L1'" in level

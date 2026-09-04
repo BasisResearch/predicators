@@ -13,23 +13,26 @@ Stdlib-only browser over the two on-disk products of a run:
 
 Pages:
 
-* ``/``: every run, grouped by env then arm: levels won, steps, resets,
-  invocations, active and queue time, LLM cost, liveness.
-* ``/run/<run_id>``: the run's metadata, the cumulative steps-versus-
-  levels-won curve, and one row per level with the section 4.4 metrics
-  and its episodes.
-* ``/run/<run_id>/L<k>``: the level's timeline: one row per index event
-  with the skill, its parameters, status, steps, episode state, the
-  agent's expected outcome and what was missing, the note, the atoms
-  that changed since the previous event, and the render.
-* ``/run/<run_id>/L<k>/replay``: the level as a replay, after the
-  ARC-AGI-3 replay viewer: one frame per recorded event with the render,
-  the action, the agent's thinking and text that led to it, the tool
-  call and its result, and the atoms that changed; keyboard playback
-  (frame, ±10, marker, home/end, play/pause, jump) and a JSON export.
-* ``/run/<run_id>/session/<name>``: one session transcript as a
-  structured conversation: thinking, assistant text, tool calls with
-  their results, renders inline.
+* ``/``: every run, one table per (agent, env) pair nested under
+  agent-name or env-name headers (a toggle, as in the phased log
+  viewer) with a filter box: levels won, steps, resets, invocations,
+  active and queue time, LLM cost, liveness.
+* ``/run/<run_id>``: the run as a sidebar plus a content pane that the
+  hash route fills. ``#overview``: metadata, the cumulative steps-
+  versus-levels-won curve, one row per level with the section 4.4
+  metrics and its episodes. ``#L<k>``: the level as a replay, after the
+  ARC-AGI-3 replay viewer: one frame per recorded event with the
+  render, the action, the agent's thinking and text that led to it, the
+  tool call and its result, and the atoms that changed; keyboard
+  playback (frame, ±10, marker, home/end, play/pause, jump) and a JSON
+  export. ``#L<k>/events``: the level's timeline, one row per index
+  event. ``#session/<name>``: one transcript as a structured
+  conversation: thinking, assistant text, tool calls with their
+  results, renders inline. ``#f=<path>``: any file of the recording
+  (the system prompt, the sandbox's journal, attempts and data, a
+  level's index and actions) or a directory as a listing with an image
+  gallery.
+* ``/run/<run_id>/L<k>/replay.json``: the replay frames.
 
 Usage:
     python scripts/continual_viewer.py [--scorecards scorecards] \\
@@ -218,15 +221,6 @@ def read_agent_file(run_id: str, rel: str) -> Optional[str]:
         return f.read()
 
 
-def read_agent_text(run_id: str, rel: str) -> Optional[str]:
-    """A text file under the agent dir (journal, attempts, a session log),
-    tail-truncated to ``MAX_TEXT_CHARS`` for display."""
-    text = read_agent_file(run_id, rel)
-    if text is not None and len(text) > MAX_TEXT_CHARS:
-        text = "[... earlier content truncated ...]\n" + text[-MAX_TEXT_CHARS:]
-    return text
-
-
 def liveness(card: Dict[str, Any]) -> Tuple[str, str]:
     """(label, css class) for a card's state."""
     if card.get("end_reason"):
@@ -388,9 +382,49 @@ blockquote.think { margin: 6px 0; padding: 6px 10px; border-left: 3px solid
   background: var(--code-bg); border-radius: 4px; padding: 6px 8px;
   max-height: 50vh; overflow: auto; font-size: 12px; }
 .result.err { border-left: 3px solid var(--bad); }
+/* index: filter, group toggle, collapsible groups */
+.topbar input { flex: 1; max-width: 360px; padding: 3px 10px; border: 1px
+  solid var(--border); border-radius: 6px; background: var(--bg);
+  color: var(--fg); font: inherit; }
+.topbar button { padding: 3px 10px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--bg); color: var(--fg); font: inherit;
+  cursor: pointer; white-space: nowrap; }
+details.grp { border: 1px solid var(--border); border-radius: 6px;
+  margin: 10px 0; }
+details.grp > summary { cursor: pointer; padding: 6px 12px; color: var(--fg);
+  font-weight: 600; }
+details.grp[open] > summary { border-bottom: 1px solid var(--border); }
+details.grp.family > summary { font-size: 15px; }
+details.grp > *:not(summary) { margin: 8px 12px; }
+details.grp > table { width: calc(100% - 24px); }
+details.grp.hidden, tr.hidden { display: none; }
+html:not([data-group='env']) .lbl.agent { display: none; }
+html[data-group='env'] .lbl.env { display: none; }
+/* run page: sidebar + content pane */
+.run { display: flex; height: calc(100vh - 45px); }
+.sidebar { flex: 0 0 300px; overflow: auto; border-right: 1px solid
+  var(--border); padding: 10px 12px; font-size: 13px;
+  background: var(--panel); }
+.sidebar h4 { margin: 14px 0 4px; font-size: 11px; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--muted); }
+.sidebar .runhead { font-weight: 600; word-break: break-all; }
+.sidebar .nav a { display: block; padding: 2px 6px; border-radius: 4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar .nav a.active { background: var(--bg); font-weight: 600; }
+.sidebar .nav a.sub { display: inline; padding: 0 4px; font-size: 12px; }
+.sidebar .lvl { display: flex; align-items: center; }
+.sidebar .lvl a:first-child { flex: 1; }
+.sidebar details { margin-left: 10px; }
+.sidebar details > summary { color: var(--fg); padding: 2px 0;
+  white-space: nowrap; }
+.sidebar details > a { margin-left: 14px; }
+#content { flex: 1; min-width: 0; overflow: auto; padding: 16px 24px; }
+#content th { top: 0; }
+#content .stage { top: 0; }
+.gallery { display: flex; flex-wrap: wrap; gap: 6px; }
 """
 
-JS = """
+JS = r"""
 function zoom(img) { img.classList.toggle('big'); }
 function applyFilters() {
   var boxes = document.querySelectorAll('.filters input[type=checkbox]');
@@ -400,19 +434,335 @@ function applyFilters() {
     tr.style.display = on[tr.dataset.event] === false ? 'none' : '';
   });
 }
+function $all(s, r) { return Array.from((r || document).querySelectorAll(s)); }
+// Index page: the (agent, env) leaf tables nest under agent headers
+// (agent > env) or env headers (env > agent). The server renders each
+// leaf once, inside the agent view, plus an empty header per env; this
+// moves the leaves into the headers of the chosen view, sorted by the
+// inner level's name. The mode and each group's open state are the
+// user's, kept in localStorage so the auto-refresh reloads keep them.
+function groupKey(d) { return 'cv-grp:' + d.dataset.key; }
+function restoreGroups() {
+  $all('details.grp').forEach(function (d) {
+    var v = localStorage.getItem(groupKey(d));
+    if (v !== null) d.open = v === '1';
+  });
+}
+document.addEventListener('toggle', function (e) {
+  var d = e.target;
+  if (d.classList && d.classList.contains('grp'))
+    localStorage.setItem(groupKey(d), d.open ? '1' : '0');
+}, true);
+function setAllGroups(open) {
+  $all('details.grp').forEach(function (d) {
+    d.open = open;
+    localStorage.setItem(groupKey(d), open ? '1' : '0');
+  });
+}
+function groupMode() {
+  return localStorage.getItem('cv-group') === 'env' ? 'env' : 'agent';
+}
+function toggleGroupMode() {
+  localStorage.setItem('cv-group', groupMode() === 'env' ? 'agent' : 'env');
+  applyGroupMode();
+}
+function applyGroupMode() {
+  var btn = document.getElementById('groupbtn');
+  if (!btn) return;
+  var mode = groupMode();
+  var inner = mode === 'env' ? 'agent' : 'env';
+  document.documentElement.dataset.group = mode;
+  btn.textContent = mode === 'env' ? 'group: env › agent'
+                                   : 'group: agent › env';
+  var hosts = {};
+  $all('details.grp.family').forEach(function (d) {
+    hosts[d.dataset.kind + ':' + d.dataset.name] = d;
+  });
+  var leaves = $all('details.grp.exp');
+  leaves.sort(function (a, b) {
+    return a.dataset[inner] < b.dataset[inner] ? -1
+         : a.dataset[inner] > b.dataset[inner] ? 1 : 0;
+  });
+  leaves.forEach(function (l) {
+    hosts[mode + ':' + l.dataset[mode]].appendChild(l);
+  });
+  document.getElementById('view-agent').style.display =
+    mode === 'env' ? 'none' : '';
+  document.getElementById('view-env').style.display =
+    mode === 'env' ? '' : 'none';
+}
+// The filter matches every word against a row's run id, config, arm,
+// env, seed and state; groups with no visible row hide too. Per tab.
+function filterRuns(text) {
+  sessionStorage.setItem('cv-filter', text);
+  applyRunFilter();
+}
+function applyRunFilter() {
+  var box = document.getElementById('runfilter');
+  if (!box) return;
+  var text = sessionStorage.getItem('cv-filter') || '';
+  box.value = text;
+  var words = text.toLowerCase().split(/\s+/).filter(Boolean);
+  $all('tr[data-text]').forEach(function (tr) {
+    var hay = tr.dataset.text.toLowerCase();
+    tr.classList.toggle('hidden', !words.every(function (w) {
+      return hay.indexOf(w) >= 0;
+    }));
+  });
+  $all('details.grp.exp').forEach(function (d) {
+    d.classList.toggle('hidden', !$all('tr[data-text]', d).some(
+      function (tr) { return !tr.classList.contains('hidden'); }));
+  });
+  $all('details.grp.family').forEach(function (d) {
+    d.classList.toggle('hidden', !$all('details.grp.exp', d).some(
+      function (x) { return !x.classList.contains('hidden'); }));
+  });
+}
+document.addEventListener('DOMContentLoaded', function () {
+  restoreGroups();
+  applyGroupMode();
+  applyRunFilter();
+});
+
+// Run page: hash routing into the content pane. The route is the hash
+// without its trailing frame or turn locator: overview, L<k> (replay),
+// L<k>/events, session/<name>, f=<path>. A same-route hash change only
+// moves within the loaded content; the replay updates the frame
+// locator with replaceState, which fires no hashchange.
+var LOADED = null;
+function currentHash() { return decodeURIComponent(location.hash.slice(1)); }
+function routeOf(h) {
+  return h.replace(/\/frame=\d+$/, '').replace(/\/turn-\d+$/, '');
+}
+function loadHash() {
+  var content = document.getElementById('content');
+  if (!content) return;
+  var h = currentHash();
+  if (!h) {
+    h = content.dataset.default || 'overview';
+    history.replaceState(null, '', '#' + h);
+  }
+  var route = routeOf(h);
+  if (route === LOADED) { jumpWithin(h); markNav(route); return; }
+  var url = '/run/' + encodeURIComponent(content.dataset.run) + '/frag/' +
+    route.split('/').map(encodeURIComponent).join('/');
+  content.innerHTML = '<p class="muted">Loading…</p>';
+  fetch(url).then(function (r) { return r.text(); }).then(function (html) {
+    if (routeOf(currentHash()) !== route) return;  // superseded
+    LOADED = route;
+    stopReplay();
+    content.innerHTML = html;
+    var root = content.querySelector('.replay-root');
+    if (root) initReplay(root, route + '/');
+    markNav(route);
+    restoreScroll(content);
+    jumpWithin(h);
+  });
+}
+function jumpWithin(h) {
+  var t = /turn-(\d+)$/.exec(h);
+  if (t) {
+    var el = document.getElementById('turn-' + t[1]);
+    if (el) el.scrollIntoView();
+  }
+  var m = /frame=(\d+)$/.exec(h);
+  if (m && REPLAY) REPLAY.go(Number(m[1]));
+}
+function markNav(route) {
+  $all('.sidebar a[href]').forEach(function (a) {
+    a.classList.toggle('active', a.getAttribute('href') === '#' + route);
+  });
+}
+// The pane's scroll position survives the auto-refresh reloads (the
+// pane is an inner div, so native scroll restoration does not cover it).
+function scrollKey() {
+  return 'cv-scroll:' + location.pathname + '#' + routeOf(currentHash());
+}
+function saveScroll() {
+  var c = document.getElementById('content');
+  if (!c) return;
+  try { sessionStorage.setItem(scrollKey(), String(c.scrollTop)); }
+  catch (e) {}
+}
+function restoreScroll(c) {
+  var v = null;
+  try { v = sessionStorage.getItem(scrollKey()); } catch (e) {}
+  c.scrollTop = v ? Number(v) : 0;
+}
+window.addEventListener('hashchange', loadHash);
+window.addEventListener('beforeunload', saveScroll);
+document.addEventListener('DOMContentLoaded', loadHash);
+
+// Replay player: one per pane at a time, built from the fragment's
+// frames JSON; the keyboard handler below drives whichever is active.
+var REPLAY = null;
+function stopReplay() { if (REPLAY) REPLAY.stop(); REPLAY = null; }
+function initReplay(root, prefix) {
+  var F = JSON.parse(root.querySelector('#replay-data').textContent);
+  var N = F.length, cur = 0, timer = null, speed = 1;
+  function el(id) { return root.querySelector('#' + id); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g,
+    function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',
+    "'":'&#39;'}[c]; }); }
+  function chip(t, cls) { return "<span class='chip " + (cls||'') + "'>" +
+    esc(t) + "</span>"; }
+  function stateCls(st) { return st === 'WIN' ? 'ok' : st === 'GAME_OVER' ?
+    'bad' : ''; }
+  function statusCls(st) { return st === 'succeeded' ? 'ok' : st === 'failed'
+    ? 'bad' : st === 'interrupted' ? 'warn' : ''; }
+  function atomsDiff(prev, curA) {
+    if (!curA) return "<span class='muted'>no atoms recorded</span>";
+    var p = new Set(prev || []), c = new Set(curA), out = [];
+    curA.forEach(function (a) { if (!p.has(a)) out.push(
+      "<span class='add'>+" + esc(a) + "</span>"); });
+    (prev || []).forEach(function (a) { if (!c.has(a)) out.push(
+      "<span class='del'>" + esc(a) + "</span>"); });
+    var same = curA.filter(function (a) { return p.has(a); });
+    return (out.length ? out.join(' ') + '<br>' : '') +
+      "<span class='muted'>" + esc(same.join(', ')) + "</span>";
+  }
+  function render() {
+    var f = F[cur];
+    el('counter').textContent = (cur + 1) + ' / ' + N;
+    el('evt').innerHTML = chip(f.event,
+      f.event === 'win' ? 'ok' : f.event === 'game_over' ? 'bad' : '');
+    el('state').innerHTML = f.state ? chip(f.state, stateCls(f.state)) : '';
+    el('steps').textContent = 'episode ' +
+      (f.episode == null ? '?' : f.episode) + ' · level steps ' +
+      (f.level_steps == null ? '?' : f.level_steps) + ' · run steps ' +
+      (f.run_steps == null ? '?' : f.run_steps);
+    var img = el('frame'), nof = el('noframe');
+    if (f.render) { img.src = f.render; img.style.display = ''; nof.style.display
+      = 'none'; } else { img.style.display = 'none'; nof.style.display = ''; }
+    el('scrub').value = cur;
+    // action panel
+    var a = [];
+    if (f.skill) a.push('<div><code>' + esc(f.skill) + '[' +
+      (f.params || []).map(function (p) { return Number(p).toPrecision(4); })
+      .join(', ') + ']</code> ' + (f.status ? chip(f.status,
+      statusCls(f.status)) : '') + (f.steps != null ? ' <span class="muted">'
+      + f.steps + ' steps</span>' : '') + '</div>');
+    if (f.reason) a.push('<div class="muted">' + esc(f.reason) + '</div>');
+    if (f.event === 'reset') a.push('<div>reset by ' + esc(f.by) + '</div>');
+    if (f.event === 'resume') a.push('<div>resume: replayed ' +
+      esc(f.replayed_steps) + ' steps, verified ' + esc(f.verified) + '</div>');
+    if (f.event === 'level_start') a.push('<div>goal: ' +
+      esc((f.goal || []).join(', ')) + '</div><div class="muted">' +
+      esc(f.goal_nl) + '</div>');
+    if (f.note) a.push('<div><b>note:</b> ' + esc(f.note) + '</div>');
+    if ((f.expected || []).length || (f.expected_absent || []).length) {
+      a.push('<div><b>expected:</b> ' + esc((f.expected || []).join(', ')) +
+        ((f.expected_absent || []).length ? ' NOT ' +
+        esc(f.expected_absent.join(', NOT ')) : '') + '</div>');
+      if ((f.missing || []).length || (f.present || []).length)
+        a.push('<div class="del">DIVERGED: missing ' +
+          esc((f.missing || []).join(', ')) + (f.present && f.present.length ?
+          '; present ' + esc(f.present.join(', ')) : '') + '</div>');
+      else a.push('<div class="add">expected outcome held</div>');
+    }
+    if (f.session != null) a.push('<div class="muted">session ' + f.session +
+      ', turn ' + f.turn + ' · <a href="#session/' +
+      encodeURIComponent(f.session_name) + '/turn-' + f.turn +
+      '">transcript</a></div>');
+    el('action').innerHTML = a.join('') ||
+      '<span class="muted">harness event</span>';
+    // reasoning panel
+    var r = [];
+    (f.thinking || []).forEach(function (t) { r.push(
+      '<blockquote class="think">' + esc(t) + '</blockquote>'); });
+    (f.texts || []).forEach(function (t) { r.push('<div class="say">' +
+      esc(t) + '</div>'); });
+    el('reasoning').innerHTML = r.join('') ||
+      '<span class="muted">no agent text paired with this frame</span>';
+    // call panel
+    var c = '';
+    if (f.call) {
+      c += '<div><span class="name">' + esc(f.call.name) + '</span></div>';
+      c += '<pre>' + esc(JSON.stringify(f.call.args, null, 2)) + '</pre>';
+      if (f.call.result) c += '<details' + (f.call.result.length < 900 ?
+        ' open' : '') + '><summary>result' + (f.call.is_error ? ' (error)' :
+        '') + '</summary><pre>' + esc(f.call.result) + '</pre></details>';
+    }
+    el('call').innerHTML = c || '<span class="muted">none</span>';
+    // atoms panel
+    var prev = null;
+    for (var j = cur - 1; j >= 0; j--) { if (F[j].atoms) { prev = F[j].atoms;
+      break; } }
+    var at = '<div class="atoms">' + atomsDiff(prev, f.atoms) + '</div>';
+    if (f.env_atoms) at += '<details><summary>env atoms (' +
+      f.env_atoms.length + ')</summary><div class="atoms muted">' +
+      esc(f.env_atoms.join(', ')) + '</div></details>';
+    el('atoms').innerHTML = at;
+    // filmstrip
+    var cells = root.querySelectorAll('.filmstrip .cell');
+    cells.forEach(function (x, i) { x.classList.toggle('cur', i === cur); });
+    if (cells[cur]) cells[cur].scrollIntoView({inline: 'center', block:
+      'nearest'});
+    history.replaceState(null, '', '#' + prefix + 'frame=' + cur);
+  }
+  function go(i) { cur = Math.max(0, Math.min(N - 1, i)); render(); }
+  function step(d) { go(cur + d); }
+  function marker(d) {
+    var i = cur + d;
+    while (i >= 0 && i < N && !F[i].marker) i += d;
+    if (i >= 0 && i < N) go(i);
+  }
+  function stop() {
+    if (!timer) return;
+    clearInterval(timer); timer = null;
+    el('play').textContent = '▶ play';
+  }
+  function toggle() {
+    if (timer) { stop(); return; }
+    el('play').textContent = '⏸ pause';
+    timer = setInterval(function () { if (cur >= N - 1) { stop(); return; }
+      step(1); }, 900 / speed);
+  }
+  el('speed').addEventListener('change', function (e) {
+    speed = Number(e.target.value); if (timer) { stop(); toggle(); } });
+  el('scrub').addEventListener('input', function (e) {
+    go(Number(e.target.value)); });
+  REPLAY = {go: go, step: step, toggle: toggle, marker: marker, stop: stop,
+            N: N};
+  var m = /frame=(\d+)/.exec(location.hash);
+  go(m ? Number(m[1]) : 0);
+}
+document.addEventListener('keydown', function (e) {
+  var R = REPLAY;
+  if (!R) return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  if (e.key === 'ArrowRight') { R.step(e.shiftKey ? 10 : 1); e.preventDefault(); }
+  else if (e.key === 'ArrowLeft') { R.step(e.shiftKey ? -10 : -1);
+    e.preventDefault(); }
+  else if (e.key === ']') R.marker(1);
+  else if (e.key === '[') R.marker(-1);
+  else if (e.key === 'Home') R.go(0);
+  else if (e.key === 'End') R.go(R.N - 1);
+  else if (e.key === ' ') { R.toggle(); e.preventDefault(); }
+  else if (e.key === 'g' || e.key === 'G') { var v = prompt('Jump to frame ' +
+    '(1-' + R.N + ')'); if (v) R.go(Number(v) - 1); }
+});
 """
 
 
-def page(title: str, crumb: str, body: str, refresh: int = 0) -> str:
-    """The full HTML page."""
+def page(title: str,
+         crumb: str,
+         body: str,
+         refresh: int = 0,
+         controls: str = "",
+         wrap: bool = True) -> str:
+    """The full HTML page; ``controls`` sits in the top bar after the crumb;
+    ``wrap`` False puts the body straight under the top bar (the run page
+    brings its own two-pane layout)."""
     meta = (f"<meta http-equiv='refresh' content='{refresh}'>"
             if refresh else "")
+    content = f"<div class='content'>{body}</div>" if wrap else body
     return ("<!doctype html><html><head><meta charset='utf-8'>"
             f"<title>{esc(title)}</title>{meta}<style>{CSS}</style>"
             f"<script>{JS}</script></head><body>"
             "<div class='topbar'><h1><a href='/'>continual viewer</a></h1>"
-            f"<span class='crumb'>{crumb}</span></div>"
-            f"<div class='content'>{body}</div></body></html>")
+            f"<span class='crumb'>{crumb}</span>{controls}</div>"
+            f"{content}</body></html>")
 
 
 def chip(label: Any, cls: str = "", title: str = "") -> str:
@@ -452,28 +802,80 @@ def _totals(card: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def index_page() -> str:
-    """The runs overview."""
+    """The runs overview: one table per (agent, env) pair, nested under agent-
+    name headers or env-name headers (client-side toggle, as in the phased log
+    viewer)."""
     cards = list_cards()
     if not cards:
         body = (f"<p class='muted'>No scorecards under "
                 f"<code>{esc(SCORECARDS_ROOT)}</code> yet.</p>")
         return page("continual viewer", "runs", body, refresh=30)
-    groups: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
+    leaves: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
     for card in cards:
-        groups.setdefault(str(card.get("env")),
-                          {}).setdefault(str(card.get("arm")), []).append(card)
+        key = (str(card.get("arm")), str(card.get("env")))
+        leaves.setdefault(key, []).append(card)
+    n_runs = {key: len(runs) for key, runs in leaves.items()}
     parts = [
         f"<p class='muted'>{len(cards)} run(s) under "
         f"<code>{esc(SCORECARDS_ROOT)}</code>; recordings under "
         f"<code>{esc(RECORDINGS_ROOT)}</code>. Auto-refreshes every 30 s."
         "</p>"
     ]
-    for env in sorted(groups):
-        parts.append(f"<h2>{esc(env)}</h2>")
-        for arm in sorted(groups[env]):
-            parts.append(f"<h3>{esc(arm)}</h3>")
-            parts.append(_runs_table(groups[env][arm]))
-    return page("continual viewer", "runs", "".join(parts), refresh=30)
+    # Agent view: every leaf rendered once under its agent header.
+    parts.append("<div id='view-agent'>")
+    for agent in sorted({a for a, _ in leaves}):
+        keys = sorted(k for k in leaves if k[0] == agent)
+        parts.append(
+            _group_header("agent", agent, len(keys),
+                          sum(n_runs[k] for k in keys)))
+        for _, env in keys:
+            parts.append(_leaf_table(agent, env, leaves[(agent, env)]))
+        parts.append("</details>")
+    # Env view: empty headers that applyGroupMode fills with the leaves.
+    parts.append("</div><div id='view-env' style='display:none'>")
+    for env in sorted({e for _, e in leaves}):
+        keys = [k for k in leaves if k[1] == env]
+        parts.append(
+            _group_header("env", env, len(keys), sum(n_runs[k]
+                                                     for k in keys)) +
+            "</details>")
+    parts.append("</div>")
+    controls = (
+        "<input id='runfilter' placeholder='filter runs…' "
+        "oninput='filterRuns(this.value)'>"
+        "<button id='groupbtn' onclick='toggleGroupMode()' title='Nest the "
+        "run tables under agent names (one table per env) or under env "
+        "names (one table per agent)'>group</button>"
+        "<button onclick='setAllGroups(true)'>expand all</button>"
+        "<button onclick='setAllGroups(false)'>collapse all</button>")
+    return page("continual viewer",
+                "runs",
+                "".join(parts),
+                refresh=30,
+                controls=controls)
+
+
+def _group_header(kind: str, name: str, n_inner: int, n_runs: int) -> str:
+    """Opening tag and summary of an agent-name or env-name group."""
+    inner = "envs" if kind == "agent" else "agents"
+    return (f"<details class='grp family' data-key='{kind}:{esc(name)}' "
+            f"data-kind='{kind}' data-name='{esc(name)}' open>"
+            f"<summary>{esc(name)} <span class='muted'>"
+            f"({n_inner} {inner}, {n_runs} runs)</span></summary>")
+
+
+def _leaf_table(agent: str, env: str, cards: Sequence[Dict[str, Any]]) -> str:
+    """One (agent, env) pair's runs table, wrapped in its leaf group.
+
+    The summary carries both names; the CSS shows the one naming the
+    inner level of the current nesting (see applyGroupMode in the JS).
+    """
+    return (f"<details class='grp exp' data-key='exp:{esc(agent)}/{esc(env)}'"
+            f" data-agent='{esc(agent)}' data-env='{esc(env)}' open>"
+            f"<summary><span class='lbl env'>{esc(env)}</span>"
+            f"<span class='lbl agent'>{esc(agent)}</span> "
+            f"<span class='muted'>({len(cards)} runs)</span></summary>"
+            f"{_runs_table(cards)}</details>")
 
 
 def _runs_table(cards: Sequence[Dict[str, Any]]) -> str:
@@ -484,8 +886,12 @@ def _runs_table(cards: Sequence[Dict[str, Any]]) -> str:
         run_id = str(card["run_id"])
         levels = card.get("levels", [])
         marks = "".join(_level_mark(lv) for lv in levels)
+        search = " ".join(
+            str(x)
+            for x in (run_id, card.get("config") or "", card.get("arm"),
+                      card.get("env"), f"seed{card.get('seed')}", label))
         rows.append(
-            "<tr>"
+            f"<tr data-text='{esc(search)}'>"
             f"<td><a href='/run/{q(run_id)}'>"
             f"{esc(card.get('config') or run_id)}</a>"
             f"<br><span class='muted'>{esc(run_id)}</span></td>"
@@ -525,7 +931,124 @@ def _level_mark(lv: Dict[str, Any]) -> str:
 
 
 def run_page(run_id: str) -> Optional[str]:
-    """One run: metadata, the cost curve, the level table."""
+    """One run: a sidebar (overview, each level's replay and events, the
+    agent's sessions, the recording's files) and a content pane the page script
+    fills from the hash route (see loadHash in the JS)."""
+    card = load_card(run_id)
+    if card is None:
+        return None
+    label, cls = liveness(card)
+    levels = card.get("levels", [])
+    nav = [
+        f"<div class='runhead'>{esc(card.get('config') or run_id)} "
+        f"{chip(label, cls)}</div>",
+        "<div class='nav'><a href='#overview'>Overview</a>",
+        "<h4>Levels</h4>",
+    ]
+    for lv in levels:
+        k = int(lv["index"]) + 1
+        mark = "✓" if lv.get("won") else ("…" if lv.get("attempted") else "·")
+        nav.append(f"<div class='lvl'><a href='#L{k}' title='replay L{k}'>"
+                   f"▶ L{k} <span class='muted'>{esc(lv.get('split'))}"
+                   f"[{esc(lv.get('task_idx'))}]</span> {mark}</a>"
+                   f"<a class='sub' href='#L{k}/events'>events</a></div>")
+    if agent_dir(run_id) is not None:
+        logs = list_session_logs(run_id)
+        nav.append(f"<h4>Agent sessions ({len(logs)})</h4>")
+        for log in logs:
+            nav.append(
+                f"<a href='#session/{esc(log['name'])}' "
+                f"title='{esc(log['name'])}, {esc(fmt_ts(log['mtime']))}'>"
+                f"{int(log['number']):03d} {esc(log['kind'])} "
+                f"<span class='muted'>{log['size'] // 1024} KB, "
+                f"{esc(fmt_age(log['mtime']))}</span></a>")
+    nav.append("<h4>Files</h4>" + _file_tree(run_id) + "</div>")
+    attempted = [int(lv["index"]) + 1 for lv in levels if lv.get("attempted")]
+    default = f"L{attempted[-1]}" if attempted else "overview"
+    body = (f"<div class='run'><div class='sidebar'>{''.join(nav)}</div>"
+            f"<div id='content' data-run='{esc(run_id)}' "
+            f"data-default='{default}'><p class='muted'>Loading…</p>"
+            "</div></div>")
+    crumb = f"<a href='/run/{q(run_id)}'>{esc(run_id)}</a>"
+    refresh = 0 if card.get("end_reason") else 30
+    return page(run_id, crumb, body, refresh=refresh, wrap=False)
+
+
+TREE_SKIP = {".git"}
+TREE_MAX_FILES = 30
+TREE_MAX_DEPTH = 4
+
+
+def _file_tree(run_id: str) -> str:
+    """The recording directory as nested collapsible lists: files link to their
+    view, transcripts to their session view, and a directory's "list" link to
+    its listing."""
+    root = safe_join(RECORDINGS_ROOT, run_id)
+    if root is None or not os.path.isdir(root):
+        return "<p class='muted'>No recordings.</p>"
+    return "<div class='tree'>" + _tree_dir(root, "", 0) + "</div>"
+
+
+def _tree_dir(path: str, rel: str, depth: int) -> str:
+    try:
+        names = sorted(n for n in os.listdir(path) if n not in TREE_SKIP)
+    except OSError:
+        return ""
+    dirs = [n for n in names if os.path.isdir(os.path.join(path, n))]
+    files = [n for n in names if n not in dirs]
+    out = []
+    list_link = ("<a class='sub' href='#f=%s' onclick='event.preventDefault();"
+                 " location.hash = this.getAttribute(\"href\")'>list</a>")
+    for name in dirs:
+        sub = f"{rel}/{name}" if rel else name
+        open_attr = " open" if sub in ("agent", "agent/sandbox") else ""
+        inner = (_tree_dir(os.path.join(path, name), sub, depth +
+                           1) if depth + 1 < TREE_MAX_DEPTH else "")
+        out.append(f"<details{open_attr}><summary>{esc(name)}/ "
+                   f"{list_link % esc(sub)}</summary>{inner}</details>")
+    for name in files[:TREE_MAX_FILES]:
+        sub = f"{rel}/{name}" if rel else name
+        out.append(f"<a href='{_file_href(rel, name)}' title='{esc(sub)}'>"
+                   f"{esc(name)}</a>")
+    if len(files) > TREE_MAX_FILES:
+        out.append(f"<a class='muted' href='#f={esc(rel)}'>… "
+                   f"{len(files) - TREE_MAX_FILES} more</a>")
+    return "".join(out)
+
+
+def _file_href(rel: str, name: str) -> str:
+    """The hash route viewing a file: transcripts get the session view."""
+    if rel == "agent" and SESSION_LOG_RE.match(name):
+        return f"#session/{esc(name)}"
+    return f"#f={esc(f'{rel}/{name}' if rel else name)}"
+
+
+# ── Pane fragments ─────────────────────────────────────────────────
+
+
+def fragment(run_id: str, route: str) -> Optional[str]:
+    """The content pane for one hash route of the run page: ``overview``,
+    ``L<k>`` (the replay), ``L<k>/events``, ``session/<name>`` or ``f=<path>``
+    (a file or directory of the recording)."""
+    if load_card(run_id) is None:
+        return None
+    m = re.fullmatch(r"L(\d+)(/events)?", route)
+    if m:
+        k = int(m.group(1)) - 1
+        if m.group(2):
+            return events_fragment(run_id, k)
+        return replay_fragment(run_id, k)
+    if route == "overview":
+        return overview_fragment(run_id)
+    if route.startswith("session/"):
+        return session_fragment(run_id, route[len("session/"):])
+    if route.startswith("f="):
+        return file_fragment(run_id, route[len("f="):])
+    return None
+
+
+def overview_fragment(run_id: str) -> Optional[str]:
+    """Run metadata, the cost curve and the level table."""
     card = load_card(run_id)
     if card is None:
         return None
@@ -555,12 +1078,93 @@ def run_page(run_id: str) -> Optional[str]:
     ]
     meta_html = "<dl class='meta'>" + "".join(f"<dt>{k}</dt><dd>{v}</dd>"
                                               for k, v in meta) + "</dl>"
-    body = (f"<h2>{esc(card.get('config') or run_id)}</h2>{meta_html}"
+    return (f"<h2>{esc(card.get('config') or run_id)}</h2>{meta_html}"
             "<h2>Cumulative steps vs levels won</h2>" + curve_svg(card) +
-            "<h2>Levels</h2>" + _levels_table(card) + _agent_section(run_id))
-    crumb = f"<a href='/run/{q(run_id)}'>{esc(run_id)}</a>"
-    refresh = 0 if card.get("end_reason") else 30
-    return page(run_id, crumb, body, refresh=refresh)
+            "<h2>Levels</h2>" + _levels_table(card))
+
+
+TEXT_EXTS = {
+    "", ".md", ".txt", ".log", ".json", ".jsonl", ".py", ".yaml", ".yml",
+    ".csv", ".sh", ".toml", ".cfg", ".html"
+}
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
+GALLERY_MAX = 400
+
+
+def file_fragment(run_id: str, rel: str) -> Optional[str]:
+    """A file of the recording (text, image, or a binary's size) or a directory
+    listing with a thumbnail gallery of its images."""
+    root = safe_join(RECORDINGS_ROOT, run_id)
+    if root is None:
+        return None
+    rel = "" if rel in ("", ".") else rel
+    path = root if not rel else safe_join(root, rel)
+    if path is None or not os.path.exists(path):
+        return None
+    head = f"<h2>{esc(rel or run_id)}</h2>"
+    if os.path.isdir(path):
+        return head + _dir_listing(run_id, path, rel)
+    raw = _raw_url(run_id, rel)
+    info = (f"<p class='muted'>{os.path.getsize(path)} bytes, "
+            f"{esc(fmt_ts(os.path.getmtime(path)))} · "
+            f"<a href='{raw}'>raw</a></p>")
+    ext = os.path.splitext(rel)[1].lower()
+    if ext in IMAGE_EXTS:
+        return (head + info +
+                f"<img class='thumb big' src='{raw}' onclick='zoom(this)'>")
+    if ext in TEXT_EXTS:
+        text, note = _read_text(path, tail=ext in (".log", ".jsonl"))
+        return (head + info + note +
+                f"<pre class='doc'>{_image_links(run_id, esc(text))}</pre>")
+    return head + info + "<p class='muted'>Binary file; not shown.</p>"
+
+
+def _raw_url(run_id: str, rel: str) -> str:
+    return "/file/" + "/".join(q(p) for p in [run_id, *rel.split("/")] if p)
+
+
+def _read_text(path: str, tail: bool) -> Tuple[str, str]:
+    """A text file's content cut to MAX_TEXT_CHARS from the head (the tail for
+    logs), and a note when it was cut."""
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    if len(text) <= MAX_TEXT_CHARS:
+        return text, ""
+    which = "last" if tail else "first"
+    note = (f"<p class='muted'>Showing the {which} {MAX_TEXT_CHARS} of "
+            f"{len(text)} characters.</p>")
+    return (text[-MAX_TEXT_CHARS:] if tail else text[:MAX_TEXT_CHARS]), note
+
+
+def _dir_listing(run_id: str, path: str, rel: str) -> str:
+    try:
+        names = sorted(n for n in os.listdir(path) if n not in TREE_SKIP)
+    except OSError:
+        return "<p class='muted'>Unreadable directory.</p>"
+    rows, thumbs = [], []
+    for name in names:
+        sub = f"{rel}/{name}" if rel else name
+        full = os.path.join(path, name)
+        is_dir = os.path.isdir(full)
+        size = "" if is_dir else str(os.path.getsize(full))
+        rows.append(f"<tr><td><a href='{_file_href(rel, name)}'>{esc(name)}"
+                    f"{'/' if is_dir else ''}</a></td>"
+                    f"<td class='num'>{size}</td><td class='muted'>"
+                    f"{esc(fmt_ts(os.path.getmtime(full)))}</td></tr>")
+        if not is_dir and os.path.splitext(name)[1].lower() in IMAGE_EXTS:
+            thumbs.append(f"<a href='#f={esc(sub)}'><img class='thumb' "
+                          f"src='{_raw_url(run_id, sub)}' loading='lazy' "
+                          f"title='{esc(name)}' onclick='zoom(this); "
+                          "event.preventDefault()'></a>")
+    table = ("<table><thead><tr><th>name</th><th class='num'>bytes</th>"
+             "<th>modified</th></tr></thead><tbody>" + "".join(rows) +
+             "</tbody></table>")
+    if not thumbs:
+        return table
+    more = (f"<p class='muted'>… {len(thumbs) - GALLERY_MAX} more images</p>"
+            if len(thumbs) > GALLERY_MAX else "")
+    return (f"<h3>{len(thumbs)} images</h3><div class='gallery'>"
+            f"{''.join(thumbs[:GALLERY_MAX])}</div>{more}" + table)
 
 
 def win_points(card: Dict[str, Any]) -> List[Tuple[int, int]]:
@@ -625,7 +1229,6 @@ def curve_svg(card: Dict[str, Any]) -> str:
 
 
 def _levels_table(card: Dict[str, Any]) -> str:
-    run_id = str(card["run_id"])
     rows = []
     for lv in card.get("levels", []):
         k = int(lv["index"])
@@ -650,8 +1253,8 @@ def _levels_table(card: Dict[str, Any]) -> str:
                     f"{fmt_duration(float(lv.get('downtime', 0.0)))}")
         rows.append(
             "<tr>"
-            f"<td><a href='/run/{q(run_id)}/L{k + 1}'>L{k + 1}</a> "
-            f"<a href='/run/{q(run_id)}/L{k + 1}/replay' title='replay'>▶</a> "
+            f"<td><a href='#L{k + 1}/events'>L{k + 1}</a> "
+            f"<a href='#L{k + 1}' title='replay'>▶</a> "
             f"<span class='muted'>{esc(lv.get('split'))}"
             f"[{esc(lv.get('task_idx'))}]</span></td>"
             f"<td>{chip(status, cls)}</td>"
@@ -688,41 +1291,6 @@ def _levels_table(card: Dict[str, Any]) -> str:
             "".join(rows) + "</tbody></table>")
 
 
-def _agent_section(run_id: str) -> str:
-    """Session transcripts, journal and attempts of the agent arm."""
-    if agent_dir(run_id) is None:
-        return ""
-    logs = list_session_logs(run_id)
-    rows = []
-    for log in logs:
-        rows.append("<tr>"
-                    f"<td class='num'>{log['number']}</td>"
-                    f"<td>{chip(log['kind'])}</td>"
-                    f"<td><a href='/run/{q(run_id)}/session/{q(log['name'])}'>"
-                    f"{esc(log['name'])}</a></td>"
-                    f"<td class='num'>{log['size'] // 1024} KB</td>"
-                    f"<td class='muted'>{esc(fmt_ts(log['mtime']))}</td></tr>")
-    if rows:
-        table = ("<table><thead><tr><th class='num'>#</th><th>kind</th>"
-                 "<th>transcript</th><th class='num'>size</th>"
-                 "<th>written</th></tr></thead><tbody>" + "".join(rows) +
-                 "</tbody></table>")
-    else:
-        table = "<p class='muted'>No session transcripts yet.</p>"
-    parts = [f"<h2>Agent sessions ({len(logs)})</h2>", table]
-    for title, rel in (("Journal (journal.md, the agent's)",
-                        "sandbox/journal.md"),
-                       ("Attempts record (attempts.md, the harness's)",
-                        "sandbox/attempts.md")):
-        text = read_agent_text(run_id, rel)
-        if text is None:
-            continue
-        parts.append(f"<details><summary>{esc(title)} "
-                     f"({len(text)} chars)</summary>"
-                     f"<pre class='doc'>{esc(text)}</pre></details>")
-    return "".join(parts)
-
-
 def load_transcripts(run_id: str) -> List[tr.Transcript]:
     """Every parsed session transcript of a run, oldest first."""
     out = []
@@ -735,189 +1303,44 @@ def load_transcripts(run_id: str) -> List[tr.Transcript]:
 
 
 def build_replay(run_id: str, level_index: int) -> List[Dict[str, Any]]:
-    """The level's replay frames: index entries paired with the agent's
-    tool calls and reasoning, each with a render URL."""
+    """The level's replay frames: index entries paired with the agent's tool
+    calls and reasoning, each with a render URL."""
     entries = read_index(run_id, level_index)
     paired = tr.pair_entries(entries, load_transcripts(run_id))
     return tr.frames_from_entries(
         paired, lambda p: level_render_url(run_id, level_index, p))
 
 
-REPLAY_JS = r"""
-(function () {
-  var F = window.FRAMES, N = F.length, cur = 0, timer = null, speed = 1;
-  var runId = window.RUN_ID, levelNum = window.LEVEL_NUM;
-  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g,
-    function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',
-    "'":'&#39;'}[c]; }); }
-  function chip(t, cls) { return "<span class='chip " + (cls||'') + "'>" +
-    esc(t) + "</span>"; }
-  function stateCls(st) { return st === 'WIN' ? 'ok' : st === 'GAME_OVER' ?
-    'bad' : ''; }
-  function statusCls(st) { return st === 'succeeded' ? 'ok' : st === 'failed'
-    ? 'bad' : st === 'interrupted' ? 'warn' : ''; }
-  function atomsDiff(prev, curA) {
-    if (!curA) return "<span class='muted'>no atoms recorded</span>";
-    var p = new Set(prev || []), c = new Set(curA), out = [];
-    curA.forEach(function (a) { if (!p.has(a)) out.push(
-      "<span class='add'>+" + esc(a) + "</span>"); });
-    (prev || []).forEach(function (a) { if (!c.has(a)) out.push(
-      "<span class='del'>" + esc(a) + "</span>"); });
-    var same = curA.filter(function (a) { return p.has(a); });
-    return (out.length ? out.join(' ') + '<br>' : '') +
-      "<span class='muted'>" + esc(same.join(', ')) + "</span>";
-  }
-  function render() {
-    var f = F[cur];
-    document.getElementById('counter').textContent = (cur + 1) + ' / ' + N;
-    document.getElementById('evt').innerHTML = chip(f.event,
-      f.event === 'win' ? 'ok' : f.event === 'game_over' ? 'bad' : '');
-    document.getElementById('state').innerHTML = f.state ?
-      chip(f.state, stateCls(f.state)) : '';
-    document.getElementById('steps').textContent = 'episode ' +
-      (f.episode == null ? '?' : f.episode) + ' · level steps ' +
-      (f.level_steps == null ? '?' : f.level_steps) + ' · run steps ' +
-      (f.run_steps == null ? '?' : f.run_steps);
-    var img = document.getElementById('frame'), nof =
-      document.getElementById('noframe');
-    if (f.render) { img.src = f.render; img.style.display = ''; nof.style.display
-      = 'none'; } else { img.style.display = 'none'; nof.style.display = ''; }
-    document.getElementById('scrub').value = cur;
-    // action panel
-    var a = [];
-    if (f.skill) a.push('<div><code>' + esc(f.skill) + '[' +
-      (f.params || []).map(function (p) { return Number(p).toPrecision(4); })
-      .join(', ') + ']</code> ' + (f.status ? chip(f.status,
-      statusCls(f.status)) : '') + (f.steps != null ? ' <span class="muted">'
-      + f.steps + ' steps</span>' : '') + '</div>');
-    if (f.reason) a.push('<div class="muted">' + esc(f.reason) + '</div>');
-    if (f.event === 'reset') a.push('<div>reset by ' + esc(f.by) + '</div>');
-    if (f.event === 'resume') a.push('<div>resume: replayed ' +
-      esc(f.replayed_steps) + ' steps, verified ' + esc(f.verified) + '</div>');
-    if (f.event === 'level_start') a.push('<div>goal: ' +
-      esc((f.goal || []).join(', ')) + '</div><div class="muted">' +
-      esc(f.goal_nl) + '</div>');
-    if (f.note) a.push('<div><b>note:</b> ' + esc(f.note) + '</div>');
-    if ((f.expected || []).length || (f.expected_absent || []).length) {
-      a.push('<div><b>expected:</b> ' + esc((f.expected || []).join(', ')) +
-        ((f.expected_absent || []).length ? ' NOT ' +
-        esc(f.expected_absent.join(', NOT ')) : '') + '</div>');
-      if ((f.missing || []).length || (f.present || []).length)
-        a.push('<div class="del">DIVERGED: missing ' +
-          esc((f.missing || []).join(', ')) + (f.present && f.present.length ?
-          '; present ' + esc(f.present.join(', ')) : '') + '</div>');
-      else a.push('<div class="add">expected outcome held</div>');
-    }
-    if (f.session != null) a.push('<div class="muted">session ' + f.session +
-      ', turn ' + f.turn + ' · <a href="/run/' + encodeURIComponent(runId) +
-      '/session/' + encodeURIComponent(f.session_name) + '#turn-' + f.turn +
-      '">transcript</a></div>');
-    document.getElementById('action').innerHTML = a.join('') ||
-      '<span class="muted">harness event</span>';
-    // reasoning panel
-    var r = [];
-    (f.thinking || []).forEach(function (t) { r.push(
-      '<blockquote class="think">' + esc(t) + '</blockquote>'); });
-    (f.texts || []).forEach(function (t) { r.push('<div class="say">' +
-      esc(t) + '</div>'); });
-    document.getElementById('reasoning').innerHTML = r.join('') ||
-      '<span class="muted">no agent text paired with this frame</span>';
-    // call panel
-    var c = '';
-    if (f.call) {
-      c += '<div><span class="name">' + esc(f.call.name) + '</span></div>';
-      c += '<pre>' + esc(JSON.stringify(f.call.args, null, 2)) + '</pre>';
-      if (f.call.result) c += '<details' + (f.call.result.length < 900 ?
-        ' open' : '') + '><summary>result' + (f.call.is_error ? ' (error)' :
-        '') + '</summary><pre>' + esc(f.call.result) + '</pre></details>';
-    }
-    document.getElementById('call').innerHTML = c ||
-      '<span class="muted">none</span>';
-    // atoms panel
-    var prev = null;
-    for (var j = cur - 1; j >= 0; j--) { if (F[j].atoms) { prev = F[j].atoms;
-      break; } }
-    var at = '<div class="atoms">' + atomsDiff(prev, f.atoms) + '</div>';
-    if (f.env_atoms) at += '<details><summary>env atoms (' +
-      f.env_atoms.length + ')</summary><div class="atoms muted">' +
-      esc(f.env_atoms.join(', ')) + '</div></details>';
-    document.getElementById('atoms').innerHTML = at;
-    // filmstrip
-    var cells = document.querySelectorAll('.filmstrip .cell');
-    cells.forEach(function (el, i) { el.classList.toggle('cur', i === cur); });
-    if (cells[cur]) cells[cur].scrollIntoView({inline: 'center', block:
-      'nearest'});
-    location.hash = 'frame=' + cur;
-  }
-  function go(i) { cur = Math.max(0, Math.min(N - 1, i)); render(); }
-  function step(d) { go(cur + d); }
-  function marker(d) {
-    var i = cur + d;
-    while (i >= 0 && i < N && !F[i].marker) i += d;
-    if (i >= 0 && i < N) go(i);
-  }
-  function toggle() {
-    if (timer) { clearInterval(timer); timer = null;
-      document.getElementById('play').textContent = '▶ play'; return; }
-    document.getElementById('play').textContent = '⏸ pause';
-    timer = setInterval(function () { if (cur >= N - 1) { toggle(); return; }
-      step(1); }, 900 / speed);
-  }
-  window.go = go; window.step = step; window.toggle = toggle;
-  window.marker = marker;
-  document.getElementById('speed').addEventListener('change', function (e) {
-    speed = Number(e.target.value); if (timer) { toggle(); toggle(); } });
-  document.getElementById('scrub').addEventListener('input', function (e) {
-    go(Number(e.target.value)); });
-  document.addEventListener('keydown', function (e) {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-    if (e.key === 'ArrowRight') { step(e.shiftKey ? 10 : 1); e.preventDefault(); }
-    else if (e.key === 'ArrowLeft') { step(e.shiftKey ? -10 : -1);
-      e.preventDefault(); }
-    else if (e.key === ']') marker(1);
-    else if (e.key === '[') marker(-1);
-    else if (e.key === 'Home') go(0);
-    else if (e.key === 'End') go(N - 1);
-    else if (e.key === ' ') { toggle(); e.preventDefault(); }
-    else if (e.key === 'g' || e.key === 'G') { var v = prompt('Jump to frame ' +
-      '(1-' + N + ')'); if (v) go(Number(v) - 1); }
-  });
-  var m = /frame=(\d+)/.exec(location.hash);
-  go(m ? Number(m[1]) : 0);
-})();
-"""
-
-
-def replay_page(run_id: str, level_index: int) -> Optional[str]:
+def replay_fragment(run_id: str, level_index: int) -> Optional[str]:
     """The level replay: one frame per recorded event, with the render, the
-    action, the agent's reasoning and the tool call, keyboard driven."""
+    action, the agent's reasoning and the tool call, keyboard driven (the
+    player is initReplay in the page script)."""
     card = load_card(run_id)
     if card is None or not 0 <= level_index < len(card.get("levels", [])):
         return None
     frames = build_replay(run_id, level_index)
     lv = card["levels"][level_index]
-    crumb = (
-        f"<a href='/run/{q(run_id)}'>{esc(run_id)}</a> / "
-        f"<a href='/run/{q(run_id)}/L{level_index + 1}'>L{level_index + 1}"
-        "</a> / replay")
+    k = level_index + 1
     if not frames:
-        return page(f"{run_id} L{level_index + 1} replay", crumb,
-                    "<p class='muted'>No recorded events yet.</p>")
+        return (f"<h2>L{k} replay</h2>"
+                "<p class='muted'>No recorded events yet.</p>")
     cells = []
     for f in frames:
         cls = f"cell {esc(f['event'])}"
         inner = (f"<img src='{f['render']}' loading='lazy'>"
                  if f["render"] else esc(f["event"][:6]))
         cells.append(f"<div class='{cls}' title='{esc(f['event'])} "
-                     f"{esc(f['skill'])}' onclick='go({f['i']})'>{inner}"
-                     "</div>")
-    data = json.dumps(frames, default=str)
+                     f"{esc(f['skill'])}' onclick='REPLAY.go({f['i']})'>"
+                     f"{inner}</div>")
+    # JSON inside a script element: '<' must not open a tag.
+    data = json.dumps(frames, default=str).replace("<", "\\u003c")
     won_chip = chip("won" if lv.get("won") else "not won",
                     "ok" if lv.get("won") else "warn")
-    json_url = f"/run/{q(run_id)}/L{level_index + 1}/replay.json"
-    body = (
-        f"<h2>L{level_index + 1} replay {won_chip}"
+    json_url = f"/run/{q(run_id)}/L{k}/replay.json"
+    return (
+        f"<div class='replay-root'><h2>L{k} replay {won_chip}"
         f" <span class='muted'>{len(frames)} frames · "
+        f"<a href='#L{k}/events'>events</a> · "
         f"<a href='{json_url}'>Download JSON</a></span></h2>"
         "<div class='replay'><div class='stage'>"
         "<div class='stagehead'><span class='big' id='counter'></span>"
@@ -926,11 +1349,13 @@ def replay_page(run_id: str, level_index: int) -> Optional[str]:
         "<img id='frame' class='frame' alt='render'>"
         "<div id='noframe' class='noframe'>no render for this event</div>"
         "<div class='controls'>"
-        "<button onclick='go(0)' title='Home'>⏮</button>"
-        "<button onclick='step(-1)' title='←'>◀</button>"
-        "<button id='play' onclick='toggle()' title='Space'>▶ play</button>"
-        "<button onclick='step(1)' title='→'>▶</button>"
-        f"<button onclick='go({len(frames) - 1})' title='End'>⏭</button>"
+        "<button onclick='REPLAY.go(0)' title='Home'>⏮</button>"
+        "<button onclick='REPLAY.step(-1)' title='←'>◀</button>"
+        "<button id='play' onclick='REPLAY.toggle()' title='Space'>▶ play"
+        "</button>"
+        "<button onclick='REPLAY.step(1)' title='→'>▶</button>"
+        f"<button onclick='REPLAY.go({len(frames) - 1})' title='End'>⏭"
+        "</button>"
         "<select id='speed'><option value='1'>1×</option>"
         "<option value='2'>2×</option><option value='4'>4×</option></select>"
         f"<input type='range' id='scrub' min='0' max='{len(frames) - 1}' "
@@ -945,10 +1370,8 @@ def replay_page(run_id: str, level_index: int) -> Optional[str]:
         "<div class='panel'><h3>Tool call</h3><div id='call'></div></div>"
         "<div class='panel'><h3>Atoms (change since the previous frame)</h3>"
         "<div id='atoms'></div></div></div></div>"
-        f"<script>window.FRAMES = {data}; window.RUN_ID = {json.dumps(run_id)};"
-        f" window.LEVEL_NUM = {level_index + 1};</script>"
-        f"<script>{REPLAY_JS}</script>")
-    return page(f"{run_id} L{level_index + 1} replay", crumb, body)
+        f"<script type='application/json' id='replay-data'>{data}</script>"
+        "</div>")
 
 
 def replay_json(run_id: str, level_index: int) -> Optional[bytes]:
@@ -974,9 +1397,9 @@ def _image_links(run_id: str, escaped: str) -> str:
     return IMAGE_REF_RE.sub(_img, escaped)
 
 
-def session_page(run_id: str, name: str) -> Optional[str]:
-    """One session transcript as a structured conversation: thinking,
-    assistant text, tool calls with their results, images inline."""
+def session_fragment(run_id: str, name: str) -> Optional[str]:
+    """One session transcript as a structured conversation: thinking, assistant
+    text, tool calls with their results, images inline."""
     if SESSION_LOG_RE.match(name) is None:
         return None
     text = read_agent_file(run_id, name)
@@ -988,20 +1411,17 @@ def session_page(run_id: str, name: str) -> Optional[str]:
             text = ("[... earlier content truncated ...]\n" +
                     text[-MAX_TEXT_CHARS:])
         # Not a formatter transcript (or an empty one): show it raw.
-        return page(
-            f"{run_id} {name}",
-            f"<a href='/run/{q(run_id)}'>{esc(run_id)}</a> / {esc(name)}",
-            f"<h2>{esc(name)}</h2><pre class='doc'>"
-            f"{_image_links(run_id, esc(text))}</pre>")
+        return (f"<h2>{esc(name)}</h2><pre class='doc'>"
+                f"{_image_links(run_id, esc(text))}</pre>")
     names = [log["name"] for log in list_session_logs(run_id)]
     nav = []
     if name in names:
         i = names.index(name)
         if i > 0:
-            nav.append(f"<a href='/run/{q(run_id)}/session/{q(names[i - 1])}'>"
+            nav.append(f"<a href='#session/{esc(names[i - 1])}'>"
                        f"← {esc(names[i - 1])}</a>")
         if i + 1 < len(names):
-            nav.append(f"<a href='/run/{q(run_id)}/session/{q(names[i + 1])}'>"
+            nav.append(f"<a href='#session/{esc(names[i + 1])}'>"
                        f"{esc(names[i + 1])} →</a>")
     parts = [
         f"<h2>{esc(name)} {chip(tx.kind)}</h2>",
@@ -1052,9 +1472,7 @@ def session_page(run_id: str, name: str) -> Optional[str]:
         parts.append("</section>")
     for err in tx.errors:
         parts.append(f"<p class='del'>{esc(err)}</p>")
-    crumb = (f"<a href='/run/{q(run_id)}'>{esc(run_id)}</a> / "
-             f"{esc(name)}")
-    return page(f"{run_id} {name}", crumb, "".join(parts))
+    return "".join(parts)
 
 
 # ── Level page ─────────────────────────────────────────────────────
@@ -1062,7 +1480,7 @@ def session_page(run_id: str, name: str) -> Optional[str]:
 EVENT_KINDS = ("level_start", "invoke", "reset", "resume", "win", "game_over")
 
 
-def level_page(run_id: str, level_index: int) -> Optional[str]:
+def events_fragment(run_id: str, level_index: int) -> Optional[str]:
     """One level's timeline."""
     card = load_card(run_id)
     if card is None:
@@ -1072,8 +1490,6 @@ def level_page(run_id: str, level_index: int) -> Optional[str]:
         return None
     lv = levels[level_index]
     entries = read_index(run_id, level_index)
-    crumb = (f"<a href='/run/{q(run_id)}'>{esc(run_id)}</a> / "
-             f"L{level_index + 1}")
     status = ("won" if lv.get("won") else
               ("in progress" if lv.get("attempted") else "not attempted"))
     head = (f"<h2>L{level_index + 1} {esc(lv.get('split'))}"
@@ -1092,21 +1508,17 @@ def level_page(run_id: str, level_index: int) -> Optional[str]:
         f"<label><input type='checkbox' value='{kind}' checked "
         f"onchange='applyFilters()'> {kind}</label>"
         for kind in EVENT_KINDS) + "</div>"
-    nav = _level_nav(run_id, level_index, len(levels))
-    refresh = 0 if (lv.get("won") or card.get("end_reason")) else 30
-    return page(f"{run_id} L{level_index + 1}",
-                crumb,
-                head + nav + filters +
-                _timeline_table(run_id, level_index, entries),
-                refresh=refresh)
+    nav = _level_nav(level_index, len(levels))
+    return (head + nav + filters +
+            _timeline_table(run_id, level_index, entries))
 
 
-def _level_nav(run_id: str, k: int, n: int) -> str:
-    links = [f"<a href='/run/{q(run_id)}/L{k + 1}/replay'>▶ replay</a>"]
+def _level_nav(k: int, n: int) -> str:
+    links = [f"<a href='#L{k + 1}'>▶ replay</a>"]
     if k > 0:
-        links.append(f"<a href='/run/{q(run_id)}/L{k}'>← L{k}</a>")
+        links.append(f"<a href='#L{k}/events'>← L{k}</a>")
     if k + 1 < n:
-        links.append(f"<a href='/run/{q(run_id)}/L{k + 2}'>L{k + 2} →</a>")
+        links.append(f"<a href='#L{k + 2}/events'>L{k + 2} →</a>")
     return "<p>" + " · ".join(links) + "</p>"
 
 
@@ -1196,16 +1608,22 @@ def _timeline_table(run_id: str, level_index: int,
 # ── Server ─────────────────────────────────────────────────────────
 
 
+def _is_level(part: str) -> bool:
+    return part.startswith("L") and part[1:].isdigit()
+
+
 class Handler(BaseHTTPRequestHandler):
-    """Routes: /, /run/<id>, /run/<id>/L<k>, /run/<id>/L<k>/replay[.json],
-    /run/<id>/session/<name>, /card/<id>, /file/<rel>."""
+    """Routes: /, /run/<id> (the run page), /run/<id>/frag/<route> (its
+    pane content), /run/<id>/L<k>/replay.json, /card/<id>, /file/<rel>.
+    The former /run/<id>/L<k>[/replay] and /run/<id>/session/<name> pages
+    redirect to the run page's hash routes."""
 
     # pylint: disable-next=redefined-builtin
     def log_message(self, format: str, *args: Any) -> None:
         del format, args  # quiet
 
     def do_GET(self) -> None:  # pylint: disable=invalid-name
-        """Serve one page or file."""
+        """Serve one page, fragment or file."""
         parsed = urllib.parse.urlparse(self.path)
         parts = [urllib.parse.unquote(p) for p in parsed.path.split("/") if p]
         try:
@@ -1213,21 +1631,23 @@ class Handler(BaseHTTPRequestHandler):
                 self._html(index_page())
             elif parts[0] == "run" and len(parts) == 2:
                 self._html_or_404(run_page(parts[1]))
+            elif parts[0] == "run" and len(parts) >= 4 and \
+                    parts[2] == "frag":
+                self._html_or_404(fragment(parts[1], "/".join(parts[3:])))
             elif parts[0] == "run" and len(parts) == 3 and \
-                    parts[2].startswith("L") and parts[2][1:].isdigit():
-                self._html_or_404(level_page(parts[1], int(parts[2][1:]) - 1))
+                    _is_level(parts[2]):
+                self._redirect(f"/run/{q(parts[1])}#{parts[2]}/events")
             elif parts[0] == "run" and len(parts) == 4 and \
                     parts[2] == "session":
-                self._html_or_404(session_page(parts[1], parts[3]))
+                self._redirect(f"/run/{q(parts[1])}#session/{parts[3]}")
             elif parts[0] == "run" and len(parts) == 4 and \
-                    parts[2].startswith("L") and parts[2][1:].isdigit() and \
-                    parts[3] in ("replay", "replay.json"):
-                level = int(parts[2][1:]) - 1
-                if parts[3] == "replay":
-                    self._html_or_404(replay_page(parts[1], level))
-                else:
-                    self._bytes(replay_json(parts[1], level),
-                                "application/json")
+                    _is_level(parts[2]) and parts[3] == "replay":
+                self._redirect(f"/run/{q(parts[1])}#{parts[2]}")
+            elif parts[0] == "run" and len(parts) == 4 and \
+                    _is_level(parts[2]) and parts[3] == "replay.json":
+                self._bytes(replay_json(parts[1],
+                                        int(parts[2][1:]) - 1),
+                            "application/json")
             elif parts[0] == "card" and len(parts) == 2:
                 self._file(safe_join(SCORECARDS_ROOT, parts[1] + ".json"))
             elif parts[0] == "file" and len(parts) >= 2:
@@ -1237,6 +1657,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(404)
         except Exception as e:  # pylint: disable=broad-except
             self.send_error(500, str(e))
+
+    def _redirect(self, location: str) -> None:
+        self.send_response(302)
+        self.send_header("Location", location)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _bytes(self, data: Optional[bytes], ctype: str) -> None:
         if data is None:

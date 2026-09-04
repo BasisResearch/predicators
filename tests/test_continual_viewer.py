@@ -59,27 +59,60 @@ def test_pages_render_for_a_finished_run(tmp_path: Any) -> None:
     assert run_id in index
     assert "all_levels_won" in index
     assert "cover" in index and "oracle" in index
+    # The runs table nests under agent headers (rendered) and env headers
+    # (empty hosts the page script fills), with the group toggle and
+    # filter in the top bar.
+    assert "data-kind='agent' data-name='oracle'" in index
+    assert "data-kind='env' data-name='cover'" in index
+    assert "data-agent='oracle' data-env='cover'" in index
+    assert index.count("class='grp exp'") == 1
+    assert "id='groupbtn'" in index and "id='runfilter'" in index
+    assert f"data-text='{run_id} " in index and "seed" in index
 
+    # The run page is a sidebar plus a pane the page script fills from
+    # the hash route; the newest attempted level's replay is the default.
     run_html = viewer.run_page(run_id)
     assert run_html is not None
-    assert "Cumulative steps vs levels won" in run_html
-    assert "<svg" in run_html
-    assert "/L1" in run_html and "/L2" in run_html
+    assert "id='content'" in run_html and "data-default='L2'" in run_html
+    assert "href='#L1'" in run_html and "href='#L2/events'" in run_html
+    assert "function initReplay" in run_html and "loadHash" in run_html
+    assert "L01/" in run_html and "index.jsonl" in run_html
+    overview = viewer.fragment(run_id, "overview")
+    assert overview is not None
+    assert "Cumulative steps vs levels won" in overview
+    assert "<svg" in overview
+    assert "href='#L1/events'" in overview and "href='#L2'" in overview
     points = viewer.win_points(run.card.to_dict())
     assert points[0] == (0, 0)
     assert points[-1][1] == 2
 
-    level = viewer.level_page(run_id, 0)
+    level = viewer.fragment(run_id, "L1/events")
     assert level is not None
     assert "level_start" in level and "invoke" in level and "win" in level
     assert level.count("class='thumb'") == \
         2 + run.card.levels[0].skill_invocations
-    assert "/file/" in level
+    assert "/file/" in level and "href='#L1'" in level
     # Atoms diffs show what each skill changed.
     assert "class='add'" in level or "class='del'" in level
-    assert viewer.level_page(run_id, 5) is None
+    assert viewer.fragment(run_id, "L6/events") is None
+    assert viewer.fragment(run_id, "L6") is None
+    assert viewer.fragment(run_id, "bogus") is None
     assert viewer.run_page("no-such-run") is None
-    assert viewer.level_page("no-such-run", 0) is None
+    assert viewer.fragment("no-such-run", "L1/events") is None
+    # Files of the recording: a directory listing with its renders as a
+    # gallery, a text file, a binary, and no escape from the run's dir.
+    listing = viewer.fragment(run_id, "f=L01")
+    assert listing is not None and "index.jsonl" in listing
+    renders = viewer.fragment(run_id, "f=L01/renders")
+    assert renders is not None and "class='gallery'" in renders
+    text = viewer.fragment(run_id, "f=L01/index.jsonl")
+    assert text is not None and "level_start" in text and ">raw<" in text
+    binary = viewer.fragment(run_id, "f=L01/episodes.pkl")
+    assert binary is not None and "Binary file" in binary
+    root = viewer.fragment(run_id, "f=")
+    assert root is not None and "L01/" in root
+    assert viewer.fragment(run_id, "f=../../etc/passwd") is None
+    assert viewer.fragment(run_id, "f=L01/missing.txt") is None
 
 
 def test_pages_render_for_a_capped_run(tmp_path: Any) -> None:
@@ -93,7 +126,7 @@ def test_pages_render_for_a_capped_run(tmp_path: Any) -> None:
     assert "step_cap" in index
     run_html = viewer.run_page(run_id)
     assert run_html is not None and "step_cap" in run_html
-    level = viewer.level_page(run_id, 0)
+    level = viewer.fragment(run_id, "L1/events")
     assert level is not None
     if run.card.levels[0].game_overs:
         assert "game_over" in level and "horizon" in level
@@ -164,12 +197,22 @@ def test_agent_sessions_render(tmp_path: Any) -> None:
     run_html = viewer.run_page(run_id)
     assert run_html is not None
     assert "Agent sessions (1)" in run_html
-    assert "001_play_20260904_120000.md" in run_html
-    assert "the jug fills slowly" in run_html and "- stepped" in run_html
-    session = viewer.session_page(run_id, "001_play_20260904_120000.md")
+    assert "href='#session/001_play_20260904_120000.md'" in run_html
+    # The sandbox files sit in the sidebar tree and open in the pane.
+    assert "journal.md" in run_html and "attempts.md" in run_html
+    journal = viewer.fragment(run_id, "f=agent/sandbox/journal.md")
+    assert journal is not None and "the jug fills slowly" in journal
+    sandbox = viewer.fragment(run_id, "f=agent/sandbox")
+    assert sandbox is not None and "href='#f=agent/sandbox/attempts.md'" in \
+        sandbox
+    agent = viewer.fragment(run_id, "f=agent")
+    assert agent is not None and \
+        "href='#session/001_play_20260904_120000.md'" in agent
+    session = viewer.fragment(run_id, "session/001_play_20260904_120000.md")
     assert session is not None
     assert "&lt;script&gt;" in session and "<script>alert" not in session
     assert "/agent/sandbox/test_images/session_001.png" in session
-    assert viewer.session_page(run_id, "../../etc/passwd") is None
-    assert viewer.session_page(run_id, "999_play_20260904_120000.md") is None
+    assert viewer.fragment(run_id, "session/../../etc/passwd") is None
+    assert viewer.fragment(run_id,
+                           "session/999_play_20260904_120000.md") is None
     assert viewer.list_session_logs(run_id)[0]["kind"] == "play"
