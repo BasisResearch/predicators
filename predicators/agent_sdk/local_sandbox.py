@@ -50,6 +50,11 @@ from predicators.agent_sdk.tools import ToolContext, session_log_filename
 
 logger = logging.getLogger(__name__)
 
+# The CLI's wall-clock limit per MCP tool call, in milliseconds, unless
+# the environment sets MCP_TOOL_TIMEOUT: six hours, room for a learning
+# session run inside one tool call.
+MCP_TOOL_TIMEOUT_MS = 6 * 3600 * 1000
+
 # Grace period past the solve-attempt deadline before interrupting a
 # still-streaming agent turn (cooperative tool refusals normally end
 # the turn well before this).
@@ -130,8 +135,14 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
             setting_sources=["project", "local"],
             hooks=extra_hooks,
             # Every python the agent starts loads the sandbox's
-            # sitecustomize guard (sandbox_setup.write_pyguard).
-            env=pyguard_env(self._sandbox_dir),
+            # sitecustomize guard (sandbox_setup.write_pyguard); a tool
+            # call may run a whole learning session (continual play's
+            # learn_run), so the CLI's per-call timeout is raised.
+            env={
+                "MCP_TOOL_TIMEOUT":
+                os.environ.get("MCP_TOOL_TIMEOUT", str(MCP_TOOL_TIMEOUT_MS)),
+                **pyguard_env(self._sandbox_dir),
+            },
             resume=self.resume_session_id,
         )
 

@@ -112,13 +112,20 @@ __MODEL_FILES__
 <!-- section: learning -->
 ## Learning
 
-`learn_run` queues a learning session: the harness ends this session,
-runs your simulator synthesis, parameter fit and predicate invention
-over every recorded episode, deploys the result as the belief model
-behind `sim`, and then starts your next session. Learning is free in
-steps but takes wall-clock time. Ask for it when you have data that
-contradicts your model or no model yet; do not ask for it with no new
-data.
+`learn_run` runs a learning session now, inside this session: the
+harness runs your simulator synthesis, parameter fit and predicate
+invention over every recorded episode so far, deploys the result as
+the belief model behind `sim`, refreshes `./data/trajectories.pkl`,
+and returns a summary; you carry on in the same context. Learning is
+free in steps, and the wall-clock it takes is not charged to this
+session. Learn early and often: as soon as you have a few episodes,
+before you spend real steps on a plan your model could check; again
+whenever new data contradicts the model; and after any real attempt
+that surprised you. Every call refits from all the data so far, so
+learning more than once costs nothing but time. Between learning
+sessions `sim` serves the latest model in your persistent namespace,
+and `./simulator.py` and `./predicates.py` are the model files it
+wrote, which you may read and edit.
 
 <!-- section: journal -->
 ## Journal
@@ -136,9 +143,9 @@ hypotheses you have not verified, marked as such.
 ## Sessions
 
 A session is one context window. End it with `session_end` and a
-handoff note when you have done a coherent unit of work__LEARN_CLAUSE__,
-when the level is won, or when you are
-running out of context. If a level is won, say so and stop: the
+handoff note when you have done a coherent unit of work, when the
+level is won, or when you are running out of context. If a level is
+won, say so and stop: the
 harness advances to the next level and starts a new session there. If
 you decide the run should stop, call `env_end_run`; it ends the run
 for this environment and forfeits every remaining level, so it is a
@@ -148,7 +155,9 @@ last resort.
 ## Principles
 
 - Real steps are the scarce resource. Prefer a sandbox rollout to a
-  real attempt whenever your model could answer the question.
+  real attempt whenever your model could answer the question; if you
+  have data and no model yet, or new data since the last model, learn
+  first.
 - A real attempt is also data. When you act in the environment,
   annotate the expected outcome so a divergence is recorded, and read
   the divergence: it is what your model gets wrong.

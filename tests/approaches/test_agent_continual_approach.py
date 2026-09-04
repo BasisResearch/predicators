@@ -122,9 +122,10 @@ def test_fit_status_text_is_a_point_estimate_line() -> None:
 
 @pytest.mark.slow
 def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
-    """Two sessions: act, queue learning, end; then end the run.
+    """Two sessions: act, learn inside the session, end; then end the run.
 
-    The loop services the learn request, records the session, syncs the
+    learn_run runs the learning synchronously with the play session
+    parked and its clock paused; the loop records the session, syncs the
     data, checkpoints, and ends the run as the agent asked.
     """
     _config(tmp_path)
@@ -150,7 +151,24 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
             for _ in range(3):
                 out = _call(approach, "env_step", action=zero)
                 assert "step applied" in out
-            assert "queued" in _call(approach, "learn_run", note="first look")
+            ctx = approach._tool_context  # pylint: disable=protected-access
+            parked = approach._agent_session  # pylint: disable=protected-access
+            assert parked is not None
+            tools_before = list(ctx.extra_mcp_tools)
+            deadline_before = ctx.attempt_deadline
+            assert deadline_before is not None
+            out = _call(approach, "learn_run", note="first look")
+            assert "Learning session 1 completed" in out
+            assert "3 recorded episode(s)" not in out
+            assert "1 recorded episode(s), 3 steps" in out
+            assert "`sim` now serves this model" in out
+            assert learned == [1], "learning ran inside the session"
+            # The play session and its tools are back, and its clock
+            # was paused for the learning's duration.
+            assert approach._agent_session is parked  # pylint: disable=protected-access
+            assert ctx.extra_mcp_tools == tools_before
+            assert ctx.attempt_deadline is not None
+            assert ctx.attempt_deadline >= deadline_before
             assert "Session ended" in _call(approach,
                                             "session_end",
                                             handoff="stepped three times")
@@ -177,7 +195,7 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
     assert lv.sandbox["learn_sessions"] == 1
     assert lv.sandbox["turns"] == 6
     assert lv.sandbox["llm_cost_usd"] == pytest.approx(0.5)
-    assert learned == [1], "learning ran once over the recorded episode"
+    assert learned == [1], "learning ran once, inside the first session"
     trajs = approach._online_trajectories  # pylint: disable=protected-access
     assert len(trajs) == 1 and len(trajs[0].actions) == 3
     assert trajs[0].train_task_idx == 0

@@ -108,6 +108,20 @@ def test_tools_play_a_level_to_a_win(tmp_path: Any) -> None:
                                       state,
                                       save_render=lambda tag: None)
         assert [t.name for t in tools] == CONTINUAL_TOOL_NAMES
+        # Without a learning callable the arm has no learning session;
+        # with one, learning needs a recorded episode first.
+        refused = _call(tools, "learn_run", note="early")
+        assert refused.startswith("ERROR") and "no learning session" in refused
+        with_learn = build_continual_tools(ctx,
+                                           session,
+                                           state,
+                                           save_render=lambda tag: None,
+                                           learn=lambda note: "learned")
+        if session.level_index == 0:
+            # Level 1: no episode is recorded anywhere yet.
+            refused = _call(with_learn, "learn_run", note="early")
+            assert refused.startswith("ERROR") and "Act first" in refused
+            assert state.learn_runs == 0
         obs = _call(tools, "env_observe")
         assert "[episode] NOT_FINISHED" in obs
         assert "[atoms]" in obs and "[objects]" in obs and "[ledger]" in obs
@@ -171,13 +185,21 @@ def test_tools_divergence_reset_and_errors(tmp_path: Any) -> None:
     utils.update_config({"horizon": 2})
     seen: Dict[str, Any] = {}
     driver = _Driver()
+    notes: List[str] = []
+
+    def learn(note: str) -> str:
+        notes.append(note)
+        if note == "boom":
+            raise RuntimeError("synthesis died")
+        return f"Learning session {len(notes)} completed ({note})"
 
     def body(session: ProtocolSession) -> None:
         state = PlayState()
         tools = build_continual_tools(ctx,
                                       session,
                                       state,
-                                      save_render=lambda tag: "./img.png")
+                                      save_render=lambda tag: "./img.png",
+                                      learn=learn)
         task = session.observe().level.task
         goal = ", ".join(str(a) for a in task.goal)
         # A wrong expectation is a divergence and stops the plan.
@@ -210,9 +232,15 @@ def test_tools_divergence_reset_and_errors(tmp_path: Any) -> None:
         assert "shape" in refused
         out = _call(tools, "env_step", action=[0.5])
         assert "step applied" in out
-        # Learning and run end are queued, never executed by the tool.
-        assert "queued" in _call(tools, "learn_run", note="please")
-        assert state.pending_learn == "please"
+        # Learning runs inside the call and reports; a failure is
+        # reported too and leaves the session alive. The run end is
+        # queued, never executed by the tool.
+        out = _call(tools, "learn_run", note="please")
+        assert "Learning session 1 completed (please)" in out
+        assert "[ledger]" in out and state.learn_runs == 1
+        failed = _call(tools, "learn_run", note="boom")
+        assert failed.startswith("ERROR") and "synthesis died" in failed
+        assert notes == ["please", "boom"] and state.learn_runs == 1
         assert "Run end requested" in _call(tools, "env_end_run", note="stop")
         assert state.pending_end_run == "stop"
         # The step cap (6 per level, 2 levels = 12) is hit inside a tool:
@@ -308,7 +336,8 @@ def test_parse_plan_lines_and_formatting(tmp_path: Any) -> None:
         assert f"`{name}`" in system
     assert "charged\n  1000 steps" in system or "charged 1000 steps" in system
     assert "## Learning" in system and "`sim`" in system
-    assert "when you want a learning session" in system
+    assert "Learn early and often" in system
+    assert "when you want a learning session" not in system
     # The model-free arm's prompt describes neither a model nor tools it
     # does not have.
     free = build_play_system_prompt(

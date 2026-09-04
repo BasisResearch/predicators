@@ -38,9 +38,10 @@ TOOL_BLURBS = {
     "run_python":
     "code in the sandbox with the `sim` belief probe. Free.",
     "learn_run":
-    "queue a learning session over every recorded episode (simulator "
-    "synthesis, parameter fit, predicate invention); runs after this "
-    "session ends. Free in steps.",
+    "run a learning session now over every recorded episode (simulator "
+    "synthesis, parameter fit, predicate invention) and deploy the "
+    "result behind `sim` before it returns. Free in steps; its "
+    "wall-clock is not charged to this session.",
     "session_end":
     "end this session with a handoff note for the next one.",
 }
@@ -84,10 +85,7 @@ def build_play_system_prompt(tool_names: Sequence[str],
         sections.append(render("play_system", "learning"))
     sections += [
         render("play_system", "journal"),
-        render("play_system",
-               "session",
-               learn_clause=(", when you want a learning session"
-                             if "learn_run" in names else "")),
+        render("play_system", "session"),
         render("play_system", "principles" + variant),
     ]
     return "\n\n".join(sections)

@@ -13,8 +13,10 @@ Two arms share it:
 * ``AgentContinualApproach`` (``agent_continual``): C1's learner
   (hybrid simulator synthesis, parameter fit, predicate invention). Its
   sessions also get ``run_python`` with the belief probe ``sim`` and
-  ``learn_run``, which queues a learning session over every recorded
-  episode.
+  ``learn_run``, which runs a learning session over every recorded
+  episode inside the play session: the play session's manager is parked
+  and its clock paused while the learning session runs in its own, and
+  the refit model is behind ``sim`` when the call returns.
 * ``AgentContinualModelFreeApproach`` (``agent_continual_model_free``):
   the model-free baseline. The same env and skill tools, sandbox and
   journal, but no belief model, no ``sim`` and no learning session:
@@ -33,8 +35,8 @@ import logging
 import os
 import shutil
 import time
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Set, \
-    Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, \
+    Sequence, Set, Tuple
 
 from predicators import utils
 from predicators.agent_sdk import journal as journal_mod
@@ -72,7 +74,7 @@ class ContinualPlayBase(AgentModelFreeApproach, abc.ABC):
 
     Abstract (no ``get_name``), so the approach registry skips it; the
     arms declare their tool surface through :meth:`_continual_tool_names`
-    and their learning through :meth:`_service_learn` and
+    and their learning through :meth:`_learn_callable` and
     :meth:`_learning_status`.
     """
 
@@ -93,13 +95,12 @@ class ContinualPlayBase(AgentModelFreeApproach, abc.ABC):
     def _continual_tool_names(self) -> List[str]:
         """The MCP tools of a play session, in prompt order."""
 
-    def _service_learn(self, session: ProtocolSession, note: str) -> None:
-        """Run the learning a session asked for; arms without a learning
-        session never get here (they offer no ``learn_run`` tool)."""
+    def _learn_callable(  # pylint: disable=useless-return
+            self, session: ProtocolSession) -> Optional[Callable[[str], str]]:
+        """What ``learn_run`` calls, or ``None`` for an arm without a learning
+        session."""
         del session
-        logging.warning(
-            "[Continual agent] learning requested (%s) but this arm has no "
-            "learning session", note)
+        return None
 
     def _learning_status(self, session: ProtocolSession) -> str:
         """The learning-status block of the query."""
@@ -160,10 +161,7 @@ class ContinualPlayBase(AgentModelFreeApproach, abc.ABC):
             if state.run_ended is not None:
                 reason, note = state.run_ended
                 raise _run_ended(reason, note)
-            learned = False
-            if state.pending_learn is not None:
-                self._service_learn(session, state.pending_learn)
-                learned = True
+            learned = state.learn_runs > 0
             if state.pending_end_run is not None:
                 self.save(session.level_index)
                 session.end_run(state.pending_end_run)
@@ -188,7 +186,8 @@ class ContinualPlayBase(AgentModelFreeApproach, abc.ABC):
             tool_names=[
                 n for n in self._continual_tool_names()
                 if n in CONTINUAL_TOOL_NAMES
-            ])
+            ],
+            learn=self._learn_callable(session))
         resume_id = self._resume_session_id()
         if resume_id is None:
             # Every session is a fresh context over the journal.
@@ -426,8 +425,8 @@ class ContinualPlayBase(AgentModelFreeApproach, abc.ABC):
                 f"steps now {card.steps}, resets {card.resets}, invocations "
                 f"{card.skill_invocations}.\n" +
                 ("\n".join(lines) if lines else "- no environment action") +
-                (f"\nLearning requested: {state.pending_learn}"
-                 if state.pending_learn else "") +
+                (f"\nLearning sessions run inside this session: "
+                 f"{state.learn_runs}" if state.learn_runs else "") +
                 (f"\nHandoff: {state.handoff}" if state.handoff else ""))
         journal_mod.append_entry(self._tool_context.sandbox_dir
                                  or self._get_log_dir(),
@@ -493,13 +492,77 @@ class AgentContinualApproach(ContinualPlayBase,
             n_steps=n_steps,
             n_new_episodes=max(0, n_eps - self._episodes_at_last_learn))
 
-    def _service_learn(self, session: ProtocolSession, note: str) -> None:
-        self._run_learn(session, note)
+    def _learn_callable(
+            self, session: ProtocolSession) -> Optional[Callable[[str], str]]:
+        return lambda note: self._learn_now(session, note)
 
     # -- Learning -----------------------------------------------------------
 
-    def _run_learn(self, session: ProtocolSession, note: str) -> None:
-        """Run the inherited learning over every recorded episode."""
+    def _learn_now(self, session: ProtocolSession, note: str) -> str:
+        """Run a learning session inside the play session and return its
+        summary for the agent.
+
+        The learning session is an SDK session of its own, so the play
+        session's manager is parked (not closed: its CLI is waiting on
+        this tool call) and restored afterwards, together with the play
+        tools, the phase and the attempt clock, which is paused for the
+        learning's duration. The recorded episodes so far, including
+        this session's, are the data.
+        """
+        ctx = self._tool_context
+        parked = self._agent_session
+        parked_phase = self._agent_session_phase
+        play_tools = list(ctx.extra_mcp_tools or [])
+        play_hooks = dict(ctx.extra_session_hooks or {})
+        clock = (ctx.attempt_start, ctx.attempt_deadline,
+                 ctx.python_call_deadline)
+        # No deadline while the learning session runs: the sandbox
+        # manager's interrupt reads the shared context's deadline.
+        ctx.attempt_deadline = None
+        ctx.python_call_deadline = None
+        self._agent_session = None  # pylint: disable=attribute-defined-outside-init
+        self._agent_session_phase = None
+        t0 = time.monotonic()
+        try:
+            self._sync_level_trajectories(session)
+            outcome = self._run_learn(session, note)
+        finally:
+            self._close_agent_session()  # the learning session's manager
+            self._agent_session = parked  # pylint: disable=attribute-defined-outside-init
+            self._agent_session_phase = parked_phase
+            ctx.phase = parked_phase
+            ctx.extra_mcp_tools = play_tools
+            ctx.extra_session_hooks = play_hooks
+            (ctx.attempt_start, ctx.attempt_deadline,
+             ctx.python_call_deadline) = clock
+            ctx.pause_attempt_clock(time.monotonic() - t0)
+            if parked is not None:
+                # session_info.json names the play session again, and
+                # the sandbox's data pickle carries the episodes so far.
+                for method in ("save_session_info", "_export_data"):
+                    fn = getattr(parked, method, None)
+                    if fn is not None:
+                        try:
+                            fn()
+                        except Exception as e:  # pylint: disable=broad-except
+                            logging.warning(
+                                "[Continual agent] %s after learning "
+                                "failed: %s", method, e)
+        n_eps, n_steps = self._episode_counts(session)
+        minutes = (time.monotonic() - t0) / 60.0
+        return (f"Learning session {self._learn_runs} {outcome} in "
+                f"{minutes:.0f} min over {n_eps} recorded episode(s), "
+                f"{n_steps} steps. Belief model version: "
+                f"{getattr(self, '_current_simulator_version', None)}; "
+                f"predicates version: "
+                f"{getattr(self, '_current_predicates_version', None)}; "
+                f"fit: {self._last_fit_status}. `sim` now serves this model "
+                "in your run_python namespace, and ./data/trajectories.pkl "
+                "is refreshed.")
+
+    def _run_learn(self, session: ProtocolSession, note: str) -> str:
+        """Run the inherited learning over every recorded episode; returns the
+        outcome (``completed`` or ``failed: ...``)."""
         self._close_agent_session()
         trajectories = self._get_all_trajectories()
         logging.info(
@@ -536,6 +599,7 @@ class AgentContinualApproach(ContinualPlayBase,
             f"{getattr(self, '_current_predicates_version', None)}.",
             filename=journal_mod.ATTEMPTS_FILENAME)
         self.save(session.level_index)
+        return outcome
 
     def _fit_status_text(self) -> str:
         """The last fit as one line for the prompt: the point estimate per

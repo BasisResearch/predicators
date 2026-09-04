@@ -53,7 +53,9 @@ GRAMMAR = (
 @dataclass
 class PlayState:
     """What the tools record for the arm to act on after the query."""
-    pending_learn: Optional[str] = None
+    # Learning sessions run inside this session (learn_run runs them
+    # synchronously; the arm's callable does the work).
+    learn_runs: int = 0
     pending_end_run: Optional[str] = None
     session_ended: bool = False
     handoff: str = ""
@@ -224,11 +226,14 @@ def build_continual_tools(
     *,
     save_render: Callable[[str], Optional[str]],
     tool_names: Optional[Sequence[str]] = None,
+    learn: Optional[Callable[[str], str]] = None,
 ) -> List[Any]:
     """The ``SdkMcpTool`` instances of a play session.
 
     ``save_render(tag)`` saves a render of the current state into the
     sandbox and returns its sandbox-relative path, or ``None``.
+    ``learn(note)`` runs one learning session now and returns its
+    summary; ``learn_run`` reports an arm without one.
     """
     # pylint: disable=import-outside-toplevel
     from claude_agent_sdk import tool
@@ -543,10 +548,13 @@ def build_continual_tools(
             return _protocol_error(e)
 
     @tool(
-        "learn_run", "Queue a learning session over every recorded episode: "
-        "simulator synthesis, parameter fit and predicate invention, "
-        "deployed as the belief model behind `sim`. Runs after this "
-        "session ends; call session_end to start it now. Free in steps.", {
+        "learn_run", "Run a learning session now, inside this session, over "
+        "every recorded episode so far: simulator synthesis, parameter fit "
+        "and predicate invention, deployed as the belief model behind `sim` "
+        "before this call returns. Free in steps; the wall-clock it takes "
+        "(tens of minutes) is not charged to this session. Call it as soon "
+        "as you have data worth a model, and again whenever new data "
+        "contradicts the model.", {
             "type": "object",
             "properties": {
                 "note": {
@@ -562,18 +570,28 @@ def build_continual_tools(
         ended = _ended()
         if ended is not None:
             return ended
-        state.pending_learn = str(args.get("note", "")) or "requested"
+        if learn is None:
+            return _error_result("This arm has no learning session." +
+                                 _footer())
         n_eps = len([ep for ep in session.level_episodes() if ep["actions"]
                      ]) + sum(
                          len([
                              ep for ep in session.previous_level_episodes(j)
                              if ep["actions"]
                          ]) for j in range(session.level_index))
-        warning = ("" if n_eps else " There are no recorded episodes yet; "
-                   "the learning session will be data-free.")
-        return _text_result("Learning queued; it runs when this session "
-                            "ends. Write your notes and call session_end." +
-                            warning)
+        if not n_eps:
+            return _error_result(
+                "No recorded episode yet: nothing to learn from. Act first, "
+                "even a few steps or one skill, then call learn_run." +
+                _footer())
+        note = str(args.get("note", "")) or "requested"
+        try:
+            summary = learn(note)
+        except Exception as e:  # pylint: disable=broad-except
+            return _error_result(f"Learning failed: {e}. The previous model, "
+                                 "if any, still stands." + _footer())
+        state.learn_runs += 1
+        return _text_result(summary + _footer())
 
     @tool(
         "session_end",
