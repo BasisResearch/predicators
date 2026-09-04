@@ -2,8 +2,7 @@
 
 See ``docs/continual-protocol.md``. The run plays an env's levels in
 order (its train tasks, then its test tasks). The only primitive is the
-low-level env step; ``env.reset()`` is charged ``continual_reset_cost``
-steps and counted as a reset; skills are an
+low-level env step; ``env.reset()`` is a step and a reset; skills are an
 agent-side library invoked through the same session. Nothing in the
 sandbox is charged. The harness never judges intent: it counts, records
 and enforces the caps, and the ``RunCard`` is the result.
@@ -98,8 +97,6 @@ class Ledger:
     # False on a level without resets (a test level, unless
     # continual_allow_test_resets): GAME_OVER ends it, lost.
     resets_allowed: bool = True
-    # Steps one reset is charged (continual_reset_cost).
-    reset_cost: int = 1
 
     @property
     def steps_remaining(self) -> int:
@@ -110,17 +107,12 @@ class Ledger:
         """One line for tool results."""
         hours = self.active_seconds / 3600.0
         cap_hours = self.wall_clock_cap_seconds / 3600.0
-        if not self.resets_allowed:
-            price = " (none on this level)"
-        elif self.reset_cost != 1:
-            price = f" ({self.reset_cost} steps each)"
-        else:
-            price = ""
         return (f"[ledger] level {self.level_index + 1}/{self.levels_total}; "
                 f"steps {self.level_steps} this level, {self.run_steps} "
                 f"this run, {self.steps_remaining} remaining; resets "
                 f"{self.level_resets} this level, {self.run_resets} this "
-                f"run{price}; active {hours:.2f}/{cap_hours:.0f} h")
+                f"run{'' if self.resets_allowed else ' (none on this level)'}"
+                f"; active {hours:.2f}/{cap_hours:.0f} h")
 
 
 @dataclass(frozen=True)
@@ -220,9 +212,9 @@ class ProtocolSession:
     def reset(self, note: str = "") -> ProtocolObservation:
         """Restart the current level.
 
-        Charged ``continual_reset_cost`` steps and one reset. Refused
-        with ``ResetUnavailable`` on a level without resets (see
-        ``resets_allowed``); nothing is charged then.
+        One step plus one reset. Refused with ``ResetUnavailable`` on a
+        level without resets (see ``resets_allowed``); nothing is
+        charged then.
         """
         return self._run.reset(note)
 
@@ -515,7 +507,6 @@ class ContinualRun:
             active_seconds=self._active_seconds(),
             wall_clock_cap_seconds=self._card.wall_clock_cap,
             resets_allowed=self.resets_allowed(),
-            reset_cost=int(CFG.continual_reset_cost),
         )
 
     def step(self, action: Action) -> StepOutcome:
@@ -538,7 +529,7 @@ class ContinualRun:
         self._close_episode("reset" if by == "agent" else by)
         runner.finish()
         if by == "agent":
-            lv.steps += int(CFG.continual_reset_cost)
+            lv.steps += 1
             lv.resets += 1
         else:
             lv.harness_resets += 1

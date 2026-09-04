@@ -127,8 +127,7 @@ class ContinualPlayBase(AgentModelFreeApproach, abc.ABC):
     def _get_agent_system_prompt(self) -> str:
         if self._learning_mode:
             return super()._get_agent_system_prompt()
-        return build_play_system_prompt(self._get_solve_tool_names() or [],
-                                        reset_cost=CFG.continual_reset_cost)
+        return build_play_system_prompt(self._get_solve_tool_names() or [])
 
     def _get_solve_tool_names(self) -> Optional[List[str]]:
         return list(self._continual_tool_names())

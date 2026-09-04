@@ -29,9 +29,14 @@ every level while spending as few environment steps as possible.
   one, and you cannot return to an earlier level.
 - The only primitive is one low-level environment step. Every step you
   cause is counted against a pooled cap for the whole run. A skill
-  invocation counts the steps the skill took. `env_reset` is charged
-  __RESET_COST__ steps and is counted separately as a reset: a reset is
-  a last resort, not a retry button.
+  invocation counts the steps the skill took. `env_reset` counts one
+  step and is counted separately as a reset.
+- Treat a reset as very expensive all the same. The reset count is a
+  headline result of the run, next to the steps, and a reset throws
+  away everything the episode has built. It is a last resort, never a
+  retry button: recover in place when you can, and when you cannot,
+  work out in the sandbox and from the recorded data what went wrong
+  before you start the episode again.
 - Nothing in the sandbox is counted: model rollouts, fits, synthesis,
   code, reading data, and your own reasoning are free. The only limit on
   sandbox work is wall-clock time.

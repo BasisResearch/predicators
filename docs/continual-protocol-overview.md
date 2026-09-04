@@ -9,7 +9,7 @@ The full design, with the reasoning behind each choice, is `docs/continual-proto
 The paper's main table moves from the phased explore, learn, test loop to a continual protocol modelled on ARC-AGI-3.
 An agent is dropped into one environment and plays its tasks in order, as levels, in one continuous run.
 The protocol charges for exactly one thing: a low-level environment step.
-A reset is charged `continual_reset_cost` steps (1000 by default) and is counted separately.
+A reset costs one step and is counted separately; the prompt tells the agent to treat it as very expensive.
 Everything the agent does off-line is free: rollouts in its learned model, parameter fits, predicate and operator synthesis, code, and its own reasoning.
 Each run produces a scorecard of base metrics: levels won, steps and resets per level, and the steps before the first win.
 We record everything and choose how to aggregate later.
@@ -36,7 +36,8 @@ The one difference is that a test level is one shot: it has no resets (`continua
 
 Actions.
 The unit of account is one `env.step` call.
-A reset is charged `continual_reset_cost` steps (1000 by default, so a reset is a last resort) and counted as one reset.
+A reset counts as one step and as one reset.
+The prompt tells the agent that the reset count is a headline result and that a reset is a last resort, never a retry button; the protocol itself does not price it higher, for now.
 Skills (`Pick`, `Place`, `Push`, `Wait`, `MoveTo` and the rest of the option library) are not part of the protocol.
 They are an agent-side library that runs `env.step` until the controller terminates, and their steps are charged like any other.
 Our agent is offered the library; some baselines get only the primitive action space.
@@ -63,6 +64,8 @@ Per run: levels completed, the totals, and the end reason (all levels won, a lev
 On disk, one scorecard per run at `scorecards/<run_id>.json`, rewritten after every skill invocation and reset.
 One recording per level at `recordings/<run_id>/L<k>/`: every primitive step (`actions.jsonl`), an index with one line per skill invocation, reset, resume, win and game over (`index.jsonl`), the episodes, a checkpoint, and a render per event.
 The agent's own material lives in `recordings/<run_id>/agent/`: the system prompt, one transcript per session, and its sandbox (journal, attempts record, data, images).
+With `continual_make_video` on (the launcher config sets it), a run that ends writes `recordings/<run_id>/run.mp4`: its recorded actions replayed through the env, with a panel beside the render naming the level and goal, the skill running and the agent's note for it, the steps used against the cap, the resets and the episode state.
+`python scripts/continual_video.py --run_log <the run's info.log>` builds the same video for a finished run.
 Any aggregate can be recomputed from these files.
 The figure we expect to show is the cumulative steps versus levels won curve.
 
@@ -102,7 +105,7 @@ Whether the incentives should push harder towards learning a model is the first 
 
 ### All five environments, seed 0
 
-The same two-level setup on every environment, run on 2026-09-04 under the prices of that morning (a reset cost one step, learning ran only between sessions).
+The same two-level setup on every environment, run on 2026-09-04 with the morning's prompt (nothing yet discouraged resets, and learning ran only between sessions).
 
 | env | oracle steps per level | agent levels won | agent steps per level | resets | learning sessions | LLM cost | active time |
 |---|---|---|---|---|---|---|---|
@@ -138,7 +141,7 @@ python scripts/continual_viewer.py --port 25152
 
 The index at `http://127.0.0.1:25152/` lists every run, grouped by agent or by environment, with a filter.
 Each table is one experiment id and each row one run, named by start stamp and seed, with buttons to copy the recording path, pause the run (cancel its job; a relaunch with `--auto_resume` continues it) and delete it.
-A run page has a left menu: overview, the run's replay, each level's entry into it and its event list, the agent's sessions, and every file of the recording (the system prompt, the transcripts, the sandbox's journal and data, each level's index and renders).
+A run page has a left menu: overview, the run's replay, its video when one exists, each level's entry into it and its event list, the agent's sessions, and every file of the recording (the system prompt, the transcripts, the sandbox's journal and data, each level's index and renders).
 The replay plays the whole run as one continuous sequence, one frame per recorded event: the render, the action, the agent's reasoning that led to it, the tool call and its result, and the atoms that changed, with keyboard control.
 Levels are bands above the slider and resets, resumes, wins and game overs are ticks below it; clicking either jumps there.
 A lost level shows with a red cross wherever the viewer names a level's state.
@@ -155,8 +158,8 @@ After the first five-environment results, four decisions landed the same evening
 
 - Test levels have no resets (`continual_allow_test_resets`, off by default).
   A test level is one shot: `env_reset` is refused there without a charge, a `GAME_OVER` loses the level, and under the no-skipping rule the run ends with reason `level_lost`.
-- A reset is charged `continual_reset_cost` steps, 1000 by default, instead of one.
-  The ledger, the tool descriptions and the prompt name the price.
+- The prompt tells the agent to treat a reset as very expensive: the reset count is a headline result, and a reset is a last resort, never a retry button.
+  The protocol still charges one step per reset; a higher price stays an option.
 - The model-free baseline exists: `agent_continual_model_free`, the same agent with the env and skill tools, the sandbox and the journal, and no belief model, `sim`, `run_python` or learning session.
   Both agent arms share one play loop.
 - Learning is in-session: `learn_run` runs a learning session at any point over the episodes so far and returns with the refit model behind `sim`, instead of queueing it for after the session, and the prompt asks the agent to learn early and often.
@@ -167,7 +170,7 @@ Open with these: the `--auto_resume` relaunch of the five agent runs and the ora
 
 1. Aggregation: which number goes in the table (levels won, steps before the first win, the curve, a reset-weighted cost).
 2. Cost pressure: in the first runs a reset cost one step, observation is free, and a failed skill costs only its steps, so probing the real environment was cheaper than learning a model on three of five environments.
-   The reset price is now 1000 steps and learning runs inside the session; tighter caps derived from the oracle's step counts remain an option.
+   The prompt now discourages resets and learning runs inside the session; a reset price above one step and tighter caps derived from the oracle's step counts remain options.
 3. A lost test level ends the run, so with the paper's five test tasks per seed one loss forfeits the rest as not attempted; advancing past a lost test level instead is a small change if per-task test results are wanted.
 4. Learning-session LLM cost is not booked to the scorecard (only play sessions are); the table's cost column undercounts the runs that learned.
 5. Level lists: every environment currently has one train and one test level; the paper needs the full lists.
