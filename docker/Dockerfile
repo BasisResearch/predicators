@@ -5,7 +5,7 @@
 #
 # Provides:
 #   - Claude CLI (required by ClaudeSDKClient)
-#   - Python 3.10 + all predicators dependencies
+#   - Python 3.10 (via uv) + all predicators dependencies
 #   - claude-agent-sdk for in-process MCP tools
 #   - Firewall restricting outbound to api.anthropic.com + GitHub
 #
@@ -46,19 +46,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------------------
-# Miniconda — provides Python 3.10 to match the host environment.
+# uv — provides Python 3.10 to match the host environment.
 # The node:20 base ships Python 3.11 which is incompatible with dill
 # pickles created by the host's Python 3.10 (CodeType arg count differs).
 # ---------------------------------------------------------------------------
-RUN ARCH=$(uname -m) \
-    && curl -fsSL "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-${ARCH}.sh" \
-           -o /tmp/miniforge.sh \
-    && bash /tmp/miniforge.sh -b -p /opt/conda \
-    && rm /tmp/miniforge.sh \
-    && /opt/conda/bin/conda install -y python=3.10 \
-    && /opt/conda/bin/conda clean -afy
-
-ENV PATH="/opt/conda/bin:$PATH"
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python
+RUN uv python install 3.10 \
+    && ln -s "$(uv python find 3.10)" /usr/local/bin/python3 \
+    && ln -s "$(uv python find 3.10)" /usr/local/bin/python
 
 # ---------------------------------------------------------------------------
 # npm-global directory (mirrors official devcontainer setup)
@@ -92,15 +88,15 @@ RUN mkdir -p /home/node/.claude \
 # ---------------------------------------------------------------------------
 # Python environment — install predicators dependencies
 #
-# We copy setup.py and install deps only.  The actual source code is
-# mounted read-only at /opt/predicators at runtime via bind-mount, so
-# code changes never require a rebuild — only PyPI dependency changes do.
+# We copy pyproject.toml/uv.lock and install deps only.  The actual source
+# code is mounted read-only at /opt/predicators at runtime via bind-mount, so
+# code changes never require a rebuild — only dependency changes do.
 # ---------------------------------------------------------------------------
 WORKDIR /build
-COPY setup.py ./
+COPY pyproject.toml uv.lock ./
 RUN mkdir -p predicators && touch predicators/__init__.py \
-    && pip install --no-cache-dir -e . || true
-RUN pip install --no-cache-dir \
+    && uv pip install --python python3 --no-cache -e . || true
+RUN uv pip install --python python3 --no-cache \
     claude-agent-sdk dill nest_asyncio "setuptools<81"
 
 # ---------------------------------------------------------------------------

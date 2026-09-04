@@ -18,19 +18,16 @@ Run the following commands to install this repository.
 echo "export PYTHONHASHSEED=0" >> ~/.bashrc
 # Clone the repository.
 git clone git@github.com:Learning-and-Intelligent-Systems/predicators.git
-# Set up conda with Python 3.9.
-module unload anaconda
-module load anaconda/2021b
-conda create --name predicators python=3.9
-conda init bash  # will need to restart shell after this
-conda activate predicators
-# Install the predicators dependencies.
+# Install uv (a static binary, no module system needed).
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source ~/.bashrc
+# Install the predicators dependencies (uv provisions Python 3.10 itself).
 cd predicators
 mkdir /state/partition1/user/$USER
 export TMPDIR=/state/partition1/user/$USER
-pip install -e .
-# Add a shortcut for activating the conda env and switching to this repository.
-echo -e "predicate() {\n    cd ~/predicators\n    conda activate predicators\n}" >> ~/.bashrc
+uv sync
+# Add a shortcut for switching to this repository.
+echo -e "predicate() {\n    cd ~/predicators\n}" >> ~/.bashrc
 # Add a shortcut for displaying running jobs.
 echo "alias sl='squeue --format=\"%.18i %.9P %.42j %.8u %.8T %.10M %.6D %R\"'" >> ~/.bashrc
 source ~/.bashrc
@@ -39,10 +36,10 @@ To test if it worked:
 ```
 # Start an interactive session.
 LLsub -i
-# Activate conda and switch to the repository.
+# Switch to the repository.
 predicate
 # Run a short experiment.
-python predicators/main.py --env cover --approach oracle --seed 0
+uv run python predicators/main.py --env cover --approach oracle --seed 0
 # Exit the interactive session.
 exit
 ```
@@ -62,7 +59,7 @@ This is the preferred way to run experiments:
 ## Running Experiments (From Supercloud)
 
 We recommend running and monitoring experiments with the scripts described above. However, if you want more control, you can launch and monitor experiments manually on supercloud itself.
-To get started, ssh into supercloud. Then, activate the conda environment and switch to the repository. If you followed the instructions above, you can do both with `predicate`.
+To get started, ssh into supercloud. Then switch to the repository. If you followed the instructions above, you can do this with `predicate`.
 
 Before running any experiments, it is good practice to make sure that you have a clean workspace:
 * Make sure that you have already backed up any old results that you want to keep.

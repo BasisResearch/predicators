@@ -26,13 +26,13 @@ def truncate(value: Any, max_len: int = _MAX_PARAM_LEN) -> str:
 
 
 def find_repo_root() -> Path:
-    """Return the repository root by locating ``setup.py`` upward."""
+    """Return the repository root by locating ``pyproject.toml`` upward."""
     for parent in Path(__file__).resolve().parents:
-        if (parent / "setup.py").exists():
+        if (parent / "pyproject.toml").exists():
             return parent
     raise RuntimeError(
-        "Could not find predicators repo root: no setup.py found in any "
-        f"parent of {__file__}")
+        "Could not find predicators repo root: no pyproject.toml found in "
+        f"any parent of {__file__}")
 
 
 # ---------------------------------------------------------------------------

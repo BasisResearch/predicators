@@ -30,64 +30,48 @@ A simple implementation of search-then-sample bilevel planning is provided in `p
 Predicators ships **RoboDisco** (Robot Model Discovery Benchmark), a collection of PyBullet manipulation environments exposed through a standard [Gymnasium](https://gymnasium.farama.org/) API and suitable for world-model learning, causal discovery, and RL research independent of the planning framework. See [`predicators/envs/README.md`](predicators/envs/README.md) for the env list, install instructions, quick-start code, standalone API, and getting-started notebook.
 
 ## Installation
-Make a conda environment and install dependencies there:
+This project uses [`uv`](https://docs.astral.us/uv/) for dependency management.
+[Install uv](https://docs.astral.sh/uv/getting-started/installation/), then
+from the repo root:
 ```
-conda create -n predicators python=3.10.14
-conda activate predicators
-pip install --upgrade pip wheel setuptools
+uv sync
 ```
+This creates a `.venv` with Python 3.10 and every dependency pinned in
+`pyproject.toml` / `uv.lock` — including torch (CUDA 12.8 wheels), and the
+Point Transformer V3 stack (`spconv`, `flash-attn`, `torch-scatter`, ...) used
+by `particle_world_model`. `flash-attn` is pulled as a prebuilt wheel matching
+`torch==2.7.1+cu128` / Python 3.10 / cxx11 ABI, so no source build is needed;
+if your platform doesn't match that wheel, edit the `flash-attn` entry under
+`[tool.uv.sources]` in `pyproject.toml` to point at a build for your CUDA /
+Python version (see https://github.com/Dao-AILab/flash-attention/releases),
+or drop `--no-build-isolation-package` to let it build from source (can take
+hours).
 
-Install pytorch for your specific version of CUDA. For example, for CUDA 12.6, use:
-```
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
-```
+For a specific CUDA version other than 12.8, edit the `pytorch-cu128` index
+URL under `[[tool.uv.index]]` in `pyproject.toml` (e.g. `.../whl/cu126`), and
+match the `pyg-torch271-cu128` index to your torch build for `torch-scatter`.
 
-```
-pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 --index-url https://download.pytorch.org/whl/cu128
-```
-
-Then install flashattention (which could be quite tricky)
-```
-pip install psutil
-pip install flash-attn==2.7.4.post1 --no-build-isolation
-```
-
-If you don't want to build wheel for flash-attn, which could take hours, see https://github.com/Dao-AILab/flash-attention/issues/1038
-Then, 
-download 'https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiTRUE-cp310-cp310-linux_x86_64.whl'
-Make sure it's compatible with your cuda and torch and python version
-And install it 
-```
-pip install ...
-```
-
-Finally, install everything else you would need for Point Transformers V3.
-```
-pip install spconv-cu126
-pip install transforms3d==0.4.2
-pip install timm==1.0.19 --no-deps
-pip install addict torch-scatter
-```
-
-* This repository uses Python versions 3.10-3.11. We recommend 3.10.14.
-* Run `pip install -e .` to install dependencies.
+* This repository uses Python versions 3.10-3.11. We recommend 3.10.14 (pinned
+  via `uv`).
+* Run `uv sync --extra develop` to also install dev tools (pytest-cov, yapf,
+  isort, ...).
 
 
 ## Instructions For Running Code
 
 ### `PYTHONHASHSEED`
 Our code assumes that python hashing is deterministic between processes, which is [not true by default](https://stackoverflow.com/questions/30585108/disable-hash-randomization-from-within-python-program).
-Please make sure to `export PYTHONHASHSEED=0` when running the code. You can add this line to your bash profile, or prepend `export PYTHONHASHSEED=0` to any command line call, e.g., `export PYTHONHASHSEED=0 python predicators/main.py --env ...`.
+Please make sure to `export PYTHONHASHSEED=0` when running the code. You can add this line to your bash profile, or prepend `export PYTHONHASHSEED=0` to any command line call, e.g., `export PYTHONHASHSEED=0 uv run python predicators/main.py --env ...`.
 
 ### Locally
-* (recommended) Make a new virtual env or conda env.
-* Run, e.g., `python predicators/main.py --env cover --approach oracle --seed 0` to run the system.
+* Run `uv sync` once to set up the environment (see Installation above).
+* Run, e.g., `uv run python predicators/main.py --env cover --approach oracle --seed 0` to run the system.
 
 ### Running Experiments on Supercloud
 See [these instructions](supercloud.md).
 
 ## Instructions For Contributing
-* Run `pip install -e .[develop]` to install all dependencies for development.
+* Run `uv sync --extra develop` to install all dependencies for development.
 * You can't push directly to master. Make a new branch in this repository (don't use a fork, since that will not properly trigger the checks when you make a PR). When your code is ready for review, make a PR and request reviews from the appropriate people.
 * To merge a PR, you need at least one approval, and you have to pass the 4 checks defined in `.github/workflows/predicators.yml`, which you can run locally in one line via `./scripts/run_checks.sh`, or individually as follows:
     * `pytest -s tests/ --cov-config=.coveragerc --cov=predicators/ --cov=tests/ --cov-report=term-missing:skip-covered --durations=0` (in CI, this is split across 8 parallel shards using `pytest-split`)

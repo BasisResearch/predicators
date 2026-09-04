@@ -12,20 +12,15 @@ jobs:
         group: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
     - uses: actions/checkout@v2
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v2
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
       with:
+        version: "latest"
         python-version: ${{ matrix.python-version }}
-    - name: Cache pip packages
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: pip-${{ matrix.python-version }}-${{ hashFiles('setup.py') }}
-        restore-keys: |
-          pip-${{ matrix.python-version }}-
+        enable-cache: true
     - run: |
-        pip install -e .
-        pip install pytest-cov==2.12.1 pytest-split
+        uv sync --frozen
+        uv pip install pytest-cov==2.12.1 pytest-split
     - name: Pytest (group ${{ matrix.group }}/8)
       run: |
         pytest -s tests/ --splits 8 --group ${{ matrix.group }} --splitting-algorithm least_duration --cov-config=.coveragerc --cov=predicators/ --cov=tests/ --cov-report=term-missing:skip-covered
@@ -71,21 +66,16 @@ jobs:
         python-version: ["3.10.14"]
     steps:
     - uses: actions/checkout@v2
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v2
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
       with:
+        version: "latest"
         python-version: ${{ matrix.python-version }}
-    - name: Cache pip packages
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: pip-${{ matrix.python-version }}-${{ hashFiles('setup.py') }}
-        restore-keys: |
-          pip-${{ matrix.python-version }}-
+        enable-cache: true
     - name: Install dependencies
       run: |
-        pip install -e .
-        pip install mypy==1.8.0
+        uv sync --frozen
+        uv pip install mypy==1.8.0
     - name: Mypy
       run: |
         mypy . --config-file mypy.ini
@@ -96,21 +86,16 @@ jobs:
         python-version: ["3.10.14"]
     steps:
     - uses: actions/checkout@v2
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v2
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
       with:
+        version: "latest"
         python-version: ${{ matrix.python-version }}
-    - name: Cache pip packages
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: pip-${{ matrix.python-version }}-${{ hashFiles('setup.py') }}
-        restore-keys: |
-          pip-${{ matrix.python-version }}-
+        enable-cache: true
     - name: Install dependencies
       run: |
-        pip install -e .
-        pip install pytest-pylint==0.18.0
+        uv sync --frozen
+        uv pip install pytest-pylint==0.18.0
     - name: Pylint
       run: |
         pytest . --pylint -m pylint --pylint-rcfile=.predicators_pylintrc
@@ -135,7 +120,6 @@ jobs:
         yapf --diff -r --style .style.yapf --exclude '**/third_party' predicators
         yapf --diff -r --style .style.yapf scripts
         yapf --diff -r --style .style.yapf tests
-        yapf --diff -r --style .style.yapf setup.py
       env:
         PYTHONHASHSEED: 0
   isort:

@@ -10,13 +10,12 @@ Produces:
 With --human:
   Also animates the rollout live in the PyBullet GUI with trajectory trails.
 
-Run from the repo root (PTv3 needs the ``predicators2`` env for spconv /
-flash-attn)::
+Run from the repo root::
 
-    conda run -n predicators2 python -m particle_world_model.rollout_ptv3_flow
-    conda run -n predicators2 python -m particle_world_model.rollout_ptv3_flow \\
+    uv run python -m particle_world_model.rollout_ptv3_flow
+    uv run python -m particle_world_model.rollout_ptv3_flow \\
         --human --steps 60
-    conda run -n predicators2 python -m particle_world_model.rollout_ptv3_flow \\
+    uv run python -m particle_world_model.rollout_ptv3_flow \\
         --weights other.pth
 """
 

@@ -16,7 +16,7 @@ code and can be consumed independently of the planner.
 From the repo root:
 
 ```bash
-pip install -e .
+uv sync
 ```
 
 This installs the agent solvers and the RoboDisco envs together. The
@@ -73,7 +73,7 @@ The Gymnasium wrapper exposes:
 Status legend:
 - **Tasks** — the env's task generator produces multiple init states and goals (✅) versus only a single fixed configuration (❌).
 - **Skills** — `predicators/ground_truth_models/<env>/options.py` exposes a non-empty set of primitive options (✅) versus an empty set or no factory (❌).
-- **Demos** — `python predicators/main.py --env <env_name> --approach oracle --seed 0 --num_train_tasks 1 --num_test_tasks 1 --timeout 60` solves the test task end-to-end (✅) versus failing during planning, execution, or sampler grounding (❌).
+- **Demos** — `uv run python predicators/main.py --env <env_name> --approach oracle --seed 0 --num_train_tasks 1 --num_test_tasks 1 --timeout 60` solves the test task end-to-end (✅) versus failing during planning, execution, or sampler grounding (❌).
 
 | Environment | Preview | Description | Tasks | Skills | Demos |
 |---|---|---|:---:|:---:|:---:|

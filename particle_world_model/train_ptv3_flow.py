@@ -9,11 +9,10 @@ Consumes ``tracked_particles.npz`` (produced by
 ``particle_world_model.run_flow``); writes the best checkpoint to
 ``ptv3_flow_best.pth``.
 
-Run from the repo root (PTv3 needs the ``predicators2`` env for spconv /
-flash-attn)::
+Run from the repo root::
 
-    conda run -n predicators2 python -m particle_world_model.train_ptv3_flow
-    conda run -n predicators2 python -m particle_world_model.train_ptv3_flow \\
+    uv run python -m particle_world_model.train_ptv3_flow
+    uv run python -m particle_world_model.train_ptv3_flow \\
         --epochs 200 --lr 5e-4
 """
 

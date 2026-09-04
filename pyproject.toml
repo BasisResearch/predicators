@@ -1,0 +1,113 @@
+[project]
+name = "predicators"
+version = "0.1.0"
+description = "Bilevel planning with learned neuro-symbolic relational abstractions."
+requires-python = ">=3.10,<3.12"
+dependencies = [
+    "numpy==1.23.5",
+    "pytest==7.1.3",
+    "mypy==1.8.0",
+    "gym==0.26.2",
+    "gymnasium>=0.28.0",
+    "matplotlib==3.6.2",
+    "imageio==2.22.2",
+    "imageio-ffmpeg",
+    "pandas==1.5.1",
+    "torch==2.7.1",
+    "torchvision==0.22.1",
+    "scipy==1.9.3",
+    "tabulate==0.9.0",
+    "dill==0.3.5.1",
+    "pyperplan",
+    "pathos",
+    "pillow==10.3.0",
+    "requests",
+    "slack_bolt",
+    "pybullet-arm64>=3.2.8",
+    "scikit-learn>=1.1.3",
+    "graphlib-backport",
+    "openai==1.19.0",
+    "pyyaml==6.0",
+    "pylint==2.14.5",
+    "types-PyYAML",
+    "lisdf",
+    "seaborn==0.12.1",
+    "smepy",
+    "pg3",
+    "gym_sokoban",
+    "ImageHash",
+    "google-generativeai",
+    "tenacity",
+    "httpx==0.27.0",
+    "colorlog",
+    "psutil",
+    "claude-agent-sdk",
+    "nest_asyncio",
+    "emcee",
+    "open3d",
+    "cotracker",
+    # gym_sokoban (below) does `import pkg_resources`, which setuptools
+    # stopped shipping as of 81 (see docker/Dockerfile for the same pin).
+    "setuptools<81",
+    # Point Transformer V3 (particle_world_model/../ptv3) stack. This is the
+    # env that previously required a separate `predicators2` conda env
+    # because these packages are pinned to a specific torch/CUDA build.
+    "spconv-cu126==2.3.8",
+    "transforms3d==0.4.2",
+    "timm==1.0.19",
+    "addict==2.4.0",
+    "torch-scatter==2.1.2+pt27cu128",
+    "flash-attn",
+    "einops==0.8.2",
+]
+
+[project.optional-dependencies]
+develop = [
+    "pytest-cov==2.12.1",
+    "pytest-pylint==0.18.0",
+    "yapf==0.32.0",
+    "docformatter==1.4",
+    "isort==5.10.1",
+    "mypy-extensions==1.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["predicators", "predicators.*"]
+
+[tool.setuptools.package-data]
+predicators = ["**/*"]
+
+[tool.uv]
+# flash-attn's build system probes `torch` at build time, so it must be built
+# with torch already present in the environment (see
+# https://github.com/Dao-AILab/flash-attention — this only matters if the URL
+# wheel below doesn't match your platform and uv falls back to a source build).
+no-build-isolation-package = ["flash-attn"]
+
+[tool.uv.sources]
+smepy = { git = "https://github.com/sebdumancic/structure_mapping.git" }
+pg3 = { git = "https://github.com/tomsilver/pg3.git" }
+gym_sokoban = { git = "https://github.com/Learning-and-Intelligent-Systems/gym-sokoban.git" }
+cotracker = { git = "https://github.com/facebookresearch/co-tracker.git" }
+torch = [{ index = "pytorch-cu128" }]
+torchvision = [{ index = "pytorch-cu128" }]
+torch-scatter = [{ index = "pyg-torch271-cu128" }]
+# Prebuilt wheel (avoids an hours-long from-source build); matches
+# torch==2.7.1+cu128, Python 3.10, cxx11 ABI. Swap for a build matching your
+# platform if this doesn't fit (see README.md).
+flash-attn = { url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiTRUE-cp310-cp310-linux_x86_64.whl" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pyg-torch271-cu128"
+url = "https://data.pyg.org/whl/torch-2.7.1+cu128.html"
+format = "flat"
+explicit = true

@@ -4,7 +4,7 @@
 # Run from anywhere inside the repository:
 #   bash docker/build.sh
 #
-# Rebuild when PyPI dependencies in setup.py change.
+# Rebuild when dependencies in pyproject.toml/uv.lock change.
 # No rebuild needed for predicators source changes (bind-mounted at runtime).
 set -euo pipefail
 

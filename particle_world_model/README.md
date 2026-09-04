@@ -22,13 +22,15 @@ directory is the main place ongoing particle-world-model work happens.
 
 ## Two stages
 
-1. **Tracking** (`run_flow.py`, base `predicators` env): observe the sim, track
-   each object's particles through a short rollout, and dump the trajectories to
-   `tracked_particles.npz`. This is ground-truth motion, not a model.
-2. **Learned flow world-model** (`train_ptv3_flow.py` / `rollout_ptv3_flow.py`,
-   `predicators2` env): fit a Point Transformer V3 to that data so it can predict
-   per-point motion for an arbitrary object point cloud, then autoregressively
-   roll a fresh scene forward with no physics.
+1. **Tracking** (`run_flow.py`): observe the sim, track each object's particles
+   through a short rollout, and dump the trajectories to `tracked_particles.npz`.
+   This is ground-truth motion, not a model.
+2. **Learned flow world-model** (`train_ptv3_flow.py` / `rollout_ptv3_flow.py`):
+   fit a Point Transformer V3 to that data so it can predict per-point motion for
+   an arbitrary object point cloud, then autoregressively roll a fresh scene
+   forward with no physics.
+
+Both stages run in the same `uv`-managed environment (see [Installation](../README.md#installation)).
 
 ## Pipeline (`run_flow.py`)
 
@@ -65,8 +67,8 @@ scene position. Loss is MSE on visible points only (`pred_vis > 0.5`).
 ### Training (`train_ptv3_flow.py`)
 
 ```bash
-conda run -n predicators2 python -m particle_world_model.train_ptv3_flow
-conda run -n predicators2 python -m particle_world_model.train_ptv3_flow \
+uv run python -m particle_world_model.train_ptv3_flow
+uv run python -m particle_world_model.train_ptv3_flow \
     --epochs 200 --lr 5e-4
 ```
 
@@ -86,8 +88,8 @@ needs to reconstruct the model and un-normalize its predictions.
 ### Rollout (`rollout_ptv3_flow.py`)
 
 ```bash
-conda run -n predicators2 python -m particle_world_model.rollout_ptv3_flow
-conda run -n predicators2 python -m particle_world_model.rollout_ptv3_flow \
+uv run python -m particle_world_model.rollout_ptv3_flow
+uv run python -m particle_world_model.rollout_ptv3_flow \
     --human --steps 60 --obj-ids 9 10
 ```
 
@@ -113,21 +115,20 @@ Run from the repo root (module form, so `predicators` and `particle_world_model`
 resolve):
 
 ```bash
-python -m particle_world_model.run                # live particle visualization
-python -m particle_world_model.run_flow           # pipeline, offscreen (rgb_array)
-python -m particle_world_model.run_flow --human   # pipeline, PyBullet GUI
+uv run python -m particle_world_model.run                # live particle visualization
+uv run python -m particle_world_model.run_flow           # pipeline, offscreen (rgb_array)
+uv run python -m particle_world_model.run_flow --human   # pipeline, PyBullet GUI
 ```
 
 ## Viewing the PyBullet domains
 
 The particle pipeline runs on top of the `robodisco/Airport-v0` env. Both the
 Airport and Donut domains have a `__main__` GUI entry point (same pattern as the
-other concrete pybullet envs) — run from the repo root with the `predicators`
-conda env active:
+other concrete pybullet envs) — run from the repo root:
 
 ```bash
-python predicators/envs/pybullet_airport.py   # conveyor belt, items, button/pusher
-python predicators/envs/pybullet_donut.py     # donuts + target area
+uv run python predicators/envs/pybullet_airport.py   # conveyor belt, items, button/pusher
+uv run python predicators/envs/pybullet_donut.py     # donuts + target area
 ```
 
 Each opens a PyBullet GUI window, loads train task 0, then holds the robot arm
@@ -148,7 +149,7 @@ There is also a scripted Airport demo that drives the pusher against the button
 instead of idling:
 
 ```bash
-python scripts/show_airport_interaction.py
+uv run python scripts/show_airport_interaction.py
 ```
 
 ## Dependencies
@@ -160,12 +161,16 @@ For the **tracking** stage, beyond the base `predicators` install:
   tracker; the `cotracker3_offline` checkpoint is fetched via `torch.hub` on
   first run.
 
-Both are listed in the top-level `setup.py`.
+Both are listed (along with everything below) in the top-level `pyproject.toml`.
 
 The **learned flow world-model** (`train_ptv3_flow.py` / `rollout_ptv3_flow.py`)
 also needs the `ptv3/` package (vendored at the repo root), which pulls in
-`spconv` and `flash-attn`. Those only build cleanly in the **`predicators2`**
-conda env, so run both scripts with `conda run -n predicators2`.
+`spconv` and `flash-attn`. These used to require a separate `predicators2` conda
+env because they're pinned to a specific torch/CUDA build; `uv` resolves and
+installs the whole stack — torch, `spconv-cu126`, `flash-attn` (as a prebuilt
+wheel, see `[tool.uv.sources]` in `pyproject.toml`), `torch-scatter`, `timm`,
+`transforms3d` — into the single `.venv` from `uv sync`, so there's no second
+environment to manage.
 
 ## Using it as a library
 

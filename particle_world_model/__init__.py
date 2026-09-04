@@ -12,13 +12,13 @@ Modules:
   * :mod:`particle_world_model.tracking`  -- CoTracker-v3 tracking and video
     rendering.
 
-Demo entry points (run from the repo root)::
+Demo entry points (run from the repo root, via ``uv run``)::
 
-    python -m particle_world_model.run            # live particle visualization
-    python -m particle_world_model.run_flow --human   # full tracking pipeline
+    uv run python -m particle_world_model.run            # live particle visualization
+    uv run python -m particle_world_model.run_flow --human   # full tracking pipeline
 
-Learned flow world-model (needs the ``predicators2`` env for PTv3)::
+Learned flow world-model::
 
-    python -m particle_world_model.train_ptv3_flow      # fit PTv3 on the .npz
-    python -m particle_world_model.rollout_ptv3_flow    # roll a trained model out
+    uv run python -m particle_world_model.train_ptv3_flow      # fit PTv3 on the .npz
+    uv run python -m particle_world_model.rollout_ptv3_flow    # roll a trained model out
 """
