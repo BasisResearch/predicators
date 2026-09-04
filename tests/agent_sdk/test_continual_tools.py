@@ -4,7 +4,6 @@ import asyncio
 import glob
 import json
 import os
-import time
 from typing import Any, Dict, List
 
 import pytest
@@ -12,7 +11,7 @@ import pytest
 from predicators import utils
 from predicators.agent_sdk.belief_probe import BeliefProbe
 from predicators.agent_sdk.play_prompts import build_play_query, \
-    build_play_system_prompt, render_data_status, render_learning_status
+    build_play_system_prompt, render_data_status
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
     PlayState, build_continual_tools, format_observation, parse_plan_lines
@@ -110,20 +109,7 @@ def test_tools_play_a_level_to_a_win(tmp_path: Any) -> None:
                                       state,
                                       save_render=lambda tag: None)
         assert [t.name for t in tools] == CONTINUAL_TOOL_NAMES
-        # Without a learning callable the arm has no learning session;
-        # with one, learning needs a recorded episode first.
-        refused = _call(tools, "learn_run", note="early")
-        assert refused.startswith("ERROR") and "no learning session" in refused
-        with_learn = build_continual_tools(ctx,
-                                           session,
-                                           state,
-                                           save_render=lambda tag: None,
-                                           learn=lambda note: "learned")
-        if session.level_index == 0:
-            # Level 1: no episode is recorded anywhere yet.
-            refused = _call(with_learn, "learn_run", note="early")
-            assert refused.startswith("ERROR") and "Act first" in refused
-            assert state.learn_runs == 0
+        assert "learn_run" not in CONTINUAL_TOOL_NAMES
         obs = _call(tools, "env_observe")
         assert "[episode] NOT_FINISHED" in obs
         assert "[atoms]" in obs and "[objects]" in obs and "[ledger]" in obs
@@ -140,9 +126,8 @@ def test_tools_play_a_level_to_a_win(tmp_path: Any) -> None:
             session,
             state,
             save_render=lambda tag: None,
-            tool_names=[n for n in CONTINUAL_TOOL_NAMES if n != "learn_run"])
-        assert [t.name for t in subset] == \
-            [n for n in CONTINUAL_TOOL_NAMES if n != "learn_run"]
+            tool_names=["env_observe", "session_end"])
+        assert [t.name for t in subset] == ["env_observe", "session_end"]
         listing = _call(tools, "skills_list")
         assert "PickPlace" in listing and "One skill per line" in listing
         plan = _oracle_plan_text(approach, session.observe().level.task)
@@ -187,21 +172,13 @@ def test_tools_divergence_reset_and_errors(tmp_path: Any) -> None:
     utils.update_config({"horizon": 2})
     seen: Dict[str, Any] = {}
     driver = _Driver()
-    notes: List[str] = []
-
-    def learn(note: str) -> str:
-        notes.append(note)
-        if note == "boom":
-            raise RuntimeError("synthesis died")
-        return f"Learning session {len(notes)} completed ({note})"
 
     def body(session: ProtocolSession) -> None:
         state = PlayState()
         tools = build_continual_tools(ctx,
                                       session,
                                       state,
-                                      save_render=lambda tag: "./img.png",
-                                      learn=learn)
+                                      save_render=lambda tag: "./img.png")
         task = session.observe().level.task
         goal = ", ".join(str(a) for a in task.goal)
         # A wrong expectation is a divergence and stops the plan.
@@ -234,15 +211,7 @@ def test_tools_divergence_reset_and_errors(tmp_path: Any) -> None:
         assert "shape" in refused
         out = _call(tools, "env_step", action=[0.5])
         assert "step applied" in out
-        # Learning runs inside the call and reports; a failure is
-        # reported too and leaves the session alive. The run end is
-        # queued, never executed by the tool.
-        out = _call(tools, "learn_run", note="please")
-        assert "Learning session 1 completed (please)" in out
-        assert "[ledger]" in out and state.learn_runs == 1
-        failed = _call(tools, "learn_run", note="boom")
-        assert failed.startswith("ERROR") and "synthesis died" in failed
-        assert notes == ["please", "boom"] and state.learn_runs == 1
+        # The run end is queued, never executed by the tool.
         assert "Run end requested" in _call(tools, "env_end_run", note="stop")
         assert state.pending_end_run == "stop"
         # The step cap (6 per level, 2 levels = 12) is hit inside a tool:
@@ -332,42 +301,28 @@ def test_parse_plan_lines_and_formatting(tmp_path: Any) -> None:
     except ValueError as e:
         assert "no skill line" in str(e)
 
-    system = build_play_system_prompt(["run_python"] + CONTINUAL_TOOL_NAMES)
+    system = build_play_system_prompt(["run_python"] +
+                                      list(CONTINUAL_TOOL_NAMES),
+                                      base_sim_refs=["./reference/base.py"])
     for name in CONTINUAL_TOOL_NAMES:
         assert f"`{name}`" in system
     assert "counts one step" in system and "very expensive" in system
     assert "never a retry button" in system
-    assert "## Learning" in system and "`sim`" in system
-    assert "Learn early and often" in system
-    assert "when you want a learning session" not in system
+    assert "## Your model" in system and "`sim`" in system
+    assert "`sim.fit()`" in system and "Model early and often" in system
+    assert "./reference/base.py" in system
     # The model-free arm's prompt describes neither a model nor tools it
     # does not have.
-    free = build_play_system_prompt(
-        [n for n in CONTINUAL_TOOL_NAMES if n != "learn_run"])
-    assert "`learn_run`" not in free and "`run_python`" not in free
-    assert "`sim`" not in free and "## Learning" not in free
+    free = build_play_system_prompt(list(CONTINUAL_TOOL_NAMES))
+    assert "`run_python`" not in free
+    assert "`sim`" not in free and "## Your model" not in free
     assert "simulator.py" not in free
-    assert "no learned model" in free and "learning session" not in free
+    assert "no learned model" in free
     assert "`session_end`" in free and "./data/trajectories.pkl" in free
     data = render_data_status(n_episodes=3, n_steps=40)
     assert "no belief model" in data and "3 (40 steps)" in data
     assert "Skill grammar" in system and "./test_images/" in system
-    none = render_learning_status(n_learn=0,
-                                  sim_version=None,
-                                  pred_version=None,
-                                  fit_status="",
-                                  n_episodes=0,
-                                  n_steps=0,
-                                  n_new_episodes=0)
-    assert "No learning session has run yet" in none
-    some = render_learning_status(n_learn=2,
-                                  sim_version="v2",
-                                  pred_version="p1",
-                                  fit_status="ok",
-                                  n_episodes=4,
-                                  n_steps=100,
-                                  n_new_episodes=1)
-    assert "v2" in some and "p1" in some
+    status = "Your model: simulator.py v2"
     query = build_play_query(session_number=1,
                              resumed=False,
                              level_number=1,
@@ -379,7 +334,7 @@ def test_parse_plan_lines_and_formatting(tmp_path: Any) -> None:
                              skills="skills",
                              predicates="preds",
                              types="types",
-                             learning=none,
+                             model=status,
                              journal="",
                              attempts="",
                              handoff="")
@@ -397,7 +352,7 @@ def test_parse_plan_lines_and_formatting(tmp_path: Any) -> None:
                               skills="s",
                               predicates="p",
                               types="t",
-                              learning=some,
+                              model=status,
                               journal="j",
                               attempts="a",
                               handoff="h")
@@ -421,31 +376,6 @@ def test_parse_plan_lines_and_formatting(tmp_path: Any) -> None:
     driver.body = body
     ContinualRun(env, approach, driver).run()
     assert seen["ok"]
-
-
-def test_attempt_clock_paused_charges_the_block_to_nothing() -> None:
-    """Inside the block no deadline is armed; afterwards every mark has moved
-    forward by the block's duration."""
-    ctx = ToolContext()
-    ctx.begin_attempt(1, 100.0)
-    ctx.python_call_deadline = ctx.attempt_deadline
-    start, deadline = ctx.attempt_start, ctx.attempt_deadline
-    assert start is not None and deadline is not None
-    with ctx.attempt_clock_paused():
-        assert ctx.attempt_deadline is None
-        assert ctx.python_call_deadline is None
-        time.sleep(0.05)
-    assert ctx.attempt_start is not None and ctx.attempt_start >= start + 0.05
-    assert ctx.attempt_deadline is not None
-    assert ctx.attempt_deadline >= deadline + 0.05
-    assert ctx.python_call_deadline == ctx.attempt_deadline
-    # A block that raises restores the marks too.
-    try:
-        with ctx.attempt_clock_paused():
-            raise ValueError("boom")
-    except ValueError:
-        pass
-    assert ctx.attempt_deadline is not None
 
 
 def test_probe_reset_from_the_current_observation(tmp_path: Any) -> None:

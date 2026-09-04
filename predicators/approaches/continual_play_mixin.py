@@ -4,9 +4,11 @@ protocol.md, section 5).
 ``ContinualPlayMixin`` is the controller side of an agent arm: it plays
 one level at a time through play sessions, sandbox sessions of the SDK
 machinery whose tool surface is the protocol's env and skill tools
-(``agent_sdk.tools.continual_tools``). Around each session it builds the
-query from the level, the journal and the recorded episodes; after it,
-it records the session in ``attempts.md``, refreshes the arm's data from
+(``agent_sdk.tools.continual_tools``) plus whatever the arm attaches
+(the model-based arm attaches its model workbench, see
+``agent_continual_approach``). Around each session it builds the query
+from the level, the journal and the recorded episodes; after it, it
+records the session in ``attempts.md``, refreshes the arm's data from
 the recorded episodes, services what the session asked for, and
 checkpoints. A requeue resumes the interrupted session's transcript
 (section 6.6).
@@ -18,11 +20,12 @@ synthesis, the parameter fit, predicate invention, the sandbox and the
 session managers are implemented. An arm keeps that class as its base
 and mixes this loop in front of it, the way ``AgentSessionMixin`` and
 ``SamplerLearningMixin`` add their concerns; the phased loop's own entry
-points (``_solve``, the explorers) are simply unused under the protocol.
-The mixin has no base class of its own, so there is no diamond, and
-what it needs from its host is declared below as the host contract.
+points (``_solve``, the explorers, the learning sessions) are simply
+unused under the protocol. The mixin has no base class of its own, so
+there is no diamond, and what it needs from its host is declared below
+as the host contract.
 
-The harness never chooses for the agent: whether to act, reset, learn
+The harness never chooses for the agent: whether to act, reset, model
 or end is decided inside the session; the loop only services what the
 session asked for and enforces two operational guards, the per-session
 wall clock and the idle-session limit.
@@ -34,8 +37,8 @@ import logging
 import os
 import shutil
 import time
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, \
-    Sequence, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Set, \
+    Tuple
 
 from predicators import utils
 from predicators.agent_sdk import journal as journal_mod
@@ -75,10 +78,13 @@ class ContinualPlayMixin:
     """The play loop, mixed in front of an agent arm's phased base class.
 
     The arm declares its tool surface through :meth:`_continual_tool_names`
-    and its learning through :meth:`_learn_callable` and
-    :meth:`_learning_status`; it wires the parent-specific overrides
-    (system prompt, checkpoint state) with :meth:`_play_system_prompt`,
-    :meth:`_continual_save_state` and :meth:`_load_continual_save_state`.
+    and what a session carries beyond the protocol tools through the
+    session hooks (:meth:`_session_extra_tools`, :meth:`_session_hooks`,
+    :meth:`_after_session`, :meth:`_model_status`,
+    :meth:`_session_was_productive`, :meth:`_session_record_extra`); it
+    wires the parent-specific overrides (system prompt, checkpoint
+    state) with :meth:`_play_system_prompt`, :meth:`_continual_save_state`
+    and :meth:`_load_continual_save_state`.
     """
 
     # -- Host contract -------------------------------------------------
@@ -119,11 +125,8 @@ class ContinualPlayMixin:
     _play_session: Optional[ProtocolSession] = None
     _continual_level: Optional[int] = None
     _sessions_played: int = 0
-    _learn_runs: int = 0
     _session_in_flight: bool = False
     _last_handoff: str = ""
-    _episodes_at_last_learn: int = 0
-    _last_fit_status: str = ""
 
     # -- What the arm declares -------------------------------------------
 
@@ -131,18 +134,45 @@ class ContinualPlayMixin:
         """The MCP tools of a play session, in prompt order."""
         raise NotImplementedError
 
-    def _learn_callable(  # pylint: disable=useless-return
-            self, session: ProtocolSession) -> Optional[Callable[[str], str]]:
-        """What ``learn_run`` calls, or ``None`` for an arm without a learning
-        session (the tool then reports so)."""
+    def _session_extra_tools(self, session: ProtocolSession) -> List[Any]:
+        """Dynamic ``SdkMcpTool`` instances a session carries beyond the
+        protocol tools, built before the session opens (the model-based arm's
+        ``run_python`` over its model workbench)."""
         del session
-        return None
+        return []
 
-    def _learning_status(self, session: ProtocolSession) -> str:
-        """The learning-status block of the query; an arm with a belief model
+    def _session_hooks(self, session: ProtocolSession) -> Dict[str, list]:
+        """SDK session hooks for the session (see ``ToolContext.
+
+        extra_session_hooks``).
+        """
+        del session
+        return {}
+
+    def _after_session(self, session: ProtocolSession,
+                       state: PlayState) -> None:
+        """Called once the session's query has returned (also after a failed
+        one), before the session is accounted."""
+        del session, state
+
+    def _model_status(self, session: ProtocolSession) -> str:
+        """The model-and-data block of the query; an arm with a belief model
         overrides it."""
         n_eps, n_steps = self._episode_counts(session)
         return render_data_status(n_episodes=n_eps, n_steps=n_steps)
+
+    def _session_was_productive(self, session: ProtocolSession,
+                                state: PlayState, steps_before: int,
+                                steps_after: int) -> bool:
+        """Whether the session did work that resets the idle guard: env steps
+        by default; an arm with a model also counts model work."""
+        del session, state
+        return steps_after > steps_before
+
+    def _session_record_extra(self, state: PlayState) -> str:
+        """Extra lines for the session's ``attempts.md`` record."""
+        del state
+        return ""
 
     # -- Hooks the session machinery reads ------------------------------
 
@@ -161,7 +191,7 @@ class ContinualPlayMixin:
         return build_play_system_prompt(self._continual_tool_names())
 
     def prepare_for_continual(self, dataset: Dataset) -> None:
-        """Take the offline data without a learning session: when to learn is
+        """Take the offline data without a learning session: when to model is
         the agent's decision."""
         self._offline_dataset = dataset
         self._sync_tool_context()
@@ -198,19 +228,24 @@ class ContinualPlayMixin:
                 self.save(session.level_index)
                 session.end_run(state.pending_end_run)
             steps_after = session.observe().ledger.run_steps
-            productive = steps_after > steps_before or state.learn_runs > 0
+            productive = self._session_was_productive(session, state,
+                                                      steps_before,
+                                                      steps_after)
             idle = 0 if productive else idle + 1
             self.save(session.level_index)
             if idle >= CFG.continual_max_idle_sessions:
                 raise _run_ended(
                     "agent_ended", f"stalled: {idle} consecutive sessions "
-                    "without an environment step or a learning session")
+                    "without an environment step or model work")
 
     # -- One session --------------------------------------------------------
 
     def _play_one_session(self, session: ProtocolSession) -> PlayState:
         ctx = self._tool_context
         state = PlayState()
+        # The arm's extras first: building them may install the probe
+        # providers the session manager reads when it opens.
+        extra_tools = self._session_extra_tools(session)
         ctx.extra_mcp_tools = build_continual_tools(
             ctx,
             session,
@@ -219,8 +254,8 @@ class ContinualPlayMixin:
             tool_names=[
                 n for n in self._continual_tool_names()
                 if n in CONTINUAL_TOOL_NAMES
-            ],
-            learn=self._learn_callable(session))
+            ]) + list(extra_tools)
+        ctx.extra_session_hooks = self._session_hooks(session)
         resume_id = self._resume_session_id()
         if resume_id is None:
             # Every session is a fresh context over the journal.
@@ -250,6 +285,7 @@ class ContinualPlayMixin:
             ctx.attempt_deadline = None
             self._session_in_flight = False
             self._agent_session.resume_session_id = None
+            self._after_session(session, state)
         dead = query_fatal_error(responses)
         if dead is not None:
             raise AgentSessionFatalError(
@@ -304,7 +340,7 @@ class ContinualPlayMixin:
                 gt_options_ref_path=ctx.gt_options_ref_path),
             predicates=self._render_predicates(),
             types=render_types_digest(ctx.types),
-            learning=self._learning_status(session),
+            model=self._model_status(session),
             journal=journal_mod.read_journal(sandbox),
             attempts=journal_mod.read_journal(
                 sandbox, filename=journal_mod.ATTEMPTS_FILENAME),
@@ -351,7 +387,7 @@ class ContinualPlayMixin:
         if self._continual_level != k:
             self._continual_level = k
             self._close_agent_session()
-        # Only the levels reached so far are visible to the learner.
+        # Only the levels reached so far are visible to the arm.
         self._train_tasks = [spec.task for spec in session.levels[:k + 1]]
         self._tool_context.train_tasks = list(self._train_tasks)
         self._tool_context.current_task = session.levels[k].task
@@ -361,7 +397,12 @@ class ContinualPlayMixin:
 
     def _sync_level_trajectories(self, session: ProtocolSession) -> None:
         """Rebuild the online trajectories from the recorded episodes of every
-        level up to the current one."""
+        level up to the current one.
+
+        The list object is kept (rebuilt in place), so anything holding
+        it, such as a session's ``run_python`` namespace, sees the
+        episodes recorded since.
+        """
         k = session.level_index
         by_level: Dict[int, List[LowLevelTrajectory]] = {}
         for traj in self._online_trajectories:
@@ -374,7 +415,7 @@ class ContinualPlayMixin:
                     session.previous_level_episodes(j), j)
         by_level[k] = self._episodes_to_trajectories(session.level_episodes(),
                                                      k)
-        self._online_trajectories = [
+        self._online_trajectories[:] = [
             t for j in sorted(by_level) for t in by_level[j]
         ]
         self._sync_tool_context()
@@ -457,12 +498,12 @@ class ContinualPlayMixin:
             "hit the turn cap"
             if subtype == "error_max_turns" else "ended by the harness")
         card = session.level_card()
+        extra = self._session_record_extra(state)
         body = (f"Level {card.index + 1}; {how}; {seconds:.0f} s; level "
                 f"steps now {card.steps}, resets {card.resets}, invocations "
                 f"{card.skill_invocations}.\n" +
                 ("\n".join(lines) if lines else "- no environment action") +
-                (f"\nLearning sessions run inside this session: "
-                 f"{state.learn_runs}" if state.learn_runs else "") +
+                (f"\n{extra}" if extra else "") +
                 (f"\nHandoff: {state.handoff}" if state.handoff else ""))
         journal_mod.append_entry(self._tool_context.sandbox_dir
                                  or self._get_log_dir(),
@@ -478,11 +519,8 @@ class ContinualPlayMixin:
             "continual": {
                 "level": self._continual_level,
                 "sessions_played": self._sessions_played,
-                "learn_runs": self._learn_runs,
                 "session_in_flight": self._session_in_flight,
                 "last_handoff": self._last_handoff,
-                "episodes_at_last_learn": self._episodes_at_last_learn,
-                "last_fit_status": self._last_fit_status,
             }
         }
 
@@ -491,9 +529,5 @@ class ContinualPlayMixin:
         cont = save_dict.get("continual") or {}
         self._continual_level = cont.get("level")
         self._sessions_played = int(cont.get("sessions_played", 0))
-        self._learn_runs = int(cont.get("learn_runs", 0))
         self._session_in_flight = bool(cont.get("session_in_flight", False))
         self._last_handoff = str(cont.get("last_handoff", ""))
-        self._episodes_at_last_learn = int(
-            cont.get("episodes_at_last_learn", 0))
-        self._last_fit_status = str(cont.get("last_fit_status", ""))

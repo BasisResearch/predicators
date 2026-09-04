@@ -135,9 +135,9 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
             setting_sources=["project", "local"],
             hooks=extra_hooks,
             # Every python the agent starts loads the sandbox's
-            # sitecustomize guard (sandbox_setup.write_pyguard); a tool
-            # call may run a whole learning session (continual play's
-            # learn_run), so the CLI's per-call timeout is raised.
+            # sitecustomize guard (sandbox_setup.write_pyguard); a
+            # single run_python call may fit a model or run a rollout
+            # sweep, so the CLI's per-call tool timeout is raised.
             env={
                 "MCP_TOOL_TIMEOUT":
                 os.environ.get("MCP_TOOL_TIMEOUT", str(MCP_TOOL_TIMEOUT_MS)),

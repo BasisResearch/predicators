@@ -148,8 +148,8 @@ def test_play_loop_with_a_scripted_model_free_agent(tmp_path: Any) -> None:
         assert names == MODEL_FREE_TOOLS
         if n == 1:
             assert "first session of the run" in message
-            assert "no belief model and no learning session" in message
-            assert "Learning sessions so far" not in message
+            assert "no belief model" in message
+            assert "Your model" not in message
             assert "not expressible in your predicates" in message
             assert "Goal: Boil" in message
             obs = _call(approach, "env_observe")
@@ -183,7 +183,7 @@ def test_play_loop_with_a_scripted_model_free_agent(tmp_path: Any) -> None:
     assert [q["kind"] for q in queries] == ["play", "play"]
     lv = card.levels[0]
     assert lv.steps == 3 and lv.resets == 0 and not lv.won
-    assert lv.sandbox["sessions"] == 2 and "learn_sessions" not in lv.sandbox
+    assert lv.sandbox["sessions"] == 2 and "fits" not in lv.sandbox
     assert lv.sandbox["sim_rollouts"] == 0
     trajs = approach._online_trajectories  # pylint: disable=protected-access
     assert len(trajs) == 1 and len(trajs[0].actions) == 3
@@ -217,12 +217,9 @@ def test_both_arms_start_with_no_predicates(tmp_path: Any) -> None:
     assert learner._get_all_predicates() == set()  # pylint: disable=protected-access
     names = learner._get_solve_tool_names()  # pylint: disable=protected-access
     assert names == ["run_python"] + list(CONTINUAL_TOOL_NAMES)
-    # Before any learning session the learner's sim is the base
-    # simulator (hidden mechanisms stripped), never the real env.
-    model = learner._option_model  # pylint: disable=protected-access
-    assert model is not None and model.sim_env is learner._base_env  # pylint: disable=protected-access
     prompt = learner._get_agent_system_prompt()  # pylint: disable=protected-access
     assert "You start with no predicates" in prompt
+    assert "## Your model" in prompt and "`sim`" in prompt
 
     _config(tmp_path,
             agent_sim_learn_kept_predicates_names=["Holding"],

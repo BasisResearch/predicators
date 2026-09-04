@@ -7,7 +7,7 @@ cannot drift.
 """
 from __future__ import annotations
 
-from typing import Iterable, Optional, Sequence
+from typing import Iterable, Sequence
 
 from predicators.agent_sdk.prompt_templates import render
 
@@ -36,12 +36,8 @@ TOOL_BLURBS = {
     "a plan, one line per skill, executed in order; stops at a failed "
     "skill, a divergence (unless told not to), a WIN or a GAME_OVER.",
     "run_python":
-    "code in the sandbox with the `sim` belief probe. Free.",
-    "learn_run":
-    "run a learning session now over every recorded episode (simulator "
-    "synthesis, parameter fit, predicate invention) and deploy the "
-    "result behind `sim` before it returns. Free in steps; its "
-    "wall-clock is not charged to this session.",
+    "code in the sandbox with the `sim` probe over your model files "
+    "(`sim.fit`, `sim.residuals`, `sim.run`, `sim.refine`, ...). Free.",
     "session_end":
     "end this session with a handoff note for the next one.",
 }
@@ -58,13 +54,15 @@ def render_tool_list(tool_names: Iterable[str]) -> str:
     return "\n".join(lines)
 
 
-def build_play_system_prompt(tool_names: Sequence[str]) -> str:
+def build_play_system_prompt(
+    tool_names: Sequence[str], base_sim_refs: Sequence[str] = ()) -> str:
     """The system prompt of every play session.
 
-    The tool surface selects the variant: an arm with ``run_python`` has
-    a belief model behind ``sim`` and one with ``learn_run`` can learn
-    it; the model-free arm has neither, and its prompt says so instead
-    of describing tools it does not have.
+    The tool surface selects the variant: an arm with ``run_python``
+    keeps and uses a belief model in the sandbox (``sim``); the model-
+    free arm has neither, and its prompt says so instead of describing
+    tools it does not have. ``base_sim_refs`` are the read-only base-
+    simulator source paths, listed for the model arm.
     """
     names = set(tool_names)
     model = "run_python" in names
@@ -79,35 +77,18 @@ def build_play_system_prompt(tool_names: Sequence[str]) -> str:
                model_files=render("play_system",
                                   "sandbox" + variant + "_files")),
     ]
-    if "learn_run" in names:
-        sections.append(render("play_system", "learning"))
+    if model:
+        refs = ("" if not base_sim_refs else render(
+            "play_system",
+            "base_sim_refs",
+            ref_listing="\n".join(f"  - {r}" for r in base_sim_refs)))
+        sections.append(render("play_system", "model", base_sim_refs=refs))
     sections += [
         render("play_system", "journal"),
         render("play_system", "session"),
         render("play_system", "principles" + variant),
     ]
     return "\n\n".join(sections)
-
-
-def render_learning_status(*, n_learn: int, sim_version: Optional[str],
-                           pred_version: Optional[str], fit_status: str,
-                           n_episodes: int, n_steps: int,
-                           n_new_episodes: int) -> str:
-    """The learning-status block of the query."""
-    if n_learn == 0:
-        return render("play_query",
-                      "learning_none",
-                      n_episodes=str(n_episodes),
-                      n_steps=str(n_steps))
-    return render("play_query",
-                  "learning_some",
-                  n_learn=str(n_learn),
-                  sim_version=sim_version or "none",
-                  pred_version=pred_version or "none",
-                  fit_status=fit_status or "unknown",
-                  n_episodes=str(n_episodes),
-                  n_steps=str(n_steps),
-                  n_new=str(n_new_episodes))
 
 
 def render_data_status(*, n_episodes: int, n_steps: int) -> str:
@@ -121,7 +102,7 @@ def render_data_status(*, n_episodes: int, n_steps: int) -> str:
 def build_play_query(*, session_number: int, resumed: bool, level_number: int,
                      levels_total: int, goal_nl: str,
                      goal_atoms: Sequence[str], ledger: str, observation: str,
-                     skills: str, predicates: str, types: str, learning: str,
+                     skills: str, predicates: str, types: str, model: str,
                      journal: str, attempts: str, handoff: str) -> str:
     """The query that opens one play session."""
     if resumed:
@@ -147,7 +128,7 @@ def build_play_query(*, session_number: int, resumed: bool, level_number: int,
         skills=skills,
         predicates=predicates,
         types=types,
-        learning=learning,
+        model=model,
         journal=journal or render("play_query", "no_journal"),
         attempts=attempts or render("play_query", "no_attempts"),
         handoff=handoff or render("play_query", "no_handoff"),

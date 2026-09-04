@@ -6,8 +6,7 @@ creation shared by AgentModelFreeApproach and its subclasses.
 """
 import logging
 import os
-from contextlib import contextmanager
-from typing import Any, Dict, Iterator, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 from gym.spaces import Box
 
@@ -313,34 +312,6 @@ class AgentSessionMixin:
             run_async_sync(session.close())
         except Exception:  # pylint: disable=broad-except
             pass
-
-    @contextmanager
-    def _parked_agent_session(
-            self) -> Iterator[Optional[SessionManagerProtocol]]:
-        """Hide the live session manager for the block, so a nested query opens
-        a manager of its own, then restore it.
-
-        A tool call of a running session that needs a whole other SDK
-        session (continual play's ``learn_run``) cannot close the live
-        manager: its CLI is waiting on the call. Inside the block
-        ``_ensure_agent_session`` therefore builds a fresh manager for
-        the nested phase; on exit that manager is closed and the parked
-        one comes back with its phase and the tool context's phase,
-        tools and hooks. Yields the parked manager.
-        """
-        parked, phase = self._agent_session, self._agent_session_phase
-        ctx = self._tool_context
-        tools = list(ctx.extra_mcp_tools or [])
-        hooks = dict(ctx.extra_session_hooks or {})
-        self._agent_session, self._agent_session_phase = None, None
-        try:
-            yield parked
-        finally:
-            self._close_agent_session()
-            self._agent_session, self._agent_session_phase = parked, phase
-            ctx.phase = phase
-            ctx.extra_mcp_tools = tools
-            ctx.extra_session_hooks = hooks
 
     def _query_agent_sync(self, message: str,
                           **query_kwargs: Any) -> List[Dict[str, Any]]:

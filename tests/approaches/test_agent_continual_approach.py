@@ -122,61 +122,48 @@ def test_fit_status_text_is_a_point_estimate_line() -> None:
 
 @pytest.mark.slow
 def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
-    """Two sessions: act, learn inside the session, end; then end the run.
+    """Two sessions: act in one session that also carries the model workbench,
+    end; then end the run.
 
-    learn_run runs the learning synchronously with the play session
-    parked and its clock paused; the loop records the session, syncs the
-    data, checkpoints, and ends the run as the agent asked.
+    The play session gets ``run_python`` with the ``sim`` probe over the
+    agent's model files; when the agent writes no simulator, no model is
+    deployed and the query says so. The loop records the session, syncs
+    the data, checkpoints, and ends the run as the agent asked.
     """
     _config(tmp_path)
     env, approach = _make_approach()
     queries: List[Dict[str, Any]] = []
-    learned: List[int] = []
 
-    def fake_learn(trajectories: Any) -> None:
-        learned.append(len(trajectories))
-        approach._current_simulator_version = "v1"  # pylint: disable=protected-access
-
-    approach._learn_simulator = fake_learn  # type: ignore[method-assign]  # pylint: disable=protected-access
+    # Keep the workbench light: no PyBullet base-state precompute.
+    approach._prepare_model_data = (  # type: ignore[method-assign]  # pylint: disable=protected-access
+        lambda trajectories: ([], [], {}))
 
     def fake_query(message: str, **kwargs: Any) -> List[Dict[str, Any]]:
         queries.append({"message": message, "kind": kwargs.get("kind")})
         n = len(queries)
         zero = [0.0] * env.action_space.shape[0]
+        ctx = approach._tool_context  # pylint: disable=protected-access
+        names = [t.name for t in ctx.extra_mcp_tools]
+        # The model workbench is live: run_python plus the sim probe.
+        assert "run_python" in names
+        assert ctx.probe_option_model_provider is not None
+        assert ctx.probe_fit_provider is not None
         if n == 1:
             assert "first session of the run" in message
+            assert "No model yet" in message
             obs = _call(approach, "env_observe")
             assert "[episode] NOT_FINISHED" in obs and "[render]" not in obs
             assert "PickJug" in _call(approach, "skills_list")
             for _ in range(3):
                 out = _call(approach, "env_step", action=zero)
                 assert "step applied" in out
-            ctx = approach._tool_context  # pylint: disable=protected-access
             assert ctx.current_observation is not None
-            parked = approach._agent_session  # pylint: disable=protected-access
-            assert parked is not None
-            tools_before = list(ctx.extra_mcp_tools)
-            deadline_before = ctx.attempt_deadline
-            assert deadline_before is not None
-            out = _call(approach, "learn_run", note="first look")
-            assert "Learning session 1 completed" in out
-            assert "3 recorded episode(s)" not in out
-            assert "1 recorded episode(s), 3 steps" in out
-            assert "`sim` now serves this model" in out
-            assert learned == [1], "learning ran inside the session"
-            # The play session and its tools are back, and its clock
-            # was paused for the learning's duration.
-            assert approach._agent_session is parked  # pylint: disable=protected-access
-            assert ctx.extra_mcp_tools == tools_before
-            assert ctx.attempt_deadline is not None
-            assert ctx.attempt_deadline >= deadline_before
             assert "Session ended" in _call(approach,
                                             "session_end",
                                             handoff="stepped three times")
         else:
             assert "session 2 of the run" in message
             assert "stepped three times" in message
-            assert "Learning sessions so far: 1" in message
             assert "Run end requested" in _call(approach,
                                                 "env_end_run",
                                                 note="enough")
@@ -190,13 +177,15 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
 
     assert card.end_reason == "agent_ended" and card.end_note == "enough"
     assert [q["kind"] for q in queries] == ["play", "play"]
+    # The workbench is torn down between sessions and at the end.
+    ctx = approach._tool_context  # pylint: disable=protected-access
+    assert ctx.probe_option_model_provider is None
     lv = card.levels[0]
     assert lv.steps == 3 and lv.resets == 0 and not lv.won
     assert lv.sandbox["sessions"] == 2
-    assert lv.sandbox["learn_sessions"] == 1
-    assert lv.sandbox["turns"] == 6
-    assert lv.sandbox["llm_cost_usd"] == pytest.approx(0.5)
-    assert learned == [1], "learning ran once, inside the first session"
+    # The agent wrote no simulator, so nothing was fit or deployed.
+    assert "fits" not in lv.sandbox
+    assert approach._current_simulator_version is None  # pylint: disable=protected-access
     trajs = approach._online_trajectories  # pylint: disable=protected-access
     assert len(trajs) == 1 and len(trajs[0].actions) == 3
     assert trajs[0].train_task_idx == 0
@@ -205,7 +194,7 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
     assert log_dir.startswith(os.path.join(str(tmp_path), "recs"))
     attempts = open(os.path.join(log_dir, "sandbox", "attempts.md"),
                     encoding="utf-8").read()
-    assert "### Session 1" in attempts and "Learning session 1" in attempts
+    assert "### Session 1" in attempts
     assert "Handoff: stepped three times" in attempts
     assert "### Session 2" in attempts
     saved = [

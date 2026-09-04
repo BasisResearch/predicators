@@ -33,9 +33,9 @@ __PREDICATES__
 
 __TYPES__
 
-## Learning status
+## Model and data
 
-__LEARNING__
+__MODEL__
 
 ## Your journal (`./journal.md`)
 
@@ -86,24 +86,8 @@ write your notes and end the session.
 <!-- section: no_handoff -->
 (none)
 
-<!-- section: learning_none -->
-No learning session has run yet: `sim` is the base simulator, the
-visible physics with none of the environment's hidden mechanisms, so
-a rollout in it shows kinematics and contact but not what the
-environment does on its own. Recorded episodes so far: __N_EPISODES__
-(__N_STEPS__ steps). With any recorded episode, call `learn_run`
-before you spend real steps: a model built from what you already have
-is free.
-
 <!-- section: learning_model_free -->
 This arm has no belief model and no learning session. Recorded
 episodes so far: __N_EPISODES__ (__N_STEPS__ steps), in
 `./data/trajectories.pkl`.
 
-<!-- section: learning_some -->
-Learning sessions so far: __N_LEARN__. Belief model version:
-__SIM_VERSION__; predicates version: __PRED_VERSION__; fit status:
-__FIT_STATUS__. Recorded episodes so far: __N_EPISODES__ (__N_STEPS__
-steps), of which __N_NEW__ were recorded after the last learning
-session; refit with `learn_run` before you rely on the model when that
-count is above zero.

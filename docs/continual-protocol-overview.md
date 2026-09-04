@@ -75,11 +75,11 @@ The figure we expect to show is the cumulative steps versus levels won curve.
 - `random_primitives`: uniformly random low-level actions.
 - `random_skills`: random skill invocations with random parameters.
 - `agent_continual`: our agent, using the C1 learner (hybrid simulator synthesis, parameter fit, predicate invention).
-  It plays through sessions, each a fresh context over its journal, with tools `env_observe`, `env_step`, `env_reset`, `env_end_run`, `skills_list`, `skills_invoke`, `skills_execute_plan`, `learn_run`, `session_end` and `run_python`.
+  It plays through sessions, each a fresh context over its journal, with tools `env_observe`, `env_step`, `env_reset`, `env_end_run`, `skills_list`, `skills_invoke`, `skills_execute_plan`, `session_end` and `run_python`.
   Every observation carries the object features, the atoms in its predicate vocabulary, and a render it can look at.
   It starts with no predicates: the goal is its natural-language description, and the predicates it invents as it learns are the only atoms it sees.
-  A learning session, requested with `learn_run` at any point of a session, fits the belief model over every recorded episode so far and returns with the refit model behind `sim`; it is free in steps and its wall-clock is not charged to the session.
-  The prompt asks the agent to learn early and often: as soon as it has a few episodes, before it spends real steps on a plan the model could check, and again whenever new data contradicts the model.
+  There is no separate learning session: the same play session that acts also writes `simulator.py` and `predicates.py`, fits them with `sim.fit`, and validates plans with `sim.run` / `sim.refine`, all in `run_python`.
+  The `sim` probe reads the current files, so an edit is live on the next call; the prompt asks the agent to model early and often, reading the data before it acts and validating a plan in the model before spending real steps.
 - `agent_continual_model_free`: the model-free baseline, the same agent with the env and skill tools, the sandbox and the journal only: no belief model, no `sim`, no `run_python` and no learning session.
   It starts with no predicates too and invents none, so it never sees an atom; the observation is the object features and a render, and the goal is its description.
   Its own code in the sandbox reads the recorded data; what it cannot read off the data it learns from the environment at the price of steps.
@@ -164,7 +164,7 @@ After the first five-environment results, four decisions landed the same evening
   The protocol still charges one step per reset; a higher price stays an option.
 - The model-free baseline exists: `agent_continual_model_free`, the same agent with the env and skill tools, the sandbox and the journal, and no belief model, `sim`, `run_python` or learning session.
   Both agent arms share one play loop.
-- Learning is in-session: `learn_run` runs a learning session at any point over the episodes so far and returns with the refit model behind `sim`, instead of queueing it for after the session, and the prompt asks the agent to learn early and often.
+- Solve and learn are one session: the model-based arm's play session carries the model workbench (`run_python` with `sim`, `sim.fit`, `sim.residuals`, `sim.run`, `sim.refine`), so the agent models and acts in the same context instead of a separate learning session; the two prompts are merged into one.
 - Both agent arms start with no predicates (the runs above gave the model-based arm `Holding`); the allowlist `agent_sim_learn_kept_predicates_names` can hand either arm env predicates, and `["none"]` spells the empty vocabulary explicitly.
 - `sim.reset(current=True)` starts a rollout from the last real observation instead of the level's initial state, and the query now says what `sim` is before the first learning session: the base simulator, the visible physics with the hidden mechanisms stripped.
 

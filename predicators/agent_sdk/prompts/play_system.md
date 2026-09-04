@@ -104,16 +104,10 @@ across sessions and levels. It holds:
 __MODEL_FILES__
 
 <!-- section: sandbox_files -->
-- `./predicates.py`, `./simulator.py`, `./samplers.py`: the model files
-  you write during learning sessions; they persist and are reloaded.
-- `run_python` executes code in a persistent namespace with `sim`, a
-  probe over your current belief model (before any learning session,
-  the base simulator: the visible physics with none of the hidden
-  mechanisms). `sim.reset()` starts at the level's initial state and
-  `sim.reset(current=True)` at the last real observation; then
-  `sim.run`, `sim.refine`, `sim.snapshot()` / `sim.restore()` and the
-  rest of the probe API described in the tool. Use it to test a plan
-  before you spend real steps on it.
+- `./simulator.py` and `./predicates.py`: your model of this
+  environment, which you write and edit and which persists across
+  sessions and levels (see "Your model"). `run_python` probes it as
+  `sim`.
 
 <!-- section: sandbox_model_free_files -->
 - `python3` in the sandbox reads `./data/trajectories.pkl` directly
@@ -121,23 +115,66 @@ __MODEL_FILES__
   belief model and no simulator to run a plan in: what you cannot read
   off the data you learn from the environment, at the price of steps.
 
-<!-- section: learning -->
-## Learning
+<!-- section: model -->
+## Your model
 
-`learn_run` runs a learning session now, inside this session: the
-harness runs your simulator synthesis, parameter fit and predicate
-invention over every recorded episode so far, deploys the result as
-the belief model behind `sim`, refreshes `./data/trajectories.pkl`,
-and returns a summary; you carry on in the same context. Learning is
-free in steps, and the wall-clock it takes is not charged to this
-session. Learn early and often: as soon as you have a few episodes,
-before you spend real steps on a plan your model could check; again
-whenever new data contradicts the model; and after any real attempt
-that surprised you. Every call refits from all the data so far, so
-learning more than once costs nothing but time. Between learning
-sessions `sim` serves the latest model in your persistent namespace,
-and `./simulator.py` and `./predicates.py` are the model files it
-wrote, which you may read and edit.
+You keep a belief model of this environment and use it, in this same
+session, to decide what to do. It is two files in your sandbox that
+you write and edit with `Write` and `Edit`:
+
+- `./simulator.py`: residual dynamics on top of the base simulator
+  (`RESIDUAL_RULES`, `PARAM_SPECS`, `RESIDUAL_FEATURES`, optionally
+  `PHYSICAL_PARAMS` and `LATENT_INIT`).
+- `./predicates.py`: the predicates you invent (`LEARNED_PREDICATES`),
+  the only atoms an observation will ever show you.
+
+There is no separate learning step. `sim` in `run_python` probes the
+current content of these files: an edit is live on the next call.
+`sim.fit()` fits the current `simulator.py`'s parameters against every
+recorded episode so far and publishes them; `sim.residuals()` shows
+where the rules still disagree with the recordings, against the base
+simulator alone; `sim.predicates()` reloads `predicates.py` and
+installs it for the observation, the rollouts and the divergence
+checks. Every write is snapshotted into `./simulator_versions/` and
+`./predicates_versions/`, and each `sim` report is tagged with the
+content it scored. Before your first `sim.fit()`, `sim` is the base
+simulator alone: the visible physics (robot motion, grasping, rigid
+bodies) with none of the environment's hidden mechanisms.
+
+`run_python` holds the data in one persistent namespace: `trajectories`
+(every recorded episode, this session's included), `describe_trajectory`,
+`train_tasks`, `is_goal_state`, `evaluate_trajectory` (the environment's
+own evaluator on any state sequence), `np`, `ParamSpec`. To test a plan
+before you spend real steps on it: `sim.reset()` (the level's initial
+state), `sim.reset(current=True)` (the last real observation), or
+`sim.reset(task_idx=i, mods={...})`; then `sim.refine(plan,
+require_goal=True)` and one continuous `sim.run` of the refined plan,
+with `sim.snapshot()` / `sim.restore()` to branch and `sim.render(label,
+annotations=[...])` to overlay. The probe rolls the candidate forward
+at the values of your last `sim.fit()` of the current file, so after an
+edit its reports say UNFITTED until you fit again; its rollouts are
+predictions of your model, not the recorded data.
+
+Model early and often: read the data before you act
+(`sim.residuals()`), model what it supports, validate a plan in the
+model before spending steps, then act with annotated expectations and
+read every divergence. A rule that writes physical state must be
+grounded in recorded transitions the base simulator mispredicts; a
+mechanism you have never observed is a hypothesis to test cheaply in
+the environment, not a rule to ship. Keep a decision record at the top
+of `simulator.py`.
+
+__BASE_SIM_REFS__
+
+<!-- section: base_sim_refs -->
+The base simulator's own source is available, read-only, at:
+
+__REF_LISTING__
+
+It covers the observable core (scene geometry and constants, body
+construction, physics stepping, state read and write) and omits the
+hidden dynamics, task generation and goal semantics. Read it to ground
+spatial and physical reasoning instead of guessing from renders.
 
 <!-- section: journal -->
 ## Journal
