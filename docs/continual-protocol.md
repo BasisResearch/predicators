@@ -1,5 +1,7 @@
 # Continual protocol: one agent, one environment, a scorecard
 
+A short overview for collaborators is `docs/continual-protocol-overview.md`.
+
 Status: design settled 2026-09-04; step 1 of the build (the protocol core, no LLM) is implemented and verified on cover and on PyBullet boil the same day.
 Decision: the paper's main table moves to this protocol.
 The phased explore/learn/test loop in `predicators/run/online_learning.py` stays as a legacy protocol and is not relaunched for the main table.
@@ -399,9 +401,10 @@ Viewing:
 python scripts/continual_viewer.py --port 25152
 ```
 
-The viewer lists every run grouped by env and arm, shows the cumulative steps-versus-levels-won curve and the per-level metrics of section 4.4 for one run, and renders one level's timeline: one row per skill invocation, reset, resume, win or game over, with the parameters, the status, the agent's expected outcome and what was missing, the note, the atoms that changed, and the render.
-The level replay page follows the ARC-AGI-3 replay viewer: one frame per recorded event with the render, the action, the agent's thinking and text that led to it (paired from the session transcripts), the tool call and its result, and the atoms that changed, with keyboard playback and a JSON export.
-The session page renders a transcript as a conversation with thinking, assistant text, tool calls and results, and renders inline.
+The index lists every run in one table per agent and env pair, nested under agent-name or env-name headers with a toggle and a filter, as in the phased log viewer.
+A run page is a left menu plus a content pane filled from the hash route: the overview (metadata, the cumulative steps-versus-levels-won curve, the per-level metrics of section 4.4), each level's replay and event list, the agent's sessions, and a tree of the recording's files (the system prompt, the transcripts, the sandbox's journal, attempts, data and images, each level's index, actions and renders).
+The replay follows the ARC-AGI-3 replay viewer: one frame per recorded event with the render, the action, the agent's thinking and text that led to it (paired from the session transcripts), the tool call and its result, and the atoms that changed, with keyboard playback and a JSON export, and it plays inside the run page.
+A session renders as a conversation with thinking, assistant text, tool calls and results, and renders inline.
 
 First PyBullet result, the oracle arm on boil (train task then test task), job 21960691: both levels won, 217 steps each, 9 skill invocations each, no resets, 33 s active.
 
@@ -417,4 +420,8 @@ Tests: `tests/agent_sdk/test_continual_tools.py` drives the tools over a real se
 
 Launching the agent arm: un-skip `agent_continual` in `protocol_continual.yaml`.
 
-Next: a real run of the agent arm on boil, then the remaining arms (model-free, primitive-only, fixed-schedule controllers), the viewer's session-log pages, and the level lists for all five envs.
+First agent result, boil seed 0, job 21964274 (2026-09-04): both levels won, 2127 steps and 5 resets on level 1 (one session, 129 turns, 85 skill invocations, 44 failed, one horizon game over), 374 steps and no reset on level 2, 55 min active, $24.66.
+The agent asked for no learning session and ran no model rollout: it measured the dynamics by probing the real environment, wrote a recipe into its journal, and replayed it on level 2.
+Under the current prices (a reset is one step, observation is free, a failed skill costs its steps) real probing was the cheaper policy; the cost pressure is open question 2 of the overview.
+
+Next: the remaining arms (model-free, primitive-only, fixed-schedule controllers), the level lists for all five envs, and the aggregation choice.
