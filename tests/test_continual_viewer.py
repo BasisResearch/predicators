@@ -66,6 +66,12 @@ def test_pages_render_for_a_finished_run(tmp_path: Any) -> None:
     assert "data-kind='env' data-name='cover'" in index
     assert "data-agent='oracle' data-env='cover'" in index
     assert index.count("class='grp exp'") == 1
+    # A fixed-layout grid with one shared column layout and a per-level
+    # inner grid, so columns and levels line up across every group.
+    assert "class='grid runs'" in index and "<colgroup>" in index
+    assert index.count("class='lvgrid'") == 1
+    assert index.count(f"<col style='width:{viewer.LEVEL_COL_W}px'>") == \
+        run.card.levels_total
     assert "id='groupbtn'" in index and "id='runfilter'" in index
     assert f"data-text='{run_id} " in index and "seed" in index
 

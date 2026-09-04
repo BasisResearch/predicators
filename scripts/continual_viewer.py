@@ -452,6 +452,20 @@ html[data-group='env'] .lbl.env { display: none; }
 #content th { top: 0; }
 #content .stage { top: 0; }
 .gallery { display: flex; flex-wrap: wrap; gap: 6px; }
+/* index: fixed-layout runs grid, one shared column layout page-wide */
+.tablewrap { overflow-x: auto; margin: 8px 12px; }
+table.grid { border-collapse: collapse; margin: 0; }
+table.grid th, table.grid td { border: 1px solid var(--border);
+  padding: 4px 8px; font-size: 13px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+table.grid th { background: var(--panel); position: static; }
+table.grid.runs { table-layout: fixed; }
+.runcell a, .runcell span { display: block; overflow: hidden;
+  text-overflow: ellipsis; }
+table.lvgrid { border-collapse: collapse; table-layout: fixed; margin: 0;
+  width: 100%; }
+table.lvgrid td { border: none; padding: 0 6px 0 0; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
 """
 
 JS = r"""
@@ -845,6 +859,9 @@ def index_page() -> str:
         key = (str(card.get("arm")), str(card.get("env")))
         leaves.setdefault(key, []).append(card)
     n_runs = {key: len(runs) for key, runs in leaves.items()}
+    # One column layout for the whole page: the levels column is as wide
+    # as the largest level count, so L1, L2, ... line up across groups.
+    n_levels = max(len(card.get("levels", [])) for card in cards)
     parts = [
         f"<p class='muted'>{len(cards)} run(s) under "
         f"<code>{esc(SCORECARDS_ROOT)}</code>; recordings under "
@@ -859,7 +876,8 @@ def index_page() -> str:
             _group_header("agent", agent, len(keys),
                           sum(n_runs[k] for k in keys)))
         for _, env in keys:
-            parts.append(_leaf_table(agent, env, leaves[(agent, env)]))
+            parts.append(
+                _leaf_table(agent, env, leaves[(agent, env)], n_levels))
         parts.append("</details>")
     # Env view: empty headers that applyGroupMode fills with the leaves.
     parts.append("</div><div id='view-env' style='display:none'>")
@@ -894,7 +912,8 @@ def _group_header(kind: str, name: str, n_inner: int, n_runs: int) -> str:
             f"({n_inner} {inner}, {n_runs} runs)</span></summary>")
 
 
-def _leaf_table(agent: str, env: str, cards: Sequence[Dict[str, Any]]) -> str:
+def _leaf_table(agent: str, env: str, cards: Sequence[Dict[str, Any]],
+                n_levels: int) -> str:
     """One (agent, env) pair's runs table, wrapped in its leaf group.
 
     The summary carries both names; the CSS shows the one naming the
@@ -905,30 +924,41 @@ def _leaf_table(agent: str, env: str, cards: Sequence[Dict[str, Any]]) -> str:
             f"<summary><span class='lbl env'>{esc(env)}</span>"
             f"<span class='lbl agent'>{esc(agent)}</span> "
             f"<span class='muted'>({len(cards)} runs)</span></summary>"
-            f"{_runs_table(cards)}</details>")
+            f"<div class='tablewrap'>{_runs_table(cards, n_levels)}</div>"
+            "</details>")
 
 
-def _runs_table(cards: Sequence[Dict[str, Any]]) -> str:
+# Fixed column widths of the runs grid, in the order of _runs_table's
+# header: run, seed, state, levels (None: LEVEL_COL_W per level of the
+# page's largest level count), steps, resets, invocations, active, queue,
+# LLM cost, updated, git. Every leaf table uses them, so columns line up
+# across agents and envs, as in the phased log viewer.
+RUN_COL_W = (250, 44, 150, None, 64, 56, 84, 72, 64, 64, 96, 80)
+LEVEL_COL_W = 104
+
+
+def _runs_table(cards: Sequence[Dict[str, Any]], n_levels: int) -> str:
+    widths = [w or LEVEL_COL_W * max(1, n_levels) for w in RUN_COL_W]
+    cols = "<colgroup>" + "".join(f"<col style='width:{w}px'>"
+                                  for w in widths) + "</colgroup>"
     rows = []
     for card in cards:
         totals = _totals(card)
         label, cls = liveness(card)
         run_id = str(card["run_id"])
         levels = card.get("levels", [])
-        marks = "".join(_level_mark(lv) for lv in levels)
         search = " ".join(
             str(x)
             for x in (run_id, card.get("config") or "", card.get("arm"),
                       card.get("env"), f"seed{card.get('seed')}", label))
         rows.append(
             f"<tr data-text='{esc(search)}'>"
-            f"<td><a href='/run/{q(run_id)}'>"
-            f"{esc(card.get('config') or run_id)}</a>"
-            f"<br><span class='muted'>{esc(run_id)}</span></td>"
+            f"<td><div class='runcell'><a href='/run/{q(run_id)}' "
+            f"title='{esc(run_id)}'>{esc(card.get('config') or run_id)}</a>"
+            f"<span class='muted'>{esc(run_id)}</span></div></td>"
             f"<td class='num'>{esc(card.get('seed'))}</td>"
             f"<td>{chip(label, cls)}</td>"
-            f"<td class='num'>{totals['levels_completed']}/"
-            f"{totals['levels_total']} {marks}</td>"
+            f"<td>{_level_grid(levels, n_levels)}</td>"
             f"<td class='num'>{totals['total_steps']}</td>"
             f"<td class='num'>{totals['total_resets']}</td>"
             f"<td class='num'>{totals['total_skill_invocations']}</td>"
@@ -938,13 +968,34 @@ def _runs_table(cards: Sequence[Dict[str, Any]]) -> str:
             f"<td class='muted'>{esc(fmt_age(card.get('updated_at')))}</td>"
             f"<td class='muted'><code>{esc(card.get('git_sha', ''))}</code>"
             "</td></tr>")
-    return ("<table><thead><tr><th>run</th><th class='num'>seed</th>"
-            "<th>state</th><th class='num'>levels</th>"
+    head = ("<thead><tr><th>run</th><th class='num'>seed</th>"
+            "<th>state</th><th title='per level: won / in progress / not "
+            "attempted, steps, resets'>levels</th>"
             "<th class='num'>steps</th><th class='num'>resets</th>"
-            "<th class='num'>invocations</th><th class='num'>active</th>"
+            "<th class='num'>invoc.</th><th class='num'>active</th>"
             "<th class='num'>queue</th><th class='num'>LLM $</th>"
-            "<th>updated</th><th>git</th></tr></thead><tbody>" +
-            "".join(rows) + "</tbody></table>")
+            "<th>updated</th><th>git</th></tr></thead>")
+    return (f"<table class='grid runs' style='width:{sum(widths)}px'>"
+            f"{cols}{head}<tbody>{''.join(rows)}</tbody></table>")
+
+
+def _level_grid(levels: Sequence[Dict[str, Any]], n_levels: int) -> str:
+    """The per-level cells of one run in a fixed inner grid, so L1 sits under
+    L1 in every row of the page."""
+    cells = []
+    for i in range(max(1, n_levels)):
+        if i >= len(levels):
+            cells.append("<td></td>")
+            continue
+        lv = levels[i]
+        detail = (f"{lv.get('steps', 0)}s {lv.get('resets', 0)}r"
+                  if lv.get("attempted") or lv.get("won") else "")
+        cells.append(f"<td>{_level_mark(lv)}"
+                     f"<span class='muted'>{detail}</span></td>")
+    cols = "".join(f"<col style='width:{LEVEL_COL_W}px'>"
+                   for _ in range(max(1, n_levels)))
+    return (f"<table class='lvgrid'><colgroup>{cols}</colgroup>"
+            f"<tr>{''.join(cells)}</tr></table>")
 
 
 def _level_mark(lv: Dict[str, Any]) -> str:
