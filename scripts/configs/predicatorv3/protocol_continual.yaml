@@ -36,3 +36,11 @@ ENVS:
 APPROACHES:
   oracle:
     SKIP: False
+  # The two reference arms of section 6.7. Random primitives are the
+  # lower reference; random skills show what the skill library alone buys.
+  random_primitives:
+    NAME: "random_actions"
+    SKIP: True
+  random_skills:
+    NAME: "random_options"
+    SKIP: True
