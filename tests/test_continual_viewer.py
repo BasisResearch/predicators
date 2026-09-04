@@ -103,18 +103,57 @@ def test_pages_render_for_a_finished_run(tmp_path: Any,
     assert f'pauseRun("{run_id}")' not in index
 
     # The run page is a sidebar plus a pane the page script fills from
-    # the hash route; the newest attempted level's replay is the default.
+    # the hash route; the replay, opened at the newest attempted level,
+    # is the default.
     run_html = viewer.run_page(run_id)
     assert run_html is not None
-    assert "id='content'" in run_html and "data-default='L2'" in run_html
-    assert "href='#L1'" in run_html and "href='#L2/events'" in run_html
+    assert "id='content'" in run_html and "data-default='replay/L2'" in \
+        run_html
+    assert "href='#replay'" in run_html and "href='#L2/events'" in run_html
+    assert "href='#replay/L1' data-lv='1'" in run_html
     assert "function initReplay" in run_html and "loadHash" in run_html
     assert "L01/" in run_html and "index.jsonl" in run_html
     overview = viewer.fragment(run_id, "overview")
     assert overview is not None
     assert "Cumulative steps vs levels won" in overview
     assert "<svg" in overview
-    assert "href='#L1/events'" in overview and "href='#L2'" in overview
+    assert "href='#L1/events'" in overview and "href='#replay/L2'" in overview
+
+    # One replay for the whole run: the frames of both levels in order,
+    # numbered run-wide, and a summary per level with its frame range.
+    data = viewer.build_run_replay(run_id)
+    n1 = len(viewer.read_index(run_id, 0))
+    n2 = len(viewer.read_index(run_id, 1))
+    assert [lv["k"] for lv in data["levels"]] == [1, 2]
+    assert data["levels"][0] == {
+        "k": 1,
+        "start": 0,
+        "end": n1 - 1,
+        "won": True,
+        "split": "train",
+        "task_idx": run.card.levels[0].task_idx
+    }
+    assert data["levels"][1]["start"] == n1
+    assert data["levels"][1]["end"] == n1 + n2 - 1
+    frames = data["frames"]
+    assert [f["i"] for f in frames] == list(range(n1 + n2))
+    assert [f["level"] for f in frames] == [1] * n1 + [2] * n2
+    assert frames[0]["event"] == "level_start" and frames[0]["marker"]
+    assert frames[n1 - 1]["event"] == "win" and frames[n1]["level"] == 2
+    assert all(f["render"] for f in frames)
+    replay = viewer.fragment(run_id, "replay")
+    assert replay is not None and "id='replay-data'" in replay
+    assert "id='bands'" in replay and "id='marks'" in replay
+    assert "id='lvsel'" in replay and f"max='{n1 + n2 - 1}'" in replay
+    assert "2 / 2 won" in replay
+    assert f"href='/run/{run_id}/replay.json'" in replay
+    exported = viewer.replay_json(run_id)
+    assert exported is not None and b'"levels"' in exported
+    assert viewer.replay_json("no-such-run") is None
+    assert viewer.build_run_replay("no-such-run") == {
+        "levels": [],
+        "frames": []
+    }
     points = viewer.win_points(run.card.to_dict())
     assert points[0] == (0, 0)
     assert points[-1][1] == 2
@@ -124,11 +163,11 @@ def test_pages_render_for_a_finished_run(tmp_path: Any,
     assert "level_start" in level and "invoke" in level and "win" in level
     assert level.count("class='thumb'") == \
         2 + run.card.levels[0].skill_invocations
-    assert "/file/" in level and "href='#L1'" in level
+    assert "/file/" in level and "href='#replay/L1'" in level
     # Atoms diffs show what each skill changed.
     assert "class='add'" in level or "class='del'" in level
     assert viewer.fragment(run_id, "L6/events") is None
-    assert viewer.fragment(run_id, "L6") is None
+    assert viewer.fragment(run_id, "L1") is None
     assert viewer.fragment(run_id, "bogus") is None
     assert viewer.run_page("no-such-run") is None
     assert viewer.fragment("no-such-run", "L1/events") is None
@@ -164,6 +203,14 @@ def test_pages_render_for_a_capped_run(tmp_path: Any) -> None:
     if run.card.levels[0].game_overs:
         assert "game_over" in level and "horizon" in level
         assert "reset" in level
+    # Every reset and game over is a mark of the run replay, in order.
+    frames = viewer.build_run_replay(run_id)["frames"]
+    marks = [f for f in frames if f["marker"]]
+    assert len([f for f in marks if f["event"] == "reset"]) == \
+        run.card.levels[0].resets
+    assert len([f for f in marks if f["event"] == "game_over"]) == \
+        len(run.card.levels[0].game_overs)
+    assert [f["i"] for f in marks] == sorted(f["i"] for f in marks)
 
 
 def test_helpers() -> None:
@@ -387,7 +434,9 @@ def test_http_endpoints(tmp_path: Any, monkeypatch: Any) -> None:
         status, body = call("GET", "/")
         assert status == 200 and run_id in body
         assert call("GET", f"/run/{run_id}")[0] == 200
-        assert call("GET", f"/run/{run_id}/frag/L1")[0] == 200
+        assert call("GET", f"/run/{run_id}/frag/replay")[0] == 200
+        assert call("GET", f"/run/{run_id}/replay.json")[0] == 200
+        assert call("GET", f"/run/{run_id}/L1/replay")[0] == 200  # redirect
         assert call("GET", "/card/nope")[0] == 404
         assert call("POST", f"/delete?r={run_id}",
                     {"Origin": "http://evil.example"})[0] == 403

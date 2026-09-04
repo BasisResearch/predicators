@@ -111,8 +111,9 @@ python scripts/continual_viewer.py --port 25152
 
 The index at `http://127.0.0.1:25152/` lists every run, grouped by agent or by environment, with a filter.
 Each table is one experiment id and each row one run, named by start stamp and seed, with buttons to copy the recording path, pause the run (cancel its job; a relaunch with `--auto_resume` continues it) and delete it.
-A run page has a left menu: overview, each level's replay and event list, the agent's sessions, and every file of the recording (the system prompt, the transcripts, the sandbox's journal and data, each level's index and renders).
-The replay plays one frame per recorded event: the render, the action, the agent's reasoning that led to it, the tool call and its result, and the atoms that changed, with keyboard control.
+A run page has a left menu: overview, the run's replay, each level's entry into it and its event list, the agent's sessions, and every file of the recording (the system prompt, the transcripts, the sandbox's journal and data, each level's index and renders).
+The replay plays the whole run as one continuous sequence, one frame per recorded event: the render, the action, the agent's reasoning that led to it, the tool call and its result, and the atoms that changed, with keyboard control.
+Levels are bands above the slider and resets, resumes, wins and game overs are ticks below it; clicking either jumps there.
 
 Aggregate a set of scorecards into `runs.csv`, `levels.csv` and `summary.md`:
 

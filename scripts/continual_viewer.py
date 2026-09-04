@@ -25,19 +25,25 @@ Pages:
 * ``/run/<run_id>``: the run as a sidebar plus a content pane that the
   hash route fills. ``#overview``: metadata, the cumulative steps-
   versus-levels-won curve, one row per level with the section 4.4
-  metrics and its episodes. ``#L<k>``: the level as a replay, after the
-  ARC-AGI-3 replay viewer: one frame per recorded event with the
-  render, the action, the agent's thinking and text that led to it, the
-  tool call and its result, and the atoms that changed; keyboard
-  playback (frame, ±10, marker, home/end, play/pause, jump) and a JSON
-  export. ``#L<k>/events``: the level's timeline, one row per index
-  event. ``#session/<name>``: one transcript as a structured
-  conversation: thinking, assistant text, tool calls with their
-  results, renders inline. ``#f=<path>``: any file of the recording
-  (the system prompt, the sandbox's journal, attempts and data, a
-  level's index and actions) or a directory as a listing with an image
-  gallery.
-* ``/run/<run_id>/L<k>/replay.json``: the replay frames.
+  metrics and its episodes. ``#replay``: the whole run as one replay,
+  after the ARC-AGI-3 replay viewer: one frame per recorded event of
+  every level in order, with the render, the action, the agent's
+  thinking and text that led to it, the tool call and its result, and
+  the atoms that changed. The slider carries one band per level above
+  it and one tick per reset, resume, win and game over below it, both
+  clickable, so a run of many levels and marks stays navigable: a
+  level selector, mark and level keys (frame, ±10, mark, level,
+  home/end, play/pause, jump), and a filmstrip that renders only a
+  window around the current frame. ``#replay/L<k>`` opens the replay at
+  the level's first frame and ``#replay/frame=<n>`` at a frame; ``#L<k>``
+  is an alias of ``#replay/L<k>``. ``#L<k>/events``: the level's timeline,
+  one row per index event. ``#session/<name>``: one transcript as a
+  structured conversation: thinking, assistant text, tool calls with
+  their results, renders inline. ``#f=<path>``: any file of the
+  recording (the system prompt, the sandbox's journal, attempts and
+  data, a level's index and actions) or a directory as a listing with
+  an image gallery.
+* ``/run/<run_id>/replay.json``: the replay's levels and frames.
 
 Usage:
     python scripts/continual_viewer.py [--scorecards scorecards] \\
@@ -393,7 +399,41 @@ img.frame { width: 100%; max-height: 62vh; object-fit: contain;
   border: 1px dashed var(--border); border-radius: 6px; }
 .controls { display: flex; gap: 6px; align-items: center; margin: 8px 0;
   flex-wrap: wrap; }
-.controls input[type=range] { flex: 1; min-width: 160px; }
+.controls .sep { color: var(--border); }
+/* timeline: level bands above the slider, mark ticks below it; both
+   rows are inset by half the thumb width so their positions land on the
+   thumb's centre */
+.timeline { margin: 8px 0 0; }
+.timeline input[type=range] { display: block; width: 100%; margin: 2px 0;
+  -webkit-appearance: none; appearance: none; height: 14px;
+  background: transparent; }
+.timeline input[type=range]::-webkit-slider-runnable-track { height: 4px;
+  background: var(--border); border-radius: 2px; }
+.timeline input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
+  width: 12px; height: 12px; margin-top: -4px; border-radius: 50%;
+  background: var(--accent); cursor: pointer; }
+.timeline input[type=range]::-moz-range-track { height: 4px;
+  background: var(--border); border-radius: 2px; }
+.timeline input[type=range]::-moz-range-thumb { width: 12px; height: 12px;
+  border: none; border-radius: 50%; background: var(--accent);
+  cursor: pointer; }
+.bands, .marks { position: relative; margin: 0 6px; }
+.bands { height: 16px; }
+.band { position: absolute; top: 0; height: 14px; min-width: 3px;
+  box-sizing: border-box; overflow: hidden; font-size: 11px;
+  line-height: 12px; text-align: center; white-space: nowrap;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 3px; cursor: pointer; }
+.band.won { border-color: var(--ok); }
+.band.cur { background: var(--accent); border-color: var(--accent);
+  color: #fff; }
+.marks { height: 10px; cursor: pointer; }
+.mark { position: absolute; top: 0; width: 2px; height: 10px;
+  margin-left: -1px; background: var(--warn); }
+.mark.win { background: var(--ok); }
+.mark.game_over { background: var(--bad); }
+.mark.resume { background: var(--muted); }
+.mark:hover { width: 4px; margin-left: -2px; }
 .filmstrip { display: flex; gap: 4px; overflow-x: auto; padding: 4px 0;
   scroll-behavior: smooth; }
 .filmstrip .cell { flex: 0 0 auto; width: 64px; height: 64px; border: 2px
@@ -406,6 +446,10 @@ img.frame { width: 100%; max-height: 62vh; object-fit: contain;
 .filmstrip .cell.game_over { border-color: var(--bad); }
 .filmstrip .cell.reset, .filmstrip .cell.resume, .filmstrip .cell.level_start
   { border-color: var(--warn); }
+.filmstrip .cell.div { width: 28px; background: var(--accent);
+  border-color: var(--accent); color: #fff; font-weight: 600;
+  cursor: default; }
+.filmstrip .cell.more { width: 28px; }
 .keys { font-size: 12px; }
 .panel { border: 1px solid var(--border); border-radius: 6px; padding: 8px
   12px; margin-bottom: 12px; background: var(--bg); }
@@ -645,14 +689,17 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 // Run page: hash routing into the content pane. The route is the hash
-// without its trailing frame or turn locator: overview, L<k> (replay),
-// L<k>/events, session/<name>, f=<path>. A same-route hash change only
-// moves within the loaded content; the replay updates the frame
-// locator with replaceState, which fires no hashchange.
+// without its trailing frame, level or turn locator: overview, replay,
+// L<k>/events, session/<name>, f=<path>; L<k> is an alias of
+// replay/L<k>. A same-route hash change only moves within the loaded
+// content; the replay updates the frame locator with replaceState,
+// which fires no hashchange.
 var LOADED = null;
 function currentHash() { return decodeURIComponent(location.hash.slice(1)); }
 function routeOf(h) {
-  return h.replace(/\/frame=\d+$/, '').replace(/\/turn-\d+$/, '');
+  var r = h.replace(/\/frame=\d+$/, '').replace(/\/turn-\d+$/, '')
+    .replace(/\/L\d+$/, '');
+  return /^L\d+$/.test(r) ? 'replay' : r;
 }
 function loadHash() {
   var content = document.getElementById('content');
@@ -687,9 +734,13 @@ function jumpWithin(h) {
   }
   var m = /frame=(\d+)$/.exec(h);
   if (m && REPLAY) REPLAY.go(Number(m[1]));
+  var l = /(?:^|\/)L(\d+)$/.exec(h);
+  if (l && REPLAY) REPLAY.level(Number(l[1]));
 }
+// The sidebar's level links are marked by the replay (the level of the
+// current frame), the others by the loaded route.
 function markNav(route) {
-  $all('.sidebar a[href]').forEach(function (a) {
+  $all('.sidebar a[href]:not([data-lv])').forEach(function (a) {
     a.classList.toggle('active', a.getAttribute('href') === '#' + route);
   });
 }
@@ -713,14 +764,81 @@ window.addEventListener('hashchange', loadHash);
 window.addEventListener('beforeunload', saveScroll);
 document.addEventListener('DOMContentLoaded', loadHash);
 
-// Replay player: one per pane at a time, built from the fragment's
-// frames JSON; the keyboard handler below drives whichever is active.
+// Replay player: one per pane at a time, built from the fragment's JSON
+// (the run's levels and its frames, every level's in order); the
+// keyboard handler below drives whichever is active. Built to scale
+// with the run: the timeline draws one band per level and one tick per
+// mark (positions, not elements per frame), the level selector and the
+// mark and level keys jump anywhere, and the filmstrip renders only
+// FILM_W cells on each side of the current frame.
 var REPLAY = null;
+var FILM_W = 40;
 function stopReplay() { if (REPLAY) REPLAY.stop(); REPLAY = null; }
 function initReplay(root, prefix) {
-  var F = JSON.parse(root.querySelector('#replay-data').textContent);
-  var N = F.length, cur = 0, timer = null, speed = 1;
+  var D = JSON.parse(root.querySelector('#replay-data').textContent);
+  var F = D.frames, L = D.levels, N = F.length, cur = 0, timer = null,
+      speed = 1, filmLo = -1, filmHi = -1;
   function el(id) { return root.querySelector('#' + id); }
+  function pct(i) { return (N > 1 ? 100 * i / (N - 1) : 0) + '%'; }
+  function levelOf(i) {
+    for (var k = 0; k < L.length; k++) if (i <= L[k].end) return L[k];
+    return null;
+  }
+  function lvName(lv) { return 'L' + lv.k + ' ' + lv.split + '[' + lv.task_idx
+    + ']'; }
+  function markTitle(f) {
+    return f.event + (f.event === 'reset' ? ' by ' + f.by : '') + ' · L' +
+      f.level + ' · frame ' + (f.i + 1);
+  }
+  function isMark(f) { return f.marker && f.event !== 'level_start'; }
+  // The timeline and the level selector: once per load.
+  function buildTimeline() {
+    el('bands').innerHTML = L.map(function (lv) {
+      var w = N > 1 ? 100 * Math.max(lv.end - lv.start, 0) / (N - 1) : 100;
+      return "<div class='band" + (lv.won ? ' won' : '') + "' data-k='" +
+        lv.k + "' style='left:" + pct(lv.start) + ";width:" + w + "%' title='"
+        + esc(lvName(lv) + ' · ' + (lv.won ? 'won' : 'not won') + ' · frames '
+        + (lv.start + 1) + '-' + (lv.end + 1)) + "' onclick='REPLAY.go(" +
+        lv.start + ")'><span>L" + lv.k + '</span></div>';
+    }).join('');
+    el('marks').innerHTML = F.filter(isMark).map(function (f) {
+      return "<div class='mark " + esc(f.event) + "' style='left:" + pct(f.i)
+        + "' title='" + esc(markTitle(f)) + "' onclick='REPLAY.go(" + f.i +
+        ")'></div>";
+    }).join('');
+    el('lvsel').innerHTML = L.map(function (lv) {
+      return "<option value='" + lv.k + "'>" + esc(lvName(lv)) +
+        (lv.won ? ' ✓' : '') + '</option>';
+    }).join('');
+    fit();
+  }
+  // A band shows its label only when wide enough for it.
+  function fit() {
+    root.querySelectorAll('.bands .band').forEach(function (b) {
+      b.firstChild.style.visibility = b.clientWidth >= 22 ? '' : 'hidden';
+    });
+  }
+  // The filmstrip window around the current frame, rebuilt when the
+  // frame nears its edge; a divider cell opens each level.
+  function buildFilm() {
+    var lo = Math.max(0, cur - FILM_W), hi = Math.min(N - 1, cur + FILM_W);
+    var cells = [];
+    if (lo > 0) cells.push("<div class='cell more' title='earlier frames' " +
+      "onclick='REPLAY.go(" + (lo - 1) + ")'>…</div>");
+    for (var i = lo; i <= hi; i++) {
+      var f = F[i];
+      if (f.event === 'level_start') cells.push("<div class='cell div' " +
+        "title='level " + f.level + "'>L" + f.level + '</div>');
+      cells.push("<div class='cell " + esc(f.event) + "' data-i='" + i +
+        "' title='" + esc(f.event + ' ' + f.skill) + "' onclick='REPLAY.go(" +
+        i + ")'>" + (f.render ? "<img src='" + f.render + "' loading='lazy'>"
+        : esc(f.event.slice(0, 6))) + '</div>');
+    }
+    if (hi < N - 1) cells.push("<div class='cell more' title='later frames' "
+      + "onclick='REPLAY.go(" + (hi + 1) + ")'>…</div>");
+    el('film').innerHTML = cells.join('');
+    filmLo = lo; filmHi = hi;
+  }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g,
     function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',
     "'":'&#39;'}[c]; }); }
@@ -742,8 +860,9 @@ function initReplay(root, prefix) {
       "<span class='muted'>" + esc(same.join(', ')) + "</span>";
   }
   function render() {
-    var f = F[cur];
+    var f = F[cur], lv = levelOf(cur);
     el('counter').textContent = (cur + 1) + ' / ' + N;
+    el('lvl').innerHTML = lv ? chip(lvName(lv), lv.won ? 'ok' : 'warn') : '';
     el('evt').innerHTML = chip(f.event,
       f.event === 'win' ? 'ok' : f.event === 'game_over' ? 'bad' : '');
     el('state').innerHTML = f.state ? chip(f.state, stateCls(f.state)) : '';
@@ -813,11 +932,19 @@ function initReplay(root, prefix) {
       f.env_atoms.length + ')</summary><div class="atoms muted">' +
       esc(f.env_atoms.join(', ')) + '</div></details>';
     el('atoms').innerHTML = at;
+    // timeline, level selector, sidebar
+    root.querySelectorAll('.bands .band').forEach(function (b) {
+      b.classList.toggle('cur', !!lv && Number(b.dataset.k) === lv.k); });
+    el('lvsel').value = lv ? String(lv.k) : '';
+    $all('.sidebar a[data-lv]').forEach(function (a) {
+      a.classList.toggle('active', !!lv && Number(a.dataset.lv) === lv.k); });
     // filmstrip
-    var cells = root.querySelectorAll('.filmstrip .cell');
-    cells.forEach(function (x, i) { x.classList.toggle('cur', i === cur); });
-    if (cells[cur]) cells[cur].scrollIntoView({inline: 'center', block:
-      'nearest'});
+    if (filmLo < 0 || (cur < filmLo + 8 && filmLo > 0) ||
+        (cur > filmHi - 8 && filmHi < N - 1)) buildFilm();
+    root.querySelectorAll('.filmstrip .cell[data-i]').forEach(function (x) {
+      x.classList.toggle('cur', Number(x.dataset.i) === cur); });
+    var cell = root.querySelector('.filmstrip .cell.cur');
+    if (cell) cell.scrollIntoView({inline: 'center', block: 'nearest'});
     history.replaceState(null, '', '#' + prefix + 'frame=' + cur);
   }
   function go(i) { cur = Math.max(0, Math.min(N - 1, i)); render(); }
@@ -826,6 +953,14 @@ function initReplay(root, prefix) {
     var i = cur + d;
     while (i >= 0 && i < N && !F[i].marker) i += d;
     if (i >= 0 && i < N) go(i);
+  }
+  function level(k) {
+    for (var j = 0; j < L.length; j++) if (L[j].k === k) { go(L[j].start);
+      return; }
+  }
+  function levelStep(d) {
+    var lv = levelOf(cur), j = lv ? L.indexOf(lv) + d : -1;
+    if (j >= 0 && j < L.length) go(L[j].start);
   }
   function stop() {
     if (!timer) return;
@@ -842,11 +977,24 @@ function initReplay(root, prefix) {
     speed = Number(e.target.value); if (timer) { stop(); toggle(); } });
   el('scrub').addEventListener('input', function (e) {
     go(Number(e.target.value)); });
-  REPLAY = {go: go, step: step, toggle: toggle, marker: marker, stop: stop,
-            N: N};
+  el('lvsel').addEventListener('change', function (e) {
+    level(Number(e.target.value)); });
+  // A click between ticks goes to the nearest mark.
+  el('marks').addEventListener('click', function (e) {
+    if (e.target !== e.currentTarget) return;
+    var r = e.currentTarget.getBoundingClientRect();
+    var at = (e.clientX - r.left) / Math.max(r.width, 1) * (N - 1), best = -1;
+    F.forEach(function (f) { if (isMark(f) && (best < 0 ||
+      Math.abs(f.i - at) < Math.abs(best - at))) best = f.i; });
+    if (best >= 0) go(best);
+  });
+  REPLAY = {go: go, step: step, toggle: toggle, marker: marker, level: level,
+            levelStep: levelStep, stop: stop, fit: fit, N: N};
+  buildTimeline();
   var m = /frame=(\d+)/.exec(location.hash);
   go(m ? Number(m[1]) : 0);
 }
+window.addEventListener('resize', function () { if (REPLAY) REPLAY.fit(); });
 document.addEventListener('keydown', function (e) {
   var R = REPLAY;
   if (!R) return;
@@ -856,6 +1004,8 @@ document.addEventListener('keydown', function (e) {
     e.preventDefault(); }
   else if (e.key === ']') R.marker(1);
   else if (e.key === '[') R.marker(-1);
+  else if (e.key === '}') R.levelStep(1);
+  else if (e.key === '{') R.levelStep(-1);
   else if (e.key === 'Home') R.go(0);
   else if (e.key === 'End') R.go(R.N - 1);
   else if (e.key === ' ') { R.toggle(); e.preventDefault(); }
@@ -1430,9 +1580,9 @@ def _level_mark(lv: Dict[str, Any]) -> str:
 
 
 def run_page(run_id: str) -> Optional[str]:
-    """One run: a sidebar (overview, each level's replay and events, the
-    agent's sessions, the recording's files) and a content pane the page script
-    fills from the hash route (see loadHash in the JS)."""
+    """One run: a sidebar (overview, the replay, each level's entry into it and
+    its events, the agent's sessions, the recording's files) and a content pane
+    the page script fills from the hash route (see loadHash in the JS)."""
     card = load_card(run_id)
     if card is None:
         return None
@@ -1441,15 +1591,17 @@ def run_page(run_id: str) -> Optional[str]:
     nav = [
         f"<div class='runhead'>{esc(card.get('config') or run_id)} "
         f"{chip(label, cls)}</div>",
-        "<div class='nav'><a href='#overview'>Overview</a>",
+        "<div class='nav'><a href='#overview'>Overview</a>"
+        "<a href='#replay'>▶ Replay</a>",
         "<h4>Levels</h4>",
     ]
     for lv in levels:
         k = int(lv["index"]) + 1
         mark = "✓" if lv.get("won") else ("…" if lv.get("attempted") else "·")
-        nav.append(f"<div class='lvl'><a href='#L{k}' title='replay L{k}'>"
-                   f"▶ L{k} <span class='muted'>{esc(lv.get('split'))}"
-                   f"[{esc(lv.get('task_idx'))}]</span> {mark}</a>"
+        nav.append(f"<div class='lvl'><a href='#replay/L{k}' data-lv='{k}' "
+                   f"title='replay from L{k}'>L{k} <span class='muted'>"
+                   f"{esc(lv.get('split'))}[{esc(lv.get('task_idx'))}]</span>"
+                   f" {mark}</a>"
                    f"<a class='sub' href='#L{k}/events'>events</a></div>")
     if agent_dir(run_id) is not None:
         logs = list_session_logs(run_id)
@@ -1463,7 +1615,7 @@ def run_page(run_id: str) -> Optional[str]:
                 f"{esc(fmt_age(log['mtime']))}</span></a>")
     nav.append("<h4>Files</h4>" + _file_tree(run_id) + "</div>")
     attempted = [int(lv["index"]) + 1 for lv in levels if lv.get("attempted")]
-    default = f"L{attempted[-1]}" if attempted else "overview"
+    default = f"replay/L{attempted[-1]}" if attempted else "overview"
     body = (f"<div class='run'><div class='sidebar'>{''.join(nav)}</div>"
             f"<div id='content' data-run='{esc(run_id)}' "
             f"data-default='{default}'><p class='muted'>Loading…</p>"
@@ -1527,16 +1679,15 @@ def _file_href(rel: str, name: str) -> str:
 
 def fragment(run_id: str, route: str) -> Optional[str]:
     """The content pane for one hash route of the run page: ``overview``,
-    ``L<k>`` (the replay), ``L<k>/events``, ``session/<name>`` or ``f=<path>``
-    (a file or directory of the recording)."""
+    ``replay``, ``L<k>/events``, ``session/<name>`` or ``f=<path>`` (a file or
+    directory of the recording)."""
     if load_card(run_id) is None:
         return None
-    m = re.fullmatch(r"L(\d+)(/events)?", route)
+    m = re.fullmatch(r"L(\d+)/events", route)
     if m:
-        k = int(m.group(1)) - 1
-        if m.group(2):
-            return events_fragment(run_id, k)
-        return replay_fragment(run_id, k)
+        return events_fragment(run_id, int(m.group(1)) - 1)
+    if route == "replay":
+        return replay_fragment(run_id)
     if route == "overview":
         return overview_fragment(run_id)
     if route.startswith("session/"):
@@ -1753,7 +1904,7 @@ def _levels_table(card: Dict[str, Any]) -> str:
         rows.append(
             "<tr>"
             f"<td><a href='#L{k + 1}/events'>L{k + 1}</a> "
-            f"<a href='#L{k + 1}' title='replay'>▶</a> "
+            f"<a href='#replay/L{k + 1}' title='replay'>▶</a> "
             f"<span class='muted'>{esc(lv.get('split'))}"
             f"[{esc(lv.get('task_idx'))}]</span></td>"
             f"<td>{chip(status, cls)}</td>"
@@ -1801,52 +1952,73 @@ def load_transcripts(run_id: str) -> List[tr.Transcript]:
     return out
 
 
-def build_replay(run_id: str, level_index: int) -> List[Dict[str, Any]]:
-    """The level's replay frames: index entries paired with the agent's tool
-    calls and reasoning, each with a render URL."""
-    entries = read_index(run_id, level_index)
-    paired = tr.pair_entries(entries, load_transcripts(run_id))
-    return tr.frames_from_entries(
-        paired, lambda p: level_render_url(run_id, level_index, p))
-
-
-def replay_fragment(run_id: str, level_index: int) -> Optional[str]:
-    """The level replay: one frame per recorded event, with the render, the
-    action, the agent's reasoning and the tool call, keyboard driven (the
-    player is initReplay in the page script)."""
+def build_run_replay(run_id: str) -> Dict[str, Any]:
+    """The run's replay: ``frames``, every recorded level's index entries in
+    order paired with the agent's tool calls and reasoning, each with a render
+    URL, numbered run-wide (``i``) and tagged with its level (``level``,
+    1-based); and ``levels``, one summary per recorded level with its frame
+    range (``start``, ``end``), so the player draws bands and jumps by level
+    without scanning the frames."""
     card = load_card(run_id)
-    if card is None or not 0 <= level_index < len(card.get("levels", [])):
+    if card is None:
+        return {"levels": [], "frames": []}
+    transcripts = load_transcripts(run_id)
+    frames: List[Dict[str, Any]] = []
+    levels: List[Dict[str, Any]] = []
+    for lv in card.get("levels", []):
+        idx = int(lv["index"])
+        entries = read_index(run_id, idx)
+        if not entries:
+            continue
+        paired = tr.pair_entries(entries, transcripts)
+        start = len(frames)
+        for f in tr.frames_from_entries(
+                paired, lambda p, idx=idx: level_render_url(run_id, idx, p)):
+            f["i"] = start + f["i"]
+            f["level"] = idx + 1
+            frames.append(f)
+        levels.append({
+            "k": idx + 1,
+            "start": start,
+            "end": len(frames) - 1,
+            "won": bool(lv.get("won")),
+            "split": lv.get("split"),
+            "task_idx": lv.get("task_idx"),
+        })
+    return {"levels": levels, "frames": frames}
+
+
+def replay_fragment(run_id: str) -> Optional[str]:
+    """The run replay: one frame per recorded event of every level, with the
+    render, the action, the agent's reasoning and the tool call; the timeline,
+    the level selector and the filmstrip are built by the player (initReplay in
+    the page script) from the JSON."""
+    card = load_card(run_id)
+    if card is None:
         return None
-    frames = build_replay(run_id, level_index)
-    lv = card["levels"][level_index]
-    k = level_index + 1
+    data = build_run_replay(run_id)
+    frames, levels = data["frames"], data["levels"]
     if not frames:
-        return (f"<h2>L{k} replay</h2>"
-                "<p class='muted'>No recorded events yet.</p>")
-    cells = []
-    for f in frames:
-        cls = f"cell {esc(f['event'])}"
-        inner = (f"<img src='{f['render']}' loading='lazy'>"
-                 if f["render"] else esc(f["event"][:6]))
-        cells.append(f"<div class='{cls}' title='{esc(f['event'])} "
-                     f"{esc(f['skill'])}' onclick='REPLAY.go({f['i']})'>"
-                     f"{inner}</div>")
+        return "<h2>Replay</h2><p class='muted'>No recorded events yet.</p>"
+    won = sum(1 for lv in levels if lv["won"])
+    won_chip = chip(f"{won} / {len(card.get('levels', []))} won",
+                    "ok" if won == len(card.get("levels", [])) else "warn")
     # JSON inside a script element: '<' must not open a tag.
-    data = json.dumps(frames, default=str).replace("<", "\\u003c")
-    won_chip = chip("won" if lv.get("won") else "not won",
-                    "ok" if lv.get("won") else "warn")
-    json_url = f"/run/{q(run_id)}/L{k}/replay.json"
+    payload = json.dumps(data, default=str).replace("<", "\\u003c")
     return (
-        f"<div class='replay-root'><h2>L{k} replay {won_chip}"
-        f" <span class='muted'>{len(frames)} frames · "
-        f"<a href='#L{k}/events'>events</a> · "
-        f"<a href='{json_url}'>Download JSON</a></span></h2>"
-        "<div class='replay'><div class='stage'>"
+        f"<div class='replay-root'><h2>Replay {won_chip}"
+        f" <span class='muted'>{len(frames)} frames, {len(levels)} levels · "
+        f"<a href='/run/{q(run_id)}/replay.json'>Download JSON</a></span>"
+        "</h2><div class='replay'><div class='stage'>"
         "<div class='stagehead'><span class='big' id='counter'></span>"
-        "<span id='evt'></span><span id='state'></span>"
+        "<span id='lvl'></span><span id='evt'></span><span id='state'></span>"
         "<span class='muted' id='steps'></span></div>"
         "<img id='frame' class='frame' alt='render'>"
         "<div id='noframe' class='noframe'>no render for this event</div>"
+        "<div class='timeline'><div class='bands' id='bands'></div>"
+        f"<input type='range' id='scrub' min='0' max='{len(frames) - 1}' "
+        "value='0'><div class='marks' id='marks' title='marks: reset, "
+        "resume, win, game over; click one to jump'></div></div>"
         "<div class='controls'>"
         "<button onclick='REPLAY.go(0)' title='Home'>⏮</button>"
         "<button onclick='REPLAY.step(-1)' title='←'>◀</button>"
@@ -1857,11 +2029,21 @@ def replay_fragment(run_id: str, level_index: int) -> Optional[str]:
         "</button>"
         "<select id='speed'><option value='1'>1×</option>"
         "<option value='2'>2×</option><option value='4'>4×</option></select>"
-        f"<input type='range' id='scrub' min='0' max='{len(frames) - 1}' "
-        "value='0'></div>"
-        f"<div class='filmstrip'>{''.join(cells)}</div>"
-        "<p class='muted keys'>← → frame · Shift+← → ±10 · [ ] marker · "
-        "Home End · Space play/pause · G jump</p></div>"
+        "<span class='sep'>|</span>"
+        "<button onclick='REPLAY.marker(-1)' title='[: previous mark'>◁ mark"
+        "</button>"
+        "<button onclick='REPLAY.marker(1)' title=']: next mark'>mark ▷"
+        "</button>"
+        "<span class='sep'>|</span>"
+        "<button onclick='REPLAY.levelStep(-1)' title='{: previous level'>"
+        "◁ level</button>"
+        "<select id='lvsel' title='Jump to a level'></select>"
+        "<button onclick='REPLAY.levelStep(1)' title='}: next level'>"
+        "level ▷</button></div>"
+        "<div class='filmstrip' id='film'></div>"
+        "<p class='muted keys'>← → frame · Shift+← → ±10 · [ ] mark · "
+        "{ } level · Home End · Space play/pause · G jump · bands: levels, "
+        "ticks: reset / resume / win / game over (click to jump)</p></div>"
         "<div class='panels'>"
         "<div class='panel'><h3>Action</h3><div id='action'></div></div>"
         "<div class='panel'><h3>Agent reasoning</h3><div id='reasoning'>"
@@ -1869,16 +2051,15 @@ def replay_fragment(run_id: str, level_index: int) -> Optional[str]:
         "<div class='panel'><h3>Tool call</h3><div id='call'></div></div>"
         "<div class='panel'><h3>Atoms (change since the previous frame)</h3>"
         "<div id='atoms'></div></div></div></div>"
-        f"<script type='application/json' id='replay-data'>{data}</script>"
-        "</div>")
+        f"<script type='application/json' id='replay-data'>{payload}"
+        "</script></div>")
 
 
-def replay_json(run_id: str, level_index: int) -> Optional[bytes]:
-    """The replay frames as JSON."""
-    card = load_card(run_id)
-    if card is None or not 0 <= level_index < len(card.get("levels", [])):
+def replay_json(run_id: str) -> Optional[bytes]:
+    """The run replay (levels and frames) as JSON."""
+    if load_card(run_id) is None:
         return None
-    return json.dumps(build_replay(run_id, level_index), default=str,
+    return json.dumps(build_run_replay(run_id), default=str,
                       indent=1).encode("utf-8")
 
 
@@ -2013,7 +2194,7 @@ def events_fragment(run_id: str, level_index: int) -> Optional[str]:
 
 
 def _level_nav(k: int, n: int) -> str:
-    links = [f"<a href='#L{k + 1}'>▶ replay</a>"]
+    links = [f"<a href='#replay/L{k + 1}'>▶ replay</a>"]
     if k > 0:
         links.append(f"<a href='#L{k}/events'>← L{k}</a>")
     if k + 1 < n:
@@ -2113,8 +2294,8 @@ def _is_level(part: str) -> bool:
 
 class Handler(BaseHTTPRequestHandler):
     """Routes: /, /run/<id> (the run page), /run/<id>/frag/<route> (its
-    pane content), /run/<id>/L<k>/replay.json, /card/<id>, /file/<rel>;
-    POST /pause?r=<id> and POST /delete?r=<id>[&kill=1]. The former
+    pane content), /run/<id>/replay.json, /card/<id>, /file/<rel>; POST
+    /pause?r=<id> and POST /delete?r=<id>[&kill=1]. The former
     /run/<id>/L<k>[/replay] and /run/<id>/session/<name> pages redirect
     to the run page's hash routes."""
 
@@ -2142,12 +2323,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._redirect(f"/run/{q(parts[1])}#session/{parts[3]}")
             elif parts[0] == "run" and len(parts) == 4 and \
                     _is_level(parts[2]) and parts[3] == "replay":
-                self._redirect(f"/run/{q(parts[1])}#{parts[2]}")
-            elif parts[0] == "run" and len(parts) == 4 and \
-                    _is_level(parts[2]) and parts[3] == "replay.json":
-                self._bytes(replay_json(parts[1],
-                                        int(parts[2][1:]) - 1),
-                            "application/json")
+                self._redirect(f"/run/{q(parts[1])}#replay/{parts[2]}")
+            elif parts[0] == "run" and len(parts) == 3 and \
+                    parts[2] == "replay.json":
+                self._bytes(replay_json(parts[1]), "application/json")
             elif parts[0] == "card" and len(parts) == 2:
                 self._file(safe_join(SCORECARDS_ROOT, parts[1] + ".json"))
             elif parts[0] == "file" and len(parts) >= 2:
