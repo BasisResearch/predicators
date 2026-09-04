@@ -22,6 +22,14 @@ Pages:
   with the skill, its parameters, status, steps, episode state, the
   agent's expected outcome and what was missing, the note, the atoms
   that changed since the previous event, and the render.
+* ``/run/<run_id>/L<k>/replay``: the level as a replay, after the
+  ARC-AGI-3 replay viewer: one frame per recorded event with the render,
+  the action, the agent's thinking and text that led to it, the tool
+  call and its result, and the atoms that changed; keyboard playback
+  (frame, ±10, marker, home/end, play/pause, jump) and a JSON export.
+* ``/run/<run_id>/session/<name>``: one session transcript as a
+  structured conversation: thinking, assistant text, tool calls with
+  their results, renders inline.
 
 Usage:
     python scripts/continual_viewer.py [--scorecards scorecards] \\
@@ -36,10 +44,18 @@ import json
 import mimetypes
 import os
 import re
+import sys
 import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+# Run as a script or imported as scripts.continual_viewer: either way the
+# helper module lives next to this file, under the repo root.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+# pylint: disable-next=wrong-import-position
+from scripts import continual_transcripts as tr  # noqa: E402
 
 SCORECARDS_ROOT = ""  # absolute, set in main()
 RECORDINGS_ROOT = ""  # absolute, set in main()
@@ -318,6 +334,55 @@ details summary { cursor: pointer; color: var(--muted); }
 pre.doc { white-space: pre-wrap; word-break: break-word; background:
   var(--code-bg); border: 1px solid var(--border); border-radius: 6px;
   padding: 10px 12px; max-height: 70vh; overflow: auto; }
+/* replay */
+.replay { display: grid; grid-template-columns: minmax(420px, 1fr)
+  minmax(360px, 520px); gap: 18px; align-items: start; }
+.stage { position: sticky; top: 56px; }
+.stagehead { display: flex; gap: 10px; align-items: center; margin: 0 0 6px;
+  font-variant-numeric: tabular-nums; }
+.stagehead .big { font-size: 15px; font-weight: 600; }
+img.frame { width: 100%; max-height: 62vh; object-fit: contain;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 6px; }
+.noframe { width: 100%; height: 240px; display: flex; align-items: center;
+  justify-content: center; color: var(--muted); background: var(--panel);
+  border: 1px dashed var(--border); border-radius: 6px; }
+.controls { display: flex; gap: 6px; align-items: center; margin: 8px 0;
+  flex-wrap: wrap; }
+.controls input[type=range] { flex: 1; min-width: 160px; }
+.filmstrip { display: flex; gap: 4px; overflow-x: auto; padding: 4px 0;
+  scroll-behavior: smooth; }
+.filmstrip .cell { flex: 0 0 auto; width: 64px; height: 64px; border: 2px
+  solid var(--border); border-radius: 4px; overflow: hidden; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size:
+  11px; color: var(--muted); background: var(--panel); }
+.filmstrip .cell img { width: 100%; height: 100%; object-fit: cover; }
+.filmstrip .cell.cur { border-color: var(--accent); }
+.filmstrip .cell.win { border-color: var(--ok); }
+.filmstrip .cell.game_over { border-color: var(--bad); }
+.filmstrip .cell.reset, .filmstrip .cell.resume, .filmstrip .cell.level_start
+  { border-color: var(--warn); }
+.keys { font-size: 12px; }
+.panel { border: 1px solid var(--border); border-radius: 6px; padding: 8px
+  12px; margin-bottom: 12px; background: var(--bg); }
+.panel h3 { margin: 0 0 6px; }
+.panel pre { white-space: pre-wrap; word-break: break-word; margin: 4px 0;
+  background: var(--code-bg); border-radius: 4px; padding: 6px 8px;
+  max-height: 40vh; overflow: auto; }
+blockquote.think { margin: 6px 0; padding: 6px 10px; border-left: 3px solid
+  var(--muted); color: var(--muted); white-space: pre-wrap;
+  word-break: break-word; font-size: 13px; }
+.say { white-space: pre-wrap; word-break: break-word; margin: 6px 0; }
+.turn { border-top: 1px solid var(--border); padding: 10px 0; }
+.turn h3 { margin: 0 0 6px; }
+.call { border: 1px solid var(--border); border-radius: 6px; padding: 6px
+  10px; margin: 8px 0; background: var(--panel); }
+.call.envtool { border-color: var(--accent); }
+.call .name { font-weight: 600; }
+.call pre { white-space: pre-wrap; word-break: break-word; margin: 4px 0;
+  background: var(--code-bg); border-radius: 4px; padding: 6px 8px;
+  max-height: 50vh; overflow: auto; font-size: 12px; }
+.result.err { border-left: 3px solid var(--bad); }
 """
 
 JS = """
@@ -581,6 +646,7 @@ def _levels_table(card: Dict[str, Any]) -> str:
         rows.append(
             "<tr>"
             f"<td><a href='/run/{q(run_id)}/L{k + 1}'>L{k + 1}</a> "
+            f"<a href='/run/{q(run_id)}/L{k + 1}/replay' title='replay'>▶</a> "
             f"<span class='muted'>{esc(lv.get('split'))}"
             f"[{esc(lv.get('task_idx'))}]</span></td>"
             f"<td>{chip(status, cls)}</td>"
@@ -652,13 +718,273 @@ def _agent_section(run_id: str) -> str:
     return "".join(parts)
 
 
+def load_transcripts(run_id: str) -> List[tr.Transcript]:
+    """Every parsed session transcript of a run, oldest first."""
+    out = []
+    for log in list_session_logs(run_id):
+        text = read_agent_text(run_id, log["name"])
+        if text is None:
+            continue
+        out.append(tr.parse_transcript(text, log["name"]))
+    return out
+
+
+def build_replay(run_id: str, level_index: int) -> List[Dict[str, Any]]:
+    """The level's replay frames: index entries paired with the agent's
+    tool calls and reasoning, each with a render URL."""
+    entries = read_index(run_id, level_index)
+    paired = tr.pair_entries(entries, load_transcripts(run_id))
+    return tr.frames_from_entries(
+        paired, lambda p: level_render_url(run_id, level_index, p))
+
+
+REPLAY_JS = r"""
+(function () {
+  var F = window.FRAMES, N = F.length, cur = 0, timer = null, speed = 1;
+  var runId = window.RUN_ID, levelNum = window.LEVEL_NUM;
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g,
+    function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',
+    "'":'&#39;'}[c]; }); }
+  function chip(t, cls) { return "<span class='chip " + (cls||'') + "'>" +
+    esc(t) + "</span>"; }
+  function stateCls(st) { return st === 'WIN' ? 'ok' : st === 'GAME_OVER' ?
+    'bad' : ''; }
+  function statusCls(st) { return st === 'succeeded' ? 'ok' : st === 'failed'
+    ? 'bad' : st === 'interrupted' ? 'warn' : ''; }
+  function atomsDiff(prev, curA) {
+    if (!curA) return "<span class='muted'>no atoms recorded</span>";
+    var p = new Set(prev || []), c = new Set(curA), out = [];
+    curA.forEach(function (a) { if (!p.has(a)) out.push(
+      "<span class='add'>+" + esc(a) + "</span>"); });
+    (prev || []).forEach(function (a) { if (!c.has(a)) out.push(
+      "<span class='del'>" + esc(a) + "</span>"); });
+    var same = curA.filter(function (a) { return p.has(a); });
+    return (out.length ? out.join(' ') + '<br>' : '') +
+      "<span class='muted'>" + esc(same.join(', ')) + "</span>";
+  }
+  function render() {
+    var f = F[cur];
+    document.getElementById('counter').textContent = (cur + 1) + ' / ' + N;
+    document.getElementById('evt').innerHTML = chip(f.event,
+      f.event === 'win' ? 'ok' : f.event === 'game_over' ? 'bad' : '');
+    document.getElementById('state').innerHTML = f.state ?
+      chip(f.state, stateCls(f.state)) : '';
+    document.getElementById('steps').textContent = 'episode ' +
+      (f.episode == null ? '?' : f.episode) + ' · level steps ' +
+      (f.level_steps == null ? '?' : f.level_steps) + ' · run steps ' +
+      (f.run_steps == null ? '?' : f.run_steps);
+    var img = document.getElementById('frame'), nof =
+      document.getElementById('noframe');
+    if (f.render) { img.src = f.render; img.style.display = ''; nof.style.display
+      = 'none'; } else { img.style.display = 'none'; nof.style.display = ''; }
+    document.getElementById('scrub').value = cur;
+    // action panel
+    var a = [];
+    if (f.skill) a.push('<div><code>' + esc(f.skill) + '[' +
+      (f.params || []).map(function (p) { return Number(p).toPrecision(4); })
+      .join(', ') + ']</code> ' + (f.status ? chip(f.status,
+      statusCls(f.status)) : '') + (f.steps != null ? ' <span class="muted">'
+      + f.steps + ' steps</span>' : '') + '</div>');
+    if (f.reason) a.push('<div class="muted">' + esc(f.reason) + '</div>');
+    if (f.event === 'reset') a.push('<div>reset by ' + esc(f.by) + '</div>');
+    if (f.event === 'resume') a.push('<div>resume: replayed ' +
+      esc(f.replayed_steps) + ' steps, verified ' + esc(f.verified) + '</div>');
+    if (f.event === 'level_start') a.push('<div>goal: ' +
+      esc((f.goal || []).join(', ')) + '</div><div class="muted">' +
+      esc(f.goal_nl) + '</div>');
+    if (f.note) a.push('<div><b>note:</b> ' + esc(f.note) + '</div>');
+    if ((f.expected || []).length || (f.expected_absent || []).length) {
+      a.push('<div><b>expected:</b> ' + esc((f.expected || []).join(', ')) +
+        ((f.expected_absent || []).length ? ' NOT ' +
+        esc(f.expected_absent.join(', NOT ')) : '') + '</div>');
+      if ((f.missing || []).length || (f.present || []).length)
+        a.push('<div class="del">DIVERGED: missing ' +
+          esc((f.missing || []).join(', ')) + (f.present && f.present.length ?
+          '; present ' + esc(f.present.join(', ')) : '') + '</div>');
+      else a.push('<div class="add">expected outcome held</div>');
+    }
+    if (f.session != null) a.push('<div class="muted">session ' + f.session +
+      ', turn ' + f.turn + ' · <a href="/run/' + encodeURIComponent(runId) +
+      '/session/' + encodeURIComponent(f.session_name) + '#turn-' + f.turn +
+      '">transcript</a></div>');
+    document.getElementById('action').innerHTML = a.join('') ||
+      '<span class="muted">harness event</span>';
+    // reasoning panel
+    var r = [];
+    (f.thinking || []).forEach(function (t) { r.push(
+      '<blockquote class="think">' + esc(t) + '</blockquote>'); });
+    (f.texts || []).forEach(function (t) { r.push('<div class="say">' +
+      esc(t) + '</div>'); });
+    document.getElementById('reasoning').innerHTML = r.join('') ||
+      '<span class="muted">no agent text paired with this frame</span>';
+    // call panel
+    var c = '';
+    if (f.call) {
+      c += '<div><span class="name">' + esc(f.call.name) + '</span></div>';
+      c += '<pre>' + esc(JSON.stringify(f.call.args, null, 2)) + '</pre>';
+      if (f.call.result) c += '<details' + (f.call.result.length < 900 ?
+        ' open' : '') + '><summary>result' + (f.call.is_error ? ' (error)' :
+        '') + '</summary><pre>' + esc(f.call.result) + '</pre></details>';
+    }
+    document.getElementById('call').innerHTML = c ||
+      '<span class="muted">none</span>';
+    // atoms panel
+    var prev = null;
+    for (var j = cur - 1; j >= 0; j--) { if (F[j].atoms) { prev = F[j].atoms;
+      break; } }
+    var at = '<div class="atoms">' + atomsDiff(prev, f.atoms) + '</div>';
+    if (f.env_atoms) at += '<details><summary>env atoms (' +
+      f.env_atoms.length + ')</summary><div class="atoms muted">' +
+      esc(f.env_atoms.join(', ')) + '</div></details>';
+    document.getElementById('atoms').innerHTML = at;
+    // filmstrip
+    var cells = document.querySelectorAll('.filmstrip .cell');
+    cells.forEach(function (el, i) { el.classList.toggle('cur', i === cur); });
+    if (cells[cur]) cells[cur].scrollIntoView({inline: 'center', block:
+      'nearest'});
+    location.hash = 'frame=' + cur;
+  }
+  function go(i) { cur = Math.max(0, Math.min(N - 1, i)); render(); }
+  function step(d) { go(cur + d); }
+  function marker(d) {
+    var i = cur + d;
+    while (i >= 0 && i < N && !F[i].marker) i += d;
+    if (i >= 0 && i < N) go(i);
+  }
+  function toggle() {
+    if (timer) { clearInterval(timer); timer = null;
+      document.getElementById('play').textContent = '▶ play'; return; }
+    document.getElementById('play').textContent = '⏸ pause';
+    timer = setInterval(function () { if (cur >= N - 1) { toggle(); return; }
+      step(1); }, 900 / speed);
+  }
+  window.go = go; window.step = step; window.toggle = toggle;
+  window.marker = marker;
+  document.getElementById('speed').addEventListener('change', function (e) {
+    speed = Number(e.target.value); if (timer) { toggle(); toggle(); } });
+  document.getElementById('scrub').addEventListener('input', function (e) {
+    go(Number(e.target.value)); });
+  document.addEventListener('keydown', function (e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+    if (e.key === 'ArrowRight') { step(e.shiftKey ? 10 : 1); e.preventDefault(); }
+    else if (e.key === 'ArrowLeft') { step(e.shiftKey ? -10 : -1);
+      e.preventDefault(); }
+    else if (e.key === ']') marker(1);
+    else if (e.key === '[') marker(-1);
+    else if (e.key === 'Home') go(0);
+    else if (e.key === 'End') go(N - 1);
+    else if (e.key === ' ') { toggle(); e.preventDefault(); }
+    else if (e.key === 'g' || e.key === 'G') { var v = prompt('Jump to frame ' +
+      '(1-' + N + ')'); if (v) go(Number(v) - 1); }
+  });
+  var m = /frame=(\d+)/.exec(location.hash);
+  go(m ? Number(m[1]) : 0);
+})();
+"""
+
+
+def replay_page(run_id: str, level_index: int) -> Optional[str]:
+    """The level replay: one frame per recorded event, with the render, the
+    action, the agent's reasoning and the tool call, keyboard driven."""
+    card = load_card(run_id)
+    if card is None or not 0 <= level_index < len(card.get("levels", [])):
+        return None
+    frames = build_replay(run_id, level_index)
+    lv = card["levels"][level_index]
+    crumb = (
+        f"<a href='/run/{q(run_id)}'>{esc(run_id)}</a> / "
+        f"<a href='/run/{q(run_id)}/L{level_index + 1}'>L{level_index + 1}"
+        "</a> / replay")
+    if not frames:
+        return page(f"{run_id} L{level_index + 1} replay", crumb,
+                    "<p class='muted'>No recorded events yet.</p>")
+    cells = []
+    for f in frames:
+        cls = f"cell {esc(f['event'])}"
+        inner = (f"<img src='{f['render']}' loading='lazy'>"
+                 if f["render"] else esc(f["event"][:6]))
+        cells.append(f"<div class='{cls}' title='{esc(f['event'])} "
+                     f"{esc(f['skill'])}' onclick='go({f['i']})'>{inner}"
+                     "</div>")
+    data = json.dumps(frames, default=str)
+    won_chip = chip("won" if lv.get("won") else "not won",
+                    "ok" if lv.get("won") else "warn")
+    json_url = f"/run/{q(run_id)}/L{level_index + 1}/replay.json"
+    body = (
+        f"<h2>L{level_index + 1} replay {won_chip}"
+        f" <span class='muted'>{len(frames)} frames · "
+        f"<a href='{json_url}'>Download JSON</a></span></h2>"
+        "<div class='replay'><div class='stage'>"
+        "<div class='stagehead'><span class='big' id='counter'></span>"
+        "<span id='evt'></span><span id='state'></span>"
+        "<span class='muted' id='steps'></span></div>"
+        "<img id='frame' class='frame' alt='render'>"
+        "<div id='noframe' class='noframe'>no render for this event</div>"
+        "<div class='controls'>"
+        "<button onclick='go(0)' title='Home'>⏮</button>"
+        "<button onclick='step(-1)' title='←'>◀</button>"
+        "<button id='play' onclick='toggle()' title='Space'>▶ play</button>"
+        "<button onclick='step(1)' title='→'>▶</button>"
+        f"<button onclick='go({len(frames) - 1})' title='End'>⏭</button>"
+        "<select id='speed'><option value='1'>1×</option>"
+        "<option value='2'>2×</option><option value='4'>4×</option></select>"
+        f"<input type='range' id='scrub' min='0' max='{len(frames) - 1}' "
+        "value='0'></div>"
+        f"<div class='filmstrip'>{''.join(cells)}</div>"
+        "<p class='muted keys'>← → frame · Shift+← → ±10 · [ ] marker · "
+        "Home End · Space play/pause · G jump</p></div>"
+        "<div class='panels'>"
+        "<div class='panel'><h3>Action</h3><div id='action'></div></div>"
+        "<div class='panel'><h3>Agent reasoning</h3><div id='reasoning'>"
+        "</div></div>"
+        "<div class='panel'><h3>Tool call</h3><div id='call'></div></div>"
+        "<div class='panel'><h3>Atoms (change since the previous frame)</h3>"
+        "<div id='atoms'></div></div></div></div>"
+        f"<script>window.FRAMES = {data}; window.RUN_ID = {json.dumps(run_id)};"
+        f" window.LEVEL_NUM = {level_index + 1};</script>"
+        f"<script>{REPLAY_JS}</script>")
+    return page(f"{run_id} L{level_index + 1} replay", crumb, body)
+
+
+def replay_json(run_id: str, level_index: int) -> Optional[bytes]:
+    """The replay frames as JSON."""
+    card = load_card(run_id)
+    if card is None or not 0 <= level_index < len(card.get("levels", [])):
+        return None
+    return json.dumps(build_replay(run_id, level_index), default=str,
+                      indent=1).encode("utf-8")
+
+
+def _image_links(run_id: str, escaped: str) -> str:
+    """Make ``./test_images/x.png`` references in escaped text viewable."""
+
+    def _img(m: "re.Match[str]") -> str:
+        rel = m.group(0)[2:]
+        url = "/file/" + "/".join(
+            q(p) for p in (run_id, "agent", "sandbox", *rel.split("/")))
+        return (f"{m.group(0)} <a href='{url}'><img class='thumb' "
+                f"src='{url}' loading='lazy' onclick='zoom(this);"
+                "event.preventDefault()'></a>")
+
+    return IMAGE_REF_RE.sub(_img, escaped)
+
+
 def session_page(run_id: str, name: str) -> Optional[str]:
-    """One session transcript, with its image references made viewable."""
+    """One session transcript as a structured conversation: thinking,
+    assistant text, tool calls with their results, images inline."""
     if SESSION_LOG_RE.match(name) is None:
         return None
     text = read_agent_text(run_id, name)
     if text is None:
         return None
+    tx = tr.parse_transcript(text, name)
+    if not tx.turns:
+        # Not a formatter transcript (or an empty one): show it raw.
+        return page(
+            f"{run_id} {name}",
+            f"<a href='/run/{q(run_id)}'>{esc(run_id)}</a> / {esc(name)}",
+            f"<h2>{esc(name)}</h2><pre class='doc'>"
+            f"{_image_links(run_id, esc(text))}</pre>")
     names = [log["name"] for log in list_session_logs(run_id)]
     nav = []
     if name in names:
@@ -669,20 +995,58 @@ def session_page(run_id: str, name: str) -> Optional[str]:
         if i + 1 < len(names):
             nav.append(f"<a href='/run/{q(run_id)}/session/{q(names[i + 1])}'>"
                        f"{esc(names[i + 1])} →</a>")
-
-    def _img(m: "re.Match[str]") -> str:
-        rel = m.group(0)[2:]  # drop "./"
-        url = "/file/" + "/".join(
-            q(p) for p in (run_id, "agent", "sandbox", *rel.split("/")))
-        return (f"{m.group(0)} <a href='{url}'><img class='thumb' "
-                f"src='{url}' loading='lazy'></a>")
-
-    body_html = IMAGE_REF_RE.sub(_img, esc(text))
+    parts = [
+        f"<h2>{esc(name)} {chip(tx.kind)}</h2>",
+        f"<p>{' · '.join(nav)}"
+        f"{' · ' if nav else ''}<span class='muted'>{len(tx.turns)} turns"
+        f"{'; ' + esc(tx.result_line) if tx.result_line else ''}</span></p>",
+        "<details><summary>Prompt</summary><pre class='doc'>" +
+        _image_links(run_id, esc(tx.prompt)) + "</pre></details>",
+    ]
+    for turn in tx.turns:
+        parts.append(f"<section class='turn' id='turn-{turn.number}'>"
+                     f"<h3>Turn {turn.number}</h3>")
+        for th in turn.thinking:
+            parts.append(f"<blockquote class='think'>{esc(th)}</blockquote>")
+        for say in turn.texts:
+            parts.append(f"<div class='say'>{_image_links(run_id, esc(say))}"
+                         "</div>")
+        for call in turn.calls:
+            short = call.short_name
+            cls = "call envtool" if short in tr.ENV_TOOLS or short in (
+                "env_observe", "learn_run", "session_end", "env_end_run",
+                "run_python", "skills_list") else "call"
+            parts.append(f"<div class='{cls}'><span class='name'>"
+                         f"{esc(short)}</span>")
+            for key, val in call.args.items():
+                if isinstance(val, str) and "\n" in val:
+                    parts.append(f"<div class='muted'>{esc(key)}:</div>"
+                                 f"<pre>{esc(val)}</pre>")
+            scalars = {
+                k: v
+                for k, v in call.args.items()
+                if not (isinstance(v, str) and "\n" in v)
+            }
+            if scalars:
+                parts.append("<pre>" +
+                             esc(json.dumps(scalars, indent=2, default=str)) +
+                             "</pre>")
+            if call.result:
+                open_attr = " open" if len(call.result) < 1200 else ""
+                err_cls = " err" if call.is_error else ""
+                label = "error" if call.is_error else "result"
+                parts.append(
+                    f"<details class='result{err_cls}'{open_attr}>"
+                    f"<summary>{label} ({len(call.result)} chars)</summary>"
+                    f"<pre>{_image_links(run_id, esc(call.result))}</pre>"
+                    "</details>")
+            parts.append("</div>")
+        parts.append("</section>")
+    for err in tx.errors:
+        parts.append(f"<p class='del'>{esc(err)}</p>")
     crumb = (f"<a href='/run/{q(run_id)}'>{esc(run_id)}</a> / "
              f"{esc(name)}")
-    body = (f"<h2>{esc(name)}</h2><p>{' · '.join(nav)}</p>"
-            f"<pre class='doc'>{body_html}</pre>")
-    return page(f"{run_id} {name}", crumb, body)
+    return page(f"{run_id} {name}", crumb, "".join(parts))
 
 
 # ── Level page ─────────────────────────────────────────────────────
@@ -730,12 +1094,12 @@ def level_page(run_id: str, level_index: int) -> Optional[str]:
 
 
 def _level_nav(run_id: str, k: int, n: int) -> str:
-    links = []
+    links = [f"<a href='/run/{q(run_id)}/L{k + 1}/replay'>▶ replay</a>"]
     if k > 0:
         links.append(f"<a href='/run/{q(run_id)}/L{k}'>← L{k}</a>")
     if k + 1 < n:
         links.append(f"<a href='/run/{q(run_id)}/L{k + 2}'>L{k + 2} →</a>")
-    return "<p>" + " · ".join(links) + "</p>" if links else ""
+    return "<p>" + " · ".join(links) + "</p>"
 
 
 def atoms_diff(prev: Sequence[str], cur: Sequence[str]) -> str:
@@ -825,8 +1189,8 @@ def _timeline_table(run_id: str, level_index: int,
 
 
 class Handler(BaseHTTPRequestHandler):
-    """Routes: /, /run/<id>, /run/<id>/L<k>, /run/<id>/session/<name>,
-    /card/<id>, /file/<rel>."""
+    """Routes: /, /run/<id>, /run/<id>/L<k>, /run/<id>/L<k>/replay[.json],
+    /run/<id>/session/<name>, /card/<id>, /file/<rel>."""
 
     # pylint: disable-next=redefined-builtin
     def log_message(self, format: str, *args: Any) -> None:
@@ -847,6 +1211,15 @@ class Handler(BaseHTTPRequestHandler):
             elif parts[0] == "run" and len(parts) == 4 and \
                     parts[2] == "session":
                 self._html_or_404(session_page(parts[1], parts[3]))
+            elif parts[0] == "run" and len(parts) == 4 and \
+                    parts[2].startswith("L") and parts[2][1:].isdigit() and \
+                    parts[3] in ("replay", "replay.json"):
+                level = int(parts[2][1:]) - 1
+                if parts[3] == "replay":
+                    self._html_or_404(replay_page(parts[1], level))
+                else:
+                    self._bytes(replay_json(parts[1], level),
+                                "application/json")
             elif parts[0] == "card" and len(parts) == 2:
                 self._file(safe_join(SCORECARDS_ROOT, parts[1] + ".json"))
             elif parts[0] == "file" and len(parts) >= 2:
@@ -856,6 +1229,16 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(404)
         except Exception as e:  # pylint: disable=broad-except
             self.send_error(500, str(e))
+
+    def _bytes(self, data: Optional[bytes], ctype: str) -> None:
+        if data is None:
+            self.send_error(404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def _html_or_404(self, body: Optional[str]) -> None:
         if body is None:
