@@ -548,6 +548,10 @@ class ContinualRun:
             sorted(str(a) for a in present),
             "atoms":
             sorted(str(a) for a in atoms_after),
+            "env_atoms":
+            sorted(
+                str(a) for a in utils.abstract(outcome.observation,
+                                               self._env.predicates)),
             "state":
             outcome.episode_state.value,
             "episode_reason":

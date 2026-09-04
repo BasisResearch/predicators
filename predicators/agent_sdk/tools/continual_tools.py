@@ -64,23 +64,35 @@ class PlayState:
 # ── Formatting ─────────────────────────────────────────────────────
 
 
-def _agent_atoms(ctx: ToolContext, frame: State,
-                 env_atoms: Set[GroundAtom]) -> Tuple[List[str], str]:
-    """The arm's own predicates evaluated on the observation, and a note when
-    evaluation fails."""
-    env_preds = {a.predicate for a in env_atoms}
-    env_pred_names = {p.name for p in env_preds}
-    own = {p for p in ctx.predicates if p.name not in env_pred_names}
-    if not own:
-        return [], ""
-    try:
-        atoms = utils.abstract(frame, own)
-    except Exception as e:  # pylint: disable=broad-except
-        return [], f"(your predicates could not be evaluated: {e})"
-    return sorted(str(a) for a in atoms), ""
+def visible_atoms(ctx: ToolContext, frame: State) -> Set[GroundAtom]:
+    """The atoms of ``frame`` under the arm's predicate vocabulary.
+
+    An arm that hides env predicates from its agent (C1 keeps only a
+    few and invents the rest) must not see the env's full atom set
+    through the observation; the protocol's own view of the env atoms
+    stays in the recording for analysis.
+    """
+    return utils.abstract(frame, set(ctx.predicates))
 
 
-def format_observation(obs: ProtocolObservation, ctx: ToolContext, *,
+def _split_atoms(ctx: ToolContext,
+                 atoms: Set[GroundAtom]) -> Tuple[List[str], List[str]]:
+    """(env-origin atoms, invented atoms) as sorted strings."""
+    env = ctx.env
+    env_names = {p.name for p in env.predicates} if env is not None else set()
+    env_origin = sorted(str(a) for a in atoms if a.predicate.name in env_names)
+    invented = sorted(
+        str(a) for a in atoms if a.predicate.name not in env_names)
+    return env_origin, invented
+
+
+def visible_goal(ctx: ToolContext, task: Task) -> List[str]:
+    """The goal atoms the arm's vocabulary can express, as strings."""
+    names = {p.name for p in ctx.predicates}
+    return sorted(str(a) for a in task.goal if a.predicate.name in names)
+
+
+def format_observation(obs: "ProtocolObservation", ctx: ToolContext, *,
                        with_state: bool, render_path: Optional[str]) -> str:
     """The observation as text (section 5.2)."""
     lines = []
@@ -93,21 +105,27 @@ def format_observation(obs: ProtocolObservation, ctx: ToolContext, *,
     else:
         lines.append("[episode] NOT_FINISHED")
     spec = obs.level
+    goal = visible_goal(ctx, spec.task)
+    goal_text = ", ".join(goal) if goal else (
+        "(not expressible in your predicates; the goal description is "
+        "the goal)")
     lines.append(f"[level] {spec.index + 1}/{obs.ledger.levels_total} "
                  f"({spec.split} task {spec.task_idx}); goal atoms: "
-                 f"{', '.join(spec.goal_strs) or '(none)'}")
+                 f"{goal_text}")
     if spec.task.goal_nl:
         lines.append(f"[goal] {spec.task.goal_nl}")
     if obs.evaluation is not None:
         lines.append(f"[evaluation] reward {obs.evaluation.reward:.3f}, "
                      f"terminated {obs.evaluation.terminated}")
-    env_atoms = sorted(str(a) for a in obs.atoms)
-    lines.append("[atoms] " + (", ".join(env_atoms) or "(none)"))
-    own, note = _agent_atoms(ctx, obs.frame, obs.atoms)
-    if own:
-        lines.append("[your predicates] " + ", ".join(own))
-    elif note:
-        lines.append("[your predicates] " + note)
+    try:
+        env_origin, invented = _split_atoms(ctx, visible_atoms(ctx, obs.frame))
+        note = ""
+    except Exception as e:  # pylint: disable=broad-except
+        env_origin, invented = [], []
+        note = f"(atoms could not be evaluated: {e})"
+    lines.append("[atoms] " + (", ".join(env_origin) or note or "(none)"))
+    if invented:
+        lines.append("[your predicates] " + ", ".join(invented))
     if with_state:
         lines.append("[objects]")
         lines.append(obs.frame.dict_str(indent=2, num_decimal_points=4))
@@ -398,11 +416,11 @@ def build_continual_tools(
                                  _footer())
         option, expected, absent = parsed[0]
         try:
-            before = set(session.observe().atoms)
+            before = visible_atoms(ctx, session.observe().frame)
             state.charged_calls += 1
             result = session.invoke(option, expected,
                                     str(args.get("note", "")), absent)
-            after = set(session.observe().atoms)
+            after = visible_atoms(ctx, session.observe().frame)
             text = _format_result(result, before, after)
             render = save_render(f"invoke_{state.charged_calls:04d}")
             if render:
@@ -448,10 +466,10 @@ def build_continual_tools(
         lines: List[str] = []
         try:
             for i, (option, expected, absent) in enumerate(parsed):
-                before = set(session.observe().atoms)
+                before = visible_atoms(ctx, session.observe().frame)
                 state.charged_calls += 1
                 result = session.invoke(option, expected, note, absent)
-                after = set(session.observe().atoms)
+                after = visible_atoms(ctx, session.observe().frame)
                 lines.append(f"[{i + 1}/{len(parsed)}] " +
                              _format_result(result, before, after))
                 if result.status != "succeeded":

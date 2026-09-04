@@ -229,7 +229,9 @@ The observation is the analogue of ARC's frame:
 - `evaluation`: reward and terminated from `evaluate_episode`.
 - `ledger`: as in the footer.
 
-The env's own atoms and the agent's installed invented predicates, evaluated on the same observation, are listed separately.
+The atoms are evaluated under the arm's own predicate vocabulary: an arm that hides env predicates from its agent (C1 keeps `Holding` and invents the rest) sees only its kept and invented predicates, and goal atoms it cannot express are replaced by the goal description.
+The env's full atom set is recorded in the level index for analysis, never shown to such an arm.
+Kept env predicates and invented predicates are listed separately.
 An invented predicate that reads latent state is always false on a real observation, and the separate listing keeps that visible instead of letting it masquerade as env truth.
 
 ### 5.3 Loop and context management

@@ -31,7 +31,7 @@ from predicators.agent_sdk.play_prompts import build_play_query, \
 from predicators.agent_sdk.session_base import AgentSessionFatalError, \
     query_fatal_error
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
-    PlayState, build_continual_tools, format_observation
+    PlayState, build_continual_tools, format_observation, visible_goal
 from predicators.agent_sdk.tools.digests import render_options_digest, \
     render_types_digest
 from predicators.approaches.agent_model_free_approach import \
@@ -225,7 +225,7 @@ class AgentContinualApproach(AgentSimPredicateInventionApproach):
             level_number=obs.level.index + 1,
             levels_total=obs.ledger.levels_total,
             goal_nl=obs.level.task.goal_nl or "",
-            goal_atoms=obs.level.goal_strs,
+            goal_atoms=visible_goal(ctx, obs.level.task),
             ledger=obs.ledger.footer(),
             observation=observation,
             skills=render_options_digest(
