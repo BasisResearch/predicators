@@ -425,6 +425,7 @@ img.frame { width: 100%; max-height: 62vh; object-fit: contain;
   background: var(--panel); border: 1px solid var(--border);
   border-radius: 3px; cursor: pointer; }
 .band.won { border-color: var(--ok); }
+.band.lost { border-color: var(--bad); }
 .band.cur { background: var(--accent); border-color: var(--accent);
   color: #fff; }
 .marks { height: 10px; cursor: pointer; }
@@ -795,9 +796,10 @@ function initReplay(root, prefix) {
   function buildTimeline() {
     el('bands').innerHTML = L.map(function (lv) {
       var w = N > 1 ? 100 * Math.max(lv.end - lv.start, 0) / (N - 1) : 100;
-      return "<div class='band" + (lv.won ? ' won' : '') + "' data-k='" +
-        lv.k + "' style='left:" + pct(lv.start) + ";width:" + w + "%' title='"
-        + esc(lvName(lv) + ' · ' + (lv.won ? 'won' : 'not won') + ' · frames '
+      return "<div class='band" + (lv.won ? ' won' : lv.lost ? ' lost' : '')
+        + "' data-k='" + lv.k + "' style='left:" + pct(lv.start) + ";width:"
+        + w + "%' title='" + esc(lvName(lv) + ' · '
+        + (lv.won ? 'won' : lv.lost ? 'lost' : 'not won') + ' · frames '
         + (lv.start + 1) + '-' + (lv.end + 1)) + "' onclick='REPLAY.go(" +
         lv.start + ")'><span>L" + lv.k + '</span></div>';
     }).join('');
@@ -808,7 +810,7 @@ function initReplay(root, prefix) {
     }).join('');
     el('lvsel').innerHTML = L.map(function (lv) {
       return "<option value='" + lv.k + "'>" + esc(lvName(lv)) +
-        (lv.won ? ' ✓' : '') + '</option>';
+        (lv.won ? ' ✓' : lv.lost ? ' ✗' : '') + '</option>';
     }).join('');
     fit();
   }
@@ -862,7 +864,8 @@ function initReplay(root, prefix) {
   function render() {
     var f = F[cur], lv = levelOf(cur);
     el('counter').textContent = (cur + 1) + ' / ' + N;
-    el('lvl').innerHTML = lv ? chip(lvName(lv), lv.won ? 'ok' : 'warn') : '';
+    el('lvl').innerHTML = lv ? chip(lvName(lv),
+      lv.won ? 'ok' : lv.lost ? 'bad' : 'warn') : '';
     el('evt').innerHTML = chip(f.event,
       f.event === 'win' ? 'ok' : f.event === 'game_over' ? 'bad' : '');
     el('state').innerHTML = f.state ? chip(f.state, stateCls(f.state)) : '';
@@ -1486,8 +1489,8 @@ def _runs_table(cards: Sequence[Dict[str, Any]], n_levels: int,
             f"<td class='muted'><code>{esc(card.get('git_sha', ''))}</code>"
             "</td></tr>")
     head = ("<thead><tr><th>run</th>"
-            "<th>state</th><th title='per level: won / in progress / not "
-            "attempted, steps, resets'>levels</th>"
+            "<th>state</th><th title='per level: won / lost / in progress "
+            "/ not attempted, steps, resets'>levels</th>"
             "<th class='num'>steps</th><th class='num'>resets</th>"
             "<th class='num'>invoc.</th><th class='num'>active</th>"
             "<th class='num'>queue</th><th class='num'>LLM $</th>"
@@ -1571,6 +1574,10 @@ def _level_mark(lv: Dict[str, Any]) -> str:
         return chip(
             "✓", "ok", f"L{lv['index'] + 1} won at step "
             f"{lv.get('won_at_step')}")
+    if lv.get("lost"):
+        return chip(
+            "✗", "bad", f"L{lv['index'] + 1} lost: GAME_OVER with no "
+            "reset available")
     if lv.get("attempted"):
         return chip("…", "warn", f"L{lv['index'] + 1} in progress")
     return chip("·", "", f"L{lv['index'] + 1} not attempted")
@@ -1597,7 +1604,8 @@ def run_page(run_id: str) -> Optional[str]:
     ]
     for lv in levels:
         k = int(lv["index"]) + 1
-        mark = "✓" if lv.get("won") else ("…" if lv.get("attempted") else "·")
+        mark = "✓" if lv.get("won") else ("✗" if lv.get("lost") else (
+            "…" if lv.get("attempted") else "·"))
         nav.append(f"<div class='lvl'><a href='#replay/L{k}' data-lv='{k}' "
                    f"title='replay from L{k}'>L{k} <span class='muted'>"
                    f"{esc(lv.get('split'))}[{esc(lv.get('task_idx'))}]</span>"
@@ -1878,14 +1886,23 @@ def curve_svg(card: Dict[str, Any]) -> str:
             f"fill='var(--muted)'>levels won ({max_y} total)</text></svg>")
 
 
+def _level_status(lv: Dict[str, Any]) -> Tuple[str, str]:
+    """(label, css class) of a level: won, lost, in progress or not
+    attempted."""
+    if lv.get("won"):
+        return "won", "ok"
+    if lv.get("lost"):
+        return "lost", "bad"
+    if lv.get("attempted"):
+        return "in progress", "warn"
+    return "not attempted", ""
+
+
 def _levels_table(card: Dict[str, Any]) -> str:
     rows = []
     for lv in card.get("levels", []):
         k = int(lv["index"])
-        status = ("won" if lv.get("won") else
-                  ("in progress" if lv.get("attempted") else "not attempted"))
-        cls = "ok" if lv.get("won") else (
-            "warn" if lv.get("attempted") else "")
+        status, cls = _level_status(lv)
         game_overs = lv.get("game_overs", [])
         go_text = ", ".join(sorted(set(str(g) for g in game_overs)))
         sandbox = lv.get("sandbox") or {}
@@ -1982,6 +1999,7 @@ def build_run_replay(run_id: str) -> Dict[str, Any]:
             "start": start,
             "end": len(frames) - 1,
             "won": bool(lv.get("won")),
+            "lost": bool(lv.get("lost")),
             "split": lv.get("split"),
             "task_idx": lv.get("task_idx"),
         })
@@ -2170,10 +2188,9 @@ def events_fragment(run_id: str, level_index: int) -> Optional[str]:
         return None
     lv = levels[level_index]
     entries = read_index(run_id, level_index)
-    status = ("won" if lv.get("won") else
-              ("in progress" if lv.get("attempted") else "not attempted"))
+    status, cls = _level_status(lv)
     head = (f"<h2>L{level_index + 1} {esc(lv.get('split'))}"
-            f"[{esc(lv.get('task_idx'))}] {chip(status)}</h2>"
+            f"[{esc(lv.get('task_idx'))}] {chip(status, cls)}</h2>"
             f"<p class='atoms'>goal: {esc(', '.join(lv.get('goal', [])))}"
             f"<br><span class='muted'>{esc(lv.get('goal_nl', ''))}</span></p>"
             f"<p>steps {lv.get('steps', 0)}, resets {lv.get('resets', 0)}, "

@@ -97,7 +97,9 @@ The only limits on free work are operational wall-clock caps so that runs finish
 
 - `NOT_FINISHED`: the level is in progress.
 - `WIN`: the env's evaluator certifies the episode. The harness advances to the next level.
-- `GAME_OVER`: the episode cannot continue. Only `env.reset()` is valid.
+- `GAME_OVER`: the episode cannot continue.
+  On a level with resets only `env.reset()` is valid.
+  On a level without resets (a test level, unless `continual_allow_test_resets` is on) the level is over and lost, and under the no-skipping rule of 4.6 the run ends with reason `level_lost`.
 
 The win condition is the evaluator's verdict, not the goal atoms alone.
 `BaseEnv.evaluate_episode` returns the task evaluator's reward and terminated flags, and a success is certified only when the episode also satisfied the task's legitimacy rule.
@@ -117,6 +119,7 @@ Nothing below is normalised, capped, or weighted.
 Per level, for one run:
 
 - `won`: whether the level was won, and the step index at which it was won.
+- `lost`: the level ended in `GAME_OVER` with no reset available; it can no longer be won.
 - `steps`: low-level env steps on the level, including reset steps.
 - `resets`: agent-initiated resets on the level.
 - `skill_invocations`: calls to skill controllers, with how many terminated in failure, for arms that use the library.
@@ -148,6 +151,8 @@ The oracle's step counts per level become a reference column in the table, along
 
 - One run per env and seed. The env is instantiated once and the agent plays its levels in order.
 - Level resets only. There is no way to return to a previous level.
+- No resets on test levels by default (`continual_allow_test_resets`, off): a test level is one shot.
+  Train levels always allow resets.
 - No skipping, for now. A level that is never won ends the run for that env, and later levels are recorded as not attempted.
 - The run ends when the last level is won, when the step cap is hit, when the agent ends it, or when the wall-clock cap expires.
 - The table covers all envs in the suite, whether or not the agent was run on them.
@@ -199,6 +204,7 @@ The protocol namespace, offered to every arm:
 - `env.observe()`: the current observation. Free.
 - `env.step(action)`: one low-level action. One step.
 - `env.reset(note=None)`: restart the current level. One step plus one reset.
+  Refused on a level without resets (`ResetUnavailable`); nothing is charged then.
 - `env.end_run(note)`: end the run for this env.
 
 The skill library, offered to our agent and to the skill-using baselines.
@@ -216,7 +222,7 @@ Learning, offered to the learning arms:
 
 - `learn.run(kind)`: launch a learning sub-session of an existing kind (simulator synthesis, predicate invention, sampler synthesis) in-process and return its summary. Free.
 
-Every tool result carries the ledger footer: level, steps and resets on this level and in the run, and the remaining step cap.
+Every tool result carries the ledger footer: level, steps and resets on this level and in the run, whether the level has resets, and the remaining step cap.
 The footer is the pacing signal, in the same spirit as the current `[budget]` footer.
 
 ### 5.2 Observation

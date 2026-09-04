@@ -219,6 +219,50 @@ def test_tools_divergence_reset_and_errors(tmp_path: Any) -> None:
     assert card.end_reason == "step_cap"
 
 
+def test_tools_on_a_level_without_resets(tmp_path: Any) -> None:
+    """On a test level env_reset is refused without a charge, GAME_OVER ends
+    the level as lost, and later charged calls point at session_end."""
+    env, approach, ctx = _setup(tmp_path)
+    seen: Dict[str, Any] = {}
+    driver = _Driver()
+
+    def body(session: ProtocolSession) -> None:
+        state = PlayState()
+        tools = build_continual_tools(ctx,
+                                      session,
+                                      state,
+                                      save_render=lambda tag: None)
+        if session.level_index == 0:
+            plan = _oracle_plan_text(approach, session.observe().level.task)
+            out = _call(tools, "skills_execute_plan", plan=plan, note="oracle")
+            assert "episode: WIN" in out
+            # The test level plays under a two-step horizon.
+            utils.update_config({"horizon": 2})
+            return
+        obs = _call(tools, "env_observe")
+        assert "(test task 0, no resets)" in obs
+        assert "(none on this level)" in obs
+        refused = _call(tools, "env_reset", note="early")
+        assert refused.startswith("ERROR") and "no resets" in refused
+        assert session.level_card().steps == 0
+        assert "step applied" in _call(tools, "env_step", action=[0.5])
+        out = _call(tools, "env_step", action=[0.5])
+        assert "GAME_OVER" in out and "lost" in out and "session_end" in out
+        assert session.level_card().lost
+        refused = _call(tools, "env_step", action=[0.5])
+        assert refused.startswith("ERROR") and "session_end" in refused
+        assert "env_reset" not in refused
+        refused = _call(tools, "env_reset", note="again")
+        assert refused.startswith("ERROR") and "lost" in refused
+        seen["ok"] = True
+
+    driver.body = body
+    card = ContinualRun(env, approach, driver).run()
+    assert seen["ok"] and card.end_reason == "level_lost"
+    assert card.levels[0].won and card.levels[1].lost
+    assert card.levels[1].steps == 2 and card.levels[1].resets == 0
+
+
 def test_parse_plan_lines_and_formatting(tmp_path: Any) -> None:
     """Plan parsing grounds skills with expected outcomes; the prompt builders
     render."""

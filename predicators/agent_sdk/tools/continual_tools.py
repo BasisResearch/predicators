@@ -67,10 +67,10 @@ class PlayState:
 def visible_atoms(ctx: ToolContext, frame: State) -> Set[GroundAtom]:
     """The atoms of ``frame`` under the arm's predicate vocabulary.
 
-    An arm that hides env predicates from its agent (C1 keeps only a
-    few and invents the rest) must not see the env's full atom set
-    through the observation; the protocol's own view of the env atoms
-    stays in the recording for analysis.
+    An arm that hides env predicates from its agent (C1 keeps only a few
+    and invents the rest) must not see the env's full atom set through
+    the observation; the protocol's own view of the env atoms stays in
+    the recording for analysis.
     """
     return utils.abstract(frame, set(ctx.predicates))
 
@@ -96,7 +96,11 @@ def format_observation(obs: "ProtocolObservation", ctx: ToolContext, *,
                        with_state: bool, render_path: Optional[str]) -> str:
     """The observation as text (section 5.2)."""
     lines = []
-    if obs.state is EpisodeState.GAME_OVER:
+    if obs.state is EpisodeState.GAME_OVER and not obs.ledger.resets_allowed:
+        lines.append(f"[episode] GAME_OVER ({obs.reason}); this level has "
+                     "no resets, so it is over and lost. Write your notes "
+                     "and call session_end.")
+    elif obs.state is EpisodeState.GAME_OVER:
         lines.append(f"[episode] GAME_OVER ({obs.reason}); only env_reset "
                      "is valid now.")
     elif obs.state is EpisodeState.WIN:
@@ -109,9 +113,10 @@ def format_observation(obs: "ProtocolObservation", ctx: ToolContext, *,
     goal_text = ", ".join(goal) if goal else (
         "(not expressible in your predicates; the goal description is "
         "the goal)")
+    resets_note = "" if obs.ledger.resets_allowed else ", no resets"
     lines.append(f"[level] {spec.index + 1}/{obs.ledger.levels_total} "
-                 f"({spec.split} task {spec.task_idx}); goal atoms: "
-                 f"{goal_text}")
+                 f"({spec.split} task {spec.task_idx}{resets_note}); goal "
+                 f"atoms: {goal_text}")
     if spec.task.goal_nl:
         lines.append(f"[goal] {spec.task.goal_nl}")
     if obs.evaluation is not None:
@@ -233,16 +238,38 @@ def build_continual_tools(
         except EpisodeOver:
             return ""
 
+    def _resets_allowed() -> bool:
+        try:
+            return session.resets_allowed
+        except EpisodeOver:
+            return True
+
     def _protocol_error(e: Exception) -> Dict[str, Any]:
         # pylint: disable-next=import-outside-toplevel
-        from predicators.run.continual import LevelAlreadyWon, RunEnded
+        from predicators.run.continual import LevelAlreadyWon, LevelLost, \
+            ResetUnavailable, RunEnded
         if isinstance(e, LevelAlreadyWon):
             return _error_result("The level is already won; nothing more "
                                  "can be charged on it. Write your notes "
                                  "and call session_end." + _footer())
+        if isinstance(e, LevelLost):
+            return _error_result("The level is lost: its episode ended in "
+                                 "GAME_OVER and this level has no resets, "
+                                 "so nothing more can be charged on it. "
+                                 "Write your notes and call session_end." +
+                                 _footer())
+        if isinstance(e, ResetUnavailable):
+            return _error_result(f"{e}. Nothing was charged. Continue the "
+                                 "episode; if it ends in GAME_OVER, write "
+                                 "your notes and call session_end." +
+                                 _footer())
         if isinstance(e, EpisodeOver):
-            return _error_result(f"{e}. Call env_reset to start a new "
-                                 "episode." + _footer())
+            if _resets_allowed():
+                return _error_result(f"{e}. Call env_reset to start a new "
+                                     "episode." + _footer())
+            return _error_result(f"{e}. This level has no resets, so it "
+                                 "is over. Write your notes and call "
+                                 "session_end." + _footer())
         if isinstance(e, RunEnded):
             state.run_ended = (e.reason, e.note)
             return _error_result(f"RUN ENDED: {e.reason}"
@@ -325,7 +352,10 @@ def build_continual_tools(
     @tool(
         "env_reset",
         "Restart the current level from its initial state. Counts one "
-        "step and one reset. The only valid action after GAME_OVER.", {
+        "step and one reset. The only valid action after GAME_OVER on a "
+        "level with resets; on a level the observation marks 'no resets' "
+        "(test levels by default) it is refused and GAME_OVER ends the "
+        "level.", {
             "type": "object",
             "properties": {
                 "note": {

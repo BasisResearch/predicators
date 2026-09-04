@@ -44,7 +44,8 @@ The vocabulary follows Kaelbling and Lozano-Pérez (2025): a skill is a paramete
 Winning and losing.
 `WIN` is the environment evaluator's certified success, not the goal atoms alone.
 In domino, for example, the goal atoms can hold after an illegitimate topple, and the evaluator rejects the episode.
-`GAME_OVER` comes from the horizon, an environment failure, a rejected episode, or an irrecoverable state, and only a reset is valid after it.
+`GAME_OVER` comes from the horizon, an environment failure, a rejected episode, or an irrecoverable state, and only a reset is valid after it on a level with resets.
+Test levels have no resets by default (`continual_allow_test_resets`), so a `GAME_OVER` there loses the level and ends the run.
 A failed skill is not `GAME_OVER`; its steps count and the episode continues.
 
 Caps.

@@ -116,6 +116,13 @@ class AgentContinualApproach(AgentSimPredicateInventionApproach):
                     "sessions", session.level_index + 1)
                 self._close_agent_session()
                 return
+            if session.level_card().lost:
+                logging.info(
+                    "[Continual agent] level %d lost (GAME_OVER with no "
+                    "reset available); ending its sessions",
+                    session.level_index + 1)
+                self._close_agent_session()
+                return
             steps_before = obs.ledger.run_steps
             state = self._play_one_session(session)
             self._sync_level_trajectories(session)

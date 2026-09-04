@@ -51,6 +51,9 @@ class LevelCard:
     attempted: bool = False
     won: bool = False
     won_at_step: Optional[int] = None
+    # The level ended in GAME_OVER with no reset available (a test level
+    # unless continual_allow_test_resets): it can no longer be won.
+    lost: bool = False
     # Low-level env steps charged on the level, including reset steps.
     steps: int = 0
     resets: int = 0
@@ -124,7 +127,7 @@ class RunCard:
     updated_at: float = field(default_factory=time.time)
     finished_at: Optional[float] = None
     # "all_levels_won" | "step_cap" | "wall_clock_cap" | "agent_ended" |
-    # "level_not_won" | "crash"
+    # "level_not_won" | "level_lost" | "crash"
     end_reason: Optional[str] = None
     end_note: str = ""
 

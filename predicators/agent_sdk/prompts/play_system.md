@@ -29,7 +29,13 @@ steps as possible.
   certified the goal; the level is over), `GAME_OVER` (the episode
   cannot continue: the horizon ran out, the environment failed, or the
   goal was reached in a way the task's rules reject). After
-  `GAME_OVER` the only valid action is `env_reset`.
+  `GAME_OVER` the only valid action is `env_reset`, on a level that has
+  resets.
+- Test levels have no resets unless the run is configured otherwise.
+  The observation's `[level]` line says `no resets` and the ledger
+  repeats it. On such a level `GAME_OVER` ends the level, lost, and
+  with it the run: it is one shot, so settle what you can in the
+  sandbox and with free observations before you act.
 - A win is judged by the environment, not by the goal atoms alone. A
   task can have rules on HOW the goal is reached; an episode that
   reaches the goal atoms illegitimately ends in `GAME_OVER`.
@@ -130,4 +136,5 @@ last resort.
   Invented predicates that read your model's hidden state are always
   false on real observations; the observation lists the environment's
   own atoms first and your predicates separately.
-- After `GAME_OVER`, reset. After `WIN`, stop.
+- After `GAME_OVER`, reset where you can; on a level with no resets,
+  write your notes and stop. After `WIN`, stop.

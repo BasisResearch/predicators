@@ -40,17 +40,22 @@ class RandomSkillsController:
         self._rng = np.random.default_rng(seed)
 
     def play_level(self, session: ProtocolSession) -> None:
-        """Random applicable skills; reset on game over."""
+        """Random applicable skills; reset on game over where the level has
+        resets, else return (the level is lost)."""
         while True:
             obs = session.observe()
             if obs.state is EpisodeState.WIN:
                 return
             if obs.state is EpisodeState.GAME_OVER:
+                if not session.resets_allowed:
+                    return  # the level is lost (4.6)
                 session.reset("game over")
                 continue
             option = utils.sample_applicable_option(self._options, obs.frame,
                                                     self._rng)
             if option is None:
+                if not session.resets_allowed:
+                    return
                 session.reset("no applicable skill")
                 continue
             session.invoke(option)
@@ -64,12 +69,15 @@ class RandomPrimitiveController:
         self._space.seed(seed)
 
     def play_level(self, session: ProtocolSession) -> None:
-        """Random primitive actions; reset on game over."""
+        """Random primitive actions; reset on game over where the level has
+        resets, else return (the level is lost)."""
         while True:
             obs = session.observe()
             if obs.state is EpisodeState.WIN:
                 return
             if obs.state is EpisodeState.GAME_OVER:
+                if not session.resets_allowed:
+                    return  # the level is lost (4.6)
                 session.reset("game over")
                 continue
             session.step(Action(self._space.sample()))
@@ -77,7 +85,8 @@ class RandomPrimitiveController:
 
 class OracleController:
     """Plan with the oracle approach from the current state and execute the
-    resulting closed-loop policy; replan on failure, reset on game over."""
+    resulting closed-loop policy; replan on failure, reset on game over where
+    the level has resets (a lost level returns)."""
 
     def __init__(self, approach: BaseApproach) -> None:
         self._approach = approach
@@ -90,6 +99,8 @@ class OracleController:
             if obs.state is EpisodeState.WIN:
                 return
             if obs.state is EpisodeState.GAME_OVER:
+                if not session.resets_allowed:
+                    return  # the level is lost (4.6)
                 session.reset(f"game over: {obs.reason}")
                 continue
             task = dataclasses.replace(obs.level.task, init=obs.frame)
@@ -101,7 +112,8 @@ class OracleController:
                              CFG.continual_max_replans_per_level, e)
                 if failures >= CFG.continual_max_replans_per_level:
                     return
-                session.reset("planning failed")
+                if session.resets_allowed:
+                    session.reset("planning failed")
                 continue
             outcome = session.run_policy(policy, note="oracle plan")
             if outcome.status == "failed" or (

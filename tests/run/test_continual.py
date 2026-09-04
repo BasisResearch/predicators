@@ -17,9 +17,10 @@ from predicators.approaches import create_approach
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun, LevelAlreadyWon, \
-    ProtocolSession, RunEnded, build_levels
+    LevelLost, ProtocolSession, ResetUnavailable, RunEnded, build_levels, \
+    level_summary
 from predicators.run.controllers import OracleController, \
-    RandomSkillsController, create_controller
+    RandomPrimitiveController, RandomSkillsController, create_controller
 from predicators.run.episode import EpisodeOver, EpisodeState
 from predicators.run.recording import LevelRecording, states_close
 from predicators.run.scorecard import RunCard
@@ -328,6 +329,10 @@ def test_session_protocol_errors(tmp_path: Any) -> None:
 
         def play_level(self, session: ProtocolSession) -> None:
             """Exhaust the horizon, reset, win, then poke the won level."""
+            if session.level_index > 0:
+                # Test levels have no resets (their own test below).
+                OracleController(approach).play_level(session)
+                return
             obs = session.observe()
             assert obs.state is EpisodeState.NOT_FINISHED
             assert obs.ledger.level_steps == 0
@@ -359,6 +364,109 @@ def test_session_protocol_errors(tmp_path: Any) -> None:
     assert lv.won and lv.resets == 1 and lv.game_overs == ["horizon"]
     assert lv.steps_before_first_win == lv.steps
     assert lv.resets_before_first_win == 1
+
+
+def test_test_levels_have_no_resets_by_default(tmp_path: Any) -> None:
+    """A test level is one shot: reset is refused without a charge, GAME_OVER
+    loses the level, later charged calls are errors and the run ends with
+    ``level_lost``; ``continual_allow_test_resets`` restores resets."""
+    _config(tmp_path, "oracle", horizon=3)
+    env, approach = _make("oracle")
+    seen: Dict[str, Any] = {}
+    zero = Action(np.zeros(env.action_space.shape, dtype=np.float32))
+
+    class _Probe:
+
+        def play_level(self, session: ProtocolSession) -> None:
+            """Win the train level; exhaust the test level's horizon."""
+            if session.level_index == 0:
+                assert session.resets_allowed
+                OracleController(approach).play_level(session)
+                return
+            assert not session.resets_allowed
+            obs = session.observe()
+            assert "(none on this level)" in obs.ledger.footer()
+            session.step(zero)
+            with pytest.raises(ResetUnavailable):
+                session.reset("please")
+            lv = session.level_card()
+            assert lv.steps == 1 and lv.resets == 0 and not lv.lost
+            for _ in range(2):
+                outcome = session.step(zero)
+            assert outcome.state is EpisodeState.GAME_OVER
+            assert session.level_card().lost
+            with pytest.raises(LevelLost):
+                session.step(zero)
+            with pytest.raises(LevelLost):
+                session.reset()
+            assert session.observe().state is EpisodeState.GAME_OVER
+            seen["ok"] = True
+
+    run = ContinualRun(env, approach, _Probe())
+    card = run.run()
+    assert seen["ok"]
+    assert card.end_reason == "level_lost"
+    assert card.levels[0].won and not card.levels[0].lost
+    lv = card.levels[1]
+    assert lv.lost and not lv.won and lv.finished_at is not None
+    assert lv.steps == 3 and lv.resets == 0 and lv.game_overs == ["horizon"]
+    assert not card.levels[2].attempted
+    assert "L2 test[0] lost" in level_summary(card)
+    assert RunCard.load(run.card_path).levels[1].lost
+    events = _read_jsonl(os.path.join(run.recordings_dir, "L02",
+                                      "index.jsonl"))
+    game_over = [e for e in events if e["event"] == "game_over"]
+    assert len(game_over) == 1 and game_over[0]["level_over"] is True
+    _check_card_invariants(run)
+
+    # Under the flag a test level resets like a train level.
+    _config(tmp_path,
+            "oracle",
+            horizon=3,
+            experiment_id="test2",
+            continual_allow_test_resets=True)
+    env, approach = _make("oracle")
+
+    class _Resetter:
+
+        def play_level(self, session: ProtocolSession) -> None:
+            """Exhaust the horizon, reset, then let the oracle win."""
+            if session.level_index > 0:
+                assert session.resets_allowed
+                assert "(none on" not in session.observe().ledger.footer()
+                for _ in range(3):
+                    session.step(zero)
+                assert not session.level_card().lost
+                session.reset("second try")
+            OracleController(approach).play_level(session)
+
+    card = ContinualRun(env, approach, _Resetter()).run()
+    assert card.end_reason == "all_levels_won"
+    assert [lv.resets for lv in card.levels] == [0, 1, 1]
+    assert not any(lv.lost for lv in card.levels)
+
+
+def test_controllers_stop_at_a_lost_test_level(tmp_path: Any) -> None:
+    """The built-in controllers return instead of resetting when the level has
+    no resets, and the run ends as ``level_lost``."""
+    _config(tmp_path, "oracle", horizon=3)
+    env, approach = _make("oracle")
+
+    class _Mixed:
+
+        def play_level(self, session: ProtocolSession) -> None:
+            """The oracle wins the train level; random primitives lose the test
+            level at its horizon."""
+            if session.level_index == 0:
+                OracleController(approach).play_level(session)
+            else:
+                RandomPrimitiveController(env, 0).play_level(session)
+
+    card = ContinualRun(env, approach, _Mixed()).run()
+    assert card.end_reason == "level_lost"
+    lv = card.levels[1]
+    assert lv.lost and lv.resets == 0 and lv.game_overs == ["horizon"]
+    assert lv.steps == 3 and not card.levels[2].attempted
 
 
 def test_divergence_and_expected_outcomes(tmp_path: Any) -> None:

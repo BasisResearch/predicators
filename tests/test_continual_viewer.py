@@ -130,6 +130,7 @@ def test_pages_render_for_a_finished_run(tmp_path: Any,
         "start": 0,
         "end": n1 - 1,
         "won": True,
+        "lost": False,
         "split": "train",
         "task_idx": run.card.levels[0].task_idx
     }
@@ -452,3 +453,18 @@ def test_http_endpoints(tmp_path: Any, monkeypatch: Any) -> None:
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_level_status_marks_lost_levels() -> None:
+    """A level that ended in GAME_OVER with no reset available reads as lost
+    everywhere the viewer names a level's state."""
+    lost = {"index": 1, "split": "test", "attempted": True, "lost": True}
+    assert viewer._level_status(lost) == ("lost", "bad")  # pylint: disable=protected-access
+    mark = viewer._level_mark(lost)  # pylint: disable=protected-access
+    assert "✗" in mark and "bad" in mark and "lost" in mark
+    assert viewer._level_status({"index": 0, "won": True}) == ("won", "ok")  # pylint: disable=protected-access
+    assert viewer._level_status({"index": 0, "attempted": True}) == \
+        ("in progress", "warn")  # pylint: disable=protected-access
+    assert viewer._level_status({"index": 0}) == ("not attempted", "")  # pylint: disable=protected-access
+    assert viewer.liveness({"end_reason": "level_lost"}) == \
+        ("level_lost", "bad")

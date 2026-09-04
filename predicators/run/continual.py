@@ -46,8 +46,24 @@ class RunEnded(Exception):
         self.note = note
 
 
-class LevelAlreadyWon(Exception):
+class LevelOver(Exception):
+    """A charged call was made on a level that is over (won or lost)."""
+
+
+class LevelAlreadyWon(LevelOver):
     """A charged call was made on a level that is already won."""
+
+
+class LevelLost(LevelOver):
+    """A charged call was made on a level that ended in GAME_OVER with no reset
+    available (section 4.6)."""
+
+
+class ResetUnavailable(Exception):
+    """The agent asked to reset a level that has no resets (section 4.6).
+
+    Nothing is charged.
+    """
 
 
 @dataclass(frozen=True)
@@ -77,6 +93,9 @@ class Ledger:
     step_cap: int
     active_seconds: float
     wall_clock_cap_seconds: float
+    # False on a level without resets (a test level, unless
+    # continual_allow_test_resets): GAME_OVER ends it, lost.
+    resets_allowed: bool = True
 
     @property
     def steps_remaining(self) -> int:
@@ -91,7 +110,8 @@ class Ledger:
                 f"steps {self.level_steps} this level, {self.run_steps} "
                 f"this run, {self.steps_remaining} remaining; resets "
                 f"{self.level_resets} this level, {self.run_resets} this "
-                f"run; active {hours:.2f}/{cap_hours:.0f} h")
+                f"run{'' if self.resets_allowed else ' (none on this level)'}"
+                f"; active {hours:.2f}/{cap_hours:.0f} h")
 
 
 @dataclass(frozen=True)
@@ -164,8 +184,9 @@ class ProtocolSession:
     """The env-facing API of the protocol (section 5.1).
 
     Every charged call counts, records, checks the caps and may raise
-    ``RunEnded``; ``LevelAlreadyWon`` and ``EpisodeOver`` are the two
-    protocol errors a caller must handle.
+    ``RunEnded``; ``LevelOver`` (``LevelAlreadyWon``, ``LevelLost``),
+    ``ResetUnavailable`` and ``EpisodeOver`` are the protocol errors a
+    caller must handle.
     """
 
     def __init__(self, run: "ContinualRun") -> None:
@@ -190,7 +211,9 @@ class ProtocolSession:
     def reset(self, note: str = "") -> ProtocolObservation:
         """Restart the current level.
 
-        One step plus one reset.
+        One step plus one reset. Refused with ``ResetUnavailable`` on a
+        level without resets (see ``resets_allowed``); nothing is
+        charged then.
         """
         return self._run.reset(note)
 
@@ -247,6 +270,13 @@ class ProtocolSession:
     def level_index(self) -> int:
         """The index of the level in progress."""
         return self._run.level_index
+
+    @property
+    def resets_allowed(self) -> bool:
+        """Whether ``reset`` is available on the level in progress: always on a
+        train level, on a test level only under ``continual_allow_test_resets``
+        (section 4.6)."""
+        return self._run.resets_allowed()
 
     def level_card(self) -> LevelCard:
         """The scorecard of the level in progress."""
@@ -404,7 +434,12 @@ class ContinualRun:
                     self._controller.play_level(self._session)
                 finally:
                     self._end_level(k)
-                if not self._card.levels[k].won:
+                lv = self._card.levels[k]
+                if lv.lost:
+                    raise RunEnded(
+                        "level_lost", f"level {k + 1} ended in GAME_OVER "
+                        "with no reset available")
+                if not lv.won:
                     raise RunEnded(
                         "level_not_won",
                         "the controller returned without winning the level")
@@ -449,13 +484,12 @@ class ContinualRun:
             step_cap=self._card.step_cap,
             active_seconds=self._active_seconds(),
             wall_clock_cap_seconds=self._card.wall_clock_cap,
+            resets_allowed=self.resets_allowed(),
         )
 
     def step(self, action: Action) -> StepOutcome:
         """One charged primitive step."""
-        runner, lv = self._require_level()
-        if lv.won:
-            raise LevelAlreadyWon(f"level {lv.index + 1} is already won")
+        runner, _ = self._require_open_level()
         # The runner's step listener charges and records the step.
         outcome = runner.step(action)
         if self._steps_since_flush >= CFG.continual_flush_every_steps:
@@ -465,9 +499,11 @@ class ContinualRun:
 
     def reset(self, note: str = "", by: str = "agent") -> ProtocolObservation:
         """A charged reset of the current level."""
-        runner, lv = self._require_level()
-        if lv.won:
-            raise LevelAlreadyWon(f"level {lv.index + 1} is already won")
+        runner, lv = self._require_open_level()
+        if by == "agent" and not self.resets_allowed():
+            raise ResetUnavailable(
+                f"level {lv.index + 1} ({self._levels[lv.index].split}) has "
+                "no resets: the level ends with its episode")
         self._close_episode("reset" if by == "agent" else by)
         runner.finish()
         if by == "agent":
@@ -500,9 +536,7 @@ class ContinualRun:
             expected_absent: Optional[Set[GroundAtom]] = None
     ) -> InvocationResult:
         """One charged skill invocation with an optional expected outcome."""
-        runner, lv = self._require_level()
-        if lv.won:
-            raise LevelAlreadyWon(f"level {lv.index + 1} is already won")
+        runner, lv = self._require_open_level()
         self._in_invocation = True
         try:
             outcome = runner.run_option(option)
@@ -572,9 +606,7 @@ class ContinualRun:
     def run_policy(self, policy: Callable[[State], Action],
                    note: str) -> PolicyRunOutcome:
         """Charged execution of a closed-loop policy (see the session)."""
-        runner, lv = self._require_level()
-        if lv.won:
-            raise LevelAlreadyWon(f"level {lv.index + 1} is already won")
+        runner, lv = self._require_open_level()
         if runner.episode_state is not EpisodeState.NOT_FINISHED:
             raise EpisodeOver(f"episode is {runner.episode_state.value} "
                               f"({runner.reason}); only reset is valid")
@@ -879,7 +911,7 @@ class ContinualRun:
 
     def _end_level(self, k: int) -> None:
         lv = self._card.levels[k]
-        if lv.won:
+        if (lv.won or lv.lost) and lv.finished_at is None:
             lv.finished_at = time.time()
         self._flush()
         if self._recording is not None:
@@ -956,16 +988,24 @@ class ContinualRun:
         reason = runner.reason
         lv.game_overs.append(reason)
         self._close_episode(f"game_over:{reason}", runner.evaluate())
+        # With no reset available the level is over: lost (4.6).
+        lost = not self.resets_allowed()
+        if lost:
+            lv.lost = True
+            lv.finished_at = time.time()
         render = self.render(f"ep{self._episode_index():03d}_game_over")
         self._terminal_index({
             "event": "game_over",
             "episode": self._episode_index(),
             "reason": reason,
             "level_steps": lv.steps,
+            "level_over": lost,
             "render": render,
         })
-        logging.info("[Continual] level %d GAME_OVER (%s) at level step %d",
-                     lv.index + 1, reason, lv.steps)
+        logging.info(
+            "[Continual] level %d GAME_OVER (%s) at level step %d%s",
+            lv.index + 1, reason, lv.steps,
+            "; the level has no resets, so it is lost" if lost else "")
         self._flush()
 
     # -- Episode records -------------------------------------------------
@@ -1092,6 +1132,24 @@ class ContinualRun:
             raise EpisodeOver("no level is in progress")
         return self._runner, self._card.levels[self._current]
 
+    def _require_open_level(self) -> Tuple[EpisodeRunner, LevelCard]:
+        """The level in progress, for a charged call: it must not be over."""
+        runner, lv = self._require_level()
+        if lv.won:
+            raise LevelAlreadyWon(f"level {lv.index + 1} is already won")
+        if lv.lost:
+            raise LevelLost(f"level {lv.index + 1} is lost: its episode "
+                            "ended in GAME_OVER and the level has no resets")
+        return runner, lv
+
+    def resets_allowed(self) -> bool:
+        """Whether the agent may reset the level in progress: always on a train
+        level, on a test level only under ``continual_allow_test_resets``
+        (section 4.6)."""
+        _, lv = self._require_level()
+        return self._levels[lv.index].split == "train" or \
+            bool(CFG.continual_allow_test_resets)
+
     def _load_or_new_card(self) -> RunCard:
         if getattr(CFG, "auto_resume", False) and \
                 os.path.isfile(self._card_path):
@@ -1177,7 +1235,8 @@ def level_summary(card: RunCard) -> str:
     """One line per level for logs."""
     lines = []
     for lv in card.levels:
-        status = "won" if lv.won else ("not won" if lv.attempted else "-")
+        status = "won" if lv.won else ("lost" if lv.lost else
+                                       ("not won" if lv.attempted else "-"))
         lines.append(f"L{lv.index + 1} {lv.split}[{lv.task_idx}] {status}: "
                      f"steps {lv.steps}, resets {lv.resets}, invocations "
                      f"{lv.skill_invocations}, game overs "

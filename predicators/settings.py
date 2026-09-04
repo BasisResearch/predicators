@@ -66,6 +66,11 @@ class GlobalSettings:
     experiment_protocol = "phased"
     # Level order: the env's train tasks then its test tasks (4.1).
     continual_levels = "train_then_test"
+    # Whether the agent may reset a test level (4.6). Off by default: a
+    # test level is one shot, so GAME_OVER on it ends the level as lost
+    # and, under the no-skipping rule, the run. Train levels always
+    # allow resets.
+    continual_allow_test_resets = False
     # Pooled step cap per run: this many low-level steps per level,
     # summed over the run's levels (4.8). A guard, not a scoring term.
     continual_steps_per_level = 5000

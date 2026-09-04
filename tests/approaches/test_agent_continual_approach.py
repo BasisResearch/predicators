@@ -104,8 +104,8 @@ def _result(turns: int = 3, cost: float = 0.25) -> List[Dict[str, Any]]:
 
 
 def test_fit_status_text_is_a_point_estimate_line() -> None:
-    """The prompt's fit status names each fitted parameter's estimate and
-    the sample count, not the result's repr."""
+    """The prompt's fit status names each fitted parameter's estimate and the
+    sample count, not the result's repr."""
     result = FitResult(names=["lateral_friction", "chain_fwd_min"],
                        samples=np.array([[0.48989795, 0.04], [0.51, 0.04]]),
                        log_probs=np.array([0.0, -0.1]),
@@ -194,6 +194,36 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
         if f.endswith(".AgentContinual")
     ]
     assert saved, "the approach checkpointed"
+
+
+def test_play_loop_stops_at_a_lost_test_level(tmp_path: Any) -> None:
+    """On a test level (no resets) a GAME_OVER loses the level: the loop ends
+    the level's sessions and the run ends as ``level_lost``."""
+    _config(tmp_path, continual_levels="test_only", horizon=2)
+    env, approach = _make_approach()
+    queries: List[str] = []
+
+    def fake_query(message: str, **kwargs: Any) -> List[Dict[str, Any]]:
+        del kwargs
+        queries.append(message)
+        zero = [0.0] * env.action_space.shape[0]
+        assert "(test task 0, no resets)" in message
+        assert "step applied" in _call(approach, "env_step", action=zero)
+        out = _call(approach, "env_step", action=zero)
+        assert "GAME_OVER" in out and "lost" in out
+        refused = _call(approach, "env_reset", note="again")
+        assert refused.startswith("ERROR") and "lost" in refused
+        _call(approach, "session_end", handoff="lost it")
+        return _result()
+
+    approach._query_agent_sync = fake_query  # type: ignore[method-assign]  # pylint: disable=protected-access
+    approach.prepare_for_continual(Dataset([]))
+    card = ContinualRun(env, approach, create_controller(env, approach)).run()
+    assert len(queries) == 1
+    assert card.end_reason == "level_lost"
+    lv = card.levels[0]
+    assert lv.split == "test" and lv.lost and not lv.won
+    assert lv.steps == 2 and lv.resets == 0 and lv.game_overs == ["horizon"]
 
 
 @pytest.mark.slow
