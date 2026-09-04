@@ -15,9 +15,8 @@ from __future__ import annotations
 
 import logging
 import os
-import pickle
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
@@ -31,8 +30,9 @@ from predicators.run.episode import EpisodeOver, EpisodeRunner, EpisodeState, \
 from predicators.run.recording import LevelRecording, states_close
 from predicators.run.scorecard import EpisodeRecord, LevelCard, RunCard
 from predicators.settings import CFG
-from predicators.structs import Action, EnvironmentTask, EpisodeEvaluation, \
-    GroundAtom, ParameterizedOption, Predicate, State, Task, _Option
+from predicators.structs import Action, Dataset, EnvironmentTask, \
+    EpisodeEvaluation, GroundAtom, ParameterizedOption, Predicate, State, \
+    Task, _Option
 
 LEVEL_ORDERS = ("train_then_test", "train_only", "test_only")
 
@@ -114,11 +114,13 @@ class InvocationResult:
     expected: Set[GroundAtom]
     missing: Set[GroundAtom]
     render: Optional[str]
+    # Atoms the caller expected to be absent that hold afterwards.
+    present: Set[GroundAtom] = field(default_factory=set)
 
     @property
     def diverged(self) -> bool:
-        """Whether an expected atom failed to hold afterwards."""
-        return bool(self.missing)
+        """Whether the observed outcome differs from the expected one."""
+        return bool(self.missing) or bool(self.present)
 
     @property
     def status(self) -> str:
@@ -202,29 +204,67 @@ class ProtocolSession:
         """The skill library."""
         return self._run.skills
 
-    def invoke(self,
-               option: _Option,
-               expected: Optional[Set[GroundAtom]] = None,
-               note: str = "") -> InvocationResult:
+    def invoke(
+            self,
+            option: _Option,
+            expected: Optional[Set[GroundAtom]] = None,
+            note: str = "",
+            expected_absent: Optional[Set[GroundAtom]] = None
+    ) -> InvocationResult:
         """One skill invocation."""
-        return self._run.invoke(option, expected or set(), note)
+        return self._run.invoke(option, expected or set(), note,
+                                expected_absent or set())
 
-    def execute_plan(self,
-                     plan: Sequence[_Option],
-                     expected: Optional[Sequence[Set[GroundAtom]]] = None,
-                     stop_on_divergence: bool = True,
-                     note: str = "") -> List[InvocationResult]:
+    def execute_plan(
+        self,
+        plan: Sequence[_Option],
+        expected: Optional[Sequence[Set[GroundAtom]]] = None,
+        stop_on_divergence: bool = True,
+        note: str = "",
+        expected_absent: Optional[Sequence[Set[GroundAtom]]] = None
+    ) -> List[InvocationResult]:
         """Execute a plan by invoking its skills in order (section 5.1)."""
         results: List[InvocationResult] = []
         for i, option in enumerate(plan):
             exp = set(expected[i]) if expected is not None else set()
-            result = self.invoke(option, exp, note)
+            absent = set(expected_absent[i]) if expected_absent else set()
+            result = self.invoke(option, exp, note, absent)
             results.append(result)
             if result.status != "succeeded":
                 break
             if stop_on_divergence and result.diverged:
                 break
         return results
+
+    # -- Level data for the arm ---------------------------------------------
+
+    @property
+    def levels(self) -> List[LevelSpec]:
+        """The run's level list."""
+        return self._run.levels
+
+    @property
+    def level_index(self) -> int:
+        """The index of the level in progress."""
+        return self._run.level_index
+
+    def level_card(self) -> LevelCard:
+        """The scorecard of the level in progress."""
+        return self._run.level_card()
+
+    def level_episodes(self) -> List[Dict[str, Any]]:
+        """The episodes of the level in progress: ``states``, ``actions``,
+        ``end``, ``reward``, ``terminated``, ``index``."""
+        return self._run.level_episodes()
+
+    def previous_level_episodes(self,
+                                level_index: int) -> List[Dict[str, Any]]:
+        """A finished level's episodes, read from its recording."""
+        return self._run.previous_level_episodes(level_index)
+
+    def index_entries(self) -> List[Dict[str, Any]]:
+        """The recording index of the level in progress."""
+        return self._run.index_entries()
 
     def run_policy(self,
                    policy: Callable[[State], Action],
@@ -452,8 +492,13 @@ class ContinualRun:
         self._check_caps()
         return self.observation()
 
-    def invoke(self, option: _Option, expected: Set[GroundAtom],
-               note: str) -> InvocationResult:
+    def invoke(
+            self,
+            option: _Option,
+            expected: Set[GroundAtom],
+            note: str,
+            expected_absent: Optional[Set[GroundAtom]] = None
+    ) -> InvocationResult:
         """One charged skill invocation with an optional expected outcome."""
         runner, lv = self._require_level()
         if lv.won:
@@ -468,35 +513,57 @@ class ContinualRun:
             lv.failed_skill_invocations += 1
         atoms_after = runner.abstract(outcome.observation)
         missing = set(expected) - atoms_after
-        if expected and missing:
+        present = set(expected_absent or set()) & atoms_after
+        if missing or present:
             lv.divergences += 1
         render = self.render(f"ep{self._episode_index():03d}_s{lv.steps:06d}_"
                              f"{option.name}")
         self._index({
-            "event": "invoke",
-            "episode": self._episode_index(),
-            "skill": option.simple_str(),
+            "event":
+            "invoke",
+            "episode":
+            self._episode_index(),
+            "skill":
+            option.simple_str(),
             "params": [float(v) for v in option.params],
-            "status": outcome.status,
-            "reason": outcome.reason,
-            "steps": outcome.steps,
-            "start_step": outcome.start_step,
-            "end_step": outcome.end_step,
-            "level_steps": lv.steps,
-            "expected": sorted(str(a) for a in expected),
-            "missing": sorted(str(a) for a in missing),
-            "atoms": sorted(str(a) for a in atoms_after),
-            "state": outcome.episode_state.value,
-            "episode_reason": outcome.reason,
-            "note": note,
-            "render": render,
+            "status":
+            outcome.status,
+            "reason":
+            outcome.reason,
+            "steps":
+            outcome.steps,
+            "start_step":
+            outcome.start_step,
+            "end_step":
+            outcome.end_step,
+            "level_steps":
+            lv.steps,
+            "expected":
+            sorted(str(a) for a in expected),
+            "expected_absent":
+            sorted(str(a) for a in expected_absent or ()),
+            "missing":
+            sorted(str(a) for a in missing),
+            "present":
+            sorted(str(a) for a in present),
+            "atoms":
+            sorted(str(a) for a in atoms_after),
+            "state":
+            outcome.episode_state.value,
+            "episode_reason":
+            outcome.reason,
+            "note":
+            note,
+            "render":
+            render,
         })
         if self._pending_terminal is not None:
             self._index(self._pending_terminal)
             self._pending_terminal = None
         self._flush()
         self._check_caps()
-        return InvocationResult(outcome, set(expected), missing, render)
+        return InvocationResult(outcome, set(expected), missing, render,
+                                present)
 
     def run_policy(self, policy: Callable[[State], Action],
                    note: str) -> PolicyRunOutcome:
@@ -604,6 +671,84 @@ class ContinualRun:
         """Accumulate a sandbox-usage counter on the current level."""
         _, lv = self._require_level()
         lv.add_sandbox(key, delta)
+
+    @property
+    def level_index(self) -> int:
+        """The index of the level in progress."""
+        _, lv = self._require_level()
+        return lv.index
+
+    def level_card(self) -> LevelCard:
+        """The scorecard of the level in progress."""
+        _, lv = self._require_level()
+        return lv
+
+    def level_episodes(self) -> List[Dict[str, Any]]:
+        """The in-memory episodes of the level in progress, joined with
+        their scorecard records."""
+        _, lv = self._require_level()
+        records = {ep.index: ep for ep in lv.episodes}
+        out = []
+        for ep in self._level_episodes:
+            rec = records.get(ep["episode"])
+            out.append({
+                "index":
+                ep["episode"],
+                "states":
+                list(ep["states"]),
+                "actions":
+                list(ep["actions"]),
+                "end":
+                ep.get("end", "in_progress"),
+                "reward":
+                rec.reward if rec is not None else None,
+                "terminated":
+                rec.terminated if rec is not None else None,
+            })
+        return out
+
+    def previous_level_episodes(self,
+                                level_index: int) -> List[Dict[str, Any]]:
+        """A finished level's episodes from its recording (actions lose
+        their skill labels; prefer the arm's own memory when it has it)."""
+        path = os.path.join(self._rec_root, f"L{level_index + 1:02d}")
+        if not os.path.isdir(path):
+            return []
+        rec = LevelRecording(path)
+        try:
+            episodes = rec.read_episodes()
+        finally:
+            rec.close()
+        records = {
+            ep.index: ep
+            for ep in self._card.levels[level_index].episodes
+        }
+        out = []
+        for ep in episodes:
+            r = records.get(ep["episode"])
+            out.append({
+                "index":
+                ep["episode"],
+                "states":
+                list(ep["states"]),
+                "actions": [
+                    Action(np.array(a["arr"], dtype=np.float32))
+                    for a in ep["actions"]
+                ],
+                "end":
+                ep.get("end", "in_progress"),
+                "reward":
+                r.reward if r is not None else None,
+                "terminated":
+                r.terminated if r is not None else None,
+            })
+        return out
+
+    def index_entries(self) -> List[Dict[str, Any]]:
+        """The recording index of the level in progress."""
+        if self._recording is None:
+            return []
+        return self._recording.read_index()
 
     def render(self, tag: str) -> Optional[str]:
         """Save a render of the current state if rendering is on."""
@@ -858,22 +1003,20 @@ class ContinualRun:
         """The level's episodes as recorded, for continuing the pickle."""
         assert self._recording is not None and self._runner is not None
         episodes: List[Dict[str, Any]] = []
-        path = self._recording.episodes_path
-        if os.path.isfile(path):
-            with open(path, "rb") as f:
-                for ep in pickle.load(f):
-                    episodes.append({
-                        "episode":
-                        ep["episode"],
-                        "end":
-                        ep["end"],
-                        "states":
-                        list(ep["states"]),
-                        "actions": [
-                            Action(np.array(a["arr"], dtype=np.float32))
-                            for a in ep["actions"]
-                        ],
-                    })
+        if os.path.isfile(self._recording.episodes_path):
+            for ep in self._recording.read_episodes():
+                episodes.append({
+                    "episode":
+                    ep["episode"],
+                    "end":
+                    ep["end"],
+                    "states":
+                    list(ep["states"]),
+                    "actions": [
+                        Action(np.array(a["arr"], dtype=np.float32))
+                        for a in ep["actions"]
+                    ],
+                })
         if episodes and episodes[-1]["end"] == "in_progress":
             # Replace the live episode with the replayed one: same
             # actions, states straight from the env.
@@ -986,10 +1129,27 @@ def _episode_open(runner: EpisodeRunner) -> bool:
     return runner.episode_state is EpisodeState.NOT_FINISHED
 
 
-def run_continual(env: BaseEnv, approach: BaseApproach) -> RunCard:
-    """Entry point from ``run_pipeline``: build the controller and play."""
+def run_continual(env: BaseEnv,
+                  approach: BaseApproach,
+                  offline_dataset: Optional[Dataset] = None) -> RunCard:
+    """Entry point from ``run_pipeline``: build the controller and play.
+
+    Under ``--auto_resume`` (``maybe_auto_resume`` found a checkpoint and
+    set ``load_approach``) the approach is loaded from its latest
+    checkpoint before the run resumes. A learning arm gets the offline
+    dataset through ``prepare_for_continual`` without a learning session:
+    when to learn is the arm's decision.
+    """
     # pylint: disable-next=import-outside-toplevel
     from predicators.run.controllers import create_controller
+    if CFG.load_approach and approach.is_learning_based:
+        cycle = CFG.skip_until_cycle - 1 if CFG.skip_until_cycle > 0 \
+            else None
+        approach.load(cycle)
+    prepare = getattr(approach, "prepare_for_continual", None)
+    if prepare is not None:
+        prepare(
+            offline_dataset if offline_dataset is not None else Dataset([]))
     controller = create_controller(env, approach)
     run = ContinualRun(env, approach, controller)
     return run.run()

@@ -86,6 +86,10 @@ def parse_result_message(msg: Any) -> Dict[str, Any]:
         # fatal-session check (session_base.query_fatal_error).
         "is_error": getattr(msg, "is_error", False),
         "result": getattr(msg, "result", None),
+        # The CLI session this result belongs to; a manager records it so
+        # a later session can be opened with ``resume`` (see
+        # BaseAgentSessionManager.resume_session_id).
+        "session_id": getattr(msg, "session_id", None),
     }
 
 

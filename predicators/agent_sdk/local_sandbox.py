@@ -132,6 +132,7 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
             # Every python the agent starts loads the sandbox's
             # sitecustomize guard (sandbox_setup.write_pyguard).
             env=pyguard_env(self._sandbox_dir),
+            resume=self.resume_session_id,
         )
 
         self._client = ClaudeSDKClient(options=options)

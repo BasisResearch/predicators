@@ -35,6 +35,7 @@ import html
 import json
 import mimetypes
 import os
+import re
 import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -153,6 +154,58 @@ def read_index(run_id: str, level_index: int) -> List[Dict[str, Any]]:
     return entries
 
 
+SESSION_LOG_RE = re.compile(
+    r"^(\d{3})_([a-z_]+?)(?:_task\d+)?_(\d{8}_\d{6})\.md$")
+IMAGE_REF_RE = re.compile(r"\./test_images/[\w./-]+\.png")
+MAX_TEXT_CHARS = 60000
+
+
+def agent_dir(run_id: str) -> Optional[str]:
+    """The agent arm's stable directory for a run, if it exists."""
+    path = safe_join(RECORDINGS_ROOT, os.path.join(run_id, "agent"))
+    if path is None or not os.path.isdir(path):
+        return None
+    return path
+
+
+def list_session_logs(run_id: str) -> List[Dict[str, Any]]:
+    """The agent's session transcripts, oldest first."""
+    adir = agent_dir(run_id)
+    if adir is None:
+        return []
+    logs = []
+    for name in sorted(os.listdir(adir)):
+        m = SESSION_LOG_RE.match(name)
+        if m is None:
+            continue
+        path = os.path.join(adir, name)
+        logs.append({
+            "name": name,
+            "number": int(m.group(1)),
+            "kind": m.group(2),
+            "stamp": m.group(3),
+            "size": os.path.getsize(path),
+            "mtime": os.path.getmtime(path),
+        })
+    return logs
+
+
+def read_agent_text(run_id: str, rel: str) -> Optional[str]:
+    """A text file under the agent dir (journal, attempts, a session log),
+    tail-truncated to ``MAX_TEXT_CHARS``."""
+    adir = agent_dir(run_id)
+    if adir is None:
+        return None
+    path = safe_join(adir, rel)
+    if path is None or not os.path.isfile(path):
+        return None
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    if len(text) > MAX_TEXT_CHARS:
+        text = "[... earlier content truncated ...]\n" + text[-MAX_TEXT_CHARS:]
+    return text
+
+
 def liveness(card: Dict[str, Any]) -> Tuple[str, str]:
     """(label, css class) for a card's state."""
     if card.get("end_reason"):
@@ -262,6 +315,9 @@ svg.curve { background: var(--panel); border: 1px solid var(--border);
   border-radius: 6px; }
 details summary { cursor: pointer; color: var(--muted); }
 .note { max-width: 320px; white-space: pre-wrap; }
+pre.doc { white-space: pre-wrap; word-break: break-word; background:
+  var(--code-bg); border: 1px solid var(--border); border-radius: 6px;
+  padding: 10px 12px; max-height: 70vh; overflow: auto; }
 """
 
 JS = """
@@ -431,7 +487,7 @@ def run_page(run_id: str) -> Optional[str]:
                                               for k, v in meta) + "</dl>"
     body = (f"<h2>{esc(card.get('config') or run_id)}</h2>{meta_html}"
             "<h2>Cumulative steps vs levels won</h2>" + curve_svg(card) +
-            "<h2>Levels</h2>" + _levels_table(card))
+            "<h2>Levels</h2>" + _levels_table(card) + _agent_section(run_id))
     crumb = f"<a href='/run/{q(run_id)}'>{esc(run_id)}</a>"
     refresh = 0 if card.get("end_reason") else 30
     return page(run_id, crumb, body, refresh=refresh)
@@ -559,6 +615,74 @@ def _levels_table(card: Dict[str, Any]) -> str:
             "downtime'>recovery</th><th class='num'>sandbox</th>"
             "<th>episodes</th><th>goal</th></tr></thead><tbody>" +
             "".join(rows) + "</tbody></table>")
+
+
+def _agent_section(run_id: str) -> str:
+    """Session transcripts, journal and attempts of the agent arm."""
+    if agent_dir(run_id) is None:
+        return ""
+    logs = list_session_logs(run_id)
+    rows = []
+    for log in logs:
+        rows.append("<tr>"
+                    f"<td class='num'>{log['number']}</td>"
+                    f"<td>{chip(log['kind'])}</td>"
+                    f"<td><a href='/run/{q(run_id)}/session/{q(log['name'])}'>"
+                    f"{esc(log['name'])}</a></td>"
+                    f"<td class='num'>{log['size'] // 1024} KB</td>"
+                    f"<td class='muted'>{esc(fmt_ts(log['mtime']))}</td></tr>")
+    if rows:
+        table = ("<table><thead><tr><th class='num'>#</th><th>kind</th>"
+                 "<th>transcript</th><th class='num'>size</th>"
+                 "<th>written</th></tr></thead><tbody>" + "".join(rows) +
+                 "</tbody></table>")
+    else:
+        table = "<p class='muted'>No session transcripts yet.</p>"
+    parts = [f"<h2>Agent sessions ({len(logs)})</h2>", table]
+    for title, rel in (("Journal (journal.md, the agent's)",
+                        "sandbox/journal.md"),
+                       ("Attempts record (attempts.md, the harness's)",
+                        "sandbox/attempts.md")):
+        text = read_agent_text(run_id, rel)
+        if text is None:
+            continue
+        parts.append(f"<details><summary>{esc(title)} "
+                     f"({len(text)} chars)</summary>"
+                     f"<pre class='doc'>{esc(text)}</pre></details>")
+    return "".join(parts)
+
+
+def session_page(run_id: str, name: str) -> Optional[str]:
+    """One session transcript, with its image references made viewable."""
+    if SESSION_LOG_RE.match(name) is None:
+        return None
+    text = read_agent_text(run_id, name)
+    if text is None:
+        return None
+    names = [log["name"] for log in list_session_logs(run_id)]
+    nav = []
+    if name in names:
+        i = names.index(name)
+        if i > 0:
+            nav.append(f"<a href='/run/{q(run_id)}/session/{q(names[i - 1])}'>"
+                       f"← {esc(names[i - 1])}</a>")
+        if i + 1 < len(names):
+            nav.append(f"<a href='/run/{q(run_id)}/session/{q(names[i + 1])}'>"
+                       f"{esc(names[i + 1])} →</a>")
+
+    def _img(m: "re.Match[str]") -> str:
+        rel = m.group(0)[2:]  # drop "./"
+        url = "/file/" + "/".join(
+            q(p) for p in (run_id, "agent", "sandbox", *rel.split("/")))
+        return (f"{m.group(0)} <a href='{url}'><img class='thumb' "
+                f"src='{url}' loading='lazy'></a>")
+
+    body_html = IMAGE_REF_RE.sub(_img, esc(text))
+    crumb = (f"<a href='/run/{q(run_id)}'>{esc(run_id)}</a> / "
+             f"{esc(name)}")
+    body = (f"<h2>{esc(name)}</h2><p>{' · '.join(nav)}</p>"
+            f"<pre class='doc'>{body_html}</pre>")
+    return page(f"{run_id} {name}", crumb, body)
 
 
 # ── Level page ─────────────────────────────────────────────────────
@@ -701,7 +825,8 @@ def _timeline_table(run_id: str, level_index: int,
 
 
 class Handler(BaseHTTPRequestHandler):
-    """Routes: /, /run/<id>, /run/<id>/L<k>, /card/<id>, /file/<rel>."""
+    """Routes: /, /run/<id>, /run/<id>/L<k>, /run/<id>/session/<name>,
+    /card/<id>, /file/<rel>."""
 
     # pylint: disable-next=redefined-builtin
     def log_message(self, format: str, *args: Any) -> None:
@@ -719,6 +844,9 @@ class Handler(BaseHTTPRequestHandler):
             elif parts[0] == "run" and len(parts) == 3 and \
                     parts[2].startswith("L") and parts[2][1:].isdigit():
                 self._html_or_404(level_page(parts[1], int(parts[2][1:]) - 1))
+            elif parts[0] == "run" and len(parts) == 4 and \
+                    parts[2] == "session":
+                self._html_or_404(session_page(parts[1], parts[3]))
             elif parts[0] == "card" and len(parts) == 2:
                 self._file(safe_join(SCORECARDS_ROOT, parts[1] + ".json"))
             elif parts[0] == "file" and len(parts) >= 2:

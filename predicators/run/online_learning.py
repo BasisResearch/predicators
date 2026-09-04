@@ -35,7 +35,7 @@ def run_pipeline(env: BaseEnv,
         from predicators.run.continual import run_continual
 
         # pylint: disable-next=protected-access
-        run_continual(env, cogman._approach)
+        run_continual(env, cogman._approach, offline_dataset)
         return
     assert CFG.experiment_protocol == "phased", CFG.experiment_protocol
     if cogman.is_learning_based:

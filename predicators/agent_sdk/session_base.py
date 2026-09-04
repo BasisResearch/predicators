@@ -342,7 +342,8 @@ def build_agent_options(*,
                         cwd: Optional[str] = None,
                         setting_sources: Optional[List[str]] = None,
                         hooks: Optional[Dict[str, Any]] = None,
-                        env: Optional[Dict[str, str]] = None) -> Any:
+                        env: Optional[Dict[str, str]] = None,
+                        resume: Optional[str] = None) -> Any:
     """Assemble the ``ClaudeAgentOptions`` shared by all session managers.
 
     Pure function of its arguments (no ``CFG`` reads) so the Docker
@@ -372,6 +373,12 @@ def build_agent_options(*,
         extra["setting_sources"] = setting_sources
     if env:
         extra["env"] = dict(env)
+    if resume:
+        # Continue an earlier CLI session's transcript (same ``cwd``: the
+        # CLI keys transcripts by the working directory). Used by the
+        # continual protocol to pick a level's session back up after a
+        # requeue (docs/continual-protocol.md, 6.6).
+        extra["resume"] = resume
     return ClaudeAgentOptions(
         allowed_tools=allowed_tools,
         # Disallowing ToolSearch turns off tool-search deferral, so
@@ -425,6 +432,21 @@ def _default_report_block(dt: float, preview: str) -> None:
     logger.debug("[+%.2fs] %s", dt, preview)
 
 
+def _message_session_id(msg: Any) -> Optional[str]:
+    """The CLI session id an SDK message carries, if any.
+
+    ``ResultMessage`` has it as a field; the ``init`` system message
+    carries it in ``data``. Seen as soon as the session opens, so a
+    manager can record it before the first result arrives.
+    """
+    sid = getattr(msg, "session_id", None)
+    if not sid:
+        data = getattr(msg, "data", None)
+        if isinstance(data, dict):
+            sid = data.get("session_id")
+    return str(sid) if sid else None
+
+
 async def stream_agent_response(
     client: Any,
     message: str,
@@ -435,6 +457,7 @@ async def stream_agent_response(
     on_result: Optional[Callable[[Dict[str, Any]], None]] = None,
     flush: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
     on_error: Optional[Callable[[], Awaitable[None]]] = None,
+    on_session_id: Optional[Callable[[str], None]] = None,
 ) -> List[Dict[str, Any]]:
     """Send ``message`` and drain the streamed response into a list.
 
@@ -459,6 +482,10 @@ async def stream_agent_response(
     try:
         await client.query(message)
         async for msg in client.receive_response():
+            if on_session_id is not None:
+                sid = _message_session_id(msg)
+                if sid:
+                    on_session_id(sid)
             entry = parse_message(msg)
             if entry is None:
                 continue
@@ -529,6 +556,9 @@ class BaseAgentSessionManager:
         self._client: Any = None
         self._started = False
         self._session_id: Optional[str] = None
+        # Set by a caller before the first query to continue an earlier
+        # CLI session's transcript instead of starting a new one.
+        self.resume_session_id: Optional[str] = None
         self._total_cost_usd: float = 0.0
         # total_cost_usd from the SDK is the cumulative session cost; track
         # the last value to derive each query's per-solve (marginal) cost.
@@ -614,6 +644,18 @@ class BaseAgentSessionManager:
         """Rewrite the incremental query log with the current response."""
         raise NotImplementedError
 
+    def _note_session_id(self, session_id: str) -> None:
+        """Record the CLI session id and persist ``session_info.json`` the
+        moment it changes, so a requeue can resume the session."""
+        if session_id == self._session_id:
+            return
+        self._session_id = session_id
+        try:
+            self.save_session_info()
+        except OSError as e:  # pragma: no cover - best effort
+            logger.warning("%s could not write session_info.json: %s",
+                           self._log_label, e)
+
     def _account_result(self, entry: Dict[str, Any]) -> None:
         """Fold one result entry into the cost/turn totals.
 
@@ -694,6 +736,7 @@ class BaseAgentSessionManager:
                 on_result=self._account_result,
                 flush=_flush_with_history if flush is not None else None,
                 on_error=self._recover_session,
+                on_session_id=self._note_session_id,
             )
             query_secs = time.perf_counter() - query_started
             reason = query_fatal_error(collected)

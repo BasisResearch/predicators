@@ -185,6 +185,7 @@ def test_result_message_fields():
         "total_cost_usd": 1.25,
         "is_error": True,
         "result": "hit the turn cap",
+        "session_id": "sess",
     }
 
 
@@ -198,6 +199,7 @@ def test_result_message_missing_attrs_default_to_none():
         "total_cost_usd": None,
         "is_error": False,
         "result": None,
+        "session_id": None,
     }
 
 

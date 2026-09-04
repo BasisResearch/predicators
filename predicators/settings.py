@@ -82,6 +82,12 @@ class GlobalSettings:
     # The oracle controller gives up a level after this many planning or
     # execution failures (6.7).
     continual_max_replans_per_level = 20
+    # Wall clock of one agent play session, in seconds; the sandbox
+    # session manager interrupts a session that overruns it (6.5).
+    continual_session_wall_clock = 2700.0
+    # An agent that plays this many consecutive sessions without an env
+    # step or a learning session has stalled; the run ends (6.5).
+    continual_max_idle_sessions = 5
     # Slack (in reward units) below a task's ``early_stop_min_reward`` bar
     # that still counts as solved for early stopping. Only tasks that set
     # ``EnvironmentTask.early_stop_min_reward`` are affected (e.g. domino

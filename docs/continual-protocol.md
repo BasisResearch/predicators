@@ -401,4 +401,16 @@ The viewer lists every run grouped by env and arm, shows the cumulative steps-ve
 
 First PyBullet result, the oracle arm on boil (train task then test task), job 21960691: both levels won, 217 steps each, 9 skill invocations each, no resets, 33 s active.
 
-Next: step 2, the agent arm (`agent_continual_approach.py`, the play prompts, `learn.run`, session resume), first on boil and fan.
+Step 2, the agent arm, landed the same day:
+
+- `predicators/approaches/agent_continual_approach.py`: `AgentContinualApproach`, C1's learner (hybrid simulator, parameter fit, predicate invention) playing through play sessions. It implements `play_level`: each session is a fresh context over the journal; after a session the arm services what the session asked for (a learning session, the run's end), records the session in `attempts.md`, rebuilds the learning data from the recorded episodes, and checkpoints.
+- `predicators/agent_sdk/tools/continual_tools.py`: the play tools `env_observe`, `env_step`, `env_reset`, `env_end_run`, `skills_list`, `skills_invoke`, `skills_execute_plan`, `learn_run`, `session_end`, thin text adapters over `ProtocolSession`. Every result ends with the ledger line. Ending the session and running a learning session cannot happen inside a running SDK session, so `learn_run`, `env_end_run` and `session_end` record requests the arm acts on after the query returns.
+- `predicators/agent_sdk/prompts/play_system.md` and `play_query.md`, rendered by `agent_sdk/play_prompts.py`: the rules of section 4, the tools, the skill grammar, the sandbox, learning, the journal protocol and the session protocol; the query carries the level, the ledger, the observation with a render, the skills, the predicates, the learning status, the journal, the attempts record and the handoff note.
+- The agent's sandbox and CLI transcripts live in a stable directory per run, `recordings/<run_id>/agent/`, not per launch, so a requeue finds them. SDK session resume is wired: the session manager records the CLI session id into `session_info.json` as soon as a session opens, and an in-flight session at checkpoint time is reopened with `resume` on the next launch (section 6.6).
+- The observation the agent gets is both numbers and pixels: the object feature table and the atoms in text, and a render saved into the sandbox's `test_images/` at every observation, invocation, plan and reset, named in the tool result and readable with `Read`.
+
+Tests: `tests/agent_sdk/test_continual_tools.py` drives the tools over a real session on cover (a win through `skills_execute_plan`, divergences on positive and `NOT` expectations, parse errors, game over then reset, queued learning and run end, the cap hit inside a tool); `tests/approaches/test_agent_continual_approach.py` runs the play loop on boil with a scripted agent in place of the LLM (a session that acts and queues learning, the learning service, the attempts record, the checkpoint, the resume of an in-flight session id, the idle guard).
+
+Launching the agent arm: un-skip `agent_continual` in `protocol_continual.yaml`.
+
+Next: a real run of the agent arm on boil, then the remaining arms (model-free, primitive-only, fixed-schedule controllers), the viewer's session-log pages, and the level lists for all five envs.

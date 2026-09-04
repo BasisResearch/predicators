@@ -183,6 +183,14 @@ class LevelRecording:
                     actions.append(np.array(rec["a"], dtype=np.float32))
         return episode, actions
 
+    def read_episodes(self) -> List[Dict[str, Any]]:
+        """The sanitised episodes pickle, or ``[]``."""
+        if not os.path.isfile(self.episodes_path):
+            return []
+        with open(self.episodes_path, "rb") as f:
+            episodes: List[Dict[str, Any]] = pickle.load(f)
+        return episodes
+
     def read_index(self) -> List[Dict[str, Any]]:
         """All index entries in order."""
         if not os.path.isfile(self.index_path):

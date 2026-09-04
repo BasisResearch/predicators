@@ -44,3 +44,22 @@ APPROACHES:
   random_skills:
     NAME: "random_options"
     SKIP: True
+  # The LLM agent arm: C1's learner (hybrid simulator, parameter fit,
+  # predicate invention) playing through the protocol's env and skill
+  # tools (docs/continual-protocol.md, section 5). Flags mirror the C1
+  # arm in approaches/all.yaml minus the phased-loop machinery.
+  agent_continual:
+    NAME: "agent_continual"
+    SKIP: True
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_sim_learn_kept_predicates_names: ["Holding"]
+      agent_sdk_max_agent_turns_per_iteration: 200
+      agent_sdk_image_max_px: 900
+      agent_bilevel_use_llm_initial_params: True
+      agent_solve_use_journal: True
+      agent_validation_parallel_workers: 6
+      code_sim_learning_rollout_min_posterior_width: 0.1
+      continual_session_wall_clock: 2700
+      continual_max_idle_sessions: 5

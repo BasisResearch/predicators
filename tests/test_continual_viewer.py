@@ -137,3 +137,39 @@ def test_aggregate_scorecards(tmp_path: Any) -> None:
     with open(paths["summary"], "r", encoding="utf-8") as f:
         summary = f.read()
     assert "## cover" in summary and "| oracle | 1 | 1 |" in summary
+
+
+def test_agent_sessions_render(tmp_path: Any) -> None:
+    """A run with an agent directory lists its transcripts, journal and
+    attempts, and serves one transcript with image references linked."""
+    run = _run(tmp_path, "oracle", continual_render=False)
+    viewer.configure(os.path.join(str(tmp_path), "cards"),
+                     os.path.join(str(tmp_path), "recs"))
+    run_id = run.card.run_id
+    adir = os.path.join(str(tmp_path), "recs", run_id, "agent")
+    os.makedirs(os.path.join(adir, "sandbox", "test_images"))
+    with open(os.path.join(adir, "001_play_20260904_120000.md"),
+              "w",
+              encoding="utf-8") as f:
+        f.write("# Session\n\nLooked at ./test_images/session_001.png\n"
+                "<script>alert(1)</script>\n")
+    with open(os.path.join(adir, "sandbox", "journal.md"),
+              "w",
+              encoding="utf-8") as f:
+        f.write("### notes\nthe jug fills slowly\n")
+    with open(os.path.join(adir, "sandbox", "attempts.md"),
+              "w",
+              encoding="utf-8") as f:
+        f.write("### Session 1\n- stepped\n")
+    run_html = viewer.run_page(run_id)
+    assert run_html is not None
+    assert "Agent sessions (1)" in run_html
+    assert "001_play_20260904_120000.md" in run_html
+    assert "the jug fills slowly" in run_html and "- stepped" in run_html
+    session = viewer.session_page(run_id, "001_play_20260904_120000.md")
+    assert session is not None
+    assert "&lt;script&gt;" in session and "<script>alert" not in session
+    assert "/agent/sandbox/test_images/session_001.png" in session
+    assert viewer.session_page(run_id, "../../etc/passwd") is None
+    assert viewer.session_page(run_id, "999_play_20260904_120000.md") is None
+    assert viewer.list_session_logs(run_id)[0]["kind"] == "play"
