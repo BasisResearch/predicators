@@ -1451,7 +1451,7 @@ def _leaf_table(agent: str, env: str, config: str, cards: Sequence[Dict[str,
 # resets, invocations, active, queue, LLM cost, updated, git. Every leaf
 # table uses them, so columns line up across agents and envs, as in the
 # phased log viewer.
-RUN_COL_W = (250, 150, None, 64, 56, 84, 72, 64, 64, 96, 80)
+RUN_COL_W = (250, 150, None, 64, 72, 84, 72, 64, 64, 96, 80)
 LEVEL_COL_W = 104
 
 
