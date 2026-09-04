@@ -400,6 +400,8 @@ python scripts/continual_viewer.py --port 25152
 ```
 
 The viewer lists every run grouped by env and arm, shows the cumulative steps-versus-levels-won curve and the per-level metrics of section 4.4 for one run, and renders one level's timeline: one row per skill invocation, reset, resume, win or game over, with the parameters, the status, the agent's expected outcome and what was missing, the note, the atoms that changed, and the render.
+The level replay page follows the ARC-AGI-3 replay viewer: one frame per recorded event with the render, the action, the agent's thinking and text that led to it (paired from the session transcripts), the tool call and its result, and the atoms that changed, with keyboard playback and a JSON export.
+The session page renders a transcript as a conversation with thinking, assistant text, tool calls and results, and renders inline.
 
 First PyBullet result, the oracle arm on boil (train task then test task), job 21960691: both levels won, 217 steps each, 9 skill invocations each, no resets, 33 s active.
 
