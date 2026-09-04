@@ -118,3 +118,22 @@ def test_helpers() -> None:
     assert live.startswith("stalled") and cls == "warn"
     assert viewer.liveness({"end_reason": "all_levels_won"}) == \
         ("all_levels_won", "ok")
+
+
+def test_aggregate_scorecards(tmp_path: Any) -> None:
+    """The aggregator writes the run and level CSVs and the summary."""
+    # pylint: disable-next=import-outside-toplevel
+    from scripts import aggregate_scorecards as agg
+    run = _run(tmp_path, "oracle", continual_render=False)
+    out = os.path.join(str(tmp_path), "analysis")
+    paths = agg.aggregate(os.path.join(str(tmp_path), "cards"), out)
+    with open(paths["runs"], "r", encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    assert lines[0].startswith("run_id,env,arm,seed")
+    assert len(lines) == 2 and run.card.run_id in lines[1]
+    with open(paths["levels"], "r", encoding="utf-8") as f:
+        level_lines = f.read().splitlines()
+    assert len(level_lines) == 1 + run.card.levels_total
+    with open(paths["summary"], "r", encoding="utf-8") as f:
+        summary = f.read()
+    assert "## cover" in summary and "| oracle | 1 | 1 |" in summary
