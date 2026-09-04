@@ -206,9 +206,8 @@ def list_session_logs(run_id: str) -> List[Dict[str, Any]]:
     return logs
 
 
-def read_agent_text(run_id: str, rel: str) -> Optional[str]:
-    """A text file under the agent dir (journal, attempts, a session log),
-    tail-truncated to ``MAX_TEXT_CHARS``."""
+def read_agent_file(run_id: str, rel: str) -> Optional[str]:
+    """A text file under the agent dir, whole."""
     adir = agent_dir(run_id)
     if adir is None:
         return None
@@ -216,8 +215,14 @@ def read_agent_text(run_id: str, rel: str) -> Optional[str]:
     if path is None or not os.path.isfile(path):
         return None
     with open(path, "r", encoding="utf-8", errors="replace") as f:
-        text = f.read()
-    if len(text) > MAX_TEXT_CHARS:
+        return f.read()
+
+
+def read_agent_text(run_id: str, rel: str) -> Optional[str]:
+    """A text file under the agent dir (journal, attempts, a session log),
+    tail-truncated to ``MAX_TEXT_CHARS`` for display."""
+    text = read_agent_file(run_id, rel)
+    if text is not None and len(text) > MAX_TEXT_CHARS:
         text = "[... earlier content truncated ...]\n" + text[-MAX_TEXT_CHARS:]
     return text
 
@@ -722,7 +727,7 @@ def load_transcripts(run_id: str) -> List[tr.Transcript]:
     """Every parsed session transcript of a run, oldest first."""
     out = []
     for log in list_session_logs(run_id):
-        text = read_agent_text(run_id, log["name"])
+        text = read_agent_file(run_id, log["name"])
         if text is None:
             continue
         out.append(tr.parse_transcript(text, log["name"]))
@@ -974,11 +979,14 @@ def session_page(run_id: str, name: str) -> Optional[str]:
     assistant text, tool calls with their results, images inline."""
     if SESSION_LOG_RE.match(name) is None:
         return None
-    text = read_agent_text(run_id, name)
+    text = read_agent_file(run_id, name)
     if text is None:
         return None
     tx = tr.parse_transcript(text, name)
     if not tx.turns:
+        if len(text) > MAX_TEXT_CHARS:
+            text = ("[... earlier content truncated ...]\n" +
+                    text[-MAX_TEXT_CHARS:])
         # Not a formatter transcript (or an empty one): show it raw.
         return page(
             f"{run_id} {name}",
