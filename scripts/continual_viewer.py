@@ -16,7 +16,12 @@ Pages:
 * ``/``: every run, one table per (agent, env) pair nested under
   agent-name or env-name headers (a toggle, as in the phased log
   viewer) with a filter box: levels won, steps, resets, invocations,
-  active and queue time, LLM cost, liveness.
+  active and queue time, LLM cost, liveness. A row names its run by
+  experiment id and seed and carries three buttons: copy the recording
+  path, pause (cancel the run's Slurm job or local process; the run
+  keeps its scorecard, recording and checkpoints, so relaunching its
+  config with ``--auto_resume`` continues it) and delete (scorecard,
+  recording and approach checkpoints).
 * ``/run/<run_id>``: the run as a sidebar plus a content pane that the
   hash route fills. ``#overview``: metadata, the cumulative steps-
   versus-levels-won curve, one row per level with the section 4.4
@@ -36,23 +41,28 @@ Pages:
 
 Usage:
     python scripts/continual_viewer.py [--scorecards scorecards] \\
-        [--recordings recordings] [--port 25152] [--host 127.0.0.1]
+        [--recordings recordings] [--approaches saved_approaches] \\
+        [--port 25152] [--host 127.0.0.1]
 """
 from __future__ import annotations
 
 import argparse
 import datetime
+import getpass
 import html
 import json
 import mimetypes
 import os
 import re
+import shutil
+import signal
+import subprocess
 import sys
 import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 # Run as a script or imported as scripts.continual_viewer: either way the
 # helper module lives next to this file, under the repo root.
@@ -62,6 +72,7 @@ from scripts import continual_transcripts as tr  # noqa: E402
 
 SCORECARDS_ROOT = ""  # absolute, set in main()
 RECORDINGS_ROOT = ""  # absolute, set in main()
+APPROACHES_ROOT = ""  # absolute, set in main(); checkpoints to delete
 LIVE_WINDOW_S = 15 * 60  # a card updated within this window is "live"
 
 # ── Small helpers ──────────────────────────────────────────────────
@@ -221,12 +232,16 @@ def read_agent_file(run_id: str, rel: str) -> Optional[str]:
         return f.read()
 
 
-def liveness(card: Dict[str, Any]) -> Tuple[str, str]:
-    """(label, css class) for a card's state."""
+def liveness(
+    card: Dict[str, Any], owners: Sequence["Owner"] = ()) -> Tuple[str, str]:
+    """(label, css class) for a card's state; ``owners`` are the Slurm jobs and
+    local processes running it (see ``live_owners``)."""
     if card.get("end_reason"):
         reason = str(card["end_reason"])
         cls = "ok" if reason == "all_levels_won" else "bad"
         return reason, cls
+    if owners and all(o.state == "PD" for o in owners):
+        return "queued", "warn"
     age = time.time() - float(card.get("updated_at") or 0)
     if age < LIVE_WINDOW_S:
         return "live", "live"
@@ -460,8 +475,16 @@ table.grid th, table.grid td { border: 1px solid var(--border);
   text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
 table.grid th { background: var(--panel); position: static; }
 table.grid.runs { table-layout: fixed; }
-.runcell a, .runcell span { display: block; overflow: hidden;
-  text-overflow: ellipsis; }
+.runcell { display: flex; align-items: center; }
+.runcell a { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.runcell .btns { flex: none; }
+button.rowbtn { padding: 0 4px; margin-left: 4px; border: 1px solid
+  transparent; border-radius: 4px; background: none; color: var(--muted);
+  font-size: 12px; line-height: 16px; cursor: pointer; visibility: hidden; }
+tr.runrow:hover button.rowbtn { visibility: visible; }
+button.rowbtn:hover { color: var(--accent); border-color: var(--accent); }
+button.rowbtn.del:hover { color: var(--bad); border-color: var(--bad); }
+button.rowbtn.copied { color: var(--ok); visibility: visible; }
 table.lvgrid { border-collapse: collapse; table-layout: fixed; margin: 0;
   width: 100%; }
 table.lvgrid td { border: none; padding: 0 6px 0 0; white-space: nowrap;
@@ -561,6 +584,58 @@ function applyRunFilter() {
     d.classList.toggle('hidden', !$all('details.grp.exp', d).some(
       function (x) { return !x.classList.contains('hidden'); }));
   });
+}
+// Copy-path buttons next to run names.
+document.addEventListener('click', function (e) {
+  var b = e.target.closest('button.rowbtn.copy');
+  if (!b) return;
+  var done = function () {
+    b.textContent = '\u2713';
+    b.classList.add('copied');
+    setTimeout(function () {
+      b.textContent = '\u29c9';
+      b.classList.remove('copied');
+    }, 1200);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(b.dataset.copy).then(done);
+  } else {  // non-localhost http has no clipboard API
+    var ta = document.createElement('textarea');
+    ta.value = b.dataset.copy;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+    done();
+  }
+});
+// Pause / delete buttons on index run rows. POST only, so the auto-
+// refresh GETs can never trip these; reload shortly after success so
+// the state chip reflects the job actually leaving the queue.
+function postRun(url, msg) {
+  if (!confirm(msg)) return;
+  fetch(url, {method: 'POST'}).then(function (r) {
+    r.text().then(function (t) {
+      if (!r.ok) { alert(t); return; }
+      setTimeout(function () { location.reload(); }, 600);
+    });
+  }).catch(function (e) { alert('request failed: ' + e); });
+}
+function pauseRun(id) {
+  postRun('/pause?r=' + encodeURIComponent(id),
+          'Pause ' + id + ' ?\nIts Slurm job (or local process) is ' +
+          'cancelled. The run keeps its scorecard, recording and ' +
+          'checkpoints and continues when its config is relaunched ' +
+          'with --auto_resume.');
+}
+function deleteRun(id, live) {
+  var msg = live
+    ? 'This run appears LIVE:\n' + id + '\nCancel its job AND delete ' +
+      'its scorecard, recording and approach checkpoints?'
+    : 'Delete the scorecard, recording and approach checkpoints of\n' +
+      id + ' ?';
+  postRun('/delete?r=' + encodeURIComponent(id) + (live ? '&kill=1' : ''),
+          msg);
 }
 document.addEventListener('DOMContentLoaded', function () {
   restoreGroups();
@@ -815,6 +890,290 @@ def chip(label: Any, cls: str = "", title: str = "") -> str:
             f"{esc(label)}</span>")
 
 
+# ── Live jobs and processes ────────────────────────────────────────
+# A run is owned by this user's Slurm job named after its experiment id
+# with its seed as the array task, the launcher's convention (see
+# scripts/engaging/submit_engaging_job.py; the job's stdout path spells
+# <env>__<approach>__<experiment_id>__<seed>__<job>.log), or by a local
+# main.py process whose flags name the same env, approach, seed and
+# experiment id. Only these are ever cancelled or signalled, never a
+# name-based sweep: parallel sessions share the machine.
+
+
+class Owner(NamedTuple):
+    """A Slurm job or a local process running a run."""
+    kind: str  # "job" (ident is what scancel takes) or "proc" (a pid)
+    ident: str
+    state: str  # the Slurm compact state; "R" for a process
+
+
+_SQUEUE_FIELDS = (("JobArrayID", 32), ("ArrayTaskID", 24), ("JobID", 24),
+                  ("StateCompact", 8), ("Name", 512), ("stdout", 1024))
+_PS_ARG_RE = re.compile(r"--(env|approach|seed|experiment_id)[= ]+(\S+)")
+_PS_MAIN_RE = re.compile(r"^\S*python[\d.]*\s+\S*main\.py\s")
+_CANCEL_WAIT_S = 5.0
+_CANCEL_POLL_S = 0.5
+
+
+def _squeue_rows() -> Optional[List[List[str]]]:
+    """This user's queued and running Slurm jobs, one row of stripped
+    ``_SQUEUE_FIELDS`` per job; ``None`` without Slurm (no squeue, or one that
+    rejects the format), as opposed to ``[]``: nothing queued."""
+    if shutil.which("squeue") is None:
+        return None
+    fmt = ",".join(f"{name}:{width}" for name, width in _SQUEUE_FIELDS)
+    try:
+        proc = subprocess.run(
+            ["squeue", "-u",
+             getpass.getuser(), "-h", "-O", fmt],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    rows: List[List[str]] = []
+    for line in proc.stdout.splitlines():
+        cells: List[str] = []
+        pos = 0
+        for _, width in _SQUEUE_FIELDS:
+            cells.append(line[pos:pos + width].strip())
+            pos += width
+        rows.append(cells)
+    return rows
+
+
+def _expand_stdout(stdout: str, job_id: str, task_id: str, plain_id: str,
+                   name: str) -> str:
+    """A squeue stdout path with its %-specifiers substituted, as squeue can
+    hand back the unexpanded sbatch pattern; "" when one is left unresolved."""
+    for spec, value in (("%%", "%"), ("%A", job_id.partition("_")[0]),
+                        ("%a", task_id), ("%j", plain_id or job_id),
+                        ("%x", name), ("%u", getpass.getuser())):
+        stdout = stdout.replace(spec, value)
+    return "" if "%" in stdout else stdout
+
+
+def _ps_lines() -> List[str]:
+    """``pid args`` lines of this user's processes."""
+    try:
+        proc = subprocess.run(
+            ["ps", "-u", getpass.getuser(), "-o", "pid=,args="],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return proc.stdout.splitlines() if proc.returncode == 0 else []
+
+
+def _card_key(card: Dict[str, Any]) -> Tuple[str, str, str, str]:
+    """(env, approach, seed, experiment id) naming a card's run; the run id
+    spells ``--approach``, which the arm's name need not equal."""
+    parts = str(card.get("run_id") or "").split("__")
+    approach = parts[1] if len(parts) > 2 else str(card.get("arm"))
+    return (str(card.get("env")), approach, str(card.get("seed")),
+            str(card.get("config")))
+
+
+def live_owners(cards: Sequence[Dict[str, Any]]) -> Dict[str, List[Owner]]:
+    """run id -> the Slurm jobs and local processes running each card."""
+    keys = {str(c["run_id"]): _card_key(c) for c in cards}
+    owners: Dict[str, List[Owner]] = {}
+    for job_id, task_id, plain_id, state, name, stdout in _squeue_rows() or []:
+        base = os.path.basename(
+            _expand_stdout(stdout, job_id, task_id, plain_id, name))
+        parts = base.split("__")
+        # An array job carries the seed as its task id; a single job
+        # spells it in its stdout path, after the experiment id.
+        seed = task_id if task_id.isdigit() else (
+            parts[3] if len(parts) > 3 and parts[3].isdigit() else "")
+        for run_id, (env, approach, run_seed, config) in keys.items():
+            if (name, seed) != (config, run_seed):
+                continue
+            if len(parts) > 2 and parts[:2] != [env, approach]:
+                continue
+            owners.setdefault(run_id, []).append(Owner("job", job_id, state))
+    for line in _ps_lines():
+        pid, _, args = line.strip().partition(" ")
+        args = args.strip()
+        if not pid.isdigit() or not _PS_MAIN_RE.match(args):
+            continue
+        flags = dict(_PS_ARG_RE.findall(args))
+        key = tuple(
+            flags.get(k, "")
+            for k in ("env", "approach", "seed", "experiment_id"))
+        for run_id, run_key in keys.items():
+            if key == run_key:
+                owners.setdefault(run_id, []).append(Owner("proc", pid, "R"))
+    return owners
+
+
+def owners_for_run(run_id: str) -> List[Owner]:
+    """The Slurm jobs and local processes running one run."""
+    card = load_card(run_id)
+    return live_owners([card]).get(run_id, []) if card else []
+
+
+def _descendant_pids(pids: List[str]) -> List[str]:
+    """Transitive child pids of pids among this user's processes."""
+    try:
+        out = subprocess.run(
+            ["ps", "-u", getpass.getuser(), "-o", "pid=,ppid="],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    children: Dict[str, List[str]] = {}
+    for line in out.splitlines():
+        pid, _, ppid = line.strip().partition(" ")
+        children.setdefault(ppid.strip(), []).append(pid)
+    seen = set(pids)
+    stack = list(pids)
+    found: List[str] = []
+    while stack:
+        for child in children.get(stack.pop(), []):
+            if child not in seen:
+                seen.add(child)
+                found.append(child)
+                stack.append(child)
+    return found
+
+
+def _signal_pids(pids: Sequence[str], sig: int) -> None:
+    for pid in pids:
+        try:
+            os.kill(int(pid), sig)
+        except (OSError, ValueError):
+            pass  # already exited, or a stale ps line
+
+
+def _scancel(jobs: Sequence[str]) -> Tuple[bool, str]:
+    try:
+        proc = subprocess.run(["scancel"] + list(jobs),
+                              capture_output=True,
+                              text=True,
+                              check=False,
+                              timeout=10)
+    except (OSError, subprocess.SubprocessError) as e:
+        return False, f"scancel failed: {e}"
+    if proc.returncode != 0:
+        return False, f"scancel failed: {proc.stderr.strip()}"
+    return True, f"cancelled Slurm job(s) {', '.join(jobs)}"
+
+
+def _stop_owners(owners: Sequence[Owner],
+                 sig: int = signal.SIGTERM) -> Tuple[bool, str]:
+    """Cancel the jobs and signal the process trees among ``owners``.
+
+    Workers and helper subprocesses would survive a signal to main.py
+    alone, so its whole descendant tree is signalled. scancel escalates
+    to KILL on the compute node itself, so ``sig`` is for processes.
+    """
+    notes = []
+    pids = [o.ident for o in owners if o.kind == "proc"]
+    if pids:
+        targets = pids + _descendant_pids(pids)
+        _signal_pids(targets, sig)
+        notes.append(f"sent signal {int(sig)} to {len(targets)} "
+                     f"process(es) {', '.join(targets)}")
+    jobs = [o.ident for o in owners if o.kind == "job"]
+    if jobs:
+        ok, msg = _scancel(jobs)
+        if not ok:
+            return False, msg
+        notes.append(msg)
+    return True, "; ".join(notes)
+
+
+def pause_run(run_id: str) -> Tuple[bool, str]:
+    """Cancel the Slurm job or signal the local process running a run.
+
+    The run keeps its scorecard, recording and approach checkpoints, so
+    relaunching its config with ``--auto_resume`` continues it from the
+    last checkpoint: a pause, not a kill.
+    """
+    if load_card(run_id) is None:
+        return False, "no such run"
+    owners = owners_for_run(run_id)
+    if not owners:
+        return False, ("no queued or running Slurm job or local process "
+                       "found for this run")
+    ok, msg = _stop_owners(owners)
+    if not ok:
+        return False, msg
+    return True, (f"{msg}; the run keeps its checkpoints and continues "
+                  "when relaunched with --auto_resume")
+
+
+def _remove_checkpoints(run_id: str) -> int:
+    """Delete the approach checkpoints of a run; their count."""
+    if not os.path.isdir(APPROACHES_ROOT):
+        return 0
+    removed = 0
+    for name in os.listdir(APPROACHES_ROOT):
+        if name.startswith(f"{run_id}.saved"):
+            os.remove(os.path.join(APPROACHES_ROOT, name))
+            removed += 1
+    return removed
+
+
+def delete_run(run_id: str, kill: bool) -> Tuple[bool, str]:
+    """Delete a run's scorecard, recording and approach checkpoints.
+
+    A run with a live job or process is refused unless ``kill`` is set:
+    then it is stopped as ``pause_run`` does and waited on until it
+    leaves the queue (a lingering local process gets SIGKILL) before the
+    files go, since a job still running would recreate them under a
+    half-deleted dir. The checkpoints go too: ``--auto_resume`` keys off
+    them, and a relaunch after a delete must start fresh rather than
+    load the deleted run's learned state over a new scorecard.
+    """
+    card_path = safe_join(SCORECARDS_ROOT, f"{run_id}.json")
+    rec_dir = safe_join(RECORDINGS_ROOT, run_id)
+    if (not run_id or os.path.basename(run_id) != run_id or card_path is None
+            or rec_dir is None):
+        return False, "not a run id"
+    if not os.path.isfile(card_path) and not os.path.isdir(rec_dir):
+        return False, "no such run"
+    owners = owners_for_run(run_id)
+    if owners:
+        if not kill:
+            return False, "run has a live job or process; pause it first"
+        ok, msg = _stop_owners(owners)
+        if not ok:
+            return False, msg
+        deadline = time.monotonic() + _CANCEL_WAIT_S
+        while time.monotonic() < deadline and owners_for_run(run_id):
+            time.sleep(_CANCEL_POLL_S)
+        owners = owners_for_run(run_id)
+        pids = [o.ident for o in owners if o.kind == "proc"]
+        if pids:
+            _signal_pids(pids + _descendant_pids(pids), signal.SIGKILL)
+            time.sleep(_CANCEL_POLL_S)
+        if any(o.kind == "job" for o in owners):
+            return False, "Slurm job is still cancelling; retry shortly"
+    removed = []
+    try:
+        if os.path.isfile(card_path):
+            os.remove(card_path)
+            removed.append("scorecard")
+        if os.path.isdir(rec_dir):
+            shutil.rmtree(rec_dir)
+            removed.append("recording")
+        n_ckpt = _remove_checkpoints(run_id)
+    except OSError as e:
+        return False, f"delete failed: {e}"
+    if n_ckpt:
+        removed.append(f"{n_ckpt} checkpoint file(s)")
+    return True, "deleted " + ", ".join(removed)
+
+
 # ── Index page ─────────────────────────────────────────────────────
 
 
@@ -862,6 +1221,7 @@ def index_page() -> str:
     # One column layout for the whole page: the levels column is as wide
     # as the largest level count, so L1, L2, ... line up across groups.
     n_levels = max(len(card.get("levels", [])) for card in cards)
+    owners = live_owners(cards)
     parts = [
         f"<p class='muted'>{len(cards)} run(s) under "
         f"<code>{esc(SCORECARDS_ROOT)}</code>; recordings under "
@@ -877,7 +1237,8 @@ def index_page() -> str:
                           sum(n_runs[k] for k in keys)))
         for _, env in keys:
             parts.append(
-                _leaf_table(agent, env, leaves[(agent, env)], n_levels))
+                _leaf_table(agent, env, leaves[(agent, env)], n_levels,
+                            owners))
         parts.append("</details>")
     # Env view: empty headers that applyGroupMode fills with the leaves.
     parts.append("</div><div id='view-env' style='display:none'>")
@@ -913,7 +1274,7 @@ def _group_header(kind: str, name: str, n_inner: int, n_runs: int) -> str:
 
 
 def _leaf_table(agent: str, env: str, cards: Sequence[Dict[str, Any]],
-                n_levels: int) -> str:
+                n_levels: int, owners: Dict[str, List[Owner]]) -> str:
     """One (agent, env) pair's runs table, wrapped in its leaf group.
 
     The summary carries both names; the CSS shows the one naming the
@@ -924,40 +1285,41 @@ def _leaf_table(agent: str, env: str, cards: Sequence[Dict[str, Any]],
             f"<summary><span class='lbl env'>{esc(env)}</span>"
             f"<span class='lbl agent'>{esc(agent)}</span> "
             f"<span class='muted'>({len(cards)} runs)</span></summary>"
-            f"<div class='tablewrap'>{_runs_table(cards, n_levels)}</div>"
+            f"<div class='tablewrap'>"
+            f"{_runs_table(cards, n_levels, owners)}</div>"
             "</details>")
 
 
 # Fixed column widths of the runs grid, in the order of _runs_table's
-# header: run, seed, state, levels (None: LEVEL_COL_W per level of the
-# page's largest level count), steps, resets, invocations, active, queue,
-# LLM cost, updated, git. Every leaf table uses them, so columns line up
-# across agents and envs, as in the phased log viewer.
-RUN_COL_W = (250, 44, 150, None, 64, 56, 84, 72, 64, 64, 96, 80)
+# header: run (experiment id/seed plus the buttons), state, levels (None:
+# LEVEL_COL_W per level of the page's largest level count), steps,
+# resets, invocations, active, queue, LLM cost, updated, git. Every leaf
+# table uses them, so columns line up across agents and envs, as in the
+# phased log viewer.
+RUN_COL_W = (400, 150, None, 64, 56, 84, 72, 64, 64, 96, 80)
 LEVEL_COL_W = 104
 
 
-def _runs_table(cards: Sequence[Dict[str, Any]], n_levels: int) -> str:
+def _runs_table(cards: Sequence[Dict[str, Any]], n_levels: int,
+                owners: Dict[str, List[Owner]]) -> str:
     widths = [w or LEVEL_COL_W * max(1, n_levels) for w in RUN_COL_W]
     cols = "<colgroup>" + "".join(f"<col style='width:{w}px'>"
                                   for w in widths) + "</colgroup>"
     rows = []
     for card in cards:
         totals = _totals(card)
-        label, cls = liveness(card)
         run_id = str(card["run_id"])
+        run_owners = owners.get(run_id, [])
+        label, cls = liveness(card, run_owners)
         levels = card.get("levels", [])
         search = " ".join(
             str(x)
             for x in (run_id, card.get("config") or "", card.get("arm"),
                       card.get("env"), f"seed{card.get('seed')}", label))
         rows.append(
-            f"<tr data-text='{esc(search)}'>"
-            f"<td><div class='runcell'><a href='/run/{q(run_id)}' "
-            f"title='{esc(run_id)}'>{esc(card.get('config') or run_id)}</a>"
-            f"<span class='muted'>{esc(run_id)}</span></div></td>"
-            f"<td class='num'>{esc(card.get('seed'))}</td>"
-            f"<td>{chip(label, cls)}</td>"
+            f"<tr class='runrow' data-text='{esc(search)}'>"
+            f"<td>{_run_cell(card, run_owners)}</td>"
+            f"<td>{chip(label, cls, _owners_title(run_owners))}</td>"
             f"<td>{_level_grid(levels, n_levels)}</td>"
             f"<td class='num'>{totals['total_steps']}</td>"
             f"<td class='num'>{totals['total_resets']}</td>"
@@ -968,7 +1330,7 @@ def _runs_table(cards: Sequence[Dict[str, Any]], n_levels: int) -> str:
             f"<td class='muted'>{esc(fmt_age(card.get('updated_at')))}</td>"
             f"<td class='muted'><code>{esc(card.get('git_sha', ''))}</code>"
             "</td></tr>")
-    head = ("<thead><tr><th>run</th><th class='num'>seed</th>"
+    head = ("<thead><tr><th>run</th>"
             "<th>state</th><th title='per level: won / in progress / not "
             "attempted, steps, resets'>levels</th>"
             "<th class='num'>steps</th><th class='num'>resets</th>"
@@ -977,6 +1339,48 @@ def _runs_table(cards: Sequence[Dict[str, Any]], n_levels: int) -> str:
             "<th>updated</th><th>git</th></tr></thead>")
     return (f"<table class='grid runs' style='width:{sum(widths)}px'>"
             f"{cols}{head}<tbody>{''.join(rows)}</tbody></table>")
+
+
+def _owners_title(owners: Sequence[Owner]) -> str:
+    return ", ".join(f"Slurm job {o.ident} ({o.state})" if o.kind ==
+                     "job" else f"pid {o.ident}" for o in owners)
+
+
+def _run_cell(card: Dict[str, Any], owners: Sequence[Owner]) -> str:
+    """The run's link, named by experiment id and seed, and its copy, pause
+    (only while a job or process runs it) and delete buttons; the buttons show
+    on hover, as in the phased log viewer."""
+    run_id = str(card["run_id"])
+    name = f"{card.get('config') or run_id}/seed{card.get('seed')}"
+    esc_id = esc(run_id)
+    live = bool(owners)
+    pause = ""
+    if live:
+        pause = (f"<button class='rowbtn pause' title='Pause: cancel "
+                 f"{esc(_owners_title(owners))}; the run keeps its "
+                 "checkpoints and continues when relaunched with "
+                 f"--auto_resume' onclick='pauseRun(\"{esc_id}\")'>"
+                 "⏸</button>")
+    del_title = ("Cancel the live job, then delete this run" if live else
+                 "Delete this run: scorecard, recording and checkpoints")
+    delete = (f"<button class='rowbtn del' title='{del_title}' "
+              f"onclick='deleteRun(\"{esc_id}\", "
+              f"{'true' if live else 'false'})'>✕</button>")
+    return (f"<div class='runcell'><a href='/run/{q(run_id)}' "
+            f"title='{esc_id}'>{esc(name)}</a><span class='btns'>"
+            f"<button class='rowbtn copy' data-copy='{esc(copy_path(run_id))}'"
+            f" title='Copy recording path'>⧉</button>{pause}{delete}"
+            "</span></div>")
+
+
+def copy_path(run_id: str) -> str:
+    """What the copy button puts on the clipboard: the recording dir, relative
+    to the viewer's working dir (the repo root when started from there), or the
+    scorecard for a run without one."""
+    rec = os.path.join(RECORDINGS_ROOT, run_id)
+    if not os.path.isdir(rec):
+        rec = os.path.join(SCORECARDS_ROOT, f"{run_id}.json")
+    return os.path.relpath(rec)
 
 
 def _level_grid(levels: Sequence[Dict[str, Any]], n_levels: int) -> str:
@@ -1695,9 +2099,10 @@ def _is_level(part: str) -> bool:
 
 class Handler(BaseHTTPRequestHandler):
     """Routes: /, /run/<id> (the run page), /run/<id>/frag/<route> (its
-    pane content), /run/<id>/L<k>/replay.json, /card/<id>, /file/<rel>.
-    The former /run/<id>/L<k>[/replay] and /run/<id>/session/<name> pages
-    redirect to the run page's hash routes."""
+    pane content), /run/<id>/L<k>/replay.json, /card/<id>, /file/<rel>;
+    POST /pause?r=<id> and POST /delete?r=<id>[&kill=1]. The former
+    /run/<id>/L<k>[/replay] and /run/<id>/session/<name> pages redirect
+    to the run page's hash routes."""
 
     # pylint: disable-next=redefined-builtin
     def log_message(self, format: str, *args: Any) -> None:
@@ -1738,6 +2143,43 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(404)
         except Exception as e:  # pylint: disable=broad-except
             self.send_error(500, str(e))
+
+    def do_POST(self) -> None:  # pylint: disable=invalid-name
+        """Pause or delete a run, with a plain-text reply.
+
+        POST only, so the index page's auto-refresh GETs can never trip
+        these, and same-origin only: a page anywhere can fire a cross-
+        origin POST at localhost.
+        """
+        origin = self.headers.get("Origin")
+        if origin and origin != f"http://{self.headers.get('Host', '')}":
+            self._text("cross-origin POST rejected", 403)
+            return
+        parsed = urllib.parse.urlparse(self.path)
+        params = {
+            k: v[0]
+            for k, v in urllib.parse.parse_qs(parsed.query).items()
+        }
+        try:
+            if parsed.path == "/pause":
+                ok, msg = pause_run(params.get("r", ""))
+            elif parsed.path == "/delete":
+                ok, msg = delete_run(params.get("r", ""),
+                                     kill=params.get("kill") == "1")
+            else:
+                self._text("not found", 404)
+                return
+            self._text(msg, 200 if ok else 409)
+        except Exception as e:  # pylint: disable=broad-except
+            self._text(str(e), 500)
+
+    def _text(self, msg: str, status: int) -> None:
+        data = msg.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def _redirect(self, location: str) -> None:
         self.send_response(302)
@@ -1784,11 +2226,14 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
-def configure(scorecards: str, recordings: str) -> None:
+def configure(scorecards: str,
+              recordings: str,
+              approaches: str = "saved_approaches") -> None:
     """Point the module at the roots (also used by tests)."""
-    global SCORECARDS_ROOT, RECORDINGS_ROOT  # pylint: disable=global-statement
+    global SCORECARDS_ROOT, RECORDINGS_ROOT, APPROACHES_ROOT  # pylint: disable=global-statement
     SCORECARDS_ROOT = os.path.realpath(scorecards)
     RECORDINGS_ROOT = os.path.realpath(recordings)
+    APPROACHES_ROOT = os.path.realpath(approaches)
 
 
 def main() -> None:
@@ -1797,10 +2242,14 @@ def main() -> None:
         description=(__doc__ or "").split("\n\n", maxsplit=1)[0])
     parser.add_argument("--scorecards", default="scorecards")
     parser.add_argument("--recordings", default="recordings")
+    parser.add_argument("--approaches",
+                        default="saved_approaches",
+                        help="approach checkpoints (CFG.approach_dir); "
+                        "a run's delete removes its files here too")
     parser.add_argument("--port", type=int, default=25152)
     parser.add_argument("--host", default="127.0.0.1")
     args = parser.parse_args()
-    configure(args.scorecards, args.recordings)
+    configure(args.scorecards, args.recordings, args.approaches)
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"continual viewer: http://{args.host}:{args.port}/  "
           f"(scorecards={SCORECARDS_ROOT}, recordings={RECORDINGS_ROOT})")

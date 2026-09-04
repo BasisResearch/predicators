@@ -1,6 +1,10 @@
 """Tests for scripts/continual_viewer.py against a real cover run."""
 import os
-from typing import Any
+import threading
+import urllib.error
+import urllib.request
+from http.server import ThreadingHTTPServer
+from typing import Any, Dict, List, Optional, Tuple
 
 from predicators import utils
 from predicators.approaches import create_approach
@@ -49,9 +53,17 @@ def _run(tmp_path: Any, approach_name: str, **overrides: Any) -> ContinualRun:
     return run
 
 
-def test_pages_render_for_a_finished_run(tmp_path: Any) -> None:
+def _no_owners(monkeypatch: Any) -> None:
+    """Neither Slurm nor a local process runs anything."""
+    monkeypatch.setattr(viewer, "_squeue_rows", lambda: None)
+    monkeypatch.setattr(viewer, "_ps_lines", lambda: [])
+
+
+def test_pages_render_for_a_finished_run(tmp_path: Any,
+                                         monkeypatch: Any) -> None:
     """Index, run and level pages describe an oracle run and its renders."""
     run = _run(tmp_path, "oracle")
+    _no_owners(monkeypatch)
     viewer.configure(os.path.join(str(tmp_path), "cards"),
                      os.path.join(str(tmp_path), "recs"))
     run_id = run.card.run_id
@@ -73,7 +85,15 @@ def test_pages_render_for_a_finished_run(tmp_path: Any) -> None:
     assert index.count(f"<col style='width:{viewer.LEVEL_COL_W}px'>") == \
         run.card.levels_total
     assert "id='groupbtn'" in index and "id='runfilter'" in index
-    assert f"data-text='{run_id} " in index and "seed" in index
+    assert f"data-text='{run_id} " in index and "seed3" in index
+    # The run column names the run by experiment id and seed and carries
+    # the copy, pause and delete buttons; nothing runs it, so no pause.
+    assert ">viewer/seed3</a>" in index
+    assert "<th class='num'>seed</th>" not in index
+    rec = os.path.relpath(os.path.join(str(tmp_path), "recs", run_id))
+    assert f"class='rowbtn copy' data-copy='{rec}'" in index
+    assert f'deleteRun("{run_id}", false)' in index
+    assert f'pauseRun("{run_id}")' not in index
 
     # The run page is a sidebar plus a pane the page script fills from
     # the hash route; the newest attempted level's replay is the default.
@@ -155,6 +175,10 @@ def test_helpers() -> None:
     assert "no change" in viewer.atoms_diff(["A()"], ["A()"])
     live, cls = viewer.liveness({"end_reason": None, "updated_at": 0})
     assert live.startswith("stalled") and cls == "warn"
+    assert viewer.liveness({
+        "end_reason": None,
+        "updated_at": 0
+    }, [viewer.Owner("job", "1_0", "PD")]) == ("queued", "warn")
     assert viewer.liveness({"end_reason": "all_levels_won"}) == \
         ("all_levels_won", "ok")
 
@@ -234,3 +258,141 @@ def test_agent_sessions_render(tmp_path: Any) -> None:
     assert viewer.fragment(run_id,
                            "session/999_play_20260904_120000.md") is None
     assert viewer.list_session_logs(run_id)[0]["kind"] == "play"
+
+
+def test_owners_pause_and_delete(tmp_path: Any, monkeypatch: Any) -> None:
+    """Slurm jobs and local processes are attributed to a run by experiment id,
+    seed, env and approach; pause cancels them; delete removes the scorecard,
+    recording and approach checkpoints, a live run only with kill."""
+    run = _run(tmp_path, "oracle", continual_render=False)
+    run_id = run.card.run_id
+    approaches = os.path.join(str(tmp_path), "saved")
+    os.makedirs(approaches)
+    ckpt = os.path.join(approaches, run_id + ".saved_0.Oracle")
+    kept = os.path.join(approaches, run_id + "2.saved_0.Oracle")
+    for path in (ckpt, kept):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("x")
+    viewer.configure(os.path.join(str(tmp_path), "cards"),
+                     os.path.join(str(tmp_path), "recs"), approaches)
+    # squeue rows: id, array task, plain id, state, name, stdout pattern.
+    pattern = "/x/logs/cover__oracle__viewer__%a__%j.log"
+    rows = [
+        ["7_3", "3", "70", "R", "viewer", pattern],  # this run
+        ["7_4", "4", "71", "R", "viewer", pattern],  # another seed
+        ["8_3", "3", "80", "PD", "other", pattern],  # another experiment
+        [
+            "9", "N/A", "9", "R", "viewer",
+            "/x/logs/cover__oracle__viewer__3__9.log"
+        ],  # seed from stdout
+        [
+            "10_3", "3", "100", "R", "viewer",
+            "/x/logs/cover__random_options__viewer__%a__%j.log"
+        ],  # other arm
+    ]
+    procs = [
+        "4242 python predicators/main.py --env cover --approach oracle "
+        "--seed 3 --experiment_id viewer --experiment_protocol continual",
+        "4243 python predicators/main.py --env cover --approach oracle "
+        "--seed 5 --experiment_id viewer",
+        "4244 /bin/bash -c grep main.py --env cover --approach oracle "
+        "--seed 3 --experiment_id viewer",
+    ]
+    monkeypatch.setattr(viewer, "_squeue_rows", lambda: rows)
+    monkeypatch.setattr(viewer, "_ps_lines", lambda: procs)
+    monkeypatch.setattr(viewer, "_descendant_pids", lambda pids: [])
+    assert viewer.owners_for_run(run_id) == [
+        viewer.Owner("job", "7_3", "R"),
+        viewer.Owner("job", "9", "R"),
+        viewer.Owner("proc", "4242", "R"),
+    ]
+    assert not viewer.owners_for_run("no-such")
+    index = viewer.index_page()
+    assert f'pauseRun("{run_id}")' in index
+    assert f'deleteRun("{run_id}", true)' in index
+    assert "Slurm job 7_3 (R), Slurm job 9 (R), pid 4242" in index
+    cancelled: List[List[str]] = []
+    signalled: List[Tuple[List[str], int]] = []
+
+    def fake_scancel(jobs: List[str]) -> Tuple[bool, str]:
+        cancelled.append(list(jobs))
+        return True, "cancelled Slurm job(s) " + ", ".join(jobs)
+
+    monkeypatch.setattr(viewer, "_scancel", fake_scancel)
+    monkeypatch.setattr(
+        viewer, "_signal_pids", lambda pids, sig: signalled.append(
+            (list(pids), int(sig))))
+    ok, msg = viewer.pause_run(run_id)
+    assert ok and "auto_resume" in msg and "7_3, 9" in msg
+    assert cancelled == [["7_3", "9"]] and signalled == [(["4242"], 15)]
+    ok, msg = viewer.delete_run(run_id, kill=False)
+    assert not ok and "live" in msg
+    assert viewer.load_card(run_id) is not None
+    # With kill, the owners are stopped, waited out, and the files go;
+    # the other run's checkpoint stays.
+    calls = {"n": 0}
+
+    def leaving() -> Optional[List[List[str]]]:
+        calls["n"] += 1
+        return rows if calls["n"] == 1 else []
+
+    monkeypatch.setattr(viewer, "_squeue_rows", leaving)
+    monkeypatch.setattr(viewer, "_ps_lines", lambda: [])
+    ok, msg = viewer.delete_run(run_id, kill=True)
+    assert ok, msg
+    assert "scorecard" in msg and "recording" in msg and "1 checkpoint" in msg
+    assert cancelled[-1] == ["7_3", "9"]
+    assert viewer.load_card(run_id) is None
+    assert not os.path.isdir(os.path.join(str(tmp_path), "recs", run_id))
+    assert not os.path.exists(ckpt) and os.path.exists(kept)
+    assert viewer.delete_run(run_id, kill=False) == (False, "no such run")
+    assert viewer.pause_run(run_id) == (False, "no such run")
+    assert viewer.delete_run("../cards", kill=False) == (False, "not a run id")
+    assert viewer.delete_run("", kill=False) == (False, "not a run id")
+
+
+def test_http_endpoints(tmp_path: Any, monkeypatch: Any) -> None:
+    """The server answers GETs, refuses cross-origin POSTs, and pauses or
+    deletes over POST only."""
+    run = _run(tmp_path, "oracle", continual_render=False)
+    run_id = run.card.run_id
+    _no_owners(monkeypatch)
+    viewer.configure(os.path.join(str(tmp_path), "cards"),
+                     os.path.join(str(tmp_path), "recs"),
+                     os.path.join(str(tmp_path), "saved"))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), viewer.Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    host = f"127.0.0.1:{server.server_address[1]}"
+
+    def call(method: str,
+             path: str,
+             headers: Optional[Dict[str, str]] = None) -> Tuple[int, str]:
+        req = urllib.request.Request(f"http://{host}{path}",
+                                     method=method,
+                                     headers=headers or {})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return resp.status, resp.read().decode("utf-8")
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode("utf-8")
+
+    try:
+        status, body = call("GET", "/")
+        assert status == 200 and run_id in body
+        assert call("GET", f"/run/{run_id}")[0] == 200
+        assert call("GET", f"/run/{run_id}/frag/L1")[0] == 200
+        assert call("GET", "/card/nope")[0] == 404
+        assert call("POST", f"/delete?r={run_id}",
+                    {"Origin": "http://evil.example"})[0] == 403
+        assert call("GET", f"/delete?r={run_id}")[0] == 404
+        assert call("POST", "/nope")[0] == 404
+        status, body = call("POST", f"/pause?r={run_id}")
+        assert status == 409 and "no queued" in body
+        status, body = call("POST", f"/delete?r={run_id}",
+                            {"Origin": f"http://{host}"})
+        assert status == 200 and "scorecard" in body
+        assert call("GET", f"/run/{run_id}")[0] == 404
+        assert viewer.load_card(run_id) is None
+    finally:
+        server.shutdown()
+        server.server_close()
