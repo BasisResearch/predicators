@@ -1,0 +1,38 @@
+# Continual protocol launcher (docs/continual-protocol.md).
+# Usage: python scripts/engaging/launch.py -c predicatorv3/protocol_continual.yaml \
+#            --partition mit_preemptable
+# One Slurm job per env x arm x seed. Each job plays the env's levels
+# (its train tasks, then its test tasks) under the continual protocol and
+# writes scorecards/<run_id>.json plus recordings/<run_id>/L<k>/.
+# Env definitions live in envs/all.yaml and arm definitions in
+# approaches/all.yaml (all parked); this file un-skips what it runs and
+# sets the protocol flags. Flip SKIPs to change the env or arm set.
+---
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ARGS:
+  # A requeue (preemption or the wall-time trap) resumes the run from
+  # the scorecard and the level recording (section 6.6).
+  - auto_resume
+FLAGS:
+  experiment_protocol: "continual"
+  continual_levels: "train_then_test"
+  # Pooled cap: 5000 steps per level for the small envs (4.8). bridge
+  # overrides to 10000 below.
+  continual_steps_per_level: 5000
+  continual_wall_clock_hours: 48.0
+  continual_render: True
+  # Every level is played in the long-lived env; a fresh PyBullet
+  # instance per level keeps one level's physics history out of the next.
+  test_fresh_env_per_episode: True
+ENVS:
+  boil:
+    SKIP: False
+  bridge:
+    FLAGS:
+      continual_steps_per_level: 10000
+APPROACHES:
+  oracle:
+    SKIP: False

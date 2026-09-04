@@ -15,6 +15,8 @@ dist
 pylint_recursive.py
 .coverage
 results
+scorecards
+recordings
 eval_trajectories
 images
 videos

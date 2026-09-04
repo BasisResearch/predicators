@@ -57,6 +57,31 @@ class GlobalSettings:
     # per task) must succeed before early stopping is triggered. Catches
     # "lucky single-sample" successes that mask a buggy learned model.
     online_learning_early_stopping_require_all_attempts = False
+    # ── Continual protocol (docs/continual-protocol.md) ─────────────
+    # "phased": today's explore/learn/test loop. "continual": one run per
+    # env plays its levels in order; every env step is counted, resets
+    # are counted separately, the sandbox is free, and the scorecard is
+    # the result. Selected on the command line; the phased loop is
+    # untouched when it is off.
+    experiment_protocol = "phased"
+    # Level order: the env's train tasks then its test tasks (4.1).
+    continual_levels = "train_then_test"
+    # Pooled step cap per run: this many low-level steps per level,
+    # summed over the run's levels (4.8). A guard, not a scoring term.
+    continual_steps_per_level = 5000
+    # Active wall-clock cap per env run, in hours (6.5).
+    continual_wall_clock_hours = 48.0
+    continual_scorecards_dir = "scorecards"
+    continual_recordings_dir = "recordings"
+    # Save a PNG render at level start, after each skill invocation, on
+    # resets and at episode ends (4.7).
+    continual_render = True
+    # Primitive-only arms flush the recording every N steps; skill arms
+    # flush at every invocation regardless.
+    continual_flush_every_steps = 50
+    # The oracle controller gives up a level after this many planning or
+    # execution failures (6.7).
+    continual_max_replans_per_level = 20
     # Slack (in reward units) below a task's ``early_stop_min_reward`` bar
     # that still counts as solved for early stopping. Only tasks that set
     # ``EnvironmentTask.early_stop_min_reward`` are affected (e.g. domino

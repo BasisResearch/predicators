@@ -30,6 +30,14 @@ def run_pipeline(env: BaseEnv,
                  train_tasks: List[Task],
                  offline_dataset: Optional[Dataset] = None) -> None:
     """Main pipeline for running the learning and testing process."""
+    if CFG.experiment_protocol == "continual":
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.run.continual import run_continual
+
+        # pylint: disable-next=protected-access
+        run_continual(env, cogman._approach)
+        return
+    assert CFG.experiment_protocol == "phased", CFG.experiment_protocol
     if cogman.is_learning_based:
         assert offline_dataset is not None, "Missing offline dataset"
 
