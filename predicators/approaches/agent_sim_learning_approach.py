@@ -133,6 +133,25 @@ def _describe_git_revision() -> str:
 
 # ── Approach ─────────────────────────────────────────────────────
 
+# The allowlist value that keeps no env predicate at all: an empty list
+# means "not set" (keep the class default), so "none" is the explicit
+# spelling of an empty vocabulary.
+NO_KEPT_PREDICATES = "none"
+
+
+def resolve_kept_predicate_names(
+        default: Optional[FrozenSet[str]]) -> Optional[FrozenSet[str]]:
+    """Names of the env predicates an agent starts with: the CFG allowlist
+    ``agent_sim_learn_kept_predicates_names`` when non-empty (``["none"]``
+    keeps none), else ``default`` (``None`` = every env predicate)."""
+    override = getattr(CFG, "agent_sim_learn_kept_predicates_names", None)
+    if override:
+        names = frozenset(override)
+        if names == {NO_KEPT_PREDICATES}:
+            return frozenset()
+        return names
+    return default
+
 
 class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     """Bilevel planning with a learned step-level simulator.
@@ -351,11 +370,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
         The CFG flag overrides the class default.
         """
-        cfg_override = getattr(CFG, "agent_sim_learn_kept_predicates_names",
-                               None)
-        if cfg_override:
-            return frozenset(cfg_override)
-        return self.KEPT_INITIAL_PREDICATE_NAMES
+        return resolve_kept_predicate_names(self.KEPT_INITIAL_PREDICATE_NAMES)
 
     def _compute_kept_initial_predicates(self) -> Set[Predicate]:
         """Apply the allowlist, then closure-strip derived predicates.

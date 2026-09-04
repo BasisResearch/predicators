@@ -2330,7 +2330,9 @@ class GlobalSettings:
     # (keep every env predicate), {"Holding"} for the invention approach.
     # Setting it on agent_sim_learning strips the named-out predicates -
     # even goal predicates - from the agent's prompts/tools; tasks whose
-    # goal atoms are stripped must then carry goal_nl.
+    # goal atoms are stripped must then carry goal_nl. An empty list
+    # keeps the approach's own default; ["none"] keeps no env predicate.
+    # The continual arms default to none (agent_continual_approach).
     agent_sim_learn_kept_predicates_names: List[str] = []
     # Ablation axis ("the robot knows its own simulator"): when True,
     # copy the env's declared base-sim source modules

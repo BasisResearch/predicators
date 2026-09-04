@@ -9,8 +9,9 @@ from predicators import utils
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES
 from predicators.approaches import create_approach
 from predicators.approaches.agent_continual_approach import \
-    AgentContinualApproach, AgentContinualModelFreeApproach, \
-    ContinualPlayBase
+    AgentContinualApproach, ContinualPlayBase
+from predicators.approaches.agent_sim_learning_approach import \
+    resolve_kept_predicate_names
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun
@@ -67,13 +68,13 @@ def _config(tmp_path: Any, **overrides: Any) -> None:
     })
 
 
-def _make_approach() -> Any:
+def _make_approach(name: str = "agent_continual_model_free") -> Any:
     env = create_new_env("pybullet_boil", do_cache=False, use_gui=False)
     options = get_gt_options(env.get_name())
-    approach = create_approach("agent_continual_model_free", env.predicates,
-                               options, env.types, env.action_space,
+    approach = create_approach(name, env.predicates, options, env.types,
+                               env.action_space,
                                [t.task for t in env.get_train_tasks()])
-    assert isinstance(approach, AgentContinualModelFreeApproach)
+    assert isinstance(approach, ContinualPlayBase)
     return env, approach
 
 
@@ -112,6 +113,7 @@ def test_model_free_arm_has_no_model_surface(tmp_path: Any) -> None:
     assert approach.get_name() == "agent_continual_model_free"
     assert approach._get_solve_tool_names() == MODEL_FREE_TOOLS  # pylint: disable=protected-access
     assert approach._option_model is None  # pylint: disable=protected-access
+    assert approach._get_all_predicates() == set()  # pylint: disable=protected-access
     prompt = approach._get_agent_system_prompt()  # pylint: disable=protected-access
     assert "`learn_run`" not in prompt and "`run_python`" not in prompt
     assert "`sim`" not in prompt and "## Learning" not in prompt
@@ -146,8 +148,10 @@ def test_play_loop_with_a_scripted_model_free_agent(tmp_path: Any) -> None:
             assert "first session of the run" in message
             assert "no belief model and no learning session" in message
             assert "Learning sessions so far" not in message
+            assert "not expressible in your predicates" in message
+            assert "Goal: Boil" in message
             obs = _call(approach, "env_observe")
-            assert "[episode] NOT_FINISHED" in obs and "[atoms]" in obs
+            assert "[episode] NOT_FINISHED" in obs and "[atoms] (none)" in obs
             assert "[your predicates]" not in obs
             assert "PickJug" in _call(approach, "skills_list")
             for _ in range(3):
@@ -191,3 +195,31 @@ def test_play_loop_with_a_scripted_model_free_agent(tmp_path: Any) -> None:
         if f.endswith(".AgentContinualModelFree")
     ]
     assert saved, "the approach checkpointed under its own suffix"
+
+
+def test_both_arms_start_with_no_predicates(tmp_path: Any) -> None:
+    """Neither arm starts with an env predicate; the allowlist can hand either
+    some, and ``["none"]`` spells the empty vocabulary."""
+    assert resolve_kept_predicate_names(None) is None
+    assert resolve_kept_predicate_names(frozenset()) == frozenset()
+    utils.update_config({"agent_sim_learn_kept_predicates_names": ["none"]})
+    assert resolve_kept_predicate_names(None) == frozenset()
+    utils.update_config(
+        {"agent_sim_learn_kept_predicates_names": ["Holding", "none"]})
+    assert resolve_kept_predicate_names(None) == {"Holding", "none"}
+
+    _config(tmp_path, approach="agent_continual")
+    utils.update_config({"agent_sim_learn_kept_predicates_names": []})
+    env, learner = _make_approach("agent_continual")
+    assert isinstance(learner, AgentContinualApproach)
+    assert learner._get_all_predicates() == set()  # pylint: disable=protected-access
+    names = learner._get_solve_tool_names()  # pylint: disable=protected-access
+    assert names == ["run_python"] + list(CONTINUAL_TOOL_NAMES)
+    prompt = learner._get_agent_system_prompt()  # pylint: disable=protected-access
+    assert "You start with no predicates" in prompt
+
+    _config(tmp_path, agent_sim_learn_kept_predicates_names=["Holding"])
+    _, free = _make_approach()
+    names = {p.name for p in free._get_all_predicates()}  # pylint: disable=protected-access
+    assert names == {"Holding"}
+    assert {p.name for p in env.predicates} > names

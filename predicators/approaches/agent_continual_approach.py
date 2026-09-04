@@ -22,6 +22,12 @@ Two arms share it:
   journal, but no belief model, no ``sim`` and no learning session:
   what it knows comes from the recorded data and the real environment.
 
+Neither arm starts with a predicate: the observation is the object
+features and a render, the goal is its natural-language description,
+and the model-based arm invents predicates as it learns. The allowlist
+``agent_sim_learn_kept_predicates_names`` hands either arm env
+predicates when an experiment wants that.
+
 The harness never chooses for the agent: whether to act, reset, learn
 or end is decided inside the session; the loop here only services what
 the session asked for and enforces two operational guards, the
@@ -35,8 +41,8 @@ import logging
 import os
 import shutil
 import time
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, \
-    Sequence, Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, FrozenSet, List, \
+    Optional, Sequence, Set, Tuple
 
 from predicators import utils
 from predicators.agent_sdk import journal as journal_mod
@@ -50,16 +56,21 @@ from predicators.agent_sdk.tools.digests import render_options_digest, \
     render_types_digest
 from predicators.approaches.agent_model_free_approach import \
     AgentModelFreeApproach
+from predicators.approaches.agent_sim_learning_approach import \
+    resolve_kept_predicate_names
 from predicators.approaches.agent_sim_predicate_invention_approach import \
     AgentSimPredicateInventionApproach
 from predicators.run.episode import EpisodeState
 from predicators.settings import CFG
-from predicators.structs import Dataset, LowLevelTrajectory
+from predicators.structs import Dataset, LowLevelTrajectory, Predicate
 
 if TYPE_CHECKING:  # pragma: no cover - the run package imports approaches
     from predicators.run.continual import ProtocolSession
 
 SESSION_KIND = "play"
+# The env predicates a continual arm starts with unless the CFG
+# allowlist hands it some: none.
+NO_ENV_PREDICATES: FrozenSet[str] = frozenset()
 
 
 def _run_ended(reason: str, note: str = "") -> Exception:
@@ -480,6 +491,11 @@ class AgentContinualApproach(ContinualPlayBase,
     def _continual_tool_names(self) -> List[str]:
         return ["run_python"] + list(CONTINUAL_TOOL_NAMES)
 
+    def _resolve_kept_names(self) -> Optional[FrozenSet[str]]:
+        """No env predicate by default under the protocol; the CFG allowlist
+        can hand the agent some."""
+        return resolve_kept_predicate_names(NO_ENV_PREDICATES)
+
     def _learning_status(self, session: ProtocolSession) -> str:
         n_eps, n_steps = self._episode_counts(session)
         return render_learning_status(
@@ -635,3 +651,11 @@ class AgentContinualModelFreeApproach(ContinualPlayBase):
 
     def _continual_tool_names(self) -> List[str]:
         return [n for n in CONTINUAL_TOOL_NAMES if n != "learn_run"]
+
+    def _get_all_predicates(self) -> Set[Predicate]:
+        """The arm's fixed vocabulary: the env predicates the allowlist keeps,
+        none by default; it invents nothing."""
+        names = resolve_kept_predicate_names(NO_ENV_PREDICATES)
+        if names is None:
+            return set(self._initial_predicates)
+        return {p for p in self._initial_predicates if p.name in names}

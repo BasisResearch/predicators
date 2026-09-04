@@ -64,7 +64,6 @@ APPROACHES:
     FLAGS:
       agent_sdk_use_local_sandbox: True
       partially_observable: True
-      agent_sim_learn_kept_predicates_names: ["Holding"]
       agent_sdk_max_agent_turns_per_iteration: 200
       agent_sdk_image_max_px: 900
       agent_bilevel_use_llm_initial_params: True

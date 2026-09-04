@@ -69,10 +69,11 @@ class PlayState:
 def visible_atoms(ctx: ToolContext, frame: State) -> Set[GroundAtom]:
     """The atoms of ``frame`` under the arm's predicate vocabulary.
 
-    An arm that hides env predicates from its agent (C1 keeps only a few
-    and invents the rest) must not see the env's full atom set through
-    the observation; the protocol's own view of the env atoms stays in
-    the recording for analysis.
+    Under the protocol an arm starts with no env predicate (the
+    allowlist ``agent_sim_learn_kept_predicates_names`` can hand it
+    some) and must not see the env's full atom set through the
+    observation; the protocol's own view of the env atoms stays in the
+    recording for analysis.
     """
     return utils.abstract(frame, set(ctx.predicates))
 
