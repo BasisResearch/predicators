@@ -315,10 +315,20 @@ class AgentContinualApproach(AgentSimPredicateInventionApproach):
         self.save(session.level_index)
 
     def _fit_status_text(self) -> str:
+        """The last fit as one line for the prompt: the point estimate per
+        parameter and the posterior sample count, never the raw result (its
+        Jacobian dump is noise to the agent)."""
         result = getattr(self, "_last_fit_result", None)
         if result is None:
             return "no fit result"
-        return str(result)[:300]
+        try:
+            estimate = dict(result.point_estimate)
+            n_samples = int(result.samples.shape[0])
+        except (AttributeError, TypeError, ValueError, IndexError):
+            return str(result)[:300]
+        params = ", ".join(f"{k}={v:.4g}" for k, v in estimate.items())
+        return (f"fitted {len(estimate)} parameter(s) from {n_samples} "
+                f"posterior sample(s): {params}")[:600]
 
     # -- Data ---------------------------------------------------------------
 

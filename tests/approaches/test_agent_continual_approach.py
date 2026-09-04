@@ -1,17 +1,20 @@
-"""Tests for AgentContinualApproach: the play loop over a scripted agent
-that drives the real play tools, on pybullet_boil (the sim-learning
-family needs a PyBullet env to construct)."""
+"""Tests for AgentContinualApproach: the play loop over a scripted agent that
+drives the real play tools, on pybullet_boil (the sim-learning family needs a
+PyBullet env to construct)."""
 import asyncio
 import json
 import os
+from types import SimpleNamespace
 from typing import Any, Dict, List
 
+import numpy as np
 import pytest
 
 from predicators import utils
 from predicators.approaches import create_approach
 from predicators.approaches.agent_continual_approach import \
     AgentContinualApproach
+from predicators.code_sim_learning.fit_space import FitResult
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun
@@ -100,11 +103,30 @@ def _result(turns: int = 3, cost: float = 0.25) -> List[Dict[str, Any]]:
     }]
 
 
+def test_fit_status_text_is_a_point_estimate_line() -> None:
+    """The prompt's fit status names each fitted parameter's estimate and
+    the sample count, not the result's repr."""
+    result = FitResult(names=["lateral_friction", "chain_fwd_min"],
+                       samples=np.array([[0.48989795, 0.04], [0.51, 0.04]]),
+                       log_probs=np.array([0.0, -0.1]),
+                       jacobian=np.zeros((3, 2)))
+    render = AgentContinualApproach._fit_status_text  # pylint: disable=protected-access
+    fitted: Any = SimpleNamespace(_last_fit_result=result)
+    text = render(fitted)
+    assert text.startswith("fitted 2 parameter(s) from 2 posterior")
+    assert "lateral_friction=" in text and "chain_fwd_min=0.04" in text
+    assert "jacobian" not in text and "array(" not in text
+    empty: Any = SimpleNamespace(_last_fit_result=None)
+    assert render(empty) == "no fit result"
+
+
 @pytest.mark.slow
 def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
-    """Two sessions: act, queue learning, end; then end the run. The loop
-    services the learn request, records the session, syncs the data,
-    checkpoints, and ends the run as the agent asked."""
+    """Two sessions: act, queue learning, end; then end the run.
+
+    The loop services the learn request, records the session, syncs the
+    data, checkpoints, and ends the run as the agent asked.
+    """
     _config(tmp_path)
     env, approach = _make_approach()
     queries: List[Dict[str, Any]] = []
@@ -176,8 +198,8 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
 
 @pytest.mark.slow
 def test_resume_reads_the_session_id_and_idle_guard(tmp_path: Any) -> None:
-    """A checkpointed in-flight session resumes its transcript; sessions
-    that never act trip the idle guard."""
+    """A checkpointed in-flight session resumes its transcript; sessions that
+    never act trip the idle guard."""
     _config(tmp_path)
     env, approach = _make_approach()
     log_dir = approach._get_log_dir()  # pylint: disable=protected-access
