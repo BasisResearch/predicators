@@ -30,9 +30,19 @@ FLAGS:
 ENVS:
   boil:
     SKIP: False
+  # The other four envs of the suite, parked; domino_high_friction_turn
+  # is the sweeps' domino env. Un-skip to launch (first agent runs
+  # 2026-09-04: jobs 21969776-21969779).
   bridge:
+    SKIP: True
     FLAGS:
       continual_steps_per_level: 10000
+  domino_high_friction_turn:
+    SKIP: True
+  fan:
+    SKIP: True
+  busyboard:
+    SKIP: True
 APPROACHES:
   oracle:
     SKIP: False
