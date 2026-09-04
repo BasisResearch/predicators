@@ -1,6 +1,7 @@
 """Motion Planning in PyBullet."""
 from __future__ import annotations
 
+import logging
 from typing import Any, Collection, Dict, Iterator, List, Optional, Sequence, \
     Tuple
 
@@ -57,6 +58,7 @@ def run_motion_planning(
     goal_finger_joint: Optional[float] = None,
     held_bystander_clearance: Optional[float] = None,
     goal_candidates: Optional[Sequence[JointPositions]] = None,
+    relaxed_direct: bool = False,
 ) -> Optional[Sequence[JointPositions]]:
     """Run BiRRT to find a collision-free sequence of joint positions.
 
@@ -424,6 +426,28 @@ def run_motion_planning(
         if _collision_fn(release_config):
             return None
 
+    def _collision_fn_hard_margin(pt: JointPositions) -> bool:
+        """``_collision_fn`` with every body at the hard contact margin:
+
+        penetration deeper than the margin fails, mere proximity does
+        not. Used only for the relaxed direct segment of a grasp descend
+        (see ``relaxed_direct``).
+        """
+        _set_state(pt)
+        p.performCollisionDetection(physicsClientId=physics_client_id)
+        for body in collision_bodies:
+            contacts = p.getContactPoints(robot.robot_id,
+                                          body,
+                                          physicsClientId=physics_client_id)
+            if any(c[8] < hard_margin for c in contacts):
+                return True
+            for assembly_body, _ in held_assembly:
+                contacts = p.getContactPoints(
+                    assembly_body, body, physicsClientId=physics_client_id)
+                if any(c[8] < hard_margin for c in contacts):
+                    return True
+        return False
+
     def _distance_fn(from_pt: JointPositions, to_pt: JointPositions) -> float:
         # NOTE: only using positions to calculate distance. Should use
         # orientations as well in the near future.
@@ -440,6 +464,27 @@ def run_motion_planning(
                         num_iters=CFG.pybullet_birrt_num_iters,
                         smooth_amt=CFG.pybullet_birrt_smooth_amt)
 
+    if relaxed_direct:
+        # A grasp descend (see Phase.direct_descend): accept the straight
+        # segment to the goal when nothing along it penetrates past the
+        # hard contact margin. Bystander clearance is deliberately NOT
+        # applied here - the segment starts directly above the target,
+        # so anything within clearance of it is the target or a body
+        # butted against it, and a planned detour around such a graze
+        # arrives laterally at the target's height instead of from
+        # above, which is the sweep that knocks it away.
+        direct: Optional[List[JointPositions]] = [initial_positions]
+        for pt in _extend_fn(initial_positions, target_positions):
+            if _collision_fn_hard_margin(pt):
+                direct = None
+                break
+            assert direct is not None
+            direct.append(pt)
+        if direct is not None:
+            logging.debug(
+                "Motion planning: straight descend accepted under the hard "
+                "contact margin (%d waypoints).", len(direct))
+            return direct
     path = birrt.query(initial_positions, target_positions)
     if path is not None and CFG.pybullet_birrt_path_subsample_ratio > 1:
         ratio = CFG.pybullet_birrt_path_subsample_ratio

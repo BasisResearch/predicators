@@ -84,7 +84,10 @@ def create_pick_skill(
         0. **MoveAbove** -- Move above the object at ``config.transport_z``
            with closed gripper.
         1. **MoveToGrasp** -- Descend to object z + ``grasp_z_offset``
-           with open gripper (collision-free via BiRRT).
+           with open gripper: the straight segment from the MoveAbove
+           pose when it only touches the target and its butted
+           neighbours within the hard contact margin, else BiRRT (see
+           ``Phase.direct_descend``).
         2. **Grasp** -- Close fingers.
         3. **LiftSlightly** -- Lift slightly above the grasp height.
 
@@ -278,7 +281,8 @@ def create_pick_skill(
         make_move_to_phase("MoveToGrasp",
                            _descend_pose,
                            descend_finger_status,
-                           validate_ik=True),
+                           validate_ik=True,
+                           direct_descend=True),
         Phase(
             name="Grasp",
             action_type=PhaseAction.CHANGE_FINGERS,

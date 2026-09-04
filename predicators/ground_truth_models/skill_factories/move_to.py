@@ -150,6 +150,7 @@ def make_move_to_phase(
     allow_shallow_held_object_contacts: bool = False,
     validate_ik: bool = False,
     check_release_clearance: bool = False,
+    direct_descend: bool = False,
     use_motion_planning: Optional[bool] = None,
     terminal_fn: Optional[Callable[
         [State, Sequence[Object], Array, SkillConfig], bool]] = None,
@@ -174,6 +175,10 @@ def make_move_to_phase(
         finger_status: ``"open"``, ``"closed"``, or ``"hold"`` (keep the
             current width, e.g. retreating from a partial-open release).
             If ``None``, preserves the current finger status from state.
+        direct_descend: Mark a grasp descend (see ``Phase.direct_descend``):
+            the straight segment from the parked pose down to the grasp
+            configuration is accepted under the hard contact margin
+            alone before any planned detour is considered.
         use_motion_planning: ``None`` (the default) defers to
             ``CFG.skill_phase_use_motion_planning``. Pass ``False`` for a
             contact stroke -- a phase whose goal pose is at or inside an
@@ -262,6 +267,7 @@ def make_move_to_phase(
         expect_contact=expect_contact,
         allow_shallow_held_object_contacts=allow_shallow_held_object_contacts,
         validate_ik=validate_ik,
+        direct_descend=direct_descend,
         check_release_clearance=check_release_clearance,
         use_motion_planning=plan_motion,
         max_step_norm=max_step_norm,

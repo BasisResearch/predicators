@@ -337,6 +337,18 @@ class Phase:
     # goal fixes that without the cost/regressions of globally validating
     # every transport/retreat IK.
     validate_ik: bool = False
+    # A grasp descend: the previous phase parked the end effector directly
+    # above the target, so the straight segment down to the (validated)
+    # grasp configuration meets nothing but the target and whatever is
+    # butted against it. Try that segment FIRST under the hard contact
+    # margin alone - no bystander clearance - and only plan a detour when
+    # it really penetrates something. The planner's clearance check
+    # otherwise rejects a descend between butted neighbours (a glued
+    # span row) and returns a detour that arrives laterally at block-top
+    # height, which its waypoint-resolution check accepts and the executed
+    # sweep does not (bridge seed 3, 2026-09-04: planner seed 6 raked the
+    # target off the table; the same plan ran clean on the real board).
+    direct_descend: bool = False
     # Additionally collision-check this phase's BiRRT goal config with the
     # fingers OPEN. Set on a place descent whose next phase opens the
     # gripper: the opening sweep itself is not planned, so a drop pose
@@ -1639,6 +1651,8 @@ class PhaseSkill:
                 held_bystander_clearance=(
                     self._config.held_bystander_clearance),
                 goal_candidates=candidates,
+                relaxed_direct=(phase.direct_descend
+                                if phase is not None else False),
             )
 
         def _resolve_goal_ik(
