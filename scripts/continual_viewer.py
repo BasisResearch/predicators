@@ -13,11 +13,11 @@ Stdlib-only browser over the two on-disk products of a run:
 
 Pages:
 
-* ``/``: every run, one table per (agent, env) pair nested under
-  agent-name or env-name headers (a toggle, as in the phased log
-  viewer) with a filter box: levels won, steps, resets, invocations,
-  active and queue time, LLM cost, liveness. A row names its run by
-  experiment id and seed and carries three buttons: copy the recording
+* ``/``: every run, one table per experiment id nested under agent-name
+  or env-name headers (a toggle, as in the phased log viewer) with a
+  filter box: levels won, steps, resets, invocations, active and queue
+  time, LLM cost, liveness. A row names its run by start stamp and
+  seed (``20260904_065251/seed3``) and carries three buttons: copy the recording
   path, pause (cancel the run's Slurm job or local process; the run
   keeps its scorecard, recording and checkpoints, so relaunching its
   config with ``--auto_resume`` continues it) and delete (scorecard,
@@ -547,8 +547,9 @@ function applyGroupMode() {
   });
   var leaves = $all('details.grp.exp');
   leaves.sort(function (a, b) {
-    return a.dataset[inner] < b.dataset[inner] ? -1
-         : a.dataset[inner] > b.dataset[inner] ? 1 : 0;
+    var ka = a.dataset[inner] + '/' + a.dataset.config;
+    var kb = b.dataset[inner] + '/' + b.dataset.config;
+    return ka < kb ? -1 : ka > kb ? 1 : 0;
   });
   leaves.forEach(function (l) {
     hosts[mode + ':' + l.dataset[mode]].appendChild(l);
@@ -1205,17 +1206,18 @@ def _totals(card: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def index_page() -> str:
-    """The runs overview: one table per (agent, env) pair, nested under agent-
-    name headers or env-name headers (client-side toggle, as in the phased log
-    viewer)."""
+    """The runs overview: one table per experiment id (within its agent and
+    env), nested under agent-name headers or env-name headers (client-side
+    toggle, as in the phased log viewer)."""
     cards = list_cards()
     if not cards:
         body = (f"<p class='muted'>No scorecards under "
                 f"<code>{esc(SCORECARDS_ROOT)}</code> yet.</p>")
         return page("continual viewer", "runs", body, refresh=30)
-    leaves: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+    leaves: Dict[Tuple[str, str, str], List[Dict[str, Any]]] = {}
     for card in cards:
-        key = (str(card.get("arm")), str(card.get("env")))
+        key = (str(card.get("arm")), str(card.get("env")),
+               str(card.get("config") or card.get("run_id")))
         leaves.setdefault(key, []).append(card)
     n_runs = {key: len(runs) for key, runs in leaves.items()}
     # One column layout for the whole page: the levels column is as wide
@@ -1230,31 +1232,30 @@ def index_page() -> str:
     ]
     # Agent view: every leaf rendered once under its agent header.
     parts.append("<div id='view-agent'>")
-    for agent in sorted({a for a, _ in leaves}):
+    for agent in sorted({k[0] for k in leaves}):
         keys = sorted(k for k in leaves if k[0] == agent)
         parts.append(
-            _group_header("agent", agent, len(keys),
+            _group_header("agent", agent, len({k[1]
+                                               for k in keys}),
                           sum(n_runs[k] for k in keys)))
-        for _, env in keys:
-            parts.append(
-                _leaf_table(agent, env, leaves[(agent, env)], n_levels,
-                            owners))
+        for key in keys:
+            parts.append(_leaf_table(*key, leaves[key], n_levels, owners))
         parts.append("</details>")
     # Env view: empty headers that applyGroupMode fills with the leaves.
     parts.append("</div><div id='view-env' style='display:none'>")
-    for env in sorted({e for _, e in leaves}):
+    for env in sorted({k[1] for k in leaves}):
         keys = [k for k in leaves if k[1] == env]
         parts.append(
-            _group_header("env", env, len(keys), sum(n_runs[k]
-                                                     for k in keys)) +
-            "</details>")
+            _group_header("env", env, len({k[0]
+                                           for k in keys}),
+                          sum(n_runs[k] for k in keys)) + "</details>")
     parts.append("</div>")
     controls = (
         "<input id='runfilter' placeholder='filter runs…' "
         "oninput='filterRuns(this.value)'>"
         "<button id='groupbtn' onclick='toggleGroupMode()' title='Nest the "
-        "run tables under agent names (one table per env) or under env "
-        "names (one table per agent)'>group</button>"
+        "experiment tables under agent names or under env names'>group"
+        "</button>"
         "<button onclick='setAllGroups(true)'>expand all</button>"
         "<button onclick='setAllGroups(false)'>collapse all</button>")
     return page("continual viewer",
@@ -1273,30 +1274,34 @@ def _group_header(kind: str, name: str, n_inner: int, n_runs: int) -> str:
             f"({n_inner} {inner}, {n_runs} runs)</span></summary>")
 
 
-def _leaf_table(agent: str, env: str, cards: Sequence[Dict[str, Any]],
+def _leaf_table(agent: str, env: str, config: str, cards: Sequence[Dict[str,
+                                                                        Any]],
                 n_levels: int, owners: Dict[str, List[Owner]]) -> str:
-    """One (agent, env) pair's runs table, wrapped in its leaf group.
+    """One experiment id's runs table, wrapped in its leaf group.
 
-    The summary carries both names; the CSS shows the one naming the
-    inner level of the current nesting (see applyGroupMode in the JS).
+    The summary names the experiment id, then (muted) the inner level of
+    the current nesting, env under an agent header and agent under an
+    env header: the CSS shows one of the two (see applyGroupMode).
     """
-    return (f"<details class='grp exp' data-key='exp:{esc(agent)}/{esc(env)}'"
-            f" data-agent='{esc(agent)}' data-env='{esc(env)}' open>"
-            f"<summary><span class='lbl env'>{esc(env)}</span>"
-            f"<span class='lbl agent'>{esc(agent)}</span> "
-            f"<span class='muted'>({len(cards)} runs)</span></summary>"
+    return (f"<details class='grp exp' data-key='exp:{esc(agent)}/{esc(env)}"
+            f"/{esc(config)}' data-agent='{esc(agent)}' data-env='{esc(env)}'"
+            f" data-config='{esc(config)}' open>"
+            f"<summary>{esc(config)} <span class='muted'>"
+            f"<span class='lbl env'>· {esc(env)} </span>"
+            f"<span class='lbl agent'>· {esc(agent)} </span>"
+            f"({len(cards)} runs)</span></summary>"
             f"<div class='tablewrap'>"
             f"{_runs_table(cards, n_levels, owners)}</div>"
             "</details>")
 
 
 # Fixed column widths of the runs grid, in the order of _runs_table's
-# header: run (experiment id/seed plus the buttons), state, levels (None:
+# header: run (start stamp/seed plus the buttons), state, levels (None:
 # LEVEL_COL_W per level of the page's largest level count), steps,
 # resets, invocations, active, queue, LLM cost, updated, git. Every leaf
 # table uses them, so columns line up across agents and envs, as in the
 # phased log viewer.
-RUN_COL_W = (400, 150, None, 64, 56, 84, 72, 64, 64, 96, 80)
+RUN_COL_W = (250, 150, None, 64, 56, 84, 72, 64, 64, 96, 80)
 LEVEL_COL_W = 104
 
 
@@ -1347,11 +1352,11 @@ def _owners_title(owners: Sequence[Owner]) -> str:
 
 
 def _run_cell(card: Dict[str, Any], owners: Sequence[Owner]) -> str:
-    """The run's link, named by experiment id and seed, and its copy, pause
-    (only while a job or process runs it) and delete buttons; the buttons show
-    on hover, as in the phased log viewer."""
+    """The run's link, named by start stamp and seed as the phased viewer names
+    its run dirs, and its copy, pause (only while a job or process runs it) and
+    delete buttons; the buttons show on hover."""
     run_id = str(card["run_id"])
-    name = f"{card.get('config') or run_id}/seed{card.get('seed')}"
+    name = f"{run_stamp(card)}/seed{card.get('seed')}"
     esc_id = esc(run_id)
     live = bool(owners)
     pause = ""
@@ -1371,6 +1376,15 @@ def _run_cell(card: Dict[str, Any], owners: Sequence[Owner]) -> str:
             f"<button class='rowbtn copy' data-copy='{esc(copy_path(run_id))}'"
             f" title='Copy recording path'>⧉</button>{pause}{delete}"
             "</span></div>")
+
+
+def run_stamp(card: Dict[str, Any]) -> str:
+    """The run's start as ``YYYYMMDD_HHMMSS``; its id without a start."""
+    started = card.get("started_at")
+    if not started:
+        return str(card.get("run_id") or "")
+    return datetime.datetime.fromtimestamp(
+        float(started)).strftime("%Y%m%d_%H%M%S")
 
 
 def copy_path(run_id: str) -> str:

@@ -76,8 +76,12 @@ def test_pages_render_for_a_finished_run(tmp_path: Any,
     # filter in the top bar.
     assert "data-kind='agent' data-name='oracle'" in index
     assert "data-kind='env' data-name='cover'" in index
-    assert "data-agent='oracle' data-env='cover'" in index
+    assert "data-agent='oracle' data-env='cover' data-config='viewer'" in \
+        index
     assert index.count("class='grp exp'") == 1
+    # The leaf header names the experiment id, then the inner level.
+    assert "<summary>viewer <span class='muted'><span class='lbl env'>" in \
+        index
     # A fixed-layout grid with one shared column layout and a per-level
     # inner grid, so columns and levels line up across every group.
     assert "class='grid runs'" in index and "<colgroup>" in index
@@ -86,9 +90,12 @@ def test_pages_render_for_a_finished_run(tmp_path: Any,
         run.card.levels_total
     assert "id='groupbtn'" in index and "id='runfilter'" in index
     assert f"data-text='{run_id} " in index and "seed3" in index
-    # The run column names the run by experiment id and seed and carries
+    # The run column names the run by start stamp and seed and carries
     # the copy, pause and delete buttons; nothing runs it, so no pause.
-    assert ">viewer/seed3</a>" in index
+    stamp = viewer.run_stamp(run.card.to_dict())
+    assert len(stamp) == 15 and stamp[8] == "_"
+    assert f">{stamp}/seed3</a>" in index and "viewer/seed3" not in index
+    assert viewer.run_stamp({"run_id": "x"}) == "x"
     assert "<th class='num'>seed</th>" not in index
     rec = os.path.relpath(os.path.join(str(tmp_path), "recs", run_id))
     assert f"class='rowbtn copy' data-copy='{rec}'" in index
