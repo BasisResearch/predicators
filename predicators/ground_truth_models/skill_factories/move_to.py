@@ -177,8 +177,8 @@ def make_move_to_phase(
             If ``None``, preserves the current finger status from state.
         direct_descend: Mark a grasp descend (see ``Phase.direct_descend``):
             the straight segment from the parked pose down to the grasp
-            configuration is accepted under the hard contact margin
-            alone before any planned detour is considered.
+            configuration, accepted under the hard contact margin alone,
+            or failure - never a planned detour.
         use_motion_planning: ``None`` (the default) defers to
             ``CFG.skill_phase_use_motion_planning``. Pass ``False`` for a
             contact stroke -- a phase whose goal pose is at or inside an

@@ -1,7 +1,6 @@
 """Motion Planning in PyBullet."""
 from __future__ import annotations
 
-import logging
 from typing import Any, Collection, Dict, Iterator, List, Optional, Sequence, \
     Tuple
 
@@ -67,6 +66,11 @@ def run_motion_planning(
     against ``CFG.pybullet_birrt_contact_margin``; all other bodies are
     bystanders from which the path must keep
     ``CFG.pybullet_birrt_bystander_clearance`` of separation.
+
+    ``relaxed_direct`` is for a grasp descend (see ``Phase.direct_descend``):
+    return the straight joint-space segment to the goal when nothing
+    along it penetrates past the hard contact margin, else ``None`` -
+    bystander clearance is not applied and no detour is planned.
 
     Partner status earned SOLELY at the start configuration is local to
     it: a movable body the robot merely happens to begin near is checked
@@ -335,7 +339,8 @@ def run_motion_planning(
         for i in range(1, num + 1):
             yield list(pt1_arr * (1 - i / num) + pt2_arr * i / num)
 
-    def _collision_fn(pt: JointPositions) -> bool:
+    def _collision_fn(pt: JointPositions,
+                      hard_margin_only: bool = False) -> bool:
         _set_state(pt)
         p.performCollisionDetection(physicsClientId=physics_client_id)
         # Use a penetration margin to distinguish real collisions from
@@ -359,6 +364,10 @@ def run_motion_planning(
                 else bystander_clearance
             if not near_start and body in demoted_partners:
                 margin = _DEMOTED_PARTNER_MARGIN
+            if hard_margin_only:
+                # A grasp descend (relaxed_direct): penetration fails,
+                # proximity does not.
+                margin = hard_margin
             robot_margin = margin
             if robot_escape_active and body in allowed_robot_escape_margins:
                 robot_margin = allowed_robot_escape_margins[body]
@@ -373,7 +382,8 @@ def run_motion_planning(
                 # generates no points beyond it. Query closest points out
                 # to the clearance instead when the held clearance
                 # applies.
-                held_margin = held_body_clearances.get(body, margin)
+                held_margin = margin if hard_margin_only \
+                    else held_body_clearances.get(body, margin)
                 contacts = p.getClosestPoints(
                     assembly_body,
                     body,
@@ -426,28 +436,6 @@ def run_motion_planning(
         if _collision_fn(release_config):
             return None
 
-    def _collision_fn_hard_margin(pt: JointPositions) -> bool:
-        """``_collision_fn`` with every body at the hard contact margin:
-
-        penetration deeper than the margin fails, mere proximity does
-        not. Used only for the relaxed direct segment of a grasp descend
-        (see ``relaxed_direct``).
-        """
-        _set_state(pt)
-        p.performCollisionDetection(physicsClientId=physics_client_id)
-        for body in collision_bodies:
-            contacts = p.getContactPoints(robot.robot_id,
-                                          body,
-                                          physicsClientId=physics_client_id)
-            if any(c[8] < hard_margin for c in contacts):
-                return True
-            for assembly_body, _ in held_assembly:
-                contacts = p.getContactPoints(
-                    assembly_body, body, physicsClientId=physics_client_id)
-                if any(c[8] < hard_margin for c in contacts):
-                    return True
-        return False
-
     def _distance_fn(from_pt: JointPositions, to_pt: JointPositions) -> float:
         # NOTE: only using positions to calculate distance. Should use
         # orientations as well in the near future.
@@ -465,26 +453,21 @@ def run_motion_planning(
                         smooth_amt=CFG.pybullet_birrt_smooth_amt)
 
     if relaxed_direct:
-        # A grasp descend (see Phase.direct_descend): accept the straight
-        # segment to the goal when nothing along it penetrates past the
-        # hard contact margin. Bystander clearance is deliberately NOT
-        # applied here - the segment starts directly above the target,
-        # so anything within clearance of it is the target or a body
-        # butted against it, and a planned detour around such a graze
-        # arrives laterally at the target's height instead of from
-        # above, which is the sweep that knocks it away.
-        direct: Optional[List[JointPositions]] = [initial_positions]
+        # A grasp descend (see Phase.direct_descend): the straight
+        # segment to the goal, or nothing. It is accepted when nothing
+        # along it penetrates past the hard contact margin; bystander
+        # clearance is deliberately not applied, because the segment
+        # starts directly above the target and anything within
+        # clearance of it is the target or a body butted against it. No
+        # planned detour: a descend that cannot go straight down is a
+        # bad grasp pose, and a detour arrives laterally at the
+        # target's height, which is the sweep that knocks it away.
+        direct = [initial_positions]
         for pt in _extend_fn(initial_positions, target_positions):
-            if _collision_fn_hard_margin(pt):
-                direct = None
-                break
-            assert direct is not None
+            if _collision_fn(pt, hard_margin_only=True):
+                return None
             direct.append(pt)
-        if direct is not None:
-            logging.debug(
-                "Motion planning: straight descend accepted under the hard "
-                "contact margin (%d waypoints).", len(direct))
-            return direct
+        return direct
     path = birrt.query(initial_positions, target_positions)
     if path is not None and CFG.pybullet_birrt_path_subsample_ratio > 1:
         ratio = CFG.pybullet_birrt_path_subsample_ratio

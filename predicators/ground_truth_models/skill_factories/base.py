@@ -340,14 +340,16 @@ class Phase:
     # A grasp descend: the previous phase parked the end effector directly
     # above the target, so the straight segment down to the (validated)
     # grasp configuration meets nothing but the target and whatever is
-    # butted against it. Try that segment FIRST under the hard contact
-    # margin alone - no bystander clearance - and only plan a detour when
-    # it really penetrates something. The planner's clearance check
-    # otherwise rejects a descend between butted neighbours (a glued
-    # span row) and returns a detour that arrives laterally at block-top
-    # height, which its waypoint-resolution check accepts and the executed
-    # sweep does not (bridge seed 3, 2026-09-04: planner seed 6 raked the
-    # target off the table; the same plan ran clean on the real board).
+    # butted against it. The phase takes that segment under the hard
+    # contact margin alone - no bystander clearance - or fails; it never
+    # plans a detour. The planner's clearance check used to reject a
+    # descend between butted neighbours (a glued span row) and return a
+    # detour arriving laterally at block-top height, which its waypoint-
+    # resolution check accepted and the executed sweep did not (bridge
+    # seed 3, 2026-09-04: planner seed 6 raked the target off the table;
+    # the same plan ran clean on the real board). A descend that cannot
+    # go straight down is a bad grasp pose, and the failure names the
+    # blocking body so the caller can change the pose.
     direct_descend: bool = False
     # Additionally collision-check this phase's BiRRT goal config with the
     # fingers OPEN. Set on a place descent whose next phase opens the

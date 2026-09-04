@@ -85,9 +85,9 @@ def create_pick_skill(
            with closed gripper.
         1. **MoveToGrasp** -- Descend to object z + ``grasp_z_offset``
            with open gripper: the straight segment from the MoveAbove
-           pose when it only touches the target and its butted
-           neighbours within the hard contact margin, else BiRRT (see
-           ``Phase.direct_descend``).
+           pose, accepted when it only touches the target and its
+           butted neighbours within the hard contact margin, else the
+           option fails naming the blocker (see ``Phase.direct_descend``).
         2. **Grasp** -- Close fingers.
         3. **LiftSlightly** -- Lift slightly above the grasp height.
 
