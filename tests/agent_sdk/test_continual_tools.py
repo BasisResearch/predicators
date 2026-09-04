@@ -4,9 +4,13 @@ import asyncio
 import glob
 import json
 import os
+import time
 from typing import Any, Dict, List
 
+import pytest
+
 from predicators import utils
+from predicators.agent_sdk.belief_probe import BeliefProbe
 from predicators.agent_sdk.play_prompts import build_play_query, \
     build_play_system_prompt, render_data_status, render_learning_status
 from predicators.agent_sdk.tools.context import ToolContext
@@ -417,3 +421,52 @@ def test_parse_plan_lines_and_formatting(tmp_path: Any) -> None:
     driver.body = body
     ContinualRun(env, approach, driver).run()
     assert seen["ok"]
+
+
+def test_attempt_clock_paused_charges_the_block_to_nothing() -> None:
+    """Inside the block no deadline is armed; afterwards every mark has moved
+    forward by the block's duration."""
+    ctx = ToolContext()
+    ctx.begin_attempt(1, 100.0)
+    ctx.python_call_deadline = ctx.attempt_deadline
+    start, deadline = ctx.attempt_start, ctx.attempt_deadline
+    assert start is not None and deadline is not None
+    with ctx.attempt_clock_paused():
+        assert ctx.attempt_deadline is None
+        assert ctx.python_call_deadline is None
+        time.sleep(0.05)
+    assert ctx.attempt_start is not None and ctx.attempt_start >= start + 0.05
+    assert ctx.attempt_deadline is not None
+    assert ctx.attempt_deadline >= deadline + 0.05
+    assert ctx.python_call_deadline == ctx.attempt_deadline
+    # A block that raises restores the marks too.
+    try:
+        with ctx.attempt_clock_paused():
+            raise ValueError("boom")
+    except ValueError:
+        pass
+    assert ctx.attempt_deadline is not None
+
+
+def test_probe_reset_from_the_current_observation(tmp_path: Any) -> None:
+    """``sim.reset(current=True)`` starts from the last real observation the
+    session recorded, with overrides on top; without one it says so."""
+    env, _, ctx = _setup(tmp_path)
+    task = env.get_train_tasks()[0].task
+    ctx.current_task = task
+    probe = BeliefProbe(ctx)
+    with pytest.raises(ValueError, match="No real observation"):
+        probe.reset(current=True)
+    with pytest.raises(ValueError, match="task_idx does not apply"):
+        probe.reset(task_idx=0, current=True)
+    block = sorted(task.init, key=str)[0]
+    moved = task.init.copy()
+    moved.set(block, "pose", 0.123)
+    ctx.current_observation = moved
+    probe.reset(current=True)
+    assert probe.state(block.name)["pose"] == pytest.approx(0.123)
+    assert probe.reset().state(block.name)["pose"] == \
+        pytest.approx(task.init.get(block, "pose"))
+    probe.reset(current=True, mods={block.name: {"pose": 0.456}})
+    assert probe.state(block.name)["pose"] == pytest.approx(0.456)
+    assert ctx.current_observation.get(block, "pose") == pytest.approx(0.123)

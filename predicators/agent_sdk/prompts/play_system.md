@@ -107,10 +107,13 @@ __MODEL_FILES__
 - `./predicates.py`, `./simulator.py`, `./samplers.py`: the model files
   you write during learning sessions; they persist and are reloaded.
 - `run_python` executes code in a persistent namespace with `sim`, a
-  probe over your current belief model: `sim.run`, `sim.refine`,
-  `sim.predicates()`, `sim.samplers()`, and the rest of the probe API
-  described in the tool. Use it to test a plan before you spend real
-  steps on it.
+  probe over your current belief model (before any learning session,
+  the base simulator: the visible physics with none of the hidden
+  mechanisms). `sim.reset()` starts at the level's initial state and
+  `sim.reset(current=True)` at the last real observation; then
+  `sim.run`, `sim.refine`, `sim.snapshot()` / `sim.restore()` and the
+  rest of the probe API described in the tool. Use it to test a plan
+  before you spend real steps on it.
 
 <!-- section: sandbox_model_free_files -->
 - `python3` in the sandbox reads `./data/trajectories.pkl` directly

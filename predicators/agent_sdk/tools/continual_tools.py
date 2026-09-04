@@ -304,6 +304,7 @@ def build_continual_tools(
 
     def _observe_text(with_state: bool, tag: str) -> str:
         obs = session.observe()
+        ctx.current_observation = obs.frame
         render = save_render(tag)
         return format_observation(obs,
                                   ctx,

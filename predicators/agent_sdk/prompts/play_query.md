@@ -87,11 +87,13 @@ write your notes and end the session.
 (none)
 
 <!-- section: learning_none -->
-No learning session has run yet: there is no belief model behind
-`sim`, and `sim.run` / `sim.refine` are unavailable until one exists.
-Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps). With
-any recorded episode, call `learn_run` before you spend real steps: a
-model built from what you already have is free.
+No learning session has run yet: `sim` is the base simulator, the
+visible physics with none of the environment's hidden mechanisms, so
+a rollout in it shows kinematics and contact but not what the
+environment does on its own. Recorded episodes so far: __N_EPISODES__
+(__N_STEPS__ steps). With any recorded episode, call `learn_run`
+before you spend real steps: a model built from what you already have
+is free.
 
 <!-- section: learning_model_free -->
 This arm has no belief model and no learning session. Recorded

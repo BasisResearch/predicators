@@ -7,11 +7,12 @@ from typing import Any, Dict, List
 
 from predicators import utils
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES
-from predicators.approaches import create_approach
+from predicators.approaches import BaseApproach, create_approach
 from predicators.approaches.agent_continual_approach import \
-    AgentContinualApproach, ContinualPlayBase
+    AgentContinualApproach, AgentContinualModelFreeApproach
 from predicators.approaches.agent_sim_learning_approach import \
     resolve_kept_predicate_names
+from predicators.approaches.continual_play_mixin import ContinualPlayMixin
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun
@@ -74,7 +75,7 @@ def _make_approach(name: str = "agent_continual_model_free") -> Any:
     approach = create_approach(name, env.predicates, options, env.types,
                                env.action_space,
                                [t.task for t in env.get_train_tasks()])
-    assert isinstance(approach, ContinualPlayBase)
+    assert isinstance(approach, ContinualPlayMixin)
     return env, approach
 
 
@@ -118,10 +119,11 @@ def test_model_free_arm_has_no_model_surface(tmp_path: Any) -> None:
     assert "`learn_run`" not in prompt and "`run_python`" not in prompt
     assert "`sim`" not in prompt and "## Learning" not in prompt
     assert "no learned model" in prompt and "`session_end`" in prompt
-    # The shared base is abstract, so the registry never offers it, and
-    # the full agent still resolves to its own class.
-    assert ContinualPlayBase.__abstractmethods__
-    assert issubclass(AgentContinualApproach, ContinualPlayBase)
+    # The play loop is a mixin in front of each arm's phased base, not
+    # an approach of its own, so the registry never sees it.
+    assert not issubclass(ContinualPlayMixin, BaseApproach)
+    assert issubclass(AgentContinualApproach, ContinualPlayMixin)
+    assert issubclass(AgentContinualModelFreeApproach, ContinualPlayMixin)
     assert AgentContinualApproach.get_name() == "agent_continual"
 
 
@@ -215,11 +217,19 @@ def test_both_arms_start_with_no_predicates(tmp_path: Any) -> None:
     assert learner._get_all_predicates() == set()  # pylint: disable=protected-access
     names = learner._get_solve_tool_names()  # pylint: disable=protected-access
     assert names == ["run_python"] + list(CONTINUAL_TOOL_NAMES)
+    # Before any learning session the learner's sim is the base
+    # simulator (hidden mechanisms stripped), never the real env.
+    model = learner._option_model  # pylint: disable=protected-access
+    assert model is not None and model.sim_env is learner._base_env  # pylint: disable=protected-access
     prompt = learner._get_agent_system_prompt()  # pylint: disable=protected-access
     assert "You start with no predicates" in prompt
 
-    _config(tmp_path, agent_sim_learn_kept_predicates_names=["Holding"])
+    _config(tmp_path,
+            agent_sim_learn_kept_predicates_names=["Holding"],
+            agent_planner_use_simulator=True)
     _, free = _make_approach()
     names = {p.name for p in free._get_all_predicates()}  # pylint: disable=protected-access
     assert names == {"Holding"}
+    # The model-free arm holds no simulator whatever the flag says.
+    assert free._option_model is None  # pylint: disable=protected-access
     assert {p.name for p in env.predicates} > names

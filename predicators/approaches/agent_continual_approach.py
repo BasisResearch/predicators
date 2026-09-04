@@ -1,483 +1,59 @@
 """The LLM agent arms of the continual protocol (docs/continual-protocol.md).
 
-``ContinualPlayBase`` plays one level at a time through play sessions:
-sandbox sessions of the existing SDK machinery whose tool surface is
-the protocol's env and skill tools (``agent_sdk.tools.continual_tools``).
-Between sessions it records the session in ``attempts.md``, refreshes
-the data from the recorded episodes, services what the session asked
-for, and checkpoints. A requeue resumes the interrupted session's
-transcript (section 6.6).
+Both arms mix :class:`ContinualPlayMixin` (the play loop) in front of
+the phased approach class that holds their machinery:
 
-Two arms share it:
-
-* ``AgentContinualApproach`` (``agent_continual``): C1's learner
-  (hybrid simulator synthesis, parameter fit, predicate invention). Its
-  sessions also get ``run_python`` with the belief probe ``sim`` and
-  ``learn_run``, which runs a learning session over every recorded
-  episode inside the play session: the play session's manager is parked
-  and its clock paused while the learning session runs in its own, and
-  the refit model is behind ``sim`` when the call returns.
-* ``AgentContinualModelFreeApproach`` (``agent_continual_model_free``):
-  the model-free baseline. The same env and skill tools, sandbox and
-  journal, but no belief model, no ``sim`` and no learning session:
-  what it knows comes from the recorded data and the real environment.
+* ``AgentContinualApproach`` (``agent_continual``) is C1's learner
+  (hybrid simulator synthesis, parameter fit, predicate invention) on
+  ``AgentSimPredicateInventionApproach``. Its sessions also get
+  ``run_python`` with the belief probe ``sim`` and ``learn_run``, which
+  runs a learning session over every recorded episode inside the play
+  session: the play session's manager is parked and its clock paused
+  while the learning session runs in a manager of its own, and the
+  refit model is behind ``sim`` when the call returns.
+* ``AgentContinualModelFreeApproach`` (``agent_continual_model_free``)
+  is the model-free baseline on ``AgentModelFreeApproach``: the same env
+  and skill tools, sandbox and journal, but no belief model, no ``sim``
+  and no learning session. What it knows comes from the recorded data
+  and the real environment.
 
 Neither arm starts with a predicate: the observation is the object
 features and a render, the goal is its natural-language description,
 and the model-based arm invents predicates as it learns. The allowlist
 ``agent_sim_learn_kept_predicates_names`` hands either arm env
 predicates when an experiment wants that.
-
-The harness never chooses for the agent: whether to act, reset, learn
-or end is decided inside the session; the loop here only services what
-the session asked for and enforces two operational guards, the
-per-session wall clock and the idle-session limit.
 """
 from __future__ import annotations
 
-import abc
-import json
 import logging
-import os
-import shutil
 import time
 from typing import TYPE_CHECKING, Any, Callable, Dict, FrozenSet, List, \
-    Optional, Sequence, Set, Tuple
+    Optional, Set
 
-from predicators import utils
 from predicators.agent_sdk import journal as journal_mod
-from predicators.agent_sdk.play_prompts import build_play_query, \
-    build_play_system_prompt, render_data_status, render_learning_status
-from predicators.agent_sdk.session_base import AgentSessionFatalError, \
-    query_fatal_error
-from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
-    PlayState, build_continual_tools, format_observation, visible_goal
-from predicators.agent_sdk.tools.digests import render_options_digest, \
-    render_types_digest
+from predicators.agent_sdk.play_prompts import render_learning_status
+from predicators.agent_sdk.session_base import AgentSessionFatalError
+from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES
 from predicators.approaches.agent_model_free_approach import \
     AgentModelFreeApproach
 from predicators.approaches.agent_sim_learning_approach import \
     resolve_kept_predicate_names
 from predicators.approaches.agent_sim_predicate_invention_approach import \
     AgentSimPredicateInventionApproach
-from predicators.run.episode import EpisodeState
-from predicators.settings import CFG
-from predicators.structs import Dataset, LowLevelTrajectory, Predicate
+from predicators.approaches.continual_play_mixin import ContinualPlayMixin
+from predicators.option_model import _OptionModelBase
+from predicators.structs import Predicate
 
 if TYPE_CHECKING:  # pragma: no cover - the run package imports approaches
+    from predicators.agent_sdk.session_manager import SessionManagerProtocol
     from predicators.run.continual import ProtocolSession
 
-SESSION_KIND = "play"
-# The env predicates a continual arm starts with unless the CFG
-# allowlist hands it some: none.
+# The env predicates an arm starts with unless the CFG allowlist hands
+# it some: none.
 NO_ENV_PREDICATES: FrozenSet[str] = frozenset()
 
 
-def _run_ended(reason: str, note: str = "") -> Exception:
-    """``RunEnded`` without a module-level import of the run package."""
-    # pylint: disable-next=import-outside-toplevel
-    from predicators.run.continual import RunEnded
-    return RunEnded(reason, note)
-
-
-class ContinualPlayBase(AgentModelFreeApproach, abc.ABC):
-    """The play loop shared by the continual agent arms.
-
-    Abstract (no ``get_name``), so the approach registry skips it; the
-    arms declare their tool surface through :meth:`_continual_tool_names`
-    and their learning through :meth:`_learn_callable` and
-    :meth:`_learning_status`.
-    """
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self._play_session: Optional[ProtocolSession] = None
-        self._continual_level: Optional[int] = None
-        self._sessions_played = 0
-        self._learn_runs = 0
-        self._session_in_flight = False
-        self._last_handoff = ""
-        self._episodes_at_last_learn = 0
-        self._last_fit_status = ""
-
-    # -- The arm's declarations -------------------------------------------
-
-    @abc.abstractmethod
-    def _continual_tool_names(self) -> List[str]:
-        """The MCP tools of a play session, in prompt order."""
-
-    def _learn_callable(  # pylint: disable=useless-return
-            self, session: ProtocolSession) -> Optional[Callable[[str], str]]:
-        """What ``learn_run`` calls, or ``None`` for an arm without a learning
-        session."""
-        del session
-        return None
-
-    def _learning_status(self, session: ProtocolSession) -> str:
-        """The learning-status block of the query."""
-        n_eps, n_steps = self._episode_counts(session)
-        return render_data_status(n_episodes=n_eps, n_steps=n_steps)
-
-    # -- Hooks the session machinery reads ------------------------------
-
-    def _get_log_dir(self) -> str:
-        """A stable directory per run, not per launch, so the sandbox and the
-        CLI transcripts survive a requeue (section 6.6)."""
-        if CFG.experiment_protocol == "continual":
-            return os.path.abspath(
-                os.path.join(CFG.continual_recordings_dir,
-                             utils.get_config_path_str(), "agent"))
-        return super()._get_log_dir()
-
-    def prepare_for_continual(self, dataset: Dataset) -> None:
-        """Take the offline data without a learning session: when to learn is
-        the agent's decision."""
-        AgentModelFreeApproach.learn_from_offline_dataset(self, dataset)
-        self._sync_tool_context()
-
-    def _get_agent_system_prompt(self) -> str:
-        if self._learning_mode:
-            return super()._get_agent_system_prompt()
-        return build_play_system_prompt(self._get_solve_tool_names() or [])
-
-    def _get_solve_tool_names(self) -> Optional[List[str]]:
-        return list(self._continual_tool_names())
-
-    # -- The controller contract ----------------------------------------
-
-    def play_level(self, session: ProtocolSession) -> None:
-        """Play sessions until the level is won or the run ends."""
-        self._play_session = session
-        self._begin_level(session)
-        idle = 0
-        while True:
-            obs = session.observe()
-            if obs.state is EpisodeState.WIN:
-                logging.info(
-                    "[Continual agent] level %d won; ending its "
-                    "sessions", session.level_index + 1)
-                self._close_agent_session()
-                return
-            if session.level_card().lost:
-                logging.info(
-                    "[Continual agent] level %d lost (GAME_OVER with no "
-                    "reset available); ending its sessions",
-                    session.level_index + 1)
-                self._close_agent_session()
-                return
-            steps_before = obs.ledger.run_steps
-            state = self._play_one_session(session)
-            self._sync_level_trajectories(session)
-            if state.run_ended is not None:
-                reason, note = state.run_ended
-                raise _run_ended(reason, note)
-            learned = state.learn_runs > 0
-            if state.pending_end_run is not None:
-                self.save(session.level_index)
-                session.end_run(state.pending_end_run)
-            steps_after = session.observe().ledger.run_steps
-            idle = 0 if (steps_after > steps_before or learned) else idle + 1
-            self.save(session.level_index)
-            if idle >= CFG.continual_max_idle_sessions:
-                raise _run_ended(
-                    "agent_ended", f"stalled: {idle} consecutive sessions "
-                    "without an environment step or a learning session")
-
-    # -- One session --------------------------------------------------------
-
-    def _play_one_session(self, session: ProtocolSession) -> PlayState:
-        ctx = self._tool_context
-        state = PlayState()
-        ctx.extra_mcp_tools = build_continual_tools(
-            ctx,
-            session,
-            state,
-            save_render=self._save_render,
-            tool_names=[
-                n for n in self._continual_tool_names()
-                if n in CONTINUAL_TOOL_NAMES
-            ],
-            learn=self._learn_callable(session))
-        resume_id = self._resume_session_id()
-        if resume_id is None:
-            # Every session is a fresh context over the journal.
-            self._close_agent_session()
-        self._ensure_agent_session()
-        assert self._agent_session is not None
-        if resume_id is not None:
-            self._agent_session.resume_session_id = resume_id
-            logging.info("[Continual agent] resuming session %s", resume_id)
-        # The query reads the journal and the tools save renders into
-        # the sandbox, so it must exist before the first query.
-        ensure_sandbox = getattr(self._agent_session, "_ensure_sandbox_dir",
-                                 None)
-        if ensure_sandbox is not None:
-            ensure_sandbox()
-        query = self._build_query(session, resumed=resume_id is not None)
-        session_number = self._sessions_played + 1
-        ctx.begin_attempt(session_number, CFG.continual_session_wall_clock)
-        self._session_in_flight = True
-        self.save(session.level_index)
-        entries_before = len(session.index_entries())
-        started = time.time()
-        try:
-            responses = self._query_agent_sync(query, kind=SESSION_KIND)
-        finally:
-            ctx.attempt_start = None
-            ctx.attempt_deadline = None
-            self._session_in_flight = False
-            self._agent_session.resume_session_id = None
-        dead = query_fatal_error(responses)
-        if dead is not None:
-            raise AgentSessionFatalError(
-                f"play session died without doing work ({dead})")
-        self._sessions_played += 1
-        self._last_handoff = state.handoff
-        self._account_session(session, responses, ctx.attempt_rollout_count)
-        self._record_session(session, session_number, entries_before, state,
-                             time.time() - started, responses)
-        return state
-
-    def _resume_session_id(self) -> Optional[str]:
-        """The CLI session to continue after a requeue, if any."""
-        if not self._session_in_flight or not CFG.agent_sdk_resume_session:
-            return None
-        path = os.path.join(self._get_log_dir(), "session_info.json")
-        if not os.path.isfile(path):
-            return None
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                info = json.load(f)
-        except (OSError, ValueError):
-            return None
-        sid = info.get("session_id")
-        return str(sid) if sid else None
-
-    def _build_query(self, session: ProtocolSession, resumed: bool) -> str:
-        ctx = self._tool_context
-        obs = session.observe()
-        sandbox = ctx.sandbox_dir
-        render = self._save_render(f"session_{self._sessions_played + 1:03d}")
-        observation = format_observation(obs,
-                                         ctx,
-                                         with_state=True,
-                                         render_path=render,
-                                         env_names=_env_names(session))
-        # The ledger is already the observation's last line; the query
-        # shows it once more on its own so it cannot be missed.
-        return build_play_query(
-            session_number=self._sessions_played + 1,
-            resumed=resumed,
-            level_number=obs.level.index + 1,
-            levels_total=obs.ledger.levels_total,
-            goal_nl=obs.level.task.goal_nl or "",
-            goal_atoms=visible_goal(ctx, obs.level.task),
-            ledger=obs.ledger.footer(),
-            observation=observation,
-            skills=render_options_digest(
-                session.list_skills(),
-                gt_options_ref_path=ctx.gt_options_ref_path),
-            predicates=self._render_predicates(),
-            types=render_types_digest(ctx.types),
-            learning=self._learning_status(session),
-            journal=journal_mod.read_journal(sandbox),
-            attempts=journal_mod.read_journal(
-                sandbox, filename=journal_mod.ATTEMPTS_FILENAME),
-            handoff=self._last_handoff,
-        )
-
-    def _render_predicates(self) -> str:
-        env_names = {p.name for p in self._initial_predicates}
-        lines = []
-        for pred in sorted(self._get_all_predicates(), key=lambda p: p.name):
-            sig = ", ".join(t.name for t in pred.types)
-            origin = "environment" if pred.name in env_names else "yours"
-            lines.append(f"- {pred.name}({sig}) [{origin}]")
-        return "\n".join(lines) or "(none)"
-
-    def _save_render(self, tag: str) -> Optional[str]:
-        """Save a render into the sandbox's image dir; returns its sandbox-
-        relative path."""
-        session = self._play_session
-        ctx = self._tool_context
-        if session is None or not ctx.image_save_dir:
-            return None
-        try:
-            src = session.render(tag)
-        except Exception as e:  # pylint: disable=broad-except
-            logging.debug("[Continual agent] render failed: %s", e)
-            return None
-        if not src:
-            return None
-        os.makedirs(ctx.image_save_dir, exist_ok=True)
-        name = os.path.basename(src)
-        dst = os.path.join(ctx.image_save_dir, name)
-        try:
-            shutil.copyfile(src, dst)
-        except OSError as e:
-            logging.debug("[Continual agent] render copy failed: %s", e)
-            return None
-        return f"./{os.path.basename(ctx.image_save_dir)}/{name}"
-
-    # -- Data ---------------------------------------------------------------
-
-    def _begin_level(self, session: ProtocolSession) -> None:
-        k = session.level_index
-        if self._continual_level != k:
-            self._continual_level = k
-            self._close_agent_session()
-        # Only the levels reached so far are visible to the learner.
-        self._train_tasks = [spec.task for spec in session.levels[:k + 1]]
-        self._tool_context.train_tasks = list(self._train_tasks)
-        self._tool_context.current_task = session.levels[k].task
-        self._tool_context.test_task_idx = None
-        self._sync_level_trajectories(session)
-        session.abstract_predicates = set(self._get_all_predicates())
-
-    def _sync_level_trajectories(self, session: ProtocolSession) -> None:
-        """Rebuild the online trajectories from the recorded episodes of every
-        level up to the current one."""
-        k = session.level_index
-        by_level: Dict[int, List[LowLevelTrajectory]] = {}
-        for traj in self._online_trajectories:
-            idx = traj.train_task_idx
-            if idx is not None and idx < k:
-                by_level.setdefault(int(idx), []).append(traj)
-        for j in range(k):
-            if j not in by_level:
-                by_level[j] = self._episodes_to_trajectories(
-                    session.previous_level_episodes(j), j)
-        by_level[k] = self._episodes_to_trajectories(session.level_episodes(),
-                                                     k)
-        self._online_trajectories = [
-            t for j in sorted(by_level) for t in by_level[j]
-        ]
-        self._sync_tool_context()
-
-    def _episodes_to_trajectories(self, episodes: Sequence[Dict[str, Any]],
-                                  level: int) -> List[LowLevelTrajectory]:
-        out = []
-        for ep in episodes:
-            if not ep["actions"]:
-                continue
-            states = list(ep["states"])
-            actions = list(ep["actions"])
-            if len(states) != len(actions) + 1:
-                continue
-            out.append(
-                LowLevelTrajectory(
-                    states,
-                    actions,
-                    _train_task_idx=level,
-                    _source_simulator_version=getattr(
-                        self, "_current_simulator_version", None),
-                    _source_predicates_version=getattr(
-                        self, "_current_predicates_version", None),
-                    _source_samplers_version=getattr(
-                        self, "_current_samplers_version", None),
-                    _env_reward=ep.get("reward"),
-                    _env_terminated=ep.get("terminated"),
-                ))
-        return out
-
-    def _episode_counts(self, session: ProtocolSession) -> Tuple[int, int]:
-        n_eps = sum(1 for t in self._online_trajectories)
-        n_steps = sum(len(t.actions) for t in self._online_trajectories)
-        del session
-        return n_eps, n_steps
-
-    # -- Records ------------------------------------------------------------
-
-    def _account_session(self, session: ProtocolSession,
-                         responses: List[Dict[str,
-                                              Any]], rollouts: int) -> None:
-        cost = 0.0
-        turns = 0
-        for entry in responses:
-            if entry.get("type") == "result":
-                if entry.get("total_cost_usd") is not None:
-                    cost = float(entry["total_cost_usd"])
-                if entry.get("num_turns") is not None:
-                    turns = int(entry["num_turns"])
-        session.record_sandbox("sessions", 1)
-        session.record_sandbox("turns", turns)
-        session.record_sandbox("llm_cost_usd", cost)
-        session.record_sandbox("sim_rollouts", rollouts)
-
-    def _record_session(self, session: ProtocolSession, number: int,
-                        entries_before: int, state: PlayState, seconds: float,
-                        responses: List[Dict[str, Any]]) -> None:
-        """Append the harness's account of the session to attempts.md."""
-        entries = session.index_entries()[entries_before:]
-        lines = []
-        for e in entries:
-            event = e.get("event")
-            if event == "invoke":
-                params = ", ".join(f"{float(p):.3g}"
-                                   for p in e.get("params", []))
-                line = (f"- {e.get('skill')}[{params}]: {e.get('status')} "
-                        f"in {e.get('steps')} steps; episode "
-                        f"{e.get('state')}")
-                if e.get("missing") or e.get("present"):
-                    line += (" DIVERGED (missing " +
-                             ", ".join(e.get("missing", [])) + "; present " +
-                             ", ".join(e.get("present", [])) + ")")
-                lines.append(line)
-            elif event in ("reset", "win", "game_over"):
-                lines.append(f"- {event} {e.get('reason', '')}".rstrip())
-        subtype = next((e.get("subtype")
-                        for e in responses if e.get("type") == "result"), None)
-        how = "ended by session_end" if state.session_ended else (
-            "hit the turn cap"
-            if subtype == "error_max_turns" else "ended by the harness")
-        card = session.level_card()
-        body = (f"Level {card.index + 1}; {how}; {seconds:.0f} s; level "
-                f"steps now {card.steps}, resets {card.resets}, invocations "
-                f"{card.skill_invocations}.\n" +
-                ("\n".join(lines) if lines else "- no environment action") +
-                (f"\nLearning sessions run inside this session: "
-                 f"{state.learn_runs}" if state.learn_runs else "") +
-                (f"\nHandoff: {state.handoff}" if state.handoff else ""))
-        journal_mod.append_entry(self._tool_context.sandbox_dir
-                                 or self._get_log_dir(),
-                                 f"Session {number}",
-                                 body,
-                                 filename=journal_mod.ATTEMPTS_FILENAME)
-
-    # -- Checkpoint -----------------------------------------------------------
-
-    def _extra_save_state(self) -> Dict[str, Any]:
-        state = super()._extra_save_state()
-        state["continual"] = {
-            "level": self._continual_level,
-            "sessions_played": self._sessions_played,
-            "learn_runs": self._learn_runs,
-            "session_in_flight": self._session_in_flight,
-            "last_handoff": self._last_handoff,
-            "episodes_at_last_learn": self._episodes_at_last_learn,
-            "last_fit_status": self._last_fit_status,
-        }
-        return state
-
-    def _load_extra_save_state(self, save_dict: Dict[str, Any]) -> None:
-        super()._load_extra_save_state(save_dict)
-        cont = save_dict.get("continual") or {}
-        self._continual_level = cont.get("level")
-        self._sessions_played = int(cont.get("sessions_played", 0))
-        self._learn_runs = int(cont.get("learn_runs", 0))
-        self._session_in_flight = bool(cont.get("session_in_flight", False))
-        self._last_handoff = str(cont.get("last_handoff", ""))
-        self._episodes_at_last_learn = int(
-            cont.get("episodes_at_last_learn", 0))
-        self._last_fit_status = str(cont.get("last_fit_status", ""))
-
-
-def _env_names(session: ProtocolSession) -> Set[str]:
-    """The env's own predicate names, which the observation lists first."""
-    return {p.name for p in session.env_predicates}
-
-
-class AgentContinualApproach(ContinualPlayBase,
+class AgentContinualApproach(ContinualPlayMixin,
                              AgentSimPredicateInventionApproach):
     """C1's learner (hybrid simulator, parameter fit, predicate invention)
     playing under the continual protocol."""
@@ -487,6 +63,8 @@ class AgentContinualApproach(ContinualPlayBase,
     @classmethod
     def get_name(cls) -> str:
         return "agent_continual"
+
+    # -- The arm's declarations -------------------------------------------
 
     def _continual_tool_names(self) -> List[str]:
         return ["run_python"] + list(CONTINUAL_TOOL_NAMES)
@@ -500,8 +78,8 @@ class AgentContinualApproach(ContinualPlayBase,
         n_eps, n_steps = self._episode_counts(session)
         return render_learning_status(
             n_learn=self._learn_runs,
-            sim_version=getattr(self, "_current_simulator_version", None),
-            pred_version=getattr(self, "_current_predicates_version", None),
+            sim_version=self._current_simulator_version,
+            pred_version=self._current_predicates_version,
             fit_status=self._last_fit_status,
             n_episodes=n_eps,
             n_steps=n_steps,
@@ -511,6 +89,22 @@ class AgentContinualApproach(ContinualPlayBase,
             self, session: ProtocolSession) -> Optional[Callable[[str], str]]:
         return lambda note: self._learn_now(session, note)
 
+    # -- Parent-specific overrides ---------------------------------------
+
+    def _get_agent_system_prompt(self) -> str:
+        if self._learning_mode:  # a learning session inside a play session
+            return super()._get_agent_system_prompt()
+        return self._play_system_prompt()
+
+    def _extra_save_state(self) -> Dict[str, Any]:
+        state = super()._extra_save_state()
+        state.update(self._continual_save_state())
+        return state
+
+    def _load_extra_save_state(self, save_dict: Dict[str, Any]) -> None:
+        super()._load_extra_save_state(save_dict)
+        self._load_continual_save_state(save_dict)
+
     # -- Learning -----------------------------------------------------------
 
     def _learn_now(self, session: ProtocolSession, note: str) -> str:
@@ -518,67 +112,49 @@ class AgentContinualApproach(ContinualPlayBase,
         summary for the agent.
 
         The learning session is an SDK session of its own, so the play
-        session's manager is parked (not closed: its CLI is waiting on
-        this tool call) and restored afterwards, together with the play
-        tools, the phase and the attempt clock, which is paused for the
+        session's manager is parked, not closed (its CLI is waiting on
+        this tool call), and the attempt clock is paused for the
         learning's duration. The recorded episodes so far, including
         this session's, are the data.
         """
-        ctx = self._tool_context
-        parked = self._agent_session
-        parked_phase = self._agent_session_phase
-        play_tools = list(ctx.extra_mcp_tools or [])
-        play_hooks = dict(ctx.extra_session_hooks or {})
-        clock = (ctx.attempt_start, ctx.attempt_deadline,
-                 ctx.python_call_deadline)
-        # No deadline while the learning session runs: the sandbox
-        # manager's interrupt reads the shared context's deadline.
-        ctx.attempt_deadline = None
-        ctx.python_call_deadline = None
-        self._agent_session = None  # pylint: disable=attribute-defined-outside-init
-        self._agent_session_phase = None
         t0 = time.monotonic()
-        try:
+        with self._tool_context.attempt_clock_paused(), \
+                self._parked_agent_session() as parked:
             self._sync_level_trajectories(session)
             outcome = self._run_learn(session, note)
-        finally:
-            self._close_agent_session()  # the learning session's manager
-            self._agent_session = parked  # pylint: disable=attribute-defined-outside-init
-            self._agent_session_phase = parked_phase
-            ctx.phase = parked_phase
-            ctx.extra_mcp_tools = play_tools
-            ctx.extra_session_hooks = play_hooks
-            (ctx.attempt_start, ctx.attempt_deadline,
-             ctx.python_call_deadline) = clock
-            ctx.pause_attempt_clock(time.monotonic() - t0)
-            if parked is not None:
-                # session_info.json names the play session again, and
-                # the sandbox's data pickle carries the episodes so far.
-                for method in ("save_session_info", "_export_data"):
-                    fn = getattr(parked, method, None)
-                    if fn is not None:
-                        try:
-                            fn()
-                        except Exception as e:  # pylint: disable=broad-except
-                            logging.warning(
-                                "[Continual agent] %s after learning "
-                                "failed: %s", method, e)
+        if parked is not None:
+            self._refresh_play_session(parked)
         n_eps, n_steps = self._episode_counts(session)
         minutes = (time.monotonic() - t0) / 60.0
         return (f"Learning session {self._learn_runs} {outcome} in "
                 f"{minutes:.0f} min over {n_eps} recorded episode(s), "
                 f"{n_steps} steps. Belief model version: "
-                f"{getattr(self, '_current_simulator_version', None)}; "
-                f"predicates version: "
-                f"{getattr(self, '_current_predicates_version', None)}; "
-                f"fit: {self._last_fit_status}. `sim` now serves this model "
-                "in your run_python namespace, and ./data/trajectories.pkl "
-                "is refreshed.")
+                f"{self._current_simulator_version}; predicates version: "
+                f"{self._current_predicates_version}; fit: "
+                f"{self._last_fit_status}. `sim` now serves this model in "
+                "your run_python namespace, and ./data/trajectories.pkl is "
+                "refreshed.")
+
+    @staticmethod
+    def _refresh_play_session(manager: SessionManagerProtocol) -> None:
+        """After a learning session: ``session_info.json`` names the play
+        session again, and the sandbox's data pickle carries the episodes so
+        far (the local sandbox manager exports it; others have no pickle)."""
+        export_data = getattr(manager, "_export_data", None)
+        for name, fn in (("save_session_info", manager.save_session_info),
+                         ("_export_data", export_data)):
+            if fn is None:
+                continue
+            try:
+                fn()
+            except Exception as e:  # pylint: disable=broad-except
+                logging.warning(
+                    "[Continual agent] %s after learning failed: "
+                    "%s", name, e)
 
     def _run_learn(self, session: ProtocolSession, note: str) -> str:
         """Run the inherited learning over every recorded episode; returns the
         outcome (``completed`` or ``failed: ...``)."""
-        self._close_agent_session()
         trajectories = self._get_all_trajectories()
         logging.info(
             "[Continual agent] learning session %d requested (%s) over %d "
@@ -609,9 +185,8 @@ class AgentContinualApproach(ContinualPlayBase,
             f"{time.time() - t0:.0f} s)",
             f"Requested with note: {note or '(none)'}. Trajectories: "
             f"{len(trajectories)}. Simulator version: "
-            f"{getattr(self, '_current_simulator_version', None)}; "
-            f"predicates version: "
-            f"{getattr(self, '_current_predicates_version', None)}.",
+            f"{self._current_simulator_version}; predicates version: "
+            f"{self._current_predicates_version}.",
             filename=journal_mod.ATTEMPTS_FILENAME)
         self.save(session.level_index)
         return outcome
@@ -633,7 +208,8 @@ class AgentContinualApproach(ContinualPlayBase,
                 f"posterior sample(s): {params}")[:600]
 
 
-class AgentContinualModelFreeApproach(ContinualPlayBase):
+class AgentContinualModelFreeApproach(ContinualPlayMixin,
+                                      AgentModelFreeApproach):
     """The model-free baseline of the continual protocol: the env and skill
     tools, the sandbox and the journal, and nothing else.
 
@@ -649,6 +225,8 @@ class AgentContinualModelFreeApproach(ContinualPlayBase):
     def get_name(cls) -> str:
         return "agent_continual_model_free"
 
+    # -- The arm's declarations -------------------------------------------
+
     def _continual_tool_names(self) -> List[str]:
         return [n for n in CONTINUAL_TOOL_NAMES if n != "learn_run"]
 
@@ -659,3 +237,22 @@ class AgentContinualModelFreeApproach(ContinualPlayBase):
         if names is None:
             return set(self._initial_predicates)
         return {p for p in self._initial_predicates if p.name in names}
+
+    def _create_planner_option_model(self) -> Optional[_OptionModelBase]:
+        """No simulator, whatever ``agent_planner_use_simulator`` says: the arm
+        has no ``run_python`` and must never hold a model of the env."""
+        return None
+
+    # -- Parent-specific overrides ---------------------------------------
+
+    def _get_agent_system_prompt(self) -> str:
+        return self._play_system_prompt()
+
+    def _extra_save_state(self) -> Dict[str, Any]:
+        state = super()._extra_save_state()
+        state.update(self._continual_save_state())
+        return state
+
+    def _load_extra_save_state(self, save_dict: Dict[str, Any]) -> None:
+        super()._load_extra_save_state(save_dict)
+        self._load_continual_save_state(save_dict)

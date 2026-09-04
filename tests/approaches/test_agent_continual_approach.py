@@ -152,6 +152,7 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
                 out = _call(approach, "env_step", action=zero)
                 assert "step applied" in out
             ctx = approach._tool_context  # pylint: disable=protected-access
+            assert ctx.current_observation is not None
             parked = approach._agent_session  # pylint: disable=protected-access
             assert parked is not None
             tools_before = list(ctx.extra_mcp_tools)

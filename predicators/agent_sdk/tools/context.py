@@ -97,6 +97,10 @@ class ToolContext:
     parameterized_samplers: Dict[str, ParameterizedSampler] = field(
         default_factory=dict)
     current_task: Optional[Task] = None
+    # The last real observation of the level in progress (continual
+    # play: every env tool result and the session query refresh it), so
+    # ``sim.reset(current=True)`` can start a rollout from it.
+    current_observation: Optional[State] = None
     skill_factory_context: Dict[str, Any] = field(default_factory=dict)
     proposals_disabled: bool = False  # set True during test-time solving
     log_dir: Optional[str] = None
@@ -330,6 +334,29 @@ class ToolContext:
             self.attempt_deadline += seconds
         if self.python_call_deadline is not None:
             self.python_call_deadline += seconds
+
+    @contextmanager
+    def attempt_clock_paused(self) -> Iterator[None]:
+        """Suspend the attempt's wall-clock marks for the block.
+
+        No deadline is armed inside it (the probe, ``run_python`` and
+        the sandbox manager's interrupt all read the deadline), and on
+        exit every mark is pushed forward by the block's duration (see
+        :meth:`pause_attempt_clock`), so the block's time is charged to
+        nothing. Used around a learning session run inside a play
+        session's tool call.
+        """
+        marks = (self.attempt_start, self.attempt_deadline,
+                 self.python_call_deadline)
+        self.attempt_deadline = None
+        self.python_call_deadline = None
+        started = time.monotonic()
+        try:
+            yield
+        finally:
+            (self.attempt_start, self.attempt_deadline,
+             self.python_call_deadline) = marks
+            self.pause_attempt_clock(time.monotonic() - started)
 
     def clear_plan_capture(self) -> None:
         """Clear the four ``solved_plan*`` fields together.

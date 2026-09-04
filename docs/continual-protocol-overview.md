@@ -166,6 +166,7 @@ After the first five-environment results, four decisions landed the same evening
   Both agent arms share one play loop.
 - Learning is in-session: `learn_run` runs a learning session at any point over the episodes so far and returns with the refit model behind `sim`, instead of queueing it for after the session, and the prompt asks the agent to learn early and often.
 - Both agent arms start with no predicates (the runs above gave the model-based arm `Holding`); the allowlist `agent_sim_learn_kept_predicates_names` can hand either arm env predicates, and `["none"]` spells the empty vocabulary explicitly.
+- `sim.reset(current=True)` starts a rollout from the last real observation instead of the level's initial state, and the query now says what `sim` is before the first learning session: the base simulator, the visible physics with the hidden mechanisms stripped.
 
 Open with these: the `--auto_resume` relaunch of the five agent runs and the oracle, and a relaunch of the model-free arm alongside them.
 

@@ -601,15 +601,45 @@ class BeliefProbe:
 
     def reset(self,
               task_idx: Optional[int] = None,
-              mods: Optional[Modifications] = None) -> "BeliefProbe":
+              mods: Optional[Modifications] = None,
+              current: bool = False) -> "BeliefProbe":
         """Set the current state to a task's initial state, optionally with
         object-feature overrides applied to a copy.
 
         ``task_idx`` indexes the train tasks; ``None`` uses the current
-        solve-time task. Returns ``self`` so calls chain.
+        solve-time task. ``current=True`` starts instead from the last
+        real observation the session recorded (every env tool result
+        refreshes it), so a rollout begins where the environment is now;
+        the level's goal stays the task, and evaluator-scored modes
+        (``solved``, ``require_solved``) are off, since they reference
+        the task's true initial state. Returns ``self`` so calls chain.
         """
         ctx = self._ctx
         _check_time_budget(ctx)
+        if current:
+            if task_idx is not None:
+                raise ValueError("current=True starts from the last real "
+                                 "observation; task_idx does not apply.")
+            if ctx.current_observation is None:
+                raise ValueError(
+                    "No real observation has been recorded in this session: "
+                    "call env_observe first, or reset() for the level's "
+                    "initial state.")
+            if ctx.current_task is None:
+                raise ValueError("No current task set.")
+            state = ctx.current_observation
+            if mods:
+                state, _, err = apply_state_modifications(
+                    state, self._normalize_mods(mods))
+                if err:
+                    raise ValueError(err)
+            else:
+                state = state.copy()
+            self._state = state
+            self._base_task = ctx.current_task
+            self._tracking_current_task = True
+            self._pristine = False
+            return self
         if (task_idx is None and ctx.probe_option_model_provider is not None):
             # Synthesis session: "current task" is a solve-time pointer
             # and may dangle at whatever task the harness touched last -
