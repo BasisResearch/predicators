@@ -1,6 +1,8 @@
-"""Tests for the continual-protocol play tools over a real session on the
-cover env, driven directly (no SDK)."""
+"""Tests for the continual-protocol play tools over a real session on the cover
+env, driven directly (no SDK)."""
 import asyncio
+import glob
+import json
 import os
 from typing import Any, Dict, List
 
@@ -15,6 +17,7 @@ from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun, ProtocolSession, RunEnded
 from predicators.run.episode import EpisodeState
+from predicators.settings import CFG
 
 
 class _Driver:
@@ -90,8 +93,8 @@ def _oracle_plan_text(approach: Any, task: Any) -> str:
 
 
 def test_tools_play_a_level_to_a_win(tmp_path: Any) -> None:
-    """observe, list, execute the oracle plan, and the level is won; the
-    win is reported and later charged calls are refused."""
+    """observe, list, execute the oracle plan, and the level is won; the win is
+    reported and later charged calls are refused."""
     env, approach, ctx = _setup(tmp_path)
     seen: Dict[str, Any] = {}
     driver = _Driver()
@@ -113,6 +116,13 @@ def test_tools_play_a_level_to_a_win(tmp_path: Any) -> None:
         assert "episode: WIN" in out
         assert "[ledger]" in out
         assert state.charged_calls == len(plan.splitlines())
+        # Sandbox accounting reaches the card on disk at once.
+        session.record_sandbox("sim_rollouts", 2)
+        cards = glob.glob(os.path.join(CFG.continual_scorecards_dir, "*.json"))
+        assert len(cards) == 1
+        with open(cards[0], "r", encoding="utf-8") as f:
+            on_disk = json.load(f)
+        assert on_disk["levels"][0]["sandbox"]["sim_rollouts"] == 2
         # Charged calls after the win are refused with guidance.
         refused = _call(tools, "skills_invoke", skill=plan.splitlines()[0])
         assert refused.startswith("ERROR") and "already won" in refused
@@ -132,8 +142,8 @@ def test_tools_play_a_level_to_a_win(tmp_path: Any) -> None:
 
 
 def test_tools_divergence_reset_and_errors(tmp_path: Any) -> None:
-    """Expected outcomes, parse errors, game over then reset, learn and
-    end-run requests, and the run-ended path."""
+    """Expected outcomes, parse errors, game over then reset, learn and end-run
+    requests, and the run-ended path."""
     env, approach, ctx = _setup(tmp_path, continual_steps_per_level=6)
     # Plan with the normal horizon, then play under a two-step horizon
     # so the episode ends in GAME_OVER after two skills.
@@ -210,8 +220,8 @@ def test_tools_divergence_reset_and_errors(tmp_path: Any) -> None:
 
 
 def test_parse_plan_lines_and_formatting(tmp_path: Any) -> None:
-    """Plan parsing grounds skills with expected outcomes; the prompt
-    builders render."""
+    """Plan parsing grounds skills with expected outcomes; the prompt builders
+    render."""
     env, approach, ctx = _setup(tmp_path)
     task = env.get_train_tasks()[0].task
     plan = _oracle_plan_text(approach, task)

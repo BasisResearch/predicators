@@ -230,7 +230,37 @@ def liveness(card: Dict[str, Any]) -> Tuple[str, str]:
     age = time.time() - float(card.get("updated_at") or 0)
     if age < LIVE_WINDOW_S:
         return "live", "live"
+    # Between env events the card rests, but an agent in a learning
+    # session keeps writing its transcript and sandbox notes.
+    agent_age = agent_activity_age(str(card.get("run_id") or ""))
+    if agent_age is not None and agent_age < LIVE_WINDOW_S:
+        return "live (agent session)", "live"
     return f"stalled ({fmt_age(card.get('updated_at'))})", "warn"
+
+
+def agent_activity_age(run_id: str) -> Optional[float]:
+    """Seconds since the agent last wrote a transcript, its session id, its
+    journal or attempts record, or a session log; ``None`` without any."""
+    adir = agent_dir(run_id) if run_id else None
+    if adir is None:
+        return None
+    newest = 0.0
+    candidates = [os.path.join(adir, "session_info.json")]
+    for sub in ("", "sandbox", os.path.join("sandbox", "session_logs")):
+        d = os.path.join(adir, sub)
+        try:
+            names = os.listdir(d)
+        except OSError:
+            continue
+        candidates += [
+            os.path.join(d, n) for n in names if n.endswith((".md", ".json"))
+        ]
+    for path in candidates:
+        try:
+            newest = max(newest, os.path.getmtime(path))
+        except OSError:
+            pass
+    return None if newest == 0.0 else time.time() - newest
 
 
 def render_url(render_path: Optional[str]) -> Optional[str]:

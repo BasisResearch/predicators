@@ -672,9 +672,12 @@ class ContinualRun:
         })
 
     def record_sandbox(self, key: str, delta: float) -> None:
-        """Accumulate a sandbox-usage counter on the current level."""
+        """Accumulate a sandbox-usage counter on the current level and write
+        the card: sandbox work happens between env events, and the card on disk
+        is what a viewer reads to tell a working run from a stalled one."""
         _, lv = self._require_level()
         lv.add_sandbox(key, delta)
+        self._card.save(self._card_path)
 
     @property
     def level_index(self) -> int:
@@ -688,8 +691,8 @@ class ContinualRun:
         return lv
 
     def level_episodes(self) -> List[Dict[str, Any]]:
-        """The in-memory episodes of the level in progress, joined with
-        their scorecard records."""
+        """The in-memory episodes of the level in progress, joined with their
+        scorecard records."""
         _, lv = self._require_level()
         records = {ep.index: ep for ep in lv.episodes}
         out = []
@@ -713,8 +716,8 @@ class ContinualRun:
 
     def previous_level_episodes(self,
                                 level_index: int) -> List[Dict[str, Any]]:
-        """A finished level's episodes from its recording (actions lose
-        their skill labels; prefer the arm's own memory when it has it)."""
+        """A finished level's episodes from its recording (actions lose their
+        skill labels; prefer the arm's own memory when it has it)."""
         path = os.path.join(self._rec_root, f"L{level_index + 1:02d}")
         if not os.path.isdir(path):
             return []
@@ -1128,8 +1131,8 @@ class ContinualRun:
 
 
 def _episode_open(runner: EpisodeRunner) -> bool:
-    """Whether the runner's episode is still in progress (a call, so mypy
-    does not narrow the property across the stepping loop)."""
+    """Whether the runner's episode is still in progress (a call, so mypy does
+    not narrow the property across the stepping loop)."""
     return runner.episode_state is EpisodeState.NOT_FINISHED
 
 
@@ -1138,11 +1141,11 @@ def run_continual(env: BaseEnv,
                   offline_dataset: Optional[Dataset] = None) -> RunCard:
     """Entry point from ``run_pipeline``: build the controller and play.
 
-    Under ``--auto_resume`` (``maybe_auto_resume`` found a checkpoint and
-    set ``load_approach``) the approach is loaded from its latest
+    Under ``--auto_resume`` (``maybe_auto_resume`` found a checkpoint
+    and set ``load_approach``) the approach is loaded from its latest
     checkpoint before the run resumes. A learning arm gets the offline
-    dataset through ``prepare_for_continual`` without a learning session:
-    when to learn is the arm's decision.
+    dataset through ``prepare_for_continual`` without a learning
+    session: when to learn is the arm's decision.
     """
     # pylint: disable-next=import-outside-toplevel
     from predicators.run.controllers import create_controller

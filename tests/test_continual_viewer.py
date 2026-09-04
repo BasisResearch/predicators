@@ -213,6 +213,18 @@ def test_agent_sessions_render(tmp_path: Any) -> None:
     assert "&lt;script&gt;" in session and "<script>alert" not in session
     assert "/agent/sandbox/test_images/session_001.png" in session
     assert viewer.fragment(run_id, "session/../../etc/passwd") is None
+    # An old card with fresh agent files is a run in a learning session.
+    label, cls = viewer.liveness({
+        "end_reason": None,
+        "updated_at": 0,
+        "run_id": run_id
+    })
+    assert label == "live (agent session)" and cls == "live"
+    assert viewer.liveness({
+        "end_reason": None,
+        "updated_at": 0,
+        "run_id": "no-such"
+    })[0].startswith("stalled")
     assert viewer.fragment(run_id,
                            "session/999_play_20260904_120000.md") is None
     assert viewer.list_session_logs(run_id)[0]["kind"] == "play"
