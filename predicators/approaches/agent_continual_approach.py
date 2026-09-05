@@ -96,11 +96,21 @@ class AgentContinualApproach(ContinualPlayMixin,
         return self._rounds_played
 
     def _play_system_prompt(self) -> str:
-        from predicators.agent_sdk.play_prompts import \
-            build_play_system_prompt  # pylint: disable=import-outside-toplevel
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.play_prompts import build_model_contract, \
+            build_play_system_prompt
+
+        # The contract of the model files (docs/continual-protocol.md,
+        # 5): the rule signature follows CFG.partially_observable, the
+        # system-identification menu is the base env's.
+        contract = build_model_contract(
+            partially_observable=CFG.partially_observable,
+            physical_params_section=self._physical_params_prompt_section(),
+            declared_params_only=CFG.agent_sim_learn_declared_params_only)
         return build_play_system_prompt(
             self._continual_tool_names(),
-            base_sim_refs=self._base_sim_reference_paths())
+            base_sim_refs=self._base_sim_reference_paths(),
+            model_contract=contract)
 
     def _model_status(self, session: ProtocolSession) -> str:
         n_eps, n_steps = self._episode_counts(session)

@@ -4,14 +4,15 @@ import asyncio
 import glob
 import json
 import os
+import re
 from typing import Any, Dict, List
 
 import pytest
 
 from predicators import utils
 from predicators.agent_sdk.belief_probe import BeliefProbe
-from predicators.agent_sdk.play_prompts import build_play_query, \
-    build_play_system_prompt, render_data_status
+from predicators.agent_sdk.play_prompts import build_model_contract, \
+    build_play_query, build_play_system_prompt, render_data_status
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
     PlayState, build_continual_tools, context_status, format_observation, \
@@ -433,3 +434,47 @@ def test_probe_reset_from_the_current_observation(tmp_path: Any) -> None:
     probe.reset(current=True, mods={block.name: {"pose": 0.456}})
     assert probe.state(block.name)["pose"] == pytest.approx(0.456)
     assert ctx.current_observation.get(block, "pose") == pytest.approx(0.123)
+
+
+_DOMAIN_WORDS = re.compile(
+    r"\b(glue|glued|weld|welded|jug|burner|kettle|domino|fan|bridge|span|"
+    r"leg|busyboard|boil|lamp|button|breaker|coffee|cup)s?\b", re.IGNORECASE)
+
+
+def test_model_contract_is_domain_general_and_only_for_the_model_arm() -> None:
+    """The model arm's prompt carries the contract of its model files, by
+    observability, naming no environment; the model-free arm's has none."""
+    fo = build_model_contract(partially_observable=False)
+    po = build_model_contract(
+        partially_observable=True,
+        physical_params_section="## Base-sim system identification\n- `mu`")
+    for text in (fo, po):
+        assert "## The model files" in text and "## `simulator.py`" in text
+        assert "RESIDUAL_RULES:" in text and "RESIDUAL_FEATURES:" in text
+        assert "cmds.apply_force(ball, (fx, fy, 0.0))" in text
+        assert "`cmds.attach(obj_a, obj_b)`" in text
+        assert "## Writing conditions" in text
+        assert "ParamSpec(name, init_value, lo=None, hi=None" in text
+        assert "LEARNED_PREDICATES: List[Predicate]" in text
+        assert "`sim.predicates()`" in text and "`Wait` terminates" in text
+        assert "__" not in text.replace("__init__", "")
+        assert not _DOMAIN_WORDS.search(text), _DOMAIN_WORDS.search(text)
+    assert "def rule(state, updates, params):" in fo
+    assert "def filling(state, updates, params):" in fo
+    assert "def blowing(state, updates, params, cmds):" in fo
+    assert "## Hidden state" not in fo and "latent" not in fo.lower()
+    assert "system identification" not in fo
+    assert "def rule(state, latent, history, updates, params):" in po
+    assert "def blowing(state, latent, history, updates, params, cmds):" in po
+    assert "## Hidden state" in po and "LATENT_INIT = {}" in po
+    assert "cmds.attach(a, b)" in po and "history[-1][0]" in po
+    assert "latent=None" in po and "- `mu`" in po
+    # Placed after the model section of the model arm's prompt only.
+    system = build_play_system_prompt(["run_python"] +
+                                      list(CONTINUAL_TOOL_NAMES),
+                                      model_contract=po)
+    assert system.index("## Your model") < system.index("## The model files")
+    assert system.index("## The model files") < system.index("## Journal")
+    free = build_play_system_prompt(list(CONTINUAL_TOOL_NAMES),
+                                    model_contract=po)
+    assert "## The model files" not in free and "RESIDUAL_RULES" not in free

@@ -53,15 +53,18 @@ def render_tool_list(tool_names: Iterable[str]) -> str:
     return "\n".join(lines)
 
 
-def build_play_system_prompt(
-    tool_names: Sequence[str], base_sim_refs: Sequence[str] = ()) -> str:
+def build_play_system_prompt(tool_names: Sequence[str],
+                             base_sim_refs: Sequence[str] = (),
+                             model_contract: str = "") -> str:
     """The system prompt of the run's conversation.
 
     The tool surface selects the variant: an arm with ``run_python``
     keeps and uses a belief model in the sandbox (``sim``); the model-
     free arm has neither, and its prompt says so instead of describing
     tools it does not have. ``base_sim_refs`` are the read-only base-
-    simulator source paths, listed for the model arm.
+    simulator source paths, listed for the model arm, and
+    ``model_contract`` is the rendered contract of its model files
+    (:func:`build_model_contract`), placed after the model section.
     """
     names = set(tool_names)
     model = "run_python" in names
@@ -82,12 +85,57 @@ def build_play_system_prompt(
             "base_sim_refs",
             ref_listing="\n".join(f"  - {r}" for r in base_sim_refs)))
         sections.append(render("play_system", "model", base_sim_refs=refs))
+        if model_contract:
+            sections.append(model_contract)
     sections += [
         render("play_system", "journal"),
         render("play_system", "context"),
         render("play_system", "principles" + variant),
     ]
     return "\n\n".join(sections)
+
+
+def build_model_contract(
+    *,
+    partially_observable: bool,
+    physical_params_section: str = "",
+    declared_params_only: bool = False,
+) -> str:
+    """The contract of the model files, for the model arm's system prompt
+    (``play_model_contract.md``).
+
+    ``partially_observable`` selects the recurrent rule signature and
+    adds the hidden-state section and the latent-aware classifier note.
+    ``physical_params_section`` is the rendered system-identification
+    section, from ``render_physical_params_section`` in the learn prompt
+    module; empty when the env reveals no tunable physics.
+    ``declared_params_only`` adds the learn prompt's no-estimation
+    section, since the probe then refuses to fit.
+    """
+    rule_args = ("state, latent, history, updates, params"
+                 if partially_observable else "state, updates, params")
+    latch_home = ("the `latent` block (see \"Hidden state\")"
+                  if partially_observable else "a feature the rules own")
+    parts = [
+        render("play_model_contract", "intro"),
+        render("play_model_contract", "simulator", rule_args=rule_args),
+        render("play_model_contract",
+               "processes",
+               rule_args=rule_args,
+               latch_home=latch_home),
+        render("play_model_contract", "gates"),
+    ]
+    if partially_observable:
+        parts.append(render("play_model_contract", "hidden_state"))
+    parts.append(render("play_model_contract", "paramspec"))
+    if physical_params_section:
+        parts.append(physical_params_section)
+    if declared_params_only:
+        parts.append(render("learn_system", "declared_params"))
+    parts.append(render("play_model_contract", "predicates"))
+    if partially_observable:
+        parts.append(render("play_model_contract", "predicates_latent"))
+    return "\n\n".join(p.strip("\n") for p in parts)
 
 
 def render_data_status(*, n_episodes: int, n_steps: int) -> str:
