@@ -135,7 +135,7 @@ def moving_feature_scope(
 # replaces it rather than left to discover a silently absent tool.
 _NO_ESTIMATION_NOTE = (
     "{what} is unavailable: parameter estimation is disabled in this "
-    "run. Every ParamSpec / PHYSICAL_PARAMS entry is used exactly as "
+    "run. Every ParamSpec / PHYSICAL_PARAM_SPECS entry is used exactly as "
     "declared - init_value as the point estimate, [lo, hi] as the "
     "plausible interval the validation gate and the exploration "
     "ensemble sample from. Choose them from your knowledge of the "
@@ -186,7 +186,7 @@ def create_synthesis_tools(
     * ``fit_runner`` (not a tool; bound as ``sim.fit``) — SSE of the
       current ``RESIDUAL_RULES`` at init_value params, plus post-fit
       SSE and fitted values; the joint rollout system-ID path when
-      ``PHYSICAL_PARAMS`` is declared; exploratory ``traj_idxs`` /
+      ``PHYSICAL_PARAM_SPECS`` is declared; exploratory ``traj_idxs`` /
       ``fixed`` variants that publish nothing.
     * ``residuals_runner`` (not a tool; bound as ``sim.residuals``) —
       per-feature breakdown of where the current rules disagree with
@@ -290,11 +290,12 @@ def create_synthesis_tools(
         ``latent_init`` is the optional ``LATENT_INIT`` export (``None``
         for fully- observable simulators) — the synthesis tools need it
         to score recurrent (5-arg) rules through the latent-threaded
-        path. ``physical_specs`` is the optional ``PHYSICAL_PARAMS``
-        export (system identification); when present, a physics-only
-        artifact is valid and missing rules/specs default to empty
-        lists. Snapshots are deduped by SHA256, so repeated calls on
-        unchanged content reuse the prior ``cycle_XXX_vers_YYY`` tag.
+        path. ``physical_specs`` is the optional
+        ``PHYSICAL_PARAM_SPECS`` export (system identification); when
+        present, a physics-only artifact is valid and missing
+        rules/specs default to empty lists. Snapshots are deduped by
+        SHA256, so repeated calls on unchanged content reuse the prior
+        ``cycle_XXX_vers_YYY`` tag.
         """
         raw, version_tag, err = _snapshotter.snapshot(path)
         if err is not None:
@@ -354,7 +355,7 @@ def create_synthesis_tools(
         """Joint physical+rule system-ID fit on free-running rollouts.
 
         Reached from ``run_fit`` (``sim.fit``) when the artifact
-        declares ``PHYSICAL_PARAMS``. Needs the bound approach for the
+        declares ``PHYSICAL_PARAM_SPECS``. Needs the bound approach for the
         raw (states, actions) trajectories and the dedicated headless
         fit env. With ``traj_idxs=None`` (canonical) the identified
         physical values are applied in place to the approach's planning
@@ -366,8 +367,8 @@ def create_synthesis_tools(
         """
         if approach is None:
             return (f"[{version_tag}] Error: the rollout fit "
-                    "(PHYSICAL_PARAMS / command-emitting rules) requires a "
-                    "bound approach (raw trajectories + base env) — "
+                    "(PHYSICAL_PARAM_SPECS / command-emitting rules) requires "
+                    "a bound approach (raw trajectories + base env) — "
                     "unavailable in this session.")
         exploratory = traj_idxs is not None
         if exploratory and not traj_idxs:
@@ -385,10 +386,11 @@ def create_synthesis_tools(
         except ValueError as e:
             return f"[{version_tag}] Error: {e}"
         if not rollouts:
-            return (f"[{version_tag}] Error: no complete (states, actions) "
-                    "trajectories are available, so the rollout system-ID fit "
-                    "cannot run. PHYSICAL_PARAMS needs full trajectories, not "
-                    "isolated transitions.")
+            return (
+                f"[{version_tag}] Error: no complete (states, actions) "
+                "trajectories are available, so the rollout system-ID fit "
+                "cannot run. PHYSICAL_PARAM_SPECS needs full trajectories, "
+                "not isolated transitions.")
         # Factory, not an instance: every rollout runs in a fresh env.
         fit_env = approach._get_rollout_fit_env()  # pylint: disable=protected-access
         physical_names = [s.name for s in physical_specs]
@@ -530,7 +532,7 @@ def create_synthesis_tools(
         mode_note = (
             f"EXPLORATORY, trajectories {sorted(traj_idxs or [])} only"
             if exploratory else "canonical")
-        fit_reason = ("PHYSICAL_PARAMS declared"
+        fit_reason = ("PHYSICAL_PARAM_SPECS declared"
                       if physical_specs else "command-emitting rules")
         lines = [
             f"[{version_tag}] JOINT ROLLOUT SYSTEM-ID FIT ({fit_reason}; "
@@ -591,7 +593,7 @@ def create_synthesis_tools(
             "",
             "Identifiability (posterior_std / prior_std; ~1 means the data "
             "did NOT constrain the parameter — its fitted value is "
-            "arbitrary, so remove it from PHYSICAL_PARAMS or collect data "
+            "arbitrary, so remove it from PHYSICAL_PARAM_SPECS or collect data "
             "that exercises it):",
             format_identifiability(ident_report),
             "",
@@ -691,7 +693,7 @@ def create_synthesis_tools(
 
         The backend behind ``sim.fit``. With no arguments this is the
         CANONICAL fit - the same data/fit the probe deploys - and, when
-        the file declares PHYSICAL_PARAMS, the identified physical
+        the file declares PHYSICAL_PARAM_SPECS, the identified physical
         values are applied to the planning base env. Any argument makes
         the fit EXPLORATORY: a diagnostic report only, publishing and
         applying nothing.
@@ -701,7 +703,7 @@ def create_synthesis_tools(
         the system-ID path - a consistency diagnostic across
         trajectories). ``fixed`` pins parameters at given values while
         the rest are fit (rule paths only - the system-ID path rejects
-        it; narrow the param's bounds in PHYSICAL_PARAMS instead). Each
+        it; narrow the param's bounds in PHYSICAL_PARAM_SPECS instead). Each
         call snapshots the simulator file into simulator_versions/ and
         tags output ``[cycle_XXX_vers_YYY]``.
         """
@@ -719,7 +721,7 @@ def create_synthesis_tools(
                       "inferred (RESIDUAL_FEATURES not declared)")
         canonical = traj_idxs is None and not fixed
 
-        # PHYSICAL_PARAMS declared, or rules on the physics-command
+        # PHYSICAL_PARAM_SPECS declared, or rules on the physics-command
         # channel (a ``cmds`` parameter) -> joint system-identification
         # fit on free-running rollouts (the per-transition /
         # teacher-forced paths below cannot see physical params - State
@@ -727,11 +729,11 @@ def create_synthesis_tools(
         # only exist through engine stepping).
         # traj_idxs is allowed (exploratory subset fit; applies nothing);
         # fixed is not - pinning a physical param has a versioned channel
-        # already (its lo/hi bounds in the PHYSICAL_PARAMS declaration).
+        # already (its lo/hi bounds in the PHYSICAL_PARAM_SPECS declaration).
         if physical_specs or has_physics_rules(rules):
             if fixed:
                 return (f"[{version_tag}] Error: fixed is not supported "
-                        "with the rollout fit (PHYSICAL_PARAMS or "
+                        "with the rollout fit (PHYSICAL_PARAM_SPECS or "
                         "command-emitting rules). Pin a param by narrowing "
                         "its lo/hi bounds in the declaration instead "
                         "(versioned in simulator.py, respected by the "
@@ -901,7 +903,7 @@ def create_synthesis_tools(
           absolute rollout SSE is meaningless under chaotic replay
           divergence, but "the same data is explained N times better at
           a different friction" is exactly the evidence the
-          PHYSICAL_PARAMS declaration decision needs - evidence the
+          PHYSICAL_PARAM_SPECS declaration decision needs - evidence the
           teacher-forced report structurally cannot surface
           (run_20260728_111805 declined to declare on near-zero
           per-step residuals while the open-loop SSE ratio on the same
@@ -1061,7 +1063,7 @@ def create_synthesis_tools(
                         f"The data is {better:.1f}x better explained at "
                         "this point than at the baseline - strong evidence "
                         "FOR declaring the overridden parameter(s) in "
-                        "PHYSICAL_PARAMS.")
+                        "PHYSICAL_PARAM_SPECS.")
                 elif worse >= ratio_bar:
                     lines.append(
                         f"The data is {worse:.1f}x WORSE explained at "
@@ -1128,7 +1130,7 @@ def create_synthesis_tools(
                                    f"explained at {cands[best_i]:.4g} than "
                                    "at the baseline - strong evidence FOR "
                                    "declaring this parameter in "
-                                   "PHYSICAL_PARAMS")
+                                   "PHYSICAL_PARAM_SPECS")
                     elif spread < ratio_bar:
                         verdict = ("flat across the range - this data "
                                    "cannot constrain it (declaring it "
@@ -1160,7 +1162,7 @@ def create_synthesis_tools(
                 "SSE never reaches 0 even at perfect parameters - compare "
                 "ratios, not absolutes (the run's consistency bar is "
                 f"{ratio_bar:g}x). A parameter materially better at "
-                "another value belongs in PHYSICAL_PARAMS so the "
+                "another value belongs in PHYSICAL_PARAM_SPECS so the "
                 "system-ID fit can calibrate it; a flat sweep means this "
                 "data cannot distinguish values.",
             ])
@@ -1183,7 +1185,7 @@ def create_synthesis_tools(
                 "sweep each named parameter alone across its box, or "
                 "phys_params={name: value} to score one hypothesized "
                 "point. Consult a sweep BEFORE deciding the "
-                "PHYSICAL_PARAMS declaration, in either direction: 'this "
+                "PHYSICAL_PARAM_SPECS declaration, in either direction: 'this "
                 "data is explained Nx better at a different value' is the "
                 "open-loop evidence the declaration needs, and a flat "
                 "sweep is honest evidence the data cannot constrain a "

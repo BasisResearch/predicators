@@ -764,7 +764,7 @@ class BeliefProbe:
         model is fixed). With no arguments this is the CANONICAL fit -
         the same fit the probe deploys for ``run``/``refine``, on the
         full data - and, when ``simulator.py`` declares
-        ``PHYSICAL_PARAMS``, the identified physical values are applied
+        ``PHYSICAL_PARAM_SPECS``, the identified physical values are applied
         to the planning base env. Passing ``traj_idxs`` (fit only those
         trajectories' data) or ``fixed`` (pin parameters at given
         values) makes the fit EXPLORATORY: a diagnostic report only -
@@ -772,7 +772,7 @@ class BeliefProbe:
         the canonical fit. On the system-ID path ``traj_idxs`` is a
         cross-trajectory consistency check (subset fits that disagree
         mean heterogeneous data); ``fixed`` is rejected there - pin by
-        narrowing the param's bounds in PHYSICAL_PARAMS. Reports SSE at
+        narrowing the param's bounds in PHYSICAL_PARAM_SPECS. Reports SSE at
         init vs post-fit, fitted values with deltas, and (system-ID
         path) per-parameter identifiability. MCMC - the expensive probe
         call; use deliberately.
@@ -881,7 +881,7 @@ class BeliefProbe:
         replay of each recorded trajectory (errors compound, which the
         teacher-forced default structurally cannot see). It is the only
         residual view that can implicate or exonerate a physical
-        parameter; consult it before deciding the ``PHYSICAL_PARAMS``
+        parameter; consult it before deciding the ``PHYSICAL_PARAM_SPECS``
         declaration either way. Two mutually exclusive opt-ins probe
         the parameters themselves:
 

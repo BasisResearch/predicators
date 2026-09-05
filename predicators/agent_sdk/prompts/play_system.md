@@ -126,7 +126,7 @@ you write and edit with `Write` and `Edit`:
 
 - `./simulator.py`: residual dynamics on top of the base simulator
   (`RESIDUAL_RULES`, `PARAM_SPECS`, `RESIDUAL_FEATURES`, optionally
-  `PHYSICAL_PARAMS` and `LATENT_INIT`).
+  `PHYSICAL_PARAM_SPECS` and `LATENT_INIT`).
 - `./predicates.py`: the predicates you invent (`LEARNED_PREDICATES`),
   the only atoms an observation will ever show you.
 

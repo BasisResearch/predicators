@@ -474,9 +474,9 @@ def read_latent_init(ns: Mapping[str, Any]) -> Optional[Any]:
 
 
 def read_physical_param_specs(ns: Mapping[str, Any]) -> Optional[List]:
-    """Pull ``PHYSICAL_PARAMS`` (optional) from a simulator namespace.
+    """Pull ``PHYSICAL_PARAM_SPECS`` (optional) from a simulator namespace.
 
-    ``PHYSICAL_PARAMS`` declares base-sim physical parameters to identify —
+    ``PHYSICAL_PARAM_SPECS`` declares base-sim physical parameters to identify —
     a sparse subset of what the env reveals via
     ``get_physical_param_info()`` — as a list of ``ParamSpec`` (init value
     = the agent's hypothesis, bounds from the revealed info), **or** a
@@ -485,9 +485,11 @@ def read_physical_param_specs(ns: Mapping[str, Any]) -> Optional[List]:
     ``PARAM_SPECS`` against free-running base-sim rollouts
     (:mod:`predicators.code_sim_learning.physical_sysid`), and a
     physics-only artifact (no ``RESIDUAL_RULES``) becomes valid. Returns
-    ``None`` if absent or malformed.
+    ``None`` if absent or malformed. ``PHYSICAL_PARAMS``, the export's
+    name until 2026-09-05, is still read, so files written under it
+    load unchanged.
     """
-    specs = ns.get("PHYSICAL_PARAMS")
+    specs = ns.get("PHYSICAL_PARAM_SPECS", ns.get("PHYSICAL_PARAMS"))
     if callable(specs):
         specs = specs()
     if not isinstance(specs, list) or not specs:
@@ -500,7 +502,7 @@ def stamp_physical_spec_scales(specs: List, base_env: Any) -> List:
 
     The env's ``get_physical_param_info()`` is the source of truth for
     which parameters are scale-like (fitted in log-space): agents copy
-    name/init/bounds into their ``PHYSICAL_PARAMS`` but may omit
+    name/init/bounds into their ``PHYSICAL_PARAM_SPECS`` but may omit
     ``scale``, and a silently-linear friction fit has no grid resolution
     at the low end of a decades-spanning box (measured: fitted 0.0114
     for a true 0.1 on run_20260706_171526). A registry entry that

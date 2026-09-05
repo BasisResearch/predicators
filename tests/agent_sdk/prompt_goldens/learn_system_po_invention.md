@@ -57,7 +57,7 @@ Commands act during the next env action and then expire, so re-emit them on ever
 
 Choosing the channel, in order:
 
-1. The base sim already produces the motion but quantitatively off (bodies move on replay, with drifting angles or timing): the mechanism lives in the engine and the error is a function of its physical parameters. Declare `PHYSICAL_PARAMS` and write no rule for it.
+1. The base sim already produces the motion but quantitatively off (bodies move on replay, with drifting angles or timing): the mechanism lives in the engine and the error is a function of its physical parameters. Declare `PHYSICAL_PARAM_SPECS` and write no rule for it.
 2. A body moves in the data but is inert in base-sim replay whenever some observable condition holds: the mechanism is missing, an influence the engine knows nothing about. Model it with force or velocity commands gated on the condition. If the missing mechanism is that two bodies move together rigidly after an event, the command is `cmds.attach`, not a pose rule.
 3. The feature is not a rigid-body pose at all (a level, a temperature, a counter): use the feature-update channel.
 
