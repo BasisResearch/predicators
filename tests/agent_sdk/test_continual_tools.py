@@ -119,13 +119,12 @@ def test_tools_play_a_level_to_a_win(tmp_path: Any) -> None:
         assert "[your predicates]" not in obs
         assert "IsBlock(" in obs.split("[atoms]")[1].split("\n")[0]
         # The tool subset an arm declares is what it gets.
-        subset = build_continual_tools(
-            ctx,
-            session,
-            state,
-            save_render=lambda tag: None,
-            tool_names=["env_observe", "session_end"])
-        assert [t.name for t in subset] == ["env_observe", "session_end"]
+        subset = build_continual_tools(ctx,
+                                       session,
+                                       state,
+                                       save_render=lambda tag: None,
+                                       tool_names=["env_observe", "handoff"])
+        assert [t.name for t in subset] == ["env_observe", "handoff"]
         listing = _call(tools, "skills_list")
         assert "PickPlace" in listing and "One skill per line" in listing
         plan = _oracle_plan_text(approach, session.observe().level.task)
@@ -148,9 +147,9 @@ def test_tools_play_a_level_to_a_win(tmp_path: Any) -> None:
         refused = _call(tools, "env_reset", note="again")
         assert "already won" in refused
         assert "WIN" in _call(tools, "env_observe")
-        ended = _call(tools, "session_end", handoff="won it")
-        assert "Session ended" in ended
-        assert state.session_ended and state.handoff == "won it"
+        ended = _call(tools, "handoff", note="won it")
+        assert "Handed off" in ended
+        assert state.handed_off and state.handoff == "won it"
         assert "has ended" in _call(tools, "env_observe")
         seen["ok"] = True
 
@@ -212,8 +211,8 @@ def test_tools_divergence_reset_and_errors(tmp_path: Any) -> None:
         out = _call(tools, "env_step", action=[0.5])
         assert "step applied" in out
         # The run end is queued, never executed by the tool.
-        assert "Run end requested" in _call(tools, "env_end_run", note="stop")
-        assert state.pending_end_run == "stop"
+        assert "Give-up recorded" in _call(tools, "give_up", note="stop")
+        assert state.pending_give_up == "stop"
         # The step cap (6 per level, 2 levels = 12) is hit inside a tool:
         # the tool reports it and records the run end for the arm.
         for _ in range(40):
@@ -238,7 +237,7 @@ def test_tools_divergence_reset_and_errors(tmp_path: Any) -> None:
 
 def test_tools_on_a_level_without_resets(tmp_path: Any) -> None:
     """On a test level env_reset is refused without a charge, GAME_OVER ends
-    the level as lost, and later charged calls point at session_end."""
+    the level as lost, and later charged calls point at handoff."""
     env, approach, ctx = _setup(tmp_path)
     seen: Dict[str, Any] = {}
     driver = _Driver()
@@ -264,10 +263,10 @@ def test_tools_on_a_level_without_resets(tmp_path: Any) -> None:
         assert session.level_card().steps == 0
         assert "step applied" in _call(tools, "env_step", action=[0.5])
         out = _call(tools, "env_step", action=[0.5])
-        assert "GAME_OVER" in out and "lost" in out and "session_end" in out
+        assert "GAME_OVER" in out and "lost" in out and "handoff" in out
         assert session.level_card().lost
         refused = _call(tools, "env_step", action=[0.5])
-        assert refused.startswith("ERROR") and "session_end" in refused
+        assert refused.startswith("ERROR") and "handoff" in refused
         assert "env_reset" not in refused
         refused = _call(tools, "env_reset", note="again")
         assert refused.startswith("ERROR") and "lost" in refused
@@ -318,7 +317,7 @@ def test_parse_plan_lines_and_formatting(tmp_path: Any) -> None:
     assert "`sim`" not in free and "## Your model" not in free
     assert "simulator.py" not in free
     assert "no learned model" in free
-    assert "`session_end`" in free and "./data/trajectories.pkl" in free
+    assert "`handoff`" in free and "./data/trajectories.pkl" in free
     data = render_data_status(n_episodes=3, n_steps=40)
     assert "no belief model" in data and "3 (40 steps)" in data
     assert "Skill grammar" in system and "./test_images/" in system

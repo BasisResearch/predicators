@@ -23,9 +23,9 @@ TOOL_BLURBS = {
     "restart the current level from its initial state. One step and "
     "one reset, and a last resort. The only valid action after "
     "GAME_OVER on a level with resets.",
-    "env_end_run":
-    "end the run for this environment (takes effect when the session "
-    "ends). Forfeits every remaining level; a last resort.",
+    "give_up":
+    "give up: end the run for this environment and forfeit every "
+    "remaining level (takes effect when the session ends). A last resort.",
     "skills_list":
     "the skill library: signatures, parameter meanings and ranges. Free.",
     "skills_invoke":
@@ -38,8 +38,9 @@ TOOL_BLURBS = {
     "run_python":
     "code in the sandbox with the `sim` probe over your model files "
     "(`sim.fit`, `sim.residuals`, `sim.run`, `sim.refine`, ...). Free.",
-    "session_end":
-    "end this session with a handoff note for the next one.",
+    "handoff":
+    "hand off to a fresh context: end this session with a note the next "
+    "session starts from.",
 }
 
 

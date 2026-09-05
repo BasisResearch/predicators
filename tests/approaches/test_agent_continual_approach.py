@@ -156,16 +156,16 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
                 out = _call(approach, "env_step", action=zero)
                 assert "step applied" in out
             assert ctx.current_observation is not None
-            assert "Session ended" in _call(approach,
-                                            "session_end",
-                                            handoff="stepped three times")
+            assert "Handed off" in _call(approach,
+                                         "handoff",
+                                         note="stepped three times")
         else:
             assert "session 2 of the run" in message
             assert "stepped three times" in message
-            assert "Run end requested" in _call(approach,
-                                                "env_end_run",
-                                                note="enough")
-            _call(approach, "session_end", handoff="bye")
+            assert "Give-up recorded" in _call(approach,
+                                               "give_up",
+                                               note="enough")
+            _call(approach, "handoff", note="bye")
         return _result()
 
     approach._query_agent_sync = fake_query  # type: ignore[method-assign]  # pylint: disable=protected-access
@@ -220,7 +220,7 @@ def test_play_loop_stops_at_a_lost_test_level(tmp_path: Any) -> None:
         assert "GAME_OVER" in out and "lost" in out
         refused = _call(approach, "env_reset", note="again")
         assert refused.startswith("ERROR") and "lost" in refused
-        _call(approach, "session_end", handoff="lost it")
+        _call(approach, "handoff", note="lost it")
         return _result()
 
     approach._query_agent_sync = fake_query  # type: ignore[method-assign]  # pylint: disable=protected-access
@@ -252,7 +252,7 @@ def test_resume_reads_the_session_id_and_idle_guard(tmp_path: Any) -> None:
         del kwargs
         mgr = approach._agent_session  # pylint: disable=protected-access
         resumed.append((mgr.resume_session_id, "preemption" in message))
-        _call(approach, "session_end", handoff="idle")
+        _call(approach, "handoff", note="idle")
         return _result()
 
     approach._query_agent_sync = fake_query  # type: ignore[method-assign]  # pylint: disable=protected-access

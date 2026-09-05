@@ -2209,8 +2209,9 @@ def session_fragment(key: str, name: str) -> Optional[str]:
         for call in turn.calls:
             short = call.short_name
             cls = "call envtool" if short in tr.ENV_TOOLS or short in (
-                "env_observe", "learn_run", "session_end", "env_end_run",
-                "run_python", "skills_list") else "call"
+                "env_observe", "learn_run", "handoff", "session_end",
+                "give_up", "env_end_run", "run_python",
+                "skills_list") else "call"
             parts.append(f"<div class='{cls}'><span class='name'>"
                          f"{esc(short)}</span>")
             for arg, val in call.args.items():

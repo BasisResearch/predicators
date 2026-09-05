@@ -36,11 +36,11 @@ CONTINUAL_TOOL_NAMES = [
     "env_observe",
     "env_step",
     "env_reset",
-    "env_end_run",
+    "give_up",
     "skills_list",
     "skills_invoke",
     "skills_execute_plan",
-    "session_end",
+    "handoff",
 ]
 
 GRAMMAR = (
@@ -52,8 +52,8 @@ GRAMMAR = (
 @dataclass
 class PlayState:
     """What the tools record for the arm to act on after the query."""
-    pending_end_run: Optional[str] = None
-    session_ended: bool = False
+    pending_give_up: Optional[str] = None
+    handed_off: bool = False
     handoff: str = ""
     run_ended: Optional[Tuple[str, str]] = None
     charged_calls: int = 0
@@ -112,13 +112,13 @@ def format_observation(obs: "ProtocolObservation",
     if obs.state is EpisodeState.GAME_OVER and not obs.ledger.resets_allowed:
         lines.append(f"[episode] GAME_OVER ({obs.reason}); this level has "
                      "no resets, so it is over and lost. Write your notes "
-                     "and call session_end.")
+                     "and call handoff.")
     elif obs.state is EpisodeState.GAME_OVER:
         lines.append(f"[episode] GAME_OVER ({obs.reason}); only env_reset "
                      "is valid now.")
     elif obs.state is EpisodeState.WIN:
         lines.append("[episode] WIN: the level is won. Write your notes "
-                     "and call session_end.")
+                     "and call handoff.")
     else:
         lines.append("[episode] NOT_FINISHED")
     spec = obs.level
@@ -239,7 +239,7 @@ def build_continual_tools(
         CONTINUAL_TOOL_NAMES)
 
     def _ended() -> Optional[Dict[str, Any]]:
-        if state.session_ended:
+        if state.handed_off:
             return _error_result("This session has ended. Stop calling "
                                  "tools.")
         if state.run_ended is not None:
@@ -267,31 +267,30 @@ def build_continual_tools(
         if isinstance(e, LevelAlreadyWon):
             return _error_result("The level is already won; nothing more "
                                  "can be charged on it. Write your notes "
-                                 "and call session_end." + _footer())
+                                 "and call handoff." + _footer())
         if isinstance(e, LevelLost):
             return _error_result("The level is lost: its episode ended in "
                                  "GAME_OVER and this level has no resets, "
                                  "so nothing more can be charged on it. "
-                                 "Write your notes and call session_end." +
+                                 "Write your notes and call handoff." +
                                  _footer())
         if isinstance(e, ResetUnavailable):
             return _error_result(f"{e}. Nothing was charged. Continue the "
                                  "episode; if it ends in GAME_OVER, write "
-                                 "your notes and call session_end." +
-                                 _footer())
+                                 "your notes and call handoff." + _footer())
         if isinstance(e, EpisodeOver):
             if _resets_allowed():
                 return _error_result(f"{e}. Call env_reset to start a new "
                                      "episode." + _footer())
             return _error_result(f"{e}. This level has no resets, so it "
                                  "is over. Write your notes and call "
-                                 "session_end." + _footer())
+                                 "handoff." + _footer())
         if isinstance(e, RunEnded):
             state.run_ended = (e.reason, e.note)
             return _error_result(f"RUN ENDED: {e.reason}"
                                  f"{': ' + e.note if e.note else ''}. No "
                                  "further environment interaction is "
-                                 "possible. Call session_end.")
+                                 "possible. Call handoff.")
         logging.exception("[continual tools] unexpected error")
         return _error_result(f"Error: {type(e).__name__}: {e}" + _footer())
 
@@ -396,9 +395,9 @@ def build_continual_tools(
             return _protocol_error(e)
 
     @tool(
-        "env_end_run",
-        "End the run for this environment. Takes effect when this "
-        "session ends; every remaining level is forfeited. A last "
+        "give_up",
+        "Give up: end the run for this environment and forfeit every "
+        "remaining level. Takes effect when this session ends. A last "
         "resort.", {
             "type": "object",
             "properties": {
@@ -409,14 +408,14 @@ def build_continual_tools(
             },
             "required": ["note"],
         })
-    async def env_end_run(args: Dict[str, Any]) -> Dict[str, Any]:
+    async def give_up(args: Dict[str, Any]) -> Dict[str, Any]:
         ended = _ended()
         if ended is not None:
             return ended
-        state.pending_end_run = str(args.get("note", "")) or "agent ended"
-        return _text_result("Run end requested. It takes effect when this "
-                            "session ends: write your notes and call "
-                            "session_end.")
+        state.pending_give_up = str(args.get("note", "")) or "agent gave up"
+        return _text_result("Give-up recorded. It takes effect when this "
+                            "session ends and forfeits every remaining "
+                            "level: write your notes and call handoff.")
 
     @tool("skills_list",
           "The skill library: typed signatures, parameter meanings and "
@@ -544,34 +543,35 @@ def build_continual_tools(
             return _protocol_error(e)
 
     @tool(
-        "session_end",
-        "End this session. Give a handoff note: what you did, what you "
-        "believe, and what the next session should do first. The "
-        "journal is the durable memory; the handoff is the bridge.", {
+        "handoff",
+        "Hand off to a fresh context: end this session, and the next one "
+        "opens on the journal, the current observation and your note. "
+        "Say what you did, what you believe, and what to do first. The "
+        "journal is the durable memory; the note is the bridge.", {
             "type": "object",
             "properties": {
-                "handoff": {
+                "note": {
                     "type": "string",
                     "description": "the handoff note"
                 }
             },
-            "required": ["handoff"],
+            "required": ["note"],
         })
-    async def session_end(args: Dict[str, Any]) -> Dict[str, Any]:
-        state.session_ended = True
-        state.handoff = str(args.get("handoff", ""))
-        return _text_result("Session ended. Stop now; do not call any "
-                            "more tools.")
+    async def handoff(args: Dict[str, Any]) -> Dict[str, Any]:
+        state.handed_off = True
+        state.handoff = str(args.get("note", ""))
+        return _text_result("Handed off. Stop now; do not call any more "
+                            "tools; the next session starts from your note.")
 
     all_tools = {
         "env_observe": env_observe,
         "env_step": env_step,
         "env_reset": env_reset,
-        "env_end_run": env_end_run,
+        "give_up": give_up,
         "skills_list": skills_list,
         "skills_invoke": skills_invoke,
         "skills_execute_plan": skills_execute_plan,
-        "session_end": session_end,
+        "handoff": handoff,
     }
     return [all_tools[n] for n in CONTINUAL_TOOL_NAMES if n in wanted]
 

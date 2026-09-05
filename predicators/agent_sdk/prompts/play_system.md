@@ -210,14 +210,14 @@ hypotheses you have not verified, marked as such.
 <!-- section: session -->
 ## Sessions
 
-A session is one context window. End it with `session_end` and a
-handoff note when you have done a coherent unit of work, when the
-level is won, or when you are running out of context. If a level is
-won, say so and stop: the
-harness advances to the next level and starts a new session there. If
-you decide the run should stop, call `env_end_run`; it ends the run
-for this environment and forfeits every remaining level, so it is a
-last resort.
+A session is one context window. End it with `handoff` when you have
+done a coherent unit of work, when the level is won, or when you are
+running out of context: the next session opens on a fresh context over
+the journal, the current observation and your handoff note. If a
+level is won, say so and hand off: the harness advances to the next
+level and starts a new session there. If you decide to give up, call
+`give_up`; it ends the run for this environment and forfeits every
+remaining level, so it is a last resort.
 
 <!-- section: principles -->
 ## Principles

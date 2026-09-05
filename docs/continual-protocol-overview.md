@@ -75,7 +75,7 @@ The figure we expect to show is the cumulative steps versus levels won curve.
 - `random_primitives`: uniformly random low-level actions.
 - `random_skills`: random skill invocations with random parameters.
 - `agent_continual`: our agent, using the C1 learner (hybrid simulator synthesis, parameter fit, predicate invention).
-  It plays through sessions, each a fresh context over its journal, with tools `env_observe`, `env_step`, `env_reset`, `env_end_run`, `skills_list`, `skills_invoke`, `skills_execute_plan`, `session_end` and `run_python`.
+  It plays through sessions, each a fresh context over its journal, with tools `env_observe`, `env_step`, `env_reset`, `give_up`, `skills_list`, `skills_invoke`, `skills_execute_plan`, `handoff` and `run_python`.
   Every observation carries the object features, the atoms in its predicate vocabulary, and a render it can look at.
   It starts with no predicates: the goal is its natural-language description, and the predicates it invents as it learns are the only atoms it sees.
   There is no separate learning session: the same play session that acts also writes `simulator.py` and `predicates.py`, fits them with `sim.fit`, and validates plans with `sim.run` / `sim.refine`, all in `run_python`.

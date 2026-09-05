@@ -74,8 +74,8 @@ Decide what to do next and do it with the tools. Read the observation
 and the ledger before you act. Test in the sandbox what the sandbox
 can answer. When you act in the environment, annotate the expected
 outcome. Update `./journal.md` before you end the session, and end it
-with `session_end` and a handoff note. If the level is already won,
-write your notes and end the session.
+with `handoff` and a note for the next session. If the level is already
+won, write your notes and hand off.
 
 <!-- section: no_journal -->
 (empty: no journal yet)

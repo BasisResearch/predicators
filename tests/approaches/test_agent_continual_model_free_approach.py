@@ -116,7 +116,7 @@ def test_model_free_arm_has_no_model_surface(tmp_path: Any) -> None:
     prompt = approach._get_agent_system_prompt()  # pylint: disable=protected-access
     assert "`learn_run`" not in prompt and "`run_python`" not in prompt
     assert "`sim`" not in prompt and "## Learning" not in prompt
-    assert "no learned model" in prompt and "`session_end`" in prompt
+    assert "no learned model" in prompt and "`handoff`" in prompt
     # The play loop is a mixin in front of each arm's phased base, not
     # an approach of its own, so the registry never sees it.
     assert not issubclass(ContinualPlayMixin, BaseApproach)
@@ -160,16 +160,16 @@ def test_play_loop_with_a_scripted_model_free_agent(tmp_path: Any) -> None:
                                                action=zero)
             refused = _call(approach, "env_step", action=zero[:-1])
             assert refused.startswith("ERROR") and "shape" in refused
-            assert "Session ended" in _call(approach,
-                                            "session_end",
-                                            handoff="stepped three times")
+            assert "Handed off" in _call(approach,
+                                         "handoff",
+                                         note="stepped three times")
         else:
             assert "session 2 of the run" in message
             assert "stepped three times" in message
-            assert "Run end requested" in _call(approach,
-                                                "env_end_run",
-                                                note="enough")
-            _call(approach, "session_end", handoff="bye")
+            assert "Give-up recorded" in _call(approach,
+                                               "give_up",
+                                               note="enough")
+            _call(approach, "handoff", note="bye")
         return _result()
 
     approach._query_agent_sync = fake_query  # type: ignore[method-assign]  # pylint: disable=protected-access

@@ -75,13 +75,13 @@ def test_parse_transcript_round_trip() -> None:
         "[1/2] A(x)[1]: succeeded after 1 steps\n"
         "[2/2] B(y)[2]: succeeded after 1 steps\n  episode: WIN",
     }, {
-        "tool": "session_end",
+        "tool": "handoff",
         "id": "t2",
         "text": "Done.",
         "args": {
-            "handoff": "won"
+            "note": "won"
         },
-        "result": "Session ended.",
+        "result": "Handed off.",
     }]
     md = format_conversation_markdown(_entries(calls),
                                       title="Local Sandbox Query",
@@ -104,7 +104,7 @@ def test_parse_transcript_round_trip() -> None:
     assert call.args == {"plan": "A(x:t)[1]\nB(y:t)[2]", "note": "first try"}
     assert call.result.startswith("[1/2]") and not call.is_error
     assert tr.entries_consumed(call) == 2
-    assert tx.turns[1].calls[0].args == {"handoff": "won"}
+    assert tx.turns[1].calls[0].args == {"note": "won"}
     assert "0.42" in tx.result_line
 
 

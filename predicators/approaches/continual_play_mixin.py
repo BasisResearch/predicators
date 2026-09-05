@@ -223,9 +223,9 @@ class ContinualPlayMixin:
             if state.run_ended is not None:
                 reason, note = state.run_ended
                 raise _run_ended(reason, note)
-            if state.pending_end_run is not None:
+            if state.pending_give_up is not None:
                 self.save(session.level_index)
-                session.end_run(state.pending_end_run)
+                session.end_run(state.pending_give_up)
             steps_after = session.observe().ledger.run_steps
             productive = self._session_was_productive(session, state,
                                                       steps_before,
@@ -493,7 +493,7 @@ class ContinualPlayMixin:
                 lines.append(f"- {event} {e.get('reason', '')}".rstrip())
         subtype = next((e.get("subtype")
                         for e in responses if e.get("type") == "result"), None)
-        how = "ended by session_end" if state.session_ended else (
+        how = "ended by handoff" if state.handed_off else (
             "hit the turn cap"
             if subtype == "error_max_turns" else "ended by the harness")
         card = session.level_card()
