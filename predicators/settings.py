@@ -1059,7 +1059,7 @@ class GlobalSettings:
     # without lighting the third. Four buttons give six pairs and leave
     # room for goals that light two lamps and keep one dark.
     busyboard_num_buttons_train = [4]
-    busyboard_num_buttons_test = [5, 6]
+    busyboard_num_buttons_test = [7, 8]
     busyboard_num_lamps_train = [3]
     busyboard_num_lamps_test = [4]
     # Fewest lamps a goal asks to be lit, per split. Test goals need at
@@ -1072,13 +1072,43 @@ class GlobalSettings:
     # value up to the number of training lamps is always satisfiable.
     busyboard_min_lit_train = 1
     busyboard_min_lit_test = 2
-    # Probability that a lamp's drive is conjunctive (needs a second
-    # "enabler" button on as well as its driver). This is the many-to-one
-    # relation that undirected play confounds. At 1.0 every lamp is an
-    # interlock, so every goal needs a combination of buttons rather than
-    # a single press; 0.5 mixes plain and conjunctive drives; 0.0 ablates
-    # the interlock and recovers a one-to-one board.
+    # Whether a test goal may ask for a lamp the training board never
+    # showed to be lit. Off, an extension lamp is only ever a dark
+    # target and leaving the unfamiliar buttons alone is always safe;
+    # on, a test level can require a condition the agent has to find
+    # among the buttons it never saw.
+    busyboard_test_extension_lit = True
+    # Probability that a lamp's drive is conjunctive (needs an "enabler"
+    # button on as well as its driver). This is the many-to-one relation
+    # that undirected play confounds. At 1.0 every lamp is an interlock,
+    # so every goal needs a combination of buttons rather than a single
+    # press; 0.5 mixes plain and conjunctive drives; 0.0 ablates the
+    # interlock and recovers a one-to-one board.
     busyboard_interlock_prob = 1.0
+    # Given a conjunctive drive, the probability that it needs TWO
+    # enablers (a three-input condition) rather than one.
+    busyboard_double_enabler_prob = 0.5
+    # Probability that a lamp has an inhibitor: a button that must stay
+    # OFF for the lamp to respond. With one, "press everything" is never
+    # a solution even for a single lamp.
+    busyboard_inhibitor_prob = 0.5
+    # Probability that a core (training) lamp's inhibitor is a button the
+    # training board does not have. The rule learned in training stays
+    # true at test while that button stays off; pressing it, as a policy
+    # that probes every button does, breaks the lamp.
+    busyboard_extension_inhibitor_prob = 0.5
+    # The arming latch: a lamp responds to its driver only if the driver
+    # was pressed while every enabler was already on, and is disarmed
+    # when the driver goes off. The board is then not a function of the
+    # button setting - the same setting reached in two orders behaves
+    # differently - which is what makes a model with state necessary.
+    # False ablates the latch: a lamp is driven whenever its buttons are.
+    busyboard_latch = True
+    # Driving more than this many lamps at once trips the breaker: every
+    # charge drops to zero and nothing charges until every button has
+    # been released. Test goals ask for at least busyboard_min_lit_test
+    # lamps lit, so the limit must be at least that. 0 disables it.
+    busyboard_breaker_limit = 2
     # One wiring per run (extended onto each board size) rather than a fresh
     # one per task. True is what today's fitting stack supports: PARAM_SPECS
     # resolves once, before any task is chosen, so a hidden quantity that

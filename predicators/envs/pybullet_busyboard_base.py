@@ -30,6 +30,10 @@ row of indicators):
 - A back row of ``lamp`` objects, each a small block whose colour is
   driven by a scalar ``brightness`` in [0, 1]. Nothing in this file
   ever sets a brightness; the subclass owns that.
+- One ``breaker`` tile between the button rows and the lamps, green
+  while the board is powered and red once its breaker has tripped
+  (``tripped`` in the state). Nothing in this file ever trips it; the
+  subclass owns the rule that does.
 
 Every button and every lamp has a fixed, distinct colour, carried in the
 state as the ``color`` feature (an index into ``COLOR_PALETTE``, whose
@@ -139,7 +143,7 @@ class PyBulletBusyBoardBaseEnv(PyBulletEnv):
     # looks like anyway. The back row is comfortably reachable (measured:
     # the push skill operates a button at y up to 1.34 at every contact
     # height tried, more reliably than the front row).
-    button_row_max: ClassVar[int] = 3
+    button_row_max: ClassVar[int] = 4
     button_row_y_gap: ClassVar[float] = 0.13
     # A push can shove a free prismatic slider past "on", after which the
     # reverse push can no longer drag it back across the threshold; the
@@ -208,6 +212,8 @@ class PyBulletBusyBoardBaseEnv(PyBulletEnv):
                                            ("orange", (0.95, 0.55, 0.12, 1.0)),
                                            ("purple", (0.55, 0.22, 0.78, 1.0)),
                                            ("black", (0.12, 0.12, 0.14, 1.0)),
+                                           ("brown", (0.45, 0.28, 0.12, 1.0)),
+                                           ("grey", (0.60, 0.60, 0.62, 1.0)),
                                            # Lamps.
                                            ("yellow", (1.0, 0.88, 0.15, 1.0)),
                                            ("cyan", (0.15, 0.90, 0.95, 1.0)),
@@ -215,7 +221,19 @@ class PyBulletBusyBoardBaseEnv(PyBulletEnv):
                                                         1.0)),
                                            ("white", (1.0, 1.0, 1.0, 1.0)),
                                        ]
-    _num_button_colors: ClassVar[int] = 6
+    _num_button_colors: ClassVar[int] = 8
+
+    # The breaker indicator: a flat tile between the button rows and the
+    # lamp row, green while the board is powered and red once the
+    # breaker has tripped. It is the one thing on the board that reports
+    # the hidden power state directly, so a tripped board is legible.
+    breaker_pos: ClassVar[Tuple[float, float]] = (x_mid, 1.37)
+    breaker_half_extents: ClassVar[Tuple[float, float,
+                                         float]] = (0.025, 0.02, 0.006)
+    breaker_ok_color: ClassVar[Tuple[float, float, float,
+                                     float]] = (0.20, 0.80, 0.30, 1.0)
+    breaker_tripped_color: ClassVar[Tuple[float, float, float,
+                                          float]] = (0.90, 0.10, 0.10, 1.0)
 
     # Lamp colour ramp: brightness 0 is a dead grey bulb, brightness 1 the
     # lamp's own palette colour fully saturated. Intermediate values
@@ -235,6 +253,9 @@ class PyBulletBusyBoardBaseEnv(PyBulletEnv):
     # reasons about.
     _button_type = Type("button", ["x", "y", "z", "rot", "color", "is_on"],
                         sim_features=["id", "joint_id"])
+    # The breaker indicator. ``tripped`` is the board's power state: 1
+    # once the breaker has tripped, 0 while the lamps can be driven.
+    _breaker_type = Type("breaker", ["x", "y", "z", "tripped"])
 
     # =========================================================================
     # COLOURS
@@ -300,6 +321,7 @@ class PyBulletBusyBoardBaseEnv(PyBulletEnv):
             Object(f"lamp{i}", self._lamp_type_for_run())
             for i in range(self._max_lamps())
         ]
+        self._breaker = Object("breaker", self._breaker_type)
         super().__init__(use_gui, **kwargs)
 
     @classmethod
@@ -384,6 +406,16 @@ class PyBulletBusyBoardBaseEnv(PyBulletEnv):
             base_ids.append(base_id)
         bodies["lamp_base_ids"] = base_ids
 
+        breaker_x, breaker_y = cls.breaker_pos
+        bodies["breaker_id"] = create_pybullet_block(
+            color=cls.breaker_ok_color,
+            half_extents=cls.breaker_half_extents,
+            mass=0.0,
+            friction=0.5,
+            position=(breaker_x, breaker_y,
+                      cls.board_top + cls.breaker_half_extents[2]),
+            physics_client_id=physics_client_id)
+
         return physics_client_id, pybullet_robot, bodies
 
     def _store_pybullet_bodies(self, pybullet_bodies: Dict[str, Any]) -> None:
@@ -397,6 +429,7 @@ class PyBulletBusyBoardBaseEnv(PyBulletEnv):
         for i, lamp in enumerate(self._lamps):
             lamp.id = pybullet_bodies["lamp_ids"][i]
         self._lamp_base_ids: List[int] = pybullet_bodies["lamp_base_ids"]
+        self._breaker.id = pybullet_bodies["breaker_id"]
 
     # =========================================================================
     # BUTTON MECHANICS
@@ -466,6 +499,21 @@ class PyBulletBusyBoardBaseEnv(PyBulletEnv):
                             -1,
                             rgbaColor=color,
                             physicsClientId=self._physics_client_id)
+
+    def _set_breaker_visual(self, tripped: bool) -> None:
+        """Paint the breaker tile red when tripped, green otherwise."""
+        if self._breaker.id is None:
+            return
+        p.changeVisualShape(self._breaker.id,
+                            -1,
+                            rgbaColor=(self.breaker_tripped_color
+                                       if tripped else self.breaker_ok_color),
+                            physicsClientId=self._physics_client_id)
+
+    @property
+    def breaker_z(self) -> float:
+        """Height of the breaker tile's centre."""
+        return self.board_top + self.breaker_half_extents[2]
 
     # =========================================================================
     # POSE HELPERS

@@ -6,8 +6,13 @@ state read/write, button mechanics) lives in
 to learning agents as reference source. This module holds everything an
 agent must LEARN or must not see:
 
-* the WIRING - which button drives which lamp, and which second button
-  must also be on for that drive to take effect;
+* the WIRING - each lamp's drive condition: the button that drives it,
+  up to two further buttons that must also be on (its enablers), and
+  optionally one button that must be OFF (its inhibitor);
+* the ARMING LATCH - a lamp only responds to its driver if the driver
+  was pressed while its enablers were already on;
+* the BREAKER - driving more lamps at once than the breaker allows
+  trips it, which kills every lamp until the board is power-cycled;
 * the CHARGE dynamics (``_domain_specific_step`` and its constants) -
   how long a lamp must be driven before it lights, and how fast it
   fades once the drive is removed;
@@ -23,14 +28,34 @@ board is a branching program over a wiring relation, and no setting of
 a continuous parameter vector expresses it. A learner that can only fit
 scalars cannot represent this domain's answer at all.
 
-**Conjunctive drives (many-to-one).** A lamp may require TWO buttons at
-once: its ``driver`` and its ``enabler``. Prior busyboard-style
-environments for robot learning exclude many-to-one relations
-specifically to keep the relations identifiable from undirected play
-(Liu et al., CoRL 2022, "BusyBot", Sec. 3: "We exclude many-to-one
-relations to eliminate possible ambiguities"). Including them is the
-point: an interlock is exactly the structure that a passive observer
-confounds and a well-chosen experiment separates.
+**Conjunctive drives (many-to-one).** A lamp may require up to THREE
+buttons at once: its ``driver`` and one or two ``enablers``. Prior
+busyboard-style environments for robot learning exclude many-to-one
+relations specifically to keep the relations identifiable from
+undirected play (Liu et al., CoRL 2022, "BusyBot", Sec. 3: "We exclude
+many-to-one relations to eliminate possible ambiguities"). Including
+them is the point: an interlock is exactly the structure that a passive
+observer confounds and a well-chosen experiment separates. An
+``inhibitor`` is the dual: a button that must stay OFF for the lamp to
+respond, so that "press everything" is never a solution and a button
+the agent knows nothing about is a hazard rather than a decoy.
+
+**The arming latch (order matters).** A conjunctive lamp is *armed* on
+the rising edge of its driver, and only if every enabler is already on
+at that moment; it is disarmed when the driver goes off. Only an armed
+lamp charges. So pressing the driver first and the enablers afterwards
+lights nothing until the driver is released and pressed again, while
+the same buttons pressed in the other order light the lamp. The board
+is therefore not a function of the button setting: two identical
+settings can behave differently, and telling them apart needs a model
+with state, not a table of settings.
+
+**The breaker.** Driving more than ``busyboard_breaker_limit`` lamps at
+the same time trips the breaker: every charge drops to zero, nothing
+charges until every button has been released (a power cycle), and the
+breaker tile on the board turns red. Undirected play that latches
+buttons broadly trips it; a plan that knows which buttons feed which
+lamps never does.
 
 **A latent that delays the evidence.** A lamp does not respond to its
 drive immediately. It accumulates hidden ``charge`` while driven, and
@@ -46,27 +71,23 @@ rate is recoverable from the ramp while the onset stays hidden.
 
 **Training wiring extends to test.** The hidden wiring is fixed for a
 run and the test boards *extend* the training board: every lamp the
-agent trained on keeps its drive condition, and the buttons and lamps a
-test board adds are either decoys or a new lamp that goals only ever
-ask to keep dark. So the relation learned in training is true at test,
-the way glue chemistry or fan thrust is in the other domains, and what
-test asks is whether the agent trusts it on a bigger board with more
-distractors - and leaves alone the buttons it knows nothing about. Test
-goals also ask for at least two lamps lit (``busyboard_min_lit_test``),
-so they need two learned conditions composed, with any button the two
-share held, rather than one training goal repeated on a bigger board.
-
-**Decoys.** Some buttons drive nothing. Their existence is what makes
-"press everything" uninformative, and it is why goals require some
-lamps to stay OFF: a policy that simply latches every button on lights
-every lamp it can and fails every task with an off-target.
+agent trained on keeps its drive condition, and what a test board adds
+is buttons and lamps. The added lamps draw their drive from the added
+buttons, and an added button may be the inhibitor of a lamp the agent
+trained on. So the relation learned in training is true at test as long
+as the new buttons stay off, the way glue chemistry or fan thrust is in
+the other domains; what test asks is whether the agent can light a lamp
+it never saw (``busyboard_test_extension_lit``) without tripping a
+hazard among buttons it never saw. Test goals also ask for at least two
+lamps lit (``busyboard_min_lit_test``), so they need two learned
+conditions composed rather than one training goal repeated.
 
 Example commands::
 
     # Watch a board with the GUI, no agent.
     python predicators/envs/pybullet_busyboard.py
 
-    # Oracle demo via bilevel process planning (solves 10/10).
+    # Oracle demo via bilevel process planning.
     python predicators/main.py --env pybullet_busyboard \
         --approach oracle_process_planning --seed 0 \
         --num_train_tasks 0 --num_test_tasks 10 \
@@ -83,10 +104,11 @@ drive condition, so the exact tick on which it lands depends on how many
 low-level steps the surrounding options happen to take. The symbolic
 delay places it on one tick; physics may deliver it on the one before or
 after, and the per-step atom check then rejects a plan that reaches the
-goal. Delay tuning does not fix this - the check is off-by-one against
-physics in both directions at once, and a sweep over delay values and
-option durations moves which tasks fail without ever clearing all ten.
+goal.
 """
+from dataclasses import dataclass
+from functools import lru_cache
+from itertools import combinations, permutations
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
@@ -97,75 +119,171 @@ from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
     Predicate, State, Type
 
-# Sentinel for "this lamp has no enabler" in the wiring vectors and in the
-# flat float encoding carried on EnvironmentTask.offline_task_metrics.
+# Sentinel for "no button" in a condition's enabler or inhibitor slots and
+# in the flat float encoding carried on EnvironmentTask.offline_task_metrics.
 NO_ENABLER: int = -1
+NO_BUTTON: int = NO_ENABLER
+# Most enablers a condition may have (three-input conditions at most).
+MAX_ENABLERS: int = 2
+
+
+@dataclass(frozen=True, order=True)
+class Condition:
+    """One lamp's drive condition.
+
+    The lamp charges while ``driver`` and every button in ``enablers``
+    are on, ``inhibitor`` (if any) is off, and the lamp is armed: its
+    driver was last pressed while the enablers were already on.
+    """
+    driver: int
+    enablers: Tuple[int, ...] = ()
+    inhibitor: int = NO_BUTTON
+
+    @property
+    def drive_set(self) -> Tuple[int, ...]:
+        """The driver and the enablers, driver first."""
+        return (self.driver, ) + self.enablers
+
+    @property
+    def buttons(self) -> Tuple[int, ...]:
+        """Every button the condition mentions."""
+        if self.inhibitor == NO_BUTTON:
+            return self.drive_set
+        return self.drive_set + (self.inhibitor, )
+
+    def drive_key(self) -> Tuple[int, Tuple[int, ...]]:
+        """What makes two conditions the same drive: driver and enablers.
+
+        Two lamps with the same drive are indistinguishable by any
+        experiment (the inhibitor can only ever keep a lamp dark), so
+        this is the identity the sampler keeps distinct.
+        """
+        return (self.driver, self.enablers)
+
+    def canonical(self) -> "Condition":
+        """Sorted, deduplicated enablers; no button in two roles."""
+        enablers = tuple(
+            sorted({
+                e
+                for e in self.enablers if e not in (NO_BUTTON, self.driver)
+            }))
+        inhibitor = self.inhibitor
+        if inhibitor == self.driver or inhibitor in enablers:
+            inhibitor = NO_BUTTON
+        return Condition(self.driver, enablers, inhibitor)
+
+    def to_metrics(self, index: int) -> Dict[str, float]:
+        """Flatten into the float-valued metrics dict, as lamp ``index``."""
+        enablers = list(self.enablers) + [NO_BUTTON] * MAX_ENABLERS
+        return {
+            f"wiring_driver_{index}": float(self.driver),
+            f"wiring_enabler_{index}": float(enablers[0]),
+            f"wiring_enabler2_{index}": float(enablers[1]),
+            f"wiring_inhibitor_{index}": float(self.inhibitor),
+        }
+
+    @classmethod
+    def from_metrics(cls, metrics: Dict[str, float],
+                     index: int) -> "Condition":
+        """Inverse of :meth:`to_metrics`."""
+        enablers = tuple(
+            int(metrics.get(key, NO_BUTTON))
+            for key in (f"wiring_enabler_{index}", f"wiring_enabler2_{index}"))
+        return cls(int(metrics[f"wiring_driver_{index}"]), enablers,
+                   int(metrics.get(f"wiring_inhibitor_{index}",
+                                   NO_BUTTON))).canonical()
+
+    def __str__(self) -> str:
+        text = f"b{self.driver}"
+        if self.enablers:
+            text += " & " + " & ".join(f"b{e}" for e in self.enablers)
+        if self.inhibitor != NO_BUTTON:
+            text += f" & not b{self.inhibitor}"
+        return text
 
 
 def canonical_pair(driver: int, enabler: int) -> Tuple[int, int]:
-    """Put a drive condition in canonical form.
+    """Put a one-enabler drive condition in canonical form.
 
-    A conjunctive drive is symmetric - a lamp needing button 1 AND
-    button 2 is the same lamp whichever of the two is called the
-    "driver" - so no experiment can order them and the two labellings
-    must not be treated as different hypotheses. Canonical form puts the
-    lower button index first.
+    Kept for callers that still think in (driver, enabler) pairs. The
+    order of a driver and its enabler IS observable now (the arming
+    latch), so this no longer sorts the two; it only normalises the "no
+    enabler" spellings.
     """
     if enabler in (NO_ENABLER, driver):
         return (driver, NO_ENABLER)
-    return (min(driver, enabler), max(driver, enabler))
+    return (driver, enabler)
+
+
+def legal_conditions(num_buttons: int,
+                     max_enablers: int = MAX_ENABLERS) -> List[Condition]:
+    """Every distinct drive (driver plus enablers) on a board of this size.
+
+    This list is the domain's discrete hypothesis space per lamp, before
+    the inhibitor: ``num_buttons`` choices of driver times the subsets
+    of at most ``max_enablers`` other buttons. For a 4-button board that
+    is 4 * (1 + 3 + 3) = 28 drives; for an 8-button board 8 * (1 + 7 +
+    21) = 232, times up to 6 inhibitor choices each. The driver is
+    distinguished from the enablers because the arming latch makes the
+    order observable: a lamp needing button 1 pressed after button 2 is
+    a different lamp from one needing button 2 pressed after button 1.
+    """
+    conditions = []
+    for driver in range(num_buttons):
+        others = [b for b in range(num_buttons) if b != driver]
+        for k in range(0, min(max_enablers, len(others)) + 1):
+            for enablers in combinations(others, k):
+                conditions.append(Condition(driver, tuple(enablers)))
+    return conditions
 
 
 def legal_pairs(num_buttons: int) -> List[Tuple[int, int]]:
-    """Every distinct drive condition on a board of this size.
+    """The one-enabler slice of :func:`legal_conditions`, as pairs."""
+    return [(c.driver, c.enablers[0] if c.enablers else NO_ENABLER)
+            for c in legal_conditions(num_buttons, max_enablers=1)]
 
-    This list is the domain's discrete hypothesis space per lamp:
-    ``num_buttons`` plain drives plus ``num_buttons choose 2``
-    conjunctive ones, the latter unordered because conjunction is
-    symmetric. For a 4-button board that is 10 conditions per lamp, so a
-    3-lamp board has 10 * 9 * 8 = 720 distinct wirings once the lamps'
-    conditions are required to be distinct - small enough to
-    enumerate exactly, which is what makes information gain here
-    measurable in bits against an optimal splitter.
+
+def _nearest_first(candidates: List[Condition],
+                   driver: int) -> List[Condition]:
+    """``candidates`` with those keeping ``driver`` first, then in order."""
+    return sorted(candidates, key=lambda c: (c.driver != driver, c))
+
+
+def _dedupe_wiring(wiring: Sequence[Condition],
+                   num_buttons: int) -> List[Condition]:
+    """Force every lamp's drive to be distinct.
+
+    Two lamps wired to the same drive are indistinguishable by
+    construction: no experiment separates them and no goal can ask for
+    one lit and the other dark, which would make the board unsolvable
+    for reasons that have nothing to do with inference. A colliding lamp
+    moves to the nearest unused drive with the same number of enablers
+    (the same driver where possible), and keeps its inhibitor unless
+    the new drive uses that button.
     """
-    pairs = [(d, NO_ENABLER) for d in range(num_buttons)]
-    pairs += [(d, e) for d in range(num_buttons)
-              for e in range(d + 1, num_buttons)]
-    return pairs
-
-
-def _dedupe_wiring(driver: List[int], enabler: List[int],
-                   num_buttons: int) -> Tuple[List[int], List[int]]:
-    """Force every lamp's drive condition to be distinct.
-
-    Two lamps wired identically are indistinguishable by construction:
-    no experiment separates them and no goal can ask for one lit and the
-    other dark, which would make the board unsolvable for reasons that
-    have nothing to do with inference. Colliding lamps are moved to the
-    nearest unused pair of the same kind (conjunctive stays conjunctive
-    where possible), which keeps the interlock mix the sampler chose.
-    """
-    pairs = legal_pairs(num_buttons)
-    used: set = set()
-    out_d, out_e = [], []
-    for d, e in zip(driver, enabler):
-        pair = canonical_pair(d, e)
-        if pair in used:
-            want_conjunctive = e != NO_ENABLER
+    legal = legal_conditions(num_buttons)
+    used: Set[Tuple[int, Tuple[int, ...]]] = set()
+    out: List[Condition] = []
+    for cond in wiring:
+        cond = cond.canonical()
+        if cond.drive_key() in used:
             candidates = [
-                p for p in pairs
-                if p not in used and (p[1] != NO_ENABLER) == want_conjunctive
-            ] or [p for p in pairs if p not in used]
+                c for c in legal if c.drive_key() not in used
+                and len(c.enablers) == len(cond.enablers)
+            ]
+            candidates = _nearest_first(candidates, cond.driver)
+            if not candidates:
+                candidates = [c for c in legal if c.drive_key() not in used]
             if not candidates:
                 raise RuntimeError(
-                    f"A {num_buttons}-button board has only {len(pairs)} "
-                    f"distinct drive conditions, fewer than the number of "
-                    f"lamps requested.")
-            pair = candidates[0]
-        used.add(pair)
-        out_d.append(pair[0])
-        out_e.append(pair[1])
-    return out_d, out_e
+                    f"A {num_buttons}-button board has only {len(legal)} "
+                    f"distinct drives, fewer than the number of lamps "
+                    f"requested.")
+            cond = Condition(candidates[0].driver, candidates[0].enablers,
+                             cond.inhibitor).canonical()
+        used.add(cond.drive_key())
+        out.append(cond)
+    return out
 
 
 def core_board() -> Tuple[int, int]:
@@ -194,37 +312,33 @@ def _remap_extension(index: int, core_buttons: int, num_buttons: int) -> int:
     return index % num_buttons
 
 
-def project_wiring(driver_full: Sequence[int], enabler_full: Sequence[int],
-                   num_buttons: int,
-                   num_lamps: int) -> Tuple[List[int], List[int]]:
+def project_wiring(wiring_full: Sequence[Condition], num_buttons: int,
+                   num_lamps: int) -> List[Condition]:
     """Project a max-board wiring onto a board of the requested size.
 
     The projection is an EXTENSION: the core board's wiring is a subset
     of every larger board's wiring. Concretely, for the first
     ``num_lamps`` lamps:
 
-    * a core lamp keeps its drive condition verbatim, which is well
-      defined because ``canonical_wiring`` wires core lamps to core
-      buttons only;
-    * an extension lamp's driver folds into whatever extension buttons
-      this board has (see ``_remap_extension``), and its enabler folds
-      the same way if it is an extension button or stays put if it is a
-      core one.
+    * a core lamp keeps its drive verbatim, which is well defined
+      because ``canonical_wiring`` wires core lamps to core buttons
+      only; its inhibitor, when it is an extension button, folds into
+      whatever extension buttons this board has and is dropped on a
+      board that has none;
+    * an extension lamp's drive folds into the extension buttons this
+      board has (see ``_remap_extension``), core buttons staying put.
 
-    Then the two ways folding can degrade a drive condition are
-    repaired: an enabler landing on its own driver (which would silently
-    turn a conjunctive drive into a plain one) and two lamps landing on
-    the same condition (which would make them indistinguishable by any
-    experiment).
+    Then the ways folding can degrade a condition are repaired: an
+    enabler landing on its driver or on another enabler, an inhibitor
+    landing inside the drive, and two lamps landing on the same drive.
 
     So a rule learned about a core lamp on the training board is true of
-    that lamp on every test board, and the buttons a test board adds
-    either do nothing or feed a lamp the goals only ever ask to keep
-    dark. This is a pure function of the max-board wiring and the board
-    size, which is what lets ONE parameter vector be a correct model of
-    every board in a run: the ground-truth simulator carries the
-    max-board wiring in its params and applies this same projection to
-    whatever board the observation shows it.
+    that lamp on every test board while the added buttons stay off. This
+    is a pure function of the max-board wiring and the board size, which
+    is what lets ONE parameter vector be a correct model of every board
+    in a run: the ground-truth simulator carries the max-board wiring in
+    its params and applies this same projection to whatever board the
+    observation shows it.
     """
     core_buttons, core_lamps = core_board()
     core_buttons = min(core_buttons, num_buttons)
@@ -234,51 +348,157 @@ def project_wiring(driver_full: Sequence[int], enabler_full: Sequence[int],
             return index % core_buttons
         return _remap_extension(index, core_buttons, num_buttons)
 
-    driver = [
-        _fold(int(driver_full[i]), i < core_lamps) for i in range(num_lamps)
-    ]
-    enabler: List[int] = []
+    out: List[Condition] = []
     for i in range(num_lamps):
-        e = int(enabler_full[i])
-        if e == NO_ENABLER or num_buttons < 2:
-            enabler.append(NO_ENABLER)
-            continue
-        e = _fold(e, i < core_lamps)
-        if e == driver[i]:
-            # Bump within the range the lamp is allowed to use: core
-            # buttons for a core lamp, any button for an extension lamp.
-            limit = core_buttons if i < core_lamps else num_buttons
-            e = (e + 1) % limit
-        enabler.append(e)
-    return _dedupe_wiring(driver, enabler, num_buttons)
+        full = wiring_full[i]
+        is_core = i < core_lamps
+        limit = core_buttons if is_core else num_buttons
+        driver = _fold(full.driver, is_core)
+        enablers: List[int] = []
+        for e in full.enablers:
+            if len(enablers) + 2 > limit:
+                break  # no room for another distinct enabler
+            e = _fold(e, is_core)
+            while e == driver or e in enablers:
+                e = (e + 1) % limit
+            enablers.append(e)
+        inhibitor = full.inhibitor
+        if inhibitor != NO_BUTTON and inhibitor >= num_buttons:
+            if num_buttons > core_buttons:
+                inhibitor = _remap_extension(inhibitor, core_buttons,
+                                             num_buttons)
+            elif is_core:
+                inhibitor = NO_BUTTON
+            else:
+                inhibitor = inhibitor % num_buttons
+        if inhibitor == driver or inhibitor in enablers:
+            inhibitor = NO_BUTTON
+        out.append(Condition(driver, tuple(sorted(enablers)), inhibitor))
+    return _dedupe_wiring(out, num_buttons)
 
 
-def canonical_wiring(num_buttons: int,
-                     num_lamps: int) -> Tuple[List[int], List[int]]:
-    """The run's wiring, reduced to a board of the requested size.
+def _draw_full_wiring(rng: np.random.Generator, max_buttons: int,
+                      max_lamps: int) -> List[Condition]:
+    """One draw of the max-board wiring under the extension contract."""
+    core_buttons, core_lamps = core_board()
+    extension = list(range(core_buttons, max_buttons))
+    wiring: List[Condition] = []
+    for i in range(max_lamps):
+        is_core = i < core_lamps
+        # A core lamp lives entirely on the core board; an extension lamp
+        # is driven by a button the core board does not have (falling
+        # back to any button when the distribution adds lamps but no
+        # buttons), and may take its enablers from anywhere.
+        if is_core:
+            driver_pool = list(range(core_buttons))
+            enabler_pool = list(range(core_buttons))
+        else:
+            driver_pool = extension or list(range(max_buttons))
+            enabler_pool = list(range(max_buttons))
+        driver = int(rng.choice(driver_pool))
+        pool = [b for b in enabler_pool if b != driver]
+        k = 0
+        if pool and rng.random() < CFG.busyboard_interlock_prob:
+            k = 1
+            if len(pool) >= 2 and \
+                    rng.random() < CFG.busyboard_double_enabler_prob:
+                k = 2
+        enablers = tuple(
+            sorted(
+                int(b)
+                for b in rng.choice(pool, size=k, replace=False))) if k else ()
+        drive = {driver, *enablers}
+        inhibitor = NO_BUTTON
+        if is_core and extension and \
+                rng.random() < CFG.busyboard_extension_inhibitor_prob:
+            # The hazard a test board adds: a button training never
+            # showed that must stay off for a lamp training did show.
+            inhibitor = int(rng.choice(extension))
+        else:
+            free = [
+                b for b in (
+                    range(core_buttons) if is_core else range(max_buttons))
+                if b not in drive
+            ]
+            if free and rng.random() < CFG.busyboard_inhibitor_prob:
+                inhibitor = int(rng.choice(free))
+        wiring.append(Condition(driver, enablers, inhibitor))
+    return wiring
+
+
+def _board_sizes(train: bool) -> List[Tuple[int, int]]:
+    buttons = CFG.busyboard_num_buttons_train if train else \
+        CFG.busyboard_num_buttons_test
+    lamps = CFG.busyboard_num_lamps_train if train else \
+        CFG.busyboard_num_lamps_test
+    return [(int(b), int(l)) for b in buttons for l in lamps]
+
+
+def _lit_candidates(num_lamps: int, train: bool) -> int:
+    """How many of a board's lamps a goal may ask to be lit.
+
+    Only core lamps in training and, unless
+    ``busyboard_test_extension_lit``, at test too: an extension lamp is
+    then only ever asked to stay dark.
+    """
+    if not CFG.busyboard_fixed_wiring:
+        return num_lamps
+    if not train and CFG.busyboard_test_extension_lit:
+        return num_lamps
+    return min(num_lamps, core_board()[1])
+
+
+def _wiring_supports_distribution(wiring_full: Sequence[Condition]) -> bool:
+    """Whether every board size of the run has a non-trivial goal."""
+    for train in (True, False):
+        min_lit = int(CFG.busyboard_min_lit_train if train else CFG.
+                      busyboard_min_lit_test)
+        for num_buttons, num_lamps in _board_sizes(train):
+            wiring = tuple(project_wiring(wiring_full, num_buttons, num_lamps))
+            if not realizable_targets(wiring, num_buttons,
+                                      _lit_candidates(num_lamps, train),
+                                      min_lit):
+                return False
+    return True
+
+
+def _wiring_cache_key() -> Tuple[Any, ...]:
+    return (
+        int(CFG.seed),
+        int(CFG.busyboard_wiring_salt),
+        tuple(CFG.busyboard_num_buttons_train),
+        tuple(CFG.busyboard_num_buttons_test),
+        tuple(CFG.busyboard_num_lamps_train),
+        tuple(CFG.busyboard_num_lamps_test),
+        int(CFG.busyboard_min_lit_train),
+        int(CFG.busyboard_min_lit_test),
+        float(CFG.busyboard_interlock_prob),
+        float(CFG.busyboard_double_enabler_prob),
+        float(CFG.busyboard_inhibitor_prob),
+        float(CFG.busyboard_extension_inhibitor_prob),
+        int(CFG.busyboard_breaker_limit),
+        bool(CFG.busyboard_latch),
+        bool(CFG.busyboard_test_extension_lit),
+        int(CFG.busyboard_max_sampling_attempts),
+    )
+
+
+_FULL_WIRING_CACHE: Dict[Tuple[Any, ...], Tuple[Condition, ...]] = {}
+
+
+def full_wiring() -> Tuple[Condition, ...]:
+    """The run's max-board wiring.
 
     Sampled once per seed over the largest board the task distribution
-    can produce, then projected onto smaller boards by extension (see
-    ``project_wiring``). The draw respects the extension contract: core
-    lamps are wired to core buttons only, and an extension lamp's driver
-    is an extension button, so the core board's wiring is literally a
-    sub-relation of every larger board's. So one wiring describes every
-    board in a run, and what an agent learns about the lamps on a
-    4-button training board stays true of those lamps on a 6-button
-    test board; the test board differs by the buttons and lamps it adds.
-
-    Why a run-level constant rather than a fresh draw per task: the
-    residual-simulator contract in this codebase resolves ``PARAM_SPECS``
-    once, after CFG is final and before any task is chosen, so a hidden
-    quantity that varied per task would have no home in a fitted model.
-    Making the wiring vary per task (``busyboard_fixed_wiring = False``)
-    is the more interesting setting and the one this domain exists to
-    motivate - a model whose STRUCTURE is re-identified per episode -
-    but it needs a per-task parameter scope that the fitting stack does
-    not yet have. Both the env and the ground-truth simulator call this
-    function, so they agree on the answer without either reading the
-    other.
+    can produce, redrawn until every board size of the run admits a
+    non-trivial goal (see ``realizable_targets``), and cached for the
+    process: the oracle's wiring predicates ask for it on every atom
+    evaluation.
     """
+    key = _wiring_cache_key()
+    cached = _FULL_WIRING_CACHE.get(key)
+    if cached is not None:
+        return cached
     rng = np.random.default_rng([CFG.seed, int(CFG.busyboard_wiring_salt)])
     max_buttons = max(
         list(CFG.busyboard_num_buttons_train) +
@@ -286,31 +506,127 @@ def canonical_wiring(num_buttons: int,
     max_lamps = max(
         list(CFG.busyboard_num_lamps_train) +
         list(CFG.busyboard_num_lamps_test))
-    core_buttons, core_lamps = core_board()
+    for _ in range(int(CFG.busyboard_max_sampling_attempts)):
+        wiring = tuple(_draw_full_wiring(rng, max_buttons, max_lamps))
+        if _wiring_supports_distribution(wiring):
+            _FULL_WIRING_CACHE[key] = wiring
+            return wiring
+    raise RuntimeError(
+        f"No wiring found in {CFG.busyboard_max_sampling_attempts} draws "
+        "that gives every board size of the run a non-trivial goal.")
 
-    driver_full: List[int] = []
-    enabler_full: List[int] = []
-    for i in range(max_lamps):
-        # A core lamp lives entirely on the core board; an extension lamp
-        # is driven by a button the core board does not have (falling
-        # back to any button when the distribution adds lamps but no
-        # buttons), and may take its enabler from anywhere.
-        if i < core_lamps:
-            driver_pool = list(range(core_buttons))
-            enabler_pool = list(range(core_buttons))
-        else:
-            driver_pool = list(range(core_buttons, max_buttons)) or list(
-                range(max_buttons))
-            enabler_pool = list(range(max_buttons))
-        d = int(rng.choice(driver_pool))
-        driver_full.append(d)
-        enabler_pool = [b for b in enabler_pool if b != d]
-        if not enabler_pool or rng.random() >= CFG.busyboard_interlock_prob:
-            enabler_full.append(NO_ENABLER)
-            continue
-        enabler_full.append(int(rng.choice(enabler_pool)))
 
-    return project_wiring(driver_full, enabler_full, num_buttons, num_lamps)
+def canonical_wiring(num_buttons: int, num_lamps: int) -> List[Condition]:
+    """The run's wiring, reduced to a board of the requested size.
+
+    ``full_wiring`` projected by extension (see ``project_wiring``). The
+    draw respects the extension contract: core lamps are wired to core
+    buttons only, and an extension lamp's driver is an extension button,
+    so the core board's wiring is literally a sub-relation of every
+    larger board's. So one wiring describes every board in a run, and
+    what an agent learns about the lamps on a 4-button training board
+    stays true of those lamps on an 8-button test board while the added
+    buttons stay off.
+
+    Why a run-level constant rather than a fresh draw per task: the
+    residual-simulator contract in this codebase resolves ``PARAM_SPECS``
+    once, after CFG is final and before any task is chosen, so a hidden
+    quantity that varied per task would have no home in a fitted model.
+    Both the env and the ground-truth simulator call this function, so
+    they agree on the answer without either reading the other.
+    """
+    return project_wiring(full_wiring(), num_buttons, num_lamps)
+
+
+def press_sequence_outcome(wiring: Sequence[Condition], order: Sequence[int],
+                           latch: bool) -> Tuple[Tuple[bool, ...], int]:
+    """Which lamps are driven after pressing ``order`` from all-off, and the
+    most lamps driven at once along the way.
+
+    Every button in ``order`` is pressed once, in that order, and held.
+    With the latch a lamp is armed only if its driver is pressed after
+    every one of its enablers; without it the driver's state alone
+    counts. This is the model the goal sampler and the docs' solving
+    sequences share with the env's dynamics.
+    """
+    on: Set[int] = set()
+    armed = [False] * len(wiring)
+    max_driven = 0
+    driven: List[bool] = [False] * len(wiring)
+    for button in order:
+        on.add(button)
+        for i, cond in enumerate(wiring):
+            if cond.driver == button:
+                armed[i] = all(e in on for e in cond.enablers) or not latch
+        driven = [
+            armed[i] and cond.driver in on and all(e in on
+                                                   for e in cond.enablers)
+            and cond.inhibitor not in on for i, cond in enumerate(wiring)
+        ]
+        max_driven = max(max_driven, sum(driven))
+    return tuple(driven), max_driven
+
+
+@lru_cache(maxsize=None)
+def _realizable_targets_cached(wiring: Tuple[Condition, ...], num_buttons: int,
+                               num_lit_candidates: int, min_lit: int,
+                               breaker_limit: int,
+                               latch: bool) -> Tuple[Tuple[bool, ...], ...]:
+    relevant = sorted({b for c in wiring for b in c.buttons})
+    relevant = [b for b in relevant if 0 <= b < num_buttons]
+    targets = set()
+    for mask in range(1 << len(relevant)):
+        on = [relevant[j] for j in range(len(relevant)) if mask >> j & 1]
+        # Only the order of the buttons some drivable lamp needs can
+        # change which lamps end up armed; every other pressed button
+        # (an inhibitor, a button of a lamp this setting cannot drive)
+        # goes first, where it can arm nothing.
+        drivable = [c for c in wiring if all(b in on for b in c.drive_set)]
+        ordered = sorted({b for c in drivable for b in c.drive_set})
+        rest = [b for b in on if b not in ordered]
+        orders = permutations(ordered) if latch else [tuple(ordered)]
+        for order in orders:
+            target, max_driven = press_sequence_outcome(
+                wiring, rest + list(order), latch)
+            if breaker_limit and max_driven > breaker_limit:
+                continue
+            if sum(target) < min_lit:
+                continue
+            if len(target) >= 2 and all(target):
+                continue
+            if any(target[num_lit_candidates:]):
+                continue
+            targets.add(target)
+    return tuple(sorted(targets))
+
+
+def realizable_targets(wiring: Sequence[Condition],
+                       num_buttons: int,
+                       num_lit_candidates: Optional[int] = None,
+                       min_lit: int = 1) -> List[Tuple[bool, ...]]:
+    """Every lamp assignment some press sequence realizes exactly.
+
+    Exhaustive over the button settings and, under the latch, over the
+    press orders of the buttons that matter for arming, so goals are
+    drawn from the exact set of achievable ones rather than rejection-
+    sampled against a solver. A sequence that would trip the breaker on
+    its way is not a realization. A target is only kept if it is non-
+    trivial: at least ``min_lit`` lamps lit, and with two or more lamps
+    at least one that must stay dark. That off-target is what the whole
+    domain rests on - it is the reason "latch every button" is not a
+    policy, and the reason an agent has to know which button feeds
+    which lamp rather than merely which buttons do something.
+
+    Only the first ``num_lit_candidates`` lamps may be asked to be lit
+    (default: all of them).
+    """
+    if num_lit_candidates is None:
+        num_lit_candidates = len(wiring)
+    return list(
+        _realizable_targets_cached(tuple(wiring), int(num_buttons),
+                                   int(num_lit_candidates), max(1, min_lit),
+                                   int(CFG.busyboard_breaker_limit),
+                                   bool(CFG.busyboard_latch)))
 
 
 class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
@@ -318,7 +634,8 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
 
     Subclass of the observable sim core (see
     :mod:`predicators.envs.pybullet_busyboard_base`); this class adds the
-    hidden wiring, the charge dynamics, task generation, and predicates.
+    hidden wiring, the arming latch, the breaker, the charge dynamics,
+    task generation, and predicates.
     """
 
     # =========================================================================
@@ -354,12 +671,14 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
     # =========================================================================
     # TYPES
     # =========================================================================
-    # Fully observable: the charge is a visible feature, so a learner sees
-    # the accumulation directly and only the wiring is hidden.
+    # Fully observable: the charge and the arming latch are visible
+    # features, so a learner sees the accumulation and the latch directly
+    # and only the wiring is hidden.
     _lamp_type_fo = Type(
-        "lamp", ["x", "y", "z", "rot", "color", "brightness", "charge"])
-    # Partially observable: charge is dropped. The learner sees only the
-    # brightness readout and must postulate the accumulator itself.
+        "lamp",
+        ["x", "y", "z", "rot", "color", "brightness", "charge", "armed"])
+    # Partially observable: charge and latch are dropped. The learner sees
+    # only the brightness readout and must postulate both.
     _lamp_type_po = Type("lamp", ["x", "y", "z", "rot", "color", "brightness"])
 
     @classmethod
@@ -372,23 +691,28 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
         # objects and the predicates off it.
         self._lamp_type = self._lamp_type_for_run()
 
-        # The active task's wiring. Index i is lamp i; the value is a button
-        # index (or NO_ENABLER). Installed by reset() and never present in
-        # any State - this is the learning target.
-        self._driver: List[int] = []
-        self._enabler: List[int] = []
+        # The active task's wiring, one condition per lamp. Installed by
+        # reset() and never present in any State - this is the learning
+        # target.
+        self._wiring: List[Condition] = []
         # How much of the (max-size) board this task actually uses.
         self._num_active_buttons: int = 0
         self._num_active_lamps: int = 0
-        # Hidden per-lamp charge, keyed by object NAME rather than held in
-        # each lamp Object's sim_data. Bilevel planning runs a second env
-        # instance built by the option model, and that instance owns its
-        # own Object instances: identical in name and type, but with
-        # separate sim_data. Charge kept there accumulated on one set of
-        # objects while the state was read off the other, so the planner
-        # saw a board whose lamps never charged. A name-keyed store is
-        # instance-independent, which is what the two env copies need.
+        # Hidden per-lamp charge and arming latch, keyed by object NAME
+        # rather than held in each lamp Object's sim_data. Bilevel planning
+        # runs a second env instance built by the option model, and that
+        # instance owns its own Object instances: identical in name and
+        # type, but with separate sim_data. Charge kept there accumulated
+        # on one set of objects while the state was read off the other, so
+        # the planner saw a board whose lamps never charged. A name-keyed
+        # store is instance-independent, which is what the two env copies
+        # need.
         self._charges: Dict[str, float] = {}
+        self._armed: Dict[str, bool] = {}
+        # The breaker, and the button states at the previous step (the
+        # arming latch is edge-triggered on the driver).
+        self._tripped: bool = False
+        self._prev_button_on: List[bool] = []
 
         super().__init__(use_gui, **kwargs)
 
@@ -408,6 +732,17 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
             "LampOff", [self._lamp_type],
             self._LampOff_holds,
             natural_language_assertion=lambda os: f"lamp {os[0]} is dark")
+        self._BreakerTripped = Predicate(
+            "BreakerTripped", [self._breaker_type],
+            self._BreakerTripped_holds,
+            natural_language_assertion=lambda os:
+            f"the breaker {os[0]} has tripped: no lamp can charge until "
+            "every button is released")
+        self._BreakerClosed = Predicate(
+            "BreakerClosed", [self._breaker_type],
+            self._BreakerClosed_holds,
+            natural_language_assertion=lambda os:
+            f"the breaker {os[0]} is closed: the board is powered")
         self._HandEmpty = Predicate("HandEmpty", [self._robot_type],
                                     self._HandEmpty_holds,
                                     natural_language_assertion=lambda os:
@@ -421,7 +756,7 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
     def predicates(self) -> Set[Predicate]:
         return {
             self._ButtonOn, self._ButtonOff, self._LampOn, self._LampOff,
-            self._HandEmpty
+            self._BreakerTripped, self._BreakerClosed, self._HandEmpty
         }
 
     @property
@@ -430,7 +765,10 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
 
     @property
     def types(self) -> Set[Type]:
-        return {self._robot_type, self._button_type, self._lamp_type}
+        return {
+            self._robot_type, self._button_type, self._lamp_type,
+            self._breaker_type
+        }
 
     # =========================================================================
     # WIRING
@@ -446,135 +784,86 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
         much of the wiring an agent actually recovered.
         """
         num_lamps = int(metrics.get("wiring_num_lamps", 0))
-        self._driver = [
-            int(metrics[f"wiring_driver_{i}"]) for i in range(num_lamps)
-        ]
-        self._enabler = [
-            int(metrics[f"wiring_enabler_{i}"]) for i in range(num_lamps)
+        self._wiring = [
+            Condition.from_metrics(metrics, i) for i in range(num_lamps)
         ]
 
     @staticmethod
-    def _wiring_to_metrics(driver: Sequence[int], enabler: Sequence[int],
+    def _wiring_to_metrics(wiring: Sequence[Condition],
                            num_buttons: int) -> Dict[str, float]:
         """Flatten a wiring into the float-valued metrics dict."""
         metrics: Dict[str, float] = {
-            "wiring_num_lamps": float(len(driver)),
+            "wiring_num_lamps": float(len(wiring)),
             "wiring_num_buttons": float(num_buttons),
         }
-        for i, (d, e) in enumerate(zip(driver, enabler)):
-            metrics[f"wiring_driver_{i}"] = float(d)
-            metrics[f"wiring_enabler_{i}"] = float(e)
+        for i, cond in enumerate(wiring):
+            metrics.update(cond.to_metrics(i))
         return metrics
 
     @staticmethod
-    def _driven(button_on: Sequence[bool], driver: int, enabler: int) -> bool:
-        """Whether a lamp's drive condition holds under a button assignment.
+    def _driven(button_on: Sequence[bool],
+                cond: Condition,
+                armed: bool = True) -> bool:
+        """Whether a lamp's drive holds under a button assignment.
 
         The conjunction is the interlock: with an enabler present, the
         driver alone does nothing, which is precisely the many-to-one
-        relation that undirected play confounds.
+        relation that undirected play confounds. The inhibitor is the
+        dual, a button that must be off, and ``armed`` is the latch.
         """
-        if not 0 <= driver < len(button_on) or not button_on[driver]:
+        if not armed:
             return False
-        if enabler == NO_ENABLER:
-            return True
-        return 0 <= enabler < len(button_on) and button_on[enabler]
+        if not 0 <= cond.driver < len(button_on) or \
+                not button_on[cond.driver]:
+            return False
+        for e in cond.enablers:
+            if not 0 <= e < len(button_on) or not button_on[e]:
+                return False
+        if cond.inhibitor != NO_BUTTON and \
+                0 <= cond.inhibitor < len(button_on) and \
+                button_on[cond.inhibitor]:
+            return False
+        return True
 
     @classmethod
     def _realizable_targets(cls,
-                            driver: Sequence[int],
-                            enabler: Sequence[int],
+                            wiring: Sequence[Condition],
                             num_buttons: int,
                             num_lit_candidates: Optional[int] = None,
                             min_lit: int = 1) -> List[Tuple[bool, ...]]:
-        """Every lamp assignment some button setting realizes exactly.
-
-        Exhaustive over the 2**num_buttons settings, which is a handful
-        at these board sizes, so goals are drawn from the exact set of
-        achievable ones rather than rejection-sampled against a solver.
-        A target is only kept if it is non-trivial: at least one lamp
-        lit, and with two or more lamps at least one that must stay
-        dark. That off-target is what the whole domain rests on - it is
-        the reason "latch every button" is not a policy, and the reason
-        an agent has to know which button feeds which lamp rather than
-        merely which buttons do something.
-
-        Only the first ``num_lit_candidates`` lamps may be asked to be
-        lit (default: all of them). Under the run-level wiring these are
-        the core lamps, the ones training reveals; an extension lamp is
-        only ever asked to stay dark, so what a test board adds is a
-        button that must be left alone rather than a relation the agent
-        never had a chance to learn.
-
-        ``min_lit`` is the fewest lamps a target may ask to be lit (at
-        least one either way). Above one it selects the goals that need
-        two or more drive conditions satisfied at once, which is how
-        the test split asks for composition rather than recall.
-        """
-        if num_lit_candidates is None:
-            num_lit_candidates = len(driver)
-        min_lit = max(1, min_lit)
-        targets = set()
-        for mask in range(1 << num_buttons):
-            button_on = [bool(mask >> b & 1) for b in range(num_buttons)]
-            target = tuple(
-                cls._driven(button_on, d, e) for d, e in zip(driver, enabler))
-            if sum(target) < min_lit:
-                continue
-            if len(target) >= 2 and all(target):
-                continue
-            if any(target[num_lit_candidates:]):
-                continue
-            targets.add(target)
-        return sorted(targets)
+        """See :func:`realizable_targets`."""
+        return realizable_targets(wiring, num_buttons, num_lit_candidates,
+                                  min_lit)
 
     def _sample_board(self, num_buttons: int, num_lamps: int,
-                      rng: np.random.Generator,
-                      min_lit: int) -> Tuple[List[int], List[int], List[bool]]:
+                      rng: np.random.Generator, min_lit: int,
+                      train: bool) -> Tuple[List[Condition], List[bool]]:
         """Pick this task's wiring and a goal assignment it can realize.
 
         With ``busyboard_fixed_wiring`` (the default) the wiring is the
-        run's canonical one at this board size; otherwise a fresh wiring
-        is drawn per task. Either way the goal is drawn uniformly from
-        the exact set of realizable non-trivial assignments, which is
-        never empty: distinct drive conditions are monotone boolean
-        functions that differ somewhere, and at any input where two of
-        them differ one lamp is lit and another is dark. Under the run-
-        level wiring only core lamps may be lit targets, which leaves
-        that argument intact because an extension lamp's driver is a
-        button no core lamp uses. ``min_lit`` (the split's
-        ``busyboard_min_lit_*``) narrows the draw to targets with at
-        least that many lamps lit; up to the number of core lamps it is
-        always satisfiable under the run-level wiring, since latching
-        every core button lights every core lamp and no extension lamp.
+        run's canonical one at this board size, drawn so that every
+        board size has a non-trivial goal; otherwise a fresh wiring is
+        drawn per task. Either way the goal is drawn uniformly from the
+        exact set of realizable non-trivial assignments. ``min_lit``
+        (the split's ``busyboard_min_lit_*``) narrows the draw to
+        targets with at least that many lamps lit.
         """
-        num_lit_candidates = num_lamps
+        num_lit_candidates = _lit_candidates(num_lamps, train)
         if CFG.busyboard_fixed_wiring:
-            driver, enabler = canonical_wiring(num_buttons, num_lamps)
-            num_lit_candidates = min(num_lamps, core_board()[1])
+            wiring = canonical_wiring(num_buttons, num_lamps)
         else:
-            driver = [
-                int(rng.integers(0, num_buttons)) for _ in range(num_lamps)
-            ]
-            enabler = []
-            for d in driver:
-                if num_buttons < 2 or \
-                        rng.random() >= CFG.busyboard_interlock_prob:
-                    enabler.append(NO_ENABLER)
-                    continue
-                enabler.append(
-                    int(rng.choice([b for b in range(num_buttons) if b != d])))
-            driver, enabler = _dedupe_wiring(driver, enabler, num_buttons)
+            wiring = _dedupe_wiring(
+                _draw_full_wiring(rng, num_buttons, num_lamps), num_buttons)
 
-        targets = self._realizable_targets(driver, enabler, num_buttons,
-                                           num_lit_candidates, min_lit)
+        targets = realizable_targets(wiring, num_buttons, num_lit_candidates,
+                                     min_lit)
         if not targets:
             raise RuntimeError(
                 f"No non-trivial realizable goal with at least {min_lit} "
                 f"lamp(s) lit on a {num_buttons}-button, {num_lamps}-lamp "
-                f"board with wiring {list(zip(driver, enabler))}.")
+                f"board with wiring {[str(c) for c in wiring]}.")
         target = list(targets[int(rng.integers(0, len(targets)))])
-        return driver, enabler, target
+        return wiring, target
 
     # =========================================================================
     # LABELS
@@ -608,10 +897,15 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
                 return charge
             if feature == "brightness":
                 return self._brightness(charge)
+            if feature == "armed":
+                return float(self._armed.get(obj.name, False))
+        if obj.type.name == "breaker" and feature == "tripped":
+            return float(self._tripped)
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
     def _set_domain_specific_state(self, state: State) -> None:
-        """Restore button latches and lamp charges, then repaint the lamps.
+        """Restore button latches, lamp charges, the arming latches and the
+        breaker, then repaint the board.
 
         Also re-derives the wiring from the board in front of it. That
         matters because an env instance is not always driven through
@@ -627,13 +921,19 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
         self._num_active_buttons = len(buttons)
         self._num_active_lamps = len(lamps)
         if CFG.busyboard_fixed_wiring:
-            self._driver, self._enabler = canonical_wiring(
-                len(buttons), len(lamps))
+            self._wiring = canonical_wiring(len(buttons), len(lamps))
 
+        button_on = []
         for button in buttons:
-            self._set_button_on(button, state.get(button, "is_on") > 0.5)
+            is_on = state.get(button, "is_on") > 0.5
+            self._set_button_on(button, is_on)
+            button_on.append(is_on)
+        # The latch is edge-triggered on the driver, so the restored
+        # button states are the baseline the next step's edges are read
+        # against.
+        self._prev_button_on = button_on
 
-        for lamp in lamps:
+        for i, lamp in enumerate(lamps):
             if "charge" in lamp.type.feature_names:
                 charge = float(state.get(lamp, "charge"))
             else:
@@ -648,9 +948,22 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
                 charge = self.BRIGHTNESS_ONSET + \
                     brightness / self.BRIGHTNESS_RAMP
             self._charges[lamp.name] = float(np.clip(charge, 0.0, 1.0))
+            if "armed" in lamp.type.feature_names:
+                self._armed[lamp.name] = state.get(lamp, "armed") > 0.5
+            elif i < len(self._wiring) and not (
+                    0 <= self._wiring[i].driver < len(button_on)
+                    and button_on[self._wiring[i].driver]):
+                # A lamp whose driver is off cannot be armed; with the
+                # driver on the latch is unobservable and the instance's
+                # own memory of it stands.
+                self._armed[lamp.name] = False
             self._set_lamp_brightness_visual(
                 lamp, self._brightness(self._charges[lamp.name]))
 
+        self._tripped = any(
+            state.get(o, "tripped") > 0.5 for o in state
+            if o.type.name == "breaker")
+        self._set_breaker_visual(self._tripped)
         self._seat_lamp_bases(state, lamps)
         self._park_unused_bodies(len(buttons), len(lamps))
 
@@ -665,7 +978,8 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
     # HIDDEN DYNAMICS
     # =========================================================================
     def _domain_specific_step(self) -> None:
-        """Accumulate or bleed each lamp's hidden charge, then repaint it.
+        """Arm or disarm each lamp on its driver's edges, trip or reset the
+        breaker, accumulate or bleed each lamp's hidden charge, then repaint.
 
         Skipped when the env is constructed with
         ``skip_residual_dynamics=True`` - that is the base sim the
@@ -675,17 +989,51 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
         buttons = self._buttons[:self._num_active_buttons]
         lamps = self._lamps[:self._num_active_lamps]
         button_on = [self._is_button_on(b) for b in buttons]
+        prev = self._prev_button_on
+        if len(prev) != len(button_on):
+            prev = list(button_on)
+        self._prev_button_on = list(button_on)
+
+        # A power cycle - every button released - closes a tripped breaker.
+        if self._tripped and not any(button_on):
+            self._tripped = False
+
+        driven: List[bool] = []
+        for i, lamp in enumerate(lamps):
+            if i >= len(self._wiring):
+                driven.append(False)
+                continue
+            cond = self._wiring[i]
+            d = cond.driver
+            driver_on = 0 <= d < len(button_on) and button_on[d]
+            if not driver_on:
+                self._armed[lamp.name] = False
+            elif not prev[d] or not CFG.busyboard_latch:
+                # Rising edge of the driver: armed iff every enabler is
+                # already on (always, with the latch ablated).
+                self._armed[lamp.name] = all(
+                    0 <= e < len(button_on) and button_on[e]
+                    for e in cond.enablers)
+            driven.append(not self._tripped and self._driven(
+                button_on, cond, self._armed.get(lamp.name, False)))
+
+        limit = int(CFG.busyboard_breaker_limit)
+        if 0 < limit < sum(driven) and not self._tripped:
+            self._tripped = True
+            driven = [False] * len(driven)
+            for lamp in lamps:
+                self._charges[lamp.name] = 0.0
+                self._armed[lamp.name] = False
 
         for i, lamp in enumerate(lamps):
-            if i >= len(self._driver):
-                continue
             charge = self._charges.get(lamp.name, 0.0)
-            if self._driven(button_on, self._driver[i], self._enabler[i]):
+            if driven[i]:
                 charge = min(1.0, charge + self.charge_rate())
             else:
                 charge = max(0.0, charge - self.decay_rate())
             self._charges[lamp.name] = charge
             self._set_lamp_brightness_visual(lamp, self._brightness(charge))
+        self._set_breaker_visual(self._tripped)
 
     def reset(self,
               train_or_test: str,
@@ -727,6 +1075,16 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
         return state.get(lamp, "brightness") < cls.LAMP_ON_THRESHOLD
 
     @staticmethod
+    def _BreakerTripped_holds(state: State, objects: Sequence[Object]) -> bool:
+        breaker, = objects
+        return state.get(breaker, "tripped") > 0.5
+
+    @staticmethod
+    def _BreakerClosed_holds(state: State, objects: Sequence[Object]) -> bool:
+        breaker, = objects
+        return state.get(breaker, "tripped") <= 0.5
+
+    @staticmethod
     def _HandEmpty_holds(state: State, objects: Sequence[Object]) -> bool:
         robot, = objects
         return state.get(robot, "fingers") > 0.02
@@ -754,11 +1112,12 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
                       busyboard_min_lit_test)
 
         tasks = []
+        wiring: List[Condition] = []
         for _ in range(num_tasks):
             num_buttons = int(rng.choice(button_counts))
             num_lamps = int(rng.choice(lamp_counts))
-            driver, enabler, target = self._sample_board(
-                num_buttons, num_lamps, rng, min_lit)
+            wiring, target = self._sample_board(num_buttons, num_lamps, rng,
+                                                min_lit, train)
 
             init_dict: Dict[Object, Dict[str, float]] = {
                 self._robot: {
@@ -773,8 +1132,9 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
             }
 
             # Every board starts fully off: all buttons released, every lamp
-            # dark and uncharged. The agent's information about this board
-            # therefore comes entirely from what it does to it.
+            # dark, uncharged and unarmed, the breaker closed. The agent's
+            # information about this board therefore comes entirely from
+            # what it does to it.
             for i, ((x, y), button) in enumerate(
                     zip(self.button_layout(num_buttons),
                         self._buttons[:num_buttons])):
@@ -801,7 +1161,16 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
                 }
                 if "charge" in self._lamp_type.feature_names:
                     lamp_dict["charge"] = 0.0
+                if "armed" in self._lamp_type.feature_names:
+                    lamp_dict["armed"] = 0.0
                 init_dict[lamp] = lamp_dict
+
+            init_dict[self._breaker] = {
+                "x": self.breaker_pos[0],
+                "y": self.breaker_pos[1],
+                "z": self.breaker_z,
+                "tripped": 0.0,
+            }
 
             init_state = utils.create_state_from_dict(init_dict)
 
@@ -820,7 +1189,7 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
                                 goal_atoms,
                                 goal_nl=goal_nl,
                                 offline_task_metrics=self._wiring_to_metrics(
-                                    driver, enabler, num_buttons)))
+                                    wiring, num_buttons)))
 
         # _add_pybullet_state_to_tasks replays every init state through the
         # simulator. Install the last sampled wiring so that replay runs
@@ -830,7 +1199,7 @@ class PyBulletBusyBoardEnv(PyBulletBusyBoardBaseEnv):
         # normal way to evaluate a non-learning approach), in which case
         # nothing was sampled and the installed wiring must stand.
         if tasks:
-            self._driver, self._enabler = driver, enabler
+            self._wiring = wiring
         return self._add_pybullet_state_to_tasks(tasks)
 
 
@@ -847,7 +1216,7 @@ if __name__ == "__main__":
     _task = env._generate_train_tasks()[0]  # pylint: disable=protected-access
     env._install_wiring(_task.offline_task_metrics)  # pylint: disable=protected-access
     env._set_state(_task.init)  # pylint: disable=protected-access
-    print("wiring:", list(zip(env._driver, env._enabler)))  # pylint: disable=protected-access
+    print("wiring:", [str(c) for c in env._wiring])  # pylint: disable=protected-access
     print("goal:", _task.goal_description)
 
     _joints = env._pybullet_robot.initial_joint_positions  # pylint: disable=protected-access
