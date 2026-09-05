@@ -10,10 +10,9 @@ goal, the skill running at that step and the agent's note for it, the
 episode, the steps used against the cap and the resets. Level starts,
 resets, wins and game overs hold a banner for a moment.
 
-The video lands where every other video of a run does:
-``videos/<approach>/<experiment_id>/seed<seed>/run_<stamp>/run.mp4``, the
-mirror of the run's log dir, and its path is recorded on the scorecard
-so the continual viewer can find it.
+The video is ``run.mp4`` in the run's directory
+(``predicators/run/paths.py``), beside the scorecard and the recordings
+it was built from, where the continual viewer looks for it.
 
 Run in-process at the end of a run under ``continual_make_video``, or
 offline for a finished run with ``scripts/continual_video.py``.
@@ -31,16 +30,12 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from predicators.envs import BaseEnv
+from predicators.run import paths
 from predicators.run.episode import EpisodeRunner, EpisodeState
 from predicators.run.recording import ACTIONS_FILENAME, INDEX_FILENAME
 from predicators.run.scorecard import LevelCard, RunCard
 from predicators.settings import CFG
 from predicators.structs import Action
-
-VIDEO_FILENAME = "run.mp4"
-# Where a run's video goes when the run has no log dir to mirror (a test,
-# or the offline script given flags rather than a log).
-FALLBACK_SUBDIR = "continual"
 
 # Panel geometry. The panel is as tall as the render; its width keeps
 # the whole frame a multiple of 16 for a 900 px render.
@@ -531,40 +526,25 @@ def iter_level_frames(env: BaseEnv, card: RunCard, level: LevelCard,
             fresh.dispose()
 
 
-def default_video_path(card: RunCard, run_subdir: Optional[str] = None) -> str:
-    """Where the run's video goes: ``CFG.video_dir`` under the run's log subdir
-    (``CFG.run_subdir`` in a run; the log dir's relative path for an offline
-    build), or ``continual/<run_id>`` when there is none."""
-    subdir = run_subdir if run_subdir is not None else CFG.run_subdir
-    if not subdir:
-        subdir = os.path.join(FALLBACK_SUBDIR, card.run_id)
-    return os.path.join(CFG.video_dir, subdir, VIDEO_FILENAME)
-
-
 def make_run_video(env: BaseEnv,
                    card: RunCard,
-                   recordings_dir: str,
+                   run_dir: str,
                    out_path: Optional[str] = None,
                    stride: Optional[int] = None,
-                   fps: Optional[int] = None,
-                   card_path: Optional[str] = None,
-                   run_subdir: Optional[str] = None) -> Optional[str]:
-    """Write the run's video and return its path (``None`` when the run has no
-    attempted level with a recording).
-
-    The path is recorded on ``card`` and, with ``card_path``, saved, so
-    the viewer finds the video wherever it was put.
-    """
+                   fps: Optional[int] = None) -> Optional[str]:
+    """Write the video of the run in ``run_dir`` (its level recordings) to
+    ``run_dir/run.mp4``, or ``out_path``; returns the path, or ``None`` when
+    the run has no attempted level with a recording."""
     stride = int(CFG.continual_video_stride if stride is None else stride)
     fps = int(CFG.video_fps if fps is None else fps)
-    out_path = out_path or default_video_path(card, run_subdir)
+    out_path = out_path or paths.video_path(run_dir)
     hold = max(1, fps)
     writer: Optional[_Writer] = None
     try:
         for level in card.levels:
             if not level.attempted:
                 continue
-            level_dir = os.path.join(recordings_dir, f"L{level.index + 1:02d}")
+            level_dir = paths.level_dir(run_dir, level.index)
             if not os.path.isdir(level_dir):
                 continue
             episodes = read_level_episodes(level_dir)
@@ -586,7 +566,4 @@ def make_run_video(env: BaseEnv,
         return None
     logging.info("[Continual video] wrote %s (%d frames at %d fps)", out_path,
                  writer.frames, fps)
-    card.video = out_path
-    if card_path:
-        card.save(card_path)
     return out_path

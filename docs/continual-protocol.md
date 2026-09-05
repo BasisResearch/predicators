@@ -161,9 +161,12 @@ The oracle's step counts per level become a reference column in the table, along
 
 ### 4.7 Scorecard and recordings
 
-The harness writes `scorecard.json` after every skill invocation and every reset, and at least every N steps for primitive-only arms, so a crashed run still has a valid partial scorecard.
+A run is one directory, `logs/<approach>/<experiment id>/seed<k>/run_<launch stamp>/`, the launch's log directory (`predicators/run/paths.py`).
+The harness writes `scorecard.json` there after every skill invocation and every reset, and at least every N steps for primitive-only arms, so a crashed run still has a valid partial scorecard.
 The file holds the per-level and per-run metrics of section 4.4 and the run metadata (env, seed, arm, git SHA, config).
-Recordings are one directory per level at `recordings/<run_id>/<env>-L<k>/`: the low-level trajectory (states and actions, the same `LowLevelTrajectory` shape that `data/trajectories.pkl` uses) written incrementally, plus a JSONL index with one line per skill invocation or reset: timestamp, step range, skill and parameter values, termination status, the agent's expected outcome and reasoning note, the observed atoms afterwards, the episode state, and the render path.
+Recordings are one directory per level at `L<k>/` in the run directory: the low-level trajectory (states and actions, the same `LowLevelTrajectory` shape that `data/trajectories.pkl` uses) written incrementally, plus a JSONL index with one line per skill invocation or reset: timestamp, step range, skill and parameter values, termination status, the agent's expected outcome and reasoning note, the observed atoms afterwards, the episode state, and the render path.
+The agent's files (`agent/`) and the run's video (`run.mp4`) sit beside them.
+A launch under `--auto_resume` adopts the newest run directory of its approach, experiment id and seed whose scorecard is unfinished and appends to its logs; any other launch is a new run directory, so relaunching an experiment never writes into an earlier run and the viewer lists every run.
 The existing trajectory viewer reads the index and pairs each entry with its render.
 A repository-level aggregator turns a set of scorecards into tables and curves once the aggregation is chosen.
 
@@ -400,8 +403,8 @@ Launching:
 python scripts/engaging/launch.py -c predicatorv3/protocol_continual.yaml --partition mit_preemptable
 ```
 
-The launcher passes `--auto_resume`, so a requeue resumes from the scorecard and the level recording.
-Outputs land in `scorecards/<run_id>.json` and `recordings/<run_id>/L<k>/`.
+The launcher passes `--auto_resume`, so a requeue resumes from the scorecard and the level recording in the run directory it adopts (section 4.7).
+Outputs land in `logs/<approach>/<experiment id>/seed<k>/run_<stamp>/`: `scorecard.json`, `L<k>/`, `agent/`, `run.mp4` and the logs.
 
 Viewing:
 
@@ -410,9 +413,9 @@ python scripts/continual_viewer.py --port 25152
 ```
 
 The index lists every run in one table per agent and env pair, nested under agent-name or env-name headers with a toggle and a filter, as in the phased log viewer.
-Each table is one experiment id (its header), each row one run named by start stamp and seed, as the phased viewer names its run dirs, and each row carries three buttons: copy the recording path, pause (cancel the run's Slurm job or local process; the run keeps its scorecard, recording and checkpoints, and relaunching its config with `--auto_resume` continues it) and delete (scorecard, recording and approach checkpoints, after cancelling a live job when confirmed).
+Each table is one experiment id (its header), each row one run named by its launch stamp and seed, read off its directory, and each row carries three buttons: copy the run directory path, pause (cancel the run's Slurm job or local process; the run keeps its directory and checkpoints, and relaunching its config with `--auto_resume` continues it) and delete (the run directory and the approach checkpoints, after cancelling a live job when confirmed).
 The viewer attributes a run to this user's Slurm job named after its experiment id with its seed as the array task, the launcher's convention, or to a local `main.py` process whose flags name the same env, approach, seed and experiment id, and never cancels anything else.
-A run page is a left menu plus a content pane filled from the hash route: the overview (metadata, the cumulative steps-versus-levels-won curve, the per-level metrics of section 4.4), the run's replay, each level's entry into it and its event list, the agent's sessions, and a tree of the recording's files (the system prompt, the transcripts, the sandbox's journal, attempts, data and images, each level's index, actions and renders).
+A run page is a left menu plus a content pane filled from the hash route: the overview (metadata, the cumulative steps-versus-levels-won curve, the per-level metrics of section 4.4), the run's replay, each level's entry into it and its event list, the agent's sessions, the video, and a tree of the run directory's files (the logs, the system prompt, the transcripts, the sandbox's journal, attempts, data and images, each level's index, actions and renders).
 The replay follows the ARC-AGI-3 replay viewer and covers the whole run as one continuous play: one frame per recorded event of every level in order, with the render, the action, the agent's thinking and text that led to it (paired from the session transcripts), the tool call and its result, and the atoms that changed, with keyboard playback and a JSON export.
 Its slider carries one band per level above it and one tick per reset, resume, win and game over below it, both clickable, so a run of many levels and marks stays navigable: a level selector, keys that step by mark or by level, and a filmstrip that renders only a window around the current frame.
 A session renders as a conversation with thinking, assistant text, tool calls and results, and renders inline.
@@ -425,7 +428,7 @@ Step 2, the agent arm, landed the same day:
 - `predicators/approaches/agent_continual_approach.py`: the arms. `AgentContinualApproach` is C1's learner (hybrid simulator, parameter fit, predicate invention) on `AgentSimPredicateInventionApproach`; `AgentContinualModelFreeApproach` is the model-free baseline on `AgentModelFreeApproach`. There is no separate learning session (merged 2026-09-04): `AgentContinualApproach` attaches the model workbench (the phased synthesis `run_python` with the `sim` probe over the agent's `simulator.py` / `predicates.py`) to every play session, so the same session that acts also writes, fits and validates the model; after the session the arm reloads the files, deploys the fit and installs the invented predicates.
 - `predicators/agent_sdk/tools/continual_tools.py`: the play tools `env_observe`, `env_step`, `env_reset`, `env_end_run`, `skills_list`, `skills_invoke`, `skills_execute_plan`, `session_end`, thin text adapters over `ProtocolSession`. Every result ends with the ledger line. The model tools (`run_python` with `sim`) are attached by the model-based arm. Ending the session cannot happen inside a running SDK session, so `env_end_run` and `session_end` record requests the arm acts on after the query returns.
 - `predicators/agent_sdk/prompts/play_system.md` and `play_query.md`, rendered by `agent_sdk/play_prompts.py`: the rules of section 4, the tools, the skill grammar, the sandbox, learning, the journal protocol and the session protocol; the query carries the level, the ledger, the observation with a render, the skills, the predicates, the learning status, the journal, the attempts record and the handoff note.
-- The agent's sandbox and CLI transcripts live in a stable directory per run, `recordings/<run_id>/agent/`, not per launch, so a requeue finds them. SDK session resume is wired: the session manager records the CLI session id into `session_info.json` as soon as a session opens, and an in-flight session at checkpoint time is reopened with `resume` on the next launch (section 6.6).
+- The agent's sandbox and CLI transcripts live in the run directory's `agent/`, one per run, not per launch: a requeue adopts the run directory and finds them. SDK session resume is wired: the session manager records the CLI session id into `session_info.json` as soon as a session opens, and an in-flight session at checkpoint time is reopened with `resume` on the next launch (section 6.6).
 - The observation the agent gets is both numbers and pixels: the object feature table and the atoms in text, and a render saved into the sandbox's `test_images/` at every observation, invocation, plan and reset, named in the tool result and readable with `Read`.
 
 Tests: `tests/agent_sdk/test_continual_tools.py` drives the tools over a real session on cover (a win through `skills_execute_plan`, divergences on positive and `NOT` expectations, parse errors, game over then reset, queued learning and run end, the cap hit inside a tool); `tests/approaches/test_agent_continual_approach.py` runs the play loop on boil with a scripted agent in place of the LLM (a session that acts and queues learning, the learning service, the attempts record, the checkpoint, the resume of an in-flight session id, the idle guard).

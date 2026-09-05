@@ -14,6 +14,7 @@ from predicators.run import continual_video as cv
 from predicators.run.continual import ContinualRun
 from predicators.run.controllers import create_controller
 from predicators.run.scorecard import RunCard
+from predicators.settings import CFG
 from scripts import continual_video as script
 
 
@@ -37,10 +38,8 @@ def _config(tmp_path: Any, **overrides: Any) -> None:
         40,
         "continual_render":
         False,
-        "continual_scorecards_dir":
-        os.path.join(str(tmp_path), "cards"),
-        "continual_recordings_dir":
-        os.path.join(str(tmp_path), "recs"),
+        "continual_runs_dir":
+        os.path.join(str(tmp_path), "runs"),
         "experiment_id":
         "video",
         "video_fps":
@@ -79,7 +78,7 @@ def test_read_level_episodes_matches_the_card(tmp_path: Any) -> None:
     assert card.end_reason == "all_levels_won"
     for lv in card.levels:
         episodes = cv.read_level_episodes(
-            os.path.join(run.recordings_dir, f"L{lv.index + 1:02d}"))
+            os.path.join(run.run_dir, f"L{lv.index + 1:02d}"))
         assert [ep.index
                 for ep in episodes] == [ep.index for ep in lv.episodes]
         assert episodes[0].opened_by == "level_start"
@@ -203,27 +202,15 @@ def test_panel_and_frame_geometry() -> None:
 
 
 def test_make_run_video_replays_every_level(tmp_path: Any) -> None:
-    """The video holds one frame per step (stride 1) plus the held banners,
-    lands under the videos dir (the run's log subdir, or continual/<run_id>
-    without one) and is named on the card; stride thins the steps."""
+    """The video holds one frame per step (stride 1) plus the held banners and
+    lands in the run directory as run.mp4; stride thins the steps."""
     run = _finished_run(tmp_path)
     card = run.card
     # pylint: disable-next=protected-access
     env = run._env
-    path = cv.make_run_video(env,
-                             card,
-                             run.recordings_dir,
-                             stride=1,
-                             fps=4,
-                             card_path=run.card_path)
-    assert path == os.path.join(str(tmp_path), "videos", cv.FALLBACK_SUBDIR,
-                                card.run_id, cv.VIDEO_FILENAME)
+    path = cv.make_run_video(env, card, run.run_dir, stride=1, fps=4)
+    assert path == os.path.join(run.run_dir, "run.mp4")
     assert os.path.isfile(path)
-    assert card.video == path
-    assert RunCard.load(run.card_path).video == path
-    assert cv.default_video_path(card, "agent/exp/seed0/run_1/") == \
-        os.path.join(str(tmp_path), "videos", "agent/exp/seed0/run_1/",
-                     cv.VIDEO_FILENAME)
     n_frames = _num_frames(path)
     steps = card.total_steps
     hold = 4
@@ -235,7 +222,7 @@ def test_make_run_video_replays_every_level(tmp_path: Any) -> None:
     # boundary and a stride cannot thin them: merge each episode's
     # invocations into one and only banners and episode ends remain.
     level = card.levels[0]
-    episodes = cv.read_level_episodes(os.path.join(run.recordings_dir, "L01"))
+    episodes = cv.read_level_episodes(os.path.join(run.run_dir, "L01"))
     for ep in episodes:
         ep.invocations = [
             cv.Invocation("All", "", "succeeded", 0, len(ep.actions))
@@ -262,8 +249,9 @@ def test_make_run_video_with_nothing_recorded(tmp_path: Any) -> None:
 
 
 def test_script_from_flags_and_from_log(tmp_path: Any) -> None:
-    """The offline script rebuilds the env from main.py flags, or from the
-    'Running command' line of a run's log, and writes the video."""
+    """The offline script takes the run directory, rebuilds the env from the
+    'Running command' line of its info.log (or from main.py flags when there is
+    none), and writes run.mp4 into it."""
     run = _finished_run(tmp_path)
     flags = [
         "--env",
@@ -284,27 +272,25 @@ def test_script_from_flags_and_from_log(tmp_path: Any) -> None:
         "continual",
         "--continual_steps_per_level",
         "40",
-        "--continual_scorecards_dir",
-        os.path.join(str(tmp_path), "cards"),
-        "--continual_recordings_dir",
-        os.path.join(str(tmp_path), "recs"),
+        "--continual_runs_dir",
+        os.path.join(str(tmp_path), "runs"),
         "--video_fps",
         "4",
     ]
+    # No info.log in the run directory: the flags come from the command
+    # line, and --out picks the file.
     out = os.path.join(str(tmp_path), "from_flags.mp4")
-    assert script.main([*flags, "--out", out]) == out
+    assert script.main(["--run_dir", run.run_dir, *flags, "--out", out]) == out
     assert os.path.isfile(out)
-    log = os.path.join(str(tmp_path), "info.log")
+    log = os.path.join(run.run_dir, "info.log")
     with open(log, "w", encoding="utf-8") as f:
         f.write("\x1b[32mINFO: Running command: python predicators/main.py " +
                 " ".join(flags) + "\x1b[0m\n")
         f.write("INFO: something else\n")
     assert script.command_flags_from_log(log) == flags
-    # A log outside the logs root has no subdir to mirror: the fallback.
-    expected = cv.default_video_path(run.card)
-    assert script.main(["--run_log", log]) == expected
+    expected = os.path.join(run.run_dir, "run.mp4")
+    assert script.main(["--run_dir", run.run_dir]) == expected
     assert os.path.isfile(expected)
-    assert RunCard.load(run.card_path).video == expected
     bad = os.path.join(str(tmp_path), "bad.log")
     with open(bad, "w", encoding="utf-8") as f:
         f.write("nothing here\n")
@@ -328,5 +314,5 @@ def test_run_end_hook_writes_the_video(tmp_path: Any) -> None:
                                [t.task for t in env.get_train_tasks()])
     card = run_continual(env, approach)
     assert card.is_finished
-    assert card.video == cv.default_video_path(card)
-    assert os.path.isfile(card.video)
+    assert os.path.isfile(
+        os.path.join(CFG.continual_runs_dir, CFG.run_subdir, "run.mp4"))

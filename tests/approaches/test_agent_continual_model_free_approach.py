@@ -52,10 +52,8 @@ def _config(tmp_path: Any, **overrides: Any) -> None:
         False,
         "continual_max_idle_sessions":
         3,
-        "continual_scorecards_dir":
-        os.path.join(str(tmp_path), "cards"),
-        "continual_recordings_dir":
-        os.path.join(str(tmp_path), "recs"),
+        "continual_runs_dir":
+        os.path.join(str(tmp_path), "runs"),
         "approach_dir":
         os.path.join(str(tmp_path), "saved"),
         "agent_sdk_use_local_sandbox":
@@ -188,7 +186,8 @@ def test_play_loop_with_a_scripted_model_free_agent(tmp_path: Any) -> None:
     trajs = approach._online_trajectories  # pylint: disable=protected-access
     assert len(trajs) == 1 and len(trajs[0].actions) == 3
     log_dir = approach._get_log_dir()  # pylint: disable=protected-access
-    assert log_dir.startswith(os.path.join(str(tmp_path), "recs"))
+    assert log_dir.startswith(os.path.join(str(tmp_path), "runs"))
+    assert log_dir.endswith("agent")
     attempts = open(os.path.join(log_dir, "sandbox", "attempts.md"),
                     encoding="utf-8").read()
     assert "### Session 1" in attempts and "Learning session" not in attempts

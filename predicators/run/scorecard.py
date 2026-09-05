@@ -130,9 +130,6 @@ class RunCard:
     # "level_not_won" | "level_lost" | "crash"
     end_reason: Optional[str] = None
     end_note: str = ""
-    # The run's labelled replay video (predicators/run/continual_video.py),
-    # as a path relative to the working directory; "" until written.
-    video: str = ""
 
     # -- Derived totals (computed, never stored as inputs) -------------
 

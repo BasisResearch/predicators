@@ -26,6 +26,7 @@ from predicators import utils
 from predicators.approaches import ApproachFailure, ApproachTimeout, \
     BaseApproach
 from predicators.envs import BaseEnv
+from predicators.run import paths
 from predicators.run.episode import EpisodeOver, EpisodeRunner, EpisodeState, \
     InvocationOutcome, StepOutcome
 from predicators.run.recording import LevelRecording, states_close
@@ -358,10 +359,10 @@ class ContinualRun:
             skills = _skill_library(env, approach)
         self._skills = sorted(skills, key=lambda o: o.name)
         self._predicates: Set[Predicate] = set(env.predicates)
-        self._card_path = os.path.join(CFG.continual_scorecards_dir,
-                                       f"{self._run_id}.json")
-        self._rec_root = os.path.join(CFG.continual_recordings_dir,
-                                      self._run_id)
+        # One directory per run (predicators/run/paths.py): the scorecard,
+        # the level recordings, the agent's files and the video.
+        self._run_dir = paths.run_dir()
+        self._card_path = paths.scorecard_path(self._run_dir)
         self._card = self._load_or_new_card()
         self._session = ProtocolSession(self)
         self._runner: Optional[EpisodeRunner] = None
@@ -392,9 +393,9 @@ class ContinualRun:
         return self._card_path
 
     @property
-    def recordings_dir(self) -> str:
-        """The run's recordings root."""
-        return self._rec_root
+    def run_dir(self) -> str:
+        """The run's directory: scorecard, level recordings, agent files."""
+        return self._run_dir
 
     @property
     def session(self) -> ProtocolSession:
@@ -772,7 +773,7 @@ class ContinualRun:
                                 level_index: int) -> List[Dict[str, Any]]:
         """A finished level's episodes from its recording (actions lose their
         skill labels; prefer the arm's own memory when it has it)."""
-        path = os.path.join(self._rec_root, f"L{level_index + 1:02d}")
+        path = paths.level_dir(self._run_dir, level_index)
         if not os.path.isdir(path):
             return []
         rec = LevelRecording(path)
@@ -844,8 +845,7 @@ class ContinualRun:
             max_option_steps=CFG.max_num_steps_option_rollout,
             predicates=self._predicates)
         self._runner.add_step_listener(self._on_runner_step)
-        self._recording = LevelRecording(
-            os.path.join(self._rec_root, f"L{k + 1:02d}"))
+        self._recording = LevelRecording(paths.level_dir(self._run_dir, k))
         self._level_episodes = []
         self._tick = time.time()
         self._env_seconds_at_tick = 0.0
@@ -1173,24 +1173,32 @@ class ContinualRun:
             bool(CFG.continual_allow_test_resets)
 
     def _load_or_new_card(self) -> RunCard:
-        if getattr(CFG, "auto_resume", False) and \
-                os.path.isfile(self._card_path):
+        """The scorecard in the run directory, when resuming it, else a new
+        one.
+
+        A run directory is never written over: a scorecard is only ever
+        found here when ``--auto_resume`` adopted the directory
+        (``paths.resumable_run_subdir``), and one whose level list no
+        longer matches the env is an error, not a fresh start on top of
+        another run's recordings.
+        """
+        if os.path.isfile(self._card_path):
             card = RunCard.load(self._card_path)
-            if card.is_finished:
-                logging.info(
-                    "[Continual] --auto_resume: %s already ended (%s); "
-                    "starting a fresh run over it.", self._card_path,
-                    card.end_reason)
-            elif len(card.levels) != len(self._levels):
-                logging.warning(
-                    "[Continual] --auto_resume: %s has %d levels but the "
-                    "env now has %d; starting fresh.", self._card_path,
-                    len(card.levels), len(self._levels))
-            else:
-                logging.info(
-                    "[Continual] --auto_resume: resuming %s at "
-                    "level %s", self._card_path, card.current_level_index())
-                return card
+            if card.is_finished or not getattr(CFG, "auto_resume", False):
+                raise RuntimeError(
+                    f"{self._run_dir} already holds a run "
+                    f"({card.end_reason or 'unfinished'}); a new run needs "
+                    "a new run directory (leave CFG.run_subdir unset)")
+            if len(card.levels) != len(self._levels):
+                raise RuntimeError(
+                    f"--auto_resume: {self._card_path} has "
+                    f"{len(card.levels)} levels but the env now has "
+                    f"{len(self._levels)}; the run cannot continue under "
+                    "a different level list. Drop --auto_resume to start "
+                    "a new run.")
+            logging.info("[Continual] --auto_resume: resuming %s at level %s",
+                         self._card_path, card.current_level_index())
+            return card
         levels = [
             LevelCard(index=s.index,
                       split=s.split,
@@ -1244,10 +1252,7 @@ def run_continual(env: BaseEnv,
         # pylint: disable-next=import-outside-toplevel
         from predicators.run.continual_video import make_run_video
         try:
-            make_run_video(env,
-                           card,
-                           run.recordings_dir,
-                           card_path=run.card_path)
+            make_run_video(env, card, run.run_dir)
         except Exception:  # pylint: disable=broad-except
             # The video is a convenience; the run's result is the card.
             logging.exception("[Continual] run video failed")

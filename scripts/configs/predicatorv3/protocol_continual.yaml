@@ -3,7 +3,8 @@
 #            --partition mit_preemptable
 # One Slurm job per env x arm x seed. Each job plays the env's levels
 # (its train tasks, then its test tasks) under the continual protocol and
-# writes scorecards/<run_id>.json plus recordings/<run_id>/L<k>/.
+# writes one run directory, logs/<arm>/<exp>/seed<k>/run_<stamp>/:
+# scorecard.json, L<k>/ recordings, agent/, run.mp4 and the logs.
 # Env definitions live in envs/all.yaml and arm definitions in
 # approaches/all.yaml (all parked); this file un-skips what it runs and
 # sets the protocol flags. Flip SKIPs to change the env or arm set.
@@ -13,8 +14,8 @@ includes:
   - envs/all.yaml
   - approaches/all.yaml
 ARGS:
-  # A requeue (preemption or the wall-time trap) resumes the run from
-  # the scorecard and the level recording (section 6.6).
+  # A requeue (preemption or the wall-time trap) resumes the run in its
+  # directory from the scorecard and the level recording (section 6.6).
   - auto_resume
 FLAGS:
   experiment_protocol: "continual"
@@ -24,7 +25,7 @@ FLAGS:
   continual_steps_per_level: 5000
   continual_wall_clock_hours: 48.0
   continual_render: True
-  # videos/<log subdir>/run.mp4 at run end (predicators/run/continual_video.py).
+  # run.mp4 in the run directory at run end (predicators/run/continual_video.py).
   continual_make_video: True
   # Every level is played in the long-lived env; a fresh PyBullet
   # instance per level keeps one level's physics history out of the next.

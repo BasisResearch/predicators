@@ -1856,12 +1856,12 @@ def wait_rollout_step_cap() -> int:
     The real executor (:func:`option_policy_to_policy`) backstops at
     this same value, so a Wait ends at the same step for real as in the
     belief rollouts that certified the plan: with the backstop left
-    infinite the belief still capped every Wait at the rollout cap
-    while the real Wait ran to the horizon (boil 2026-09-02: 430 real
-    actions against 100 in belief, dropping every later plan step).
-    Report code asking "did this Wait stall?" must compare against
-    whichever fires FIRST: the bridge configures the backstop at 120
-    against a 1000-step rollout cap.
+    infinite the belief still capped every Wait at the rollout cap while
+    the real Wait ran to the horizon (boil 2026-09-02: 430 real actions
+    against 100 in belief, dropping every later plan step). Report code
+    asking "did this Wait stall?" must compare against whichever fires
+    FIRST: the bridge configures the backstop at 120 against a 1000-step
+    rollout cap.
     """
     cap = int(CFG.max_num_steps_option_rollout)
     if CFG.wait_option_terminate_on_atom_change and \
@@ -5480,8 +5480,30 @@ def get_object_by_name(objects: Collection[Object],
     return next((obj for obj in objects if obj.name == name), None)
 
 
-def configure_logging() -> None:
-    """Configure logging with colored output."""
+def new_run_subdir(root: str = "") -> str:
+    """A fresh ``<approach>/<experiment_id>/seed<k>/run_<stamp>/`` for this
+    launch.
+
+    Under ``root`` (when given) it names a directory that does not exist
+    yet, so two launches of one config within a second get their own.
+    """
+    now = datetime.datetime.now()
+    while True:
+        stamp = now.strftime("%Y%m%d_%H%M%S")
+        subdir = (f"{CFG.approach}/{CFG.experiment_id}/seed{CFG.seed}/"
+                  f"run_{stamp}/")
+        if not root or not os.path.exists(os.path.join(root, subdir)):
+            return subdir
+        now += datetime.timedelta(seconds=1)
+
+
+def configure_logging(run_subdir: Optional[str] = None) -> None:
+    """Configure logging with colored output.
+
+    ``run_subdir`` names an existing run directory to resume in (the
+    continual protocol's ``paths.resumable_run_subdir``): its log files
+    are appended to. Without it the launch gets a new run subdir.
+    """
     # Create a single formatter instance to be reused
     colored_formatter = colorlog.ColoredFormatter(
         '%(log_color)s%(levelname)s: %(message)s',
@@ -5498,20 +5520,22 @@ def configure_logging() -> None:
     colorlog_handler = colorlog.StreamHandler()
     colorlog_handler.setFormatter(colored_formatter)
     handlers: List[logging.Handler] = [colorlog_handler]
+    if run_subdir:
+        CFG.run_subdir = run_subdir
     if CFG.log_file:
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        # save_video mirrors this subdir under CFG.video_dir. Both are derived
-        # from the one timestamp so a run's videos and logs always agree on the
-        # run id, which recomputing the clock per artifact would not guarantee.
-        CFG.run_subdir = (f"{CFG.approach}/{CFG.experiment_id}/"
-                          f"seed{CFG.seed}/run_{timestamp}/")
+        # save_video mirrors this subdir under CFG.video_dir, and a
+        # continual run keeps everything in it (predicators/run/paths.py).
+        # One subdir per launch, so every artifact agrees on the run.
+        if not run_subdir:
+            CFG.run_subdir = new_run_subdir(CFG.log_file)
         CFG.log_file += CFG.run_subdir
         os.makedirs(CFG.log_file, exist_ok=True)
+        mode = "a" if run_subdir else "w"
 
         # Handler for DEBUG level messages
         debug_handler = logging.FileHandler(os.path.join(
             CFG.log_file, "debug.log"),
-                                            mode='w')
+                                            mode=mode)
         debug_handler.setLevel(logging.DEBUG)
         debug_handler.setFormatter(colored_formatter)
         handlers.append(debug_handler)
@@ -5519,7 +5543,7 @@ def configure_logging() -> None:
         # Handler for INFO level messages
         info_handler = logging.FileHandler(os.path.join(
             CFG.log_file, "info.log"),
-                                           mode='w')
+                                           mode=mode)
         info_handler.setLevel(logging.INFO)
         info_handler.setFormatter(colored_formatter)
         handlers.append(info_handler)

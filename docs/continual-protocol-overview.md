@@ -61,11 +61,11 @@ Per level: whether it was won and at which step, or lost (a `GAME_OVER` with no 
 Recovery bookkeeping (preemptions, resumes, downtime, harness resets) is kept apart from the agent's own counts.
 Per run: levels completed, the totals, and the end reason (all levels won, a level lost or never won, step cap, wall-clock cap, the agent ended it, or a crash).
 
-On disk, one scorecard per run at `scorecards/<run_id>.json`, rewritten after every skill invocation and reset.
-One recording per level at `recordings/<run_id>/L<k>/`: every primitive step (`actions.jsonl`), an index with one line per skill invocation, reset, resume, win and game over (`index.jsonl`), the episodes, a checkpoint, and a render per event.
-The agent's own material lives in `recordings/<run_id>/agent/`: the system prompt, one transcript per session, and its sandbox (journal, attempts record, data, images).
-With `continual_make_video` on (the launcher config sets it), a run that ends writes `videos/<its log subdir>/run.mp4`, beside the run's other videos and named on its scorecard: its recorded actions replayed through the env, with a panel beside the render naming the level and goal, the skill running and the agent's note for it, the steps used against the cap, the resets and the episode state.
-`python scripts/continual_video.py --run_log <the run's info.log>` builds the same video for a finished run.
+On disk, a run is one directory, `logs/<approach>/<experiment id>/seed<k>/run_<launch stamp>/`, the launch's log directory.
+It holds the scorecard (`scorecard.json`, rewritten after every skill invocation and reset), one recording per level at `L<k>/` (every primitive step in `actions.jsonl`, an index with one line per skill invocation, reset, resume, win and game over in `index.jsonl`, the episodes, a checkpoint, and a render per event), the agent's own material in `agent/` (the system prompt, one transcript per session, and its sandbox with the journal, attempts record, data and images), and the launch's `info.log` and `debug.log`.
+A launch that resumes a run (`--auto_resume` after a preemption) continues in the same directory; any other launch is a new run directory, so earlier runs of an experiment stay in place and the viewer lists them all.
+With `continual_make_video` on (the launcher config sets it), a run that ends writes `run.mp4` into its directory: its recorded actions replayed through the env, with a panel beside the render naming the level and goal, the skill running and the agent's note for it, the steps used against the cap, the resets and the episode state.
+`python scripts/continual_video.py --run_dir <the run's directory>` builds the same video for a finished run.
 Any aggregate can be recomputed from these files.
 The figure we expect to show is the cumulative steps versus levels won curve.
 

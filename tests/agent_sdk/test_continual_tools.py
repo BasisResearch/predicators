@@ -56,10 +56,8 @@ def _setup(tmp_path: Any, **overrides: Any) -> Any:
         100,
         "continual_render":
         False,
-        "continual_scorecards_dir":
-        os.path.join(str(tmp_path), "cards"),
-        "continual_recordings_dir":
-        os.path.join(str(tmp_path), "recs"),
+        "continual_runs_dir":
+        os.path.join(str(tmp_path), "runs"),
         "experiment_id":
         "tools",
         **overrides,
@@ -137,7 +135,9 @@ def test_tools_play_a_level_to_a_win(tmp_path: Any) -> None:
         assert state.charged_calls == len(plan.splitlines())
         # Sandbox accounting reaches the card on disk at once.
         session.record_sandbox("sim_rollouts", 2)
-        cards = glob.glob(os.path.join(CFG.continual_scorecards_dir, "*.json"))
+        cards = glob.glob(
+            os.path.join(CFG.continual_runs_dir, "*", "*", "seed*", "run_*",
+                         "scorecard.json"))
         assert len(cards) == 1
         with open(cards[0], "r", encoding="utf-8") as f:
             on_disk = json.load(f)

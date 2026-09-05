@@ -140,10 +140,8 @@ def test_replay_pairs_frames_with_reasoning(tmp_path: Any) -> None:
         100,
         "continual_render":
         True,
-        "continual_scorecards_dir":
-        os.path.join(str(tmp_path), "cards"),
-        "continual_recordings_dir":
-        os.path.join(str(tmp_path), "recs"),
+        "continual_runs_dir":
+        os.path.join(str(tmp_path), "runs"),
         "experiment_id":
         "replay",
     })
@@ -198,10 +196,10 @@ def test_replay_pairs_frames_with_reasoning(tmp_path: Any) -> None:
                 "result": r2["content"][0]["text"],
             })
 
-    run = ContinualRun(env, approach, _Driver()).run()
+    continual_run = ContinualRun(env, approach, _Driver())
+    run = continual_run.run()
     assert run.levels[0].won
-    run_id = run.run_id
-    adir = os.path.join(str(tmp_path), "recs", run_id, "agent")
+    adir = os.path.join(continual_run.run_dir, "agent")
     os.makedirs(os.path.join(adir, "sandbox"), exist_ok=True)
     md = format_conversation_markdown(_entries(made),
                                       title="Local Sandbox Query",
@@ -215,9 +213,11 @@ def test_replay_pairs_frames_with_reasoning(tmp_path: Any) -> None:
               encoding="utf-8") as f:
         f.write(md)
 
-    viewer.configure(os.path.join(str(tmp_path), "cards"),
-                     os.path.join(str(tmp_path), "recs"))
-    frames = viewer.build_replay(run_id, 0)
+    viewer.configure(os.path.join(str(tmp_path), "runs"))
+    key = viewer.run_key(continual_run.run_dir)
+    frames = [
+        f for f in viewer.build_run_replay(key)["frames"] if f["level"] == 1
+    ]
     events = [f["event"] for f in frames]
     assert events[0] == "level_start"
     assert "reset" in events and "win" in events
@@ -234,22 +234,23 @@ def test_replay_pairs_frames_with_reasoning(tmp_path: Any) -> None:
     assert all(f["render"] for f in frames if f["event"] != "resume")
     assert any(f["marker"] for f in frames)
 
-    html = viewer.fragment(run_id, "L1")
+    html = viewer.fragment(key, "replay")
     assert html is not None
     assert "id='replay-data'" in html and "Agent reasoning" in html
     assert "Download JSON" in html and "filmstrip" in html
     assert "REPLAY.go(0)" in html and "<script>" not in html.split(
         "id='replay-data'")[1]
-    data = viewer.replay_json(run_id, 0)
+    data = viewer.replay_json(key)
     assert data is not None
-    assert json.loads(data.decode("utf-8"))[0]["event"] == "level_start"
-    assert viewer.fragment(run_id, "L8") is None
-    assert viewer.replay_json("nope", 0) is None
+    exported = json.loads(data.decode("utf-8"))
+    assert exported["frames"][0]["event"] == "level_start"
+    assert viewer.fragment(key, "L8/events") is None
+    assert viewer.replay_json("nope") is None
 
-    session = viewer.fragment(run_id, "session/001_play_20200101_000000.md")
+    session = viewer.fragment(key, "session/001_play_20200101_000000.md")
     assert session is not None
     assert "Start clean." in session and "class='think'" in session
     assert "skills_execute_plan" in session and "id='turn-2'" in session
     assert "Now the plan." in session
-    level = viewer.fragment(run_id, "L1/events")
-    assert level is not None and "href='#L1'" in level
+    level = viewer.fragment(key, "L1/events")
+    assert level is not None and "href='#replay/L1'" in level

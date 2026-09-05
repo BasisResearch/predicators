@@ -76,8 +76,12 @@ class GlobalSettings:
     continual_steps_per_level = 5000
     # Active wall-clock cap per env run, in hours (6.5).
     continual_wall_clock_hours = 48.0
-    continual_scorecards_dir = "scorecards"
-    continual_recordings_dir = "recordings"
+    # One directory per run (predicators/run/paths.py):
+    # <continual_runs_dir>/<approach>/<experiment_id>/seed<k>/run_<stamp>/
+    # holds the scorecard, the level recordings, the agent's files and
+    # the video, beside the launch's logs (the same subdir --log_file
+    # names, so keep this equal to the log root).
+    continual_runs_dir = "logs"
     # Save a PNG render at level start, after each skill invocation, on
     # resets and at episode ends (4.7).
     continual_render = True

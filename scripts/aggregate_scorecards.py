@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Aggregate continual-protocol scorecards into tables.
 
-Reads every ``scorecards/<run_id>.json`` (see ``predicators/run/
-scorecard.py``) and writes two CSVs plus a Markdown summary:
+Reads every run's ``scorecard.json`` under the runs root (one directory
+per run, ``predicators/run/paths.py``; ``predicators/run/scorecard.py``
+for the card) and writes two CSVs plus a Markdown summary:
 
 * ``runs.csv``: one row per run with the run-level totals and the end
   reason;
@@ -17,13 +18,14 @@ The protocol deliberately defines no headline score; this script reports
 base metrics and leaves the aggregation to the analysis that follows.
 
 Usage:
-    python scripts/aggregate_scorecards.py [--scorecards scorecards] \\
+    python scripts/aggregate_scorecards.py [--runs logs] \\
         [--out analysis/scorecards]
 """
 from __future__ import annotations
 
 import argparse
 import csv
+import glob
 import json
 import os
 import statistics
@@ -48,19 +50,17 @@ LEVEL_COLUMNS = [
 
 
 def load_cards(root: str) -> List[Dict[str, Any]]:
-    """Every scorecard under ``root``."""
+    """Every run's scorecard under ``root``
+    (``<approach>/<experiment_id>/seed<k>/run_<stamp>/scorecard.json``)."""
     cards: List[Dict[str, Any]] = []
-    if not os.path.isdir(root):
-        return cards
-    for name in sorted(os.listdir(root)):
-        if not name.endswith(".json"):
-            continue
-        with open(os.path.join(root, name), "r", encoding="utf-8") as f:
+    pattern = os.path.join(root, "*", "*", "seed*", "run_*", "scorecard.json")
+    for path in sorted(glob.glob(pattern)):
+        with open(path, "r", encoding="utf-8") as f:
             try:
                 card = json.load(f)
             except ValueError:
                 continue
-        card.setdefault("run_id", name[:-len(".json")])
+        card.setdefault("run_id", os.path.relpath(os.path.dirname(path), root))
         cards.append(card)
     return cards
 
@@ -222,9 +222,9 @@ def write_csv(path: str, columns: Sequence[str],
             writer.writerow({k: row.get(k, "") for k in columns})
 
 
-def aggregate(scorecards: str, out: str) -> Dict[str, str]:
+def aggregate(runs: str, out: str) -> Dict[str, str]:
     """Write the three outputs; returns their paths."""
-    cards = load_cards(scorecards)
+    cards = load_cards(runs)
     os.makedirs(out, exist_ok=True)
     paths = {
         "runs": os.path.join(out, "runs.csv"),
@@ -242,10 +242,10 @@ def main() -> None:
     """CLI entry point."""
     parser = argparse.ArgumentParser(
         description=(__doc__ or "").split("\n\n", maxsplit=1)[0])
-    parser.add_argument("--scorecards", default="scorecards")
+    parser.add_argument("--runs", default="logs")
     parser.add_argument("--out", default="analysis/scorecards")
     args = parser.parse_args()
-    paths = aggregate(args.scorecards, args.out)
+    paths = aggregate(args.runs, args.out)
     with open(paths["summary"], "r", encoding="utf-8") as f:
         print(f.read())
     print(f"wrote {paths['runs']}, {paths['levels']}, {paths['summary']}")

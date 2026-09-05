@@ -40,7 +40,6 @@ import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Set, \
     Tuple
 
-from predicators import utils
 from predicators.agent_sdk import journal as journal_mod
 from predicators.agent_sdk.play_prompts import build_play_query, \
     build_play_system_prompt, render_data_status
@@ -50,6 +49,7 @@ from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
     PlayState, build_continual_tools, format_observation, visible_goal
 from predicators.agent_sdk.tools.digests import render_options_digest, \
     render_types_digest
+from predicators.run import paths
 from predicators.run.episode import EpisodeState
 from predicators.settings import CFG
 from predicators.structs import Dataset, LowLevelTrajectory, Predicate
@@ -177,11 +177,10 @@ class ContinualPlayMixin:
     # -- Hooks the session machinery reads ------------------------------
 
     def _get_log_dir(self) -> str:
-        """A stable directory per run, not per launch, so the sandbox and the
-        CLI transcripts survive a requeue (section 6.6)."""
-        return os.path.abspath(
-            os.path.join(CFG.continual_recordings_dir,
-                         utils.get_config_path_str(), "agent"))
+        """The run directory's ``agent/``: one per run, not per launch (a
+        resuming launch adopts the run directory), so the sandbox and the CLI
+        transcripts survive a requeue (section 6.6)."""
+        return os.path.abspath(paths.agent_dir(paths.run_dir()))
 
     def _get_solve_tool_names(self) -> Optional[List[str]]:
         return list(self._continual_tool_names())

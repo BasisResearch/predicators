@@ -16,6 +16,7 @@ from predicators import utils
 from predicators.approaches import create_approach
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
+from predicators.run import paths
 from predicators.run.continual import ContinualRun, LevelAlreadyWon, \
     LevelLost, ProtocolSession, ResetUnavailable, RunEnded, build_levels, \
     level_summary
@@ -24,6 +25,7 @@ from predicators.run.controllers import OracleController, \
 from predicators.run.episode import EpisodeOver, EpisodeState
 from predicators.run.recording import LevelRecording, states_close
 from predicators.run.scorecard import RunCard
+from predicators.settings import CFG
 from predicators.structs import Action
 
 
@@ -51,10 +53,8 @@ def _config(tmp_path: Any, approach: str, **overrides: Any) -> None:
         200,
         "continual_render":
         False,
-        "continual_scorecards_dir":
-        os.path.join(str(tmp_path), "cards"),
-        "continual_recordings_dir":
-        os.path.join(str(tmp_path), "recs"),
+        "continual_runs_dir":
+        os.path.join(str(tmp_path), "runs"),
         "experiment_id":
         "test",
         **overrides,
@@ -84,8 +84,7 @@ def _check_card_invariants(run: ContinualRun) -> None:
         assert lv.steps == sum(ep.steps for ep in lv.episodes) + lv.resets
         if not lv.attempted:
             continue
-        rec = LevelRecording(
-            os.path.join(run.recordings_dir, f"L{lv.index + 1:02d}"))
+        rec = LevelRecording(os.path.join(run.run_dir, f"L{lv.index + 1:02d}"))
         lines = _read_jsonl(rec.actions_path)
         applied = [r for r in lines if "a" in r]
         resets = [r for r in lines if r.get("event") == "reset"]
@@ -124,7 +123,7 @@ def test_oracle_wins_every_level(tmp_path: Any) -> None:
         assert lv.wall_clock > 0.0 and lv.wall_clock_env > 0.0
         assert lv.finished_at is not None
     _check_card_invariants(run)
-    rec = LevelRecording(os.path.join(run.recordings_dir, "L01"))
+    rec = LevelRecording(os.path.join(run.run_dir, "L01"))
     events = [e["event"] for e in rec.read_index()]
     assert events[0] == "level_start"
     assert events[-1] == "win"
@@ -238,7 +237,8 @@ def test_preemption_resume_replays_losslessly(tmp_path: Any) -> None:
     # no reset was charged for the recovery.
     assert lv.resets == 0
     assert [ep.end for ep in lv.episodes] == ["win"]
-    rec = LevelRecording(os.path.join(second.recordings_dir, "L01"))
+    assert second.run_dir == first.run_dir
+    rec = LevelRecording(os.path.join(second.run_dir, "L01"))
     resume = [e for e in rec.read_index() if e["event"] == "resume"]
     assert len(resume) == 1 and resume[0]["verified"] is True
     assert resume[0]["replayed_steps"] == steps_before
@@ -256,7 +256,7 @@ def test_resume_with_diverged_replay_is_a_harness_reset(tmp_path: Any) -> None:
     with pytest.raises(_Preempted):
         first.run()
     # Corrupt the checkpoint state so the replay cannot match it.
-    rec = LevelRecording(os.path.join(first.recordings_dir, "L01"))
+    rec = LevelRecording(os.path.join(first.run_dir, "L01"))
     ckpt = rec.load_checkpoint()
     assert ckpt is not None
     state = ckpt["state"]
@@ -279,7 +279,7 @@ def test_resume_with_diverged_replay_is_a_harness_reset(tmp_path: Any) -> None:
     assert lv.harness_resets == 1
     assert lv.resets == 0, "the agent is not charged for a harness reset"
     assert [ep.end for ep in lv.episodes] == ["harness_reset", "win"]
-    rec = LevelRecording(os.path.join(second.recordings_dir, "L01"))
+    rec = LevelRecording(os.path.join(second.run_dir, "L01"))
     resume = [e for e in rec.read_index() if e["event"] == "resume"]
     assert resume[0]["verified"] is False
     resets = [e for e in rec.read_index() if e["event"] == "reset"]
@@ -413,8 +413,7 @@ def test_test_levels_have_no_resets_by_default(tmp_path: Any) -> None:
     assert not card.levels[2].attempted
     assert "L2 test[0] lost" in level_summary(card)
     assert RunCard.load(run.card_path).levels[1].lost
-    events = _read_jsonl(os.path.join(run.recordings_dir, "L02",
-                                      "index.jsonl"))
+    events = _read_jsonl(os.path.join(run.run_dir, "L02", "index.jsonl"))
     game_over = [e for e in events if e["event"] == "game_over"]
     assert len(game_over) == 1 and game_over[0]["level_over"] is True
     _check_card_invariants(run)
@@ -510,7 +509,7 @@ def test_scorecard_round_trip_and_renders(tmp_path: Any) -> None:
     loaded = RunCard.load(run.card_path)
     assert loaded.to_dict() == card.to_dict()
     assert loaded.git_sha == card.git_sha
-    renders = os.listdir(os.path.join(run.recordings_dir, "L01", "renders"))
+    renders = os.listdir(os.path.join(run.run_dir, "L01", "renders"))
     names = sorted(renders)
     assert any(n.endswith("_start.png") for n in names)
     assert any(n.endswith("_win.png") for n in names)
@@ -538,6 +537,57 @@ def test_states_close_and_wrong_level_count(tmp_path: Any) -> None:
     fresh = ContinualRun(env2, approach2, create_controller(env2, approach2))
     assert fresh.card.levels_total == 2
     assert not fresh.card.levels[0].attempted
+
+
+def test_one_directory_per_run(tmp_path: Any) -> None:
+    """A run is one directory under the runs root, named by approach,
+    experiment id, seed and launch stamp; a second launch of the same config is
+    a second directory; --auto_resume adopts the newest unfinished run and
+    starts a new one when the newest is over; a directory is never written
+    over."""
+    _config(tmp_path, "oracle", num_test_tasks=1)
+    env, approach = _make("oracle")
+    run = ContinualRun(env, approach, create_controller(env, approach))
+    root = os.path.join(str(tmp_path), "runs")
+    parent = os.path.join(root, "oracle", "test", "seed123")
+    assert os.path.dirname(run.run_dir) == parent
+    assert paths.RUN_DIR_RE.match(os.path.basename(run.run_dir))
+    assert run.card_path == os.path.join(run.run_dir, "scorecard.json")
+    assert run.run_dir == os.path.normpath(os.path.join(root, CFG.run_subdir))
+    card = run.run()
+    assert card.is_finished
+    assert os.path.isfile(run.card_path)
+    assert os.path.isdir(os.path.join(run.run_dir, "L01"))
+    # A fresh subdir under the same root never names an existing dir.
+    stamp = os.path.basename(run.run_dir)
+    assert utils.new_run_subdir(root) != f"oracle/test/seed123/{stamp}/"
+    # The newest run is finished: --auto_resume starts a new directory.
+    _config(tmp_path, "oracle", num_test_tasks=1, auto_resume=True)
+    assert paths.resumable_run_subdir() is None
+    env2, approach2 = _make("oracle")
+    second = ContinualRun(env2, approach2, create_controller(env2, approach2))
+    assert second.run_dir != run.run_dir
+    assert os.path.dirname(second.run_dir) == parent
+    assert not second.card.levels[0].attempted
+    # An unfinished newest run is adopted, logs and all.
+    unfinished = os.path.join(parent, "run_20990101_000000")
+    os.makedirs(unfinished)
+    card.end_reason = None
+    card.finished_at = None
+    card.save(os.path.join(unfinished, "scorecard.json"))
+    _config(tmp_path, "oracle", num_test_tasks=1, auto_resume=True)
+    assert paths.resumable_run_subdir() == \
+        "oracle/test/seed123/run_20990101_000000/"
+    assert paths.run_dir() == unfinished
+    # Without --auto_resume nothing is adopted, and a run directory that
+    # already holds a run is refused rather than written over.
+    _config(tmp_path, "oracle", num_test_tasks=1)
+    assert paths.resumable_run_subdir() is None
+    CFG.run_subdir = f"oracle/test/seed123/{stamp}/"
+    env3, approach3 = _make("oracle")
+    with pytest.raises(RuntimeError, match="already holds a run"):
+        ContinualRun(env3, approach3, create_controller(env3, approach3))
+    CFG.run_subdir = ""
 
 
 def test_run_ended_carries_reason() -> None:

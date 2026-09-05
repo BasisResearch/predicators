@@ -1,15 +1,24 @@
 #!/usr/bin/env python3
 """Local web viewer for continual-protocol runs (docs/continual-protocol.md).
 
-Stdlib-only browser over the two on-disk products of a run:
+Stdlib-only browser over the run directories under one root
+(``predicators/run/paths.py``), one per run at
+``<root>/<approach>/<experiment_id>/seed<k>/run_<stamp>/``, each
+holding:
 
-* ``scorecards/<run_id>.json``, the ``RunCard`` written by
+* ``scorecard.json``, the ``RunCard`` written by
   ``predicators/run/scorecard.py`` after every skill invocation, reset
   and level event;
-* ``recordings/<run_id>/L<k>/``, the per-level recording written by
+* ``L<k>/``, the per-level recording written by
   ``predicators/run/recording.py``: ``index.jsonl`` (one line per skill
   invocation, reset, resume, win, game over and level start),
-  ``actions.jsonl`` (one line per primitive step), ``renders/*.png``.
+  ``actions.jsonl`` (one line per primitive step), ``renders/*.png``;
+* ``agent/``, the agent arm's transcripts and sandbox; ``run.mp4``, the
+  labelled replay video; ``info.log`` and ``debug.log``, the launch's
+  logs.
+
+A run's URL key is its directory relative to the root. Old runs stay
+in the tree, so the index lists every run of every experiment.
 
 Pages:
 
@@ -22,7 +31,7 @@ Pages:
   keeps its scorecard, recording and checkpoints, so relaunching its
   config with ``--auto_resume`` continues it) and delete (scorecard,
   recording and approach checkpoints).
-* ``/run/<run_id>``: the run as a sidebar plus a content pane that the
+* ``/run/<key>``: the run as a sidebar plus a content pane that the
   hash route fills. ``#overview``: metadata, the cumulative steps-
   versus-levels-won curve, one row per level with the section 4.4
   metrics and its episodes. ``#replay``: the whole run as one replay,
@@ -37,28 +46,27 @@ Pages:
   window around the current frame. ``#replay/L<k>`` opens the replay at
   the level's first frame and ``#replay/frame=<n>`` at a frame; ``#L<k>``
   is an alias of ``#replay/L<k>``. ``#video``: the run's labelled replay
-  video (``videos/<log subdir>/run.mp4``, named on the scorecard; written
-  at run end under ``continual_make_video`` or by
-  ``scripts/continual_video.py``).
+  video (``run.mp4`` in the run directory; written at run end under
+  ``continual_make_video`` or by ``scripts/continual_video.py``).
   ``#L<k>/events``: the level's timeline,
   one row per index event. ``#session/<name>``: one transcript as a
   structured conversation: thinking, assistant text, tool calls with
-  their results, renders inline. ``#f=<path>``: any file of the
-  recording (the system prompt, the sandbox's journal, attempts and
-  data, a level's index and actions) or a directory as a listing with
-  an image gallery.
-* ``/run/<run_id>/replay.json``: the replay's levels and frames.
+  their results, renders inline. ``#f=<path>``: any file of the run
+  directory (the logs, the system prompt, the sandbox's journal,
+  attempts and data, a level's index and actions) or a directory as a
+  listing with an image gallery.
+* ``/run/<key>/replay.json``: the replay's levels and frames.
 
 Usage:
-    python scripts/continual_viewer.py [--scorecards scorecards] \\
-        [--recordings recordings] [--approaches saved_approaches] \\
-        [--videos videos] [--port 25152] [--host 127.0.0.1]
+    python scripts/continual_viewer.py [--runs logs] \\
+        [--approaches saved_approaches] [--port 25152] [--host 127.0.0.1]
 """
 from __future__ import annotations
 
 import argparse
 import datetime
 import getpass
+import glob
 import html
 import json
 import mimetypes
@@ -80,10 +88,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # pylint: disable-next=wrong-import-position
 from scripts import continual_transcripts as tr  # noqa: E402
 
-SCORECARDS_ROOT = ""  # absolute, set in main()
-RECORDINGS_ROOT = ""  # absolute, set in main()
-VIDEOS_ROOT = ""  # absolute, set in main()
+RUNS_ROOT = ""  # absolute, set in main(); the run directories live under it
 APPROACHES_ROOT = ""  # absolute, set in main(); checkpoints to delete
+# The run directory's layout (predicators/run/paths.py), spelled here so
+# the viewer stays stdlib-only.
+SCORECARD_FILENAME = "scorecard.json"
+VIDEO_FILENAME = "run.mp4"
+AGENT_DIRNAME = "agent"
+# A run's URL key: its directory relative to the root.
+RUN_KEY_RE = re.compile(r"^[^/]+/[^/]+/seed\d+/run_\d{8}_\d{6}$")
 LIVE_WINDOW_S = 15 * 60  # a card updated within this window is "live"
 
 # ── Small helpers ──────────────────────────────────────────────────
@@ -136,47 +149,62 @@ def safe_join(root: str, rel: str) -> Optional[str]:
 # ── Data access ────────────────────────────────────────────────────
 
 
+def run_dir(key: str) -> Optional[str]:
+    """The run directory a URL key names, under the root; ``None`` for a key of
+    another shape."""
+    if not RUN_KEY_RE.match(key):
+        return None
+    return safe_join(RUNS_ROOT, key)
+
+
+def run_key(path: str) -> str:
+    """The URL key of a run directory."""
+    return os.path.relpath(os.path.realpath(path), RUNS_ROOT)
+
+
 def list_cards() -> List[Dict[str, Any]]:
-    """Every scorecard on disk, newest update first."""
+    """Every run's scorecard under the root, newest update first."""
     cards: List[Dict[str, Any]] = []
-    if not os.path.isdir(SCORECARDS_ROOT):
-        return cards
-    for name in os.listdir(SCORECARDS_ROOT):
-        if not name.endswith(".json"):
-            continue
-        card = load_card(name[:-len(".json")])
+    pattern = os.path.join(RUNS_ROOT, "*", "*", "seed*", "run_*",
+                           SCORECARD_FILENAME)
+    for path in glob.glob(pattern):
+        card = load_card(run_key(os.path.dirname(path)))
         if card is not None:
             cards.append(card)
     cards.sort(key=lambda c: float(c.get("updated_at") or 0), reverse=True)
     return cards
 
 
-def load_card(run_id: str) -> Optional[Dict[str, Any]]:
-    """One scorecard as a dict, or ``None``."""
-    path = safe_join(SCORECARDS_ROOT, f"{run_id}.json")
-    if path is None or not os.path.isfile(path):
+def load_card(key: str) -> Optional[Dict[str, Any]]:
+    """One scorecard as a dict, with the run's ``key``, or ``None``."""
+    root = run_dir(key)
+    if root is None:
+        return None
+    path = os.path.join(root, SCORECARD_FILENAME)
+    if not os.path.isfile(path):
         return None
     try:
         with open(path, "r", encoding="utf-8") as f:
             card: Dict[str, Any] = json.load(f)
     except (OSError, ValueError):
         return None
-    card.setdefault("run_id", run_id)
+    card["key"] = key
+    card.setdefault("run_id", key)
     return card
 
 
-def level_dir(run_id: str, level_index: int) -> Optional[str]:
+def level_dir(key: str, level_index: int) -> Optional[str]:
     """The level's recording directory, if it exists."""
-    rel = os.path.join(run_id, f"L{level_index + 1:02d}")
-    path = safe_join(RECORDINGS_ROOT, rel)
-    if path is None or not os.path.isdir(path):
+    root = run_dir(key)
+    if root is None:
         return None
-    return path
+    path = os.path.join(root, f"L{level_index + 1:02d}")
+    return path if os.path.isdir(path) else None
 
 
-def read_index(run_id: str, level_index: int) -> List[Dict[str, Any]]:
+def read_index(key: str, level_index: int) -> List[Dict[str, Any]]:
     """The level's index entries in order."""
-    ldir = level_dir(run_id, level_index)
+    ldir = level_dir(key, level_index)
     if ldir is None:
         return []
     path = os.path.join(ldir, "index.jsonl")
@@ -201,17 +229,18 @@ IMAGE_REF_RE = re.compile(r"\./test_images/[\w./-]+\.png")
 MAX_TEXT_CHARS = 60000
 
 
-def agent_dir(run_id: str) -> Optional[str]:
-    """The agent arm's stable directory for a run, if it exists."""
-    path = safe_join(RECORDINGS_ROOT, os.path.join(run_id, "agent"))
-    if path is None or not os.path.isdir(path):
+def agent_dir(key: str) -> Optional[str]:
+    """The agent arm's directory of a run, if it exists."""
+    root = run_dir(key)
+    if root is None:
         return None
-    return path
+    path = os.path.join(root, AGENT_DIRNAME)
+    return path if os.path.isdir(path) else None
 
 
-def list_session_logs(run_id: str) -> List[Dict[str, Any]]:
+def list_session_logs(key: str) -> List[Dict[str, Any]]:
     """The agent's session transcripts, oldest first."""
-    adir = agent_dir(run_id)
+    adir = agent_dir(key)
     if adir is None:
         return []
     logs = []
@@ -231,9 +260,9 @@ def list_session_logs(run_id: str) -> List[Dict[str, Any]]:
     return logs
 
 
-def read_agent_file(run_id: str, rel: str) -> Optional[str]:
+def read_agent_file(key: str, rel: str) -> Optional[str]:
     """A text file under the agent dir, whole."""
-    adir = agent_dir(run_id)
+    adir = agent_dir(key)
     if adir is None:
         return None
     path = safe_join(adir, rel)
@@ -258,16 +287,16 @@ def liveness(
         return "live", "live"
     # Between env events the card rests, but an agent in a learning
     # session keeps writing its transcript and sandbox notes.
-    agent_age = agent_activity_age(str(card.get("run_id") or ""))
+    agent_age = agent_activity_age(str(card.get("key") or ""))
     if agent_age is not None and agent_age < LIVE_WINDOW_S:
         return "live (agent session)", "live"
     return f"stalled ({fmt_age(card.get('updated_at'))})", "warn"
 
 
-def agent_activity_age(run_id: str) -> Optional[float]:
+def agent_activity_age(key: str) -> Optional[float]:
     """Seconds since the agent last wrote a transcript, its session id, its
     journal or attempts record, or a session log; ``None`` without any."""
-    adir = agent_dir(run_id) if run_id else None
+    adir = agent_dir(key) if key else None
     if adir is None:
         return None
     newest = 0.0
@@ -294,23 +323,23 @@ def render_url(render_path: Optional[str]) -> Optional[str]:
     if not render_path:
         return None
     path = os.path.realpath(str(render_path))
-    if not path.startswith(RECORDINGS_ROOT + os.sep):
+    if not path.startswith(RUNS_ROOT + os.sep):
         # A run that was moved: fall back to the basename under the
         # level's render dir, resolved by the caller.
         return None
-    rel = os.path.relpath(path, RECORDINGS_ROOT)
+    rel = os.path.relpath(path, RUNS_ROOT)
     return "/file/" + "/".join(q(part) for part in rel.split(os.sep))
 
 
-def level_render_url(run_id: str, level_index: int,
+def level_render_url(key: str, level_index: int,
                      render_path: Optional[str]) -> Optional[str]:
     """Render URL, tolerant of a run that was moved after recording."""
     url = render_url(render_path)
     if url is not None or not render_path:
         return url
     name = os.path.basename(str(render_path))
-    rel = os.path.join(run_id, f"L{level_index + 1:02d}", "renders", name)
-    path = safe_join(RECORDINGS_ROOT, rel)
+    rel = os.path.join(key, f"L{level_index + 1:02d}", "renders", name)
+    path = safe_join(RUNS_ROOT, rel) if run_dir(key) else None
     if path is None or not os.path.isfile(path):
         return None
     return "/file/" + "/".join(q(part) for part in rel.split(os.sep))
@@ -682,9 +711,10 @@ function pauseRun(id) {
 function deleteRun(id, live) {
   var msg = live
     ? 'This run appears LIVE:\n' + id + '\nCancel its job AND delete ' +
-      'its scorecard, recording and approach checkpoints?'
-    : 'Delete the scorecard, recording and approach checkpoints of\n' +
-      id + ' ?';
+      'its directory (scorecard, recordings, logs, video) and approach ' +
+      'checkpoints?'
+    : 'Delete the directory (scorecard, recordings, logs, video) and ' +
+      'approach checkpoints of\n' + id + ' ?';
   postRun('/delete?r=' + encodeURIComponent(id) + (live ? '&kill=1' : ''),
           msg);
 }
@@ -1139,8 +1169,8 @@ def _card_key(card: Dict[str, Any]) -> Tuple[str, str, str, str]:
 
 
 def live_owners(cards: Sequence[Dict[str, Any]]) -> Dict[str, List[Owner]]:
-    """run id -> the Slurm jobs and local processes running each card."""
-    keys = {str(c["run_id"]): _card_key(c) for c in cards}
+    """run key -> the Slurm jobs and local processes running each card."""
+    keys = {str(c["key"]): _card_key(c) for c in cards}
     owners: Dict[str, List[Owner]] = {}
     for job_id, task_id, plain_id, state, name, stdout in _squeue_rows() or []:
         base = os.path.basename(
@@ -1150,31 +1180,31 @@ def live_owners(cards: Sequence[Dict[str, Any]]) -> Dict[str, List[Owner]]:
         # spells it in its stdout path, after the experiment id.
         seed = task_id if task_id.isdigit() else (
             parts[3] if len(parts) > 3 and parts[3].isdigit() else "")
-        for run_id, (env, approach, run_seed, config) in keys.items():
+        for key, (env, approach, run_seed, config) in keys.items():
             if (name, seed) != (config, run_seed):
                 continue
             if len(parts) > 2 and parts[:2] != [env, approach]:
                 continue
-            owners.setdefault(run_id, []).append(Owner("job", job_id, state))
+            owners.setdefault(key, []).append(Owner("job", job_id, state))
     for line in _ps_lines():
         pid, _, args = line.strip().partition(" ")
         args = args.strip()
         if not pid.isdigit() or not _PS_MAIN_RE.match(args):
             continue
         flags = dict(_PS_ARG_RE.findall(args))
-        key = tuple(
+        wanted = tuple(
             flags.get(k, "")
             for k in ("env", "approach", "seed", "experiment_id"))
-        for run_id, run_key in keys.items():
-            if key == run_key:
-                owners.setdefault(run_id, []).append(Owner("proc", pid, "R"))
+        for key, card_key in keys.items():
+            if wanted == card_key:
+                owners.setdefault(key, []).append(Owner("proc", pid, "R"))
     return owners
 
 
-def owners_for_run(run_id: str) -> List[Owner]:
+def owners_for_run(key: str) -> List[Owner]:
     """The Slurm jobs and local processes running one run."""
-    card = load_card(run_id)
-    return live_owners([card]).get(run_id, []) if card else []
+    card = load_card(key)
+    return live_owners([card]).get(key, []) if card else []
 
 
 def _descendant_pids(pids: List[str]) -> List[str]:
@@ -1250,16 +1280,16 @@ def _stop_owners(owners: Sequence[Owner],
     return True, "; ".join(notes)
 
 
-def pause_run(run_id: str) -> Tuple[bool, str]:
+def pause_run(key: str) -> Tuple[bool, str]:
     """Cancel the Slurm job or signal the local process running a run.
 
     The run keeps its scorecard, recording and approach checkpoints, so
     relaunching its config with ``--auto_resume`` continues it from the
     last checkpoint: a pause, not a kill.
     """
-    if load_card(run_id) is None:
+    if load_card(key) is None:
         return False, "no such run"
-    owners = owners_for_run(run_id)
+    owners = owners_for_run(key)
     if not owners:
         return False, ("no queued or running Slurm job or local process "
                        "found for this run")
@@ -1271,7 +1301,8 @@ def pause_run(run_id: str) -> Tuple[bool, str]:
 
 
 def _remove_checkpoints(run_id: str) -> int:
-    """Delete the approach checkpoints of a run; their count."""
+    """Delete the approach checkpoints of a run (named by the scorecard's run
+    id); their count."""
     if not os.path.isdir(APPROACHES_ROOT):
         return 0
     removed = 0
@@ -1282,8 +1313,9 @@ def _remove_checkpoints(run_id: str) -> int:
     return removed
 
 
-def delete_run(run_id: str, kill: bool) -> Tuple[bool, str]:
-    """Delete a run's scorecard, recording and approach checkpoints.
+def delete_run(key: str, kill: bool) -> Tuple[bool, str]:
+    """Delete a run: its directory (scorecard, recordings, logs, video) and its
+    approach checkpoints.
 
     A run with a live job or process is refused unless ``kill`` is set:
     then it is stopped as ``pause_run`` does and waited on until it
@@ -1293,14 +1325,13 @@ def delete_run(run_id: str, kill: bool) -> Tuple[bool, str]:
     them, and a relaunch after a delete must start fresh rather than
     load the deleted run's learned state over a new scorecard.
     """
-    card_path = safe_join(SCORECARDS_ROOT, f"{run_id}.json")
-    rec_dir = safe_join(RECORDINGS_ROOT, run_id)
-    if (not run_id or os.path.basename(run_id) != run_id or card_path is None
-            or rec_dir is None):
-        return False, "not a run id"
-    if not os.path.isfile(card_path) and not os.path.isdir(rec_dir):
+    rdir = run_dir(key)
+    if rdir is None:
+        return False, "not a run key"
+    card = load_card(key)
+    if card is None:
         return False, "no such run"
-    owners = owners_for_run(run_id)
+    owners = owners_for_run(key)
     if owners:
         if not kill:
             return False, "run has a live job or process; pause it first"
@@ -1308,24 +1339,19 @@ def delete_run(run_id: str, kill: bool) -> Tuple[bool, str]:
         if not ok:
             return False, msg
         deadline = time.monotonic() + _CANCEL_WAIT_S
-        while time.monotonic() < deadline and owners_for_run(run_id):
+        while time.monotonic() < deadline and owners_for_run(key):
             time.sleep(_CANCEL_POLL_S)
-        owners = owners_for_run(run_id)
+        owners = owners_for_run(key)
         pids = [o.ident for o in owners if o.kind == "proc"]
         if pids:
             _signal_pids(pids + _descendant_pids(pids), signal.SIGKILL)
             time.sleep(_CANCEL_POLL_S)
         if any(o.kind == "job" for o in owners):
             return False, "Slurm job is still cancelling; retry shortly"
-    removed = []
+    removed = [f"run directory {key}"]
     try:
-        if os.path.isfile(card_path):
-            os.remove(card_path)
-            removed.append("scorecard")
-        if os.path.isdir(rec_dir):
-            shutil.rmtree(rec_dir)
-            removed.append("recording")
-        n_ckpt = _remove_checkpoints(run_id)
+        shutil.rmtree(rdir)
+        n_ckpt = _remove_checkpoints(str(card["run_id"]))
     except OSError as e:
         return False, f"delete failed: {e}"
     if n_ckpt:
@@ -1369,8 +1395,8 @@ def index_page() -> str:
     toggle, as in the phased log viewer)."""
     cards = list_cards()
     if not cards:
-        body = (f"<p class='muted'>No scorecards under "
-                f"<code>{esc(SCORECARDS_ROOT)}</code> yet.</p>")
+        body = (f"<p class='muted'>No runs under "
+                f"<code>{esc(RUNS_ROOT)}</code> yet.</p>")
         return page("continual viewer", "runs", body, refresh=30)
     leaves: Dict[Tuple[str, str, str], List[Dict[str, Any]]] = {}
     for card in cards:
@@ -1384,9 +1410,7 @@ def index_page() -> str:
     owners = live_owners(cards)
     parts = [
         f"<p class='muted'>{len(cards)} run(s) under "
-        f"<code>{esc(SCORECARDS_ROOT)}</code>; recordings under "
-        f"<code>{esc(RECORDINGS_ROOT)}</code>. Auto-refreshes every 30 s."
-        "</p>"
+        f"<code>{esc(RUNS_ROOT)}</code>. Auto-refreshes every 30 s.</p>"
     ]
     # Agent view: every leaf rendered once under its agent header.
     parts.append("<div id='view-agent'>")
@@ -1471,14 +1495,14 @@ def _runs_table(cards: Sequence[Dict[str, Any]], n_levels: int,
     rows = []
     for card in cards:
         totals = _totals(card)
-        run_id = str(card["run_id"])
-        run_owners = owners.get(run_id, [])
+        key = str(card["key"])
+        run_owners = owners.get(key, [])
         label, cls = liveness(card, run_owners)
         levels = card.get("levels", [])
         search = " ".join(
-            str(x)
-            for x in (run_id, card.get("config") or "", card.get("arm"),
-                      card.get("env"), f"seed{card.get('seed')}", label))
+            str(x) for x in (key, card.get("run_id"), card.get("config") or "",
+                             card.get("arm"), card.get("env"),
+                             f"seed{card.get('seed')}", label))
         rows.append(
             f"<tr class='runrow' data-text='{esc(search)}'>"
             f"<td>{_run_cell(card, run_owners)}</td>"
@@ -1513,9 +1537,9 @@ def _run_cell(card: Dict[str, Any], owners: Sequence[Owner]) -> str:
     """The run's link, named by start stamp and seed as the phased viewer names
     its run dirs, and its copy, pause (only while a job or process runs it) and
     delete buttons; the buttons show on hover."""
-    run_id = str(card["run_id"])
-    name = f"{run_stamp(card)}/seed{card.get('seed')}"
-    esc_id = esc(run_id)
+    key = str(card["key"])
+    name = run_name(key)
+    esc_id = esc(key)
     live = bool(owners)
     pause = ""
     if live:
@@ -1524,35 +1548,31 @@ def _run_cell(card: Dict[str, Any], owners: Sequence[Owner]) -> str:
                  "checkpoints and continues when relaunched with "
                  f"--auto_resume' onclick='pauseRun(\"{esc_id}\")'>"
                  "⏸</button>")
-    del_title = ("Cancel the live job, then delete this run" if live else
-                 "Delete this run: scorecard, recording and checkpoints")
+    del_title = ("Cancel the live job, then delete this run"
+                 if live else "Delete this run: its directory and checkpoints")
     delete = (f"<button class='rowbtn del' title='{del_title}' "
               f"onclick='deleteRun(\"{esc_id}\", "
               f"{'true' if live else 'false'})'>✕</button>")
-    return (f"<div class='runcell'><a href='/run/{q(run_id)}' "
+    return (f"<div class='runcell'><a href='/run/{q(key)}' "
             f"title='{esc_id}'>{esc(name)}</a><span class='btns'>"
-            f"<button class='rowbtn copy' data-copy='{esc(copy_path(run_id))}'"
-            f" title='Copy recording path'>⧉</button>{pause}{delete}"
+            f"<button class='rowbtn copy' data-copy='{esc(copy_path(key))}'"
+            f" title='Copy the run directory path'>⧉</button>{pause}{delete}"
             "</span></div>")
 
 
-def run_stamp(card: Dict[str, Any]) -> str:
-    """The run's start as ``YYYYMMDD_HHMMSS``; its id without a start."""
-    started = card.get("started_at")
-    if not started:
-        return str(card.get("run_id") or "")
-    return datetime.datetime.fromtimestamp(
-        float(started)).strftime("%Y%m%d_%H%M%S")
+def run_name(key: str) -> str:
+    """The run's short name: its launch stamp and seed, ``20260904_065251/
+    seed3``, read off its directory."""
+    parts = key.split("/")
+    stamp = parts[-1][len("run_"):] if len(parts) == 4 else parts[-1]
+    seed = parts[2] if len(parts) == 4 else ""
+    return f"{stamp}/{seed}" if seed else stamp
 
 
-def copy_path(run_id: str) -> str:
-    """What the copy button puts on the clipboard: the recording dir, relative
-    to the viewer's working dir (the repo root when started from there), or the
-    scorecard for a run without one."""
-    rec = os.path.join(RECORDINGS_ROOT, run_id)
-    if not os.path.isdir(rec):
-        rec = os.path.join(SCORECARDS_ROOT, f"{run_id}.json")
-    return os.path.relpath(rec)
+def copy_path(key: str) -> str:
+    """What the copy button puts on the clipboard: the run directory, relative
+    to the viewer's working dir (the repo root when started from there)."""
+    return os.path.relpath(os.path.join(RUNS_ROOT, key))
 
 
 def _level_grid(levels: Sequence[Dict[str, Any]], n_levels: int) -> str:
@@ -1591,22 +1611,22 @@ def _level_mark(lv: Dict[str, Any]) -> str:
 # ── Run page ───────────────────────────────────────────────────────
 
 
-def run_page(run_id: str) -> Optional[str]:
+def run_page(key: str) -> Optional[str]:
     """One run: a sidebar (overview, the replay, each level's entry into it and
     its events, the agent's sessions, the recording's files) and a content pane
     the page script fills from the hash route (see loadHash in the JS)."""
-    card = load_card(run_id)
+    card = load_card(key)
     if card is None:
         return None
     label, cls = liveness(card)
     levels = card.get("levels", [])
     nav = [
-        f"<div class='runhead'>{esc(card.get('config') or run_id)} "
+        f"<div class='runhead'>{esc(card.get('config') or key)} "
         f"{chip(label, cls)}</div>",
         "<div class='nav'><a href='#overview'>Overview</a>"
         "<a href='#replay'>▶ Replay</a>",
     ]
-    if video_path(run_id) is not None:
+    if video_path(key) is not None:
         nav.append("<a href='#video'>🎬 Video</a>")
     nav.append("<h4>Levels</h4>")
     for lv in levels:
@@ -1618,8 +1638,8 @@ def run_page(run_id: str) -> Optional[str]:
                    f"{esc(lv.get('split'))}[{esc(lv.get('task_idx'))}]</span>"
                    f" {mark}</a>"
                    f"<a class='sub' href='#L{k}/events'>events</a></div>")
-    if agent_dir(run_id) is not None:
-        logs = list_session_logs(run_id)
+    if agent_dir(key) is not None:
+        logs = list_session_logs(key)
         nav.append(f"<h4>Agent sessions ({len(logs)})</h4>")
         for log in logs:
             nav.append(
@@ -1628,16 +1648,16 @@ def run_page(run_id: str) -> Optional[str]:
                 f"{int(log['number']):03d} {esc(log['kind'])} "
                 f"<span class='muted'>{log['size'] // 1024} KB, "
                 f"{esc(fmt_age(log['mtime']))}</span></a>")
-    nav.append("<h4>Files</h4>" + _file_tree(run_id) + "</div>")
+    nav.append("<h4>Files</h4>" + _file_tree(key) + "</div>")
     attempted = [int(lv["index"]) + 1 for lv in levels if lv.get("attempted")]
     default = f"replay/L{attempted[-1]}" if attempted else "overview"
     body = (f"<div class='run'><div class='sidebar'>{''.join(nav)}</div>"
-            f"<div id='content' data-run='{esc(run_id)}' "
+            f"<div id='content' data-run='{esc(key)}' "
             f"data-default='{default}'><p class='muted'>Loading…</p>"
             "</div></div>")
-    crumb = f"<a href='/run/{q(run_id)}'>{esc(run_id)}</a>"
+    crumb = f"<a href='/run/{q(key)}'>{esc(key)}</a>"
     refresh = 0 if card.get("end_reason") else 30
-    return page(run_id, crumb, body, refresh=refresh, wrap=False)
+    return page(run_name(key), crumb, body, refresh=refresh, wrap=False)
 
 
 TREE_SKIP = {".git"}
@@ -1645,13 +1665,13 @@ TREE_MAX_FILES = 30
 TREE_MAX_DEPTH = 4
 
 
-def _file_tree(run_id: str) -> str:
-    """The recording directory as nested collapsible lists: files link to their
-    view, transcripts to their session view, and a directory's "list" link to
-    its listing."""
-    root = safe_join(RECORDINGS_ROOT, run_id)
+def _file_tree(key: str) -> str:
+    """The run directory as nested collapsible lists: files link to their view,
+    transcripts to their session view, and a directory's "list" link to its
+    listing."""
+    root = run_dir(key)
     if root is None or not os.path.isdir(root):
-        return "<p class='muted'>No recordings.</p>"
+        return "<p class='muted'>No files.</p>"
     return "<div class='tree'>" + _tree_dir(root, "", 0) + "</div>"
 
 
@@ -1692,31 +1712,31 @@ def _file_href(rel: str, name: str) -> str:
 # ── Pane fragments ─────────────────────────────────────────────────
 
 
-def fragment(run_id: str, route: str) -> Optional[str]:
+def fragment(key: str, route: str) -> Optional[str]:
     """The content pane for one hash route of the run page: ``overview``,
     ``replay``, ``L<k>/events``, ``session/<name>`` or ``f=<path>`` (a file or
-    directory of the recording)."""
-    if load_card(run_id) is None:
+    directory of the run)."""
+    if load_card(key) is None:
         return None
     m = re.fullmatch(r"L(\d+)/events", route)
     if m:
-        return events_fragment(run_id, int(m.group(1)) - 1)
+        return events_fragment(key, int(m.group(1)) - 1)
     if route == "replay":
-        return replay_fragment(run_id)
+        return replay_fragment(key)
     if route == "overview":
-        return overview_fragment(run_id)
+        return overview_fragment(key)
     if route == "video":
-        return video_fragment(run_id)
+        return video_fragment(key)
     if route.startswith("session/"):
-        return session_fragment(run_id, route[len("session/"):])
+        return session_fragment(key, route[len("session/"):])
     if route.startswith("f="):
-        return file_fragment(run_id, route[len("f="):])
+        return file_fragment(key, route[len("f="):])
     return None
 
 
-def overview_fragment(run_id: str) -> Optional[str]:
+def overview_fragment(key: str) -> Optional[str]:
     """Run metadata, the cost curve and the level table."""
-    card = load_card(run_id)
+    card = load_card(key)
     if card is None:
         return None
     totals = _totals(card)
@@ -1741,46 +1761,39 @@ def overview_fragment(run_id: str) -> Optional[str]:
          esc(fmt_age(card.get("updated_at"))) + ")"),
         ("finished", esc(fmt_ts(card.get("finished_at")))),
         ("git", f"<code>{esc(card.get('git_sha', ''))}</code>"),
-        ("scorecard", f"<a href='/card/{q(run_id)}'>json</a>"),
+        ("scorecard", f"<a href='/card/{q(key)}'>json</a>"),
     ]
-    if video_path(run_id) is not None:
+    if video_path(key) is not None:
         meta.append(("video", "<a href='#video'>labelled replay</a>"))
     meta_html = "<dl class='meta'>" + "".join(f"<dt>{k}</dt><dd>{v}</dd>"
                                               for k, v in meta) + "</dl>"
-    return (f"<h2>{esc(card.get('config') or run_id)}</h2>{meta_html}"
+    return (f"<h2>{esc(card.get('config') or key)}</h2>{meta_html}"
             "<h2>Cumulative steps vs levels won</h2>" + curve_svg(card) +
             "<h2>Levels</h2>" + _levels_table(card))
 
 
-def video_path(run_id: str) -> Optional[str]:
-    """The run's labelled replay video, when one has been written.
-
-    The scorecard names it (``videos/<log subdir>/run.mp4``, relative to
-    the working directory the run was launched from, which is where the
-    viewer runs too); it is served only from under the videos root.
-    """
-    card = load_card(run_id)
-    if card is None or not card.get("video"):
+def video_path(key: str) -> Optional[str]:
+    """The run's labelled replay video, ``run.mp4`` in its directory, when one
+    has been written."""
+    root = run_dir(key)
+    if root is None:
         return None
-    path = os.path.realpath(str(card["video"]))
-    if not path.startswith(VIDEOS_ROOT + os.sep) or not os.path.isfile(path):
-        return None
-    return path
+    path = os.path.join(root, VIDEO_FILENAME)
+    return path if os.path.isfile(path) else None
 
 
-def video_fragment(run_id: str) -> Optional[str]:
-    """The run's video (recordings/<run_id>/run.mp4) in a player, with the
-    command that rebuilds it."""
-    if load_card(run_id) is None:
+def video_fragment(key: str) -> Optional[str]:
+    """The run's video in a player, with the command that rebuilds it."""
+    if load_card(key) is None:
         return None
-    path = video_path(run_id)
+    path = video_path(key)
     if path is None:
         return ("<h2>Video</h2><p class='muted'>No video yet. Runs write "
                 "one at their end under <code>continual_make_video</code>; "
-                "<code>scripts/continual_video.py --run_log "
-                "&lt;info.log&gt;</code> builds it for a finished run."
-                "</p>")
-    raw = f"/video/{q(run_id)}"
+                "<code>scripts/continual_video.py --run_dir "
+                f"{esc(copy_path(key))}</code> builds it for a finished "
+                "run.</p>")
+    raw = f"/video/{q(key)}"
     size_mb = os.path.getsize(path) / 1e6
     rel = os.path.relpath(path)
     return (f"<h2>Video</h2><p class='muted'><code>{esc(rel)}</code>, "
@@ -1799,20 +1812,20 @@ VIDEO_EXTS = {".mp4", ".webm"}
 GALLERY_MAX = 400
 
 
-def file_fragment(run_id: str, rel: str) -> Optional[str]:
-    """A file of the recording (text, image, or a binary's size) or a directory
+def file_fragment(key: str, rel: str) -> Optional[str]:
+    """A file of the run (text, image, or a binary's size) or a directory
     listing with a thumbnail gallery of its images."""
-    root = safe_join(RECORDINGS_ROOT, run_id)
+    root = run_dir(key)
     if root is None:
         return None
     rel = "" if rel in ("", ".") else rel
     path = root if not rel else safe_join(root, rel)
     if path is None or not os.path.exists(path):
         return None
-    head = f"<h2>{esc(rel or run_id)}</h2>"
+    head = f"<h2>{esc(rel or key)}</h2>"
     if os.path.isdir(path):
-        return head + _dir_listing(run_id, path, rel)
-    raw = _raw_url(run_id, rel)
+        return head + _dir_listing(key, path, rel)
+    raw = _raw_url(key, rel)
     info = (f"<p class='muted'>{os.path.getsize(path)} bytes, "
             f"{esc(fmt_ts(os.path.getmtime(path)))} · "
             f"<a href='{raw}'>raw</a></p>")
@@ -1827,12 +1840,13 @@ def file_fragment(run_id: str, rel: str) -> Optional[str]:
     if ext in TEXT_EXTS:
         text, note = _read_text(path, tail=ext in (".log", ".jsonl"))
         return (head + info + note +
-                f"<pre class='doc'>{_image_links(run_id, esc(text))}</pre>")
+                f"<pre class='doc'>{_image_links(key, esc(text))}</pre>")
     return head + info + "<p class='muted'>Binary file; not shown.</p>"
 
 
-def _raw_url(run_id: str, rel: str) -> str:
-    return "/file/" + "/".join(q(p) for p in [run_id, *rel.split("/")] if p)
+def _raw_url(key: str, rel: str) -> str:
+    return "/file/" + "/".join(
+        q(p) for p in [*key.split("/"), *rel.split("/")] if p)
 
 
 def _read_text(path: str, tail: bool) -> Tuple[str, str]:
@@ -1848,7 +1862,7 @@ def _read_text(path: str, tail: bool) -> Tuple[str, str]:
     return (text[-MAX_TEXT_CHARS:] if tail else text[:MAX_TEXT_CHARS]), note
 
 
-def _dir_listing(run_id: str, path: str, rel: str) -> str:
+def _dir_listing(key: str, path: str, rel: str) -> str:
     try:
         names = sorted(n for n in os.listdir(path) if n not in TREE_SKIP)
     except OSError:
@@ -1865,7 +1879,7 @@ def _dir_listing(run_id: str, path: str, rel: str) -> str:
                     f"{esc(fmt_ts(os.path.getmtime(full)))}</td></tr>")
         if not is_dir and os.path.splitext(name)[1].lower() in IMAGE_EXTS:
             thumbs.append(f"<a href='#f={esc(sub)}'><img class='thumb' "
-                          f"src='{_raw_url(run_id, sub)}' loading='lazy' "
+                          f"src='{_raw_url(key, sub)}' loading='lazy' "
                           f"title='{esc(name)}' onclick='zoom(this); "
                           "event.preventDefault()'></a>")
     table = ("<table><thead><tr><th>name</th><th class='num'>bytes</th>"
@@ -2012,39 +2026,39 @@ def _levels_table(card: Dict[str, Any]) -> str:
             "".join(rows) + "</tbody></table>")
 
 
-def load_transcripts(run_id: str) -> List[tr.Transcript]:
+def load_transcripts(key: str) -> List[tr.Transcript]:
     """Every parsed session transcript of a run, oldest first."""
     out = []
-    for log in list_session_logs(run_id):
-        text = read_agent_file(run_id, log["name"])
+    for log in list_session_logs(key):
+        text = read_agent_file(key, log["name"])
         if text is None:
             continue
         out.append(tr.parse_transcript(text, log["name"]))
     return out
 
 
-def build_run_replay(run_id: str) -> Dict[str, Any]:
+def build_run_replay(key: str) -> Dict[str, Any]:
     """The run's replay: ``frames``, every recorded level's index entries in
     order paired with the agent's tool calls and reasoning, each with a render
     URL, numbered run-wide (``i``) and tagged with its level (``level``,
     1-based); and ``levels``, one summary per recorded level with its frame
     range (``start``, ``end``), so the player draws bands and jumps by level
     without scanning the frames."""
-    card = load_card(run_id)
+    card = load_card(key)
     if card is None:
         return {"levels": [], "frames": []}
-    transcripts = load_transcripts(run_id)
+    transcripts = load_transcripts(key)
     frames: List[Dict[str, Any]] = []
     levels: List[Dict[str, Any]] = []
     for lv in card.get("levels", []):
         idx = int(lv["index"])
-        entries = read_index(run_id, idx)
+        entries = read_index(key, idx)
         if not entries:
             continue
         paired = tr.pair_entries(entries, transcripts)
         start = len(frames)
         for f in tr.frames_from_entries(
-                paired, lambda p, idx=idx: level_render_url(run_id, idx, p)):
+                paired, lambda p, idx=idx: level_render_url(key, idx, p)):
             f["i"] = start + f["i"]
             f["level"] = idx + 1
             frames.append(f)
@@ -2060,15 +2074,15 @@ def build_run_replay(run_id: str) -> Dict[str, Any]:
     return {"levels": levels, "frames": frames}
 
 
-def replay_fragment(run_id: str) -> Optional[str]:
+def replay_fragment(key: str) -> Optional[str]:
     """The run replay: one frame per recorded event of every level, with the
     render, the action, the agent's reasoning and the tool call; the timeline,
     the level selector and the filmstrip are built by the player (initReplay in
     the page script) from the JSON."""
-    card = load_card(run_id)
+    card = load_card(key)
     if card is None:
         return None
-    data = build_run_replay(run_id)
+    data = build_run_replay(key)
     frames, levels = data["frames"], data["levels"]
     if not frames:
         return "<h2>Replay</h2><p class='muted'>No recorded events yet.</p>"
@@ -2080,7 +2094,7 @@ def replay_fragment(run_id: str) -> Optional[str]:
     return (
         f"<div class='replay-root'><h2>Replay {won_chip}"
         f" <span class='muted'>{len(frames)} frames, {len(levels)} levels · "
-        f"<a href='/run/{q(run_id)}/replay.json'>Download JSON</a></span>"
+        f"<a href='/run/{q(key)}/replay.json'>Download JSON</a></span>"
         "</h2><div class='replay'><div class='stage'>"
         "<div class='stagehead'><span class='big' id='counter'></span>"
         "<span id='lvl'></span><span id='evt'></span><span id='state'></span>"
@@ -2127,21 +2141,22 @@ def replay_fragment(run_id: str) -> Optional[str]:
         "</script></div>")
 
 
-def replay_json(run_id: str) -> Optional[bytes]:
+def replay_json(key: str) -> Optional[bytes]:
     """The run replay (levels and frames) as JSON."""
-    if load_card(run_id) is None:
+    if load_card(key) is None:
         return None
-    return json.dumps(build_run_replay(run_id), default=str,
+    return json.dumps(build_run_replay(key), default=str,
                       indent=1).encode("utf-8")
 
 
-def _image_links(run_id: str, escaped: str) -> str:
+def _image_links(key: str, escaped: str) -> str:
     """Make ``./test_images/x.png`` references in escaped text viewable."""
 
     def _img(m: "re.Match[str]") -> str:
         rel = m.group(0)[2:]
         url = "/file/" + "/".join(
-            q(p) for p in (run_id, "agent", "sandbox", *rel.split("/")))
+            q(p)
+            for p in (*key.split("/"), "agent", "sandbox", *rel.split("/")))
         return (f"{m.group(0)} <a href='{url}'><img class='thumb' "
                 f"src='{url}' loading='lazy' onclick='zoom(this);"
                 "event.preventDefault()'></a>")
@@ -2149,12 +2164,12 @@ def _image_links(run_id: str, escaped: str) -> str:
     return IMAGE_REF_RE.sub(_img, escaped)
 
 
-def session_fragment(run_id: str, name: str) -> Optional[str]:
+def session_fragment(key: str, name: str) -> Optional[str]:
     """One session transcript as a structured conversation: thinking, assistant
     text, tool calls with their results, images inline."""
     if SESSION_LOG_RE.match(name) is None:
         return None
-    text = read_agent_file(run_id, name)
+    text = read_agent_file(key, name)
     if text is None:
         return None
     tx = tr.parse_transcript(text, name)
@@ -2164,8 +2179,8 @@ def session_fragment(run_id: str, name: str) -> Optional[str]:
                     text[-MAX_TEXT_CHARS:])
         # Not a formatter transcript (or an empty one): show it raw.
         return (f"<h2>{esc(name)}</h2><pre class='doc'>"
-                f"{_image_links(run_id, esc(text))}</pre>")
-    names = [log["name"] for log in list_session_logs(run_id)]
+                f"{_image_links(key, esc(text))}</pre>")
+    names = [log["name"] for log in list_session_logs(key)]
     nav = []
     if name in names:
         i = names.index(name)
@@ -2181,7 +2196,7 @@ def session_fragment(run_id: str, name: str) -> Optional[str]:
         f"{' · ' if nav else ''}<span class='muted'>{len(tx.turns)} turns"
         f"{'; ' + esc(tx.result_line) if tx.result_line else ''}</span></p>",
         "<details><summary>Prompt</summary><pre class='doc'>" +
-        _image_links(run_id, esc(tx.prompt)) + "</pre></details>",
+        _image_links(key, esc(tx.prompt)) + "</pre></details>",
     ]
     for turn in tx.turns:
         parts.append(f"<section class='turn' id='turn-{turn.number}'>"
@@ -2189,7 +2204,7 @@ def session_fragment(run_id: str, name: str) -> Optional[str]:
         for th in turn.thinking:
             parts.append(f"<blockquote class='think'>{esc(th)}</blockquote>")
         for say in turn.texts:
-            parts.append(f"<div class='say'>{_image_links(run_id, esc(say))}"
+            parts.append(f"<div class='say'>{_image_links(key, esc(say))}"
                          "</div>")
         for call in turn.calls:
             short = call.short_name
@@ -2198,9 +2213,9 @@ def session_fragment(run_id: str, name: str) -> Optional[str]:
                 "run_python", "skills_list") else "call"
             parts.append(f"<div class='{cls}'><span class='name'>"
                          f"{esc(short)}</span>")
-            for key, val in call.args.items():
+            for arg, val in call.args.items():
                 if isinstance(val, str) and "\n" in val:
-                    parts.append(f"<div class='muted'>{esc(key)}:</div>"
+                    parts.append(f"<div class='muted'>{esc(arg)}:</div>"
                                  f"<pre>{esc(val)}</pre>")
             scalars = {
                 k: v
@@ -2218,7 +2233,7 @@ def session_fragment(run_id: str, name: str) -> Optional[str]:
                 parts.append(
                     f"<details class='result{err_cls}'{open_attr}>"
                     f"<summary>{label} ({len(call.result)} chars)</summary>"
-                    f"<pre>{_image_links(run_id, esc(call.result))}</pre>"
+                    f"<pre>{_image_links(key, esc(call.result))}</pre>"
                     "</details>")
             parts.append("</div>")
         parts.append("</section>")
@@ -2232,16 +2247,16 @@ def session_fragment(run_id: str, name: str) -> Optional[str]:
 EVENT_KINDS = ("level_start", "invoke", "reset", "resume", "win", "game_over")
 
 
-def events_fragment(run_id: str, level_index: int) -> Optional[str]:
+def events_fragment(key: str, level_index: int) -> Optional[str]:
     """One level's timeline."""
-    card = load_card(run_id)
+    card = load_card(key)
     if card is None:
         return None
     levels = card.get("levels", [])
     if not 0 <= level_index < len(levels):
         return None
     lv = levels[level_index]
-    entries = read_index(run_id, level_index)
+    entries = read_index(key, level_index)
     status, cls = _level_status(lv)
     head = (f"<h2>L{level_index + 1} {esc(lv.get('split'))}"
             f"[{esc(lv.get('task_idx'))}] {chip(status, cls)}</h2>"
@@ -2260,8 +2275,7 @@ def events_fragment(run_id: str, level_index: int) -> Optional[str]:
         f"onchange='applyFilters()'> {kind}</label>"
         for kind in EVENT_KINDS) + "</div>"
     nav = _level_nav(level_index, len(levels))
-    return (head + nav + filters +
-            _timeline_table(run_id, level_index, entries))
+    return head + nav + filters + _timeline_table(key, level_index, entries)
 
 
 def _level_nav(k: int, n: int) -> str:
@@ -2285,7 +2299,7 @@ def atoms_diff(prev: Sequence[str], cur: Sequence[str]) -> str:
     return " ".join(parts)
 
 
-def _timeline_table(run_id: str, level_index: int,
+def _timeline_table(key: str, level_index: int,
                     entries: Sequence[Dict[str, Any]]) -> str:
     if not entries:
         return "<p class='muted'>No index entries recorded yet.</p>"
@@ -2328,7 +2342,7 @@ def _timeline_table(run_id: str, level_index: int,
         if isinstance(atoms, list):
             diff = atoms_diff(prev_atoms, atoms)
             prev_atoms = [str(a) for a in atoms]
-        url = level_render_url(run_id, level_index, e.get("render"))
+        url = level_render_url(key, level_index, e.get("render"))
         img = (f"<img class='thumb' src='{url}' onclick='zoom(this)' "
                f"loading='lazy'>" if url else "")
         rows.append(
@@ -2399,12 +2413,11 @@ class Handler(BaseHTTPRequestHandler):
                     parts[2] == "replay.json":
                 self._bytes(replay_json(parts[1]), "application/json")
             elif parts[0] == "card" and len(parts) == 2:
-                self._file(safe_join(SCORECARDS_ROOT, parts[1] + ".json"))
+                self._file(_card_file(parts[1]))
             elif parts[0] == "video" and len(parts) == 2:
                 self._file(video_path(parts[1]))
             elif parts[0] == "file" and len(parts) >= 2:
-                self._file(safe_join(RECORDINGS_ROOT,
-                                     os.path.join(*parts[1:])))
+                self._file(safe_join(RUNS_ROOT, os.path.join(*parts[1:])))
             else:
                 self.send_error(404)
         except Exception as e:  # pylint: disable=broad-except
@@ -2519,36 +2532,38 @@ class Handler(BaseHTTPRequestHandler):
                 remaining -= len(chunk)
 
 
-def configure(scorecards: str,
-              recordings: str,
-              approaches: str = "saved_approaches",
-              videos: str = "videos") -> None:
+def _card_file(key: str) -> Optional[str]:
+    """The scorecard file of a run, for the raw ``/card/<key>`` route."""
+    root = run_dir(key)
+    return None if root is None else os.path.join(root, SCORECARD_FILENAME)
+
+
+def configure(runs: str, approaches: str = "saved_approaches") -> None:
     """Point the module at the roots (also used by tests)."""
-    global SCORECARDS_ROOT, RECORDINGS_ROOT, APPROACHES_ROOT, VIDEOS_ROOT  # pylint: disable=global-statement
-    SCORECARDS_ROOT = os.path.realpath(scorecards)
-    RECORDINGS_ROOT = os.path.realpath(recordings)
+    global RUNS_ROOT, APPROACHES_ROOT  # pylint: disable=global-statement
+    RUNS_ROOT = os.path.realpath(runs)
     APPROACHES_ROOT = os.path.realpath(approaches)
-    VIDEOS_ROOT = os.path.realpath(videos)
 
 
 def main() -> None:
     """CLI entry point."""
     parser = argparse.ArgumentParser(
         description=(__doc__ or "").split("\n\n", maxsplit=1)[0])
-    parser.add_argument("--scorecards", default="scorecards")
-    parser.add_argument("--recordings", default="recordings")
+    parser.add_argument("--runs",
+                        default="logs",
+                        help="the root of the run directories "
+                        "(CFG.continual_runs_dir)")
     parser.add_argument("--approaches",
                         default="saved_approaches",
                         help="approach checkpoints (CFG.approach_dir); "
                         "a run's delete removes its files here too")
-    parser.add_argument("--videos", default="videos")
     parser.add_argument("--port", type=int, default=25152)
     parser.add_argument("--host", default="127.0.0.1")
     args = parser.parse_args()
-    configure(args.scorecards, args.recordings, args.approaches, args.videos)
+    configure(args.runs, args.approaches)
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"continual viewer: http://{args.host}:{args.port}/  "
-          f"(scorecards={SCORECARDS_ROOT}, recordings={RECORDINGS_ROOT})")
+          f"(runs={RUNS_ROOT})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
