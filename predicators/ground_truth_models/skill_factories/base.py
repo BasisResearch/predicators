@@ -287,6 +287,17 @@ _STROKE_NOPROG_KEY = "stroke_noprog_{}"  # gentle stroke: no-progress steps
 _IK_STALL_COUNT_KEY = "ik_stall_count_{}"  # steps since last improvement
 _IK_STALL_DONE_KEY = "ik_stall_done_{}"  # stall accepted as arrival (verified)
 _AIM_OFFSET_KEY = "aim_offset"  # option-scoped learned xy aim (meters)
+_FROZEN_TARGET_KEY = "frozen_target_{}"  # Phase.freeze_target: (pose, fingers)
+
+
+def _stroke_step_norm(phase: "Phase", params: Array) -> Optional[float]:
+    """The phase's EE step clamp in metres, or None when it is not a gentle
+    stroke: ``step_norm_fn`` of the params when set, else ``max_step_norm``."""
+    if phase.step_norm_fn is not None:
+        return float(phase.step_norm_fn(params))
+    return phase.max_step_norm
+
+
 _PHASE_RETRY_KEY = "phase_retries_{}"  # verified-advance retries used
 
 
@@ -329,6 +340,13 @@ class Phase:
         default_factory=lambda: CFG.skill_phase_use_motion_planning)
     expect_contact: bool = False
     allow_shallow_held_object_contacts: bool = False
+    # Evaluate ``target_fn`` once, on the phase's first step, and hold
+    # that target for the rest of the phase. A stroke aimed at a body
+    # that moves on contact (a tile that slides away from the push)
+    # must not chase it: re-aiming every step turns the stroke into a
+    # pursuit that ends at the arm's reach limit instead of at the
+    # planned contact point.
+    freeze_target: bool = False
     # Force validated (iterative) IK for this phase's BiRRT goal pose, even
     # when CFG.pybullet_ik_validate is False. Unvalidated IK can return a goal
     # config whose EE pose is numerically close but whose gripper slightly
@@ -392,6 +410,13 @@ class Phase:
     #   - a final-phase stroke keeps the incremental-IK stall abort
     #     (see _check_ik_stall) as its escape instead.
     max_step_norm: Optional[float] = None
+    # A parameter-dependent step clamp: called with the option's params,
+    # returns the metres per step for this phase and arms the gentle-
+    # stroke rails exactly as a constant ``max_step_norm`` does. For a
+    # stroke whose SPEED is a skill parameter (a push whose exit speed
+    # sets how far the pushed body travels). Takes precedence over
+    # ``max_step_norm`` when both are set.
+    step_norm_fn: Optional[Callable[[Array], float]] = None
     # Verified advancement: when set, this phase only advances (on its
     # terminal condition OR a gentle stroke's give-up) if verify_fn
     # returns True on the current state. When it returns False and
@@ -691,6 +716,13 @@ class PhaseSkill:
         """
         current_pose, target_pose, finger_status = phase.target_fn(
             state, objects, params, self._config)
+        if phase.freeze_target:
+            key = _FROZEN_TARGET_KEY.format(id(phase))
+            frozen = memory.get(key)
+            if frozen is None:
+                memory[key] = (target_pose, finger_status)
+            else:
+                target_pose, finger_status = frozen
         aim = memory.get(_AIM_OFFSET_KEY)
         if aim is not None:
             target_pose = Pose(
@@ -824,7 +856,7 @@ class PhaseSkill:
                 "advancing best-effort.", self._name, phase.name, used)
             return None
         memory[retry_key] = used + 1
-        if learn_aim and phase.max_step_norm is not None:
+        if learn_aim and _stroke_step_norm(phase, params) is not None:
             # Error measured against the TRUE (unaimed) target: the aim
             # update law is aim -= (current - true_target), which
             # accumulates correctly across retries.
@@ -911,7 +943,7 @@ class PhaseSkill:
         if phase.use_motion_planning:
             return self._execute_move_birrt(phase, state, memory, objects,
                                             params)
-        if phase.max_step_norm is not None:
+        if _stroke_step_norm(phase, params) is not None:
             return self._execute_gentle_stroke(phase, state, memory, objects,
                                                params)
         return self._execute_move_ik(phase, state, memory, objects, params)
@@ -1999,8 +2031,9 @@ class PhaseSkill:
         current_pose, target_pose, finger_status = self._phase_targets(
             phase, state, memory, objects, params)
         try:
-            action = self._move_ik_action(phase, pb_state, current_pose,
-                                          target_pose, finger_status)
+            action = self._move_ik_action(phase, params, pb_state,
+                                          current_pose, target_pose,
+                                          finger_status)
         except utils.OptionExecutionFailure as e:
             cur = current_pose.position
             tgt = target_pose.position
@@ -2014,19 +2047,20 @@ class PhaseSkill:
         # pin-advance on top of this pure IK step.
         return action
 
-    def _move_ik_action(self, phase: Phase, pb_state: utils.PyBulletState,
-                        current_pose: Pose, target_pose: Pose,
-                        finger_status: str) -> Action:
+    def _move_ik_action(self, phase: Phase, params: Array,
+                        pb_state: utils.PyBulletState, current_pose: Pose,
+                        target_pose: Pose, finger_status: str) -> Action:
         """One incremental-IK step toward the phase target."""
         robot = self._config.robot
+        step_norm = _stroke_step_norm(phase, params)
         return get_move_end_effector_to_pose_action(
             robot=robot,
             current_joint_positions=pb_state.joint_positions,
             current_pose=current_pose,
             target_pose=target_pose,
             finger_status=finger_status,
-            max_vel_norm=(phase.max_step_norm if phase.max_step_norm
-                          is not None else self._config.max_vel_norm),
+            max_vel_norm=(step_norm if step_norm is not None else
+                          self._config.max_vel_norm),
             finger_action_nudge_magnitude=(
                 self._config.finger_action_nudge_magnitude),
             validate=self._config.ik_validate,

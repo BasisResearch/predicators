@@ -1787,6 +1787,12 @@ class PyBulletEnv(BaseEnv):
         update_object(obj.id, (px, py, pz),
                       orn,
                       physics_client_id=self._physics_client_id)
+        # A State carries no velocities, and a teleport keeps the body's
+        # old ones: a ball still spinning from the previous episode would
+        # fly off the moment a probe placed it. A re-placed body starts
+        # still.
+        p.resetBaseVelocity(obj.id, (0.0, 0.0, 0.0), (0.0, 0.0, 0.0),
+                            physicsClientId=self._physics_client_id)
 
     @abc.abstractmethod
     def _set_domain_specific_state(self, state: State) -> None:

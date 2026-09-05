@@ -46,6 +46,17 @@ ENVS:
     SKIP: True
   busyboard:
     SKIP: True
+  # The physics puzzles added 2026-09-05 (docs/envs/<name>/), parked.
+  icerink:
+    SKIP: True
+  launcher:
+    SKIP: True
+  magnets:
+    SKIP: True
+  balloons:
+    SKIP: True
+  crane:
+    SKIP: True
 APPROACHES:
   oracle:
     SKIP: False

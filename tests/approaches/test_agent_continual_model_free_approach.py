@@ -203,7 +203,8 @@ def test_both_arms_start_with_no_predicates(tmp_path: Any) -> None:
     assert resolve_kept_predicate_names(None) == frozenset()
     utils.update_config(
         {"agent_sim_learn_kept_predicates_names": ["Holding", "none"]})
-    assert resolve_kept_predicate_names(None) == {"Holding", "none"}
+    assert resolve_kept_predicate_names(None) == frozenset(
+        {"Holding", "none"})
 
     _config(tmp_path, approach="agent_continual")
     utils.update_config({"agent_sim_learn_kept_predicates_names": []})
@@ -220,8 +221,8 @@ def test_both_arms_start_with_no_predicates(tmp_path: Any) -> None:
             agent_sim_learn_kept_predicates_names=["Holding"],
             agent_planner_use_simulator=True)
     _, free = _make_approach()
-    names = {p.name for p in free._get_all_predicates()}  # pylint: disable=protected-access
-    assert names == {"Holding"}
+    pred_names = {p.name for p in free._get_all_predicates()}  # pylint: disable=protected-access
+    assert pred_names == {"Holding"}
     # The model-free arm holds no simulator whatever the flag says.
     assert free._option_model is None  # pylint: disable=protected-access
-    assert {p.name for p in env.predicates} > names
+    assert {p.name for p in env.predicates} > pred_names

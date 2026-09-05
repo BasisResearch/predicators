@@ -1140,6 +1140,155 @@ class GlobalSettings:
     # that some button setting realizes exactly.
     busyboard_max_sampling_attempts = 200
 
+    # ice rink env
+    # Tiles per rink. Test rinks carry more tiles, so more paths cross a
+    # tile or the patch; the materials keep their colours and friction.
+    icerink_num_tiles_train = [2]
+    icerink_num_tiles_test = [3]
+    # Sliding friction per material, in palette order (blue ice, black
+    # rubber, green felt, grey steel). The learning target: a tile's
+    # travel from one push is v^2 / (2 mu g), so blue reaches a wall from
+    # anywhere, black stops within a hand's width, green and grey in
+    # between. The base sim gives every tile 0.1.
+    icerink_material_frictions = [0.03, 0.35, 0.12, 0.06]
+    # The dark strip: a tile crossing it is braked by this much extra
+    # friction (a coefficient, on top of its own). False disables the
+    # strip's effect.
+    icerink_patch = True
+    icerink_patch_friction = 0.25
+    # The push skill's speed parameter: the gripper moves through the
+    # stroke at this many m/s and the tile leaves at about that speed.
+    # The range is what the arm tracks on this rink: travel grows with
+    # the commanded speed up to about 0.38 m/s and collapses above it
+    # (the position-controlled stroke lags and strikes late). The task
+    # generator draws a tile's target from a speed in the range, and the
+    # oracle's sampler searches it.
+    icerink_push_speed_range = [0.15, 0.38]
+    # Approach distance and contact height (the push skill's first two
+    # parameters) the generator's and the oracle's probes use.
+    icerink_push_approach = 0.07
+    icerink_push_contact_z = 0.03
+    # A tile is at rest below this planar speed (m/s), and a level is won
+    # only once every tile is.
+    icerink_settle_speed = 0.01
+    # A tile is on a target when both centre offsets are within this.
+    icerink_on_tol = 0.03
+    # Cap on a slide probe's env actions.
+    icerink_probe_max_steps = 150
+    # Rejection-sampling budget for a rink whose every tile has a
+    # single-push target.
+    icerink_max_sampling_attempts = 300
+
+    # launcher env
+    # Blocks in the tower. Test towers are taller and farther, with
+    # fewer spare balls.
+    launcher_num_blocks_train = [2]
+    launcher_num_blocks_test = [3]
+    launcher_stand_x_train = [0.84, 0.92]
+    launcher_stand_x_test = [0.88, 0.98]
+    launcher_balls_left_train = 3
+    launcher_balls_left_test = 1
+    # The launch law: the ball leaves the muzzle at spring_k times the
+    # deepest compression reached, in m/s per metre. The learning target.
+    launcher_spring_k = 24.0
+    # A snap from less compression than this fires nothing.
+    launcher_min_compression = 0.01
+    # Mass per block material, in palette order (wood, stone). The base
+    # sim gives every block 0.3 kg.
+    launcher_block_masses = [0.12, 0.8]
+    # The ball is at rest below this speed (m/s).
+    launcher_settle_speed = 0.02
+    # The push skill's approach and contact-height parameters the probes
+    # use on the handle.
+    launcher_push_approach = 0.07
+    launcher_push_contact_z = 0.012
+    launcher_probe_max_steps = 200
+    launcher_max_sampling_attempts = 60
+
+    # magnets env
+    # Pieces on the mat. Test mats carry more pieces; the colours keep
+    # their polarity and range.
+    magnets_num_pieces_train = [2]
+    magnets_num_pieces_test = [3]
+    # Per colour, in palette order (red, blue, green, yellow): +1 if the
+    # wand pulls the colour, -1 if it pushes it; and the range (metres
+    # from the point under the tip) within which the colour moves. The
+    # learning target.
+    magnets_polarities = [1, 1, -1, 1]
+    magnets_ranges = [0.10, 0.06, 0.08, 0.13]
+    # Speed law shared by every colour: a piece right at the edge of its
+    # range is still, one under the tip would move at max_speed, and it
+    # stops inside the dead zone.
+    magnets_max_speed = 0.25
+    magnets_dead_zone = 0.008
+    # The field only acts on pieces within this height below the tip.
+    magnets_field_height = 0.10
+    # A piece is in a slot when both centre offsets are within this (a
+    # carried piece settles within the dead zone of a tip that itself
+    # stops within the hover's tolerance).
+    magnets_in_tol = 0.03
+    # The tip is over a piece when their ground points are this close.
+    magnets_over_tol = 0.02
+    magnets_settle_speed = 0.01
+    magnets_probe_max_steps = 300
+    magnets_max_sampling_attempts = 60
+
+    # balloons env
+    # Balloons in the rack and box colours per split. Test levels bring
+    # the heavier box and one more balloon.
+    balloons_num_balloons_train = [2, 3]
+    balloons_num_balloons_test = [4]
+    balloons_box_colors_train = [0, 1]
+    balloons_box_colors_test = [0, 1, 2]
+    # Lift per balloon colour at table height, in newtons, palette order
+    # (red, blue, green, gold); it fades linearly to zero this many
+    # metres above the table. The learning target, with the box masses
+    # (pine, oak, kilograms) and the air's drag.
+    balloons_lifts = [0.35, 0.5, 0.7, 1.0]
+    balloons_fade_height = 0.8
+    balloons_box_masses = [0.05, 0.08, 0.11]
+    balloons_drag = 12.0
+    # Half the band's height.
+    balloons_band_half = 0.025
+    # The box is at rest below this speed (m/s).
+    balloons_settle_speed = 0.01
+    # The push skill's approach and contact-height parameters that open
+    # a clip, for the oracle's and the generator's probes.
+    balloons_push_approach = 0.07
+    balloons_push_contact_z = 0.05
+    balloons_probe_max_steps = 400
+    balloons_max_sampling_attempts = 40
+
+    # crane env
+    # Cable lengths and crate colours per split. Test levels bring a
+    # longer cable and a crate material the training levels never show.
+    crane_length_train = [0.5, 0.55]
+    crane_length_test = [0.65, 0.7]
+    crane_crate_colors_train = [0, 1]
+    crane_crate_colors_test = [0, 1, 2]
+    # Where the crate stands along the lane from the ball's rest
+    # position, where the lane runs across the table, and the bin pad's
+    # half length along the lane.
+    crane_gap_range = [0.20, 0.23]
+    crane_lane_y_range = [1.24, 1.36]
+    crane_bin_half = 0.06
+    # The learning target: mass (kilograms) and table friction of each
+    # crate material, palette order (foam, iron, stone), and the air's
+    # drag on the swinging ball (the engine's linear damping).
+    crane_crate_masses = [0.06, 0.3, 0.45]
+    crane_crate_frictions = [0.25, 0.15, 0.12]
+    crane_swing_damping = 0.02
+    # How far the Pull skill can draw the ball back, in metres.
+    crane_pull_range = [0.10, 0.26]
+    # The crate and the ball are still below this speed (m/s).
+    crane_settle_speed = 0.02
+    # The push skill's approach and contact-height parameters for the
+    # oracle's and the generator's swings.
+    crane_push_approach = 0.09
+    crane_push_contact_z = 0.0
+    crane_probe_max_steps = 300
+    crane_max_sampling_attempts = 30
+
     # parameters for random options approach
     random_options_max_tries = 100
 
@@ -2429,6 +2578,19 @@ class GlobalSettings:
                     # three-press plan runs past the default 100 and every
                     # refinement would be rejected on the horizon check.
                     "pybullet_busyboard": 2000,
+                    # A push is ~60 low-level steps and a slide settles
+                    # within ~40 more; a four-tile level needs room for
+                    # a few probes on top of its four pushes.
+                    "pybullet_icerink": 2000,
+                    # A cock-and-fire is ~60 steps plus a ~40-step
+                    # flight and settle; a level allows a few shots.
+                    "pybullet_launcher": 1500,
+                    # A hover is ~60 steps; a level is a few hovers and
+                    # jumps per piece.
+                    "pybullet_magnets": 1500,
+                    # A pick and a tie are ~150 steps; a level ties up to
+                    # three balloons and waits for the box to settle.
+                    "pybullet_balloons": 1500,
                     "doors": 1000,
                     "coffee": 1000,
                     "kitchen": 1000,

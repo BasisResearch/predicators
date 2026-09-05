@@ -109,8 +109,13 @@ def resolve_ee_yaw_offset(config: SkillConfig) -> float:
     """The EE yaw offset Push should use, in radians.
 
     Which face of the gripper leads into the object is a property of the
-    hand, so it comes from the robot unless the config forces one.
+    hand, so it comes from the robot unless the config forces one: a
+    ``push_ee_yaw_offset`` entry in ``config.extra`` (one skill's own
+    choice, e.g. fingers-first at a narrow handle the hand's width would
+    not clear) or ``CFG.skill_push_ee_yaw_offset`` (every push at once).
     """
+    if "push_ee_yaw_offset" in config.extra:
+        return float(config.extra["push_ee_yaw_offset"])
     if CFG.skill_push_ee_yaw_offset is None:
         return config.robot.push_ee_yaw_offset
     return float(CFG.skill_push_ee_yaw_offset)
@@ -121,6 +126,15 @@ def create_push_skill(
     types: Sequence[Type],
     config: SkillConfig,
     get_target_pose_fn: TargetPoseFn,
+    freeze_stroke: bool = False,
+    extra_params: Sequence[Tuple[str, float, float]] = (),
+    stroke_step_norm_fn: Optional[Callable[[Array], float]] = None,
+    stroke_overshoot_fn: Optional[Callable[[Array], float]] = None,
+    plan_transit: Optional[bool] = None,
+    stroke_rise_fn: Optional[Callable[[State, Sequence[Object], Array],
+                                      float]] = None,
+    open_hand: bool = False,
+    lift_before_retreat: bool = False,
 ) -> ParameterizedOption:
     """Create a multi-phase push skill with a standard 4-waypoint trajectory.
 
@@ -145,6 +159,47 @@ def create_push_skill(
             ``config.transport_z`` must be set.
         get_target_pose_fn: Callback returning ``(x, y, z, yaw)`` from
             ``(state, objects, params, config)``.  ``params`` will be empty.
+        freeze_stroke: Aim the push stroke (Waypoint_2) at the target's
+            pose on the stroke's first step and hold it. Required when
+            the pushed body slides away on contact (a tile on ice): a
+            stroke re-aimed every step chases the body to the arm's
+            reach limit. A body that stays put (a switch, a domino that
+            topples in place) needs no freeze.
+        extra_params: Further ``(description, low, high)`` continuous
+            parameters appended after the two standard ones. The
+            waypoints ignore them; they are for ``stroke_step_norm_fn``
+            and for the caller's own samplers.
+        stroke_step_norm_fn: Makes the push stroke (Waypoint_2) a
+            gentle stroke whose metres-per-step clamp is this function
+            of the option's params (see ``Phase.step_norm_fn``): a push
+            whose speed is a parameter, e.g. ``params[2] * dt`` with an
+            extra ``speed`` parameter in m/s.
+        stroke_overshoot_fn: Carries the push stroke this far PAST the
+            target pose along the facing direction, as a function of the
+            option's params: a push-through, e.g. a plunger driven back
+            by an extra ``depth`` parameter. The default stroke ends at
+            the target pose itself.
+        plan_transit: Whether the two transit waypoints (above and
+            behind the target, the descend) use BiRRT. ``None`` defers
+            to ``CFG.skill_phase_use_motion_planning``; ``False`` steps
+            IK straight at them, for a probe that runs the push on a
+            scratch simulator where speed matters more than clearance.
+        stroke_rise_fn: Lifts the END of the push stroke this far above
+            the contact height, as a function of ``(state, objects,
+            params)``: a stroke along a chord rather than level, e.g.
+            a hanging ball drawn back along its arc, whose centre rises
+            as it is pulled. The default stroke stays level.
+        open_hand: Push with the fingers OPEN rather than closed: no
+            closing phase, the waypoints hold the hand open, no opening
+            phase at the end. With the fingers leading (yaw offset 0)
+            the open fingertips straddle a round object so it cannot
+            slip sideways off the hand, e.g. a hanging ball drawn back
+            along its arc.
+        lift_before_retreat: Insert a waypoint straight above the
+            stroke's end at ``config.transport_z`` before the retreat
+            home, so the hand leaves a released body vertically rather
+            than sweeping across its path, e.g. a drawn-back pendulum
+            that swings forward the moment the hand lets go.
 
     Returns:
         A ``ParameterizedOption`` implementing the push skill.
@@ -153,7 +208,8 @@ def create_push_skill(
         raise ValueError(
             "config.robot_home_pos must be set for create_push_skill.")
 
-    params_space, params_description = build_params_space(_PUSH_PARAMS)
+    params_space, params_description = build_params_space(
+        list(_PUSH_PARAMS) + list(extra_params))
     _empty = np.array([], dtype=np.float32)
 
     def _contact_objects(state: State,
@@ -175,21 +231,29 @@ def create_push_skill(
         cfg: SkillConfig,
         s_offset_x: float,
         s_offset_z: float,
+        overshoot: float,
+        robot_xy: Tuple[float, float],
     ) -> List[Tuple[float, float, float, float, str]]:
         assert cfg.robot_home_pos is not None
         obj_xy = np.array([ox, oy])
         facing = np.array([np.sin(oyaw), np.cos(oyaw)])
         behind_xy = obj_xy - facing * s_offset_x
-        push_xy = obj_xy
+        push_xy = obj_xy + facing * overshoot
         home_xy = np.array(cfg.robot_home_pos[:2])
         home_z = cfg.robot_home_pos[2]
         ee_yaw = oyaw + resolve_ee_yaw_offset(cfg)
-        return [
+        wps = [
             (*behind_xy, cfg.transport_z, ee_yaw, "closed"),
             (*behind_xy, oz + s_offset_z, ee_yaw, "closed"),
             (*push_xy, oz + s_offset_z, ee_yaw, "closed"),
-            (*home_xy, home_z, ee_yaw, "closed"),
         ]
+        if lift_before_retreat:
+            # Straight up from wherever the hand is now.
+            wps.append((*robot_xy, cfg.transport_z, ee_yaw, "closed"))
+        wps.append((*home_xy, home_z, ee_yaw, "closed"))
+        return wps
+
+    n_waypoints = 5 if lift_before_retreat else 4
 
     # -- Phase construction -----------------------------------------------
 
@@ -232,23 +296,33 @@ def create_push_skill(
         ) -> Tuple[float, float, float, float]:
             s_ox = float(params[0])
             s_oz = float(params[1])
+            overshoot = (0.0 if stroke_overshoot_fn is None else float(
+                stroke_overshoot_fn(params)))
             x, y, z, yaw = get_target_pose_fn(state, objects, _empty, cfg)
-            wps = _waypoints(x, y, z, yaw, cfg, s_ox, s_oz)
+            robot_xy = (float(state.get(objects[0], "x")),
+                        float(state.get(objects[0], "y")))
+            wps = _waypoints(x, y, z, yaw, cfg, s_ox, s_oz, overshoot,
+                             robot_xy)
             wx, wy, wz, wyaw, _ = wps[waypoint_idx]
+            if waypoint_idx == 2 and stroke_rise_fn is not None:
+                wz += float(stroke_rise_fn(state, objects, params))
             return wx, wy, wz, wyaw
 
         return _get_target
 
+    hand = "open" if open_hand else "closed"
     phases: List[Phase] = []
-    phases.append(
-        Phase(name="CloseFingers",
-              action_type=PhaseAction.CHANGE_FINGERS,
-              target_fn=_close_fingers_target,
-              finger_direction="close"))
+    if not open_hand:
+        phases.append(
+            Phase(name="CloseFingers",
+                  action_type=PhaseAction.CHANGE_FINGERS,
+                  target_fn=_close_fingers_target,
+                  finger_direction="close"))
 
-    for i in range(4):
-        # Waypoint_2 (push into target) and Waypoint_3 (retreat from target)
-        # expect robot-object contact, so suppress collision diagnostics.
+    for i in range(n_waypoints):
+        # Waypoint_2 (push into target) and the waypoints after it (the
+        # retreat from the target) expect robot-object contact, so
+        # suppress collision diagnostics.
         #
         # They must also NOT be motion-planned: their goal poses sit at (or
         # inside) the pushed object, and BiRRT plans a COLLISION-FREE path.
@@ -275,15 +349,18 @@ def create_push_skill(
             make_move_to_phase(
                 name=f"Waypoint_{i}",
                 get_target_pose_fn=_make_waypoint_position_fn(i),
-                finger_status="closed",
+                finger_status=hand,
                 expect_contact=(i >= 2),
-                use_motion_planning=(False if i >= 2 else None)))
+                use_motion_planning=(False if i >= 2 else plan_transit),
+                freeze_target=(freeze_stroke and i == 2),
+                step_norm_fn=(stroke_step_norm_fn if i == 2 else None)))
 
-    phases.append(
-        Phase(name="OpenFingers",
-              action_type=PhaseAction.CHANGE_FINGERS,
-              target_fn=_open_fingers_target,
-              finger_direction="open"))
+    if not open_hand:
+        phases.append(
+            Phase(name="OpenFingers",
+                  action_type=PhaseAction.CHANGE_FINGERS,
+                  target_fn=_open_fingers_target,
+                  finger_direction="open"))
 
     return PhaseSkill(name,
                       types,
