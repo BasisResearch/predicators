@@ -167,6 +167,8 @@ APPROACHES:
 
   # C2: the same agent with no simulator (agent_planner_use_simulator False);
   # memory carries across trials via the session, notes.md and the journal.
+  # Same observation as OURS (partially_observable): the tier-1 C2 runs
+  # of 2026-09-03 predate this line and saw the hidden features.
   agent_model_free_planning:
     NAME: "agent_model_free"
     SKIP: True
@@ -176,6 +178,7 @@ APPROACHES:
       terminate_on_goal_reached_and_option_terminated: True
       agent_sdk_use_local_sandbox: True
       option_model_terminate_on_repeat: False
+      partially_observable: True
       agent_planner_use_simulator: False
       agent_planner_use_scratchpad: True
       agent_solve_use_journal: True

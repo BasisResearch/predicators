@@ -85,6 +85,10 @@ APPROACHES:
     SKIP: True
     FLAGS:
       agent_sdk_use_local_sandbox: True
+      # The same observation as the model-based arm. Without this the
+      # baseline saw the bridge's hidden cure_* counters and attached_*
+      # slots (seed 0, 2026-09-04) and read the weld law off them.
+      partially_observable: True
       agent_planner_use_simulator: False
       agent_solve_use_journal: True
       agent_sdk_max_agent_turns_per_iteration: 10000
