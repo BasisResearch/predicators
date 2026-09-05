@@ -164,6 +164,25 @@ mechanism you have never observed is a hypothesis to test cheaply in
 the environment, not a rule to ship. Keep a decision record at the top
 of `simulator.py`.
 
+Fit what you find before you trust a rollout that leans on it. When a
+recorded transition disagrees with the base simulator in MAGNITUDE -
+the right kind of effect but the wrong size (a body that travels far
+less, a force that is far weaker, a rate that is far slower than the
+base predicts) - that is a physical parameter, not a residual feature.
+Declare it in `PARAM_SPECS` and `sim.fit()` it against the recordings;
+a finding you leave in your notes but not in the model is a finding
+your rollouts do not have. A rollout is only as trustworthy as the
+parameters it ran at: the probe rolls forward at your last `sim.fit()`
+of the current file, and any parameter you have not fit runs at the
+base simulator's value, which can be wrong by a large factor. So weigh
+a sandbox result by which mechanism it leans on and whether that
+mechanism's parameters are fit: a sandbox FAILURE is a usable veto
+(a plan that fails even in a permissive, un-fit base simulator will
+fail in the real environment too), but a sandbox SUCCESS that depends
+on an un-fit parameter is not a green light - fit the parameter and
+re-run before you spend real steps on it, especially on a level with
+no resets where the first real attempt is the only one.
+
 __BASE_SIM_REFS__
 
 <!-- section: base_sim_refs -->
