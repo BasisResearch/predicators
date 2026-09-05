@@ -3558,6 +3558,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         doesn't contradict it.
         """
         if CFG.partially_observable:
+            # The example's body reads `state`; bind it so the recurrent
+            # form is a runnable rule, not a signature over a foreign name.
             return ("def residual_rule(observation, latent, history, "
-                    "updates, params):")
+                    "updates, params):\n    state = observation")
         return "def residual_rule(state, updates, params):"

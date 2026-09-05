@@ -4,7 +4,7 @@ A separate physics engine (the base sim) handles robot motion, grasping, and rig
 
 ## What you produce
 
-One file, `simulator.py` (path given in the first message), defining three top-level names:
+One file, `simulator.py` (at the path your instructions give), defining three top-level names:
 
 ```python
 RESIDUAL_RULES:    List[Callable]            # rule functions (signature below)
@@ -56,11 +56,11 @@ def rule(..., cmds):        # same leading args as above, plus `cmds`
     cmds.apply_force(obj, (fx, fy, fz))    # world-frame Newtons
     cmds.apply_torque(obj, (tx, ty, tz))   # world-frame N*m
     cmds.set_velocity(obj, linear=(vx, vy, vz))   # kinematic override
-    cmds.attach(obj_a, obj_b)   # rigid weld at their CURRENT relative pose
+    cmds.attach(obj_a, obj_b)   # fixed joint at their CURRENT relative pose
     return updates
 ```
 
-`cmds.attach` is the primitive for two bodies that move as one rigid body from some event on (a cured joint, a latch, a magnetized contact): the engine creates a fixed constraint at the pair's current relative pose and keeps it exactly while the command is re-emitted, so the base sim carries the whole assembly through pick, transport, and contact. Latch the decision in the rule's latent or feature state and re-emit from the latch every step. Do not emulate a weld by writing follower poses from the leader's pose: pose-written followers do not collide, do not support anything, and swing free during a carry, so plans validate in the belief and fail for real.
+`cmds.attach` is the primitive for two bodies that move as one rigid body from some event on (a latch, a snap fit, a magnetized contact): the engine creates a fixed constraint at the pair's current relative pose and keeps it exactly while the command is re-emitted, so the base sim carries the whole assembly through pick, transport, and contact. Latch the decision in the rule's latent or feature state and re-emit from the latch every step. Do not emulate an attachment by writing follower poses from the leader's pose: pose-written followers do not collide, do not support anything, and swing free during a carry, so plans validate in the belief and fail for real.
 
 Commands act during the next env action and then expire, so re-emit them on every step the process is active (a force that acts while a device is on is "emit the force whenever `is_on > 0.5`"). A force or torque is re-applied on every physics substep of that action, like a continuous push. The engine resolves whatever the commanded motion runs into (contact stops, sliding, deflection); do not re-derive collision handling in rule code.
 
