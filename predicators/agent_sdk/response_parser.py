@@ -1,8 +1,9 @@
 """Shared response message parsing for Claude Agent SDK sessions.
 
 Converts ``claude_agent_sdk`` message types (``AssistantMessage``,
-``UserMessage``, ``ResultMessage``) into plain dicts suitable for
-logging and serialization.  Used by ``AgentSessionManager``,
+``UserMessage``, ``ResultMessage``, and the ``SystemMessage`` that marks
+a context compaction) into plain dicts suitable for logging and
+serialization.  Used by ``AgentSessionManager``,
 ``LocalSandboxSessionManager``, and ``docker_agent_runner``.
 """
 from typing import Any, Dict, List, Optional, Sequence
@@ -14,6 +15,11 @@ def parse_assistant_message(msg: Any) -> Dict[str, Any]:
         # pylint: disable=import-outside-toplevel
 
     entry: Dict[str, Any] = {"type": "assistant", "content": []}
+    usage = getattr(msg, "usage", None)
+    if usage:
+        # The prompt size of this turn (input plus cached tokens) is the
+        # conversation's context; the play tools show it to the agent.
+        entry["usage"] = dict(usage)
     for block in msg.content:
         if isinstance(block, TextBlock):
             entry["content"].append({
@@ -93,13 +99,29 @@ def parse_result_message(msg: Any) -> Dict[str, Any]:
     }
 
 
+def parse_system_message(msg: Any) -> Optional[Dict[str, Any]]:
+    """Convert a ``SystemMessage`` to a dict; only the compaction boundary is
+    kept (the SDK's ``init`` and status messages are noise here)."""
+    if getattr(msg, "subtype", None) != "compact_boundary":
+        return None
+    data = getattr(msg, "data", None) or {}
+    meta = data.get("compact_metadata") or {}
+    return {
+        "type": "system",
+        "subtype": "compact_boundary",
+        "trigger": meta.get("trigger"),
+        "pre_tokens": meta.get("pre_tokens"),
+    }
+
+
 def parse_message(msg: Any) -> Optional[Dict[str, Any]]:
     """Dispatch to the appropriate parser based on message type.
 
     Returns ``None`` for unrecognised message types.
     """
     # pylint: disable=import-outside-toplevel
-    from claude_agent_sdk import AssistantMessage, ResultMessage, UserMessage
+    from claude_agent_sdk import AssistantMessage, ResultMessage, \
+        SystemMessage, UserMessage
 
     # pylint: enable=import-outside-toplevel
 
@@ -109,6 +131,8 @@ def parse_message(msg: Any) -> Optional[Dict[str, Any]]:
         return parse_user_message(msg)
     if isinstance(msg, ResultMessage):
         return parse_result_message(msg)
+    if isinstance(msg, SystemMessage):
+        return parse_system_message(msg)
     return None
 
 

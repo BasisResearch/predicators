@@ -14,7 +14,8 @@ from predicators.agent_sdk.play_prompts import build_play_query, \
     build_play_system_prompt, render_data_status
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
-    PlayState, build_continual_tools, format_observation, parse_plan_lines
+    PlayState, build_continual_tools, context_status, format_observation, \
+    parse_plan_lines
 from predicators.approaches import create_approach
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
@@ -123,8 +124,8 @@ def test_tools_play_a_level_to_a_win(tmp_path: Any) -> None:
                                        session,
                                        state,
                                        save_render=lambda tag: None,
-                                       tool_names=["env_observe", "handoff"])
-        assert [t.name for t in subset] == ["env_observe", "handoff"]
+                                       tool_names=["env_observe", "give_up"])
+        assert [t.name for t in subset] == ["env_observe", "give_up"]
         listing = _call(tools, "skills_list")
         assert "PickPlace" in listing and "One skill per line" in listing
         plan = _oracle_plan_text(approach, session.observe().level.task)
@@ -146,11 +147,9 @@ def test_tools_play_a_level_to_a_win(tmp_path: Any) -> None:
         assert refused.startswith("ERROR") and "already won" in refused
         refused = _call(tools, "env_reset", note="again")
         assert "already won" in refused
-        assert "WIN" in _call(tools, "env_observe")
-        ended = _call(tools, "handoff", note="won it")
-        assert "Handed off" in ended
-        assert state.handed_off and state.handoff == "won it"
-        assert "has ended" in _call(tools, "env_observe")
+        obs = _call(tools, "env_observe")
+        assert "WIN" in obs and "Write your notes and stop" in obs
+        assert "[context] size not reported yet" in obs
         seen["ok"] = True
 
     driver.body = body
@@ -237,7 +236,7 @@ def test_tools_divergence_reset_and_errors(tmp_path: Any) -> None:
 
 def test_tools_on_a_level_without_resets(tmp_path: Any) -> None:
     """On a test level env_reset is refused without a charge, GAME_OVER ends
-    the level as lost, and later charged calls point at handoff."""
+    the level as lost, and later charged calls say to stop."""
     env, approach, ctx = _setup(tmp_path)
     seen: Dict[str, Any] = {}
     driver = _Driver()
@@ -263,10 +262,10 @@ def test_tools_on_a_level_without_resets(tmp_path: Any) -> None:
         assert session.level_card().steps == 0
         assert "step applied" in _call(tools, "env_step", action=[0.5])
         out = _call(tools, "env_step", action=[0.5])
-        assert "GAME_OVER" in out and "lost" in out and "handoff" in out
+        assert "GAME_OVER" in out and "lost" in out and "stop" in out
         assert session.level_card().lost
         refused = _call(tools, "env_step", action=[0.5])
-        assert refused.startswith("ERROR") and "handoff" in refused
+        assert refused.startswith("ERROR") and "stop" in refused
         assert "env_reset" not in refused
         refused = _call(tools, "env_reset", note="again")
         assert refused.startswith("ERROR") and "lost" in refused
@@ -307,6 +306,23 @@ def test_parse_plan_lines_and_formatting(tmp_path: Any) -> None:
         assert f"`{name}`" in system
     assert "counts one step" in system and "very expensive" in system
     assert "never a retry button" in system
+    assert "## Your context" in system and "`[context]`" in system
+    assert "`handoff`" not in system and "`session_end`" not in system
+    # The [context] line the tools and queries carry, from the streamed
+    # usage and compaction entries the sandbox session feeds the context.
+    assert context_status(ctx) == ("[context] size not reported yet; 0 turns "
+                                   "this run; compacted 0x")
+    ctx.note_stream_entry({
+        "type": "assistant",
+        "usage": {
+            "input_tokens": 1000,
+            "cache_read_input_tokens": 86000
+        }
+    })
+    ctx.note_stream_entry({"type": "system", "subtype": "compact_boundary"})
+    ctx.context_window_tokens = 200000
+    assert context_status(ctx) == ("[context] ~87k tokens of 200k; 1 turns "
+                                   "this run; compacted 1x")
     assert "## Your model" in system and "`sim`" in system
     assert "`sim.fit()`" in system and "Model early and often" in system
     assert "./reference/base.py" in system
@@ -317,47 +333,65 @@ def test_parse_plan_lines_and_formatting(tmp_path: Any) -> None:
     assert "`sim`" not in free and "## Your model" not in free
     assert "simulator.py" not in free
     assert "no learned model" in free
-    assert "`handoff`" in free and "./data/trajectories.pkl" in free
+    assert "`give_up`" in free and "./data/trajectories.pkl" in free
     data = render_data_status(n_episodes=3, n_steps=40)
     assert "no belief model" in data and "3 (40 steps)" in data
     assert "Skill grammar" in system and "./test_images/" in system
     status = "Your model: simulator.py v2"
-    query = build_play_query(session_number=1,
-                             resumed=False,
+    query = build_play_query(kind="first",
+                             round_number=1,
                              level_number=1,
                              levels_total=2,
                              goal_nl="",
                              goal_atoms=[goal],
                              ledger="[ledger] x",
+                             context="[context] c",
                              observation="obs",
                              skills="skills",
                              predicates="preds",
                              types="types",
                              model=status,
                              journal="",
-                             attempts="",
-                             handoff="")
-    assert "first session of the run" in query
-    assert "(empty: no journal yet)" in query and "(none)" in query
+                             attempts="")
+    assert "first round of the run" in query
+    assert "(empty: no journal yet)" in query and "[context] c" in query
     assert "not expressible" not in query
-    query2 = build_play_query(session_number=3,
-                              resumed=True,
+    query2 = build_play_query(kind="resumed",
+                              round_number=3,
                               level_number=2,
                               levels_total=2,
                               goal_nl="do it",
                               goal_atoms=[],
                               ledger="l",
+                              context="c",
                               observation="o",
                               skills="s",
                               predicates="p",
                               types="t",
                               model=status,
                               journal="j",
-                              attempts="a",
-                              handoff="h")
+                              attempts="a")
     assert "interrupted by a compute preemption" in query2
     assert "do it" in query2 and "\nj\n" in query2
     assert "not expressible in your predicates" in query2
+    # A continuation is short: the conversation already holds the level.
+    query3 = build_play_query(kind="continue",
+                              round_number=2,
+                              level_number=1,
+                              levels_total=2,
+                              goal_nl="topple the purple one",
+                              goal_atoms=[goal],
+                              ledger="l",
+                              context="c",
+                              observation="o",
+                              skills="s",
+                              predicates="p",
+                              types="t",
+                              model=status,
+                              journal="j",
+                              attempts="a")
+    assert "you stopped" in query3 and "not settled" in query3
+    assert "## Skills" not in query3 and "purple" not in query3
 
     # format_observation on a live session.
     driver = _Driver()

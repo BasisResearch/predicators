@@ -19,7 +19,7 @@ from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun
 from predicators.run.controllers import create_controller
-from predicators.structs import Dataset
+from predicators.structs import Dataset, Predicate
 
 
 def _config(tmp_path: Any, **overrides: Any) -> None:
@@ -50,7 +50,7 @@ def _config(tmp_path: Any, **overrides: Any) -> None:
         500,
         "continual_render":
         False,
-        "continual_max_idle_sessions":
+        "continual_max_idle_rounds":
         3,
         "continual_runs_dir":
         os.path.join(str(tmp_path), "runs"),
@@ -118,15 +118,36 @@ def test_fit_status_text_is_a_point_estimate_line() -> None:
     assert render(empty) == "no fit result"
 
 
+def test_predicates_install_refreshes_the_session(tmp_path: Any) -> None:
+    """A draft installed by ``sim.predicates()`` reaches the run's abstraction
+    at once (the observation's atoms, Wait targets, divergence checks), not at
+    the next level start or model publish."""
+    _config(tmp_path)
+    _, approach = _make_approach()
+    session: Any = SimpleNamespace(abstract_predicates=set())
+    approach._play_session = session  # pylint: disable=protected-access
+    hi = Predicate("Hi", [], lambda s, o: True)
+    approach._learned_predicates = {hi}  # pylint: disable=protected-access
+    approach._on_predicates_installed()  # pylint: disable=protected-access
+    assert hi in session.abstract_predicates
+    # Between levels there is no session to refresh.
+    approach._play_session = None  # pylint: disable=protected-access
+    approach._on_predicates_installed()  # pylint: disable=protected-access
+    assert hi in session.abstract_predicates
+
+
 @pytest.mark.slow
 def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
-    """Two sessions: act in one session that also carries the model workbench,
-    end; then end the run.
+    """Two rounds of one conversation: act in the first, which also carries the
+    model workbench, and stop; give up in the second.
 
-    The play session gets ``run_python`` with the ``sim`` probe over the
-    agent's model files; when the agent writes no simulator, no model is
-    deployed and the query says so. The loop records the session, syncs
-    the data, checkpoints, and ends the run as the agent asked.
+    A round gets ``run_python`` with the ``sim`` probe over the agent's
+    model files; when the agent writes no simulator, no model is
+    deployed and the query says so. The second round continues the
+    conversation the first opened (by the id the session manager
+    recorded) with a short message instead of a fresh context. The loop
+    records each round, syncs the data, checkpoints, and ends the run as
+    the agent asked.
     """
     _config(tmp_path)
     env, approach = _make_approach()
@@ -141,31 +162,38 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
         n = len(queries)
         zero = [0.0] * env.action_space.shape[0]
         ctx = approach._tool_context  # pylint: disable=protected-access
+        mgr = approach._agent_session  # pylint: disable=protected-access
         names = [t.name for t in ctx.extra_mcp_tools]
-        # The model workbench is live: run_python plus the sim probe.
-        assert "run_python" in names
+        # The model workbench is live: run_python plus the sim probe; no
+        # tool ends a round or resets the context.
+        assert "run_python" in names and "handoff" not in names
         assert ctx.probe_option_model_provider is not None
         assert ctx.probe_fit_provider is not None
         if n == 1:
-            assert "first session of the run" in message
+            assert "first round of the run" in message
             assert "No model yet" in message
+            assert "[context] size not reported yet" in message
+            assert mgr.resume_session_id is None
             obs = _call(approach, "env_observe")
             assert "[episode] NOT_FINISHED" in obs and "[render]" not in obs
+            assert "[context]" in obs
             assert "PickJug" in _call(approach, "skills_list")
             for _ in range(3):
                 out = _call(approach, "env_step", action=zero)
                 assert "step applied" in out
             assert ctx.current_observation is not None
-            assert "Handed off" in _call(approach,
-                                         "handoff",
-                                         note="stepped three times")
+            # What the session manager records when the CLI opens the
+            # conversation; the next round continues it.
+            info = os.path.join(approach._get_log_dir(), "session_info.json")  # pylint: disable=protected-access
+            with open(info, "w", encoding="utf-8") as f:
+                json.dump({"session_id": "conv-1"}, f)
         else:
-            assert "session 2 of the run" in message
-            assert "stepped three times" in message
+            assert "you stopped" in message and "not settled" in message
+            assert "## Skills" not in message
+            assert mgr.resume_session_id == "conv-1"
             assert "Give-up recorded" in _call(approach,
                                                "give_up",
                                                note="enough")
-            _call(approach, "handoff", note="bye")
         return _result()
 
     approach._query_agent_sync = fake_query  # type: ignore[method-assign]  # pylint: disable=protected-access
@@ -175,12 +203,12 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
 
     assert card.end_reason == "agent_ended" and card.end_note == "enough"
     assert [q["kind"] for q in queries] == ["play", "play"]
-    # The workbench is torn down between sessions and at the end.
+    # The workbench is torn down between rounds and at the end.
     ctx = approach._tool_context  # pylint: disable=protected-access
     assert ctx.probe_option_model_provider is None
     lv = card.levels[0]
     assert lv.steps == 3 and lv.resets == 0 and not lv.won
-    assert lv.sandbox["sessions"] == 2
+    assert lv.sandbox["rounds"] == 2
     # The agent wrote no simulator, so nothing was fit or deployed.
     assert "fits" not in lv.sandbox
     assert approach._current_simulator_version is None  # pylint: disable=protected-access
@@ -193,9 +221,8 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
     assert log_dir.endswith("agent")
     attempts = open(os.path.join(log_dir, "sandbox", "attempts.md"),
                     encoding="utf-8").read()
-    assert "### Session 1" in attempts
-    assert "Handoff: stepped three times" in attempts
-    assert "### Session 2" in attempts
+    assert "### Round 1" in attempts and "the agent stopped" in attempts
+    assert "### Round 2" in attempts and "context size not reported" in attempts
     saved = [
         f for f in os.listdir(os.path.join(str(tmp_path), "saved"))
         if f.endswith(".AgentContinual")
@@ -205,7 +232,7 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
 
 def test_play_loop_stops_at_a_lost_test_level(tmp_path: Any) -> None:
     """On a test level (no resets) a GAME_OVER loses the level: the loop ends
-    the level's sessions and the run ends as ``level_lost``."""
+    the level's rounds and the run ends as ``level_lost``."""
     _config(tmp_path, continual_levels="test_only", horizon=2)
     env, approach = _make_approach()
     queries: List[str] = []
@@ -220,7 +247,6 @@ def test_play_loop_stops_at_a_lost_test_level(tmp_path: Any) -> None:
         assert "GAME_OVER" in out and "lost" in out
         refused = _call(approach, "env_reset", note="again")
         assert refused.startswith("ERROR") and "lost" in refused
-        _call(approach, "handoff", note="lost it")
         return _result()
 
     approach._query_agent_sync = fake_query  # type: ignore[method-assign]  # pylint: disable=protected-access
@@ -235,8 +261,9 @@ def test_play_loop_stops_at_a_lost_test_level(tmp_path: Any) -> None:
 
 @pytest.mark.slow
 def test_resume_reads_the_session_id_and_idle_guard(tmp_path: Any) -> None:
-    """A checkpointed in-flight session resumes its transcript; sessions that
-    never act trip the idle guard."""
+    """A checkpointed in-flight round resumes the conversation as a preemption
+    resume, later rounds continue the same conversation, and rounds that never
+    act trip the idle guard."""
     _config(tmp_path)
     env, approach = _make_approach()
     log_dir = approach._get_log_dir()  # pylint: disable=protected-access
@@ -245,21 +272,21 @@ def test_resume_reads_the_session_id_and_idle_guard(tmp_path: Any) -> None:
               "w",
               encoding="utf-8") as f:
         json.dump({"session_id": "old-session"}, f)
-    approach._session_in_flight = True  # pylint: disable=protected-access
+    approach._round_in_flight = True  # pylint: disable=protected-access
     resumed: List[Any] = []
 
     def fake_query(message: str, **kwargs: Any) -> List[Dict[str, Any]]:
         del kwargs
         mgr = approach._agent_session  # pylint: disable=protected-access
         resumed.append((mgr.resume_session_id, "preemption" in message))
-        _call(approach, "handoff", note="idle")
         return _result()
 
     approach._query_agent_sync = fake_query  # type: ignore[method-assign]  # pylint: disable=protected-access
     approach.prepare_for_continual(Dataset([]))
     card = ContinualRun(env, approach, create_controller(env, approach)).run()
     assert card.end_reason == "agent_ended" and "stalled" in card.end_note
-    # First session resumed the old transcript; later ones are fresh.
+    # The first round resumed the interrupted turn; the later ones
+    # continued the same conversation as ordinary rounds.
     assert resumed[0] == ("old-session", True)
-    assert all(r == (None, False) for r in resumed[1:])
+    assert all(r == ("old-session", False) for r in resumed[1:])
     assert len(resumed) == 3

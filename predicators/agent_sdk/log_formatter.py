@@ -113,6 +113,12 @@ def format_conversation_markdown(
 
         elif etype == "error":
             lines.append(f"**Error:** {entry.get('error', '')}\n")
+        elif etype == "system" and entry.get("subtype") == "compact_boundary":
+            pre = entry.get("pre_tokens")
+            detail = (
+                f" ({entry.get('trigger') or 'auto'}, ~{int(pre) / 1000:.0f}k "
+                "tokens before)" if pre else "")
+            lines.append(f"**System:** context compacted{detail}\n")
 
     return "\n".join(lines)
 

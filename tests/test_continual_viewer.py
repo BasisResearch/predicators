@@ -316,7 +316,7 @@ def test_agent_sessions_render(tmp_path: Any) -> None:
         f.write("### Session 1\n- stepped\n")
     run_html = viewer.run_page(key)
     assert run_html is not None
-    assert "Agent sessions (1)" in run_html
+    assert "Agent rounds (1)" in run_html
     assert "href='#session/001_play_20260904_120000.md'" in run_html
     # The sandbox files sit in the sidebar tree and open in the pane.
     assert "journal.md" in run_html and "attempts.md" in run_html

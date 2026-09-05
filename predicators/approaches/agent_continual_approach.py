@@ -6,7 +6,7 @@ the phased approach class that holds their machinery:
 * ``AgentContinualApproach`` (``agent_continual``) is C1's learner
   (hybrid simulator synthesis, parameter fit, predicate invention) on
   ``AgentSimPredicateInventionApproach``. There is no separate learning
-  session: every play session carries the model workbench, so the same
+  conversation: every round carries the model workbench, so the same
   session that acts in the environment also writes ``simulator.py`` and
   ``predicates.py``, fits them with ``sim.fit`` and validates plans with
   ``sim.run`` / ``sim.refine``. The ``sim`` probe reads the current
@@ -55,26 +55,26 @@ if TYPE_CHECKING:  # pragma: no cover - the run package imports approaches
 # it some: none.
 NO_ENV_PREDICATES: FrozenSet[str] = frozenset()
 
-# What one play session stashes for its post-session finalize.
-_SessionModel = Tuple[List[LowLevelTrajectory], List[Any], List[Any],
-                      Dict[str, List[str]], Any, Dict[str, str]]
+# What one round stashes for its post-round finalize.
+_RoundModel = Tuple[List[LowLevelTrajectory], List[Any], List[Any],
+                    Dict[str, List[str]], Any, Dict[str, str]]
 
 
 class AgentContinualApproach(ContinualPlayMixin,
                              AgentSimPredicateInventionApproach):
     """C1's learner (hybrid simulator, parameter fit, predicate invention)
-    playing under the continual protocol, modelling in the play session."""
+    playing under the continual protocol, modelling in the rounds it plays."""
 
     _save_suffix = "AgentContinual"
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        # Per-session workbench state, set in _session_extra_tools and
-        # consumed in _after_session.
-        self._session_model: Optional[_SessionModel] = None
+        # Per-round workbench state, set in _round_extra_tools and
+        # consumed in _after_round.
+        self._round_model: Optional[_RoundModel] = None
         self._fit_version_before: Optional[str] = None
         self._episodes_at_last_fit = 0
-        self._last_session_modelled = False
+        self._last_round_modelled = False
 
     @classmethod
     def get_name(cls) -> str:
@@ -91,9 +91,9 @@ class AgentContinualApproach(ContinualPlayMixin,
         return resolve_kept_predicate_names(NO_ENV_PREDICATES)
 
     def _learning_cycle_index(self) -> int:
-        """Snapshot files are tagged by session number, so
+        """Snapshot files are tagged by round number, so
         ``simulator_versions/`` reads chronologically across the run."""
-        return self._sessions_played
+        return self._rounds_played
 
     def _play_system_prompt(self) -> str:
         from predicators.agent_sdk.play_prompts import \
@@ -118,31 +118,31 @@ class AgentContinualApproach(ContinualPlayMixin,
             f", `predicates.py` {self._current_predicates_version or 'none'}"
             f". Last fit: {self._fit_status_text()}. {data}{refit}")
 
-    def _session_was_productive(self, session: ProtocolSession, state: Any,
-                                steps_before: int, steps_after: int) -> bool:
+    def _round_was_productive(self, session: ProtocolSession, state: Any,
+                              steps_before: int, steps_after: int) -> bool:
         del session, state
-        return steps_after > steps_before or self._last_session_modelled
+        return steps_after > steps_before or self._last_round_modelled
 
-    def _session_record_extra(self, state: Any) -> str:
+    def _round_record_extra(self, state: Any) -> str:
         del state
-        if not self._last_session_modelled:
+        if not self._last_round_modelled:
             return ""
         return (f"Model updated: simulator.py "
                 f"{self._current_simulator_version}, predicates.py "
                 f"{self._current_predicates_version or 'none'}; fit "
                 f"{self._fit_status_text()}.")
 
-    # -- The model workbench, installed per play session -----------------
+    # -- The model workbench, installed per round -----------------
 
-    def _session_extra_tools(self, session: ProtocolSession) -> List[Any]:
-        """Build the model workbench for this play session: the synthesis
+    def _round_extra_tools(self, session: ProtocolSession) -> List[Any]:
+        """Build the model workbench for this round: the synthesis
         ``run_python`` over the recorded data and the ``sim`` probe on the
         agent's own ``simulator.py`` / ``predicates.py``.
 
         The probe reads the files fresh each call (``sim.fit`` publishes
         the fit, ``sim.run`` / ``sim.refine`` roll the candidate
-        forward), so the agent models and validates in the same session
-        it acts in. :meth:`_after_session` deploys what it wrote.
+        forward), so the agent models and validates in the conversation
+        it acts in. :meth:`_after_round` deploys what it wrote.
         """
         del session
         # pylint: disable-next=import-outside-toplevel
@@ -153,8 +153,8 @@ class AgentContinualApproach(ContinualPlayMixin,
             self._prepare_model_data(trajectories)
         paths = self._resolve_synthesis_paths()
         extra_paths = self._compute_extra_synthesis_paths(paths.base)
-        self._session_model = (trajectories, obs_triples, base_pred_triples,
-                               inferred_hint, paths, extra_paths)
+        self._round_model = (trajectories, obs_triples, base_pred_triples,
+                             inferred_hint, paths, extra_paths)
         self._fit_version_before = self._probe_fit_state().get("version")
 
         exec_ns = self._build_synthesis_exec_ns(trajectories)
@@ -186,25 +186,25 @@ class AgentContinualApproach(ContinualPlayMixin,
         declared = set(self._get_synthesis_tool_names() or ())
         return [t for t in toolkit.tools if getattr(t, "name", "") in declared]
 
-    def _session_hooks(self, session: ProtocolSession) -> Dict[str, list]:
+    def _round_hooks(self, session: ProtocolSession) -> Dict[str, list]:
         del session
-        if self._session_model is None:
+        if self._round_model is None:
             return {}
-        _, _, _, _, paths, extra_paths = self._session_model
+        _, _, _, _, paths, extra_paths = self._round_model
         targets = self._build_write_snapshot_targets(paths.simulator_file,
                                                      paths.versions_dir,
                                                      extra_paths)
         return self._build_synthesis_session_hooks(targets, paths.base)
 
-    def _after_session(self, session: ProtocolSession, state: Any) -> None:
-        """Deploy whatever the session wrote: load the model files, fit and
-        build the option model, install the invented predicates."""
+    def _after_round(self, session: ProtocolSession, state: Any) -> None:
+        """Deploy whatever the round wrote: load the model files, fit and build
+        the option model, install the invented predicates."""
         del state
-        self._last_session_modelled = False
-        if self._session_model is None:
+        self._last_round_modelled = False
+        if self._round_model is None:
             return
         trajectories, obs_triples, base_pred_triples, inferred_hint, paths, \
-            extra_paths = self._session_model
+            extra_paths = self._round_model
         del obs_triples
         try:
             self._deploy_session_model(session, trajectories,
@@ -216,7 +216,7 @@ class AgentContinualApproach(ContinualPlayMixin,
             self._append_model_journal(paths, f"deploy failed: {e}")
         finally:
             self._clear_probe_providers()
-            self._session_model = None
+            self._round_model = None
 
     def _deploy_session_model(self, session: ProtocolSession,
                               trajectories: List[LowLevelTrajectory],
@@ -244,7 +244,7 @@ class AgentContinualApproach(ContinualPlayMixin,
                 step_fn=_step_fn, name="agent_synthesized")
             combined = self._build_combined_simulator(self._learned_simulator)
             self._option_model = self._build_option_model(combined)
-        self._last_session_modelled = True
+        self._last_round_modelled = True
         self._episodes_at_last_fit = len(self._online_trajectories)
         session.record_sandbox("fits", 1)
         # The invented predicates the runner abstracts with (Wait
@@ -268,7 +268,7 @@ class AgentContinualApproach(ContinualPlayMixin,
     def _append_model_journal(self, paths: Any, outcome: str) -> None:
         journal_mod.append_entry(
             self._tool_context.sandbox_dir or self._get_log_dir(),
-            f"Model after session {self._sessions_played + 1}",
+            f"Model after round {self._rounds_played + 1}",
             outcome,
             filename=journal_mod.ATTEMPTS_FILENAME)
         del paths

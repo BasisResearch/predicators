@@ -40,7 +40,6 @@ CONTINUAL_TOOL_NAMES = [
     "skills_list",
     "skills_invoke",
     "skills_execute_plan",
-    "handoff",
 ]
 
 GRAMMAR = (
@@ -53,8 +52,6 @@ GRAMMAR = (
 class PlayState:
     """What the tools record for the arm to act on after the query."""
     pending_give_up: Optional[str] = None
-    handed_off: bool = False
-    handoff: str = ""
     run_ended: Optional[Tuple[str, str]] = None
     charged_calls: int = 0
 
@@ -100,6 +97,22 @@ def visible_goal(ctx: ToolContext, task: Task) -> List[str]:
     return sorted(str(a) for a in task.goal if a.predicate.name in names)
 
 
+def context_status(ctx: ToolContext) -> str:
+    """The ``[context]`` line: what the run's conversation holds.
+
+    Shown next to the ledger on every tool result and in every query, so
+    the agent can journal ahead of a compaction instead of after one.
+    """
+    if ctx.context_tokens is None:
+        size = "size not reported yet"
+    else:
+        size = f"~{ctx.context_tokens / 1000:.0f}k tokens"
+        if ctx.context_window_tokens:
+            size += f" of {ctx.context_window_tokens / 1000:.0f}k"
+    return (f"[context] {size}; {ctx.context_turns} turns this run; "
+            f"compacted {ctx.context_compactions}x")
+
+
 def format_observation(obs: "ProtocolObservation",
                        ctx: ToolContext,
                        *,
@@ -112,13 +125,13 @@ def format_observation(obs: "ProtocolObservation",
     if obs.state is EpisodeState.GAME_OVER and not obs.ledger.resets_allowed:
         lines.append(f"[episode] GAME_OVER ({obs.reason}); this level has "
                      "no resets, so it is over and lost. Write your notes "
-                     "and call handoff.")
+                     "and stop.")
     elif obs.state is EpisodeState.GAME_OVER:
         lines.append(f"[episode] GAME_OVER ({obs.reason}); only env_reset "
                      "is valid now.")
     elif obs.state is EpisodeState.WIN:
         lines.append("[episode] WIN: the level is won. Write your notes "
-                     "and call handoff.")
+                     "and stop.")
     else:
         lines.append("[episode] NOT_FINISHED")
     spec = obs.level
@@ -151,6 +164,7 @@ def format_observation(obs: "ProtocolObservation",
     if render_path:
         lines.append(f"[render] {render_path}")
     lines.append(obs.ledger.footer())
+    lines.append(context_status(ctx))
     return "\n".join(lines)
 
 
@@ -239,9 +253,6 @@ def build_continual_tools(
         CONTINUAL_TOOL_NAMES)
 
     def _ended() -> Optional[Dict[str, Any]]:
-        if state.handed_off:
-            return _error_result("This session has ended. Stop calling "
-                                 "tools.")
         if state.run_ended is not None:
             reason, note = state.run_ended
             return _error_result(f"The run has ended ({reason}"
@@ -250,7 +261,8 @@ def build_continual_tools(
 
     def _footer() -> str:
         try:
-            return "\n\n" + session.observe().ledger.footer()
+            return ("\n\n" + session.observe().ledger.footer() + "\n" +
+                    context_status(ctx))
         except EpisodeOver:
             return ""
 
@@ -267,30 +279,29 @@ def build_continual_tools(
         if isinstance(e, LevelAlreadyWon):
             return _error_result("The level is already won; nothing more "
                                  "can be charged on it. Write your notes "
-                                 "and call handoff." + _footer())
+                                 "and stop." + _footer())
         if isinstance(e, LevelLost):
             return _error_result("The level is lost: its episode ended in "
                                  "GAME_OVER and this level has no resets, "
                                  "so nothing more can be charged on it. "
-                                 "Write your notes and call handoff." +
-                                 _footer())
+                                 "Write your notes and stop." + _footer())
         if isinstance(e, ResetUnavailable):
             return _error_result(f"{e}. Nothing was charged. Continue the "
                                  "episode; if it ends in GAME_OVER, write "
-                                 "your notes and call handoff." + _footer())
+                                 "your notes and stop." + _footer())
         if isinstance(e, EpisodeOver):
             if _resets_allowed():
                 return _error_result(f"{e}. Call env_reset to start a new "
                                      "episode." + _footer())
             return _error_result(f"{e}. This level has no resets, so it "
-                                 "is over. Write your notes and call "
-                                 "handoff." + _footer())
+                                 "is over. Write your notes and stop." +
+                                 _footer())
         if isinstance(e, RunEnded):
             state.run_ended = (e.reason, e.note)
             return _error_result(f"RUN ENDED: {e.reason}"
                                  f"{': ' + e.note if e.note else ''}. No "
                                  "further environment interaction is "
-                                 "possible. Call handoff.")
+                                 "possible. Stop.")
         logging.exception("[continual tools] unexpected error")
         return _error_result(f"Error: {type(e).__name__}: {e}" + _footer())
 
@@ -397,8 +408,7 @@ def build_continual_tools(
     @tool(
         "give_up",
         "Give up: end the run for this environment and forfeit every "
-        "remaining level. Takes effect when this session ends. A last "
-        "resort.", {
+        "remaining level. Takes effect when you stop. A last resort.", {
             "type": "object",
             "properties": {
                 "note": {
@@ -413,9 +423,9 @@ def build_continual_tools(
         if ended is not None:
             return ended
         state.pending_give_up = str(args.get("note", "")) or "agent gave up"
-        return _text_result("Give-up recorded. It takes effect when this "
-                            "session ends and forfeits every remaining "
-                            "level: write your notes and call handoff.")
+        return _text_result("Give-up recorded. It takes effect when you "
+                            "stop and forfeits every remaining level: "
+                            "write your notes and stop.")
 
     @tool("skills_list",
           "The skill library: typed signatures, parameter meanings and "
@@ -542,27 +552,6 @@ def build_continual_tools(
                 return err
             return _protocol_error(e)
 
-    @tool(
-        "handoff",
-        "Hand off to a fresh context: end this session, and the next one "
-        "opens on the journal, the current observation and your note. "
-        "Say what you did, what you believe, and what to do first. The "
-        "journal is the durable memory; the note is the bridge.", {
-            "type": "object",
-            "properties": {
-                "note": {
-                    "type": "string",
-                    "description": "the handoff note"
-                }
-            },
-            "required": ["note"],
-        })
-    async def handoff(args: Dict[str, Any]) -> Dict[str, Any]:
-        state.handed_off = True
-        state.handoff = str(args.get("note", ""))
-        return _text_result("Handed off. Stop now; do not call any more "
-                            "tools; the next session starts from your note.")
-
     all_tools = {
         "env_observe": env_observe,
         "env_step": env_step,
@@ -571,7 +560,6 @@ def build_continual_tools(
         "skills_list": skills_list,
         "skills_invoke": skills_invoke,
         "skills_execute_plan": skills_execute_plan,
-        "handoff": handoff,
     }
     return [all_tools[n] for n in CONTINUAL_TOOL_NAMES if n in wanted]
 

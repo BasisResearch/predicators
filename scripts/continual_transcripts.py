@@ -34,6 +34,8 @@ ASSISTANT_RE = re.compile(r"^\*\*Assistant:\*\* ?(.*)$")
 USER_RE = re.compile(r"^\*\*User:\*\* ?(.*)$")
 RESULT_LINE_RE = re.compile(r"^\*\*Result:\*\* (.*)$")
 ERROR_LINE_RE = re.compile(r"^\*\*Error:\*\* (.*)$")
+# The formatter's note for an SDK context compaction (log_formatter).
+SYSTEM_LINE_RE = re.compile(r"^\*\*System:\*\* (.*)$")
 FENCE_RE = re.compile(r"^```")
 INPUT_KEY_RE = re.compile(r"^\*(\w+):\*\s*$")
 META_RE = re.compile(r"^- \*\*(.+?):\*\* (.*)$")
@@ -82,6 +84,8 @@ class Transcript:
     turns: List[Turn] = field(default_factory=list)
     result_line: str = ""
     errors: List[str] = field(default_factory=list)
+    # The formatter's notes on SDK context compactions (**System:** lines).
+    system_notes: List[str] = field(default_factory=list)
 
     @property
     def calls(self) -> List[ToolCall]:
@@ -143,8 +147,8 @@ def _parse_conversation(lines: Sequence[str], tx: Transcript) -> None:
     n = len(lines)
 
     def _read_fence(start: int) -> Tuple[str, int]:
-        """Return the fenced block starting at ``start`` and the index of
-        the line after its closing fence."""
+        """Return the fenced block starting at ``start`` and the index of the
+        line after its closing fence."""
         assert FENCE_RE.match(lines[start])
         j = start + 1
         block: List[str] = []
@@ -253,6 +257,11 @@ def _parse_conversation(lines: Sequence[str], tx: Transcript) -> None:
             tx.errors.append(m.group(1).strip())
             i += 1
             continue
+        m = SYSTEM_LINE_RE.match(line)
+        if m:
+            tx.system_notes.append(m.group(1).strip())
+            i += 1
+            continue
         i += 1
 
 
@@ -261,8 +270,8 @@ def _is_marker(line: str) -> bool:
         TURN_RE.match(line) or TOOL_CALL_RE.match(line)
         or TOOL_RESULT_RE.match(line) or ASSISTANT_RE.match(line)
         or USER_RE.match(line) or RESULT_LINE_RE.match(line)
-        or ERROR_LINE_RE.match(line) or line.strip() == "*[thinking]*"
-        or line.strip() == "---")
+        or ERROR_LINE_RE.match(line) or SYSTEM_LINE_RE.match(line)
+        or line.strip() == "*[thinking]*" or line.strip() == "---")
 
 
 # ── Replay assembly ────────────────────────────────────────────────
@@ -294,9 +303,10 @@ def pair_entries(entries: Sequence[Dict[str, Any]],
                  transcripts: Sequence[Transcript]) -> List[Dict[str, Any]]:
     """Attach session, turn, call and reasoning to index entries.
 
-    Returns a new list of entry dicts (copies) with the keys ``session``,
-    ``turn``, ``call`` (``{name, args, result, is_error}``), ``thinking``
-    and ``texts`` added where a pairing was found.
+    Returns a new list of entry dicts (copies) with the keys
+    ``session``, ``turn``, ``call`` (``{name, args, result,
+    is_error}``), ``thinking`` and ``texts`` added where a pairing was
+    found.
     """
     out = [dict(e) for e in entries]
     ordered = sorted((t for t in transcripts if t.start_ts is not None),

@@ -33,6 +33,7 @@ of the normal ``AgentSessionManager``::
     responses = await manager.query("Solve this task...")
     await manager.close()
 """
+import asyncio
 import datetime
 import logging
 import os
@@ -201,13 +202,34 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
             except Exception as e:  # pylint: disable=broad-except
                 logger.warning("Interrupt failed: %s", e)
 
-        collected = await self._run_streamed_query(
-            message,
-            log_path=log_path,
-            kind=kind,
-            on_entry=_maybe_interrupt_on_deadline)
+        async def _on_entry(entry: Dict[str, Any]) -> None:
+            # The context counters behind the play tools' [context] line.
+            self._tool_context.note_stream_entry(entry)
+            await _maybe_interrupt_on_deadline(entry)
+
+        collected = await self._run_streamed_query(message,
+                                                   log_path=log_path,
+                                                   kind=kind,
+                                                   on_entry=_on_entry)
+        await self._note_context_window()
 
         return collected
+
+    async def _note_context_window(self) -> None:
+        """Record the context window size the CLI reports, once per run: the
+        play tools show the conversation's size against it."""
+        ctx = self._tool_context
+        if ctx.context_window_tokens is not None or self._client is None:
+            return
+        try:
+            usage = await asyncio.wait_for(self._client.get_context_usage(),
+                                           timeout=15.0)
+        except Exception as e:  # pylint: disable=broad-except
+            logger.debug("get_context_usage failed: %s", e)
+            return
+        max_tokens = int((usage or {}).get("maxTokens") or 0)
+        if max_tokens > 0:
+            ctx.context_window_tokens = max_tokens
 
     def _session_info_extras(self) -> Dict[str, Any]:
         """Extra session-info keys: manager type + sandbox location."""

@@ -50,7 +50,7 @@ def _config(tmp_path: Any, **overrides: Any) -> None:
         500,
         "continual_render":
         False,
-        "continual_max_idle_sessions":
+        "continual_max_idle_rounds":
         3,
         "continual_runs_dir":
         os.path.join(str(tmp_path), "runs"),
@@ -116,7 +116,8 @@ def test_model_free_arm_has_no_model_surface(tmp_path: Any) -> None:
     prompt = approach._get_agent_system_prompt()  # pylint: disable=protected-access
     assert "`learn_run`" not in prompt and "`run_python`" not in prompt
     assert "`sim`" not in prompt and "## Learning" not in prompt
-    assert "no learned model" in prompt and "`handoff`" in prompt
+    assert "no learned model" in prompt and "`give_up`" in prompt
+    assert "`handoff`" not in prompt and "## Your context" in prompt
     # The play loop is a mixin in front of each arm's phased base, not
     # an approach of its own, so the registry never sees it.
     assert not issubclass(ContinualPlayMixin, BaseApproach)
@@ -126,9 +127,9 @@ def test_model_free_arm_has_no_model_surface(tmp_path: Any) -> None:
 
 
 def test_play_loop_with_a_scripted_model_free_agent(tmp_path: Any) -> None:
-    """Two sessions: act, end; then end the run.
+    """Two rounds of one conversation: act and stop; then give up.
 
-    The loop records the session, syncs the data, checkpoints under the
+    The loop records each round, syncs the data, checkpoints under the
     arm's own suffix, and the query carries the data status instead of a
     learning status.
     """
@@ -145,7 +146,7 @@ def test_play_loop_with_a_scripted_model_free_agent(tmp_path: Any) -> None:
         ]
         assert names == MODEL_FREE_TOOLS
         if n == 1:
-            assert "first session of the run" in message
+            assert "first round of the run" in message
             assert "no belief model" in message
             assert "Your model" not in message
             assert "not expressible in your predicates" in message
@@ -160,16 +161,11 @@ def test_play_loop_with_a_scripted_model_free_agent(tmp_path: Any) -> None:
                                                action=zero)
             refused = _call(approach, "env_step", action=zero[:-1])
             assert refused.startswith("ERROR") and "shape" in refused
-            assert "Handed off" in _call(approach,
-                                         "handoff",
-                                         note="stepped three times")
         else:
-            assert "session 2 of the run" in message
-            assert "stepped three times" in message
+            assert "you stopped" in message and "not settled" in message
             assert "Give-up recorded" in _call(approach,
                                                "give_up",
                                                note="enough")
-            _call(approach, "handoff", note="bye")
         return _result()
 
     approach._query_agent_sync = fake_query  # type: ignore[method-assign]  # pylint: disable=protected-access
@@ -181,7 +177,7 @@ def test_play_loop_with_a_scripted_model_free_agent(tmp_path: Any) -> None:
     assert [q["kind"] for q in queries] == ["play", "play"]
     lv = card.levels[0]
     assert lv.steps == 3 and lv.resets == 0 and not lv.won
-    assert lv.sandbox["sessions"] == 2 and "fits" not in lv.sandbox
+    assert lv.sandbox["rounds"] == 2 and "fits" not in lv.sandbox
     assert lv.sandbox["sim_rollouts"] == 0
     trajs = approach._online_trajectories  # pylint: disable=protected-access
     assert len(trajs) == 1 and len(trajs[0].actions) == 3
@@ -190,7 +186,7 @@ def test_play_loop_with_a_scripted_model_free_agent(tmp_path: Any) -> None:
     assert log_dir.endswith("agent")
     attempts = open(os.path.join(log_dir, "sandbox", "attempts.md"),
                     encoding="utf-8").read()
-    assert "### Session 1" in attempts and "Learning session" not in attempts
+    assert "### Round 1" in attempts and "Learning session" not in attempts
     saved = [
         f for f in os.listdir(os.path.join(str(tmp_path), "saved"))
         if f.endswith(".AgentContinualModelFree")

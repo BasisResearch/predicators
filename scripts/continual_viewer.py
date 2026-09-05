@@ -1613,7 +1613,7 @@ def _level_mark(lv: Dict[str, Any]) -> str:
 
 def run_page(key: str) -> Optional[str]:
     """One run: a sidebar (overview, the replay, each level's entry into it and
-    its events, the agent's sessions, the recording's files) and a content pane
+    its events, the agent's rounds, the recording's files) and a content pane
     the page script fills from the hash route (see loadHash in the JS)."""
     card = load_card(key)
     if card is None:
@@ -1640,7 +1640,7 @@ def run_page(key: str) -> Optional[str]:
                    f"<a class='sub' href='#L{k}/events'>events</a></div>")
     if agent_dir(key) is not None:
         logs = list_session_logs(key)
-        nav.append(f"<h4>Agent sessions ({len(logs)})</h4>")
+        nav.append(f"<h4>Agent rounds ({len(logs)})</h4>")
         for log in logs:
             nav.append(
                 f"<a href='#session/{esc(log['name'])}' "
@@ -2007,7 +2007,7 @@ def _levels_table(card: Dict[str, Any]) -> str:
             f"{fmt_duration(float(lv.get('wall_clock_env', 0)))}</span></td>"
             f"<td class='num'>{esc(recovery)}</td>"
             f"<td class='num'>${float(sandbox.get('llm_cost_usd', 0)):.2f}"
-            f" <span class='muted'>{int(sandbox.get('sessions', 0))} sess, "
+            f" <span class='muted'>{int(sandbox.get('rounds', 0))} rounds, "
             f"{int(sandbox.get('sim_rollouts', 0))} roll, "
             f"{int(sandbox.get('fits', 0))} fits</span></td>"
             f"<td>{episodes}</td>"
@@ -2209,9 +2209,8 @@ def session_fragment(key: str, name: str) -> Optional[str]:
         for call in turn.calls:
             short = call.short_name
             cls = "call envtool" if short in tr.ENV_TOOLS or short in (
-                "env_observe", "learn_run", "handoff", "session_end",
-                "give_up", "env_end_run", "run_python",
-                "skills_list") else "call"
+                "env_observe", "learn_run", "session_end", "give_up",
+                "env_end_run", "run_python", "skills_list") else "call"
             parts.append(f"<div class='{cls}'><span class='name'>"
                          f"{esc(short)}</span>")
             for arg, val in call.args.items():

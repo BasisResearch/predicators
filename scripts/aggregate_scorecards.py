@@ -45,7 +45,7 @@ LEVEL_COLUMNS = [
     "divergences", "wall_clock", "wall_clock_env", "steps_before_first_win",
     "resets_before_first_win", "preemptions", "resumes", "downtime",
     "harness_resets", "interrupted_invocations", "episodes", "llm_cost_usd",
-    "sim_rollouts", "fits", "sessions"
+    "sim_rollouts", "fits", "rounds"
 ]
 
 
@@ -147,8 +147,8 @@ def level_rows(cards: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 sandbox.get("sim_rollouts", 0.0),
                 "fits":
                 sandbox.get("fits", 0.0),
-                "sessions":
-                sandbox.get("sessions", 0.0),
+                "rounds":
+                sandbox.get("rounds", 0.0),
             })
     return rows
 

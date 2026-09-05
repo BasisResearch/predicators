@@ -288,6 +288,16 @@ class ToolContext:
     # trials, capture-validation repeats). Reset per attempt; shown in
     # the budget footer so sweeps carry a visible price.
     attempt_rollout_count: int = 0
+    # The run's conversation as the play tools show it in the [context]
+    # line (continual protocol): the prompt size of the latest assistant
+    # turn (input plus cached tokens), the assistant turns so far, the
+    # compactions the SDK performed, and the window size once the CLI
+    # has reported one. Fed by note_stream_entry from the sandbox
+    # session's receive loop; never reset within a run.
+    context_tokens: Optional[int] = None
+    context_turns: int = 0
+    context_compactions: int = 0
+    context_window_tokens: Optional[int] = None
     # Best submission on the current task this attempt that
     # submit_plan evaluated but refused to capture (evaluator
     # scored it a non-solve, or it was flaky), ranked by evaluator
@@ -300,6 +310,21 @@ class ToolContext:
     # (agent_sdk_python_call_timeout); enforced at the same
     # probe checkpoints as attempt_deadline. None ⇒ no call in flight.
     python_call_deadline: Optional[float] = None
+
+    def note_stream_entry(self, entry: Dict[str, Any]) -> None:
+        """Fold one streamed SDK entry into the context counters."""
+        kind = entry.get("type")
+        if kind == "assistant":
+            self.context_turns += 1
+            usage = entry.get("usage") or {}
+            total = sum(
+                int(usage.get(key) or 0)
+                for key in ("input_tokens", "cache_creation_input_tokens",
+                            "cache_read_input_tokens"))
+            if total > 0:
+                self.context_tokens = total
+        elif kind == "system" and entry.get("subtype") == "compact_boundary":
+            self.context_compactions += 1
 
     def begin_attempt(self, index: int, wall_clock: float) -> None:
         """Start restart-loop bookkeeping for solve attempt ``index``.

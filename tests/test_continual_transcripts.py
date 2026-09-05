@@ -75,13 +75,13 @@ def test_parse_transcript_round_trip() -> None:
         "[1/2] A(x)[1]: succeeded after 1 steps\n"
         "[2/2] B(y)[2]: succeeded after 1 steps\n  episode: WIN",
     }, {
-        "tool": "handoff",
+        "tool": "give_up",
         "id": "t2",
         "text": "Done.",
         "args": {
             "note": "won"
         },
-        "result": "Handed off.",
+        "result": "Give-up recorded.",
     }]
     md = format_conversation_markdown(_entries(calls),
                                       title="Local Sandbox Query",

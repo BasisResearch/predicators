@@ -1,7 +1,8 @@
 """Prompt builders for continual-protocol play sessions.
 
 Templates: ``prompts/play_system.md`` (one prompt per run) and
-``prompts/play_query.md`` (one query per session). Both are rendered
+``prompts/play_query.md`` (one query per round of the run's
+conversation). Both are rendered
 through :mod:`prompt_templates` so the call sites and the templates
 cannot drift.
 """
@@ -25,7 +26,7 @@ TOOL_BLURBS = {
     "GAME_OVER on a level with resets.",
     "give_up":
     "give up: end the run for this environment and forfeit every "
-    "remaining level (takes effect when the session ends). A last resort.",
+    "remaining level (takes effect when you stop). A last resort.",
     "skills_list":
     "the skill library: signatures, parameter meanings and ranges. Free.",
     "skills_invoke":
@@ -38,9 +39,6 @@ TOOL_BLURBS = {
     "run_python":
     "code in the sandbox with the `sim` probe over your model files "
     "(`sim.fit`, `sim.residuals`, `sim.run`, `sim.refine`, ...). Free.",
-    "handoff":
-    "hand off to a fresh context: end this session with a note the next "
-    "session starts from.",
 }
 
 
@@ -57,7 +55,7 @@ def render_tool_list(tool_names: Iterable[str]) -> str:
 
 def build_play_system_prompt(
     tool_names: Sequence[str], base_sim_refs: Sequence[str] = ()) -> str:
-    """The system prompt of every play session.
+    """The system prompt of the run's conversation.
 
     The tool surface selects the variant: an arm with ``run_python``
     keeps and uses a belief model in the sandbox (``sim``); the model-
@@ -86,7 +84,7 @@ def build_play_system_prompt(
         sections.append(render("play_system", "model", base_sim_refs=refs))
     sections += [
         render("play_system", "journal"),
-        render("play_system", "session"),
+        render("play_system", "context"),
         render("play_system", "principles" + variant),
     ]
     return "\n\n".join(sections)
@@ -100,20 +98,37 @@ def render_data_status(*, n_episodes: int, n_steps: int) -> str:
                   n_steps=str(n_steps))
 
 
-def build_play_query(*, session_number: int, resumed: bool, level_number: int,
+def build_play_query(*, kind: str, round_number: int, level_number: int,
                      levels_total: int, goal_nl: str,
-                     goal_atoms: Sequence[str], ledger: str, observation: str,
-                     skills: str, predicates: str, types: str, model: str,
-                     journal: str, attempts: str, handoff: str) -> str:
-    """The query that opens one play session."""
-    if resumed:
-        opening = render("play_query", "opening_resumed")
-    elif session_number <= 1:
+                     goal_atoms: Sequence[str], ledger: str, context: str,
+                     observation: str, skills: str, predicates: str,
+                     types: str, model: str, journal: str,
+                     attempts: str) -> str:
+    """The message that opens one round of the run's conversation.
+
+    ``kind`` is ``first`` (the run's first message), ``level`` (a new
+    level in the same conversation), ``continue`` (the agent stopped
+    before the level was settled) or ``resumed`` (after a preemption). A
+    continuation is short: the conversation already holds the level.
+    """
+    assert kind in ("first", "level", "continue", "resumed"), kind
+    if kind == "first":
         opening = render("play_query", "opening_first")
     else:
         opening = render("play_query",
-                         "opening_next",
-                         session_number=str(session_number))
+                         "opening_" + kind,
+                         round_number=str(round_number),
+                         level_number=str(level_number))
+    instructions = render("play_query", "instructions")
+    if kind == "continue":
+        return render("play_query",
+                      "skeleton_continue",
+                      opening=opening,
+                      ledger=ledger,
+                      context=context,
+                      observation=observation,
+                      model=model,
+                      instructions=instructions)
     return render(
         "play_query",
         "skeleton",
@@ -125,6 +140,7 @@ def build_play_query(*, session_number: int, resumed: bool, level_number: int,
         "(not expressible in your predicates; the goal description above "
         "is the goal)",
         ledger=ledger,
+        context=context,
         observation=observation,
         skills=skills,
         predicates=predicates,
@@ -132,6 +148,5 @@ def build_play_query(*, session_number: int, resumed: bool, level_number: int,
         model=model,
         journal=journal or render("play_query", "no_journal"),
         attempts=attempts or render("play_query", "no_attempts"),
-        handoff=handoff or render("play_query", "no_handoff"),
-        instructions=render("play_query", "instructions"),
+        instructions=instructions,
     )

@@ -127,7 +127,7 @@ Per level, for one run:
 - `game_overs`: episodes that ended in `GAME_OVER`, with the reason for each (`horizon`, `env_failure`, `rejected`, `irrecoverable`).
 - `divergences`: skill invocations whose observed outcome differed from the agent's annotated expected outcome.
 - `wall_clock`: seconds on the level, split into env time and sandbox time.
-- `sandbox`: sim rollouts, fits, learn sub-sessions, agent sessions, turns, and LLM cost in USD.
+- `sandbox`: sim rollouts, fits, rounds of the agent's conversation, turns, and LLM cost in USD.
 - `evaluation`: the env's reward and terminated verdicts for each episode.
 - `steps_before_first_win` and `resets_before_first_win`, the two counts most likely to enter any later aggregate.
 - `preemptions`, `resumes`, `downtime`, `harness_resets`, `interrupted_invocations`: the recovery bookkeeping of section 6.6, kept apart from the agent's own counts.
@@ -250,11 +250,11 @@ An invented predicate that reads latent state is always false on a real observat
 ### 5.3 Loop and context management
 
 Continuous does not mean one LLM context.
-The run is a sequence of SDK sessions on one agent-owned loop.
-The default session unit is one level: a session starts at the level's first observation from the journal and the scorecard, and ends when the level is won, when the agent ends it, or when the session turn cap is hit, in which case the next session resumes the same level from the journal.
-Within a session the SDK's own context compaction applies, as it does for any long session.
-Nothing the harness does between sessions changes the env state.
-This is the journal handoff that already exists, with the harness no longer choosing the session kind.
+The run is one conversation of the SDK machinery on one agent-owned loop.
+The harness sends the conversation one message per level, and a short one when the agent stops before a level is settled; each message and the agent's turn on it is a round.
+The SDK's own context compaction manages the conversation's size; the journal and the sandbox files are the agent's durable memory, and every tool result carries a `[context]` line (the conversation's size against its window, the turns so far, the compactions so far) next to the ledger, so the agent can journal ahead of a compaction instead of after one.
+Between rounds the CLI is reopened on the same conversation (`resume`), which lets the model-based arm rebuild its workbench on the data recorded since; nothing the harness does between rounds changes the env state, and the agent has no tool to end a round or to reset its context.
+A round's turn cap is effectively unbounded (10000) and there is no per-round clock: the step cap and the run's wall-clock cap are the limits.
 
 Knowledge carries across levels through the sandbox: `predicates.py`, the fitted simulator, the journal, and the trajectory data all persist for the whole env run.
 Levels are the same env family, so a learned model transfers directly and only the grounding changes.
@@ -262,7 +262,7 @@ Levels are the same env family, so a learned model transfers directly and only t
 ### 5.4 Prompt
 
 One system prompt states the rules: what a step is, that a reset is a step and is counted separately and is to be treated as very expensive, that the sandbox is free, what is recorded, and the loop.
-One per-session query carries the observation, the ledger, and the journal.
+A round's message carries the observation, the ledger and the context line, and, for a new level, the skills, the predicates, the model status, the journal and the attempts record.
 The ARC template's objective sentence is the model: "Your objective is to WIN and avoid GAME_OVER while minimizing actions."
 The agent decides when a belief-model rollout is worth more than a real step.
 The prompt gives no schedule and no certification rule.
@@ -305,7 +305,7 @@ The limits are:
 - The env horizon per episode. Exhausting it is `GAME_OVER`, and the agent resets and continues.
 - The pooled step cap per run (section 4.8).
 - A wall-clock cap per env run, with requeue: 48 h proposed.
-- The per-session turn cap and the existing per-call timeouts. The sysid fit budget stays as it is; a fit is not a step but it is bounded in time.
+- The existing per-call timeouts; the per-round turn cap of 10000 is effectively unbounded. The sysid fit budget stays as it is; a fit is not a step but it is bounded in time.
 
 With no skipping, a level the agent cannot win consumes the remaining pool, which is the same outcome a per-level cap would produce.
 
@@ -324,7 +324,7 @@ None of this is wired today: `agent_sdk_resume_session` in `settings.py` is read
 Wiring it means capturing the session id from the SDK's init message, persisting it with the level checkpoint, and passing `resume=` on the relaunch with the sandbox at the same path, spelled the same way.
 The slug is derived from `cwd`, and the projects directory already shows both the `/home/ycliang` and the `/orcd/home/002/ycliang` spellings of this repo, so a requeue that spells the path differently would start a fresh transcript.
 Resume is the mid-level recovery.
-Level boundaries still start a fresh session from the journal by design, and the journal remains the fallback when a transcript is missing or the resume fails.
+Level boundaries continue the same conversation, and the journal remains the fallback when a transcript is missing or the resume fails.
 
 What a resume preserves, and what it may lose:
 
@@ -333,7 +333,7 @@ What a resume preserves, and what it may lose:
 - Lost, and accepted: the turn in flight, meaning its partial reasoning and any tool call whose result never arrived, plus the env steps executed after the last recording flush.
 
 The harness keeps the two sides consistent.
-It restores the env to the last recorded step, counts only recorded steps, and opens the resumed session with a message that states the restore point, the ledger, and that the interrupted call did not complete.
+It restores the env to the last recorded step, counts only recorded steps, and opens the resumed conversation with a message that states the restore point, the ledger, and that the interrupted call did not complete.
 The recording appends the low-level action of every step as it is taken, so the env side loses nothing: the action log is a few floats per step and the states are replayed from it, with full states written only at skill boundaries.
 The only loss is therefore the LLM turn in flight.
 
@@ -373,7 +373,7 @@ Settled on 2026-09-04: record base metrics only, no score cap, no oracle normali
 
 1. Step cap: the per-env allowances in section 4.8, pooled over the run.
 2. Preemption: replay-restore for the env plus SDK session resume for the chat, with a counted reset and a journal restart as the fallbacks.
-3. Session unit: one SDK session per level by default.
+3. Session unit: one SDK conversation per run, one message per level.
 4. Wall-clock cap per env run: 48 h.
 
 ## 8. Build order
@@ -418,20 +418,20 @@ The viewer attributes a run to this user's Slurm job named after its experiment 
 A run page is a left menu plus a content pane filled from the hash route: the overview (metadata, the cumulative steps-versus-levels-won curve, the per-level metrics of section 4.4), the run's replay, each level's entry into it and its event list, the agent's sessions, the video, and a tree of the run directory's files (the logs, the system prompt, the transcripts, the sandbox's journal, attempts, data and images, each level's index, actions and renders).
 The replay follows the ARC-AGI-3 replay viewer and covers the whole run as one continuous play: one frame per recorded event of every level in order, with the render, the action, the agent's thinking and text that led to it (paired from the session transcripts), the tool call and its result, and the atoms that changed, with keyboard playback and a JSON export.
 Its slider carries one band per level above it and one tick per reset, resume, win and game over below it, both clickable, so a run of many levels and marks stays navigable: a level selector, keys that step by mark or by level, and a filmstrip that renders only a window around the current frame.
-A session renders as a conversation with thinking, assistant text, tool calls and results, and renders inline.
+A round renders as a conversation with thinking, assistant text, tool calls and results, and renders inline.
 
 First PyBullet result, the oracle arm on boil (train task then test task), job 21960691: both levels won, 217 steps each, 9 skill invocations each, no resets, 33 s active.
 
 Step 2, the agent arm, landed the same day:
 
 - `predicators/approaches/continual_play_mixin.py`: `ContinualPlayMixin`, the play loop, mixed in front of each arm's phased base class (the way `AgentSessionMixin` adds its concern) so the arms keep the learning and session machinery of the phased classes without a class hierarchy of their own. It implements `play_level`: each session is a fresh context over the journal; after a session it deploys what the session wrote, records it in `attempts.md`, rebuilds the arm's data from the recorded episodes, and checkpoints.
-- `predicators/approaches/agent_continual_approach.py`: the arms. `AgentContinualApproach` is C1's learner (hybrid simulator, parameter fit, predicate invention) on `AgentSimPredicateInventionApproach`; `AgentContinualModelFreeApproach` is the model-free baseline on `AgentModelFreeApproach`. There is no separate learning session (merged 2026-09-04): `AgentContinualApproach` attaches the model workbench (the phased synthesis `run_python` with the `sim` probe over the agent's `simulator.py` / `predicates.py`) to every play session, so the same session that acts also writes, fits and validates the model; after the session the arm reloads the files, deploys the fit and installs the invented predicates.
-- `predicators/agent_sdk/tools/continual_tools.py`: the play tools `env_observe`, `env_step`, `env_reset`, `give_up`, `skills_list`, `skills_invoke`, `skills_execute_plan`, `handoff`, thin text adapters over `ProtocolSession`. Every result ends with the ledger line. The model tools (`run_python` with `sim`) are attached by the model-based arm. Ending the session cannot happen inside a running SDK session, so `give_up` and `handoff` record requests the arm acts on after the query returns.
-- `predicators/agent_sdk/prompts/play_system.md` and `play_query.md`, rendered by `agent_sdk/play_prompts.py`: the rules of section 4, the tools, the skill grammar, the sandbox, learning, the journal protocol and the session protocol; the query carries the level, the ledger, the observation with a render, the skills, the predicates, the learning status, the journal, the attempts record and the handoff note.
+- `predicators/approaches/agent_continual_approach.py`: the arms. `AgentContinualApproach` is C1's learner (hybrid simulator, parameter fit, predicate invention) on `AgentSimPredicateInventionApproach`; `AgentContinualModelFreeApproach` is the model-free baseline on `AgentModelFreeApproach`. There is no separate learning session (merged 2026-09-04): `AgentContinualApproach` attaches the model workbench (the phased synthesis `run_python` with the `sim` probe over the agent's `simulator.py` / `predicates.py`) to every play session, so the same session that acts also writes, fits and validates the model; `sim.predicates()` installs the invented predicates for the session's observation, Wait targets and divergence checks as soon as it loads them, and after the session the arm reloads the files and deploys the fit.
+- `predicators/agent_sdk/tools/continual_tools.py`: the play tools `env_observe`, `env_step`, `env_reset`, `give_up`, `skills_list`, `skills_invoke`, `skills_execute_plan`, thin text adapters over `ProtocolSession`. Every result ends with the ledger line and the context line. The model tools (`run_python` with `sim`) are attached by the model-based arm. Ending the run cannot happen inside a running SDK turn, so `give_up` records a request the arm acts on when the agent stops.
+- `predicators/agent_sdk/prompts/play_system.md` and `play_query.md`, rendered by `agent_sdk/play_prompts.py`: the rules of section 4, the tools, the skill grammar, the sandbox, learning, the journal protocol and the context protocol; a round's query carries the level, the ledger and the context line, the observation with a render, the skills, the predicates, the model status, the journal and the attempts record (a continuation carries the observation, the ledger, the context line and the model status only).
 - The agent's sandbox and CLI transcripts live in the run directory's `agent/`, one per run, not per launch: a requeue adopts the run directory and finds them. SDK session resume is wired: the session manager records the CLI session id into `session_info.json` as soon as a session opens, and an in-flight session at checkpoint time is reopened with `resume` on the next launch (section 6.6).
 - The observation the agent gets is both numbers and pixels: the object feature table and the atoms in text, and a render saved into the sandbox's `test_images/` at every observation, invocation, plan and reset, named in the tool result and readable with `Read`.
 
-Tests: `tests/agent_sdk/test_continual_tools.py` drives the tools over a real session on cover (a win through `skills_execute_plan`, divergences on positive and `NOT` expectations, parse errors, game over then reset, queued learning and run end, the cap hit inside a tool); `tests/approaches/test_agent_continual_approach.py` runs the play loop on boil with a scripted agent in place of the LLM (a session that acts and queues learning, the learning service, the attempts record, the checkpoint, the resume of an in-flight session id, the idle guard).
+Tests: `tests/agent_sdk/test_continual_tools.py` drives the tools over a real session on cover (a win through `skills_execute_plan`, divergences on positive and `NOT` expectations, parse errors, game over then reset, give up and run end, the cap hit inside a tool); `tests/approaches/test_agent_continual_approach.py` runs the play loop on boil with a scripted agent in place of the LLM (a round that acts and a round that gives up, the continuation of the conversation by its recorded id, the attempts record, the checkpoint, the resume of an in-flight round after a preemption, the idle guard).
 
 Launching the agent arm: un-skip `agent_continual` in `protocol_continual.yaml`.
 
