@@ -36,7 +36,11 @@ Pages:
   home/end, play/pause, jump), and a filmstrip that renders only a
   window around the current frame. ``#replay/L<k>`` opens the replay at
   the level's first frame and ``#replay/frame=<n>`` at a frame; ``#L<k>``
-  is an alias of ``#replay/L<k>``. ``#L<k>/events``: the level's timeline,
+  is an alias of ``#replay/L<k>``. ``#video``: the run's labelled replay
+  video (``videos/<log subdir>/run.mp4``, named on the scorecard; written
+  at run end under ``continual_make_video`` or by
+  ``scripts/continual_video.py``).
+  ``#L<k>/events``: the level's timeline,
   one row per index event. ``#session/<name>``: one transcript as a
   structured conversation: thinking, assistant text, tool calls with
   their results, renders inline. ``#f=<path>``: any file of the
@@ -48,7 +52,7 @@ Pages:
 Usage:
     python scripts/continual_viewer.py [--scorecards scorecards] \\
         [--recordings recordings] [--approaches saved_approaches] \\
-        [--port 25152] [--host 127.0.0.1]
+        [--videos videos] [--port 25152] [--host 127.0.0.1]
 """
 from __future__ import annotations
 
@@ -78,6 +82,7 @@ from scripts import continual_transcripts as tr  # noqa: E402
 
 SCORECARDS_ROOT = ""  # absolute, set in main()
 RECORDINGS_ROOT = ""  # absolute, set in main()
+VIDEOS_ROOT = ""  # absolute, set in main()
 APPROACHES_ROOT = ""  # absolute, set in main(); checkpoints to delete
 LIVE_WINDOW_S = 15 * 60  # a card updated within this window is "live"
 
@@ -1600,8 +1605,10 @@ def run_page(run_id: str) -> Optional[str]:
         f"{chip(label, cls)}</div>",
         "<div class='nav'><a href='#overview'>Overview</a>"
         "<a href='#replay'>▶ Replay</a>",
-        "<h4>Levels</h4>",
     ]
+    if video_path(run_id) is not None:
+        nav.append("<a href='#video'>🎬 Video</a>")
+    nav.append("<h4>Levels</h4>")
     for lv in levels:
         k = int(lv["index"]) + 1
         mark = "✓" if lv.get("won") else ("✗" if lv.get("lost") else (
@@ -1698,6 +1705,8 @@ def fragment(run_id: str, route: str) -> Optional[str]:
         return replay_fragment(run_id)
     if route == "overview":
         return overview_fragment(run_id)
+    if route == "video":
+        return video_fragment(run_id)
     if route.startswith("session/"):
         return session_fragment(run_id, route[len("session/"):])
     if route.startswith("f="):
@@ -1734,6 +1743,8 @@ def overview_fragment(run_id: str) -> Optional[str]:
         ("git", f"<code>{esc(card.get('git_sha', ''))}</code>"),
         ("scorecard", f"<a href='/card/{q(run_id)}'>json</a>"),
     ]
+    if video_path(run_id) is not None:
+        meta.append(("video", "<a href='#video'>labelled replay</a>"))
     meta_html = "<dl class='meta'>" + "".join(f"<dt>{k}</dt><dd>{v}</dd>"
                                               for k, v in meta) + "</dl>"
     return (f"<h2>{esc(card.get('config') or run_id)}</h2>{meta_html}"
@@ -1741,11 +1752,50 @@ def overview_fragment(run_id: str) -> Optional[str]:
             "<h2>Levels</h2>" + _levels_table(card))
 
 
+def video_path(run_id: str) -> Optional[str]:
+    """The run's labelled replay video, when one has been written.
+
+    The scorecard names it (``videos/<log subdir>/run.mp4``, relative to
+    the working directory the run was launched from, which is where the
+    viewer runs too); it is served only from under the videos root.
+    """
+    card = load_card(run_id)
+    if card is None or not card.get("video"):
+        return None
+    path = os.path.realpath(str(card["video"]))
+    if not path.startswith(VIDEOS_ROOT + os.sep) or not os.path.isfile(path):
+        return None
+    return path
+
+
+def video_fragment(run_id: str) -> Optional[str]:
+    """The run's video (recordings/<run_id>/run.mp4) in a player, with the
+    command that rebuilds it."""
+    if load_card(run_id) is None:
+        return None
+    path = video_path(run_id)
+    if path is None:
+        return ("<h2>Video</h2><p class='muted'>No video yet. Runs write "
+                "one at their end under <code>continual_make_video</code>; "
+                "<code>scripts/continual_video.py --run_log "
+                "&lt;info.log&gt;</code> builds it for a finished run."
+                "</p>")
+    raw = f"/video/{q(run_id)}"
+    size_mb = os.path.getsize(path) / 1e6
+    rel = os.path.relpath(path)
+    return (f"<h2>Video</h2><p class='muted'><code>{esc(rel)}</code>, "
+            f"{size_mb:.1f} MB, {esc(fmt_ts(os.path.getmtime(path)))} · "
+            f"<a href='{raw}'>raw</a></p>"
+            f"<video controls preload='metadata' src='{raw}' "
+            "style='max-width:100%;background:#000'></video>")
+
+
 TEXT_EXTS = {
     "", ".md", ".txt", ".log", ".json", ".jsonl", ".py", ".yaml", ".yml",
     ".csv", ".sh", ".toml", ".cfg", ".html"
 }
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
+VIDEO_EXTS = {".mp4", ".webm"}
 GALLERY_MAX = 400
 
 
@@ -1770,6 +1820,10 @@ def file_fragment(run_id: str, rel: str) -> Optional[str]:
     if ext in IMAGE_EXTS:
         return (head + info +
                 f"<img class='thumb big' src='{raw}' onclick='zoom(this)'>")
+    if ext in VIDEO_EXTS:
+        return (head + info + f"<video controls preload='metadata' "
+                f"src='{raw}' style='max-width:100%;background:#000'>"
+                "</video>")
     if ext in TEXT_EXTS:
         text, note = _read_text(path, tail=ext in (".log", ".jsonl"))
         return (head + info + note +
@@ -2346,6 +2400,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._bytes(replay_json(parts[1]), "application/json")
             elif parts[0] == "card" and len(parts) == 2:
                 self._file(safe_join(SCORECARDS_ROOT, parts[1] + ".json"))
+            elif parts[0] == "video" and len(parts) == 2:
+                self._file(video_path(parts[1]))
             elif parts[0] == "file" and len(parts) >= 2:
                 self._file(safe_join(RECORDINGS_ROOT,
                                      os.path.join(*parts[1:])))
@@ -2422,28 +2478,57 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _file(self, path: Optional[str]) -> None:
+        """Stream a file, honouring HTTP Range requests so the video player can
+        seek."""
         if path is None or not os.path.isfile(path):
             self.send_error(404)
             return
         ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
-        with open(path, "rb") as f:
-            data = f.read()
-        self.send_response(200)
+        size = os.path.getsize(path)
+        start, end = 0, size - 1
+        m = re.match(r"bytes=(\d*)-(\d*)$", self.headers.get("Range") or "")
+        if m and (m.group(1) or m.group(2)):
+            if m.group(1):
+                start = int(m.group(1))
+                if m.group(2):
+                    end = min(int(m.group(2)), size - 1)
+            else:
+                start = max(size - int(m.group(2)), 0)
+            if start > end:
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{size}")
+                self.end_headers()
+                return
+            self.send_response(206)
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        else:
+            self.send_response(200)
         self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(end - start + 1))
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
-        self.wfile.write(data)
+        with open(path, "rb") as f:
+            f.seek(start)
+            remaining = end - start + 1
+            while remaining > 0:
+                chunk = f.read(min(65536, remaining))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                remaining -= len(chunk)
 
 
 def configure(scorecards: str,
               recordings: str,
-              approaches: str = "saved_approaches") -> None:
+              approaches: str = "saved_approaches",
+              videos: str = "videos") -> None:
     """Point the module at the roots (also used by tests)."""
-    global SCORECARDS_ROOT, RECORDINGS_ROOT, APPROACHES_ROOT  # pylint: disable=global-statement
+    global SCORECARDS_ROOT, RECORDINGS_ROOT, APPROACHES_ROOT, VIDEOS_ROOT  # pylint: disable=global-statement
     SCORECARDS_ROOT = os.path.realpath(scorecards)
     RECORDINGS_ROOT = os.path.realpath(recordings)
     APPROACHES_ROOT = os.path.realpath(approaches)
+    VIDEOS_ROOT = os.path.realpath(videos)
 
 
 def main() -> None:
@@ -2456,10 +2541,11 @@ def main() -> None:
                         default="saved_approaches",
                         help="approach checkpoints (CFG.approach_dir); "
                         "a run's delete removes its files here too")
+    parser.add_argument("--videos", default="videos")
     parser.add_argument("--port", type=int, default=25152)
     parser.add_argument("--host", default="127.0.0.1")
     args = parser.parse_args()
-    configure(args.scorecards, args.recordings, args.approaches)
+    configure(args.scorecards, args.recordings, args.approaches, args.videos)
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"continual viewer: http://{args.host}:{args.port}/  "
           f"(scorecards={SCORECARDS_ROOT}, recordings={RECORDINGS_ROOT})")

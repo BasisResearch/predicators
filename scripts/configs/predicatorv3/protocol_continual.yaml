@@ -24,6 +24,8 @@ FLAGS:
   continual_steps_per_level: 5000
   continual_wall_clock_hours: 48.0
   continual_render: True
+  # videos/<log subdir>/run.mp4 at run end (predicators/run/continual_video.py).
+  continual_make_video: True
   # Every level is played in the long-lived env; a fresh PyBullet
   # instance per level keeps one level's physics history out of the next.
   test_fresh_env_per_episode: True

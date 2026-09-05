@@ -1239,7 +1239,19 @@ def run_continual(env: BaseEnv,
             offline_dataset if offline_dataset is not None else Dataset([]))
     controller = create_controller(env, approach)
     run = ContinualRun(env, approach, controller)
-    return run.run()
+    card = run.run()
+    if CFG.continual_make_video and card.is_finished:
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.run.continual_video import make_run_video
+        try:
+            make_run_video(env,
+                           card,
+                           run.recordings_dir,
+                           card_path=run.card_path)
+        except Exception:  # pylint: disable=broad-except
+            # The video is a convenience; the run's result is the card.
+            logging.exception("[Continual] run video failed")
+    return card
 
 
 def _skill_library(env: BaseEnv,

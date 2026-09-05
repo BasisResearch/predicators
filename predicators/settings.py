@@ -84,6 +84,15 @@ class GlobalSettings:
     # Primitive-only arms flush the recording every N steps; skill arms
     # flush at every invocation regardless.
     continual_flush_every_steps = 50
+    # Write recordings/<run_id>/run.mp4 when the run ends: the recorded
+    # actions replayed through the env with a label panel (level, goal,
+    # the skill running, steps against the cap, resets) beside the
+    # render. One frame every continual_video_stride steps at video_fps;
+    # a 900 px PyBullet render costs about 1 s on a CPU node, so stride 2
+    # keeps a 5000-step run's video under an hour. The offline builder
+    # scripts/continual_video.py takes the same flags.
+    continual_make_video = False
+    continual_video_stride = 2
     # The oracle controller gives up a level after this many planning or
     # execution failures (6.7).
     continual_max_replans_per_level = 20

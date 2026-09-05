@@ -64,7 +64,7 @@ Per run: levels completed, the totals, and the end reason (all levels won, a lev
 On disk, one scorecard per run at `scorecards/<run_id>.json`, rewritten after every skill invocation and reset.
 One recording per level at `recordings/<run_id>/L<k>/`: every primitive step (`actions.jsonl`), an index with one line per skill invocation, reset, resume, win and game over (`index.jsonl`), the episodes, a checkpoint, and a render per event.
 The agent's own material lives in `recordings/<run_id>/agent/`: the system prompt, one transcript per session, and its sandbox (journal, attempts record, data, images).
-With `continual_make_video` on (the launcher config sets it), a run that ends writes `recordings/<run_id>/run.mp4`: its recorded actions replayed through the env, with a panel beside the render naming the level and goal, the skill running and the agent's note for it, the steps used against the cap, the resets and the episode state.
+With `continual_make_video` on (the launcher config sets it), a run that ends writes `videos/<its log subdir>/run.mp4`, beside the run's other videos and named on its scorecard: its recorded actions replayed through the env, with a panel beside the render naming the level and goal, the skill running and the agent's note for it, the steps used against the cap, the resets and the episode state.
 `python scripts/continual_video.py --run_log <the run's info.log>` builds the same video for a finished run.
 Any aggregate can be recomputed from these files.
 The figure we expect to show is the cumulative steps versus levels won curve.

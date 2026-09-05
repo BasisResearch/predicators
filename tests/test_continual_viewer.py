@@ -1,4 +1,5 @@
 """Tests for scripts/continual_viewer.py against a real cover run."""
+import json
 import os
 import threading
 import urllib.error
@@ -468,3 +469,82 @@ def test_level_status_marks_lost_levels() -> None:
     assert viewer._level_status({"index": 0}) == ("not attempted", "")  # pylint: disable=protected-access
     assert viewer.liveness({"end_reason": "level_lost"}) == \
         ("level_lost", "bad")
+
+
+def test_video_route_and_range_requests(tmp_path: Any,
+                                        monkeypatch: Any) -> None:
+    """A run whose scorecard names a video under the videos root gets a Video
+    link, a player fragment, and the file streams over /video/<run_id> with
+    HTTP Range support."""
+    run = _run(tmp_path, "oracle", continual_render=False)
+    run_id = run.card.run_id
+    _no_owners(monkeypatch)
+    videos_root = os.path.join(str(tmp_path), "videos")
+    viewer.configure(os.path.join(str(tmp_path), "cards"),
+                     os.path.join(str(tmp_path), "recs"),
+                     os.path.join(str(tmp_path), "saved"), videos_root)
+    assert viewer.video_path(run_id) is None
+    assert "No video yet" in (viewer.video_fragment(run_id) or "")
+    assert "#video" not in (viewer.run_page(run_id) or "")
+    payload = bytes(range(256)) * 4
+
+    def _name_video(path: str) -> None:
+        with open(run.card_path, "r", encoding="utf-8") as f:
+            card = json.load(f)
+        card["video"] = path
+        with open(run.card_path, "w", encoding="utf-8") as f:
+            json.dump(card, f)
+
+    # A video outside the videos root is not served, wherever the card
+    # points.
+    outside = os.path.join(str(tmp_path), "recs", run_id, "run.mp4")
+    with open(outside, "wb") as f:
+        f.write(payload)
+    _name_video(outside)
+    assert viewer.video_path(run_id) is None
+    assert "<video" in (viewer.file_fragment(run_id, "run.mp4") or "")
+    video = os.path.join(videos_root, "oracle", "viewer", "seed3", "run_x",
+                         "run.mp4")
+    os.makedirs(os.path.dirname(video))
+    with open(video, "wb") as f:
+        f.write(payload)
+    _name_video(video)
+    assert viewer.video_path(run_id) == os.path.realpath(video)
+    assert "<video" in (viewer.video_fragment(run_id) or "")
+    assert "#video" in (viewer.run_page(run_id) or "")
+    assert "labelled replay" in (viewer.overview_fragment(run_id) or "")
+    assert viewer.fragment(run_id, "video") == viewer.video_fragment(run_id)
+    assert viewer.video_fragment("nope") is None
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), viewer.Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    host = f"127.0.0.1:{server.server_address[1]}"
+
+    def get(path: str, headers: Optional[Dict[str, str]] = None) -> Any:
+        req = urllib.request.Request(f"http://{host}{path}",
+                                     headers=headers or {})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return resp.status, dict(resp.headers), resp.read()
+        except urllib.error.HTTPError as e:
+            return e.code, dict(e.headers), e.read()
+
+    try:
+        status, headers, body = get(f"/video/{run_id}")
+        assert status == 200 and body == payload
+        assert headers["Content-Type"] == "video/mp4"
+        assert headers["Accept-Ranges"] == "bytes"
+        status, headers, body = get(f"/video/{run_id}",
+                                    {"Range": "bytes=10-19"})
+        assert status == 206 and body == payload[10:20]
+        assert headers["Content-Range"] == f"bytes 10-19/{len(payload)}"
+        status, _, body = get(f"/video/{run_id}", {"Range": "bytes=1000-"})
+        assert status == 206 and body == payload[1000:]
+        status, _, body = get(f"/video/{run_id}", {"Range": "bytes=-16"})
+        assert status == 206 and body == payload[-16:]
+        status, _, _ = get(f"/video/{run_id}", {"Range": "bytes=5000-6000"})
+        assert status == 416
+        assert get("/video/nope")[0] == 404
+    finally:
+        server.shutdown()
+        server.server_close()
