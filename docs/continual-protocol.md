@@ -253,7 +253,10 @@ Continuous does not mean one LLM context.
 The run is one conversation of the SDK machinery on one agent-owned loop.
 The harness sends the conversation one message per level, and a short one when the agent stops before a level is settled; each message and the agent's turn on it is a round.
 The SDK's own context compaction manages the conversation's size; the journal and the sandbox files are the agent's durable memory, and every tool result carries a `[context]` line (the conversation's size against its window, the turns so far, the compactions so far) next to the ledger, so the agent can journal ahead of a compaction instead of after one.
-Between rounds the CLI is reopened on the same conversation (`resume`), which lets the model-based arm rebuild its workbench on the data recorded since; nothing the harness does between rounds changes the env state, and the agent has no tool to end a round or to reset its context.
+Between rounds the CLI is reopened on the same conversation (`resume`); nothing the harness does between rounds changes the env state, and the agent has no tool to end a round or to reset its context.
+Inside a round the data follows the recording.
+After every charged env call the harness rebuilds the trajectory list the tools hold, the model-based arm extends its base-sim predictions to the new transitions, and the sandbox's `data/trajectories.pkl` is rewritten, so `run_python`'s `trajectories`, `sim.fit` and the agent's own scripts read the episode in progress rather than a snapshot from the round's start.
+The first busyboard runs (2026-09-05) had both arms act for thousands of steps on an empty data file because the data was refreshed only between rounds.
 A round's turn cap is effectively unbounded (10000) and there is no per-round clock: the step cap and the run's wall-clock cap are the limits.
 
 Knowledge carries across levels through the sandbox: `predicates.py`, the fitted simulator, the journal, and the trajectory data all persist for the whole env run.
@@ -335,6 +338,7 @@ What a resume preserves, and what it may lose:
 The harness keeps the two sides consistent.
 It restores the env to the last recorded step, counts only recorded steps, and opens the resumed conversation with a message that states the restore point, the ledger, and that the interrupted call did not complete.
 The recording appends the low-level action of every step as it is taken, so the env side loses nothing: the action log is a few floats per step and the states are replayed from it, with full states written only at skill boundaries.
+The recorded states keep the robot's joint data, so the episodes a resumed run reads back from the recording can be re-simulated exactly as the live ones (the model-based arm's base-sim predictions need that).
 The only loss is therefore the LLM turn in flight.
 
 Preemption must not move the metrics.

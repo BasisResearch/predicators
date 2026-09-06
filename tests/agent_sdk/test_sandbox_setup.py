@@ -215,6 +215,23 @@ def test_export_trajectories_writes_once_per_change(tmp_path) -> None:
                              check=True)
     assert "data/trajectories.pkl" in tracked.stdout
 
+    def _dirty() -> bool:
+        status = subprocess.run(["git", "status", "--porcelain"],
+                                cwd=sandbox,
+                                capture_output=True,
+                                text=True,
+                                check=True)
+        return "data/trajectories.pkl" in status.stdout
+
+    # A refresh between the agent's turns rewrites the tracked file
+    # without a commit; the next committing refresh settles it even when
+    # the bytes have not changed since.
+    more = trajs + [_traj(1), _traj(4)]
+    assert export_trajectories(sandbox, more, commit=False)
+    assert _dirty()
+    assert not export_trajectories(sandbox, more)
+    assert not _dirty()
+
 
 def test_snapshot_and_rollback_restore_the_sandbox(tmp_path) -> None:
     """Files added, changed or committed after the snapshot are archived

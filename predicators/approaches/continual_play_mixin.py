@@ -11,11 +11,15 @@ message per level and a short one when the agent stops before a level
 is settled; each message and the agent's turn on it is a round. Before
 a round it builds the message from the level, the journal and the
 recorded episodes; after it, it records the round in ``attempts.md``,
-refreshes the arm's data from the recorded episodes, services what the
-round asked for, and checkpoints. The conversation is the CLI's own
-transcript: the SDK's auto-compaction manages its size, the journal is
-the agent's durable memory, and a requeue resumes the conversation
-where it was (section 6.6).
+services what the round asked for, and checkpoints. Inside a round the
+arm's data follows the recording: after every charged env call (the
+session's data hook) the trajectory list is rebuilt from the level's
+episodes, the arm extends what it derives from it, and the sandbox's
+``data/trajectories.pkl`` is rewritten, so the agent reads the episode
+in progress and never a snapshot from the round's start. The
+conversation is the CLI's own transcript: the SDK's auto-compaction
+manages its size, the journal is the agent's durable memory, and a
+requeue resumes the conversation where it was (section 6.6).
 
 Why a mixin. The arms' learning and session machinery live in the
 phased approach classes (``AgentModelFreeApproach`` and its
@@ -204,6 +208,13 @@ class ContinualPlayMixin:
     def play_level(self, session: ProtocolSession) -> None:
         """Play rounds until the level is won or lost, or the run ends."""
         self._play_session = session
+        session.on_data_changed(lambda: self._on_data_changed(session))
+        try:
+            self._play_rounds(session)
+        finally:
+            session.on_data_changed(None)
+
+    def _play_rounds(self, session: ProtocolSession) -> None:
         self._begin_level(session)
         idle = 0
         while True:
@@ -438,9 +449,34 @@ class ContinualPlayMixin:
         if session is not None:
             session.abstract_predicates = set(self._get_all_predicates())
 
+    def _on_data_changed(self, session: ProtocolSession) -> None:
+        """A charged env call changed the level's recording: rebuild the
+        trajectory list the tools and the arm hold, let the arm extend what it
+        derives from it, and rewrite the sandbox's data file, so what the agent
+        reads inside the round is the recording as it stands, the episode in
+        progress included."""
+        self._sync_level_trajectories(session)
+        self._refresh_arm_data(session)
+        self._export_sandbox_data()
+
+    def _refresh_arm_data(self, session: ProtocolSession) -> None:
+        """What an arm derives from the trajectory list beyond the list itself
+        (the model arm's base-sim predictions); nothing by default."""
+        del session
+
+    def _export_sandbox_data(self) -> None:
+        """Rewrite ``data/trajectories.pkl`` for the agent's own scripts.
+
+        Uncommitted: the file is tracked from the round's first export,
+        and a commit per env call would only bloat the sandbox's git.
+        """
+        refresh = getattr(self._agent_session, "refresh_data", None)
+        if refresh is not None:
+            refresh(commit=False)
+
     def _sync_level_trajectories(self, session: ProtocolSession) -> None:
         """Rebuild the online trajectories from the recorded episodes of every
-        level up to the current one.
+        level up to the current one, the episode in progress included.
 
         The list object is kept (rebuilt in place), so anything holding
         it, such as a session's ``run_python`` namespace, sees the

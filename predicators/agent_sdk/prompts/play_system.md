@@ -91,9 +91,10 @@ meanings and ranges.
 Your working directory is a sandbox that persists for the whole run,
 across sessions and levels. It holds:
 
-- `./data/trajectories.pkl`: every recorded episode so far, refreshed
-  before each session. Each entry has `states`, `actions` (with the
-  skill label the action came from), and the level index.
+- `./data/trajectories.pkl`: every recorded episode so far, the one in
+  progress included, rewritten after every environment call. Each entry
+  has `states`, `actions` (with the skill label the action came from),
+  and the level index.
 - `./journal.md`: yours. `./attempts.md`: the harness's record of what
   each round did in the environment. `./session_logs/`: transcripts of
   this conversation's earlier rounds.
@@ -144,7 +145,8 @@ simulator alone: the visible physics (robot motion, grasping, rigid
 bodies) with none of the environment's hidden mechanisms.
 
 `run_python` holds the data in one persistent namespace: `trajectories`
-(every recorded episode, this round's included), `describe_trajectory`,
+(every recorded episode, the one in progress included, current after
+every environment call), `describe_trajectory`,
 `train_tasks`, `is_goal_state`, `evaluate_trajectory` (the environment's
 own evaluator on any state sequence), `np`, `ParamSpec`. To test a plan
 before you spend real steps on it: `sim.reset()` (the level's initial

@@ -28,6 +28,7 @@ predicates when an experiment wants that.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, FrozenSet, List, Optional, Set, \
     Tuple
 
@@ -37,6 +38,7 @@ from predicators.agent_sdk.tools.synthesis import create_synthesis_tools
 from predicators.approaches.agent_model_free_approach import \
     AgentModelFreeApproach
 from predicators.approaches.agent_sim_learning_approach import \
+    count_residual_hits, residual_hint_from_hits, \
     resolve_kept_predicate_names
 from predicators.approaches.agent_sim_predicate_invention_approach import \
     AgentSimPredicateInventionApproach
@@ -46,7 +48,7 @@ from predicators.code_sim_learning.utils import LearnedSimulator, apply_rules
 from predicators.envs import create_new_env
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
-from predicators.structs import LowLevelTrajectory, Predicate, State
+from predicators.structs import Action, LowLevelTrajectory, Predicate, State
 
 if TYPE_CHECKING:  # pragma: no cover - the run package imports approaches
     from predicators.run.continual import ProtocolSession
@@ -55,9 +57,46 @@ if TYPE_CHECKING:  # pragma: no cover - the run package imports approaches
 # it some: none.
 NO_ENV_PREDICATES: FrozenSet[str] = frozenset()
 
-# What one round stashes for its post-round finalize.
-_RoundModel = Tuple[List[LowLevelTrajectory], List[Any], List[Any],
-                    Dict[str, List[str]], Any, Dict[str, str]]
+_Triple = Tuple[State, Action, State]
+
+
+@dataclass
+class _EpisodeTriples:
+    """One recorded episode's transitions, their base-sim predictions and
+    residual hits, extended as the episode grows.
+
+    ``first_state`` names the episode: the recording keeps its state
+    objects across syncs, so the first one identifies the episode and
+    pins it against id reuse.
+    """
+    first_state: State
+    obs: List[_Triple] = field(default_factory=list)
+    base: List[_Triple] = field(default_factory=list)
+    hits: Dict[Tuple[str, str], int] = field(default_factory=dict)
+
+
+@dataclass
+class _Workbench:
+    """The model workbench's data over the run.
+
+    The lists are what the ``run_python`` namespace, the synthesis
+    toolkit and the probe hold by reference; every charged env call
+    extends them in place (:meth:`AgentContinualApproach.
+    _refresh_workbench`), so a fit, a rollout or the agent's own code
+    sees the recording as it stands. The base env predicts the new
+    transitions; it opens on first use and is released with the round.
+    """
+    trajectories: List[LowLevelTrajectory] = field(default_factory=list)
+    obs_triples: List[_Triple] = field(default_factory=list)
+    base_pred_triples: List[_Triple] = field(default_factory=list)
+    inferred_hint: Dict[str, List[str]] = field(default_factory=dict)
+    episodes: Dict[int, _EpisodeTriples] = field(default_factory=dict)
+    env: Optional[Any] = None
+
+
+# What one round stashes for its post-round finalize: the workbench, the
+# synthesis paths, the extra artifact paths.
+_RoundModel = Tuple[_Workbench, Any, Dict[str, str]]
 
 
 class AgentContinualApproach(ContinualPlayMixin,
@@ -69,8 +108,11 @@ class AgentContinualApproach(ContinualPlayMixin,
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        # Per-round workbench state, set in _round_extra_tools and
-        # consumed in _after_round.
+        # The workbench's data lives for the run (its base-sim
+        # predictions are computed once per transition); the round's
+        # paths are set in _round_extra_tools and consumed in
+        # _after_round.
+        self._workbench = _Workbench()
         self._round_model: Optional[_RoundModel] = None
         self._fit_version_before: Optional[str] = None
         self._episodes_at_last_fit = 0
@@ -158,13 +200,14 @@ class AgentContinualApproach(ContinualPlayMixin,
         # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk.belief_probe import _check_time_budget, \
             build_probe_namespace
-        trajectories = self._get_all_trajectories()
-        obs_triples, base_pred_triples, inferred_hint = \
-            self._prepare_model_data(trajectories)
+        bench = self._workbench
+        self._refresh_workbench()
+        trajectories = bench.trajectories
+        base_pred_triples = bench.base_pred_triples
+        inferred_hint = bench.inferred_hint
         paths = self._resolve_synthesis_paths()
         extra_paths = self._compute_extra_synthesis_paths(paths.base)
-        self._round_model = (trajectories, obs_triples, base_pred_triples,
-                             inferred_hint, paths, extra_paths)
+        self._round_model = (bench, paths, extra_paths)
         self._fit_version_before = self._probe_fit_state().get("version")
 
         exec_ns = self._build_synthesis_exec_ns(trajectories)
@@ -200,7 +243,7 @@ class AgentContinualApproach(ContinualPlayMixin,
         del session
         if self._round_model is None:
             return {}
-        _, _, _, _, paths, extra_paths = self._round_model
+        _, paths, extra_paths = self._round_model
         targets = self._build_write_snapshot_targets(paths.simulator_file,
                                                      paths.versions_dir,
                                                      extra_paths)
@@ -213,13 +256,11 @@ class AgentContinualApproach(ContinualPlayMixin,
         self._last_round_modelled = False
         if self._round_model is None:
             return
-        trajectories, obs_triples, base_pred_triples, inferred_hint, paths, \
-            extra_paths = self._round_model
-        del obs_triples
+        bench, paths, extra_paths = self._round_model
         try:
-            self._deploy_session_model(session, trajectories,
-                                       base_pred_triples, inferred_hint, paths,
-                                       extra_paths)
+            self._deploy_session_model(session, bench.trajectories,
+                                       bench.base_pred_triples,
+                                       bench.inferred_hint, paths, extra_paths)
         except Exception as e:  # pylint: disable=broad-except
             logging.exception("[Continual agent] deploying the session's "
                               "model failed")
@@ -227,6 +268,11 @@ class AgentContinualApproach(ContinualPlayMixin,
         finally:
             self._clear_probe_providers()
             self._round_model = None
+            self._release_workbench_env()
+
+    def _refresh_arm_data(self, session: ProtocolSession) -> None:
+        del session
+        self._refresh_workbench()
 
     def _deploy_session_model(self, session: ProtocolSession,
                               trajectories: List[LowLevelTrajectory],
@@ -283,26 +329,82 @@ class AgentContinualApproach(ContinualPlayMixin,
             filename=journal_mod.ATTEMPTS_FILENAME)
         del paths
 
-    def _prepare_model_data(
-        self, trajectories: List[LowLevelTrajectory]
-    ) -> Tuple[List[Any], List[Any], Dict[str, List[str]]]:
-        """The recorded transitions, their base-sim predictions and the
-        residual-feature hint, over every episode so far."""
-        obs_triples = self._extract_obs_triples(trajectories)
+    # -- The workbench's data -----------------------------------------------
+
+    def _refresh_workbench(self) -> None:
+        """Bring the workbench's lists up to the recording, in place: the
+        trajectory list, the transitions with their base-sim predictions
+        (computed for the new transitions only), the residual-feature hint.
+
+        Called when a round opens and after every charged env call
+        inside it, so a fit, a rollout or the agent's own code over
+        ``trajectories`` sees the episode in progress. The per-episode
+        cache is keyed by the episode's first state object, which the
+        recording keeps; an episode that comes back as new objects (a
+        level reloaded from its pickle after a resume) is predicted once
+        more.
+        """
+        bench = self._workbench
+        bench.trajectories[:] = self._get_all_trajectories()
+        # The engine slices the flat triples back into per-episode
+        # groups by these lengths (a latent block threads within an
+        # episode, never across); the list object keeps them current.
+        self._fit_trajectories = bench.trajectories
+        seen: Set[int] = set()
+        obs_all: List[_Triple] = []
+        base_all: List[_Triple] = []
+        for traj in bench.trajectories:
+            if not traj.actions:
+                continue
+            first = traj.states[0]
+            key = id(first)
+            ep = bench.episodes.get(key)
+            if ep is None or ep.first_state is not first:
+                ep = _EpisodeTriples(first)
+                bench.episodes[key] = ep
+            seen.add(key)
+            done = len(ep.obs)
+            if len(traj.actions) > done:
+                new_obs = [(traj.states[i], traj.actions[i],
+                            traj.states[i + 1])
+                           for i in range(done, len(traj.actions))]
+                new_base = self._base_predictions(new_obs)
+                ep.obs.extend(new_obs)
+                ep.base.extend(new_base)
+                count_residual_hits(new_base, ep.hits)
+            obs_all.extend(ep.obs)
+            base_all.extend(ep.base)
+        for key in [k for k in bench.episodes if k not in seen]:
+            del bench.episodes[key]
+        bench.obs_triples[:] = obs_all
+        bench.base_pred_triples[:] = base_all
+        hits: Dict[Tuple[str, str], int] = {}
+        for ep in bench.episodes.values():
+            for pair, n in ep.hits.items():
+                hits[pair] = hits.get(pair, 0) + n
+        hint = residual_hint_from_hits(hits)
+        bench.inferred_hint.clear()
+        bench.inferred_hint.update(hint)
+
+    def _base_predictions(self, obs_triples: List[_Triple]) -> List[_Triple]:
+        """The base sim's one-step prediction of each transition, on the
+        workbench's own env (the visible physics with no hidden mechanism),
+        opened on first use."""
         if not obs_triples:
-            return [], [], {}
-        fit_env = create_new_env(CFG.env,
-                                 do_cache=False,
-                                 use_gui=False,
-                                 skip_residual_dynamics=True)
-        try:
-            base_pred_triples = self._compute_base_pred_triples(
-                obs_triples, fit_env)
-        finally:
-            dispose_env(fit_env)
-        inferred_hint = self._infer_residual_features_from_scan(
-            obs_triples, base_pred_triples)
-        return obs_triples, base_pred_triples, inferred_hint
+            return []
+        bench = self._workbench
+        if bench.env is None:
+            bench.env = create_new_env(CFG.env,
+                                       do_cache=False,
+                                       use_gui=False,
+                                       skip_residual_dynamics=True)
+        return self._compute_base_pred_triples(obs_triples, bench.env)
+
+    def _release_workbench_env(self) -> None:
+        bench = self._workbench
+        if bench.env is not None:
+            dispose_env(bench.env)
+            bench.env = None
 
     def _fit_status_text(self) -> str:
         """The last fit as one line for the prompt: the point estimate per

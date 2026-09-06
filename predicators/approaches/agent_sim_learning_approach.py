@@ -153,6 +153,39 @@ def resolve_kept_predicate_names(
     return default
 
 
+def count_residual_hits(
+    base_pred_triples: Sequence[Tuple[State, Action, State]],
+    hits: Dict[Tuple[str, str], int],
+    abs_tol: float = 1e-4,
+    rel_tol: float = 1e-3,
+) -> None:
+    """Add to ``hits``, per ``(type, feature)``, the number of triples on which
+    the base-sim prediction diverges from the observation by more.
+
+    than ``rel_tol * |obs| + abs_tol``.
+
+    Split from :func:`residual_hint_from_hits` so a caller whose data
+    grows (the continual play loop, after every environment call) scans
+    only the new triples and keeps the counts.
+    """
+    pairs = [(s_base, s_obs) for s_base, _, s_obs in base_pred_triples]
+    for _, _, tn, feat, pred, obs in iter_feature_residuals(pairs):
+        if abs(pred - obs) > rel_tol * abs(obs) + abs_tol:
+            hits[(tn, feat)] = hits.get((tn, feat), 0) + 1
+
+
+def residual_hint_from_hits(hits: Dict[Tuple[str, str], int],
+                            min_hits: int = 3) -> Dict[str, List[str]]:
+    """The ``{type: [features]}`` hint of the features that diverged on at
+    least ``min_hits`` triples; the floor keeps one-off PyBullet jitter from
+    leaking base-handled features into the set."""
+    out: Dict[str, List[str]] = {}
+    for (t, f), n in hits.items():
+        if n >= min_hits:
+            out.setdefault(t, []).append(f)
+    return {t: sorted(fs) for t, fs in out.items()}
+
+
 class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     """Bilevel planning with a learned step-level simulator.
 
@@ -2952,16 +2985,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         one-off PyBullet jitter from leaking base-handled features into the set.
         """
         del obs_triples  # objects are identical across both triple lists
-        pairs = [(s_base, s_obs) for s_base, _, s_obs in base_pred_triples]
         hits: Dict[Tuple[str, str], int] = {}
-        for _, _, tn, feat, pred, obs in iter_feature_residuals(pairs):
-            if abs(pred - obs) > rel_tol * abs(obs) + abs_tol:
-                hits[(tn, feat)] = hits.get((tn, feat), 0) + 1
-        out: Dict[str, List[str]] = {}
-        for (t, f), n in hits.items():
-            if n >= min_hits:
-                out.setdefault(t, []).append(f)
-        return {t: sorted(fs) for t, fs in out.items()}
+        count_residual_hits(base_pred_triples, hits, abs_tol, rel_tol)
+        return residual_hint_from_hits(hits, min_hits)
 
     @staticmethod
     def _log_feature_set_diff(

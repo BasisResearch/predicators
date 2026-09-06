@@ -23,10 +23,11 @@ from predicators.run.continual import ContinualRun, LevelAlreadyWon, \
 from predicators.run.controllers import OracleController, \
     RandomPrimitiveController, RandomSkillsController, create_controller
 from predicators.run.episode import EpisodeOver, EpisodeState
-from predicators.run.recording import LevelRecording, states_close
+from predicators.run.recording import LevelRecording, sanitize_state, \
+    states_close
 from predicators.run.scorecard import RunCard
 from predicators.settings import CFG
-from predicators.structs import Action
+from predicators.structs import Action, Object, State, Type
 
 
 class _Preempted(BaseException):
@@ -605,3 +606,101 @@ def test_create_controller_rejects_unknown_arm(tmp_path: Any) -> None:
     approach.get_name = lambda: "mystery"  # type: ignore[method-assign]
     with pytest.raises(ValueError):
         create_controller(env, approach)
+
+
+def test_session_data_hook_fires_on_charged_calls(tmp_path: Any) -> None:
+    """The arm's data listener runs after every charged call that changed the
+    recording (a step, a reset, each invocation of a plan), not after a refused
+    one, and a failing listener never fails the call."""
+    _config(tmp_path, "oracle", horizon=3)
+    env, approach = _make("oracle")
+    events: List[Any] = []
+
+    def _record() -> None:
+        events.append((run.card.total_steps, run.card.total_resets))
+
+    class _Probe:
+
+        def play_level(self, session: ProtocolSession) -> None:
+            """Step, trip the listener, exhaust the horizon, reset, win."""
+            if session.level_index > 0:
+                OracleController(approach).play_level(session)
+                return
+            zero = Action(np.zeros(env.action_space.shape, dtype=np.float32))
+            session.on_data_changed(_record)
+            session.step(zero)
+            assert events == [(1, 0)]
+
+            # A listener that raises is logged, and the call still returns.
+            def _broken() -> None:
+                raise ZeroDivisionError("listener bug")
+
+            session.on_data_changed(_broken)
+            session.step(zero)
+            assert events == [(1, 0)]
+            session.on_data_changed(_record)
+            outcome = session.step(zero)
+            assert outcome.state is EpisodeState.GAME_OVER
+            assert events == [(1, 0), (3, 0)]
+            # A refused call changes nothing and tells the arm nothing.
+            with pytest.raises(EpisodeOver):
+                session.step(zero)
+            assert len(events) == 2
+            session.reset("again")
+            assert events[-1] == (4, 1)
+            # A charged call reports once, whatever its length: the
+            # oracle's plan runs as one policy call over several steps.
+            OracleController(approach).play_level(session)
+            assert session.level_card().won
+            assert len(events) == 4
+            assert events[-1] == (session.level_card().steps, 1)
+            session.on_data_changed(None)
+            events.append("cleared")
+
+    run = ContinualRun(env, approach, _Probe())
+    card = run.run()
+    assert card.levels[0].won and events[-1] == "cleared"
+    assert card.levels[0].steps == events[-2][0]
+
+
+def test_sanitized_states_keep_the_robot_joint_data() -> None:
+    """A recorded PyBullet state keeps what the env needs to re-simulate it
+    (joint positions, base pose, command welds) and loses the process's
+    handles; a raw joint sequence stays one; a plain or opaque state is plain.
+
+    Everything kept pickles without the live env.
+    """
+    t = Type("t", ["x"])
+    obj = Object("o", t)
+    live = utils.PyBulletState({obj: np.array([1.0])},
+                               simulator_state={
+                                   "joint_positions": [0.1, 0.2],
+                                   "physics_client_id":
+                                   7,
+                                   "robot_id":
+                                   3,
+                                   "base_pose":
+                                   ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0)),
+                                   "command_welds": [("a", "b")],
+                               })
+    saved = sanitize_state(live)
+    assert isinstance(saved, utils.PyBulletState)
+    assert saved.joint_positions == [0.1, 0.2]
+    assert isinstance(saved.simulator_state, dict)
+    assert set(saved.simulator_state) == {
+        "joint_positions", "base_pose", "command_welds"
+    }
+    assert saved.data[obj] is not live.data[obj]
+    assert states_close(saved, live)
+    reloaded = pickle.loads(pickle.dumps(saved))
+    assert reloaded.joint_positions == [0.1, 0.2]
+    raw = sanitize_state(
+        utils.PyBulletState({obj: np.array([1.0])},
+                            simulator_state=np.array([0.5, 0.6])))
+    assert isinstance(raw, utils.PyBulletState)
+    assert raw.joint_positions == [0.5, 0.6]
+    for state in (State({obj: np.array([1.0])}),
+                  State({obj: np.array([1.0])}, simulator_state=object())):
+        plain = sanitize_state(state)
+        assert type(plain) is State  # pylint: disable=unidiomatic-typecheck
+        assert plain.simulator_state is None

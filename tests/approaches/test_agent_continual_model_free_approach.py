@@ -3,9 +3,11 @@ continual protocol, driven by a scripted agent over the real play tools on
 pybullet_boil (the agent approaches need a PyBullet env to construct)."""
 import asyncio
 import os
+import pickle
 from typing import Any, Dict, List
 
 from predicators import utils
+from predicators.agent_sdk.sandbox_setup import trajectories_path
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES
 from predicators.approaches import BaseApproach, create_approach
 from predicators.approaches.agent_continual_approach import \
@@ -129,9 +131,10 @@ def test_model_free_arm_has_no_model_surface(tmp_path: Any) -> None:
 def test_play_loop_with_a_scripted_model_free_agent(tmp_path: Any) -> None:
     """Two rounds of one conversation: act and stop; then give up.
 
-    The loop records each round, syncs the data, checkpoints under the
-    arm's own suffix, and the query carries the data status instead of a
-    learning status.
+    The loop records each round, checkpoints under the arm's own suffix,
+    and the query carries the data status instead of a learning status.
+    The arm's only data surface, the sandbox's data file, follows the
+    recording inside the round.
     """
     _config(tmp_path)
     env, approach = _make_approach()
@@ -155,12 +158,18 @@ def test_play_loop_with_a_scripted_model_free_agent(tmp_path: Any) -> None:
             assert "[episode] NOT_FINISHED" in obs and "[atoms] (none)" in obs
             assert "[your predicates]" not in obs
             assert "PickJug" in _call(approach, "skills_list")
-            for _ in range(3):
+            data = trajectories_path(approach._tool_context.sandbox_dir)  # pylint: disable=protected-access
+            for i in range(3):
                 assert "step applied" in _call(approach,
                                                "env_step",
                                                action=zero)
+                with open(data, "rb") as f:
+                    on_disk = pickle.load(f)
+                assert [len(t["actions"]) for t in on_disk] == [i + 1]
             refused = _call(approach, "env_step", action=zero[:-1])
             assert refused.startswith("ERROR") and "shape" in refused
+            with open(data, "rb") as f:
+                assert [len(t["actions"]) for t in pickle.load(f)] == [3]
         else:
             assert "you stopped" in message and "not settled" in message
             assert "Give-up recorded" in _call(approach,
@@ -203,8 +212,7 @@ def test_both_arms_start_with_no_predicates(tmp_path: Any) -> None:
     assert resolve_kept_predicate_names(None) == frozenset()
     utils.update_config(
         {"agent_sim_learn_kept_predicates_names": ["Holding", "none"]})
-    assert resolve_kept_predicate_names(None) == frozenset(
-        {"Holding", "none"})
+    assert resolve_kept_predicate_names(None) == frozenset({"Holding", "none"})
 
     _config(tmp_path, approach="agent_continual")
     utils.update_config({"agent_sim_learn_kept_predicates_names": []})

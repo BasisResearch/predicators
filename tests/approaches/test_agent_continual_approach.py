@@ -4,6 +4,7 @@ PyBullet env to construct)."""
 import asyncio
 import json
 import os
+import pickle
 from types import SimpleNamespace
 from typing import Any, Dict, List
 
@@ -11,6 +12,7 @@ import numpy as np
 import pytest
 
 from predicators import utils
+from predicators.agent_sdk.sandbox_setup import trajectories_path
 from predicators.approaches import create_approach
 from predicators.approaches.agent_continual_approach import \
     AgentContinualApproach
@@ -143,19 +145,18 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
 
     A round gets ``run_python`` with the ``sim`` probe over the agent's
     model files; when the agent writes no simulator, no model is
-    deployed and the query says so. The second round continues the
-    conversation the first opened (by the id the session manager
-    recorded) with a short message instead of a fresh context. The loop
-    records each round, syncs the data, checkpoints, and ends the run as
-    the agent asked.
+    deployed and the query says so. The data follows the recording
+    inside the round: after every env call the episode in progress is in
+    ``run_python``'s ``trajectories``, in the workbench's base-sim
+    predictions and in the sandbox's data file. The second round
+    continues the conversation the first opened (by the id the session
+    manager recorded) with a short message instead of a fresh context.
+    The loop records each round, syncs the data, checkpoints, and ends
+    the run as the agent asked.
     """
     _config(tmp_path)
     env, approach = _make_approach()
     queries: List[Dict[str, Any]] = []
-
-    # Keep the workbench light: no PyBullet base-state precompute.
-    approach._prepare_model_data = (  # type: ignore[method-assign]  # pylint: disable=protected-access
-        lambda trajectories: ([], [], {}))
 
     def fake_query(message: str, **kwargs: Any) -> List[Dict[str, Any]]:
         queries.append({"message": message, "kind": kwargs.get("kind")})
@@ -178,9 +179,23 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
             assert "[episode] NOT_FINISHED" in obs and "[render]" not in obs
             assert "[context]" in obs
             assert "PickJug" in _call(approach, "skills_list")
-            for _ in range(3):
+            probe = ("print(len(trajectories), "
+                     "[len(t.actions) for t in trajectories])")
+            assert _call(approach, "run_python", code=probe).startswith("0 []")
+            for i in range(3):
                 out = _call(approach, "env_step", action=zero)
                 assert "step applied" in out
+                # The episode in progress, as it stands, everywhere the
+                # agent can look.
+                assert _call(approach, "run_python",
+                             code=probe).startswith(f"1 [{i + 1}]")
+                bench = approach._workbench  # pylint: disable=protected-access
+                assert len(bench.obs_triples) == i + 1
+                assert len(bench.base_pred_triples) == i + 1
+                assert bench.env is not None
+                with open(trajectories_path(ctx.sandbox_dir), "rb") as f:
+                    on_disk = pickle.load(f)
+                assert [len(t["actions"]) for t in on_disk] == [i + 1]
             assert ctx.current_observation is not None
             # What the session manager records when the CLI opens the
             # conversation; the next round continues it.
@@ -203,9 +218,12 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
 
     assert card.end_reason == "agent_ended" and card.end_note == "enough"
     assert [q["kind"] for q in queries] == ["play", "play"]
-    # The workbench is torn down between rounds and at the end.
+    # The workbench is torn down between rounds and at the end; its data
+    # (predicted once per transition) stays for the run.
     ctx = approach._tool_context  # pylint: disable=protected-access
     assert ctx.probe_option_model_provider is None
+    bench = approach._workbench  # pylint: disable=protected-access
+    assert bench.env is None and len(bench.base_pred_triples) == 3
     lv = card.levels[0]
     assert lv.steps == 3 and lv.resets == 0 and not lv.won
     assert lv.sandbox["rounds"] == 2
@@ -290,3 +308,64 @@ def test_resume_reads_the_session_id_and_idle_guard(tmp_path: Any) -> None:
     assert resumed[0] == ("old-session", True)
     assert all(r == ("old-session", False) for r in resumed[1:])
     assert len(resumed) == 3
+
+
+class _Killed(BaseException):
+    """Stands in for the kill a Slurm preemption delivers mid-round."""
+
+
+@pytest.mark.slow
+def test_resume_rebuilds_the_workbench_from_the_recording(
+        tmp_path: Any) -> None:
+    """A resumed run reads the level's finished episodes back from the
+    recording; the workbench predicts them with the base sim exactly as it does
+    the live ones, because the recorded states keep the robot's joint data (the
+    2026-09-05 busyboard resume crashed here on plain states)."""
+    _config(tmp_path, horizon=2)
+    env, approach = _make_approach()
+
+    def killed_query(message: str, **kwargs: Any) -> List[Dict[str, Any]]:
+        del message, kwargs
+        zero = [0.0] * env.action_space.shape[0]
+        _call(approach, "env_step", action=zero)
+        assert "GAME_OVER" in _call(approach, "env_step", action=zero)
+        _call(approach, "env_reset", note="again")
+        _call(approach, "env_step", action=zero)
+        raise _Killed()
+
+    approach._query_agent_sync = killed_query  # type: ignore[method-assign]  # pylint: disable=protected-access
+    approach.prepare_for_continual(Dataset([]))
+    with pytest.raises(_Killed):
+        ContinualRun(env, approach, create_controller(env, approach)).run()
+
+    _config(tmp_path, horizon=2, auto_resume=True)
+    env2, approach2 = _make_approach()
+    seen: Dict[str, Any] = {}
+
+    def resumed_query(message: str, **kwargs: Any) -> List[Dict[str, Any]]:
+        del message, kwargs
+        bench = approach2._workbench  # pylint: disable=protected-access
+        seen["counts"] = (len(bench.trajectories), len(bench.obs_triples),
+                          len(bench.base_pred_triples))
+        seen["kinds"] = sorted(
+            {type(s).__name__
+             for s, _, _ in bench.obs_triples})
+        seen["out"] = _call(approach2,
+                            "run_python",
+                            code="print(len(trajectories), "
+                            "[len(t.actions) for t in trajectories])")
+        _call(approach2, "give_up", note="done")
+        return _result()
+
+    approach2._query_agent_sync = resumed_query  # type: ignore[method-assign]  # pylint: disable=protected-access
+    approach2.prepare_for_continual(Dataset([]))
+    card = ContinualRun(env2, approach2, create_controller(env2,
+                                                           approach2)).run()
+    lv = card.levels[0]
+    assert lv.resumes == 1 and lv.preemptions == 1 and lv.harness_resets == 0
+    assert card.end_reason == "agent_ended"
+    # The finished episode (2 steps, from the pickle) and the one in
+    # progress (1 step, replayed live), all predicted.
+    assert seen["counts"] == (2, 3, 3)
+    assert seen["kinds"] == ["PyBulletState"]
+    assert seen["out"].startswith("2 [2, 1]")

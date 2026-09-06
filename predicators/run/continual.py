@@ -193,6 +193,34 @@ class ProtocolSession:
 
     def __init__(self, run: "ContinualRun") -> None:
         self._run = run
+        self._data_listener: Optional[Callable[[], None]] = None
+
+    # -- The arm's data hook -------------------------------------------------
+
+    def on_data_changed(self, listener: Optional[Callable[[], None]]) -> None:
+        """Register (``None`` clears) the arm's callback for every charged call
+        that changed the level's recording: a step, a reset, an invocation or a
+        policy run, whether it returned or raised.
+
+        The arm refreshes what it exposes over ``level_episodes`` from
+        it (section 5.3), so the data the agent reads inside a round is
+        the recording as it stands, not a snapshot from the round's
+        start. A failing listener is logged and never fails the call.
+        """
+        self._data_listener = listener
+
+    def _charged(self) -> Tuple[int, int]:
+        card = self._run.card
+        return card.total_steps, card.total_resets
+
+    def _notify_if_changed(self, before: Tuple[int, int]) -> None:
+        if self._data_listener is None or self._charged() == before:
+            return
+        try:
+            self._data_listener()
+        except Exception:  # pylint: disable=broad-except
+            logging.exception("[Continual] the arm's data listener failed; "
+                              "its data is stale until the next charged call")
 
     # -- env.* ---------------------------------------------------------------
 
@@ -208,7 +236,11 @@ class ProtocolSession:
 
         One step.
         """
-        return self._run.step(action)
+        before = self._charged()
+        try:
+            return self._run.step(action)
+        finally:
+            self._notify_if_changed(before)
 
     def reset(self, note: str = "") -> ProtocolObservation:
         """Restart the current level.
@@ -217,7 +249,11 @@ class ProtocolSession:
         level without resets (see ``resets_allowed``); nothing is
         charged then.
         """
-        return self._run.reset(note)
+        before = self._charged()
+        try:
+            return self._run.reset(note)
+        finally:
+            self._notify_if_changed(before)
 
     def end_run(self, note: str = "") -> None:
         """End the run for this env."""
@@ -237,8 +273,12 @@ class ProtocolSession:
             expected_absent: Optional[Set[GroundAtom]] = None
     ) -> InvocationResult:
         """One skill invocation."""
-        return self._run.invoke(option, expected or set(), note,
-                                expected_absent or set())
+        before = self._charged()
+        try:
+            return self._run.invoke(option, expected or set(), note,
+                                    expected_absent or set())
+        finally:
+            self._notify_if_changed(before)
 
     def execute_plan(
         self,
@@ -318,7 +358,11 @@ class ProtocolSession:
         carries, so a policy built from an option plan is recorded
         exactly as the same plan sent through ``execute_plan``.
         """
-        return self._run.run_policy(policy, note)
+        before = self._charged()
+        try:
+            return self._run.run_policy(policy, note)
+        finally:
+            self._notify_if_changed(before)
 
     # -- Bookkeeping hooks for the sandbox side ------------------------------
 
