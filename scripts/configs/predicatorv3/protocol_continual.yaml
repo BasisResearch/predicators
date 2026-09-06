@@ -87,6 +87,15 @@ APPROACHES:
       agent_validation_parallel_workers: 6
       code_sim_learning_rollout_min_posterior_width: 0.1
       continual_max_idle_rounds: 5
+      # Uncertainty-aware planning: the capture gate re-runs each plan
+      # under the calibrated rule-parameter ensemble and refuses a plan
+      # that only reaches the goal at the point estimate; info-seeking
+      # builds and calibrates that ensemble. Both default off; enabling
+      # them here (2026-09-06) after the balloons A/B - with them off the
+      # test level was lost to an overshoot burst (reg1), with them on it
+      # was won 3/3 (u1).
+      agent_plan_validation_rule_param_margin: True
+      agent_explorer_info_seeking: True
   # The model-free baseline (section 6.7): the same env and skill tools,
   # sandbox and journal, no belief model, no sim and no learning
   # session. Flags mirror the phased agent_model_free_planning arm; no
