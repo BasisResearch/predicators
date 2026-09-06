@@ -1226,7 +1226,7 @@ def create_synthesis_tools(
         report scores the BASE simulator alone: everything is out of
         scope, so it is the map of candidate mechanisms the first
         file needs to cover. Uses init_value params by default;
-        ``fit_params=True`` MCMC-fits first (diagnostic only - nothing
+        ``fit_params=True`` LM-fits first (diagnostic only - nothing
         is published). Tolerance: ``|pred - obs| > rel_tol * |obs| +
         abs_tol``. Each call snapshots the simulator file into
         simulator_versions/ and tags output ``[cycle_XXX_vers_YYY]``.

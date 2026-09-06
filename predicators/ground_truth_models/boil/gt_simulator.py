@@ -8,10 +8,8 @@ height) are softened with sigmoid weights so the residual is
 differentiable in those parameters. The primary consumer is the
 Levenberg-Marquardt fit (and its Hessian identifiability diagnostic),
 which builds a finite-difference Jacobian and would see J ~ 0 almost
-everywhere with hard indicators. Smoothing also keeps MCMC walkers
-from stalling on flat-likelihood plateaus, but emcee is gradient-free
-and benefits less directly. State-dependent gates (faucet on/off, jug
-held) remain hard since they don't enter the parameter likelihood.
+everywhere with hard indicators. State-dependent gates (faucet on/off,
+jug held) remain hard since they don't enter the parameter likelihood.
 """
 
 from __future__ import annotations
@@ -103,9 +101,8 @@ def _heating(state: State, updates: ResidualUpdate,
 
     Alignment gate is soft so the residual is differentiable in
     ``burner_align_threshold`` (LM's finite-difference Jacobian needs
-    this; MCMC also avoids flat-likelihood plateaus as a side effect).
-    The heat cap at 1.0 stays hard since 1.0 is a constant boundary, not
-    a learned parameter.
+    this). The heat cap at 1.0 stays hard since 1.0 is a constant
+    boundary, not a learned parameter.
     """
     objs = objs_by_type(state)
     for burner in objs.get("burner", []):
@@ -137,10 +134,9 @@ def _happiness(state: State, updates: ResidualUpdate,
     """Jug filled + boiled + no spill + burner off → human happy.
 
     The water-filled gate is soft on ``water_filled_height`` so the
-    residual is differentiable in that parameter for LM (and emcee gets
-    a non-flat likelihood as a side effect). The heat>=1.0 gate stays
-    hard (1.0 is a constant cap, not a learned parameter). Spill /
-    burner-on gates are state-dependent.
+    residual is differentiable in that parameter for LM. The heat>=1.0
+    gate stays hard (1.0 is a constant cap, not a learned parameter).
+    Spill / burner-on gates are state-dependent.
     """
     objs = objs_by_type(state)
     faucets = objs.get("faucet", [])

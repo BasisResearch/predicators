@@ -46,7 +46,6 @@ setup(
         "psutil",
         "claude-agent-sdk>=0.1.73",
         "nest_asyncio",
-        "emcee",
     ],
     include_package_data=True,
     package_data={"predicators.agent_sdk": ["prompts/*.md"]},

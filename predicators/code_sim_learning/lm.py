@@ -2,8 +2,8 @@
 
 ``solve_lm`` minimizes a residual vector under a ``ParamSpec`` box in
 the fit space; ``lm_prefit`` / ``lm_point_fit_result`` implement the
-CFG-gated "LM before (or instead of) MCMC" flow shared by the three fit
-entry points in :mod:`fitting` and :mod:`physical_sysid`;
+CFG-gated LM point-fit flow shared by the three fit entry points in
+:mod:`fitting` and :mod:`physical_sysid`;
 ``log_hessian_identifiability`` is the eigenanalysis diagnostic that
 reuses the LM Jacobian.
 """
@@ -42,17 +42,18 @@ def lm_prefit(
 
       * Hessian diagnostic — eigendecompose J^T J at the MAP
         (``code_sim_learning_log_hessian_identifiability``).
-      * Warm start — center the MCMC walkers on theta_map
-        (``code_sim_learning_warm_start_with_lm``).
+      * Point estimate — use theta_map as the fit's point estimate
+        instead of ``init_values`` (``code_sim_learning_warm_start_with_lm``).
       * Laplace ensemble — info-seeking exploration reuses J at the MAP
         for a calibrated posterior covariance, attached to the
         ``FitResult`` (``agent_explorer_info_seeking``).
 
-    Returns ``(walker_center, lm_theta, lm_jac)``: the MCMC walker
-    center (the LM MAP when warm-starting, else ``init_values``), the
-    LM MAP itself, and the Jacobian at the MAP (the latter two ``None``
-    when LM didn't run or failed). ``lm_fit_fn`` and ``sse_fn`` carry
-    the per-transition vs recurrent specifics; the optional
+    Returns ``(walker_center, lm_theta, lm_jac)``: the point-estimate
+    center (the LM MAP when the point-estimate flag is set, else
+    ``init_values``), the LM MAP itself, and the Jacobian at the MAP
+    (the latter two ``None`` when LM didn't run or failed). ``lm_fit_fn``
+    and ``sse_fn`` carry the per-transition vs recurrent specifics; the
+    optional
     ``warm_start_breakdown_fn`` lets the per-transition caller add its
     ``log_sse_breakdown`` to the warm-start log.
 
@@ -84,11 +85,10 @@ def lm_prefit(
         walker_center = lm_theta
         if precomputed is not None:
             logger.info(
-                "Reusing the earlier LM MAP as the %s MCMC warm start "
+                "Reusing the earlier %s LM MAP as the point estimate "
                 "(LM refit skipped).", label)
         else:
-            logger.info("Warm-starting %s MCMC walkers from LM MAP estimate.",
-                        label)
+            logger.info("Using the %s LM MAP as the point estimate.", label)
             lm_params = {n: float(lm_theta[i]) for i, n in enumerate(names)}
             lm_sse = sse_fn(lm_params)
             logger.info(
@@ -110,25 +110,23 @@ def lm_point_fit_result(
     scales: Optional[List[str]] = None,
     lm_notes: Optional[List[str]] = None,
 ) -> FitResult:
-    """Single-point ``FitResult`` for the ``num_steps == 0`` short-circuit.
+    """Single-point ``FitResult`` for the LM point fit.
 
-    Picks the point estimate the skipped-emcee run reports: the LM MAP
-    when one is available and either warm-start or info-seeking asked
-    for it (so the Laplace covariance is anchored where the data places
-    it, not at init), else the initial parameter values. Carries the
-    Laplace bundle through.
+    Picks the point estimate: the LM MAP when one is available and
+    either the point-estimate flag or info-seeking asked for it (so the
+    Laplace covariance is anchored where the data places it, not at
+    init), else the initial parameter values. Carries the Laplace bundle
+    through.
     """
     point = walker_center
     if (not CFG.code_sim_learning_warm_start_with_lm
             and CFG.agent_explorer_info_seeking and lm_theta is not None):
         point = lm_theta
-        logger.info("Skipping emcee; using %s LM MAP for Laplace ensemble.",
-                    label)
+        logger.info("Using %s LM MAP for the Laplace ensemble.", label)
     elif CFG.code_sim_learning_warm_start_with_lm and lm_theta is not None:
-        logger.info("Skipping emcee; using %s LM warm-start parameters.",
-                    label)
+        logger.info("Using %s LM MAP parameters.", label)
     else:
-        logger.info("Skipping emcee; using initial parameter values.")
+        logger.info("Using initial parameter values.")
     return FitResult(names,
                      point[None, :],
                      np.zeros(1),

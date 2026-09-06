@@ -181,9 +181,9 @@ def test_probe_sharp_log_curvature_identified():
     assert report["friction"]["verdict"] is Verdict.IDENTIFIED
 
 
-def test_mcmc_samples_contraction_measured_in_log_space():
-    """Chain widths for log params compare log-space std to the log-space prior
-    width."""
+def test_samples_contraction_measured_in_log_space():
+    """Sample widths for log params compare log-space std to the log-space
+    prior width."""
     rng = np.random.default_rng(0)
     # Tight multiplicatively (std 0.05 in log) vs prior-wide (std 0.75).
     tight = np.exp(rng.normal(np.log(0.1), 0.05, size=400))

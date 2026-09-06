@@ -598,7 +598,7 @@ class BeliefProbe:
         ``ctx.option_model``. Synthesis sessions install
         ``ctx.probe_option_model_provider`` instead - a lazy builder
         over the candidate ``simulator.py`` the agent is editing (fresh
-        MCMC fit, cached until the file changes) - so probes always
+        LM fit, cached until the file changes) - so probes always
         exercise the latest belief model, never the stale pre-synthesis
         one (real physics on cycle 1: a live-env leak).
         """
@@ -782,8 +782,8 @@ class BeliefProbe:
         mean heterogeneous data); ``fixed`` is rejected there - pin by
         narrowing the param's bounds in PHYSICAL_PARAM_SPECS. Reports SSE at
         init vs post-fit, fitted values with deltas, and (system-ID
-        path) per-parameter identifiability. MCMC - the expensive probe
-        call; use deliberately.
+        path) per-parameter identifiability. The fit is the expensive
+        probe call; use deliberately.
         """
         ctx = self._ctx
         _check_time_budget(ctx)
@@ -878,7 +878,7 @@ class BeliefProbe:
         no-rule baseline (negative = the rules hurt), and the worst-N
         example transitions - the fast inner loop for finding where the
         rules disagree with the data. Uses init_value params unless
-        ``fit_params=True`` (MCMC-fits first; diagnostic only, nothing
+        ``fit_params=True`` (LM-fits first; diagnostic only, nothing
         published). Tolerance: ``|pred - obs| > rel_tol * |obs| +
         abs_tol``. Snapshots the simulator file and tags the report
         ``[cycle_XXX_vers_YYY]``. ``path`` scores a DIFFERENT simulator

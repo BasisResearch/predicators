@@ -2,7 +2,7 @@
 
 Extends AgentModelBasedApproach to learn residual dynamics via an
 agent-synthesized step-level simulator with parameterized process
-rules. Parameters are fitted via emcee ensemble MCMC (training.py).
+rules. Parameters are fitted by Levenberg-Marquardt (fitting.py).
 
 The approach creates a base oracle (PyBullet with process
 dynamics disabled) and composes it with the learned step-level
@@ -49,8 +49,7 @@ from predicators.approaches.sampler_learning_mixin import SamplerLearningMixin
 from predicators.approaches.synthesis_validation import \
     build_candidate_option_model
 from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
-    mean_bernoulli_entropy, perturbation_ensemble, \
-    posterior_subsample_ensemble
+    mean_bernoulli_entropy, perturbation_ensemble
 from predicators.code_sim_learning.commands import CommandBuffer
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
     declared_interval_fit_result, declared_interval_report
@@ -193,7 +192,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     1. Collect trajectories (inherited from AgentModelBasedApproach)
     2. Segment into option-level transitions
     3. Synthesize parameterized residual rules via Claude agent
-    4. Fit rule parameters via emcee ensemble MCMC
+    4. Fit rule parameters via Levenberg-Marquardt
     5. Compose with base oracle into a combined simulator
     6. Build _OracleOptionModel with the combined simulator
 
@@ -317,9 +316,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # falls back to ``_fitted_params``. Empty when info-seeking is
         # disabled or no fit has run yet.
         self._param_ensemble: List[Dict[str, float]] = []
-        # Full result used for ensemble calibration. Usually this is the
-        # solver fit; when info-seeking runs extra MCMC, it is the
-        # exploration-only posterior. ``None`` after an oracle-param run.
+        # Full result used for ensemble calibration (the solver fit's LM
+        # MAP + Laplace Jacobian). ``None`` after an oracle-param run.
         self._last_fit_result: Optional[FitResult] = None
         self._fit_sse: float = float("inf")
         self._learning_mode: bool = False
@@ -1235,47 +1233,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
     # ── Active-experiment ensemble (info-seeking exploration) ────
 
-    @staticmethod
-    def _exploration_fit_num_steps() -> Optional[int]:
-        """MCMC budget for the active-experiment posterior fit.
-
-        The synthesis fit surfaces (``sim.fit``, ``sim.residuals``)
-        share the fit statics and run repeatedly inside the agent loop,
-        so they always use the global
-        ``CFG.code_sim_learning_num_mcmc_steps`` (typically 0 - LM +
-        Laplace only). The solver/test-time fit also uses that global
-        setting. The exploration posterior fit is different: it runs
-        once per learning cycle, only when it needs more MCMC than the
-        solver fit already ran, and its posterior feeds only the
-        info-seeking ensemble. With real posterior samples,
-        ``_select_param_ensemble`` upgrades from the Laplace draw to a
-        posterior subsample, calibrating ensemble spread for
-        gate/threshold params whose flat likelihood has a near-zero
-        Jacobian column at the MAP (invisible to Laplace).
-
-        Returns ``None`` (no override; ``fit_params`` falls back to the
-        global setting) when info-seeking is off, else the max of the
-        global and exploration budgets so the override never *reduces*
-        an explicitly configured global MCMC run. Under adaptive
-        info-seeking the caller additionally suppresses the fit while the
-        apparatus is dormant (no parameter-sensitive refusal yet); the
-        budget math itself stays pure.
-        """
-        if not CFG.agent_explorer_info_seeking:
-            return None
-        return max(CFG.code_sim_learning_num_mcmc_steps,
-                   CFG.agent_explorer_info_mcmc_steps)
-
-    @staticmethod
-    def _separate_exploration_fit_num_steps() -> Optional[int]:
-        """Return an exploration-only MCMC budget, if one is needed."""
-        fit_num_steps = AgentSimLearningApproach._exploration_fit_num_steps()
-        if fit_num_steps is None:
-            return None
-        if fit_num_steps <= CFG.code_sim_learning_num_mcmc_steps:
-            return None
-        return fit_num_steps
-
     def _info_seeking_active(self) -> bool:
         """Whether the proactive info-seeking apparatus should run now.
 
@@ -1333,27 +1290,14 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
         Dispatch, most- to least-calibrated:
 
-        * ``posterior`` - when MCMC ran (``num_mcmc_steps > 0``), subsample
-          the real posterior ``samples`` (works for both per-transition and
-          recurrent fits).
-        * ``laplace`` - else, when the fit attached an LM Jacobian
-          (``num_mcmc_steps == 0``, per-transition or recurrent), draw
-          from the Laplace covariance at the MAP.
+        * ``laplace`` - when the fit attached an LM Jacobian, draw from the
+          Laplace covariance at the MAP (per-transition or recurrent).
         * ``uniform`` - otherwise (oracle params, LM skipped/failed, or
           calibration disabled), fall back to box-relative jitter.
         """
         fit = self._last_fit_result
         calibrated = CFG.agent_explorer_info_calibrated_ensemble
         if calibrated and fit is not None:
-            samples = np.asarray(fit.samples, dtype=float)
-            if samples.ndim == 2 and samples.shape[0] > 1:
-                return posterior_subsample_ensemble(
-                    fit.point_estimate,
-                    fit.names,
-                    samples,
-                    num_members=num_members,
-                    rng=self._rng,
-                ), "posterior-subsample"
             if (fit.jacobian is not None and fit.noise_sigma is not None
                     and fit.prior_sigma is not None):
                 return laplace_ensemble(
@@ -1445,7 +1389,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         ``agent_sim_learn_oracle_sim_program`` short-circuits the agent
         session by loading the GT simulator instead (and
         ``agent_sim_learn_oracle_sim_params`` additionally skips the
-        MCMC fit; see :meth:`_fit_params_after_synthesis`).
+        parameter fit; see :meth:`_fit_params_after_synthesis`).
         """
         if CFG.agent_sim_learn_oracle_sim_program:
             rules, specs, residual_features = \
@@ -1998,15 +1942,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             self._last_fit_result = fit_result
             self._fitted_params.clear()
             self._fitted_params.update(fit_result.point_estimate)
-            if CFG.code_sim_learning_num_mcmc_steps == 0:
-                logger.info("Skipped solver MCMC; using %d fitted params.",
-                            len(specs))
-            else:
-                logger.info("Fitted %d solver params.", len(specs))
-
-            self._maybe_refit_exploration_posterior(rules, specs,
-                                                    base_pred_triples,
-                                                    residual_features)
+            logger.info("Fitted %d solver params.", len(specs))
 
         # Remember the specs (names + bounds) and rebuild the active-
         # experiment ensemble. Cheap and only consumed when info-seeking
@@ -2082,67 +2018,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             "physical params at their declared inits (SSE %.6f); margins "
             "and ensemble span the declared intervals.", len(specs),
             len(physical_specs), self._fit_sse)
-
-    def _maybe_refit_exploration_posterior(
-        self,
-        rules: List,
-        specs: List[ParamSpec],
-        base_pred_triples: List[Tuple[State, Action, State]],
-        residual_features: Dict[str, List[str]],
-    ) -> None:
-        """Run the exploration-only posterior fit, when one is needed.
-
-        A no-op unless info-seeking exploration asks for more MCMC than
-        the solver fit already ran (see
-        :meth:`_separate_exploration_fit_num_steps`). The resulting
-        posterior replaces ``_last_fit_result`` for ensemble calibration
-        only; ``_fitted_params`` (the solver's point estimate) is left
-        untouched.
-        """
-        # Adaptive info-seeking: skip the exploration posterior fit while
-        # the apparatus is dormant (no parameter-sensitive refusal yet).
-        # The gate still runs on the Laplace ensemble; the MCMC upgrade is
-        # paid only once a refusal shows the calibration is needed.
-        if not self._info_seeking_active():
-            return
-        num_steps = self._separate_exploration_fit_num_steps()
-        if num_steps is None:
-            return
-        if self._physical_param_specs or has_physics_rules(rules):
-            logger.info("Skipping separate active-experiment fit: the joint "
-                        "rollout sysID posterior is reused for exploration.")
-            return
-        # Reuse the solver fit's LM MAP + jacobian instead of re-running
-        # the (expensive, full-data) LM fit for the identical objective.
-        # Only safe when the solver fit was LM-only: with real solver
-        # MCMC its point_estimate is the MCMC MAP, not the LM MAP the
-        # jacobian was computed at.
-        lm_seed: Optional[Tuple[np.ndarray, Optional[np.ndarray]]] = None
-        prev = self._last_fit_result
-        if (prev is not None and CFG.code_sim_learning_num_mcmc_steps == 0
-                and prev.samples.shape[0] == 1
-                and list(prev.names) == [s.name for s in specs]):
-            theta = np.array([prev.point_estimate[n] for n in prev.names])
-            lm_seed = (theta, prev.jacobian)
-        if has_latent_rules(rules):
-            fit_result, sse = self._fit_parameters_recurrent(
-                rules,
-                specs,
-                base_pred_triples,
-                residual_features,
-                num_steps=num_steps,
-                lm_seed=lm_seed)
-        else:
-            fit_result, sse = fit_rule_parameters(rules,
-                                                  specs,
-                                                  base_pred_triples,
-                                                  residual_features,
-                                                  num_steps=num_steps,
-                                                  lm_seed=lm_seed)
-        self._last_fit_result = fit_result
-        logger.info(
-            "Fitted active-experiment posterior with %d MCMC steps "
-            "for exploration planning only (SSE: %.6f).", num_steps, sse)
 
     # ── Parameter fitting ────────────────────────────────────────
 
@@ -2789,10 +2664,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         specs: List[ParamSpec],
         base_pred_triples: List[Tuple[State, Action, State]],
         residual_features: Dict[str, List[str]],
-        num_steps: Optional[int] = None,
         lm_seed: Optional[Tuple[np.ndarray, Optional[np.ndarray]]] = None,
     ) -> Tuple[FitResult, float]:
-        """MCMC over the recurrent (per-trajectory) SSE.
+        """LM fit over the recurrent (per-trajectory) SSE.
 
         Counterpart to :func:`fitting.fit_rule_parameters` for rules
         that carry a latent block. Re-groups the flat
@@ -2814,7 +2688,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                                           groups,
                                           self._latent_init,
                                           residual_features,
-                                          num_steps=num_steps,
                                           lm_seed=lm_seed)
 
     def _oracle_param_sse_recurrent(
@@ -2951,7 +2824,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             "_build_latent_combined_simulator called before rules loaded")
         rules: List = self._residual_rules
         latent_init = self._latent_init
-        # Reference the dict (not its values) so MCMC param updates are
+        # Reference the dict (not its values) so fitted-param updates are
         # picked up by the closure live.
         params = self._fitted_params
         # Physics-command hand-off across sequential calls; see the

@@ -7,8 +7,7 @@ import pytest
 
 from predicators import utils  # noqa: F401  (settles import order)
 from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
-    mean_bernoulli_entropy, perturbation_ensemble, \
-    posterior_subsample_ensemble
+    mean_bernoulli_entropy, perturbation_ensemble
 from predicators.code_sim_learning.fit_space import ParamSpec
 
 
@@ -161,82 +160,6 @@ def test_entropy_rejects_non_2d():
     """Entropy rejects non 2d."""
     with pytest.raises(ValueError):
         mean_bernoulli_entropy(np.array([True, False]))
-
-
-# ── posterior_subsample_ensemble ─────────────────────────────────
-
-
-def test_posterior_subsample_anchor_is_member_zero():
-    """Posterior subsample anchor is member zero."""
-    point = {"a": 1.0, "b": 2.0}
-    samples = np.array([[10.0, 20.0], [11.0, 21.0], [12.0, 22.0]])
-    members = posterior_subsample_ensemble(point, ["a", "b"],
-                                           samples,
-                                           num_members=3,
-                                           rng=np.random.default_rng(0))
-    assert len(members) == 3
-    assert members[0] == point  # MAP anchor
-    # Every non-anchor member is one of the posterior rows verbatim.
-    rows = {(r[0], r[1]) for r in samples}
-    for m in members[1:]:
-        assert (m["a"], m["b"]) in rows
-
-
-def test_posterior_subsample_size_one_is_point_estimate():
-    """Posterior subsample size one is point estimate."""
-    point = {"a": 1.0}
-    samples = np.array([[5.0], [6.0]])
-    members = posterior_subsample_ensemble(point, ["a"],
-                                           samples,
-                                           num_members=1,
-                                           rng=np.random.default_rng(0))
-    assert members == [point]
-
-
-def test_posterior_subsample_without_replacement_when_pool_big():
-    """Posterior subsample without replacement when pool big."""
-    point = {"a": 0.0}
-    samples = np.arange(100.0).reshape(100, 1)
-    members = posterior_subsample_ensemble(point, ["a"],
-                                           samples,
-                                           num_members=11,
-                                           rng=np.random.default_rng(1))
-    drawn = [m["a"] for m in members[1:]]
-    assert len(drawn) == 10
-    assert len(set(drawn)) == 10  # distinct: pool (100) >> need (10)
-
-
-def test_posterior_subsample_with_replacement_when_pool_small():
-    """Posterior subsample with replacement when pool small."""
-    point = {"a": 0.0}
-    samples = np.array([[7.0], [8.0]])  # pool of 2
-    members = posterior_subsample_ensemble(point, ["a"],
-                                           samples,
-                                           num_members=6,
-                                           rng=np.random.default_rng(2))
-    drawn = {m["a"] for m in members[1:]}
-    assert drawn <= {7.0, 8.0} and len(members) == 6
-
-
-def test_posterior_subsample_empty_pool_returns_anchor_only():
-    """Posterior subsample empty pool returns anchor only."""
-    point = {"a": 1.0}
-    members = posterior_subsample_ensemble(point, ["a"],
-                                           np.zeros((0, 1)),
-                                           num_members=5,
-                                           rng=np.random.default_rng(0))
-    assert members == [point]
-
-
-def test_posterior_subsample_extra_point_keys_carried_through():
-    """Posterior subsample extra point keys carried through."""
-    point = {"a": 1.0, "extra": 9.0}  # 'extra' not in names
-    samples = np.array([[3.0], [4.0]])
-    members = posterior_subsample_ensemble(point, ["a"],
-                                           samples,
-                                           num_members=3,
-                                           rng=np.random.default_rng(0))
-    assert all(m["extra"] == 9.0 for m in members)
 
 
 # ── laplace_ensemble ─────────────────────────────────────────────

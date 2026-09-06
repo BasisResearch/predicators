@@ -43,7 +43,7 @@ class ToolContext:
     example_state: Optional[State] = None
     option_model: Optional[_OptionModelBase] = None
     # Synthesis-session override for the run_python probe: a lazy
-    # builder over the CANDIDATE simulator.py (fresh MCMC fit, cached
+    # builder over the CANDIDATE simulator.py (fresh LM fit, cached
     # until the file changes). When set, BeliefProbe executes against it
     # instead of ``option_model`` - which during synthesis is the stale
     # pre-synthesis model (real physics on cycle 1: a live-env leak).
@@ -314,7 +314,7 @@ class ToolContext:
     # set True the first time submit_plan's rule-param margin gate refuses
     # a plan as PARAM-SENSITIVE, cleared when a plan is captured. While
     # True the proactive info-seeking apparatus (suggest_probes ranking,
-    # disagreement guidance, MCMC calibration) is active; while False, and
+    # disagreement guidance) is active; while False, and
     # under the adaptive flag, it stays dormant so easy levels pay no
     # info-seeking step tax. Ignored unless the adaptive flag is on.
     param_sensitive_refusal_pending: bool = False

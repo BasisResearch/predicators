@@ -2160,8 +2160,8 @@ class GlobalSettings:
     agent_explorer_info_seeking = False
     # Adaptive info-seeking: with this on (and agent_explorer_info_seeking
     # on), the proactive half of info-seeking - the probe-ranking
-    # sim.suggest_probes result, the disagreement guidance and the
-    # separate MCMC ensemble-calibration fit - stays dormant until the
+    # sim.suggest_probes result and the disagreement guidance - stays
+    # dormant until the
     # capture gate has refused a plan as PARAM-SENSITIVE
     # (ctx.param_sensitive_refusal_pending). The rule-param margin gate
     # and its (Laplace) ensemble stay always on, so the FIRST refusal can
@@ -2189,24 +2189,13 @@ class GlobalSettings:
     # Per-parameter jitter as a fraction of the ParamSpec box width, for
     # the uniform-fallback ensemble only (see calibrated flag below).
     agent_explorer_info_perturb_frac = 0.15
-    # Prefer a *calibrated* ensemble when the fit provides one: posterior
-    # subsample when MCMC ran, else a Laplace draw from the LM Jacobian
-    # (per-transition or recurrent); uniform jitter only when neither is
-    # available (e.g. oracle params, where no fit runs).
+    # Prefer a *calibrated* ensemble when the fit provides one: a Laplace
+    # draw from the LM Jacobian (per-transition or recurrent); uniform
+    # jitter only when it is not available (e.g. oracle params, where no
+    # fit runs).
     agent_explorer_info_calibrated_ensemble = True
-    # Extra MCMC budget for the once-per-cycle active-experiment posterior
-    # fit. The solver/test-time fit still follows
-    # code_sim_learning_num_mcmc_steps; this budget is used only when it
-    # exceeds the global solver budget, and only to calibrate the
-    # info-seeking ensemble. Keep >= ~250: emcee burn-in (200) eats the
-    # budget first. See _exploration_fit_num_steps for the rationale
-    # (posterior subsampling covers gate/threshold params that a Laplace
-    # approximation cannot).
-    agent_explorer_info_mcmc_steps = 300
 
     # Code sim-learning parameter fitting settings.
-    # Set to 0 to skip MCMC and use initial parameter values directly.
-    code_sim_learning_num_mcmc_steps = 0
     # Persist the raw rollout-fit trajectories (states + actions per
     # recorded episode) to <log_dir>/fit_data/ at every cycle-level
     # fit. The fit data otherwise lives only in memory, which made the
@@ -2466,15 +2455,16 @@ class GlobalSettings:
     # Diagnostic: log the Hessian eigendecomposition at the MAP to
     # spot unidentifiable parameter combinations. Adds ~5-15s per fit.
     code_sim_learning_log_hessian_identifiability = False
-    # If True, run an LM fit and center MCMC walkers on its MAP estimate
-    # instead of init_values. Adds ~5-15s per fit.
+    # If True, run the LM fit from a grid-seeded start rather than the
+    # declared init_values, and attach its MAP + Jacobian. Adds ~5-15s
+    # per fit.
     code_sim_learning_warm_start_with_lm = True
 
     # Sim-learning oracle flags (for ablation / debugging).
     # When True, load GT residual rules instead of running agent synthesis.
-    # Parameters init_values are perturbed so MCMC still has work to do.
+    # Parameters init_values are perturbed so the fit still has work to do.
     agent_sim_learn_oracle_sim_program = False
-    # Relative scale for perturbing oracle parameter init_values before MCMC.
+    # Relative scale for perturbing oracle parameter init_values before the fit.
     agent_sim_learn_oracle_sim_param_noise_scale = 0.2
     # Ablations A6+A7 combined ("no uncertainty"): when False, nothing
     # consumes a posterior over the model parameters. The physics-margin sigma
@@ -2486,8 +2476,8 @@ class GlobalSettings:
     agent_sim_learn_param_uncertainty = True
     # Ablation A4 ("no parameter fitting"): when True, no parameter
     # estimation runs anywhere - not sim.fit (it refuses), not the
-    # harness-side fallback fit, not the exploration posterior, not the
-    # residual report's fit_params / sweep_params. Each parameter's
+    # harness-side fallback fit, not the residual report's fit_params /
+    # sweep_params. Each parameter's
     # declared init_value is its point estimate and its declared
     # [lo, hi] box is its plausible interval: the physics-margin points
     # span the box and the rule-parameter ensemble is drawn uniformly
@@ -2510,7 +2500,7 @@ class GlobalSettings:
     # and its own knowledge. Pair with no demos and
     # num_online_learning_cycles 0 for one learn, one solve, done.
     agent_sim_learn_zero_shot = False
-    # When True, use GT parameter values directly, skipping MCMC fitting.
+    # When True, use GT parameter values directly, skipping the fit.
     # Also grants planning base sims the TRUE physical params (e.g. the true
     # domino friction even when domino_planning_friction is set) — as if all
     # param learning, rule-level and physical, had already succeeded. Task

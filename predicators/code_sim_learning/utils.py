@@ -63,8 +63,8 @@ Params = Dict[str, float]
 
 # Default smoothing scale for parameter-dependent soft gates. Small
 # enough that gates are ~99% saturated when the operand is one
-# threshold-width into the active region, large enough to give MCMC a
-# usable gradient near the cliff. 0.02 is in the right ballpark for
+# threshold-width into the active region, large enough to give the LM
+# fit a usable gradient near the cliff. 0.02 is in the right ballpark for
 # both spatial thresholds (~0.05–0.15 m) and water-level thresholds
 # (~0.3–1.3). Override per call site as needed.
 SOFT_EPS = 0.02
@@ -284,8 +284,8 @@ def init_latent(
     :class:`~predicators.code_sim_learning.fit_space.ParamSpec`
     instances, in which case the corresponding entry from
     ``params[name]`` is used (falling back to ``init_value`` if the
-    param hasn't been fit yet) — this lets MCMC fit the initial
-    latent value alongside rate parameters.
+    param hasn't been fit yet) — this lets the LM fit identify the
+    initial latent value alongside rate parameters.
     """
     if latent_init is None:
         return {}

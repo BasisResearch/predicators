@@ -124,7 +124,6 @@ class SynthesisBackend(Protocol):
         specs: List[ParamSpec],
         base_pred_triples: List[Tuple[State, Action, State]],
         residual_features: Dict[str, List[str]],
-        num_steps: Optional[int] = None,
     ) -> Tuple[FitResult, float]:
         ...
 

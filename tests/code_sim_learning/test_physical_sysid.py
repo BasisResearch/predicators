@@ -612,8 +612,8 @@ def test_trimming_all_dropped_pins_result_at_inits(monkeypatch):
     assert result.point_estimate["friction"] == 0.5
 
 
-def test_mcmc_samples_bypass_probe():
-    """With a real chain, widths come from the samples, not the probe."""
+def test_multi_row_samples_bypass_probe():
+    """With multi-row samples, widths come from the samples, not the probe."""
     rng = np.random.default_rng(0)
     samples = np.column_stack([
         rng.normal(0.1, 0.01, size=200),  # contracted -> identified

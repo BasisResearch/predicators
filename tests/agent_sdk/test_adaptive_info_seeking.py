@@ -2,9 +2,9 @@
 capture gate refuses a plan as parameter-sensitive.
 
 Covers the run-context gate (``ToolContext.info_seeking_active``), which
-every consumer (``sim.suggest_probes``, the exploration MCMC fit, the
-explorer guidance) reads, and the model-only play-prompt guidance that
-teaches the submit-first protocol only when the flag is on.
+every consumer (``sim.suggest_probes``, the explorer guidance) reads,
+and the model-only play-prompt guidance that teaches the submit-first
+protocol only when the flag is on.
 """
 # pylint: disable=protected-access
 from __future__ import annotations
