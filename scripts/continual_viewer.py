@@ -587,16 +587,22 @@ function $all(s, r) { return Array.from((r || document).querySelectorAll(s)); }
 // moves the leaves into the headers of the chosen view, sorted by the
 // inner level's name. The mode and each group's open state are the
 // user's, kept in localStorage so the auto-refresh reloads keep them.
+// Chromium fires a toggle for every <details open> it parses, before
+// DOMContentLoaded; those must not be recorded (they would mark every
+// group open before the restore reads the store), so the listener only
+// records toggles once restoreGroups has run.
+var GROUPS_RESTORED = false;
 function groupKey(d) { return 'cv-grp:' + d.dataset.key; }
 function restoreGroups() {
   $all('details.grp').forEach(function (d) {
     var v = localStorage.getItem(groupKey(d));
     if (v !== null) d.open = v === '1';
   });
+  GROUPS_RESTORED = true;
 }
 document.addEventListener('toggle', function (e) {
   var d = e.target;
-  if (d.classList && d.classList.contains('grp'))
+  if (GROUPS_RESTORED && d.classList && d.classList.contains('grp'))
     localStorage.setItem(groupKey(d), d.open ? '1' : '0');
 }, true);
 function setAllGroups(open) {
