@@ -68,9 +68,11 @@ def _run(monkeypatch: Any, *, real_solved: bool,
 
 
 def test_uncertified_success_discounted_and_named(monkeypatch, caplog):
-    """A goal-reaching episode from an uncertified plan scores unsolved, and
-    the ledger says the episode solved and why it does not count - in the exact
-    format scripts/log_viewer.py renders."""
+    """A goal-reaching episode from an uncertified plan scores unsolved.
+
+    The ledger says the episode solved and why it does not count, in the
+    exact format scripts/log_viewer.py renders.
+    """
     _reset_config()
     with caplog.at_level("INFO"):
         status = _run(monkeypatch, real_solved=True, mental_model_solved=False)

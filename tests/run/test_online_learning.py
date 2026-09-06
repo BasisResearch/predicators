@@ -47,9 +47,9 @@ def test_initial_test_due(tmp_path) -> None:
 
 
 def test_resumed_cycle_test_due(tmp_path) -> None:
-    """A resume past a cycle whose test never ran re-tests it, unless
-    per-cycle testing is off or this lineage already saved the result; a
-    result older than the cycle's checkpoint is an earlier run's."""
+    """A resume past a cycle whose test never ran re-tests it, unless per-cycle
+    testing is off or this lineage already saved the result; a result older
+    than the cycle's checkpoint is an earlier run's."""
     base = {
         "results_dir": str(tmp_path),
         "env": "cover",
