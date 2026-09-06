@@ -15,8 +15,8 @@ from __future__ import annotations
 import dataclasses
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, \
-    Sequence, Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, \
+    Optional, Sequence, Set, Tuple
 
 import numpy as np
 
@@ -26,7 +26,8 @@ from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.digests import render_options_digest
 from predicators.agent_sdk.tools.results import _error_result, _text_result
 from predicators.run.episode import EpisodeOver, EpisodeState
-from predicators.structs import Action, GroundAtom, State, Task, _Option
+from predicators.structs import Action, GroundAtom, Predicate, State, Task, \
+    _Option
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle through approaches
     from predicators.run.continual import InvocationResult, \
@@ -71,30 +72,52 @@ def visible_atoms(ctx: ToolContext, frame: State) -> Set[GroundAtom]:
     return utils.abstract(frame, set(ctx.predicates))
 
 
+def _identities(predicates: Iterable[Predicate]) -> Set[int]:
+    """The predicate objects themselves, for membership by identity.
+
+    ``Predicate`` compares by name and argument types, so a predicate
+    the arm invents under an env predicate's name would otherwise pass
+    as the env's: the goal atoms would surface the moment the arm
+    guessed the name (domino m3, 2026-09-05, invented ``Toppled`` and
+    was shown ``Toppled(domino_1)`` from then on) and its own classifier
+    would be listed as the environment's. An env predicate the allowlist
+    keeps is the env's own object, so identity keeps it env-origin.
+    """
+    return {id(p) for p in predicates}
+
+
 def _split_atoms(
-        ctx: ToolContext,
-        atoms: Set[GroundAtom],
-        env_names: Optional[Set[str]] = None) -> Tuple[List[str], List[str]]:
+    ctx: ToolContext,
+    atoms: Set[GroundAtom],
+    env_predicates: Optional[Iterable[Predicate]] = None
+) -> Tuple[List[str], List[str]]:
     """(env-origin atoms, invented atoms) as sorted strings.
 
-    ``env_names`` are the env's own predicate names (the session knows
-    them); without them the simulator env on the context is asked, and
-    an arm with neither sees every atom as its own.
+    ``env_predicates`` are the env's own predicate objects (the session
+    knows them); without them the simulator env on the context is
+    asked, and an arm with neither sees every atom as its own. An atom
+    is the env's only when its predicate IS one of them (see
+    :func:`_identities`).
     """
-    if env_names is None:
+    if env_predicates is None:
         env = ctx.env
-        env_names = {p.name
-                     for p in env.predicates} if env is not None else set()
-    env_origin = sorted(str(a) for a in atoms if a.predicate.name in env_names)
-    invented = sorted(
-        str(a) for a in atoms if a.predicate.name not in env_names)
+        env_predicates = env.predicates if env is not None else set()
+    env_ids = _identities(env_predicates)
+    env_origin = sorted(str(a) for a in atoms if id(a.predicate) in env_ids)
+    invented = sorted(str(a) for a in atoms if id(a.predicate) not in env_ids)
     return env_origin, invented
 
 
 def visible_goal(ctx: ToolContext, task: Task) -> List[str]:
-    """The goal atoms the arm's vocabulary can express, as strings."""
-    names = {p.name for p in ctx.predicates}
-    return sorted(str(a) for a in task.goal if a.predicate.name in names)
+    """The goal atoms the arm's vocabulary can express, as strings.
+
+    Expressible means the goal atom's predicate object is in the arm's
+    vocabulary (an env predicate the allowlist kept), never a predicate
+    of the arm's own that shares the name: the goal stays its
+    description until then.
+    """
+    own = _identities(ctx.predicates)
+    return sorted(str(a) for a in task.goal if id(a.predicate) in own)
 
 
 def context_status(ctx: ToolContext) -> str:
@@ -113,13 +136,14 @@ def context_status(ctx: ToolContext) -> str:
             f"compacted {ctx.context_compactions}x")
 
 
-def format_observation(obs: "ProtocolObservation",
-                       ctx: ToolContext,
-                       *,
-                       with_state: bool,
-                       render_path: Optional[str],
-                       env_names: Optional[Set[str]] = None) -> str:
-    """The observation as text (section 5.2); ``env_names`` as in
+def format_observation(
+        obs: "ProtocolObservation",
+        ctx: ToolContext,
+        *,
+        with_state: bool,
+        render_path: Optional[str],
+        env_predicates: Optional[Iterable[Predicate]] = None) -> str:
+    """The observation as text (section 5.2); ``env_predicates`` as in
     :func:`_split_atoms`."""
     lines = []
     if obs.state is EpisodeState.GAME_OVER and not obs.ledger.resets_allowed:
@@ -150,7 +174,7 @@ def format_observation(obs: "ProtocolObservation",
                      f"terminated {obs.evaluation.terminated}")
     try:
         env_origin, invented = _split_atoms(ctx, visible_atoms(ctx, obs.frame),
-                                            env_names)
+                                            env_predicates)
         note = ""
     except Exception as e:  # pylint: disable=broad-except
         env_origin, invented = [], []
@@ -305,7 +329,7 @@ def build_continual_tools(
         logging.exception("[continual tools] unexpected error")
         return _error_result(f"Error: {type(e).__name__}: {e}" + _footer())
 
-    env_names = {p.name for p in session.env_predicates}
+    env_predicates = list(session.env_predicates)
 
     def _observe_text(with_state: bool, tag: str) -> str:
         obs = session.observe()
@@ -315,7 +339,7 @@ def build_continual_tools(
                                   ctx,
                                   with_state=with_state,
                                   render_path=render,
-                                  env_names=env_names)
+                                  env_predicates=env_predicates)
 
     def _level_task() -> Task:
         obs = session.observe()

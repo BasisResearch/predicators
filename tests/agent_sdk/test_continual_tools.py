@@ -478,3 +478,35 @@ def test_model_contract_is_domain_general_and_only_for_the_model_arm() -> None:
     free = build_play_system_prompt(list(CONTINUAL_TOOL_NAMES),
                                     model_contract=po)
     assert "## The model files" not in free and "RESIDUAL_RULES" not in free
+
+
+def test_an_invented_predicate_under_an_env_name_stays_the_arms(
+        tmp_path: Any) -> None:
+    """The vocabulary is matched by identity: a predicate the arm invents under
+    the goal predicate's name neither reveals the goal atoms nor lists as the
+    environment's, while the env's own object does both."""
+    # pylint: disable=import-outside-toplevel,protected-access
+    from predicators.agent_sdk.tools.continual_tools import _split_atoms, \
+        visible_atoms, visible_goal
+    from predicators.structs import Predicate
+    env, _, ctx = _setup(tmp_path)
+    task = env.get_train_tasks()[0].task
+    state = task.init
+    goal_pred = next(iter(task.goal)).predicate
+    # With the env's own predicate object in the vocabulary the goal is
+    # expressible and its atoms are the environment's.
+    ctx.predicates = {goal_pred}
+    assert visible_goal(ctx, task) == sorted(str(a) for a in task.goal)
+    env_origin, invented = _split_atoms(ctx, visible_atoms(ctx, state),
+                                        env.predicates)
+    assert not invented and all(goal_pred.name in a for a in env_origin)
+    # An invented look-alike: same name, same types, the arm's classifier.
+    lookalike = Predicate(goal_pred.name, list(goal_pred.types),
+                          lambda s, o: True)
+    assert lookalike == goal_pred and lookalike is not goal_pred
+    ctx.predicates = {lookalike}
+    assert visible_goal(ctx, task) == []
+    env_origin, invented = _split_atoms(ctx, visible_atoms(ctx, state),
+                                        env.predicates)
+    assert not env_origin and invented
+    assert all(a.startswith(goal_pred.name + "(") for a in invented)

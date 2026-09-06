@@ -79,9 +79,11 @@ def _run_ended(reason: str, note: str = "") -> Exception:
     return RunEnded(reason, note)
 
 
-def env_predicate_names(session: ProtocolSession) -> Set[str]:
-    """The env's own predicate names, which an observation lists first."""
-    return {p.name for p in session.env_predicates}
+def env_predicate_set(session: ProtocolSession) -> Set[Predicate]:
+    """The env's own predicate objects, which an observation lists first;
+    membership is by identity, never by name (an invented predicate under an
+    env name stays the arm's)."""
+    return set(session.env_predicates)
 
 
 class ContinualPlayMixin:
@@ -359,7 +361,7 @@ class ContinualPlayMixin:
             ctx,
             with_state=True,
             render_path=render,
-            env_names=env_predicate_names(session))
+            env_predicates=env_predicate_set(session))
         # The ledger and the context line are already the observation's
         # last lines; the query shows them once more on their own so
         # they cannot be missed.
@@ -385,11 +387,13 @@ class ContinualPlayMixin:
         )
 
     def _render_predicates(self) -> str:
-        env_names = {p.name for p in self._initial_predicates}
+        # By identity: a kept env predicate is the env's own object, an
+        # invented one that shares an env name is still the arm's.
+        env_ids = {id(p) for p in self._initial_predicates}
         lines = []
         for pred in sorted(self._get_all_predicates(), key=lambda p: p.name):
             sig = ", ".join(t.name for t in pred.types)
-            origin = "environment" if pred.name in env_names else "yours"
+            origin = "environment" if id(pred) in env_ids else "yours"
             lines.append(f"- {pred.name}({sig}) [{origin}]")
         return "\n".join(lines) or "(none)"
 
