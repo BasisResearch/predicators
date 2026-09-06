@@ -458,6 +458,25 @@ class PyBulletLauncherEnv(PyBulletLauncherBaseEnv):
             return None
         return float(best[len(best) // 2])
 
+    @classmethod
+    def _draw_colors(cls, rng: np.random.Generator, num_blocks: int,
+                     train: bool) -> List[int]:
+        """The tower's materials, bottom to top.
+
+        A train tower shows every material it has room for, so a test
+        tower is built of masses the agent has seen; a test tower is
+        drawn freely.
+        """
+        palette = len(cls.COLOR_PALETTE)
+        if not train or num_blocks < palette:
+            return [int(c) for c in rng.integers(0, palette, size=num_blocks)]
+        colors = [int(c) for c in rng.permutation(palette)]
+        colors += [
+            int(c) for c in rng.integers(0, palette, size=num_blocks - palette)
+        ]
+        rng.shuffle(colors)
+        return colors
+
     def _make_tasks(self, num_tasks: int, rng: np.random.Generator,
                     train: bool) -> List[EnvironmentTask]:
         counts = list(CFG.launcher_num_blocks_train if train else CFG.
@@ -472,10 +491,7 @@ class PyBulletLauncherEnv(PyBulletLauncherBaseEnv):
             found = None
             for _ in range(int(CFG.launcher_max_sampling_attempts)):
                 stand_x = float(rng.uniform(x_lo, x_hi))
-                colors = [
-                    int(c) for c in rng.integers(
-                        0, len(self.COLOR_PALETTE), size=num_blocks)
-                ]
+                colors = self._draw_colors(rng, num_blocks, train)
                 state = self.level_state(stand_x, colors, balls_left)
                 depth = self._window_middle(self.working_depths(state))
                 if depth is not None:

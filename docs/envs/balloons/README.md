@@ -19,14 +19,15 @@ The observation carries the box's pose, colour and speed, every balloon's pose, 
 
 ## Train and test
 
-Train levels have a pine or oak box and two or three balloons; test levels bring a teak box, heavier than both, and four balloons.
+Train levels have a pine or oak box and two or three balloons; together they show both materials and every balloon colour.
+Test levels hold the whole palette, four balloons, on a pine or oak box: a combination training never showed, built from lifts and a mass it did.
 Every level has exactly one subset of its balloons whose lift hangs the box in the band by the analytic law, and the generator keeps a level only when the oracle's own plan (open that subset's clips, weakest lift first) hangs the box in the band on the simulator's physics.
 The oracle plans with `Needed` and `Holds` helpers and a derived `AllNeededTied`.
 
 ## Why it favours a learned model of the physics
 
 Which clips to open is a small choice, but the height each choice gives is a quantitative composition of per colour lifts, the fade and the box's mass, and one balloon too many bursts on the ceiling.
-An agent that has identified the lifts and the fade from a training level computes the subset for a heavier box it has never seen; an agent guessing pays with the level.
+An agent that has identified the lifts, the fade and the masses from the training levels computes the subset for a rack it has never seen; an agent guessing pays with the level.
 
 ## Files
 

@@ -217,3 +217,15 @@ def test_oracle_helper_and_sampler(env_module):
     processes = get_gt_processes("pybullet_launcher", preds, options)
     assert {pr.name for pr in processes} == {"Fire", "Wait"}
     del mod
+
+
+def test_train_tower_shows_both_materials(env_module):
+    """A two-block train tower is one wood and one stone block, so a test tower
+    is built of masses the agent has seen."""
+    _, env = env_module
+    for task in env.get_train_tasks():
+        colors = {
+            int(round(task.init.get(b, "color")))
+            for b in env._active_blocks(task.init)
+        }
+        assert colors == set(range(len(env.COLOR_PALETTE)))

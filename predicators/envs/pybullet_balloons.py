@@ -27,8 +27,10 @@ lifts, the fade, and the box's mass. Open one clip too many and the
 box rises to the ceiling, where a balloon bursts and the level is
 lost; a freed balloon cannot be clipped back.
 
-**Test extends train.** Test levels bring a heavier box colour and one
-more balloon; the balloon colours keep their lift.
+**Test extends train.** A test level holds the whole palette, one more
+balloon than any train level, on a box material training showed; the
+train levels together cover every colour and both materials, so the
+test composes known lifts and a known mass into a rack never seen.
 """
 from itertools import combinations
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
@@ -458,6 +460,27 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
             return None
         return hits[0]
 
+    @staticmethod
+    def _draw_covering(rng: np.random.Generator, n: int,
+                       box_colors: Sequence[int], palette: Sequence[int],
+                       seen_boxes: Set[int],
+                       seen_colors: Set[int]) -> Tuple[int, List[int]]:
+        """A box material and ``n`` distinct balloon colours, preferring the
+        ones earlier train levels have not shown."""
+        unseen_boxes = [b for b in box_colors if b not in seen_boxes]
+        box_color = int(rng.choice(unseen_boxes or list(box_colors)))
+        unseen = [c for c in palette if c not in seen_colors]
+        rng.shuffle(unseen)
+        colors = [int(c) for c in unseen[:n]]
+        others = [c for c in palette if c not in colors]
+        if len(colors) < n:
+            colors += [
+                int(c) for c in rng.choice(
+                    others, size=n - len(colors), replace=False)
+            ]
+        rng.shuffle(colors)
+        return box_color, colors
+
     def _make_tasks(self, num_tasks: int, rng: np.random.Generator,
                     train: bool) -> List[EnvironmentTask]:
         # pylint: disable-next=import-outside-toplevel
@@ -467,16 +490,30 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         box_colors = list(CFG.balloons_box_colors_train if train else CFG.
                           balloons_box_colors_test)
         half = float(CFG.balloons_band_half)
+        # Train levels together show every balloon colour and every box
+        # material the split allows, so a test level composes lifts and
+        # a mass the agent has seen rather than ones it must guess.
+        palette = list(range(len(self.BALLOON_PALETTE)))
+        seen_colors: Set[int] = set()
+        seen_boxes: Set[int] = set()
+        attempts = int(CFG.balloons_max_sampling_attempts)
         tasks = []
         for _ in range(num_tasks):
             found = None
-            for _ in range(int(CFG.balloons_max_sampling_attempts)):
+            for attempt in range(attempts):
                 n = int(rng.choice(counts))
-                box_color = int(rng.choice(box_colors))
-                colors = [
-                    int(c) for c in rng.choice(
-                        len(self.BALLOON_PALETTE), size=n, replace=False)
-                ]
+                # The covering draw first; a free draw for the last
+                # quarter of the attempts, so a rack the filters below
+                # keep rejecting does not sink the level.
+                if train and attempt < 3 * attempts // 4:
+                    box_color, colors = self._draw_covering(
+                        rng, n, box_colors, palette, seen_boxes, seen_colors)
+                else:
+                    box_color = int(rng.choice(box_colors))
+                    colors = [
+                        int(c)
+                        for c in rng.choice(palette, size=n, replace=False)
+                    ]
                 subsets = self.lifting_subsets(box_color, colors)
                 # Bands that a single subset reaches and that keep its
                 # stack of balloons clear of the ceiling.
@@ -504,9 +541,10 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
             if found is None:
                 raise RuntimeError(
                     "No balloon level with a unique floating subset the "
-                    f"oracle clears in {CFG.balloons_max_sampling_attempts} "
-                    "draws.")
+                    f"oracle clears in {attempts} draws.")
             state, subset = found
+            seen_boxes.add(box_color)
+            seen_colors.update(colors)
             goal = {GroundAtom(self._InBand, [self._box, self._band])}
             balloons = self._active_balloons(state)
             names = ", ".join(

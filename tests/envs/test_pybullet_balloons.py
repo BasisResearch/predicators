@@ -190,3 +190,23 @@ def test_oracle_helpers_and_processes(env_module):
     processes = get_gt_processes("pybullet_balloons", preds, options)
     assert {pr.name for pr in processes} == {"ReleaseClip", "Rise", "Wait"}
     del mod
+
+
+def test_train_levels_cover_every_colour_and_material():
+    """Two train levels together show all four balloon colours and both box
+    materials; a test level holds the whole palette on a box material training
+    showed."""
+    _, env = _make_env(num_train_tasks=2, num_test_tasks=1)
+    train = env.get_train_tasks()
+    colors = set()
+    boxes = set()
+    for task in train:
+        boxes.add(int(round(task.init.get(env._box, "color"))))
+        colors.update(
+            int(round(task.init.get(b, "color")))
+            for b in env._active_balloons(task.init))
+    assert colors == set(range(len(env.BALLOON_PALETTE)))
+    assert boxes == {0, 1}
+    test = env.get_test_tasks()[0].init
+    assert len(env._active_balloons(test)) == len(env.BALLOON_PALETTE)
+    assert int(round(test.get(env._box, "color"))) in boxes

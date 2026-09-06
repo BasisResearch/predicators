@@ -1243,12 +1243,16 @@ class GlobalSettings:
     magnets_max_sampling_attempts = 60
 
     # balloons env
-    # Balloons in the rack and box colours per split. Test levels bring
-    # the heavier box and one more balloon.
+    # Balloons in the rack and box colours per split. A test level holds
+    # the whole palette in its rack, one more balloon than any train
+    # level; its box is a material training showed (the train levels
+    # together cover both materials and every colour, see
+    # PyBulletBalloonsEnv._make_tasks). The teak box (index 2) has no
+    # level the generator accepts under the ceiling with these lifts.
     balloons_num_balloons_train = [2, 3]
     balloons_num_balloons_test = [4]
     balloons_box_colors_train = [0, 1]
-    balloons_box_colors_test = [0, 1, 2]
+    balloons_box_colors_test = [0, 1]
     # Lift per balloon colour at table height, in newtons, palette order
     # (red, blue, green, gold); it fades linearly to zero this many
     # metres above the table. The learning target, with the box masses

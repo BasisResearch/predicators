@@ -18,7 +18,7 @@ The observation carries the launcher's compression and spare count, the ball's p
 
 ## Train and test
 
-Train towers are two blocks with three spare balls; test towers are three blocks, farther away, with one spare.
+Train towers are two blocks, one of each material, with three spare balls; test towers are three blocks, farther away, with one spare.
 Every level has a window of compressions that takes the top block alone, at least three scan points wide, and the generator records the middle of it.
 The oracle plans with a `Hittable` helper answered by a launch probe and fires the middle of the window.
 
