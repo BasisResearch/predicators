@@ -1787,12 +1787,53 @@ class PyBulletEnv(BaseEnv):
         update_object(obj.id, (px, py, pz),
                       orn,
                       physics_client_id=self._physics_client_id)
-        # A State carries no velocities, and a teleport keeps the body's
-        # old ones: a ball still spinning from the previous episode would
-        # fly off the moment a probe placed it. A re-placed body starts
-        # still.
-        p.resetBaseVelocity(obj.id, (0.0, 0.0, 0.0), (0.0, 0.0, 0.0),
+        # 3) Velocity: a state _get_state produced carries every body's
+        # velocities (simulator_state["body_velocities"]), so a state
+        # read mid-flight restores as mid-flight and its derived
+        # ``speed`` feature round-trips. A state without them (a level
+        # state, an agent-built one) starts still: a teleport keeps the
+        # body's old velocities, and a ball still spinning from the
+        # previous episode would fly off the moment a probe placed it.
+        linear, angular = self._body_velocity_in_state(obj, state)
+        p.resetBaseVelocity(obj.id,
+                            linear,
+                            angular,
                             physicsClientId=self._physics_client_id)
+
+    @staticmethod
+    def _body_velocity_in_state(
+        obj: Object, state: State
+    ) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+        """The linear and angular velocity ``state`` records for ``obj``, zero
+        when it records none."""
+        still = ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0))
+        sim_state = getattr(state, "simulator_state", None)
+        if not isinstance(sim_state, dict):
+            return still
+        velocities = sim_state.get("body_velocities")
+        if not isinstance(velocities, dict) or obj.name not in velocities:
+            return still
+        linear, angular = velocities[obj.name]
+        return (tuple(float(v) for v in linear),
+                tuple(float(v) for v in angular))  # type: ignore[return-value]
+
+    def _body_velocity_records(
+        self
+    ) -> Dict[str, Tuple[Tuple[float, float, float], Tuple[float, float,
+                                                           float]]]:
+        """Every physical object's (linear, angular) velocity by NAME, so a
+        state restores on any env instance mid-motion."""
+        records = {}
+        for obj in self._objects:
+            if obj.type.name == "robot" or \
+                    obj.type.name in self._VIRTUAL_OBJECT_TYPES or \
+                    obj.id is None:
+                continue
+            linear, angular = p.getBaseVelocity(
+                obj.id, physicsClientId=self._physics_client_id)
+            records[obj.name] = (tuple(float(v) for v in linear),
+                                 tuple(float(v) for v in angular))
+        return records  # type: ignore[return-value]
 
     @abc.abstractmethod
     def _set_domain_specific_state(self, state: State) -> None:
@@ -1955,6 +1996,12 @@ class PyBulletEnv(BaseEnv):
         command_welds = self._command_weld_records()
         if command_welds:
             sim_state_dict["command_welds"] = command_welds
+        # Body velocities ride along by object NAME: a state read while
+        # something flies or slides restores as flying or sliding (see
+        # _reset_single_object), so a derived ``speed`` feature
+        # round-trips and a rollout resumed from it continues the motion
+        # instead of dropping the body from rest.
+        sim_state_dict["body_velocities"] = self._body_velocity_records()
         pyb_state = PyBulletState(state.data, simulator_state=sim_state_dict)
         return pyb_state
 

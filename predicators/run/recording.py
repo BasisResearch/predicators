@@ -53,7 +53,8 @@ def option_label(action: Action) -> Optional[str]:
 # The entries of a PyBullet simulator state that describe the robot rather
 # than the process: the arm's joint positions, a mobile base's pose, the
 # command welds by object name. Physics-client and body ids are dropped.
-PORTABLE_SIMULATOR_KEYS = ("joint_positions", "base_pose", "command_welds")
+PORTABLE_SIMULATOR_KEYS = ("joint_positions", "base_pose", "command_welds",
+                           "body_velocities")
 
 
 def portable_simulator_state(sim_state: Any) -> Any:

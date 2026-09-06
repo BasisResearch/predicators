@@ -229,3 +229,51 @@ def test_train_tower_shows_both_materials(env_module):
             for b in env._active_blocks(task.init)
         }
         assert colors == set(range(len(env.COLOR_PALETTE)))
+
+
+def test_a_state_read_in_flight_restores_in_flight(env_module):
+    """A state _get_state reads mid-flight carries the ball's velocity, so
+    restoring it (here on the base sim, as the model arm's data refresh does)
+    continues the flight instead of dropping the ball from rest, and the
+    derived ``speed`` feature round-trips.
+
+    The check covers the free flight only: once the ball strikes the
+    tower, PyBullet's contact response is not reproducible across a
+    teleport.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.run.recording import sanitize_state
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.structs import State
+    mod, env = env_module
+    state = env.level_state(0.9, [0, 1], 2)
+    env._set_state(state)
+    env._current_observation = env._get_state()
+    env._set_compression(0.06)
+    hold = _hold(env)
+    # Two steps: the snap, then the launch acting on the ball.
+    for _ in range(2):
+        env._step_once(hold)
+    mid = env._get_state()
+    assert mid.get(env._ball, "speed") > 1.0
+    reference = env._step_once(hold)
+    assert reference.get(env._ball, "x") > mid.get(env._ball, "x") + 0.05
+    base = mod.PyBulletLauncherEnv(use_gui=False, skip_residual_dynamics=True)
+    for restored in (mid, sanitize_state(mid)):
+        base._set_state(restored)
+        read_back = base._get_state()
+        assert abs(
+            read_back.get(env._ball, "speed") -
+            mid.get(env._ball, "speed")) < 1e-6
+        end = base._step_once(hold)
+        for feat in ("x", "y", "z"):
+            assert abs(
+                end.get(env._ball, feat) -
+                reference.get(env._ball, feat)) < 1e-4
+    # The control: the same state stripped of its simulator state carries
+    # no velocity, so the ball starts still and drops.
+    base._set_state(State(mid.data))
+    base._current_observation = base._get_state()
+    assert base._current_observation.get(env._ball, "speed") < 1e-6
+    end = base._step_once(hold)
+    assert abs(end.get(env._ball, "x") - mid.get(env._ball, "x")) < 0.01
