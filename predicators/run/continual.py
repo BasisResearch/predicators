@@ -98,11 +98,11 @@ class Ledger:
     # False on a level without resets (a test level, unless
     # continual_allow_test_resets): GAME_OVER ends it, lost.
     resets_allowed: bool = True
-    # The episode in progress against its horizon: exhausting it is
-    # GAME_OVER, which on a level without resets loses the level. The
-    # pooled cap above never showed this (domino m3, 2026-09-05, ran a
-    # 500-step test episode into the horizon with 9259 pooled steps
-    # left and nothing in the ledger about the 500).
+    # The episode in progress and, when the run puts a horizon on
+    # episodes (continual_episode_horizon), that horizon: exhausting it
+    # is GAME_OVER, which on a level without resets loses the level, so
+    # the footer names it. None by default since 2026-09-06: the pooled
+    # cap is the only step budget.
     episode_steps: int = 0
     horizon: Optional[int] = None
 
@@ -909,7 +909,7 @@ class ContinualRun:
                 self._level_env = fresh
         self._runner = EpisodeRunner(
             self._level_env,
-            horizon=CFG.horizon,
+            horizon=CFG.continual_episode_horizon,
             max_option_steps=CFG.max_num_steps_option_rollout,
             predicates=self._predicates)
         self._runner.add_step_listener(self._on_runner_step)

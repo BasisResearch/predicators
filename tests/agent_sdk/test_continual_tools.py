@@ -163,12 +163,12 @@ def test_tools_divergence_reset_and_errors(tmp_path: Any) -> None:
     """Expected outcomes, parse errors, game over then reset, learn and end-run
     requests, and the run-ended path."""
     env, approach, ctx = _setup(tmp_path, continual_steps_per_level=6)
-    # Plan with the normal horizon, then play under a two-step horizon
-    # so the episode ends in GAME_OVER after two skills.
+    # Play under a two-step episode horizon so the episode ends in
+    # GAME_OVER after two skills.
     first_task = env.get_train_tasks()[0].task
     plan = _oracle_plan_text(approach, first_task).splitlines()
     assert len(plan) >= 2
-    utils.update_config({"horizon": 2})
+    utils.update_config({"continual_episode_horizon": 2})
     seen: Dict[str, Any] = {}
     driver = _Driver()
 
@@ -252,8 +252,8 @@ def test_tools_on_a_level_without_resets(tmp_path: Any) -> None:
             plan = _oracle_plan_text(approach, session.observe().level.task)
             out = _call(tools, "skills_execute_plan", plan=plan, note="oracle")
             assert "episode: WIN" in out
-            # The test level plays under a two-step horizon.
-            utils.update_config({"horizon": 2})
+            # The test level plays under a two-step episode horizon.
+            utils.update_config({"continual_episode_horizon": 2})
             return
         obs = _call(tools, "env_observe")
         assert "(test task 0, no resets)" in obs

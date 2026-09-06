@@ -74,6 +74,15 @@ class GlobalSettings:
     # Pooled step cap per run: this many low-level steps per level,
     # summed over the run's levels (4.8). A guard, not a scoring term.
     continual_steps_per_level = 5000
+    # Steps an episode may take before GAME_OVER, or None for no episode
+    # horizon: the pooled cap is then the only step budget (4.3). None
+    # since 2026-09-06: with the env's own horizon (busyboard 2000) three
+    # of four busyboard test levels ended at step 2000 of their one
+    # episode while 5000+ pooled steps sat unused, so on a level without
+    # resets the horizon was a second, hidden cap. A number restores the
+    # per-episode GAME_OVER (tests of that path, ablations); the phased
+    # loop's `horizon` is not read here.
+    continual_episode_horizon: Optional[int] = None
     # Active wall-clock cap per env run, in hours (6.5).
     continual_wall_clock_hours = 48.0
     # One directory per run (predicators/run/paths.py):

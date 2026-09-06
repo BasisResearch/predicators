@@ -287,7 +287,9 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
 def test_play_loop_stops_at_a_lost_test_level(tmp_path: Any) -> None:
     """On a test level (no resets) a GAME_OVER loses the level: the loop ends
     the level's rounds and the run ends as ``level_lost``."""
-    _config(tmp_path, continual_levels="test_only", horizon=2)
+    _config(tmp_path,
+            continual_levels="test_only",
+            continual_episode_horizon=2)
     env, approach = _make_approach()
     queries: List[str] = []
 
@@ -357,7 +359,7 @@ def test_resume_rebuilds_the_workbench_from_the_recording(
     recording; the workbench predicts them with the base sim exactly as it does
     the live ones, because the recorded states keep the robot's joint data (the
     2026-09-05 busyboard resume crashed here on plain states)."""
-    _config(tmp_path, horizon=2)
+    _config(tmp_path, continual_episode_horizon=2)
     env, approach = _make_approach()
 
     def killed_query(message: str, **kwargs: Any) -> List[Dict[str, Any]]:
@@ -374,7 +376,7 @@ def test_resume_rebuilds_the_workbench_from_the_recording(
     with pytest.raises(_Killed):
         ContinualRun(env, approach, create_controller(env, approach)).run()
 
-    _config(tmp_path, horizon=2, auto_resume=True)
+    _config(tmp_path, continual_episode_horizon=2, auto_resume=True)
     env2, approach2 = _make_approach()
     seen: Dict[str, Any] = {}
 

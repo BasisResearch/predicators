@@ -46,10 +46,10 @@ every level while spending as few environment steps as possible.
   sandbox work is wall-clock time.
 - Episode states: `NOT_FINISHED` (keep acting), `WIN` (the environment
   certified the goal; the level is over), `GAME_OVER` (the episode
-  cannot continue: the horizon ran out, the environment failed, or the
-  goal was reached in a way the task's rules reject). After
-  `GAME_OVER` the only valid action is `env_reset`, on a level that has
-  resets.
+  cannot continue: the environment failed, the goal was reached in a
+  way the task's rules reject, or an episode horizon, if the run has
+  one, ran out). After `GAME_OVER` the only valid action is
+  `env_reset`, on a level that has resets.
 - Test levels have no resets unless the run is configured otherwise.
   The observation's `[level]` line says `no resets` and the ledger
   repeats it. On such a level `GAME_OVER` ends the level, lost, and
@@ -60,11 +60,11 @@ every level while spending as few environment steps as possible.
   reaches the goal atoms illegitimately ends in `GAME_OVER`.
 - Every tool result ends with a `[ledger]` line and a `[context]` line.
   The ledger: steps and resets on this level and in the run, the steps
-  remaining under the cap, the current episode's steps against its
-  horizon, and the active wall-clock. The horizon is per episode:
-  reaching it is `GAME_OVER`, and on a level without resets that loses
-  the level, whatever the cap still holds. The context: the size of
-  this conversation, its turns, and how many times it has been
+  remaining under the cap, and the active wall-clock. The cap is the
+  only step budget: an episode has no horizon unless the ledger names
+  one, and then reaching it is `GAME_OVER`, which on a level without
+  resets loses the level whatever the cap still holds. The context: the
+  size of this conversation, its turns, and how many times it has been
   compacted. Read them; together they are your budget.
 
 <!-- section: tools -->

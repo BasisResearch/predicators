@@ -46,7 +46,7 @@ There is no human oracle for these envs, our levels are not ordered by difficult
 | Frame (64x64 grid) | The observation digest: object features, observable atoms, render |
 | `available_actions` | The low-level action space, and for skill-using agents the applicable skills with parameter ranges |
 | `WIN` | The env's evaluator certifies the episode as a legitimate success |
-| `GAME_OVER` | Horizon exhausted, env failure, a rejected episode, or an irrecoverable state |
+| `GAME_OVER` | Env failure, a rejected episode, an irrecoverable state, or an episode horizon exhausted when the run has one |
 | Human baseline (upper median actions) | None. Raw counts are recorded; the oracle is a reference arm, not a normaliser |
 | Reasoning and tool calls are free | The sandbox is free: sim rollouts, fits, predicate invention, code |
 | Scorecard | `scorecard.json` per run, aggregated across runs |
@@ -109,7 +109,10 @@ Such an episode is terminated but rejected: the goal atoms hold and no continuat
 The agent sees the state and the boolean, never the rule that fired, matching the current evaluator contract.
 An env without an evaluator falls back to the goal atoms.
 
-`GAME_OVER` is also raised by the horizon, by an `EnvironmentFailure`, and by the env declaring the state irrecoverable.
+`GAME_OVER` is also raised by an `EnvironmentFailure` and by the env declaring the state irrecoverable.
+Episodes have no horizon by default (`continual_episode_horizon`, None since 2026-09-06): the pooled step cap of section 4.8 is the only step budget.
+The env's own horizon had been the episode length until then, and on a test level, which has no resets, it was a second cap that the ledger showed only as the episode's steps: three of the four busyboard test levels of 2026-09-06 ended at step 2000 of their one episode with 5000 or more pooled steps unused.
+A number restores the per-episode `GAME_OVER` with reason `horizon`, for tests of that path and for ablations.
 A failed skill (`OptionExecutionFailure`) is not `GAME_OVER`: its steps are counted and the episode continues from the resulting state.
 
 ### 4.4 Recorded metrics
@@ -124,7 +127,7 @@ Per level, for one run:
 - `steps`: low-level env steps on the level, including the reset charges.
 - `resets`: agent-initiated resets on the level.
 - `skill_invocations`: calls to skill controllers, with how many terminated in failure, for arms that use the library.
-- `game_overs`: episodes that ended in `GAME_OVER`, with the reason for each (`horizon`, `env_failure`, `rejected`, `irrecoverable`).
+- `game_overs`: episodes that ended in `GAME_OVER`, with the reason for each (`env_failure`, `rejected`, `irrecoverable`, or `horizon` when the run puts a horizon on episodes).
 - `divergences`: skill invocations whose observed outcome differed from the agent's annotated expected outcome.
 - `wall_clock`: seconds on the level, split into env time and sandbox time.
 - `sandbox`: sim rollouts, fits, rounds of the agent's conversation, turns, and LLM cost in USD.
@@ -226,8 +229,8 @@ Learning, offered to the learning arms:
 
 - `learn.run(kind)`: launch a learning sub-session of an existing kind (simulator synthesis, predicate invention, sampler synthesis) in-process and return its summary. Free.
 
-Every tool result carries the ledger footer: level, steps and resets on this level and in the run, whether the level has resets, the remaining step cap, and the current episode's steps against its horizon.
-The episode horizon is the one budget the pooled cap does not show, and on a level without resets it is the level's life, so the footer names it and says so.
+Every tool result carries the ledger footer: level, steps and resets on this level and in the run, whether the level has resets, and the remaining step cap.
+When the run puts a horizon on episodes the footer also shows the current episode's steps against it and, on a level without resets, says that it ends the level; by default there is no horizon and the cap is the only step budget.
 The footer is the pacing signal, in the same spirit as the current `[budget]` footer.
 
 ### 5.2 Observation
@@ -306,8 +309,7 @@ Today's phased loop has four limits on interaction: explore episodes stop at `ma
 In the continual protocol there is no per-task limit.
 The limits are:
 
-- The env horizon per episode. Exhausting it is `GAME_OVER`, and the agent resets and continues.
-- The pooled step cap per run (section 4.8).
+- The pooled step cap per run (section 4.8). Episodes have no horizon of their own (section 4.3).
 - A wall-clock cap per env run, with requeue: 48 h proposed.
 - The existing per-call timeouts; the per-round turn cap of 10000 is effectively unbounded. The sysid fit budget stays as it is; a fit is not a step but it is bounded in time.
 
