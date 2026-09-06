@@ -1620,11 +1620,11 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                                             max_timesteps=max_timesteps)
 
         exec_ns["describe_trajectory"] = describe_trajectory
-        # Env ground-truth scoring, next to is_goal_state (see
-        # Task.evaluator). Verdict-only surface: dict of reward/solved
-        # on a concrete state sequence - real trajectories or the
+        # The task's reward model, next to is_goal_state (see
+        # Task.evaluator). Verdict-only surface: dict of reward/solved/
+        # note on a concrete state sequence - real trajectories or the
         # agent's own simulator rollouts (there the verdict is only as
-        # good as the sim).
+        # good as the sim, and the note says what was simulated).
         if any(t.evaluator is not None for t in self._train_tasks):
             exec_ns["evaluate_trajectory"] = \
                 self._make_evaluate_trajectory_fn()
@@ -3032,22 +3032,44 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         """Build the ``evaluate_trajectory`` helper exposed in the synthesis
         exec namespace (next to ``is_goal_state``).
 
-        The returned function scores a concrete state sequence with the
-        task's env-defined ``TaskEvaluator`` and returns only the public
-        pair (dict of reward/solved) - never the evaluator itself, and
-        never the certificate's internal legitimacy verdict or reason
-        (the agent infers the scoring rules from the stated objective
-        and the outcomes it observes; goal-atom termination it can
-        check itself via ``is_goal_state``). ``actions`` may be
-        ``Action`` objects (labeled via their producing options),
-        pre-built ``(option_name, object_names[, params])`` labels, or
-        ``None`` (kinematics-only scoring).
+        The returned function is the task's reward model: it scores a
+        concrete state sequence with the task's env-defined
+        ``TaskEvaluator`` and returns the public triple (dict of
+        reward/solved/note) - never the evaluator itself, and never the
+        certificate's internal legitimacy verdict or reason (the agent
+        infers the scoring rules from the stated objective and the
+        outcomes it observes; goal-atom termination it can check itself
+        via ``is_goal_state``). A certificate that needs physics (the
+        domino counterfactual push) gets the approach's planning base
+        env, i.e. the agent's belief simulator at its current fit, so
+        on a sequence the agent assembled the verdict is a prediction
+        of that model; ``note`` says what it replayed and on what.
+        ``actions`` may be ``Action`` objects (labeled via their
+        producing options), pre-built ``(option_name, object_names[,
+        params])`` labels with ``None`` for an unlabeled transition, or
+        ``None`` (no labels: a replaying certificate then falls back to
+        its canonical action).
         """
         tasks = self._train_tasks
 
         def evaluate_trajectory(states: Sequence[State],
                                 actions: Optional[Sequence[Any]] = None,
                                 task_idx: int = 0) -> Dict[str, Any]:
+            """Score ``states`` with the task's reward model.
+
+            ``states``: the sequence, ``states[t]`` before action ``t``.
+            ``actions``: the recorded ``Action`` objects, or one label
+            per transition, ``(option_name, (object_name, ...),
+            (param, ...))``, ``None`` for a transition you do not
+            attribute to a skill; omit for no labels. A rule that
+            replays an action replays the labeled one with its
+            parameters, and its canonical action when the sequence
+            carries none. Returns ``{"reward", "solved", "note"}``;
+            ``note`` says what a replaying rule simulated and on which
+            substrate ("" when nothing was replayed). On a rollout of
+            your simulator, or a sequence you assembled, the substrate
+            is your belief simulator at its current fit.
+            """
             if not 0 <= task_idx < len(tasks):
                 raise ValueError(f"task_idx {task_idx} out of range "
                                  f"(0-{len(tasks) - 1}).")
@@ -3073,6 +3095,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             return {
                 "reward": verdict["reward"],
                 "solved": verdict["solved"],
+                "note": verdict.get("note", ""),
             }
 
         return evaluate_trajectory

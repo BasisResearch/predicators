@@ -264,6 +264,17 @@ def run_counterfactual_push_probe(
     substrate = ("with the fitted residual rules riding on the base sim"
                  if process_model_factory is not None else
                  "on the base sim alone")
+    # "<what was replayed>: <outcome>". The first half is what the agent
+    # is shown as the verdict's note (DominoEvaluator.verdict_note), so
+    # it names the push and the substrate and nothing of the goal; keep
+    # the colon out of it.
+    source = "the sequence's own push" if push_params else "the canonical push"
+    origin = ("" if push_params else
+              ", the sequence carrying no push parameters of its own")
+    replay = (f"{source} (approach {params[0]:.2f} m, contact height "
+              f"+{params[1]:.2f} m) on {', '.join(g.name for g in greens)}, "
+              f"replayed with the real Push skill and fingertips-only "
+              f"collision {substrate}{origin}")
     attempts = num_attempts if num_attempts is not None else _NUM_ATTEMPTS
     best_shortfall: Optional[List[str]] = None
     for attempt in range(attempts):
@@ -290,21 +301,13 @@ def run_counterfactual_push_probe(
                                     probe_env._get_state(), hold_action)
         shortfall = _goal_shortfall(probe_env._get_state(), goal)
         if not shortfall:
-            source = "the plan's" if push_params else "the canonical"
-            detail = (f"{source} push (approach {params[0]:.2f} m, contact "
-                      f"height +{params[1]:.2f} m), replayed with the real "
-                      f"skill and fingertips-only collision {substrate}, "
-                      f"cascades to the goal (attempt {attempt + 1})")
+            detail = (f"{replay}: cascades to the goal (attempt "
+                      f"{attempt + 1})")
             return True, detail
         if best_shortfall is None or len(shortfall) < len(best_shortfall):
             best_shortfall = shortfall
     assert best_shortfall is not None
-    source = "the plan's own" if push_params else "the canonical"
-    detail = (f"{source} push (approach {params[0]:.2f} m, contact height "
-              f"+{params[1]:.2f} m) on {', '.join(g.name for g in greens)}, "
-              f"replayed with the real skill and fingertips-only collision "
-              f"{substrate}, reaches the goal at none of {attempts} "
-              f"attempts; closest run left {', '.join(best_shortfall)} "
-              f"unsatisfied")
+    detail = (f"{replay}: reaches the goal at none of {attempts} attempts; "
+              f"closest run left {', '.join(best_shortfall)} unsatisfied")
     logging.debug("[cascade probe] %s", detail)
     return False, detail

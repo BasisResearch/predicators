@@ -366,6 +366,9 @@ Every arm in the paper is an agent playing the same env API, so the comparison i
 - Low-level-only agents: the LLM agent with `env.*` only, no skill library.
 - Full agent: the skill library and the sandbox with simulator learning, predicate invention, and samplers.
 - Model-free agent (`agent_continual_model_free`): the skill library, the env tools, the sandbox and the journal, no belief model, no `sim`, no `run_python` and no learning session; its own code in the sandbox reads the recorded data.
+- The reward model: the model-based arm's `run_python` carries `is_goal_state` and `evaluate_trajectory`, the task's scoring rules on any state sequence, with a rule that replays physics running on the arm's belief simulator at its current fit and a `note` that says what was replayed and on what.
+  The model-free arm has no such call: its only goal signal is the description, the per-step `WIN`/`GAME_OVER`, and the reward at an episode's end.
+  The asymmetry is deliberate for now (the reward model is part of what a model-based agent plans against) and is stated here rather than hidden.
 - Tool and prompt ablations: the same agent with a tool removed or a prompt section removed.
 - Fixed-schedule agents: scripted controllers that explore for K episodes, learn once, then attempt, expressed with the same tools. These are the phased-loop baselines re-expressed.
 

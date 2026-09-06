@@ -149,9 +149,23 @@ bodies) with none of the environment's hidden mechanisms.
 
 `run_python` holds the data in one persistent namespace: `trajectories`
 (every recorded episode, the one in progress included, current after
-every environment call), `describe_trajectory`,
-`train_tasks`, `is_goal_state`, `evaluate_trajectory` (the environment's
-own evaluator on any state sequence), `np`, `ParamSpec`. To test a plan
+every environment call), `describe_trajectory`, `train_tasks`,
+`is_goal_state`, `evaluate_trajectory`, `np`, `ParamSpec`.
+`is_goal_state(state, task_idx)` and `evaluate_trajectory(states,
+actions=None, task_idx=0)` are the task's reward model: the scoring
+rules the environment applies to a real episode, applied to the states
+you pass. On a recorded episode that is the environment's own verdict.
+On a rollout of your simulator, or a sequence you assemble by hand,
+the physics behind the verdict is your belief simulator at its current
+fit, not the environment: `sim.run(plan, solved=True)` is the
+straightforward way to ask it, and `result.states` of a `sim.run` is
+the sequence `evaluate_trajectory` scores. A rule that replays an
+action (the goal text says when one does) replays the action you label
+the transition with, `("Skill", ("obj", ...), (param, ...))` per
+transition with `None` for an unlabeled one, and a canonical action
+when the sequence carries no labels; the verdict's `note` says what
+was replayed and on what, so read it before you trust `solved`. To
+test a plan
 before you spend real steps on it: `sim.reset()` (the level's initial
 state), `sim.reset(current=True)` (the last real observation), or
 `sim.reset(task_idx=i, mods={...})`; then `sim.refine(plan,

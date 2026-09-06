@@ -80,8 +80,8 @@ class DominoEvaluator(TaskEvaluator):
         # sim cost. Identity-keyed (never content-keyed): only reused
         # while the SAME states/labels objects with the SAME length are
         # scored.
-        self._certify_memo: Optional[Tuple[Tuple[int, ...], Tuple[bool,
-                                                                  str]]] = None
+        self._certify_memo: Optional[Tuple[Tuple[int, ...], Tuple[bool, str],
+                                           str]] = None
 
     def reward(self,
                states: Sequence[State],
@@ -111,12 +111,36 @@ class DominoEvaluator(TaskEvaluator):
         if self._certify_memo is not None and self._certify_memo[0] == key:
             return self._certify_memo[1]
         probe = getattr(sim_env, "run_counterfactual_cascade_probe", None)
-        verdict = check_cascade_legitimacy(states,
-                                           self.goal,
-                                           step_options,
-                                           probe=probe)
-        self._certify_memo = (key, verdict)
+        replays: List[str] = []
+
+        def probe_and_note(
+                pre_push_state: State, greens: Sequence[Object],
+                goal: Set[GroundAtom],
+                push_params: Optional[Tuple[float, ...]]) -> Tuple[bool, str]:
+            assert probe is not None
+            ok, detail = probe(pre_push_state, greens, goal, push_params)
+            # The probe's detail is "<what was replayed>: <outcome>"; the
+            # replay half is the agent-facing verdict note.
+            replays.append(detail.split(": ", 1)[0])
+            return ok, detail
+
+        verdict = check_cascade_legitimacy(
+            states,
+            self.goal,
+            step_options,
+            probe=probe_and_note if probe is not None else None)
+        self._certify_memo = (key, verdict, replays[-1] if replays else "")
         return verdict
+
+    def verdict_note(self,
+                     states: Sequence[State],
+                     step_options: Optional[Sequence[StepOption]],
+                     sim_env: Optional[Any] = None) -> str:
+        """The push the certificate replayed and the substrate it replayed on,
+        when the verdict needed the counterfactual probe; "" otherwise."""
+        self._certify(states, step_options, sim_env=sim_env)
+        assert self._certify_memo is not None
+        return self._certify_memo[2]
 
     def offline_metrics(
             self, states: Sequence[State],
