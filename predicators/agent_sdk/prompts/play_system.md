@@ -210,6 +210,17 @@ on an un-fit parameter is not a green light - fit the parameter and
 re-run before you spend real steps on it, especially on a level with
 no resets where the first real attempt is the only one.
 
+A fit is a distribution, not a single number: the values consistent
+with your data span a range, and a plan that reaches the goal at the
+best-guess value can miss it a few percent away. On a level with no
+resets this is the difference between a win and a lost run, so commit
+through a `submit_plan` you have certified rather than through steps
+you reason out by hand: the capture gate re-runs your plan across that
+range and refuses one that only reaches the goal at the point estimate.
+When more than one plan certifies, prefer the one with the most margin,
+the one that still reaches the goal and triggers no losing event across
+the whole range, over one that is perfect only at the centre.
+
 __BASE_SIM_REFS__
 
 <!-- section: base_sim_refs -->
