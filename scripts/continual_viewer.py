@@ -617,7 +617,7 @@ function groupMode() {
 function toggleGroupMode() {
   localStorage.setItem('cv-group', groupMode() === 'env' ? 'agent' : 'env');
   applyGroupMode();
-  applyRunFilter();
+  applyRunVisibility();
 }
 function applyGroupMode() {
   var btn = document.getElementById('groupbtn');
@@ -645,31 +645,84 @@ function applyGroupMode() {
   document.getElementById('view-env').style.display =
     mode === 'env' ? '' : 'none';
 }
+// Run selection: the checkbox state is kept per tab (sessionStorage)
+// so the auto-refresh reloads keep it; it drives the show-selected
+// toggle. Runs stay inside their experiment groups, so each visible
+// row keeps its experiment's summary as the header.
+function selStored() {
+  try {
+    return JSON.parse(sessionStorage.getItem('cv-selected') || '[]');
+  } catch (e) { return []; }
+}
+function selChanged(cb) {
+  var keys = selStored().filter(function (k) { return k !== cb.value; });
+  if (cb.checked) keys.push(cb.value);
+  sessionStorage.setItem('cv-selected', JSON.stringify(keys));
+  paintSelBtn();
+  if (selOnly()) applyRunVisibility();
+}
+function restoreSelection() {
+  var sel = {};
+  selStored().forEach(function (k) { sel[k] = true; });
+  $all('input.sel').forEach(function (cb) { cb.checked = !!sel[cb.value]; });
+  paintSelBtn();
+}
+function selOnly() { return sessionStorage.getItem('cv-selonly') === '1'; }
+function toggleSelOnly() {
+  if (!selOnly() && !$all('input.sel:checked').length) {
+    alert('Select at least one run first.');
+    return;
+  }
+  sessionStorage.setItem('cv-selonly', selOnly() ? '0' : '1');
+  paintSelBtn();
+  applyRunVisibility(true);
+}
+function paintSelBtn() {
+  var b = document.getElementById('selbtn');
+  if (!b) return;
+  var n = $all('input.sel:checked').length;
+  b.textContent = selOnly() ? 'show: selected (' + n + ')' : 'show: all';
+}
 // The filter matches every word against a row's run id, config, arm,
-// env, seed and state; groups with no visible row hide too. Per tab.
+// env, seed and state. Per tab.
 function filterRuns(text) {
   sessionStorage.setItem('cv-filter', text);
-  applyRunFilter();
+  applyRunVisibility(true);
 }
-function applyRunFilter() {
+// Hides the rows (and then the groups) the filter and the show-selected
+// toggle exclude. With ``expand`` - passed only when the user just
+// changed a filter - every group that still has a match opens, so the
+// matches are in view; that open state persists like a manual toggle.
+// A reload never passes it, so a collapsed group stays collapsed
+// across refreshes even while a filter is on.
+function applyRunVisibility(expand) {
   var box = document.getElementById('runfilter');
   if (!box) return;
   var text = sessionStorage.getItem('cv-filter') || '';
   box.value = text;
   var words = text.toLowerCase().split(/\s+/).filter(Boolean);
+  var only = selOnly();
+  var narrowing = words.length > 0 || only;
   $all('tr[data-text]').forEach(function (tr) {
     var hay = tr.dataset.text.toLowerCase();
-    tr.classList.toggle('hidden', !words.every(function (w) {
-      return hay.indexOf(w) >= 0;
-    }));
+    var hide = !words.every(function (w) { return hay.indexOf(w) >= 0; });
+    if (!hide && only) {
+      var cb = tr.querySelector('input.sel');
+      hide = !(cb && cb.checked);
+    }
+    tr.classList.toggle('hidden', hide);
   });
   $all('details.grp.exp').forEach(function (d) {
-    d.classList.toggle('hidden', !$all('tr[data-text]', d).some(
-      function (tr) { return !tr.classList.contains('hidden'); }));
+    var any = $all('tr[data-text]', d).some(
+      function (tr) { return !tr.classList.contains('hidden'); });
+    d.classList.toggle('hidden', !any);
+    if (expand && narrowing && any) d.open = true;
   });
   $all('details.grp.family').forEach(function (d) {
-    d.classList.toggle('hidden', !$all('details.grp.exp', d).some(
-      function (x) { return !x.classList.contains('hidden'); }));
+    var any = $all('details.grp.exp', d).some(
+      function (x) { return !x.classList.contains('hidden'); });
+    d.classList.toggle('hidden', !any);
+    if (expand && narrowing && any) d.open = true;
   });
 }
 // Copy-path buttons next to run names.
@@ -728,7 +781,8 @@ function deleteRun(id, live) {
 document.addEventListener('DOMContentLoaded', function () {
   restoreGroups();
   applyGroupMode();
-  applyRunFilter();
+  restoreSelection();
+  applyRunVisibility();
 });
 
 // Run page: hash routing into the content pane. The route is the hash
@@ -1446,7 +1500,10 @@ def index_page() -> str:
         "experiment tables under agent names or under env names'>group"
         "</button>"
         "<button onclick='setAllGroups(true)'>expand all</button>"
-        "<button onclick='setAllGroups(false)'>collapse all</button>")
+        "<button onclick='setAllGroups(false)'>collapse all</button>"
+        "<button id='selbtn' onclick='toggleSelOnly()' title='Show only "
+        "the checked runs (grouped under their experiment ids; the "
+        "selection survives refresh)'></button>")
     return page("continual viewer",
                 "runs",
                 "".join(parts),
@@ -1485,12 +1542,12 @@ def _leaf_table(agent: str, env: str, config: str, cards: Sequence[Dict[str,
 
 
 # Fixed column widths of the runs grid, in the order of _runs_table's
-# header: run (start stamp/seed plus the buttons), state, levels (None:
-# LEVEL_COL_W per level of the page's largest level count), steps,
-# resets, invocations, active, queue, LLM cost, updated, git. Every leaf
-# table uses them, so columns line up across agents and envs, as in the
-# phased log viewer.
-RUN_COL_W = (250, 150, None, 64, 72, 84, 72, 64, 64, 96, 80)
+# header: the selection checkbox, run (start stamp/seed plus the
+# buttons), state, levels (None: LEVEL_COL_W per level of the page's
+# largest level count), steps, resets, invocations, active, queue, LLM
+# cost, updated, git. Every leaf table uses them, so columns line up
+# across agents and envs, as in the phased log viewer.
+RUN_COL_W = (30, 250, 150, None, 64, 72, 84, 72, 64, 64, 96, 80)
 LEVEL_COL_W = 104
 
 
@@ -1512,6 +1569,9 @@ def _runs_table(cards: Sequence[Dict[str, Any]], n_levels: int,
                              f"seed{card.get('seed')}", label))
         rows.append(
             f"<tr class='runrow' data-text='{esc(search)}'>"
+            f"<td><input type='checkbox' class='sel' value='{esc(key)}' "
+            "onchange='selChanged(this)' title='Select this run for the "
+            "show-selected toggle'></td>"
             f"<td>{_run_cell(card, run_owners)}</td>"
             f"<td>{chip(label, cls, _owners_title(run_owners))}</td>"
             f"<td>{_level_grid(levels, n_levels)}</td>"
@@ -1524,7 +1584,7 @@ def _runs_table(cards: Sequence[Dict[str, Any]], n_levels: int,
             f"<td class='muted'>{esc(fmt_age(card.get('updated_at')))}</td>"
             f"<td class='muted'><code>{esc(card.get('git_sha', ''))}</code>"
             "</td></tr>")
-    head = ("<thead><tr><th>run</th>"
+    head = ("<thead><tr><th></th><th>run</th>"
             "<th>state</th><th title='per level: won / lost / in progress "
             "/ not attempted, steps, resets'>levels</th>"
             "<th class='num'>steps</th><th class='num'>resets</th>"
