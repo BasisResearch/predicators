@@ -617,6 +617,7 @@ function groupMode() {
 function toggleGroupMode() {
   localStorage.setItem('cv-group', groupMode() === 'env' ? 'agent' : 'env');
   applyGroupMode();
+  applyRunFilter();
 }
 function applyGroupMode() {
   var btn = document.getElementById('groupbtn');
