@@ -2189,27 +2189,6 @@ class GlobalSettings:
     # Per-parameter jitter as a fraction of the ParamSpec box width, for
     # the uniform-fallback ensemble only (see calibrated flag below).
     agent_explorer_info_perturb_frac = 0.15
-    # Under-determination guard: an exactly/under-determined fit (as many
-    # or more free parameters than residual observations) fits its data
-    # perfectly and so its Laplace covariance reports near-zero spread -
-    # false certainty the margin gate then trusts, waving through an
-    # overfit plan (balloons 2026-09-06: a 4-entry table fit to 4 points
-    # let the agent commit an irreversible release that overshot). When
-    # this is on, a fit whose degrees of freedom (num_residuals -
-    # num_params) fall below agent_sim_learn_min_fit_dof gets a WIDE
-    # box-relative ensemble instead of the tight Laplace one, so the gate
-    # refuses plans that only survive at the overfit point estimate and
-    # the agent must find one robust across the parameter's plausible
-    # range. Off => the fit is trusted regardless of its degrees of
-    # freedom (the original behaviour).
-    agent_sim_learn_underdetermined_guard = False
-    # A fit is under-determined when num_residuals - num_params < this.
-    # 1 => require at least one residual more than free parameters.
-    agent_sim_learn_min_fit_dof = 1
-    # Box-relative spread of the under-determined ensemble (a plausible
-    # range for a parameter the data does not pin down is a large
-    # fraction of its declared box, not the near-zero Laplace width).
-    agent_sim_learn_underdetermined_perturb_frac = 0.5
     # Prefer a *calibrated* ensemble when the fit provides one: a Laplace
     # draw from the LM Jacobian (per-transition or recurrent); uniform
     # jitter only when it is not available (e.g. oracle params, where no

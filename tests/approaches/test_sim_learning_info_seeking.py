@@ -217,63 +217,6 @@ def test_select_ensemble_uniform_when_calibration_disabled():
     assert method == "uniform-perturb"
 
 
-def test_underdetermined_guard_widens_ensemble():
-    """With the guard on, a fit with dof<min gets a wide ensemble.
-
-    An exactly-determined fit (as many residuals as params) fits its
-    data perfectly, so its tight Laplace width is false certainty; the
-    guard replaces it with a box-relative spread so the margin gate can
-    refuse the overfit plan.
-    """
-    from predicators.code_sim_learning.fit_space import FitResult
-
-    # 2 residuals, 2 params -> dof = 0 (< default min 1): under-determined.
-    fit = FitResult(names=["a", "b"],
-                    samples=np.array([[1.0, 2.0]]),
-                    log_probs=np.zeros(1),
-                    jacobian=np.ones((2, 2)),
-                    noise_sigma=0.1,
-                    prior_sigma=np.array([1.0, 1.0]))
-    approach = _selector_approach(fit)
-    utils.reset_config({
-        "agent_explorer_info_calibrated_ensemble": True,
-        "agent_explorer_info_ensemble_size": 6,
-        "agent_sim_learn_underdetermined_guard": True,
-    })
-    members, method = approach._select_param_ensemble(6)
-    assert method == "underdetermined"
-    assert len(members) == 6 and members[0] == {"a": 1.0, "b": 2.0}
-    # The guard must not fire when it is off (original Laplace behaviour)...
-    utils.reset_config({
-        "agent_explorer_info_calibrated_ensemble": True,
-        "agent_explorer_info_ensemble_size": 6,
-        "agent_sim_learn_underdetermined_guard": False,
-    })
-    _, method_off = approach._select_param_ensemble(6)
-    assert method_off == "laplace"
-
-
-def test_underdetermined_guard_leaves_well_determined_fit_on_laplace():
-    """A fit with enough residuals keeps its calibrated Laplace ensemble."""
-    from predicators.code_sim_learning.fit_space import FitResult
-
-    # 8 residuals, 2 params -> dof = 6 (>= min 1): well-determined.
-    fit = FitResult(names=["a", "b"],
-                    samples=np.array([[1.0, 2.0]]),
-                    log_probs=np.zeros(1),
-                    jacobian=np.ones((8, 2)),
-                    noise_sigma=0.1,
-                    prior_sigma=np.array([1.0, 1.0]))
-    approach = _selector_approach(fit)
-    utils.reset_config({
-        "agent_explorer_info_calibrated_ensemble": True,
-        "agent_explorer_info_ensemble_size": 4,
-        "agent_sim_learn_underdetermined_guard": True,
-    })
-    _, method = approach._select_param_ensemble(4)
-    assert method == "laplace"
-
-
 def test_fit_params_no_data_seeds_declared_inits(monkeypatch):
     """With no transitions, params seed from inits and no fit runs.
 
