@@ -220,6 +220,7 @@ range and refuses one that only reaches the goal at the point estimate.
 When more than one plan certifies, prefer the one with the most margin,
 the one that still reaches the goal and triggers no losing event across
 the whole range, over one that is perfect only at the centre.
+__ADAPTIVE_INFO_SEEKING__
 
 __BASE_SIM_REFS__
 
@@ -232,6 +233,16 @@ It covers the observable core (scene geometry and constants, body
 construction, physics stepping, state read and write) and omits the
 hidden dynamics, task generation and goal semantics. Read it to ground
 spatial and physical reasoning instead of guessing from renders.
+
+<!-- section: adaptive_info_seeking -->
+Do not spend real steps gathering data before you have a plan to test.
+Model from the data you already have, then commit through a certified
+`submit_plan`. Only if the capture gate refuses your plan because a
+parameter's uncertainty threatens the goal - it names that parameter -
+is a targeted experiment worth real steps: run the smallest one that
+narrows that parameter, refit, and resubmit. `sim.suggest_probes` ranks
+those experiments once the gate has flagged one, and stays silent until
+then. A level the gate never balks at needs no probing at all.
 
 <!-- section: journal -->
 ## Journal

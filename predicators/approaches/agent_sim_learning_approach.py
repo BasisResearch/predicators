@@ -1256,7 +1256,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         Returns ``None`` (no override; ``fit_params`` falls back to the
         global setting) when info-seeking is off, else the max of the
         global and exploration budgets so the override never *reduces*
-        an explicitly configured global MCMC run.
+        an explicitly configured global MCMC run. Under adaptive
+        info-seeking the caller additionally suppresses the fit while the
+        apparatus is dormant (no parameter-sensitive refusal yet); the
+        budget math itself stays pure.
         """
         if not CFG.agent_explorer_info_seeking:
             return None
@@ -1272,6 +1275,19 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         if fit_num_steps <= CFG.code_sim_learning_num_mcmc_steps:
             return None
         return fit_num_steps
+
+    def _info_seeking_active(self) -> bool:
+        """Whether the proactive info-seeking apparatus should run now.
+
+        Delegates to the run context's adaptive gate. Partial unit-test
+        objects have no ``_tool_context``; there, fall back to the plain
+        flag (adaptive gating needs the run-scoped refusal signal the
+        context carries).
+        """
+        ctx = getattr(self, "_tool_context", None)
+        if ctx is not None:
+            return ctx.info_seeking_active()
+        return CFG.agent_explorer_info_seeking
 
     def _rebuild_param_ensemble(self) -> None:
         """Rebuild the learned model's rule-parameter ensemble.
@@ -2083,6 +2099,12 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         only; ``_fitted_params`` (the solver's point estimate) is left
         untouched.
         """
+        # Adaptive info-seeking: skip the exploration posterior fit while
+        # the apparatus is dormant (no parameter-sensitive refusal yet).
+        # The gate still runs on the Laplace ensemble; the MCMC upgrade is
+        # paid only once a refusal shows the calibration is needed.
+        if not self._info_seeking_active():
+            return
         num_steps = self._separate_exploration_fit_num_steps()
         if num_steps is None:
             return

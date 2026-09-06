@@ -398,7 +398,7 @@ class AgentModelBasedExplorer(AgentExplorerBase):
                 "sequence and parameters) unless a plan already "
                 "scheduled this cycle covers it, and fold in as many "
                 "lower entries as the step budget allows:\n" + ledger)
-        if CFG.agent_explorer_info_seeking:
+        if self._tool_context.info_seeking_active():
             parts.append(
                 "Your explicit continuous parameters execute exactly as "
                 "written. To find the parameters a step could be run at "

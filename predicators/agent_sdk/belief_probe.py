@@ -1985,6 +1985,19 @@ class BeliefProbe:
                 "session (info-seeking ensemble not installed), so "
                 "alternatives cannot be ranked."
             ])
+        if not ctx.info_seeking_active():
+            # Adaptive info-seeking: hold probing back until the capture
+            # gate has actually caught a fragile plan. Spending real steps
+            # to reduce uncertainty before then is the step tax this mode
+            # removes on easy levels.
+            return ProbeSuggestResult([], [
+                "adaptive info-seeking: no plan has been refused as "
+                "parameter-sensitive yet, so probing is not worth real "
+                "steps. Submit your best plan; if the capture gate refuses "
+                "it because a parameter's uncertainty threatens the goal, "
+                "it will name that parameter and this call will then rank "
+                "the probes that reduce it."
+            ])
         probe_task, sketch_steps, all_predicates, notices = \
             self._parse_sketch(sketch_text)
         self._refine_calls += 1

@@ -2158,6 +2158,19 @@ class GlobalSettings:
     # its parameters. Off => the ensemble is built only when the
     # rule-param margin gate asks for it.
     agent_explorer_info_seeking = False
+    # Adaptive info-seeking: with this on (and agent_explorer_info_seeking
+    # on), the proactive half of info-seeking - the probe-ranking
+    # sim.suggest_probes result, the disagreement guidance and the
+    # separate MCMC ensemble-calibration fit - stays dormant until the
+    # capture gate has refused a plan as PARAM-SENSITIVE
+    # (ctx.param_sensitive_refusal_pending). The rule-param margin gate
+    # and its (Laplace) ensemble stay always on, so the FIRST refusal can
+    # still fire; only then does the agent start spending real steps to
+    # reduce the uncertainty the gate named. This removes the info-seeking
+    # step tax on easy levels no plan is ever refused on, while keeping
+    # the robustness on levels where a fragile plan is caught. Off =>
+    # info-seeking is always active (the original behaviour).
+    agent_explorer_info_seeking_adaptive = False
     # Ensemble size used to estimate disagreement. 1 disables scoring
     # (every candidate scores 0) and reduces to first-feasible.
     agent_explorer_info_ensemble_size = 6

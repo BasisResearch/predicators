@@ -838,6 +838,16 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             redundant=redundant_detail is not None)
         decision = capture_outcome.decision
         captured = capture_outcome.captured
+        # Adaptive info-seeking trigger (ctx.info_seeking_active): a plan
+        # refused because a learned/physical parameter's uncertainty
+        # threatens it is the signal that the agent now needs to spend
+        # real steps reducing that uncertainty; a captured plan clears it.
+        # Clearance (bystander slop) is a separate concern and does not
+        # arm info-seeking, so key on the parameter-margin detail only.
+        if captured:
+            ctx.param_sensitive_refusal_pending = False
+        elif param_sensitive_detail is not None:
+            ctx.param_sensitive_refusal_pending = True
         if captured:
             # Capture the plan with a sketch that keeps only the subgoals
             # that actually held (so the closed-loop monitor won't flag a
