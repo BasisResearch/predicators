@@ -28,12 +28,15 @@ predicates when an experiment wants that.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, FrozenSet, List, Optional, Set, \
     Tuple
 
 from predicators.agent_sdk import journal as journal_mod
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES
+from predicators.agent_sdk.tools.sandbox_guard import \
+    _screen_text_for_sandbox_escape
 from predicators.agent_sdk.tools.synthesis import create_synthesis_tools
 from predicators.approaches.agent_model_free_approach import \
     AgentModelFreeApproach
@@ -56,6 +59,10 @@ if TYPE_CHECKING:  # pragma: no cover - the run package imports approaches
 # The env predicates an arm starts with unless the CFG allowlist hands
 # it some: none.
 NO_ENV_PREDICATES: FrozenSet[str] = frozenset()
+
+# The agent's own helpers around the probe, loaded into the run_python
+# namespace at every round start so they survive compaction and resume.
+PROBE_EXTENSION_FILE = "probe_ext.py"
 
 _Triple = Tuple[State, Action, State]
 
@@ -92,6 +99,9 @@ class _Workbench:
     inferred_hint: Dict[str, List[str]] = field(default_factory=dict)
     episodes: Dict[int, _EpisodeTriples] = field(default_factory=dict)
     env: Optional[Any] = None
+    # The recording's shape (one action count per episode) at the last
+    # refresh: a change invalidates the engine's memoized fits.
+    fingerprint: Tuple[int, ...] = ()
 
 
 # What one round stashes for its post-round finalize: the workbench, the
@@ -116,6 +126,9 @@ class AgentContinualApproach(ContinualPlayMixin,
         self._round_model: Optional[_RoundModel] = None
         self._fit_version_before: Optional[str] = None
         self._episodes_at_last_fit = 0
+        # What loading ./probe_ext.py did at the round's start, for the
+        # query's model line.
+        self._probe_ext_status = ""
         self._last_round_modelled = False
 
     @classmethod
@@ -157,18 +170,19 @@ class AgentContinualApproach(ContinualPlayMixin,
     def _model_status(self, session: ProtocolSession) -> str:
         n_eps, n_steps = self._episode_counts(session)
         data = f"Recorded episodes so far: {n_eps} ({n_steps} steps)."
+        ext = f" {self._probe_ext_status}" if self._probe_ext_status else ""
         if self._current_simulator_version is None:
             return ("No model yet: `sim` is the base simulator, the visible "
                     "physics with none of the environment's hidden "
                     "mechanisms. Build `./simulator.py` and `./predicates.py` "
-                    "in `run_python` and call `sim.fit()`. " + data)
+                    "in `run_python` and call `sim.fit()`. " + data + ext)
         new = max(0, n_eps - self._episodes_at_last_fit)
         refit = (f" {new} episode(s) recorded since your last fit; refit with "
                  "`sim.fit()` before you rely on the model." if new else "")
         return (
             f"Your model: `simulator.py` {self._current_simulator_version}"
             f", `predicates.py` {self._current_predicates_version or 'none'}"
-            f". Last fit: {self._fit_status_text()}. {data}{refit}")
+            f". Last fit: {self._fit_status_text()}. {data}{refit}{ext}")
 
     def _round_was_productive(self, session: ProtocolSession, state: Any,
                               steps_before: int, steps_after: int) -> bool:
@@ -236,8 +250,55 @@ class AgentContinualApproach(ContinualPlayMixin,
         probe_ns = build_probe_namespace(ctx)
         exec_ns["sim"] = probe_ns["sim"]
         exec_ns["BeliefProbe"] = probe_ns["BeliefProbe"]
+        self._load_probe_extension(exec_ns, paths.base)
         declared = set(self._get_synthesis_tool_names() or ())
         return [t for t in toolkit.tools if getattr(t, "name", "") in declared]
+
+    def _load_probe_extension(self, exec_ns: Dict[str, Any],
+                              sandbox_dir: str) -> None:
+        """Run the agent's ``./probe_ext.py`` in the ``run_python`` namespace.
+
+        The namespace is rebuilt every round and lost on a resume, so
+        helpers the agent wraps around ``sim`` (sweeps, scoring loops,
+        layout builders) vanished with the context unless it re-ran them
+        by hand (domino m2 and m3, 2026-09-05, both rebuilt their
+        helpers from the session log). The file's top-level definitions
+        land next to ``sim``, ``trajectories`` and the rest, under the
+        same sandbox screen as ``run_python`` code; what happened is
+        reported in the query's model line (:meth:`_model_status`).
+        """
+        path = os.path.join(sandbox_dir, PROBE_EXTENSION_FILE)
+        self._probe_ext_status = ""
+        if not os.path.isfile(path):
+            return
+        with open(path, encoding="utf-8") as f:
+            code = f.read()
+        reason = _screen_text_for_sandbox_escape(code, sandbox_dir)
+        if reason is not None:
+            self._probe_ext_status = (
+                f"`./{PROBE_EXTENSION_FILE}` was NOT loaded: the sandbox "
+                f"guard blocked it ({reason}).")
+            return
+        before = set(exec_ns)
+        prev_cwd = os.getcwd()
+        try:
+            os.chdir(sandbox_dir)
+            exec(compile(code, f"./{PROBE_EXTENSION_FILE}", "exec"), exec_ns)  # pylint: disable=exec-used
+        except Exception as e:  # pylint: disable=broad-except
+            logging.warning("[Continual agent] %s failed to load: %s",
+                            PROBE_EXTENSION_FILE, e)
+            self._probe_ext_status = (
+                f"`./{PROBE_EXTENSION_FILE}` failed to load "
+                f"({type(e).__name__}: {e}); its definitions are missing "
+                "from `run_python` until you fix it.")
+            return
+        finally:
+            os.chdir(prev_cwd)
+        names = sorted(n for n in set(exec_ns) - before
+                       if not n.startswith("_"))
+        listed = f" ({', '.join(names)})" if names else ""
+        self._probe_ext_status = (
+            f"`./{PROBE_EXTENSION_FILE}` loaded into `run_python`{listed}.")
 
     def _round_hooks(self, session: ProtocolSession) -> Dict[str, list]:
         del session
@@ -350,6 +411,16 @@ class AgentContinualApproach(ContinualPlayMixin,
         # groups by these lengths (a latent block threads within an
         # episode, never across); the list object keeps them current.
         self._fit_trajectories = bench.trajectories
+        fingerprint = tuple(len(t.actions) for t in bench.trajectories)
+        if fingerprint != bench.fingerprint:
+            # New data invalidates the memoized whole fits and
+            # explainability verdicts, as the phased learn hook does
+            # when its data arrives (the caches key trajectories by
+            # segment lengths, so a grown episode must not answer from
+            # its shorter self).
+            bench.fingerprint = fingerprint
+            self._explainability_cache.clear()
+            self._sysid_fit_cache.clear()
         seen: Set[int] = set()
         obs_all: List[_Triple] = []
         base_all: List[_Triple] = []

@@ -114,6 +114,12 @@ __MODEL_FILES__
   environment, which you write and edit and which persists across
   sessions and levels (see "Your model"). `run_python` probes it as
   `sim`.
+- `./probe_ext.py`: yours, optional. Helpers you build around `sim`
+  (wrappers, sweeps, layout builders, scoring loops) that you want to
+  keep: its top-level definitions are loaded into the `run_python`
+  namespace at the start of every round, next to `sim` and the data,
+  so they survive a compaction and a resume; the query's model line
+  says whether it loaded. Build on `sim` freely in the meantime.
 
 <!-- section: sandbox_model_free_files -->
 - `python3` in the sandbox reads `./data/trajectories.pkl` directly

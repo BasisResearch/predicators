@@ -197,6 +197,17 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
                     on_disk = pickle.load(f)
                 assert [len(t["actions"]) for t in on_disk] == [i + 1]
             assert ctx.current_observation is not None
+            # Helpers the agent keeps in ./probe_ext.py are loaded into
+            # run_python at the next round's start (they are not there
+            # yet in this one).
+            assert "probe_ext.py" not in message
+            with open(os.path.join(ctx.sandbox_dir, "probe_ext.py"),
+                      "w",
+                      encoding="utf-8") as f:
+                f.write("def n_recorded():\n"
+                        "    return len(trajectories)\n"
+                        "def helper_ok():\n"
+                        "    return 'ext-ok'\n")
             # What the session manager records when the CLI opens the
             # conversation; the next round continues it.
             info = os.path.join(approach._get_log_dir(), "session_info.json")  # pylint: disable=protected-access
@@ -206,6 +217,12 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
             assert "you stopped" in message and "not settled" in message
             assert "## Skills" not in message
             assert mgr.resume_session_id == "conv-1"
+            assert "`./probe_ext.py` loaded into `run_python` " \
+                "(helper_ok, n_recorded)" in message
+            assert _call(
+                approach,
+                "run_python",
+                code="print(helper_ok(), n_recorded())").startswith("ext-ok 1")
             assert "Give-up recorded" in _call(approach,
                                                "give_up",
                                                note="enough")
@@ -246,6 +263,25 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
         if f.endswith(".AgentContinual")
     ]
     assert saved, "the approach checkpointed"
+    # A broken or escaping extension is reported, never fatal, and
+    # leaves the namespace as it was.
+    sandbox = ctx.sandbox_dir
+    ns: Dict[str, Any] = {"trajectories": []}
+    with open(os.path.join(sandbox, "probe_ext.py"), "w",
+              encoding="utf-8") as f:
+        f.write("def fine():\n    return 1\nraise ValueError('boom')\n")
+    approach._load_probe_extension(ns, sandbox)  # pylint: disable=protected-access
+    status = approach._probe_ext_status  # pylint: disable=protected-access
+    assert "failed to load (ValueError: boom)" in status
+    with open(os.path.join(sandbox, "probe_ext.py"), "w",
+              encoding="utf-8") as f:
+        f.write("open('/etc/passwd').read()\n")
+    approach._load_probe_extension(ns, sandbox)  # pylint: disable=protected-access
+    status = approach._probe_ext_status  # pylint: disable=protected-access
+    assert "NOT loaded: the sandbox guard blocked it" in status
+    os.remove(os.path.join(sandbox, "probe_ext.py"))
+    approach._load_probe_extension(ns, sandbox)  # pylint: disable=protected-access
+    assert approach._probe_ext_status == ""  # pylint: disable=protected-access
 
 
 def test_play_loop_stops_at_a_lost_test_level(tmp_path: Any) -> None:
