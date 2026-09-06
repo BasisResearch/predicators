@@ -67,6 +67,7 @@ import argparse
 import datetime
 import getpass
 import glob
+import hashlib
 import html
 import json
 import mimetypes
@@ -173,6 +174,72 @@ def list_cards() -> List[Dict[str, Any]]:
             cards.append(card)
     cards.sort(key=lambda c: float(c.get("updated_at") or 0), reverse=True)
     return cards
+
+
+def run_stamp(key: str) -> str:
+    """Cheap change fingerprint of a run directory, for the page's polling.
+
+    Covers the files and directories up to two levels down (the
+    scorecard, logs, agent transcripts, each level's records) and the
+    modification time of the directories below that: a render
+    directory's mtime moves when a frame lands, so the frames
+    themselves, the bulk of a run's files, are never walked. ``gone``
+    for a missing run.
+    """
+    root = run_dir(key)
+    if root is None or not os.path.isdir(root):
+        return "gone"
+    count, max_mtime, total = 0, 0, 0
+
+    def visit(path: str, depth: int) -> None:
+        nonlocal count, max_mtime, total
+        try:
+            entries = list(os.scandir(path))
+        except OSError:
+            return
+        for entry in entries:
+            try:
+                st = entry.stat()
+            except OSError:
+                continue
+            count += 1
+            max_mtime = max(max_mtime, st.st_mtime_ns)
+            if entry.is_dir(follow_symlinks=False):
+                if depth < 2:
+                    visit(entry.path, depth + 1)
+            else:
+                total += st.st_size
+
+    visit(root, 0)
+    return f"{count}-{max_mtime}-{total}"
+
+
+def index_stamp() -> str:
+    """Fingerprint of the runs overview: the run set, each scorecard's mtime
+    and size, whether each run has aged past the live window (the state chip),
+    and the user's job queue and local runs (the owners)."""
+    now = time.time()
+    parts = []
+    pattern = os.path.join(RUNS_ROOT, "*", "*", "seed*", "run_*",
+                           SCORECARD_FILENAME)
+    for path in sorted(glob.glob(pattern)):
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue
+        key = run_key(os.path.dirname(path))
+        stale = int(now - st.st_mtime >= LIVE_WINDOW_S)
+        agent_age = agent_activity_age(key)
+        agent_stale = int(agent_age is None or agent_age >= LIVE_WINDOW_S)
+        parts.append(
+            f"{key}:{st.st_mtime_ns}:{st.st_size}:{stale}{agent_stale}")
+    procs = [
+        line for line in _ps_lines()
+        if _PS_MAIN_RE.match(line.strip().partition(" ")[2].strip())
+    ]
+    owners = repr(_squeue_rows()) + repr(procs)
+    digest = hashlib.sha1(("\n".join(parts) + owners).encode()).hexdigest()
+    return f"{len(parts)}:{digest[:16]}"
 
 
 def load_card(key: str) -> Optional[Dict[str, Any]]:
@@ -522,6 +589,10 @@ details.grp.family > summary { font-size: 15px; }
 details.grp > *:not(summary) { margin: 8px 12px; }
 details.grp > table { width: calc(100% - 24px); }
 details.grp.hidden, tr.hidden { display: none; }
+#refreshpill { position: fixed; right: 18px; bottom: 18px; z-index: 50;
+  background: var(--accent); color: #fff; border: none; cursor: pointer;
+  padding: 8px 14px; border-radius: 18px; font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0,0,0,.35); }
 html:not([data-group='env']) .lbl.agent { display: none; }
 html[data-group='env'] .lbl.env { display: none; }
 /* run page: sidebar + content pane */
@@ -778,7 +849,46 @@ function deleteRun(id, live) {
   postRun('/delete?r=' + encodeURIComponent(id) + (live ? '&kill=1' : ''),
           msg);
 }
+// Auto-refresh: poll /stamp every 10 s and reload only when the runs
+// changed (the index) or this run's directory changed (a run page; a
+// finished run polls nothing). With auto off, a pill offers the reload
+// instead. A view preference, so it lives in localStorage.
+var REFRESH_MS = 10000;
+function autoOn() { return localStorage.getItem('cv-auto') !== '0'; }
+function toggleAuto() {
+  localStorage.setItem('cv-auto', autoOn() ? '0' : '1');
+  paintAutoBtn();
+}
+function paintAutoBtn() {
+  var b = document.getElementById('arbtn');
+  if (b) b.textContent = 'auto-refresh: ' + (autoOn() ? 'on' : 'off');
+}
+function showRefreshPill() {
+  if (document.getElementById('refreshpill')) return;
+  var p = document.createElement('button');
+  p.id = 'refreshpill';
+  p.textContent = 'Runs updated - refresh';
+  p.onclick = function () { location.reload(); };
+  document.body.appendChild(p);
+}
+function pollStamp() {
+  if (document.visibilityState !== 'visible') return;
+  var content = document.getElementById('content');
+  if (content && content.dataset.done) return;
+  var url = '/stamp' + (content && content.dataset.run
+    ? '?d=' + encodeURIComponent(content.dataset.run) : '');
+  fetch(url).then(function (r) { return r.text(); }).then(function (s) {
+    if (window._stamp === undefined) { window._stamp = s; return; }
+    if (s !== window._stamp) {
+      window._stamp = s;
+      if (autoOn()) { location.reload(); } else { showRefreshPill(); }
+    }
+  }).catch(function () {});
+}
 document.addEventListener('DOMContentLoaded', function () {
+  paintAutoBtn();
+  pollStamp();
+  setInterval(pollStamp, REFRESH_MS);
   restoreGroups();
   applyGroupMode();
   restoreSelection();
@@ -1117,20 +1227,21 @@ document.addEventListener('keydown', function (e) {
 def page(title: str,
          crumb: str,
          body: str,
-         refresh: int = 0,
          controls: str = "",
          wrap: bool = True) -> str:
-    """The full HTML page; ``controls`` sits in the top bar after the crumb;
-    ``wrap`` False puts the body straight under the top bar (the run page
-    brings its own two-pane layout)."""
-    meta = (f"<meta http-equiv='refresh' content='{refresh}'>"
-            if refresh else "")
+    """The full HTML page; ``controls`` sits in the top bar after the crumb,
+    before the auto-refresh toggle (see pollStamp in the JS); ``wrap`` False
+    puts the body straight under the top bar (the run page brings its own two-
+    pane layout)."""
     content = f"<div class='content'>{body}</div>" if wrap else body
     return ("<!doctype html><html><head><meta charset='utf-8'>"
-            f"<title>{esc(title)}</title>{meta}<style>{CSS}</style>"
+            f"<title>{esc(title)}</title><style>{CSS}</style>"
             f"<script>{JS}</script></head><body>"
             "<div class='topbar'><h1><a href='/'>continual viewer</a></h1>"
-            f"<span class='crumb'>{crumb}</span>{controls}</div>"
+            f"<span class='crumb'>{crumb}</span>{controls}"
+            "<button id='arbtn' onclick='toggleAuto()' title='Reload the "
+            "page when its runs change (polled every 10 s); off shows a "
+            "refresh pill instead'></button></div>"
             f"{content}</body></html>")
 
 
@@ -1458,7 +1569,7 @@ def index_page() -> str:
     if not cards:
         body = (f"<p class='muted'>No runs under "
                 f"<code>{esc(RUNS_ROOT)}</code> yet.</p>")
-        return page("continual viewer", "runs", body, refresh=30)
+        return page("continual viewer", "runs", body)
     leaves: Dict[Tuple[str, str, str], List[Dict[str, Any]]] = {}
     for card in cards:
         key = (str(card.get("arm")), str(card.get("env")),
@@ -1471,7 +1582,7 @@ def index_page() -> str:
     owners = live_owners(cards)
     parts = [
         f"<p class='muted'>{len(cards)} run(s) under "
-        f"<code>{esc(RUNS_ROOT)}</code>. Auto-refreshes every 30 s.</p>"
+        f"<code>{esc(RUNS_ROOT)}</code>. Reloads when a run changes.</p>"
     ]
     # Agent view: every leaf rendered once under its agent header.
     parts.append("<div id='view-agent'>")
@@ -1504,11 +1615,7 @@ def index_page() -> str:
         "<button id='selbtn' onclick='toggleSelOnly()' title='Show only "
         "the checked runs (grouped under their experiment ids; the "
         "selection survives refresh)'></button>")
-    return page("continual viewer",
-                "runs",
-                "".join(parts),
-                refresh=30,
-                controls=controls)
+    return page("continual viewer", "runs", "".join(parts), controls=controls)
 
 
 def _group_header(kind: str, name: str, n_inner: int, n_runs: int) -> str:
@@ -1718,13 +1825,14 @@ def run_page(key: str) -> Optional[str]:
     nav.append("<h4>Files</h4>" + _file_tree(key) + "</div>")
     attempted = [int(lv["index"]) + 1 for lv in levels if lv.get("attempted")]
     default = f"replay/L{attempted[-1]}" if attempted else "overview"
+    # A finished run's directory rests; its page polls nothing.
+    done = " data-done='1'" if card.get("end_reason") else ""
     body = (f"<div class='run'><div class='sidebar'>{''.join(nav)}</div>"
             f"<div id='content' data-run='{esc(key)}' "
-            f"data-default='{default}'><p class='muted'>Loading…</p>"
+            f"data-default='{default}'{done}><p class='muted'>Loading…</p>"
             "</div></div>")
     crumb = f"<a href='/run/{q(key)}'>{esc(key)}</a>"
-    refresh = 0 if card.get("end_reason") else 30
-    return page(run_name(key), crumb, body, refresh=refresh, wrap=False)
+    return page(run_name(key), crumb, body, wrap=False)
 
 
 TREE_SKIP = {".git"}
@@ -2479,6 +2587,10 @@ class Handler(BaseHTTPRequestHandler):
             elif parts[0] == "run" and len(parts) == 3 and \
                     parts[2] == "replay.json":
                 self._bytes(replay_json(parts[1]), "application/json")
+            elif parts[0] == "stamp" and len(parts) == 1:
+                params = urllib.parse.parse_qs(parsed.query)
+                run = params.get("d", [""])[0]
+                self._text(run_stamp(run) if run else index_stamp(), 200)
             elif parts[0] == "card" and len(parts) == 2:
                 self._file(_card_file(parts[1]))
             elif parts[0] == "video" and len(parts) == 2:
@@ -2493,7 +2605,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # pylint: disable=invalid-name
         """Pause or delete a run, with a plain-text reply.
 
-        POST only, so the index page's auto-refresh GETs can never trip
+        POST only, so the pages' polling and reload GETs can never trip
         these, and same-origin only: a page anywhere can fire a cross-
         origin POST at localhost.
         """
