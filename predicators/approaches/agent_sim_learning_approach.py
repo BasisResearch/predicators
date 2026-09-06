@@ -1290,6 +1290,11 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
         Dispatch, most- to least-calibrated:
 
+        * ``underdetermined`` - when the guard is on and the fit has too
+          few residuals to constrain its params (dof below
+          ``agent_sim_learn_min_fit_dof``), a WIDE box-relative ensemble:
+          the fit is overfit, so its tight Laplace width is false
+          certainty (see ``agent_sim_learn_underdetermined_guard``).
         * ``laplace`` - when the fit attached an LM Jacobian, draw from the
           Laplace covariance at the MAP (per-transition or recurrent).
         * ``uniform`` - otherwise (oracle params, LM skipped/failed, or
@@ -1298,6 +1303,24 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         fit = self._last_fit_result
         calibrated = CFG.agent_explorer_info_calibrated_ensemble
         if calibrated and fit is not None:
+            if (CFG.agent_sim_learn_underdetermined_guard
+                    and fit.jacobian is not None):
+                # jacobian is (num_residuals, num_params) at the MAP.
+                num_residuals, num_params = fit.jacobian.shape
+                dof = num_residuals - num_params
+                if dof < CFG.agent_sim_learn_min_fit_dof:
+                    logger.info(
+                        "Under-determined fit (%d residuals, %d params, "
+                        "dof=%d): widening the ensemble instead of trusting "
+                        "the Laplace width.", num_residuals, num_params, dof)
+                    return perturbation_ensemble(
+                        self._fitted_params,
+                        self._param_specs,
+                        num_members=num_members,
+                        perturb_frac=(
+                            CFG.agent_sim_learn_underdetermined_perturb_frac),
+                        rng=self._rng,
+                    ), "underdetermined"
             if (fit.jacobian is not None and fit.noise_sigma is not None
                     and fit.prior_sigma is not None):
                 return laplace_ensemble(

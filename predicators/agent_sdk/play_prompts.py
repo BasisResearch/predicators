@@ -93,10 +93,18 @@ def build_play_system_prompt(tool_names: Sequence[str],
         if (CFG.agent_explorer_info_seeking
                 and CFG.agent_explorer_info_seeking_adaptive):
             adaptive = "\n" + render("play_system", "adaptive_info_seeking")
+        # Under-determination guard: teach the observable-vs-hidden /
+        # don't-overfit rule only when the guard is on, so the A/B stays
+        # clean. Leading newline keeps the placeholder line blank if off.
+        underdetermined = ""
+        if CFG.agent_sim_learn_underdetermined_guard:
+            underdetermined = "\n" + render("play_system",
+                                            "underdetermined_guidance")
         sections.append(
             render("play_system",
                    "model",
                    base_sim_refs=refs,
+                   underdetermined_guidance=underdetermined,
                    adaptive_info_seeking=adaptive))
         if model_contract:
             sections.append(model_contract)

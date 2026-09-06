@@ -220,6 +220,7 @@ range and refuses one that only reaches the goal at the point estimate.
 When more than one plan certifies, prefer the one with the most margin,
 the one that still reaches the goal and triggers no losing event across
 the whole range, over one that is perfect only at the centre.
+__UNDERDETERMINED_GUIDANCE__
 __ADAPTIVE_INFO_SEEKING__
 
 __BASE_SIM_REFS__
@@ -233,6 +234,23 @@ It covers the observable core (scene geometry and constants, body
 construction, physics stepping, state read and write) and omits the
 hidden dynamics, task generation and goal semantics. Read it to ground
 spatial and physical reasoning instead of guessing from renders.
+
+<!-- section: underdetermined_guidance -->
+Separate what you can READ from what you must FIT. Fixed geometry -
+where a body sits, how freed bodies stack, the size and spacing of
+things - is in the base simulator source above; read it and compute with
+it, do not spend a `PARAM_SPEC` inventing a hidden law for structure you
+can already see. Reserve fitted parameters for genuinely hidden dynamics
+(a rate, a force, a mass). And a fit only teaches you something when the
+data outnumber its parameters: a law with one free constant per
+observation reproduces those observations exactly and predicts nothing
+out of sample, so it certifies with false confidence. Before you bet an
+irreversible move on a fitted law, check it against data it was NOT fit
+on; if it has no such check, treat it as a guess and prefer the policy
+that wins across the whole plausible range - on a level where a wrong
+first move cannot be undone, approach the goal in steps each of which is
+safe under that whole range rather than one leap that is right only if
+the guess is.
 
 <!-- section: adaptive_info_seeking -->
 Do not spend real steps gathering data before you have a plan to test.

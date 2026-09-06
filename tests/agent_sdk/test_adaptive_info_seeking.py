@@ -86,3 +86,22 @@ def test_prompt_guidance_only_under_adaptive_model_arm():
     })
     assert _GUIDANCE_MARKER not in build_play_system_prompt(
         model_tools, base_sim_refs=["envs/x.py"])
+
+
+_GUARD_MARKER = "Separate what you can READ"
+
+
+def test_underdetermined_prompt_only_under_guard_model_arm():
+    """The observable-vs-hidden rule appears only for the model arm with the
+    under-determination guard on; model-free never sees it."""
+    model_tools = ["env_observe", "run_python", "submit_plan"]
+    free_tools = ["env_observe", "submit_plan"]
+
+    utils.reset_config({"agent_sim_learn_underdetermined_guard": True})
+    assert _GUARD_MARKER in build_play_system_prompt(
+        model_tools, base_sim_refs=["envs/x.py"])
+    assert _GUARD_MARKER not in build_play_system_prompt(free_tools)
+
+    utils.reset_config({"agent_sim_learn_underdetermined_guard": False})
+    assert _GUARD_MARKER not in build_play_system_prompt(
+        model_tools, base_sim_refs=["envs/x.py"])
