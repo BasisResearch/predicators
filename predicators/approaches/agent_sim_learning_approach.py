@@ -290,6 +290,15 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 f"affected tasks must supply `goal_nl` as the goal signal. "
                 f"Missing on train task indices: {missing_nl}")
         self._learned_simulator: Optional[LearnedSimulator] = None
+        # The subclass model form: when the loaded simulator.py exports a
+        # RESIDUAL_ENV, the planning base env is an instance of that
+        # subclass (its own _domain_specific_step runs, so
+        # skip_residual_dynamics is False) and there are no residual
+        # rules; its AGENT_PARAM_SPECS ride in _physical_param_specs and
+        # are fit by the rollout system-ID. None on the rule form and on
+        # every stock arm, where the base env is the fixed base-sim class
+        # with skip_residual_dynamics=True.
+        self._residual_env_cls: Optional[type] = None
         # Loss-scope mask for parameter fitting (compute_sse).
         self._residual_features: Dict[str, List[str]] = {}
         self._residual_rules: Optional[List] = None
@@ -2157,6 +2166,26 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
     # ── System identification (PHYSICAL_PARAM_SPECS) support ──────────
 
+    def _make_planning_base_env(self, use_gui: bool = False) -> Any:
+        """A fresh planning base env.
+
+        The subclass model form (``_residual_env_cls`` set) runs an
+        instance of the agent's subclass with its own
+        ``_domain_specific_step`` firing (``skip_residual_dynamics``
+        False); every rule-form or stock arm gets the fixed base-sim
+        class with ``skip_residual_dynamics`` True, i.e. exactly
+        ``create_new_env(CFG.env, skip_residual_dynamics=True)`` as
+        before.
+        """
+        residual_env_cls = getattr(self, "_residual_env_cls", None)
+        if residual_env_cls is not None:
+            return residual_env_cls(use_gui=use_gui,
+                                    skip_residual_dynamics=False)
+        return create_new_env(CFG.env,
+                              do_cache=False,
+                              use_gui=use_gui,
+                              skip_residual_dynamics=True)
+
     def _get_rollout_fit_env(self) -> Any:
         """Factory for the headless envs the rollout fit rolls out in.
 
@@ -2175,10 +2204,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         """
 
         def _make() -> Any:
-            return create_new_env(CFG.env,
-                                  do_cache=False,
-                                  use_gui=False,
-                                  skip_residual_dynamics=True)
+            return self._make_planning_base_env(use_gui=False)
 
         return _make
 
@@ -3307,10 +3333,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         logging.warning(
             "PyBullet physics client crashed; recreating base env "
             "(use_gui=%s).", CFG.option_model_use_gui)
-        self._base_env = create_new_env(CFG.env,
-                                        do_cache=False,
-                                        use_gui=CFG.option_model_use_gui,
-                                        skip_residual_dynamics=True)
+        self._base_env = self._make_planning_base_env(
+            use_gui=CFG.option_model_use_gui)
         # A fresh env comes up with built-in physics; re-assert any
         # identified physical params (the in-place override does not
         # survive env recreation).
@@ -3358,10 +3382,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         including the replacement env a mid-rollout PyBullet-crash
         recovery (``_recreate_base_env``) may have installed.
         """
-        fresh = create_new_env(CFG.env,
-                               do_cache=False,
-                               use_gui=False,
-                               skip_residual_dynamics=True)
+        fresh = self._make_planning_base_env(use_gui=False)
         if self._identified_physical_params:
             fresh.apply_physical_param_overrides(
                 self._identified_physical_params)
