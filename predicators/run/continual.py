@@ -98,22 +98,42 @@ class Ledger:
     # False on a level without resets (a test level, unless
     # continual_allow_test_resets): GAME_OVER ends it, lost.
     resets_allowed: bool = True
+    # The episode in progress against its horizon: exhausting it is
+    # GAME_OVER, which on a level without resets loses the level. The
+    # pooled cap above never showed this (domino m3, 2026-09-05, ran a
+    # 500-step test episode into the horizon with 9259 pooled steps
+    # left and nothing in the ledger about the 500).
+    episode_steps: int = 0
+    horizon: Optional[int] = None
 
     @property
     def steps_remaining(self) -> int:
         """Steps left under the pooled cap."""
         return max(0, self.step_cap - self.run_steps)
 
+    @property
+    def episode_steps_remaining(self) -> Optional[int]:
+        """Steps left in the episode before its horizon, if there is one."""
+        if self.horizon is None:
+            return None
+        return max(0, self.horizon - self.episode_steps)
+
     def footer(self) -> str:
         """One line for tool results."""
         hours = self.active_seconds / 3600.0
         cap_hours = self.wall_clock_cap_seconds / 3600.0
+        if self.horizon is None:
+            episode = ""
+        else:
+            ends = ("; it ends the level" if not self.resets_allowed else "")
+            episode = (f"; episode {self.episode_steps}/{self.horizon} steps "
+                       f"to its horizon{ends}")
         return (f"[ledger] level {self.level_index + 1}/{self.levels_total}; "
                 f"steps {self.level_steps} this level, {self.run_steps} "
                 f"this run, {self.steps_remaining} remaining; resets "
                 f"{self.level_resets} this level, {self.run_resets} this "
                 f"run{'' if self.resets_allowed else ' (none on this level)'}"
-                f"; active {hours:.2f}/{cap_hours:.0f} h")
+                f"{episode}; active {hours:.2f}/{cap_hours:.0f} h")
 
 
 @dataclass(frozen=True)
@@ -552,6 +572,10 @@ class ContinualRun:
             active_seconds=self._active_seconds(),
             wall_clock_cap_seconds=self._card.wall_clock_cap,
             resets_allowed=self.resets_allowed(),
+            episode_steps=(self._runner.num_steps
+                           if self._runner is not None else 0),
+            horizon=(self._runner.horizon
+                     if self._runner is not None else None),
         )
 
     def step(self, action: Action) -> StepOutcome:

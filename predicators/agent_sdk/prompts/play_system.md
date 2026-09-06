@@ -60,8 +60,11 @@ every level while spending as few environment steps as possible.
   reaches the goal atoms illegitimately ends in `GAME_OVER`.
 - Every tool result ends with a `[ledger]` line and a `[context]` line.
   The ledger: steps and resets on this level and in the run, the steps
-  remaining under the cap, and the active wall-clock. The context: the
-  size of this conversation, its turns, and how many times it has been
+  remaining under the cap, the current episode's steps against its
+  horizon, and the active wall-clock. The horizon is per episode:
+  reaching it is `GAME_OVER`, and on a level without resets that loses
+  the level, whatever the cap still holds. The context: the size of
+  this conversation, its turns, and how many times it has been
   compacted. Read them; together they are your budget.
 
 <!-- section: tools -->

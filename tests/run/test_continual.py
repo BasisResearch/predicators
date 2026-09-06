@@ -338,6 +338,13 @@ def test_session_protocol_errors(tmp_path: Any) -> None:
             assert obs.state is EpisodeState.NOT_FINISHED
             assert obs.ledger.level_steps == 0
             assert "[ledger]" in obs.ledger.footer()
+            # The episode horizon rides in the ledger, apart from the
+            # pooled cap.
+            assert obs.ledger.horizon == 3
+            assert obs.ledger.episode_steps == 0
+            assert obs.ledger.episode_steps_remaining == 3
+            assert "episode 0/3 steps to its horizon" in obs.ledger.footer()
+            assert "it ends the level" not in obs.ledger.footer()
             zero = Action(np.zeros(env.action_space.shape, dtype=np.float32))
             # Three no-op steps exhaust the horizon.
             for _ in range(3):
@@ -387,6 +394,10 @@ def test_test_levels_have_no_resets_by_default(tmp_path: Any) -> None:
             assert not session.resets_allowed
             obs = session.observe()
             assert "(none on this level)" in obs.ledger.footer()
+            # Without resets the horizon is the level's life; the ledger
+            # says so and counts the episode's steps toward it.
+            assert "steps to its horizon; it ends the level" in \
+                obs.ledger.footer()
             session.step(zero)
             with pytest.raises(ResetUnavailable):
                 session.reset("please")

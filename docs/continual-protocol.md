@@ -226,7 +226,8 @@ Learning, offered to the learning arms:
 
 - `learn.run(kind)`: launch a learning sub-session of an existing kind (simulator synthesis, predicate invention, sampler synthesis) in-process and return its summary. Free.
 
-Every tool result carries the ledger footer: level, steps and resets on this level and in the run, whether the level has resets, and the remaining step cap.
+Every tool result carries the ledger footer: level, steps and resets on this level and in the run, whether the level has resets, the remaining step cap, and the current episode's steps against its horizon.
+The episode horizon is the one budget the pooled cap does not show, and on a level without resets it is the level's life, so the footer names it and says so.
 The footer is the pacing signal, in the same spirit as the current `[budget]` footer.
 
 ### 5.2 Observation

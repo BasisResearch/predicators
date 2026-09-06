@@ -125,6 +125,11 @@ class EpisodeRunner:
         return len(self._actions)
 
     @property
+    def horizon(self) -> int:
+        """The episode's step horizon: reaching it is ``GAME_OVER``."""
+        return self._horizon
+
+    @property
     def env_seconds(self) -> float:
         """Seconds spent inside env calls since construction."""
         return self._env_seconds
