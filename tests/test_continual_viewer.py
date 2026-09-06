@@ -124,6 +124,9 @@ def test_pages_render_for_a_finished_run(tmp_path: Any,
     # level recordings.
     assert "L01/" in run_html and "index.jsonl" in run_html
     assert "scorecard.json" in run_html
+    # Each tree directory is keyed by run and path so its open state
+    # survives the live run's reloads (see restoreGroups in the JS).
+    assert f"<details class='tree-dir' data-key='{key}/L01'" in run_html
     overview = viewer.fragment(key, "overview")
     assert overview is not None
     assert "Cumulative steps vs levels won" in overview

@@ -658,14 +658,20 @@ function $all(s, r) { return Array.from((r || document).querySelectorAll(s)); }
 // moves the leaves into the headers of the chosen view, sorted by the
 // inner level's name. The mode and each group's open state are the
 // user's, kept in localStorage so the auto-refresh reloads keep them.
+// The run page's file tree (details.tree-dir, keyed by run and path)
+// persists the same way.
 // Chromium fires a toggle for every <details open> it parses, before
 // DOMContentLoaded; those must not be recorded (they would mark every
 // group open before the restore reads the store), so the listener only
 // records toggles once restoreGroups has run.
 var GROUPS_RESTORED = false;
-function groupKey(d) { return 'cv-grp:' + d.dataset.key; }
+var PERSISTED = 'details.grp, details.tree-dir';
+function groupKey(d) {
+  return (d.classList.contains('grp') ? 'cv-grp:' : 'cv-tree:') +
+    d.dataset.key;
+}
 function restoreGroups() {
-  $all('details.grp').forEach(function (d) {
+  $all(PERSISTED).forEach(function (d) {
     var v = localStorage.getItem(groupKey(d));
     if (v !== null) d.open = v === '1';
   });
@@ -673,7 +679,7 @@ function restoreGroups() {
 }
 document.addEventListener('toggle', function (e) {
   var d = e.target;
-  if (GROUPS_RESTORED && d.classList && d.classList.contains('grp'))
+  if (GROUPS_RESTORED && d.matches && d.matches(PERSISTED))
     localStorage.setItem(groupKey(d), d.open ? '1' : '0');
 }, true);
 function setAllGroups(open) {
@@ -1843,14 +1849,18 @@ TREE_MAX_DEPTH = 4
 def _file_tree(key: str) -> str:
     """The run directory as nested collapsible lists: files link to their view,
     transcripts to their session view, and a directory's "list" link to its
-    listing."""
+    listing.
+
+    Each directory's open state is the user's, keyed by run and path
+    (see restoreGroups in the JS), so the reloads of a live run keep it.
+    """
     root = run_dir(key)
     if root is None or not os.path.isdir(root):
         return "<p class='muted'>No files.</p>"
-    return "<div class='tree'>" + _tree_dir(root, "", 0) + "</div>"
+    return "<div class='tree'>" + _tree_dir(root, key, "", 0) + "</div>"
 
 
-def _tree_dir(path: str, rel: str, depth: int) -> str:
+def _tree_dir(path: str, key: str, rel: str, depth: int) -> str:
     try:
         names = sorted(n for n in os.listdir(path) if n not in TREE_SKIP)
     except OSError:
@@ -1863,10 +1873,12 @@ def _tree_dir(path: str, rel: str, depth: int) -> str:
     for name in dirs:
         sub = f"{rel}/{name}" if rel else name
         open_attr = " open" if sub in ("agent", "agent/sandbox") else ""
-        inner = (_tree_dir(os.path.join(path, name), sub, depth +
+        inner = (_tree_dir(os.path.join(path, name), key, sub, depth +
                            1) if depth + 1 < TREE_MAX_DEPTH else "")
-        out.append(f"<details{open_attr}><summary>{esc(name)}/ "
-                   f"{list_link % esc(sub)}</summary>{inner}</details>")
+        out.append(
+            f"<details class='tree-dir' data-key='{esc(key)}/{esc(sub)}'"
+            f"{open_attr}><summary>{esc(name)}/ "
+            f"{list_link % esc(sub)}</summary>{inner}</details>")
     for name in files[:TREE_MAX_FILES]:
         sub = f"{rel}/{name}" if rel else name
         out.append(f"<a href='{_file_href(rel, name)}' title='{esc(sub)}'>"
