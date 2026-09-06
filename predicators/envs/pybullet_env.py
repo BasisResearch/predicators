@@ -117,6 +117,10 @@ class ActionExecutor(Protocol):
 
 class PyBulletEnv(BaseEnv):
     """Base class for a PyBullet environment."""
+    # The subclass model form declares its learnable constants here (a
+    # list of ParamSpec); a stock env leaves it empty. See
+    # ``_agent_param_values`` in __init__ and ``agent_param``.
+    AGENT_PARAM_SPECS: ClassVar[List[Any]] = []
     # Parameters that aren't important enough to need to clog up settings.py
 
     # General robot parameters.
@@ -301,6 +305,18 @@ class PyBulletEnv(BaseEnv):
         # When True, _domain_specific_step() is skipped in step().
         # Used by sim-learning to create base-sim-only envs.
         self._skip_domain_specific_dynamics: bool = skip_residual_dynamics
+        # The subclass model form (a learning agent subclasses a base-sim
+        # env and overrides _domain_specific_step with its own hidden
+        # dynamics): AGENT_PARAM_SPECS are the learnable constants that
+        # step reads via self.agent_param(name). They are surfaced through
+        # get_physical_param_info / apply_physical_param_overrides, so the
+        # same rollout system-ID that fits an env's physical parameters
+        # fits these too. Empty on every stock env, so the physical-param
+        # path is byte-identical there.
+        self._agent_param_values: Dict[str, float] = {
+            spec.name: float(spec.init_value)
+            for spec in type(self).AGENT_PARAM_SPECS
+        }
 
         # Drives real hardware from this env's rollouts; None means pure sim,
         # which is what every env built by the planner stays.
@@ -828,6 +844,73 @@ class PyBulletEnv(BaseEnv):
         filling, heating, balance beam physics, etc.). Skipped when
         ``skip_residual_dynamics=True`` is passed to the constructor.
         """
+
+    # ── Subclass model form: agent parameters ───────────────────
+
+    def agent_param(self, name: str) -> float:
+        """The current value of one ``AGENT_PARAM_SPECS`` parameter.
+
+        Read from inside a subclass model's ``_domain_specific_step`` so
+        the fit stack can identify it: the value comes from the last
+        ``apply_physical_param_overrides`` (the fitter's candidate) and
+        falls back to the spec's ``init_value``.
+        """
+        return self._agent_param_values[name]
+
+    def _agent_param_info(self) -> Dict[str, Dict]:
+        """``get_physical_param_info`` entries for the AGENT_PARAM_SPECS, with
+        the box the specs declare (empty on a stock env)."""
+        info: Dict[str, Dict] = {}
+        for spec in type(self).AGENT_PARAM_SPECS:
+            lo = spec.lo if spec.lo is not None else 0.0
+            hi = spec.hi if spec.hi is not None else max(
+                1.0,
+                float(spec.init_value) * 10.0)
+            entry: Dict[str, Any] = {
+                "default": self._agent_param_values[spec.name],
+                "lo": float(lo),
+                "hi": float(hi),
+                "description": f"agent-declared parameter {spec.name}",
+            }
+            if getattr(spec, "scale", "linear") == "log":
+                entry["scale"] = "log"
+            info[spec.name] = entry
+        return info
+
+    def _on_agent_params_changed(self) -> None:
+        """Hook a subclass model overrides to push agent parameters that set
+        engine properties (a mass, a friction) into PyBullet after they change;
+        a no-op by default, since most parameters are read live in
+        ``_domain_specific_step``."""
+
+    def get_physical_param_info(self) -> Dict[str, Dict]:
+        """Merge the AGENT_PARAM_SPECS into whatever the env exposes.
+
+        A stock env leaves ``AGENT_PARAM_SPECS`` empty, so this returns
+        exactly ``super().get_physical_param_info()`` — the physical-
+        param surface is unchanged. A subclass model exposes its
+        declared parameters here so the rollout system-ID fits them.
+        """
+        info = dict(super().get_physical_param_info())
+        info.update(self._agent_param_info())
+        return info
+
+    def apply_physical_param_overrides(self, params: Dict[str, float]) -> None:
+        """Accept AGENT_PARAM_SPECS overrides here; pass the rest through.
+
+        Agent parameters are stored (read live by ``agent_param``); any
+        remaining keys go to ``super`` (the env's own physical params,
+        or the base class, which rejects unknown names). Empty
+        ``AGENT_PARAM_SPECS`` means nothing is peeled off and the call
+        is the stock env's.
+        """
+        agent_names = {spec.name for spec in type(self).AGENT_PARAM_SPECS}
+        mine = {k: float(v) for k, v in params.items() if k in agent_names}
+        rest = {k: v for k, v in params.items() if k not in agent_names}
+        if mine:
+            self._agent_param_values.update(mine)
+            self._on_agent_params_changed()
+        super().apply_physical_param_overrides(rest)
 
     # ── Residual physics commands ───────────────────────────────
 

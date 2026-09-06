@@ -497,6 +497,30 @@ def read_physical_param_specs(ns: Mapping[str, Any]) -> Optional[List]:
     return specs
 
 
+def read_residual_env(ns: Mapping[str, Any]) -> Optional[type]:
+    """Pull ``RESIDUAL_ENV`` (optional) from a simulator namespace.
+
+    The subclass model form: instead of ``RESIDUAL_RULES`` the file
+    exports ``RESIDUAL_ENV``, a subclass of the env's base-sim class
+    that overrides ``_domain_specific_step`` with its own hidden
+    dynamics and declares its learnable constants in the class attribute
+    ``AGENT_PARAM_SPECS`` (read inside the step via
+    ``self.agent_param``) and the features it owns in
+    ``RESIDUAL_FEATURES``. The harness runs an instance of it
+    (``skip_residual_dynamics=False``) as the planning base env, and the
+    rollout system-ID fits the AGENT_PARAM_SPECS as physical parameters.
+    Returns the class, or ``None`` when the export is absent or is not a
+    ``PyBulletEnv`` subclass.
+    """
+    # Local import to avoid a module-load cycle (envs import this module).
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.envs.pybullet_env import PyBulletEnv
+    cls = ns.get("RESIDUAL_ENV")
+    if isinstance(cls, type) and issubclass(cls, PyBulletEnv):
+        return cls
+    return None
+
+
 def stamp_physical_spec_scales(specs: List, base_env: Any) -> List:
     """Stamp each physical ParamSpec's fit ``scale`` from the env registry.
 
