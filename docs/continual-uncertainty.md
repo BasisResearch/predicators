@@ -1,0 +1,276 @@
+# Perceptual uncertainty in the continual protocol
+
+Companion to `docs/continual-protocol.md`, which defines the protocol this document extends.
+
+Status: design settled 2026-09-07; the channel (step 1 of section 7) is implemented the same day, see section 8.
+Decision: the protocol gains a Gaussian observation channel that both agent arms see.
+The agent stays the planner.
+There is no classical belief-space planning layer.
+The model-based arm's principled use of noise is filtering with its own learned simulator, added only if the noise sweep shows it is needed.
+The design converges with the Model Discovery Agent (MDA, Murphy 2026, arXiv 2608.09696) on its Bayesian foundation and takes three refinements from it, listed in section 4.
+
+## 1. Why
+
+Every arm currently observes the exact PyBullet state.
+Real perception is noisy, so a reviewer will ask two questions.
+Do the results survive observation noise at all?
+Does the model-based arm's advantage come from having a generative model, or from being handed exact state that a real robot never gets?
+
+The answer is to make noise part of the protocol rather than an argument.
+Noise then becomes a measured axis, a sigma sweep, and the model-based arm gets the one thing a generative model buys beyond sample efficiency: a Bayesian filter over what it cannot see directly.
+
+## 2. Where uncertainty lives today
+
+- Observation: exact.
+  `ContinualRun.observation()` in `predicators/run/continual.py` builds the frame from the env state, and `observation_view` in `predicators/code_sim_learning/utils.py` drops the privileged and simulator-state channels without perturbing anything.
+- Hidden parameters: `sim.fit` returns a Levenberg-Marquardt MAP with a Laplace covariance (`predicators/code_sim_learning/fitting.py`), with an MCMC variant as an ablation.
+  Its likelihood is iid Gaussian on residuals with a fixed `noise_sigma` (default 0.05 in `predicators/code_sim_learning/fitting.py`), and the same sigma scales the prior residual rows and the segment-trimming threshold.
+  This is the only place the code assumes a noise model, and it assumes one the env never produces.
+- Hidden state: `LatentTracker` (`predicators/code_sim_learning/latent_tracker.py`) runs the agent's rules forward on every real observation and never corrects on it.
+  Its docstring names a Rao-Blackwellised particle filter over the parameter ensemble as the natural extension.
+- Ensembles: the info-seeking gate draws a calibrated Laplace ensemble to rank probes by disagreement (`agent_explorer_info_calibrated_ensemble`), and the program-world-model arm keeps belief particles at its capture gate (`agent_program_belief_particles`).
+  Both are used for one-off decisions and neither is updated by observations.
+- Model choice: one agent-authored simulator at a time, judged by its SSE against a noise floor.
+  Nothing penalises a parameter the agent adds to absorb residual, which is harmless while observations are exact and stops being harmless once they carry noise.
+- Abstraction: predicates are hard thresholds on exact features, and the execution monitor aborts on a hard atom mismatch.
+  The latent-only monitor trap and the seed-3 bridge run that missed `SeatedOn` by 2 mm are noise-free previews of what pose noise does routinely.
+- Real robot: the ZED marker and markerless pipelines (`real_robot_perception`) are the source of realistic sigma values.
+
+## 3. Design
+
+### 3.1 The observation channel
+
+The channel sits at the env-to-observation boundary in the continual runner.
+It perturbs the frame handed to the agent and the recording the agent reads (`data/trajectories.pkl`), because the fit must see exactly what the agent sees.
+Everything the harness judges stays on the true state: the evaluator's win certification, `evaluate_episode`, the level index's full atom set, and the replay video.
+The level index records the true state next to the observed one for analysis and never shows the true one to an arm.
+
+Model:
+
+- Additive zero-mean Gaussian per feature, with one sigma per feature class: position, orientation, and scalar (fill level, joint value).
+- Object features only.
+  The robot's own state stays exact, since proprioception is accurate on the real robot too.
+- One draw per env step, keyed by run seed, level index, episode and step, so a run is reproducible and a resumed run re-observes the same frames.
+- `env.observe` stays free and stays idempotent between steps.
+  Repeated calls return the same frame.
+  Re-observing costs a step (a zero action or `Wait`), which is what makes averaging a decision rather than a free lunch.
+- Noise is stationary for the whole run.
+  A sigma the agent calibrates on the first level is worth the same on the last one, so calibration is one of the objects a continual agent carries forward.
+
+Declared to the agent in the contract: the noise family, which features it touches, and the sigma values.
+Declared is the default.
+MDA treats sigma as known in every one of its benchmarks and gets its noise robustness from putting that sigma in the likelihood, so the undeclared variant, where the agent must measure sigma by re-observing a static scene, is the harder ablation rather than the base case.
+The fit's `noise_sigma` is set from the declared channel, so the likelihood, the segment trimming and the refusal wording all speak in the env's actual noise from day one.
+
+Dropout (a feature reported missing with some probability) and quantization are deliberate follow-ups, not part of the first version.
+
+Proposed flags and records:
+
+| Item | Built as |
+|---|---|
+| `continual_obs_noise_position` | position sigma on `x`, `y`, `z`, metres, 0 disables |
+| `continual_obs_noise_orientation` | orientation sigma on `rot`, `roll`, `pitch`, `yaw`, `tilt`, `wrist` and a Type's `angular_features`, radians |
+| `continual_obs_noise_declared` | whether the contract states the sigmas and the fit knows them (default on) |
+| scorecard | `obs_noise_position`, `obs_noise_orientation`, `obs_noise_declared`; `aggregate_scorecards.py` carries the columns and the viewer's run page shows the channel |
+
+A scalar-feature class (fill levels, joint values) is deferred: none of the target envs discriminates on one, and a noisy discrete feature is the dropout follow-up, not a Gaussian.
+
+Sigma values are chosen per env relative to the tightest predicate tolerance in that env, not as absolute numbers.
+A sweep at a quarter, a half, and the full tolerance answers the question at the scale where the abstraction starts to flip.
+
+Both arms see the same channel.
+The model-free arm may write its own smoothing in the sandbox.
+The harness filter of section 3.3 is model-based, so offering it to the model-free arm would hand it a model it does not have.
+
+### 3.2 The sigma sweep
+
+Step two runs both arms with the channel and nothing else changed.
+The metrics are the protocol's base metrics.
+
+The sweep answers, per arm and per sigma:
+
+- whether the model-based arm stays ahead of the model-free arm at all;
+- which failure dominates: abstraction flips (atoms toggling near thresholds), fit bias (the sysid absorbing noise into contact parameters), or monitor aborts (a healthy plan killed by a noisy mismatch);
+- how much of the noise the coding agents handle on their own by averaging reads and widening margins.
+
+Attribution uses the recorded true state against the observed frame, which is why the level index stores both.
+If the model-based arm stays ahead on raw observations the filter is a robustness result rather than a rescue, and that is the stronger paper story either way.
+
+### 3.3 The filter
+
+Built only if the sweep calls for it.
+It lives in `LatentTracker`, whose contract already names it, and it serves two callers: execution and the fit.
+
+At execution:
+
+- A particle is a parameter draw from the fit's Laplace or MCMC posterior plus a latent block.
+- Each real step propagates every particle with the agent's own simulator through the same rule entry points the belief uses, weights it by the Gaussian likelihood of the observed frame under the declared sigma (the same form the fit already uses), and resamples systematically when the effective sample size drops below half.
+- Static parameters degenerate under resampling, so the filter either jitters them (Liu-West) or re-fits from the run-long data workbench at a fixed cadence, which also keeps the fit and the filter consistent.
+- Output: the weighted particle set, a filtered estimate (the weighted mean), and a per-feature spread.
+- The posterior at the end of a level becomes the prior of the next `sim.fit`.
+  The parameter posterior and the calibrated noise are the objects carried across levels, and the model-free arm has no such object.
+
+Inside the fit:
+
+- Today each rollout segment starts from the observed state and is scored by least squares against the observed states that follow.
+  Under noise the initial condition is itself an error, and least squares from a wrong start biases exactly the contact parameters the fit is after.
+- MDA scores a noisy trajectory by the particle-filter marginal likelihood, which integrates out the latent states including the initial one.
+  `sim.fit` does the same: a candidate parameter is scored by the filter's marginal likelihood of each observed segment rather than by the SSE of a rollout from its first frame.
+- Where the full filter is too slow for the inner loop, the fallback is to treat each segment's initial condition as a latent variable with the declared sigma, which is the errors-in-variables correction without the particle machinery.
+- MDA re-fits from scratch every round and reports that this cost caps its experiment budget.
+  The continual setting has the warm start it lacks: the carried posterior is the prior, so a level's fit starts where the last one ended.
+
+Cost is one simulator step per particle per real step.
+The parallel rollout path already exists and the real step is slow, so a particle count in the tens is affordable.
+
+### 3.4 Model comparison by evidence
+
+MDA keeps a population of model structures weighted by marginal likelihood, and the paper notes that integrating over parameters "provides an automatic Occam penalty factor for complex models with many parameters".
+Noise is the regime where that penalty matters: a rule the agent adds to explain residual can fit the noise, and under SSE that looks like progress.
+
+The cheap version of MDA's model level needs nothing the fit does not already compute.
+The MAP and the Jacobian at the MAP give a Laplace approximation to the evidence, so every fit reports its log evidence next to its SSE.
+The fit report shows the evidence delta against the previous simulator version, and a version that adds parameters has to win on evidence, not on residual.
+The harness keeps the last few simulator versions with their evidence so the agent's choice of which to deploy is grounded, but it still deploys one model, the current MAP.
+MDA itself predicts with the single Occam-MAP model on its harder benchmarks and averages only on the easy ones, so a single deployed model is the same choice, not a shortcut.
+
+### 3.5 Gates measured against sigma
+
+MDA's test for an insufficient hypothesis space is a posterior predictive check against the noise: expand the model when the predictive error is too large for the likelihood to explain, prune when one model is confidently identified.
+The refusal and margin gates are the informal version of that check, and two refinements follow directly.
+
+- A refusal states whether the unexplained residual exceeds what the declared sigma allows.
+  That single bit is what tells the agent to change the model rather than fit harder, and it is the bit the current refusal wording leaves the agent to infer.
+- An ensemble disagreement smaller than sigma is not worth a probe, because one noisy observation cannot resolve it.
+  The info-seeking margin is normalised by the declared sigma on the features the subgoal atom reads, so probe value is measured in units of what an observation can actually tell.
+
+### 3.6 The belief-aware tool surface
+
+The belief reaches the agent through the tools it already has, not through a planner.
+
+- The frame carries the filtered estimate and its spread beside the raw observation.
+  The raw observation stays, so an agent can ignore the filter.
+- `sim.predicates()` evaluates an atom under the belief and reports the fraction of particles that satisfy it.
+  The agent sees "SeatedOn 0.6" and decides itself whether to nudge, re-observe, or move on.
+- `sim.run` and `evaluate_trajectory` sample from the belief instead of the MAP, which is what the capture gate already does with ensemble draws.
+- The execution monitor replaces the hard atom mismatch with a likelihood test, so noise alone never aborts a healthy plan.
+- The attempts log records the spread with each invocation so the agent's notes carry it.
+
+Probing stays where it is.
+The agent already decides when a belief rollout beats a real step.
+With a spread readout it can also decide when a repeated look beats acting, which is the only decision a belief-space planner would have added.
+
+## 4. Relation to the Model Discovery Agent
+
+MDA is an LLM-assisted Bayesian experiment designer for mechanistic models.
+It nests sequential Monte Carlo at three levels (models, parameters, latents), has the LLM propose new model structures when a predictive check says the hypothesis space is insufficient, and picks experiments by expected information gain or a task-driven value of information.
+Its noise robustness, demonstrated on a stochastic Hodgkin-Huxley benchmark, is attributed to having the noise in the likelihood and doing inference over posteriors rather than point estimates.
+
+Where the design already agrees with it:
+
+- The observation noise is explicit in the likelihood and sigma is known to the agent (section 3.1).
+- The latent-level particle filter is MDA's third SMC level (section 3.3).
+- Experiment choice is task-driven: MDA finds the task-driven value of information beats expected information gain in its stochastic case, and the info-seeking gate already ranks probes by disagreement on the plan's own subgoal atoms.
+- Acting uses the MAP model, with averaging reserved for the gate (section 3.4).
+
+What it adds, folded in above:
+
+1. The filter scores the fit, not only the execution-time belief (section 3.3).
+2. Simulator versions are compared by Laplace evidence, the cheap form of MDA's Occam penalty (section 3.4).
+3. Misfit and probe value are measured against sigma (section 3.5).
+
+Where MDA does not reach:
+
+- No continual setting, no physical simulator, no acting under a step budget, and no warm start across rounds.
+  The carried posterior of section 3.3 is the warm start it lacks.
+- Its stated bottleneck, that recovery depends on whether the LLM proposes a form that covers the truth, is this protocol's bottleneck too.
+  Its remedy is to show the proposer its previous models and their errors, which is what the journal, the attempts log and the fit verdicts already do.
+- The LLM proposes only the mean function in MDA; the noise model is fixed by the benchmark.
+  The declared channel keeps the same split.
+
+## 5. Not doing, and why
+
+- No classical belief-space planning.
+  The agent plans well, and a belief operator model would replace something that works with something that needs its own operator theory.
+- No population of model structures under a nested SMC.
+  One deployed simulator, evidence-compared against its predecessors, is the cheap version and matches how MDA itself predicts on its harder benchmarks.
+- No agent-proposed noise model.
+  Sigma is declared, as in MDA.
+- No learned image perception.
+  The object-centric state is the abstraction, and the filter works over it whatever detector produced it.
+- No harness filter for the model-free arm, for the fairness reason in section 3.1.
+- No mid-run change of sigma, so calibration stays a continual object.
+- No noise on the robot's own state in the first version.
+
+## 6. Open questions
+
+- The primitive-only arms need a cheap re-observe action.
+  A zero action is one step, which is the intended price, but the action space of each env has to admit one without side effects.
+- Orientation noise: yaw only for the tabletop envs, or full axis-angle where an env exposes it.
+- Whether the tightest predicate tolerance is the right unit for sigma in envs whose discriminator is dynamic rather than geometric (balloons, domino).
+- In the undeclared variant, whether sigma is a fit parameter with a prior or a quantity the agent measures by re-observation.
+- How many simulator versions the evidence comparison keeps, and whether the agent may ask for one to be redeployed.
+
+## 7. Build order
+
+1. The channel: flags, seeded draw at the runner boundary, true state kept in the level index, scorecard fields, contract text, the fit's `noise_sigma` taken from the channel, the refusal's exceeds-sigma bit, and tests that the evaluators see the true state and the recording sees the observed one.
+2. Sweep configs for both arms over the sigma grid on two envs: bridge for geometry noise, domino or balloons for dynamics noise.
+3. If step 2 asks for them: the filter at execution and inside the fit, the Laplace evidence in the fit report, the sigma-normalised probe margin, and the belief-aware tool surface.
+
+## 8. Implementation status
+
+Step 1 of section 7 landed on 2026-09-07 (branch `bridge-learning`).
+
+- `predicators/observation_noise.py` is the channel: the feature classes, the per-step keyed generator, `perturb` (the agent's view of a state) and `residual_scale` (the fit's fold).
+- `ContinualRun` in `predicators/run/continual.py` keeps one observed view per (level, episode, step) and hands it to everything agent-facing: the frame of `observe`, the atoms an invocation reports against its expected outcome, `level_episodes` and `previous_level_episodes`, which are the source of `data/trajectories.pkl`, the `run_python` trajectories and `sim.fit`.
+  The protocol's own atoms, the evaluators, the checkpoint, the recording and the render stay on the true state.
+- The observed frames are not stored: they are reproducible from the run seed, the step coordinates and the true states in `episodes.pkl`, and the level's `level_start` index entry records the channel.
+- Skill controllers servo on the true state.
+  Noise enters through what the agent decides, the atoms it reads, the data it fits and the frame its belief resets from, not through the low-level controllers, which on a real robot run on proprioception plus the target the agent chose.
+  An invocation executes a fresh grounding of the skill, since the agent's applicability check ran on its observed frame.
+- The oracle reference arm plans and acts on the true state; it is the exact-perception upper bound.
+  The random arm samples on the observed frame like any agent.
+- The fit: `SysIdConfig.observation_noise` carries the declared channel and `compute_residual_scaling` folds each feature's sigma into its scale, so the likelihood the fit maximises is the one the channel was declared with and every RMS threshold keeps its meaning in units of the total noise.
+  Undeclared means the fit is as blind as the agent.
+- The prompts: a declared channel adds an "Observation noise" section to both arms' system prompt, an "Observation noise and the fit" section to the model contract, and a `[noise]` line to every frame.
+- Tests: `tests/test_observation_noise.py`, the channel, resume-under-noise and card tests in `tests/run/test_continual.py`, the scaling fold in `tests/code_sim_learning/test_physical_sysid.py`, the prompt and frame test in `tests/agent_sdk/test_continual_tools.py`.
+
+Not yet built: the filter (3.3), the evidence comparison (3.4), the sigma-measured gates (3.5) and the belief-aware tool surface (3.6).
+
+First launch (step 2, one point of the sweep), 2026-09-07: fan and domino, both arms, seeds 0 and 1, position sigma 5 mm and orientation sigma 0.02 rad, declared, via `scripts/configs/predicatorv3/protocol_continual_noise_fan_domino.yaml` from the worktree `predicators-noise-r1` (Slurm 22197846 domino model-based, 22197847 fan model-based, 22197848 domino model-free, 22197849 fan model-free).
+The sigma is about half the tightest scale of each env: fan's target tolerance is 1 cm on a 4 cm ball, a domino is 7 cm wide.
+The exact-observation baselines on the same arms and flags (the m4 domino pair and the m3 fan pair, seed 0) have the model-based arm ahead: domino 2/2 levels in 297 steps against 1/2 in 555, fan 2/2 in 350 steps against 2/2 in 1399 with two resets.
+The first model-based runs crashed within minutes in the workbench's base-simulator predictions: the observed view was a plain `State`, and the PyBullet base simulator reads the robot's fingers from the state's joint data on every step.
+The view is now the recording's sanitized form, a PyBullet state keeping the robot's own joint data (proprioception is exact) without the engine handles; the model-based arms were relaunched as 22198360 (domino) and 22198361 (fan), resuming their run directories, while the model-free runs of the first launch kept going.
+Fan seed 0's resume crashed once more: the arm reuses a finished level's trajectories from its saved checkpoint, and the crashed run had written that checkpoint with the old views, so its run directory and checkpoint were set aside (`~/.claude/jobs/aaea1883/tmp/crashed_runs/`) and the seed started fresh as 22198484.
+Balloons was launched first at 1 cm (`protocol_continual_balloons_noise.yaml`, jobs 22197721/22197722) and cancelled within minutes: the domain is still being tuned and its exact-observation runs are tied, so it cannot show the noise axis; the config stays for when it is settled.
+
+Results of the 5 mm point, 2026-09-07, all eight runs final:
+
+| Env, seed | Model-based | Model-free | Exact baseline, seed 0 |
+|---|---|---|---|
+| Fan 0 | 2/2 in 1337 | 2/2 in 2441 | model-based 350, model-free 1399 |
+| Fan 1 | 2/2 in 2405 | 2/2 in 1559 | |
+| Domino 0 | 2/2 in 397 | 1/2, test lost at 1153 | model-based 2/2 in 297, model-free 1/2 in 555 |
+| Domino 1 | 2/2 in 526 | 1/2, gave up at 652 | |
+
+Domino keeps the advantage: the model-based arm wins both levels on both seeds (397 and 526 steps) where the model-free arm loses the test level on both, at a step cost close to the exact baseline.
+Its seed 1 run also shows the agent handling the noise on its own, the third question of section 3.2: the fit left the friction weakly identified (boxed at 0.32 with a coarse sweep preferring 0.69), and the agent scored every candidate layout by Monte Carlo over the declared sigma at three friction values and chose the layout that cascades at all three.
+
+Fan is uninformative at this point, and the reason is not the channel.
+Every step above the exact baseline is a 1000-step option-cap stall, on either arm: the model-based runs lost one Wait (seed 0) and two SwitchOn strokes (seed 1) to the cap, the model-free runs two strokes (seed 0) and one (seed 1), and the exact model-free baseline had lost 1000 of its 1399 steps to the same SwitchOn jam.
+The productive steps barely move under noise (model-based 337 and 405, model-free 441 and 559, against 350 and 399 exact).
+A peer diagnosis blamed the Wait skill's quiescence test reading noisy frames; it does not hold.
+In the continual harness the skill policy, its terminal and the annotated Wait target all read the true state (the second-to-last bullet of this section), the fan skill config sets no quiescence tolerance at all (only domino and icerink do), and the stroke jam reproduces without noise.
+The stall itself is a factory gap: the push stroke runs on the plain incremental-IK branch of `PhaseSkill._execute_move`, the one branch that never calls the existing `_check_ik_stall` watchdog, so a jammed stroke burns the cap instead of failing in 25 steps with a contact report.
+That fix and a quiescence terminator on the fan Wait are exact-observation fixes, deferred so as not to change the baselines mid-sweep; the fan noise numbers stay out of the sweep until they land and the exact fan pair is rerun.
+
+The two thresholds that do read noisy observations, and so are the honest section 3.5 items, are inside the fit and the harness: the settled-tail truncation and rest-point segmentation use a 1 mm motion tolerance on observed deltas, which never sees rest under 5 mm noise (the domino log shows the truncation as a no-op), and the post-invocation divergence check reads threshold predicates off one noisy frame.
+
+Second stage of the sweep, launched 2026-09-07 from the same worktree, both arms, seeds 0 and 1, declared: domino at the half-tolerance point, 1 cm and 0.04 rad, against the cascade check's placement tolerance of 0.3 of a gap, about 2 cm (`protocol_continual_noise_domino_10mm.yaml`, Slurm 22204486 model-based, 22204487 model-free); boil at its quarter-tolerance point, 1.25 cm and 0.05 rad against the 5 cm burner alignment threshold (`protocol_continual_noise_boil_12mm.yaml`, 22204488 model-based, 22204489 model-free).
+Boil replaces fan as the second env: it has the widest exact gap of the target envs (m3 seed 0, model-based 2/2 in 524 steps against model-free 2/2 in 4648 with 8 resets).
+The full-tolerance points, domino at 2 cm and 0.08 rad and boil at 2.5 cm and 0.1 rad (`protocol_continual_noise_domino_20mm.yaml`, `protocol_continual_noise_boil_25mm.yaml`), were launched the same day while stage two was still running, at the user's request, as Slurm 22207780 (domino model-based), 22207781 (domino model-free), 22207783 (boil model-based) and 22207784 (boil model-free).
+Sixteen runs then shared the two Claude accounts, and at 11:05 EDT both accounts hit their five-hour session limit, putting every run to sleep until the 2:20 pm reset; the main account also stood at 74 percent of its weekly cap.
+A window's budget is fixed, so sixteen runs only spread it thinner: the stage-3 arrays were cancelled at 11:17 EDT with at most 168 steps taken, to be relaunched when stage 2 ends, restoring the eight-run load.
+The step counts are unaffected by the sleeps.
+Decision, 2026-09-07: the sweep runs to completion in the background and step 3 of the build order starts now with the filter inside the fit (section 3.3, the initial condition as a latent under the declared sigma) plus the section 3.5 items, since the only noise-linked fit evidence so far is the domino seed-1 fit at 5 mm boxing friction at 0.32 against a sweep optimum of 0.69.
