@@ -49,9 +49,16 @@ dependencies = [
     # gym_sokoban (below) does `import pkg_resources`, which setuptools
     # stopped shipping as of 81 (see docker/Dockerfile for the same pin).
     "setuptools<81",
-    # Point Transformer V3 (particle_world_model/../ptv3) stack. This is the
-    # env that previously required a separate `predicators2` conda env
-    # because these packages are pinned to a specific torch/CUDA build.
+]
+
+[project.optional-dependencies]
+# Point Transformer V3 stack (`ptv3/`, imported by particle_world_model's
+# train_ptv3_flow / rollout_ptv3_flow). These are pinned to a specific
+# torch/CUDA build and only ship Linux (x86_64) wheels, so they are kept out of
+# the base dependencies — that way a plain `uv sync` still works on macOS for
+# everything else (the PyBullet envs, planning, etc.). On a CUDA machine, run
+# `uv sync --extra ptv3` to get them.
+ptv3 = [
     "spconv-cu126==2.3.8",
     "transforms3d==0.4.2",
     "timm==1.0.19",
@@ -60,8 +67,6 @@ dependencies = [
     "flash-attn",
     "einops==0.8.2",
 ]
-
-[project.optional-dependencies]
 develop = [
     "pytest-cov==2.12.1",
     "pytest-pylint==0.18.0",
@@ -93,8 +98,10 @@ smepy = { git = "https://github.com/sebdumancic/structure_mapping.git" }
 pg3 = { git = "https://github.com/tomsilver/pg3.git" }
 gym_sokoban = { git = "https://github.com/Learning-and-Intelligent-Systems/gym-sokoban.git" }
 cotracker = { git = "https://github.com/facebookresearch/co-tracker.git" }
-torch = [{ index = "pytorch-cu128" }]
-torchvision = [{ index = "pytorch-cu128" }]
+# CUDA wheels on Linux; fall back to the default index (PyPI) elsewhere, since
+# download.pytorch.org/whl/cu128 has no macOS builds.
+torch = [{ index = "pytorch-cu128", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cu128", marker = "sys_platform == 'linux'" }]
 torch-scatter = [{ index = "pyg-torch271-cu128" }]
 # Prebuilt wheel (avoids an hours-long from-source build); matches
 # torch==2.7.1+cu128, Python 3.10, cxx11 ABI. Swap for a build matching your

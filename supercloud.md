@@ -26,6 +26,9 @@ cd predicators
 mkdir /state/partition1/user/$USER
 export TMPDIR=/state/partition1/user/$USER
 uv sync
+# For the Point Transformer V3 stack (particle_world_model's train/rollout
+# flow scripts), add the CUDA-only extra as well:
+# uv sync --extra ptv3
 # Add a shortcut for switching to this repository.
 echo -e "predicate() {\n    cd ~/predicators\n}" >> ~/.bashrc
 # Add a shortcut for displaying running jobs.

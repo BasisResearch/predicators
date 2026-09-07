@@ -36,23 +36,34 @@ from the repo root:
 ```
 uv sync
 ```
-This creates a `.venv` with Python 3.10 and every dependency pinned in
-`pyproject.toml` / `uv.lock` — including torch (CUDA 12.8 wheels), and the
-Point Transformer V3 stack (`spconv`, `flash-attn`, `torch-scatter`, ...) used
-by `particle_world_model`. `flash-attn` is pulled as a prebuilt wheel matching
-`torch==2.7.1+cu128` / Python 3.10 / cxx11 ABI, so no source build is needed;
-if your platform doesn't match that wheel, edit the `flash-attn` entry under
-`[tool.uv.sources]` in `pyproject.toml` to point at a build for your CUDA /
-Python version (see https://github.com/Dao-AILab/flash-attention/releases),
-or drop `--no-build-isolation-package` to let it build from source (can take
-hours).
+This creates a `.venv` with Python 3.10 (pinned in `.python-version`) and every
+dependency pinned in `pyproject.toml` / `uv.lock`. On Linux, torch comes from
+the CUDA 12.8 index; on other platforms (e.g. macOS/arm64) it comes from PyPI,
+so a plain `uv sync` works there too.
+
+### The Point Transformer V3 extra
+
+The PTv3 stack (`spconv`, `flash-attn`, `torch-scatter`, `timm`, ...) used by
+`particle_world_model`'s `train_ptv3_flow` / `rollout_ptv3_flow` is **not** in
+the base dependencies: those wheels are built for a specific torch/CUDA combo
+and only exist for Linux x86_64. On a CUDA machine, install it with:
+```
+uv sync --extra ptv3
+```
+`flash-attn` is pulled as a prebuilt wheel matching `torch==2.7.1+cu128` /
+Python 3.10 / cxx11 ABI, so no source build is needed; if your platform doesn't
+match that wheel, edit the `flash-attn` entry under `[tool.uv.sources]` in
+`pyproject.toml` to point at a build for your CUDA / Python version (see
+https://github.com/Dao-AILab/flash-attention/releases), or drop
+`--no-build-isolation-package` to let it build from source (can take hours).
 
 For a specific CUDA version other than 12.8, edit the `pytorch-cu128` index
 URL under `[[tool.uv.index]]` in `pyproject.toml` (e.g. `.../whl/cu126`), and
 match the `pyg-torch271-cu128` index to your torch build for `torch-scatter`.
 
-* This repository uses Python versions 3.10-3.11. We recommend 3.10.14 (pinned
-  via `uv`).
+* This repository uses Python 3.10, pinned via `.python-version` (the `ptv3`
+  extra's `flash-attn` wheel is cp310-only, so don't bump this without swapping
+  that wheel).
 * Run `uv sync --extra develop` to also install dev tools (pytest-cov, yapf,
   isort, ...).
 

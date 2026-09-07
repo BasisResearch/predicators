@@ -133,7 +133,8 @@ uv run python predicators/envs/pybullet_donut.py     # donuts + target area
 
 Each opens a PyBullet GUI window, loads train task 0, then holds the robot arm
 still in a loop so the scene stays put and you can interact with it. `Ctrl-C` in
-the terminal to quit.
+the terminal to quit. These only need the base `uv sync` (no `--extra ptv3`), so
+they run on macOS as well as Linux.
 
 Mouse controls in the GUI:
 
@@ -165,12 +166,25 @@ Both are listed (along with everything below) in the top-level `pyproject.toml`.
 
 The **learned flow world-model** (`train_ptv3_flow.py` / `rollout_ptv3_flow.py`)
 also needs the `ptv3/` package (vendored at the repo root), which pulls in
-`spconv` and `flash-attn`. These used to require a separate `predicators2` conda
-env because they're pinned to a specific torch/CUDA build; `uv` resolves and
-installs the whole stack — torch, `spconv-cu126`, `flash-attn` (as a prebuilt
-wheel, see `[tool.uv.sources]` in `pyproject.toml`), `torch-scatter`, `timm`,
-`transforms3d` — into the single `.venv` from `uv sync`, so there's no second
-environment to manage.
+`spconv` and `flash-attn`. Those wheels are built against a specific
+torch/CUDA combination and only exist for Linux x86_64, so they live in the
+optional `ptv3` extra rather than the base dependencies. On a CUDA machine:
+
+```bash
+uv sync --extra ptv3
+```
+
+That adds `spconv-cu126`, `flash-attn` (a prebuilt wheel, see
+`[tool.uv.sources]` in `pyproject.toml`), `torch-scatter`, `timm`, `addict`,
+`transforms3d`, and `einops` to the same `.venv` — there's still no second
+environment to manage (this stack used to require a separate `predicators2`
+conda env).
+
+A plain `uv sync` deliberately skips the extra, which is what makes the repo
+installable on machines without CUDA (e.g. macOS/arm64, where none of those
+wheels exist). Everything else — the PyBullet envs, particle extraction,
+tracking, planning — works there; only `train_ptv3_flow.py` and
+`rollout_ptv3_flow.py` need the extra.
 
 ## Using it as a library
 

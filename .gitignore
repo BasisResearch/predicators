@@ -7,6 +7,9 @@ CLAUDE.md
 *.pkl
 *~
 *.python-version
+# ...but the repo-level pin is shared: uv must pick 3.10 (the `ptv3` extra's
+# flash-attn wheel is cp310-only).
+!.python-version
 *.csv
 *.zip
 *.so
