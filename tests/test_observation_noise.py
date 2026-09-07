@@ -53,9 +53,9 @@ def test_perturb_touches_only_the_noisy_classes() -> None:
 
 
 def test_perturb_keeps_the_pybullet_joint_data() -> None:
-    """A PyBullet state stays a PyBullet state with the robot's joints
-    (exact proprioception, which the base simulator reads every step)
-    and without the engine handles."""
+    """A PyBullet state stays a PyBullet state with the robot's joints (exact
+    proprioception, which the base simulator reads every step) and without the
+    engine handles."""
     noise = ObservationNoise(position=0.01)
     truth = _scene()
     b = sorted(truth, key=lambda o: o.name)[0]
