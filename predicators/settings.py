@@ -1260,7 +1260,14 @@ class GlobalSettings:
     balloons_lifts = [0.35, 0.5, 0.7, 1.0]
     balloons_fade_height = 0.8
     balloons_box_masses = [0.05, 0.08, 0.11]
-    balloons_drag = 12.0
+    # The air's drag (linear damping). Low enough that the fading lift
+    # makes the box an underdamped oscillator: it overshoots its
+    # equilibrium on the way up, and an in-band subset can overshoot into
+    # the ceiling and burst. The overshoot is set by this drag, which the
+    # rest height does not reveal, so identifying the safe subset needs a
+    # fitted dynamics model, not a static reading. The learning target,
+    # with the lifts and box masses.
+    balloons_drag = 2.2
     # Half the band's height.
     balloons_band_half = 0.025
     # The box is at rest below this speed (m/s).
@@ -1270,7 +1277,20 @@ class GlobalSettings:
     balloons_push_approach = 0.07
     balloons_push_contact_z = 0.05
     balloons_probe_max_steps = 400
-    balloons_max_sampling_attempts = 40
+    # Test levels need two subsets in one band with only one overshoot-safe,
+    # a rarer draw than a single in-band subset, so allow more attempts.
+    balloons_max_sampling_attempts = 80
+    # Contact-only test levels (the default): require an in-band decoy that
+    # fails by JAM (the tilted box wedges in the chute), not by height or
+    # burst, whose equilibrium sits within balloons_contact_height_tol of the
+    # unique safe subset's. Then the safe subset and the decoy are
+    # indistinguishable by rest height or net lift - only a contact rollout
+    # (sim.run) tells them apart - so a model that reasons from equilibrium
+    # height alone cannot pick the winner and must trial-and-error (real
+    # steps, resets, or an irreversible burst). False keeps the original chute
+    # generation, where an in-band decoy may instead fail by overshoot burst.
+    balloons_require_jam_decoy = True
+    balloons_contact_height_tol = 0.02
 
     # crane env
     # Cable lengths and crate colours per split. Test levels bring a

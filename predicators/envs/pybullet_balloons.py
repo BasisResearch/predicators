@@ -19,18 +19,25 @@ holds everything an agent must LEARN or must not see:
 
 Design notes, and why this domain favours a model of the physics.
 
-**The answer is a subset and a height.** The goal is a band of
-heights; the box floats to the height where the freed balloons' fading
-lift equals its weight. Which clips to open is a small choice, but the
-height each choice gives is a quantitative composition of per colour
-lifts, the fade, and the box's mass. Open one clip too many and the
-box rises to the ceiling, where a balloon bursts and the level is
-lost; a freed balloon cannot be clipped back.
+**The rest height is not enough; the ascent decides.** The goal is a
+band of heights, and the box floats to the height where the freed
+balloons' fading lift equals its weight. But the fading lift makes the
+box an underdamped oscillator: it overshoots that equilibrium on the
+way up before settling. The air's drag is low, so the overshoot is
+large, and a subset whose equilibrium sits inside the band can still
+overshoot into the ceiling, burst a balloon, and lose the level - a
+freed balloon cannot be clipped back. A test level is generated so two
+subsets settle in the same band by the equilibrium law while only one
+is overshoot-safe. The rest heights are therefore identical to a reader
+who only observes equilibria; telling the safe subset from the one that
+bursts needs the drag, which the rest height never shows and which only
+a fitted dynamics model recovers from the observed transient.
 
 **Test extends train.** A test level holds the whole palette, one more
 balloon than any train level, on a box material training showed; the
 train levels together cover every colour and both materials, so the
-test composes known lifts and a known mass into a rack never seen.
+test composes known lifts, a known mass, and the drag learned from the
+train ascents into a rack never seen.
 """
 from itertools import combinations
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
@@ -104,6 +111,12 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
 
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         self._param_overrides: Dict[str, float] = {}
+        # Level identity -> the unique overshoot-safe subset (or None). The
+        # transient-aware solution is found by simulation, so it is cached per
+        # level and computed from a clean reconstruction of the level rather
+        # than a possibly mid-execution state, keeping it stable and cheap.
+        self._solution_cache: Dict[Tuple[Any, ...], Optional[Tuple[int,
+                                                                   ...]]] = {}
         super().__init__(use_gui, **kwargs)
         self._InBand = Predicate(
             "InBand", [self._box_type, self._band_type],
@@ -272,7 +285,8 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                 # tether above the box's top centre, above any balloon
                 # freed before it, so its pull acts through the box.
                 self._tied[name] = True
-                seat = (box_top[0], box_top[1],
+                offset = self._attach_offset(index, len(balloons))
+                seat = (box_top[0] + offset, box_top[1],
                         box_top[2] + self.balloon_radius + self.string_length +
                         2 * self.balloon_radius * stacked)
                 stacked += 1
@@ -445,20 +459,79 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         return utils.create_state_from_dict(init)
 
     def solution_subset(self, state: State) -> Optional[Tuple[int, ...]]:
-        """The balloons (indices into the level's balloons) whose lift, by the
-        analytic law, hangs the box inside the band; None when no subset does
-        or more than one does."""
+        """The balloons whose freed lift hangs the box at rest inside the band,
+        by the real dynamics; None when no subset does or more than one does.
+
+        A subset settles in the band only if its analytic equilibrium is
+        in the band AND its ascent does not overshoot into the ceiling
+        and burst a balloon (an irreversible loss). Several subsets can
+        share the band by the equilibrium law while only one is
+        overshoot-safe, so the winner is found by rolling each
+        equilibrium-in-band candidate forward, not by the rest height
+        alone.
+        """
         box_color = int(round(state.get(self._box, "color")))
         balloons = self._active_balloons(state)
         colors = [int(round(state.get(b, "color"))) for b in balloons]
-        lo, hi = state.get(self._band, "lo"), state.get(self._band, "hi")
-        hits = [
+        lo = float(state.get(self._band, "lo"))
+        hi = float(state.get(self._band, "hi"))
+        key = (box_color, tuple(colors), round(lo, 4), round(hi, 4))
+        if key in self._solution_cache:
+            return self._solution_cache[key]
+        # Reconstruct the level from a clean initial state so the answer is the
+        # level's, not a function of how far execution has progressed.
+        clean = self.level_state(box_color, colors, (lo, hi))
+        in_band_eq = [
             subset for subset, z in self.lifting_subsets(box_color, colors)
             if lo <= z <= hi
         ]
-        if len(hits) != 1:
-            return None
-        return hits[0]
+        winners = [
+            subset for subset in in_band_eq
+            if self.subset_outcome(clean, subset)[0]
+        ]
+        result = winners[0] if len(winners) == 1 else None
+        self._solution_cache[key] = result
+        return result
+
+    def _hold_action(self) -> Action:
+        """A no-op action that holds the robot at its initial joints, for
+        rolling the free-and-rise dynamics forward with no arm motion."""
+        arr = np.array(self._pybullet_robot.initial_joint_positions,
+                       dtype=np.float32)
+        n = self.action_space.shape[0]
+        if arr.shape[0] < n:
+            arr = np.concatenate(
+                [arr, np.zeros(n - arr.shape[0], dtype=np.float32)])
+        return Action(arr)
+
+    def subset_outcome(self, state: State,
+                       subset: Tuple[int, ...]) -> Tuple[bool, bool]:
+        """Free ``subset``'s balloons from ``state`` on this instance and roll
+        the sim to rest; ``(settles_in_band, burst)``.
+
+        ``settles_in_band`` is True when the box hangs at rest with its
+        centre in the band; ``burst`` is True when a balloon reached the
+        ceiling on the way up (an overshoot the analytic equilibrium
+        does not reveal).
+        """
+        self._pybullet_robot.set_joints(
+            self._pybullet_robot.initial_joint_positions)
+        self._set_state(state)
+        s = self._get_state().copy()
+        for i in subset:
+            s.set(self._clips[i], "is_on", 1.0)
+        action = self._hold_action()
+        moved = False
+        for _ in range(int(CFG.balloons_probe_max_steps)):
+            s = self.simulate(s, action)
+            if any_popped(s) is not None:
+                return (False, True)
+            resting = box_at_rest(s, self._box)
+            moved = moved or not resting
+            if moved and resting:
+                break
+        return (box_in_band(s, self._box, self._band)
+                and box_at_rest(s, self._box), False)
 
     @staticmethod
     def _draw_covering(rng: np.random.Generator, n: int,
@@ -514,33 +587,101 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                         int(c)
                         for c in rng.choice(palette, size=n, replace=False)
                     ]
-                subsets = self.lifting_subsets(box_color, colors)
-                # Bands that a single subset reaches and that keep its
-                # stack of balloons clear of the ceiling.
-                candidates = []
-                for subset, z in subsets:
-                    z_max = self.ceiling_z - self.ceiling_half_extents[2] - \
-                        self.box_half - self.string_length - \
-                        (2 * len(subset) + 1) * self.balloon_radius - 0.03
-                    if not self.table_height + 0.12 <= z <= z_max:
+                # Reachable equilibria. The transient (not a static stack-
+                # clearance) decides whether a subset overshoots into the
+                # ceiling, so each equilibrium-in-band candidate is rolled
+                # forward below.
+                # Bands must sit inside the chute (below its top) so the box
+                # is gated by the walls through its whole ascent and settles
+                # between them.
+                reach_max = min(self.ceiling_z - self.ceiling_half_extents[2],
+                                self.chute_z_hi) - 0.06
+                reachable = [
+                    (subset, z)
+                    for subset, z in self.lifting_subsets(box_color, colors)
+                    if self.table_height + 0.12 <= z <= reach_max
+                ]
+                # Candidate band centres. A test level must hide the answer
+                # from a reader that only computes the equilibrium HEIGHT: two
+                # subsets share one band by the analytic (equilibrium) law
+                # while only one actually settles there - the other overshoots
+                # into the ceiling and bursts, or (unbalanced) tilts and jams
+                # in the chute. The band is 2*half wide, so two equilibria up
+                # to 2*half apart share it only when the band sits between
+                # them: centre on each close PAIR's midpoint. Train levels keep
+                # a single answer, so also allow a band centred on one subset.
+                centers = [
+                    (reachable[a][1] + reachable[b][1]) / 2.0
+                    for a in range(len(reachable))
+                    for b in range(a + 1, len(reachable))
+                    if abs(reachable[a][1] - reachable[b][1]) <= 2 * half
+                ]
+                if train:
+                    centers += [z for _, z in reachable]
+                if not train and CFG.balloons_require_jam_decoy:
+                    # Contact-only test levels centre the band on a subset's own
+                    # equilibrium, so a jamming subset can sit at the band's
+                    # centre and the height reader is drawn to it.
+                    centers += [z for _, z in reachable]
+                rng.shuffle(centers)
+                for center_z in centers:
+                    band = (center_z - half, center_z + half)
+                    in_band = [
+                        subset for subset, z in reachable
+                        if band[0] <= z <= band[1]
+                    ]
+                    if not train and len(in_band) < 2:
                         continue
-                    others = [oz for other, oz in subsets if other != subset]
-                    if all(abs(oz - z) > 2 * half + 0.01 for oz in others):
-                        candidates.append((subset, z))
-                if not candidates:
-                    continue
-                subset, z = candidates[int(rng.integers(len(candidates)))]
-                state = self.level_state(box_color, colors,
-                                         (z - half, z + half))
-                if self.solution_subset(state) != subset:
-                    continue
-                if solve_level(self, state) is None:
-                    continue
-                found = (state, subset)
-                break
+                    state = self.level_state(box_color, colors, band)
+                    outcomes = {
+                        subset: self.subset_outcome(state, subset)
+                        for subset in in_band
+                    }
+                    safe = [
+                        s for s, (settled, _) in outcomes.items() if settled
+                    ]
+                    if len(safe) != 1:
+                        continue
+                    # The test decoy: another subset whose equilibrium is in
+                    # the band but that fails in reality (bursts or jams), so a
+                    # height-only reader has a wrong answer to fall for. That
+                    # is exactly the in-band-by-eq subsets that are not the
+                    # unique safe one, which len(in_band) >= 2 guarantees.
+                    if not train and CFG.balloons_require_jam_decoy:
+                        # Contact-only discrimination: the in-band subset
+                        # NEAREST the band centre must fail by JAM (the tilted
+                        # box wedges: settle=False, burst=False), not settle and
+                        # not burst. Then a reader that picks by rest height is
+                        # drawn to the jammer and loses, while the unique safe
+                        # subset sits off-centre (but in-band) and is found only
+                        # by a contact rollout. Its equilibrium must stay within
+                        # tol of the central jammer's so height gives no signal
+                        # pointing back to it.
+                        eqz = dict(reachable)
+                        safe_eq = eqz[safe[0]]
+                        tol = float(CFG.balloons_contact_height_tol)
+                        dist_to_centre = {
+                            s: abs(eqz[s] - center_z)
+                            for s in in_band
+                        }
+                        central = min(dist_to_centre,
+                                      key=dist_to_centre.__getitem__)
+                        settled_c, burst_c = outcomes[central]
+                        if settled_c or burst_c:
+                            # Central subset settles (height would pick the safe
+                            # one) or bursts (height, not contact, separates).
+                            continue
+                        if abs(eqz[central] - safe_eq) > tol:
+                            continue
+                    if solve_level(self, state) is None:
+                        continue
+                    found = (state, safe[0])
+                    break
+                if found is not None:
+                    break
             if found is None:
                 raise RuntimeError(
-                    "No balloon level with a unique floating subset the "
+                    "No balloon level whose unique overshoot-safe subset the "
                     f"oracle clears in {attempts} draws.")
             state, subset = found
             seen_boxes.add(box_color)

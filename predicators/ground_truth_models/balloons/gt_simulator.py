@@ -101,9 +101,12 @@ def _release_and_pull(state: State, updates: ResidualUpdate, params: Params,
             seat_z = (box_top_z + _GEOM.balloon_radius + _GEOM.string_length +
                       2 * _GEOM.balloon_radius * stacked)
             stacked += 1
+            # Off-centre by clip position, matching the env: an unbalanced
+            # set pulls off-centre and tilts the box.
+            seat_x = box_x + _GEOM._attach_offset(index, len(balloons))  # pylint: disable=protected-access
             updates.setdefault(balloon, {}).update({
                 "tied": 1.0,
-                "x": float(box_x),
+                "x": float(seat_x),
                 "y": float(box_y),
                 "z": float(seat_z),
             })

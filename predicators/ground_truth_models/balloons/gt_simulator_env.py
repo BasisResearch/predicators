@@ -143,7 +143,8 @@ class BalloonsResidualEnv(PyBulletBalloonsBaseEnv):
                 if index >= len(clips) or not self._is_clip_on(clips[index]):
                     continue
                 self._tied[name] = True
-                seat = (box_top[0], box_top[1],
+                offset = self._attach_offset(index, len(balloons))
+                seat = (box_top[0] + offset, box_top[1],
                         box_top[2] + self.balloon_radius + self.string_length +
                         2 * self.balloon_radius * stacked)
                 stacked += 1

@@ -151,6 +151,39 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
     ceiling_color: ClassVar[Tuple[float, float, float,
                                   float]] = (0.85, 0.85, 0.90, 0.35)
 
+    # The chute: two fixed vertical walls flanking the box's column, a
+    # slot the box must rise through to reach the band. They collide ONLY
+    # with the box (the arm and the balloons pass through, like the
+    # ceiling picture), so a box that tilts or sways as it climbs - which
+    # an off-centre, torque-unbalanced set of balloons makes it do -
+    # catches a wall and jams below the band. The gap is just wider than
+    # the box, so only a balanced set that rises straight threads it.
+    chute_half_gap: ClassVar[float] = 0.048
+    chute_wall_half_thickness: ClassVar[float] = 0.004
+    chute_wall_half_depth: ClassVar[float] = 0.08
+    chute_z_lo: ClassVar[float] = table_height + 0.10
+    chute_z_hi: ClassVar[float] = table_height + 0.60
+    chute_color: ClassVar[Tuple[float, float, float,
+                                float]] = (0.55, 0.55, 0.62, 0.55)
+
+    # How far off the box's centre the freed balloons attach, spread evenly
+    # across the box top by clip position (index 0 leftmost). An asymmetric
+    # set therefore pulls off-centre and TILTS the free-body box as it climbs,
+    # so it catches a chute wall; only a balanced set rises straight and
+    # threads the slot. Kept just inside the box half-width so every attach
+    # point is on the box.
+    attach_span: ClassVar[float] = 0.028
+
+    @classmethod
+    def _attach_offset(cls, index: int, n_balloons: int) -> float:
+        """The x-offset of balloon ``index``'s attach point on the box top,
+        evenly spread across ``[-attach_span, +attach_span]`` by clip position;
+        0 for a lone balloon."""
+        if n_balloons <= 1:
+            return 0.0
+        frac = index / (n_balloons - 1)  # 0..1
+        return float(cls.attach_span * (2.0 * frac - 1.0))
+
     # The band: a translucent slab beside the box's column. Its ``lo``
     # and ``hi`` are heights of the box's centre.
     band_offset_x: ClassVar[float] = -0.08
@@ -309,6 +342,31 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
             baseVisualShapeIndex=ceiling_visual,
             basePosition=(cls.x_mid, 1.35, cls.ceiling_z),
             physicsClientId=physics_client_id)
+        # The chute walls: real collision bodies, but filtered below to
+        # collide only with the box. Centred on the box's column, one on
+        # each side of the slot.
+        chute_ids = []
+        wall_half = (cls.chute_wall_half_thickness, cls.chute_wall_half_depth,
+                     (cls.chute_z_hi - cls.chute_z_lo) / 2.0)
+        wall_z = (cls.chute_z_lo + cls.chute_z_hi) / 2.0
+        for sign in (-1.0, 1.0):
+            wall_col = p.createCollisionShape(
+                p.GEOM_BOX,
+                halfExtents=wall_half,
+                physicsClientId=physics_client_id)
+            wall_vis = p.createVisualShape(p.GEOM_BOX,
+                                           halfExtents=wall_half,
+                                           rgbaColor=cls.chute_color,
+                                           physicsClientId=physics_client_id)
+            wall_x = cls.box_xy[0] + sign * (cls.chute_half_gap +
+                                             cls.chute_wall_half_thickness)
+            chute_ids.append(
+                p.createMultiBody(baseMass=0.0,
+                                  baseCollisionShapeIndex=wall_col,
+                                  baseVisualShapeIndex=wall_vis,
+                                  basePosition=(wall_x, cls.box_xy[1], wall_z),
+                                  physicsClientId=physics_client_id))
+        bodies["chute_ids"] = chute_ids
         band_visual = p.createVisualShape(p.GEOM_BOX,
                                           halfExtents=(cls.band_half_xy,
                                                        cls.band_half_xy, 0.01),
@@ -327,12 +385,29 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
         self._robot.id = self._pybullet_robot.robot_id
         self._box.id = pybullet_bodies["box_id"]
         self._band.id = pybullet_bodies["band_id"]
+        self._chute_ids = pybullet_bodies.get("chute_ids", [])
         for i, balloon in enumerate(self._balloons):
             balloon.id = pybullet_bodies["balloon_ids"][i]
         for i, clip in enumerate(self._clips):
             clip.id = pybullet_bodies["clip_ids"][i]
             clip.joint_id = self._get_joint_id(clip.id, "joint_0",
                                                self._physics_client_id)
+        # The chute walls gate only the box: disable their collision with
+        # everything, then re-enable just the wall-box pairs, so the arm
+        # and the balloons pass through them freely.
+        for wall_id in self._chute_ids:
+            p.setCollisionFilterGroupMask(
+                wall_id,
+                -1,
+                collisionFilterGroup=0,
+                collisionFilterMask=0,
+                physicsClientId=self._physics_client_id)
+            p.setCollisionFilterPair(wall_id,
+                                     self._box.id,
+                                     -1,
+                                     -1,
+                                     enableCollision=1,
+                                     physicsClientId=self._physics_client_id)
 
     # =========================================================================
     # CLIP MECHANICS
