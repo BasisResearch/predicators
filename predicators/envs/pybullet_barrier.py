@@ -17,8 +17,8 @@ import pybullet as p
 from predicators import utils
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
-from predicators.pybullet_helpers.objects import create_object, \
-    create_pybullet_block
+from predicators.pybullet_helpers.objects import cap_switch_joint_travel, \
+    create_object, create_pybullet_block
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
@@ -85,7 +85,8 @@ class PyBulletBarrierEnv(PyBulletEnv):
                                   float]] = (0.6, 0.3, 0.1, 1.0)  # brown
 
     # Types
-    _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
+    _robot_type = Type("robot",
+                       ["x", "y", "z", "fingers", "roll", "tilt", "wrist"])
     _switch_type = Type("switch", ["x", "y", "z", "rot", "is_on"],
                         sim_features=["id", "joint_id", "joint_scale"])
     _barrier_type = Type("barrier", ["x", "y", "rot", "height"],
@@ -203,6 +204,9 @@ class PyBulletBarrierEnv(PyBulletEnv):
             switch.joint_id = self._get_joint_id(switch.id, "joint_0",
                                                  self._physics_client_id)
             switch.joint_scale = 0.1
+            cap_switch_joint_travel(switch.id, switch.joint_id,
+                                    switch.joint_scale,
+                                    self._physics_client_id)
 
         for i, barrier in enumerate(self._barriers):
             barrier.id = pybullet_bodies[f"barrier{i}_id"]
@@ -394,6 +398,7 @@ class PyBulletBarrierEnv(PyBulletEnv):
                 "y": self.robot_init_y,
                 "z": self.robot_init_z,
                 "fingers": self.open_fingers,
+                "roll": self.robot_init_roll,
                 "tilt": self.robot_init_tilt,
                 "wrist": self.robot_init_wrist,
             }

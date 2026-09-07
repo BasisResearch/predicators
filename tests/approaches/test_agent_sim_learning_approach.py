@@ -2,30 +2,40 @@
 
 Verifies that given a correct plan sketch (from a real agent run) and a
 ground-truth simulator program, the hybrid learned option model
-(PyBullet + learned process dynamics) can find continuous parameters
+(PyBullet + learned residual dynamics) can find continuous parameters
 that solve a pybullet_boil task.
 """
 # pylint: disable=protected-access
+import inspect
 import logging
 import os
 import re
-from typing import List, Optional, Sequence, Set, Tuple
+from types import SimpleNamespace
+from typing import List, Optional, Sequence, Set, Tuple, cast
 
+import dill as pkl
 import numpy as np
 import pytest
 
 from predicators import utils
-from predicators.approaches.agent_bilevel_approach import _SketchStep
+from predicators.approaches import agent_sim_learning_approach as asla
+from predicators.approaches.agent_model_based_approach import _SketchStep
+from predicators.approaches.agent_sim_learning_approach import \
+    AgentSimLearningApproach
+from predicators.code_sim_learning.fit_space import FitResult
+from predicators.code_sim_learning.identifiability import Verdict
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, merge_updates
 from predicators.envs import create_new_env
+from predicators.envs.pybullet_fan import PyBulletFanEnv
 from predicators.ground_truth_models import get_gt_options
-from predicators.ground_truth_models.boil.gt_simulator import \
-    BOIL_PARAM_SPECS, PROCESS_RULES
+from predicators.ground_truth_models.boil.gt_simulator import PARAM_SPECS, \
+    RESIDUAL_RULES
 from predicators.option_model import _OracleOptionModel
 from predicators.planning import run_backtracking_refinement
-from predicators.structs import GroundAtom, Object, ParameterizedOption, \
-    Predicate
+from predicators.settings import CFG
+from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
+    Object, ParameterizedOption, Predicate
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -64,15 +74,15 @@ def _build_oracle_model(env):
 
 
 def _build_kinematics_only_oracle(env):
-    """Build an oracle that only handles kinematics (no process dynamics).
+    """Build an oracle that only handles kinematics (no residual dynamics).
 
-    Creates a separate env instance with process dynamics disabled, so
+    Creates a separate env instance with residual dynamics disabled, so
     that water filling, heating, and happiness are not simulated.
     """
     base_env = create_new_env("pybullet_boil",
                               do_cache=False,
                               use_gui=False,
-                              skip_process_dynamics=True)
+                              skip_residual_dynamics=True)
     options = get_gt_options(base_env.get_name())
     oracle = _OracleOptionModel(options, base_env.simulate)
     preds = env.predicates
@@ -90,13 +100,13 @@ def _build_combined_model(env):
     base_env = create_new_env("pybullet_boil",
                               do_cache=False,
                               use_gui=False,
-                              skip_process_dynamics=True)
-    gt_params = {s.name: s.init_value for s in BOIL_PARAM_SPECS}
-    rules = PROCESS_RULES
+                              skip_residual_dynamics=True)
+    gt_params = {s.name: s.init_value for s in PARAM_SPECS()}
+    rules = RESIDUAL_RULES
 
-    simulator = LearnedSimulator(
-        step_fn=lambda s, _r=rules, _p=gt_params: apply_rules(s, _r, _p),
-        name="gt_combined")
+    simulator = LearnedSimulator(step_fn=lambda s, c, _r=rules, _p=gt_params:
+                                 apply_rules(s, _r, _p, cmds=c),
+                                 name="gt_combined")
 
     def combined_simulate(state, action):
         kin_state = base_env.simulate(state, action)
@@ -119,7 +129,8 @@ def _parse_sketch_from_file(
     predicates: Set[Predicate],
     objects: Sequence[Object],
 ) -> List[_SketchStep]:
-    """Parse a plan sketch from a text file, same as agent_bilevel_approach."""
+    """Parse a plan sketch from a text file, as the model-based approach
+    does."""
     with open(sketch_file, "r", encoding="utf-8") as f:
         plan_text = f.read().strip()
 
@@ -365,7 +376,671 @@ def test_boil_sketch_refinement(model_type):
             "(PyBullet state reconstruction is imperfect).", model_type)
 
 
+def test_build_option_model_binds_sim_env():
+    """The learned option model must expose ``_base_env`` as ``sim_env``.
+
+    The task-evaluator verdict paths (sandbox tools and
+    evaluate_trajectory) read ``option_model.sim_env`` to run
+    certificates that need physics, such as the domino counterfactual
+    push probe. Without the binding the probe is silently unavailable
+    and captures are accepted on the pure rules only.
+    """
+    utils.reset_config({"wait_option_terminate_on_atom_change": False})
+    approach = AgentSimLearningApproach.__new__(AgentSimLearningApproach)
+    fake_env = SimpleNamespace()
+    approach._base_env = fake_env
+    approach._get_all_options = set  # type: ignore[method-assign]
+    model = approach._build_option_model(lambda s, a: s)
+    assert model.sim_env is fake_env
+    # Pre-learning (no rules): the certificate probe stays base-only.
+    assert fake_env.probe_process_model_factory is None
+    # With rules, the combined-substrate factory is stamped alongside.
+    approach._residual_rules = [lambda s, u, p: u]
+    approach._fitted_params = {}
+    model = approach._build_option_model(lambda s, a: s)
+    assert model.sim_env is fake_env
+    assert fake_env.probe_process_model_factory is not None
+
+
+class _FakeScopeEnv:
+    """Minimal env double for the fresh-validation-env scope tests."""
+
+    def __init__(self):
+        self.overrides = None
+
+    def simulate(self, state, _action):
+        """Bound method, so ``__self__`` identifies the owning env."""
+        return state
+
+    def apply_physical_param_overrides(self, params):
+        """Record the identified physical params re-applied to a fresh env."""
+        self.overrides = dict(params)
+
+
+def _make_scope_approach(monkeypatch, prev_env, fresh_env, disposed):
+    # The scope reads CFG.env before calling the (patched) env factory;
+    # reset so these tests don't depend on an earlier test having
+    # populated CFG (they fail under `-k fresh_validation` otherwise).
+    utils.reset_config({"env": "pybullet_domino"})
+    monkeypatch.setattr(asla, "create_new_env", lambda *a, **k: fresh_env)
+    monkeypatch.setattr(asla, "dispose_env", disposed.append)
+    approach = asla.AgentSimLearningApproach.__new__(
+        asla.AgentSimLearningApproach)
+    approach._base_env = prev_env
+    approach._identified_physical_params = {"lateral_friction": 0.1}
+    return approach
+
+
+def test_fresh_validation_env_scope_swaps_and_restores(monkeypatch):
+    """The scope points every physics consumer at the fresh env, restores
+    everything on exit, and disposes the fresh env.
+
+    Covers the pre-learning option model, whose simulator is the bound
+    method ``_base_env.simulate`` and must be rebound explicitly (the
+    learned combined simulator reads ``self._base_env`` dynamically
+    instead).
+    """
+    prev_env, fresh_env = _FakeScopeEnv(), _FakeScopeEnv()
+    disposed = []
+    approach = _make_scope_approach(monkeypatch, prev_env, fresh_env, disposed)
+    model = SimpleNamespace(_simulator=prev_env.simulate, sim_env=prev_env)
+    approach._option_model = model
+
+    with approach._fresh_validation_env_scope():
+        assert approach._base_env is fresh_env
+        assert model.sim_env is fresh_env
+        assert model._simulator.__self__ is fresh_env
+        # Identified physical params are re-asserted on the fresh env (the
+        # in-place override does not survive env recreation).
+        assert fresh_env.overrides == {"lateral_friction": 0.1}
+        assert prev_env.overrides is None
+    assert approach._base_env is prev_env
+    assert model.sim_env is prev_env
+    assert model._simulator.__self__ is prev_env
+    assert disposed == [fresh_env]
+
+
+def test_fresh_validation_env_scope_learned_simulator(monkeypatch):
+    """A learned (closure) simulator is left untouched: it reads
+    ``self._base_env`` dynamically, so only the attribute swap applies."""
+    prev_env, fresh_env = _FakeScopeEnv(), _FakeScopeEnv()
+    disposed = []
+    approach = _make_scope_approach(monkeypatch, prev_env, fresh_env, disposed)
+    closure_sim = lambda s, a: s  # noqa: E731
+    model = SimpleNamespace(_simulator=closure_sim, sim_env=prev_env)
+    approach._option_model = model
+
+    with approach._fresh_validation_env_scope():
+        assert approach._base_env is fresh_env
+        assert model._simulator is closure_sim
+        assert model.sim_env is fresh_env
+    assert model._simulator is closure_sim
+    assert model.sim_env is prev_env
+    assert disposed == [fresh_env]
+
+
+def test_fresh_validation_env_scope_disposes_crash_replacement(monkeypatch):
+    """If a mid-rollout crash recovery replaced the fresh env, the scope
+    disposes the replacement instead of leaking it."""
+    prev_env, fresh_env = _FakeScopeEnv(), _FakeScopeEnv()
+    crash_replacement = _FakeScopeEnv()
+    disposed = []
+    approach = _make_scope_approach(monkeypatch, prev_env, fresh_env, disposed)
+    model = SimpleNamespace(_simulator=lambda s, a: s, sim_env=prev_env)
+    approach._option_model = model
+
+    with approach._fresh_validation_env_scope():
+        # Emulate _recreate_base_env firing during the rollout.
+        approach._base_env = crash_replacement
+        model.sim_env = crash_replacement
+    assert approach._base_env is prev_env
+    assert model.sim_env is prev_env
+    assert disposed == [crash_replacement]
+
+
+def test_fresh_validation_env_scope_applies_physics_overrides(monkeypatch):
+    """``physical_overrides`` (the capture gate's physics-margin points) land
+    on the FRESH env on top of the identified params; the shared env is never
+    touched."""
+
+    class _MergingScopeEnv(_FakeScopeEnv):
+        """Sticky per-param merge, matching the real override semantics."""
+
+        def __init__(self):
+            super().__init__()
+            self.overrides = {}
+
+        def apply_physical_param_overrides(self, params):
+            self.overrides.update(params)
+
+    prev_env, fresh_env = _MergingScopeEnv(), _MergingScopeEnv()
+    disposed = []
+    approach = _make_scope_approach(monkeypatch, prev_env, fresh_env, disposed)
+    model = SimpleNamespace(_simulator=lambda s, a: s, sim_env=prev_env)
+    approach._option_model = model
+
+    with approach._fresh_validation_env_scope(
+            physical_overrides={"lateral_friction": 0.48}):
+        # Identified params first, then the perturbation on top.
+        assert fresh_env.overrides == {"lateral_friction": 0.48}
+        assert prev_env.overrides == {}
+    assert disposed == [fresh_env]
+
+
+def test_apply_identified_params_clears_sigma_points():
+    """Any (re)application of identified params invalidates the standing.
+
+    physics-margin points - they derive from a specific fit's posterior.
+    """
+
+    class _RegistryEnv(_FakeScopeEnv):
+
+        def get_physical_param_info(self):
+            """Empty registry: nothing to revert."""
+            return {}
+
+    approach = asla.AgentSimLearningApproach.__new__(
+        asla.AgentSimLearningApproach)
+    approach._base_env = _RegistryEnv()
+    approach._identified_physical_params = {}
+    approach._identified_physical_sigma_points = [{"lateral_friction": 0.48}]
+    approach._apply_identified_physical_params({"lateral_friction": 0.53})
+    assert not approach._identified_physical_sigma_points
+
+
 if __name__ == "__main__":
     import sys
     _model = sys.argv[1] if len(sys.argv) > 1 else "oracle"
     test_boil_sketch_refinement(_model)
+
+
+def test_rollout_fit_trajectories_subset() -> None:
+    """traj_idxs subsets the SOURCE trajectories (agent-facing indexing,
+    applied before truncation/segmentation and before the completeness filter)
+    and raises on an out-of-range index."""
+    obj = object.__new__(AgentSimLearningApproach)
+    t0 = SimpleNamespace(states=[0, 1], actions=["a"])
+    t1 = SimpleNamespace(states=[0, 1, 2], actions=["a", "b"])
+    t2 = SimpleNamespace(states=[0], actions=[])  # incomplete: filtered out
+    # SimpleNamespace stubs stand in for LowLevelTrajectory (only the
+    # states/actions attributes are read).
+    obj._fit_trajectories = cast(List[LowLevelTrajectory], [t0, t1, t2])
+
+    assert len(obj._rollout_fit_trajectories()) == 2
+    sub = obj._rollout_fit_trajectories(traj_idxs=[1])
+    assert len(sub) == 1 and len(sub[0][1]) == 2  # t1's two actions
+    # Selecting only the incomplete trajectory leaves no usable rollouts.
+    assert obj._rollout_fit_trajectories(traj_idxs=[2]) == []
+    with pytest.raises(ValueError, match="out of range"):
+        obj._rollout_fit_trajectories(traj_idxs=[3])
+
+
+def _cross_cycle_fit(value: float) -> Tuple[FitResult, dict]:
+    result = FitResult(names=["friction"],
+                       samples=np.array([[value]]),
+                       log_probs=np.zeros(1),
+                       jacobian=None,
+                       noise_sigma=0.05,
+                       prior_sigma=np.array([0.75]),
+                       scales=["log"])
+    report = {
+        "friction": {
+            "posterior_std": 0.1,
+            "prior_std": 0.75,
+            "contraction": 0.13,
+            "verdict": Verdict.IDENTIFIED,
+            "note": "",
+        }
+    }
+    return result, report
+
+
+def test_cross_cycle_inconsistent_holds_then_confirms() -> None:
+    """A many-sigma jump is held once, accepted on independent repeat.
+
+    Regression for run_20260724_232411 seed2: cycle fits 0.3236 ->
+    0.6267 (4.7 combined sigmas). The first jump must flag INCONSISTENT
+    (trusted history unchanged, both fits recorded as hull candidates);
+    a following cycle re-fitting near the new value confirms the jump
+    and the history moves - without confirmation the stale reference
+    would flag every future fit forever.
+    """
+    obj = object.__new__(AgentSimLearningApproach)
+    obj._sysid_fit_history = {}
+    obj._sysid_pending_fit = {}
+
+    result, report = _cross_cycle_fit(0.3236)
+    obj._check_cross_cycle_consistency(result, report, ["friction"])
+    assert report["friction"]["verdict"] is Verdict.IDENTIFIED
+    assert obj._sysid_fit_history["friction"][0] == 0.3236
+
+    result, report = _cross_cycle_fit(0.6267)
+    obj._check_cross_cycle_consistency(result, report, ["friction"])
+    assert report["friction"]["verdict"] is Verdict.INCONSISTENT
+    assert report["friction"]["candidate_values"] == [0.3236, 0.6267]
+    # Trusted history holds; the rejected fit waits as pending.
+    assert obj._sysid_fit_history["friction"][0] == 0.3236
+    assert obj._sysid_pending_fit["friction"][0] == 0.6267
+
+    result, report = _cross_cycle_fit(0.63)
+    obj._check_cross_cycle_consistency(result, report, ["friction"])
+    assert report["friction"]["verdict"] is Verdict.IDENTIFIED
+    assert obj._sysid_fit_history["friction"][0] == 0.63
+    assert "friction" not in obj._sysid_pending_fit
+
+
+def test_make_probe_process_model_factory() -> None:
+    """The certificate-probe factory mirrors the combined simulator.
+
+    No rules -> None (the probe stays base-only). With rules, each
+    factory call yields a stepper applying the CURRENT rules at the LIVE
+    fitted params (in-place ``sim.fit`` updates must reach the probe,
+    same closure convention as ``_build_combined_simulator``); recurrent
+    5-arg rules get a fresh latent per stepper.
+    """
+    from predicators.structs import State, Type \
+        # pylint: disable=import-outside-toplevel
+
+    thing_type = Type("thing", ["x"])
+    thing = Object("thing0", thing_type)
+    state = State({thing: np.array([0.0])})
+    noop = Action(np.zeros(1, dtype=np.float32))
+
+    obj = object.__new__(AgentSimLearningApproach)
+    obj._residual_rules = None
+    assert obj._make_probe_process_model_factory() is None
+    obj._residual_rules = []
+    assert obj._make_probe_process_model_factory() is None
+
+    def drift_rule(state: State, updates: dict, params: dict) -> dict:
+        updates.setdefault(thing, {})["x"] = \
+            state.get(thing, "x") + params["dx"]
+        return updates
+
+    obj._residual_rules = [drift_rule]
+    obj._fitted_params = {"dx": 0.5}
+    factory = obj._make_probe_process_model_factory()
+    assert factory is not None
+    assert factory()(state, noop).get(thing, "x") == 0.5
+    obj._fitted_params["dx"] = 1.25  # in place, like sim.fit
+    assert factory()(state, noop).get(thing, "x") == 1.25
+
+    def latent_rule(state: State, latent: dict, history: list, updates: dict,
+                    params: dict) -> dict:
+        del history, params
+        latent["count"] = latent.get("count", 0) + 1
+        updates.setdefault(thing, {})["x"] = \
+            state.get(thing, "x") + latent["count"]
+        return updates
+
+    obj._residual_rules = [latent_rule]
+    obj._latent_init = {"count": 0}
+    factory = obj._make_probe_process_model_factory()
+    assert factory is not None
+    stepper = factory()
+    # Latent threads across steps within one stepper...
+    assert stepper(state, noop).get(thing, "x") == 1.0
+    assert stepper(state, noop).get(thing, "x") == 2.0
+    # ...and resets on a fresh stepper (new replay attempt).
+    assert factory()(state, noop).get(thing, "x") == 1.0
+
+
+def test_cross_cycle_arbitration_by_pooled_evidence() -> None:
+    """A flagged jump is accepted when pooled data decisively backs it.
+
+    Regression for run_20260727_210827 seed1: the sharp-but-biased
+    2-trajectory cycle-0 fit (0.9313, true 0.5) was held over the
+    4-trajectory refit (0.4748) for the rest of the run even though the
+    refit explained the pooled data ~30x better. With a pooled-SSE probe
+    the arbitration must accept the new value immediately; an ambivalent
+    gap (or a failing probe) must keep the hold.
+    """
+    obj = object.__new__(AgentSimLearningApproach)
+    obj._sysid_fit_history = {}
+    obj._sysid_pending_fit = {}
+
+    result, report = _cross_cycle_fit(0.9313)
+    obj._check_cross_cycle_consistency(result, report, ["friction"])
+    assert obj._sysid_fit_history["friction"][0] == 0.9313
+
+    def pooled_sse(theta: dict) -> float:
+        return 0.14 if abs(theta["friction"] - 0.4748) < 1e-9 else 4.4
+
+    result, report = _cross_cycle_fit(0.4748)
+    obj._check_cross_cycle_consistency(result,
+                                       report, ["friction"],
+                                       pooled_sse=pooled_sse)
+    assert report["friction"]["verdict"] is Verdict.IDENTIFIED
+    assert "candidate_values" not in report["friction"]
+    assert obj._sysid_fit_history["friction"][0] == 0.4748
+    assert "friction" not in obj._sysid_pending_fit
+
+    # Ambivalent pooled gap (below the decisive ratio): hold as before.
+    obj._sysid_fit_history = {"friction": (0.9313, 0.1, "log")}
+    obj._sysid_pending_fit = {}
+    result, report = _cross_cycle_fit(0.4748)
+    obj._check_cross_cycle_consistency(result,
+                                       report, ["friction"],
+                                       pooled_sse=lambda theta: 0.14)
+    assert report["friction"]["verdict"] is Verdict.INCONSISTENT
+    assert obj._sysid_fit_history["friction"][0] == 0.9313
+    assert obj._sysid_pending_fit["friction"][0] == 0.4748
+
+    # A failing SSE probe must fall back to the hold, not crash.
+    obj._sysid_fit_history = {"friction": (0.9313, 0.1, "log")}
+    obj._sysid_pending_fit = {}
+
+    def broken_sse(theta: dict) -> float:
+        raise RuntimeError("env died")
+
+    result, report = _cross_cycle_fit(0.4748)
+    obj._check_cross_cycle_consistency(result,
+                                       report, ["friction"],
+                                       pooled_sse=broken_sse)
+    assert report["friction"]["verdict"] is Verdict.INCONSISTENT
+    assert obj._sysid_fit_history["friction"][0] == 0.9313
+
+
+def test_persist_fit_trajectories(tmp_path, monkeypatch) -> None:
+    """Fit data lands in <log_dir>/fit_data/, one numbered pickle per fit."""
+    obj = object.__new__(AgentSimLearningApproach)
+    obj._fit_trajectories = cast(List[LowLevelTrajectory],
+                                 ["fake_traj_a", "fake_traj_b"])
+    obj._physical_param_specs = []
+    obj._identified_physical_params = {"friction": 0.5}
+    obj._get_log_dir = lambda: str(tmp_path)  # type: ignore[method-assign]
+
+    obj._persist_fit_trajectories()
+    obj._persist_fit_trajectories()
+    out_dir = tmp_path / "fit_data"
+    files = sorted(f.name for f in out_dir.glob("*.pkl"))
+    assert files == [
+        "fit_trajectories_000_fitted.pkl", "fit_trajectories_001_fitted.pkl"
+    ]
+    with open(out_dir / files[0], "rb") as f:
+        payload = pkl.load(f)
+    assert payload["trajectories"] == ["fake_traj_a", "fake_traj_b"]
+    assert payload["identified_physical_params"] == {"friction": 0.5}
+
+    monkeypatch.setattr(CFG, "code_sim_learning_persist_fit_data", False)
+    obj._persist_fit_trajectories()
+    assert len(list(out_dir.glob("*.pkl"))) == 2
+
+
+def test_fit_data_is_dumped_even_when_no_fit_runs(tmp_path) -> None:
+    """A cycle that declines to fit is exactly the one worth post-morteming.
+
+    Persistence used to sit only inside the sysID fit, so the branch
+    that never ran was the branch whose data mattered:
+    run_20260817_171402 declined on a sweep returning one identical SSE
+    for every value of five parameters, and left nothing on disk to
+    explain it. Dumping where the data ARRIVES is what makes that
+    replayable.
+    """
+    obj = object.__new__(AgentSimLearningApproach)
+    obj._physical_param_specs = []
+    obj._identified_physical_params = {}
+    obj._get_log_dir = lambda: str(tmp_path)  # type: ignore[method-assign]
+    obj._explainability_cache = {}
+    obj._sysid_fit_cache = {}
+
+    # The one line of _learn_simulator this is about, with no fit after it.
+    obj._fit_trajectories = cast(List[LowLevelTrajectory], ["traj"])
+    obj._persist_fit_trajectories("recorded")
+
+    files = [f.name for f in (tmp_path / "fit_data").glob("*.pkl")]
+    assert files == ["fit_trajectories_000_recorded.pkl"]
+    with open(tmp_path / "fit_data" / files[0], "rb") as f:
+        assert pkl.load(f)["trajectories"] == ["traj"]
+
+    # The wiring, not just the function: _learn_simulator runs on every
+    # cycle whether or not a fit follows, so the dump has to hang off it.
+    # Asserted on the source because calling _learn_simulator for real
+    # needs a whole synthesis session, and without this the test above
+    # passes with the call deleted.
+    source = inspect.getsource(AgentSimLearningApproach._learn_simulator)  # pylint: disable=protected-access
+    assert "_persist_fit_trajectories(\"recorded\")" in source, \
+        "the recorded-data dump is no longer wired into _learn_simulator"
+
+
+def test_base_sim_reference_provisioning() -> None:
+    """Base-sim source rides the sandbox reference registry (so every session
+    phase gets it) and the agent-visible paths map per backend."""
+    obj = object.__new__(AgentSimLearningApproach)
+    obj._base_env = object.__new__(PyBulletFanEnv)
+    utils.reset_config({
+        "env": "pybullet_fan",
+        "agent_sim_provide_base_sim_source": True,
+        "agent_sdk_use_local_sandbox": True,
+    })
+    files = obj._get_sandbox_reference_files()
+    assert files["base_sim/pybullet_fan_base.py"] == \
+        "predicators/envs/pybullet_fan_base.py"
+    assert files["base_sim/pybullet_env.py"] == \
+        "predicators/envs/pybullet_env.py"
+    assert obj._base_sim_reference_paths() == [
+        "./reference/base_sim/pybullet_fan_base.py",
+        "./reference/base_sim/pybullet_env.py",
+    ]
+    # Flag off: no registry entries, no advertised paths.
+    utils.reset_config({
+        "env": "pybullet_fan",
+        "agent_sim_provide_base_sim_source": False,
+        "agent_sdk_use_local_sandbox": True,
+    })
+    assert not any(
+        k.startswith("base_sim/") for k in obj._get_sandbox_reference_files())
+    assert obj._base_sim_reference_paths() == []
+
+
+def test_synthesis_tool_names_are_run_python_only():
+    """The learn session's only tool is run_python; the journal is a plain file
+    the agent edits, whatever the journal flag says."""
+    stub = SimpleNamespace(_do_synthesize_samplers=False)
+    for use_journal in (True, False):
+        utils.reset_config({"agent_solve_use_journal": use_journal})
+        names = AgentSimLearningApproach._get_synthesis_tool_names(stub)
+        assert names == ["run_python"]
+
+
+# ---------------------------------------------------------------------------
+# Checkpointing (Feature B)
+# ---------------------------------------------------------------------------
+
+_STUB_SIMULATOR_PY = '''\
+"""Stub simulator for checkpoint rehydration tests."""
+from predicators.code_sim_learning.fit_space import ParamSpec
+
+
+def _noop_rule(state, rule_params, params):
+    return {}
+
+
+RESIDUAL_RULES = [_noop_rule]
+PARAM_SPECS = [ParamSpec("gain", 0.5, lo=0.0, hi=1.0)]
+RESIDUAL_FEATURES = {"block": ["x"]}
+'''
+
+
+def _make_checkpoint_stub(tmp_path, monkeypatch):
+    """A bare AgentSimLearningApproach wired for checkpoint methods."""
+    obj = object.__new__(AgentSimLearningApproach)
+    sandbox = tmp_path / "sandbox"
+    sandbox.mkdir(exist_ok=True)
+    monkeypatch.setattr(AgentSimLearningApproach, "_checkpoint_sandbox_dir",
+                        lambda self: str(sandbox))
+    # Fields _extra_save_state reads.
+    obj._fitted_params = {"gain": 0.7}
+    obj._fit_sse = 1.5
+    obj._param_specs = []
+    obj._physical_param_specs = []
+    obj._last_fit_result = None
+    obj._param_ensemble = [{"gain": 0.7}]
+    obj._identified_physical_params = {"lateral_friction": 0.5}
+    obj._identified_physical_sigma_points = [{"lateral_friction": 0.55}]
+    obj._sysid_fit_history = {}
+    obj._residual_features = {"block": ["x"]}
+    obj._current_simulator_version = "cycle_001_vers_003"
+    obj._current_predicates_version = None
+    obj._current_samplers_version = None
+    return obj, sandbox
+
+
+def test_sandbox_artifacts_round_trip(tmp_path, monkeypatch):
+    """Curated files (incl.
+
+    version dirs) round-trip; junk is skipped.
+    """
+    obj, sandbox = _make_checkpoint_stub(tmp_path, monkeypatch)
+    (sandbox / "simulator.py").write_text("SIM")
+    (sandbox / "journal.md").write_text("JOURNAL")
+    (sandbox / "strategy.md").write_text("STRATEGY")
+    (sandbox / "simulator_versions").mkdir()
+    (sandbox / "simulator_versions" / "cycle_001_vers_001.py").write_text("V1")
+    (sandbox / "session_logs").mkdir()
+    (sandbox / "session_logs" / "big.md").write_text("NOT CHECKPOINTED")
+    files = obj._collect_sandbox_artifacts()
+    assert files["simulator.py"] == b"SIM"
+    assert files["strategy.md"] == b"STRATEGY"
+    assert files[os.path.join("simulator_versions",
+                              "cycle_001_vers_001.py")] == b"V1"
+    assert not any("session_logs" in k for k in files)
+    # Restore into a fresh sandbox.
+    for f in list(sandbox.iterdir()):
+        if f.is_file():
+            f.unlink()
+    obj._restore_sandbox_artifacts(files)
+    assert (sandbox / "simulator.py").read_text() == "SIM"
+    assert (sandbox / "simulator_versions" /
+            "cycle_001_vers_001.py").read_text() == "V1"
+
+
+def test_extra_save_state_round_trip_defers_sigma_points(
+        tmp_path, monkeypatch):
+    """Plain fields round-trip; sigma points restore AFTER rehydration."""
+    obj, sandbox = _make_checkpoint_stub(tmp_path, monkeypatch)
+    (sandbox / "simulator.py").write_text("SIM")
+    save_dict = obj._extra_save_state()
+    assert save_dict["fitted_params"] == {"gain": 0.7}
+    assert save_dict["sandbox_files"]["simulator.py"] == b"SIM"
+    assert "git_describe" in save_dict
+
+    fresh, _ = _make_checkpoint_stub(tmp_path, monkeypatch)
+    fresh._fitted_params = {}
+    fresh._identified_physical_sigma_points = []
+    events = []
+    monkeypatch.setattr(
+        AgentSimLearningApproach, "_rehydrate_from_artifacts",
+        lambda self: events.append(
+            ("rehydrate", list(self._identified_physical_sigma_points))))
+    fresh._load_extra_save_state(save_dict)
+    # Rehydration observed the sigma points still EMPTY (they must not
+    # outlive _apply_identified_physical_params, which rehydrate calls).
+    assert events == [("rehydrate", [])]
+    assert fresh._identified_physical_sigma_points == [{
+        "lateral_friction": 0.55
+    }]
+    assert fresh._fitted_params == {"gain": 0.7}
+    assert fresh._identified_physical_params == {"lateral_friction": 0.5}
+
+
+def test_rehydrate_rebuilds_simulator_from_restored_file(
+        tmp_path, monkeypatch):
+    """A restored simulator.py rebuilds rules + option model; mismatched fitted
+    params fall back to spec inits."""
+    obj, sandbox = _make_checkpoint_stub(tmp_path, monkeypatch)
+    (sandbox / "simulator.py").write_text(_STUB_SIMULATOR_PY)
+    utils.reset_config({"agent_explorer_info_seeking": False})
+    obj._residual_rules = None
+    obj._learned_simulator = None
+    obj._latent_init = None
+    obj._fit_trajectories = []
+    obj._synthesized_samplers = {}
+    obj._base_env = SimpleNamespace(get_physical_param_info=lambda: {})
+    calls = []
+    monkeypatch.setattr(
+        AgentSimLearningApproach, "_resolve_synthesis_paths", lambda self:
+        SimpleNamespace(base=str(sandbox),
+                        simulator_file=str(sandbox / "simulator.py"),
+                        versions_dir=str(sandbox / "simulator_versions"),
+                        simulator_file_for_agent="./simulator.py",
+                        sandbox_dir_for_agent="."))
+    monkeypatch.setattr(AgentSimLearningApproach, "_get_all_trajectories",
+                        lambda self: [])
+    monkeypatch.setattr(
+        AgentSimLearningApproach, "_build_combined_simulator",
+        lambda self, sim: calls.append("combined") or (lambda s, a: s))
+    monkeypatch.setattr(
+        AgentSimLearningApproach, "_build_option_model",
+        lambda self, fn: calls.append("option_model") or SimpleNamespace())
+    monkeypatch.setattr(AgentSimLearningApproach,
+                        "_apply_identified_physical_params",
+                        lambda self, p: calls.append(("apply", dict(p))))
+    monkeypatch.setattr(AgentSimLearningApproach, "_samplers_enabled",
+                        staticmethod(lambda: False))
+    monkeypatch.setattr(AgentSimLearningApproach, "_rebuild_param_ensemble",
+                        lambda self: calls.append("ensemble"))
+    # Checkpointed fitted params carry a stale name -> fall back to init.
+    obj._fitted_params = {"stale_name": 9.9}
+    obj._rehydrate_from_artifacts()
+    assert obj._residual_rules is not None and len(obj._residual_rules) == 1
+    assert obj._learned_simulator is not None
+    assert obj._fitted_params == {"gain": 0.5}
+    assert calls == [
+        "combined", "option_model", ("apply", {
+            "lateral_friction": 0.5
+        }), "ensemble"
+    ]
+
+
+def test_rehydrate_without_simulator_is_graceful(tmp_path, monkeypatch):
+    """Resume before the first synthesis leaves the initial model alone."""
+    obj, sandbox = _make_checkpoint_stub(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        AgentSimLearningApproach, "_resolve_synthesis_paths", lambda self:
+        SimpleNamespace(base=str(sandbox),
+                        simulator_file=str(sandbox / "simulator.py"),
+                        versions_dir=str(sandbox / "simulator_versions"),
+                        simulator_file_for_agent="./simulator.py",
+                        sandbox_dir_for_agent="."))
+    hooks = []
+    monkeypatch.setattr(AgentSimLearningApproach, "_rehydrate_extra_artifacts",
+                        lambda self, base: hooks.append(base))
+    obj._rehydrate_from_artifacts()
+    assert hooks == [str(sandbox)]
+
+
+def test_checkpoint_cycle_counter_semantics(tmp_path, monkeypatch):
+    """``_c`` files store c even when saved after the counter advanced, and
+    loading ``_None`` resumes at cycle 0 while ``_c`` resumes at c+1."""
+    # pylint: disable=import-outside-toplevel
+    from predicators.approaches.agent_model_free_approach import \
+        AgentModelFreeApproach
+    from predicators.structs import Dataset
+    utils.reset_config({
+        "env": "cover",
+        "approach": "agent_model_free",
+        "seed": 0,
+        "approach_dir": str(tmp_path),
+    })
+    obj = object.__new__(AgentModelFreeApproach)
+    obj._offline_dataset = Dataset([])
+    obj._online_trajectories = []
+    obj._run_id = "run"
+    obj._agent_session = None
+    monkeypatch.setattr(AgentModelFreeApproach, "_sync_tool_context",
+                        lambda self: None)
+    # Post-offline checkpoint: counter 0, file _None.
+    obj._online_learning_cycle = 0
+    obj.save(None)
+    # Cycle-3 checkpoint written AFTER the counter already advanced to 4
+    # (the sim-learning subclass saves post-learn): the file must still
+    # denote cycle 3.
+    obj._online_learning_cycle = 4
+    obj.save(3)
+    fresh = object.__new__(AgentModelFreeApproach)
+    fresh._agent_session = None
+    fresh.load(None)
+    assert fresh._online_learning_cycle == 0
+    fresh.load(3)
+    assert fresh._online_learning_cycle == 4

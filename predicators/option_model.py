@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import abc
 import logging
-from typing import Callable, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Optional, Set, Tuple
 
 import numpy as np
 import pybullet
@@ -43,31 +43,58 @@ def _check_wait_termination(option: _Option, state: State, last_state: State,
     return False
 
 
-def create_option_model(name: str,
-                        use_gui: Optional[bool] = None) -> _OptionModelBase:
+def create_option_model(
+        name: str,
+        use_gui: Optional[bool] = None,
+        skip_residual_dynamics: bool = False) -> _OptionModelBase:
     """Create an option model given its name.
 
     Args:
         name: The name of the option model.
         use_gui: If provided, overrides CFG.option_model_use_gui for the
             environment created by this option model.
+        skip_residual_dynamics: If True, the wrapped env runs with its
+            delayed ``_domain_specific_step`` dynamics disabled (the
+            "base" simulator). Forwarded to the env only when True, so
+            non-PyBullet analog envs whose ``__init__`` does not accept
+            the kwarg are unaffected by the default.
     """
     gui = CFG.option_model_use_gui if use_gui is None else use_gui
+    env_kwargs: Dict[str, Any] = {}
+    if skip_residual_dynamics:
+        env_kwargs["skip_residual_dynamics"] = True
     if name == "oracle":
-        env = create_new_env(CFG.env, do_cache=False, use_gui=gui)
+        env = create_new_env(CFG.env,
+                             do_cache=False,
+                             use_gui=gui,
+                             **env_kwargs)
         options = get_gt_options(env.get_name())
-        return _OracleOptionModel(options, env.simulate)
+        model = _OracleOptionModel(options, env.simulate)
+        model.sim_env = env
+        return model
     if name.startswith("oracle"):
         env_name = name[name.index("_") + 1:]
-        env = create_new_env(env_name, do_cache=False, use_gui=gui)
+        env = create_new_env(env_name,
+                             do_cache=False,
+                             use_gui=gui,
+                             **env_kwargs)
         options = get_gt_options(env.get_name())
-        return _OracleOptionModel(options, env.simulate)
+        model = _OracleOptionModel(options, env.simulate)
+        model.sim_env = env
+        return model
     raise NotImplementedError(f"Unknown option model: {name}")
 
 
 class _OptionModelBase(abc.ABC):
     """Struct defining an option model, which predicts the next state of the
     world after an option is executed from a given start state."""
+
+    # The env instance backing this model's simulator, when it wraps
+    # one (set by ``create_option_model``). Task-evaluator verdict
+    # paths pass it as the transient ``sim_env`` so physics-needing
+    # certificates (the domino counterfactual push probe) run against
+    # the same belief physics the rollout used.
+    sim_env: Optional[Any] = None
 
     @abc.abstractmethod
     def get_next_state_and_num_actions(self, state: State,
@@ -140,8 +167,10 @@ class _OracleOptionModel(_OptionModelBase):
         # Note: mypy complains if this is None instead of DefaultState.
         last_state = DefaultState
 
+        wait_steps = 0
+
         def _terminal(s: State) -> bool:
-            nonlocal last_state
+            nonlocal last_state, wait_steps
             if option_copy.terminal(s):
                 logging.debug("Option reached terminal state.")
                 return True
@@ -159,11 +188,22 @@ class _OracleOptionModel(_OptionModelBase):
             if (CFG.wait_option_terminate_on_atom_change
                     and option_copy.name == "Wait"
                     and last_state is not DefaultState
-                    and self._abstract_function is not None
-                    and _check_wait_termination(option_copy, s, last_state,
-                                                self._abstract_function)):
-                logging.debug("Wait option terminating early.")
-                return True
+                    and self._abstract_function is not None):
+                wait_steps += 1
+                if _check_wait_termination(option_copy, s, last_state,
+                                           self._abstract_function):
+                    logging.debug("Wait option terminating early.")
+                    return True
+                # Same backstop the real executor applies (utils.py's
+                # wait_option_max_steps branches), so a Wait whose
+                # target atoms never come true ends at the same step
+                # count on both substrates instead of running to this
+                # model's option-rollout cap only in the belief.
+                if wait_steps >= CFG.wait_option_max_steps:
+                    logging.debug(
+                        "Wait terminating: wait_option_max_steps "
+                        "backstop (%d steps).", wait_steps)
+                    return True
             last_state = s
             return False
 
@@ -178,7 +218,15 @@ class _OracleOptionModel(_OptionModelBase):
             # Treat PyBullet physics engine errors the same as planned
             # execution failures (e.g. GUI/Metal crash on macOS).
             self.last_execution_failure = str(e)
-            return state, 0
+            # Return the LAST simulated state, not the pre-option state:
+            # a skill that raises mid-execution (e.g. post-release
+            # placement verification, after the fingers already opened)
+            # leaves the real env at that partial state, and closed-loop
+            # consumers continue from it. Callers that treat 0 actions as
+            # a hard failure never read the state, so this only changes
+            # the honest-continuation case.
+            partial = last_state if last_state is not DefaultState else state
+            return partial, 0
         # Note that in the case of using a PyBullet environment, the
         # second return value (num_actions) will be an underestimate
         # since we are not actually rolling out the option in the full

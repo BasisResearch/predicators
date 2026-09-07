@@ -578,7 +578,8 @@ class _BoilLegacyOptionsMixin:
             cls._move_to_pose_tol,
             CFG.pybullet_max_vel_norm,
             cls._finger_action_nudge_magnitude,
-            validate=CFG.pybullet_ik_validate)
+            validate=CFG.pybullet_ik_validate,
+            stall_limit=8)
 
     @classmethod
     def _create_boil_move_to_above_jug_option(
@@ -631,7 +632,8 @@ class _BoilLegacyOptionsMixin:
             cls._move_to_pose_tol,
             CFG.pybullet_max_vel_norm,
             cls._finger_action_nudge_magnitude,
-            validate=CFG.pybullet_ik_validate)
+            validate=CFG.pybullet_ik_validate,
+            stall_limit=8)
 
     @classmethod
     def _create_boil_move_to_push_switch_option(

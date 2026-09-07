@@ -11,9 +11,21 @@ runs directly on the host but is confined to the sandbox via hooks.
 Curated reference files are copied into ``sandbox/reference/`` for the
 agent to read.  The agent can write and run Python scripts in the sandbox.
 
+Behavioral notes relative to the shared base
+(:mod:`predicators.agent_sdk.session_base`):
+
+- Query logs are markdown, dual-written to the host ``_log_dir`` and to
+  ``sandbox/session_logs/`` so the agent can read its own logs, and
+  git-committed before session start for Glob discovery.
+- The per-session query counter is seeded from existing log files so
+  numbering stays continuous across sessions in the same run (this is
+  deliberately local-only).
+- A wall-clock deadline interrupt rides on the receive-loop's per-entry
+  callback (see ``query``).
+
 Usage
 -----
-When ``CFG.agent_sdk_use_local_sandbox`` is ``True``, the
+When the ``agent_sdk_use_local_sandbox`` flag is ``True``, the
 ``AgentSessionMixin`` creates a ``LocalSandboxSessionManager`` in place
 of the normal ``AgentSessionManager``::
 
@@ -22,37 +34,44 @@ of the normal ``AgentSessionManager``::
     await manager.close()
 """
 import datetime
-import json
 import logging
 import os
+import time
 from typing import Any, Dict, List, Optional
 
+from predicators.agent_sdk.config import SessionConfig
 from predicators.agent_sdk.log_formatter import format_conversation_markdown
-from predicators.agent_sdk.response_parser import parse_message
-from predicators.agent_sdk.sandbox_prompts import build_claude_md, \
-    build_sandbox_system_prompt, find_repo_root, setup_sandbox_directory, \
-    truncate
-from predicators.agent_sdk.tools import BUILTIN_TOOLS, ToolContext
-from predicators.settings import CFG
+from predicators.agent_sdk.sandbox_prompts import build_sandbox_system_prompt
+from predicators.agent_sdk.sandbox_setup import git_commit_all
+from predicators.agent_sdk.session_base import SandboxSessionManagerBase, \
+    build_agent_options, build_sandbox_mcp, max_session_log_number
+from predicators.agent_sdk.tools import ToolContext, session_log_filename
 
 logger = logging.getLogger(__name__)
 
+# Grace period past the solve-attempt deadline before interrupting a
+# still-streaming agent turn (cooperative tool refusals normally end
+# the turn well before this).
+_DEADLINE_INTERRUPT_SLACK_S = 180
+
 # Build local-sandbox-specific prompts from shared templates.
-_LOCAL_CLAUDE_MD = build_claude_md(log_prefix="local_sandbox_query")
+# CLAUDE.md (sandbox mechanics only; see build_claude_md) is written
+# into the sandbox when it is populated.
 _LOCAL_SANDBOX_SYSTEM_PROMPT = build_sandbox_system_prompt(
     env_description="a local sandbox environment",
     workspace_description="the current directory",
     ref_path="./reference/",
-    log_prefix="local_sandbox_query",
 )
 
 
-class LocalSandboxSessionManager:
+class LocalSandboxSessionManager(SandboxSessionManagerBase):
     """Runs ClaudeSDKClient locally with cwd set to a sandbox directory.
 
     Matches the ``AgentSessionManager`` / ``DockerSessionManager``
     interface so that all agent-based approaches work unchanged.
     """
+
+    _log_label = "Local sandbox"
 
     def __init__(
         self,
@@ -62,115 +81,53 @@ class LocalSandboxSessionManager:
         tool_context: ToolContext,
         tool_names: Optional[List[str]] = None,
         extra_reference_files: Optional[Dict[str, str]] = None,
+        phase: Optional[str] = None,
+        config: Optional[SessionConfig] = None,
+        query_count_floor: int = 0,
     ) -> None:
-        self._system_prompt = system_prompt + _LOCAL_SANDBOX_SYSTEM_PROMPT
-        self._log_dir = log_dir
-        self._model_name = model_name
-        self._tool_context = tool_context
-        self._tool_names = tool_names
-        self._extra_reference_files = extra_reference_files or {}
-        self._repo_root = str(find_repo_root())
-
-        self._total_cost_usd: float = 0.0
-        self._total_turns: int = 0
-        self._query_count: int = 0
-        self._session_id: Optional[str] = None
-        self._conversation_log: List[Dict[str, Any]] = []
-        self._sandbox_dir: Optional[str] = None
-        self._client: Any = None
-        self._started = False
+        super().__init__(system_prompt=system_prompt +
+                         _LOCAL_SANDBOX_SYSTEM_PROMPT,
+                         log_dir=log_dir,
+                         model_name=model_name,
+                         tool_context=tool_context,
+                         tool_names=tool_names,
+                         extra_reference_files=extra_reference_files,
+                         phase=phase,
+                         config=config)
         self._sandbox_log_path: Optional[str] = None
-        self._current_log_meta: Dict[str, Any] = {}
-
-    # -- Properties matching session manager interface --
-
-    @property
-    def session_id(self) -> Optional[str]:
-        """Return the current session ID."""
-        return self._session_id
-
-    @session_id.setter
-    def session_id(self, value: Optional[str]) -> None:
-        self._session_id = value
-
-    @property
-    def tool_names(self) -> List[str]:
-        """Return short tool names (without MCP prefix)."""
-        from predicators.agent_sdk.tools import \
-            MCP_SERVER_NAME  # pylint: disable=import-outside-toplevel
-        prefix = f"mcp__{MCP_SERVER_NAME}__"
-        names = list(BUILTIN_TOOLS)
-        if self._tool_names:
-            names += self._tool_names
-        return [t[len(prefix):] if t.startswith(prefix) else t for t in names]
-
-    @property
-    def conversation_log(self) -> List[Dict[str, Any]]:
-        """Return the in-memory log of all query/response pairs."""
-        return self._conversation_log
-
-    # -- Sandbox setup --
-
-    def _ensure_sandbox_dir(self) -> None:
-        """Create and populate the sandbox directory if it doesn't exist."""
-        if self._sandbox_dir is not None:
-            return
-
-        self._sandbox_dir = os.path.abspath(
-            os.path.join(self._log_dir, "sandbox"))
-
-        setup_sandbox_directory(
-            sandbox_dir=self._sandbox_dir,
-            repo_root=self._repo_root,
-            extra_reference_files=self._extra_reference_files,
-            claude_md_content=_LOCAL_CLAUDE_MD,
-            system_prompt=self._system_prompt,
-            log_dir=self._log_dir,
-            seed_scratchpad=CFG.agent_planner_use_scratchpad,
-        )
-
-        # Set sandbox paths on tool context
-        self._tool_context.image_save_dir = str(
-            os.path.join(self._sandbox_dir, "test_images"))
-        self._tool_context.sandbox_dir = self._sandbox_dir
+        self._query_count_seeded: bool = False
+        # Lowest transcript number this session may hand out minus one:
+        # an auto-resumed run passes the count its predecessor reached
+        # (recorded in the checkpoint), so ids continue across the
+        # lineage instead of restarting at 001 in the new run dir.
+        self._query_count_floor = int(query_count_floor)
 
     # -- Session lifecycle --
 
     async def start_session(self) -> None:
         """Create ClaudeSDKClient with cwd set to the sandbox directory."""
-        # pylint: disable=import-outside-toplevel
-        from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, \
-            create_sdk_mcp_server
-
-        from predicators.agent_sdk.tools import create_mcp_tools, \
-            get_allowed_tool_list
-
-        # pylint: enable=import-outside-toplevel
+        from claude_agent_sdk import \
+            ClaudeSDKClient  # pylint: disable=import-outside-toplevel
 
         self._ensure_sandbox_dir()
 
-        # Create MCP tools (closures over tool_context, in-process)
-        tools = create_mcp_tools(self._tool_context,
-                                 tool_names=self._tool_names)
-        mcp_server = create_sdk_mcp_server(
-            name="predicator_tools",
-            version="1.0.0",
-            tools=tools,
-        )
+        # Create MCP tools (closures over tool_context, in-process) and
+        # the combined built-in + custom allowed-tool list.
+        mcp_server, allowed_tools = build_sandbox_mcp(self._tool_context,
+                                                      self._tool_names)
 
-        # Built-in tools + custom MCP tools
-        mcp_tool_list = get_allowed_tool_list(self._tool_names)
-        allowed_tools = BUILTIN_TOOLS + mcp_tool_list
-
-        options = ClaudeAgentOptions(
-            allowed_tools=allowed_tools,
-            mcp_servers={"predicator_tools": mcp_server},
-            permission_mode="bypassPermissions",
+        extra_hooks = dict(self._tool_context.extra_session_hooks or {})
+        options = build_agent_options(
             system_prompt=self._system_prompt,
-            model=self._model_name,
-            max_turns=CFG.agent_sdk_max_agent_turns_per_iteration,
+            model_name=self._model_name,
+            allowed_tools=allowed_tools,
+            mcp_server=mcp_server,
+            max_turns=self._config.max_turns,
+            max_buffer_size=self._config.max_buffer_size,
+            reasoning_effort=self._config.reasoning_effort,
             cwd=self._sandbox_dir,
             setting_sources=["project", "local"],
+            hooks=extra_hooks,
         )
 
         self._client = ClaudeSDKClient(options=options)
@@ -179,11 +136,19 @@ class LocalSandboxSessionManager:
         logger.info("Local sandbox session started (cwd=%s)",
                     self._sandbox_dir)
 
-    async def query(self, message: str) -> List[Dict[str, Any]]:
-        """Send a message to the agent and collect all response messages."""
+    async def query(self,
+                    message: str,
+                    kind: str = "query") -> List[Dict[str, Any]]:
+        """Send a message to the agent and collect all response messages.
+
+        ``kind`` is a short tag (e.g. ``learn``, ``test``, ``explore``)
+        that becomes the prefix of the saved log filename.
+        """
+        # Continue numbering across sessions in the same run by seeding the
+        # counter from any existing log files in _log_dir on first use.
+        self._seed_query_count_from_log_dir()
         self._query_count += 1
         self._tool_context.turn_id = self._query_count
-        collected: List[Dict[str, Any]] = []
 
         # Ensure sandbox exists before creating the log file.
         self._ensure_sandbox_dir()
@@ -191,122 +156,73 @@ class LocalSandboxSessionManager:
         # Create and commit the log file BEFORE starting the session so that
         # Claude Code's Glob (which indexes files at session startup) can
         # discover it.
-        log_path = self._init_incremental_log(message)
+        log_path = self._init_incremental_log(message, kind=kind)
 
         if not self._started:
             await self.start_session()
 
-        try:
-            await self._client.query(message)
-            async for msg in self._client.receive_response():
-                entry = parse_message(msg)
-                if entry is None:
-                    continue
-                collected.append(entry)
+        # Wall-clock backstop for the solve attempt deadline: the probe
+        # and run_python enforce it cooperatively (tool calls refuse
+        # past the deadline), so normally the agent wraps up on its own;
+        # interrupt only if the turn stream is still going long after.
+        # The approach clears attempt_deadline before its final-submission
+        # nudge, so the submission query is never interrupted.
+        interrupt_sent = False
 
-                # Log side-effects
-                if entry["type"] == "assistant":
-                    for block in entry.get("content", []):
-                        if block.get("type") == "text":
-                            logging.debug("Agent: %s...", block["text"][:200])
-                        elif block.get("type") == "tool_use":
-                            params = block.get("input") or {}
-                            param_summary = ", ".join(
-                                f"{k}={truncate(v)}"
-                                for k, v in params.items())
-                            logging.debug("Agent tool call: %s(%s)",
-                                          block["name"], param_summary)
-                elif entry["type"] == "result":
-                    cost = entry.get("total_cost_usd")
-                    turns = entry.get("num_turns")
-                    if cost is not None:
-                        self._total_cost_usd += cost
-                    if turns is not None:
-                        self._total_turns += turns
-                    logging.info(
-                        "Local sandbox iteration complete. "
-                        "Turns: %s, Cost: $%s", turns or '?', cost or '?')
+        async def _maybe_interrupt_on_deadline(_entry: Dict[str, Any]) -> None:
+            nonlocal interrupt_sent
+            deadline = getattr(self._tool_context, "attempt_deadline", None)
+            if (interrupt_sent or deadline is None or time.monotonic() <=
+                    deadline + _DEADLINE_INTERRUPT_SLACK_S):
+                return
+            interrupt_sent = True
+            logger.warning(
+                "Solve-attempt wall clock exceeded by >%ds mid-query; "
+                "interrupting the agent turn.", _DEADLINE_INTERRUPT_SLACK_S)
+            try:
+                await self._client.interrupt()
+            except Exception as e:  # pylint: disable=broad-except
+                logger.warning("Interrupt failed: %s", e)
 
-                # Flush log after each message
-                if log_path:
-                    self._flush_log(log_path, collected)
-
-        except Exception as e:  # pylint: disable=broad-except
-            logging.error("Local sandbox session error: %s", e)
-            collected.append({"type": "error", "error": str(e)})
-            await self._recover_session(message)
-
-        # Final flush
-        if log_path:
-            self._flush_log(log_path, collected)
-            logging.info("Saved local sandbox query/response to %s", log_path)
-
-        # Log proposals (matches Docker sandbox logging)
-        proposals = self._tool_context.iteration_proposals
-        if proposals.proposed_options or proposals.retract_option_names:
-            logger.info(
-                "Local sandbox proposals: proposed_options=%s, "
-                "retract=%s",
-                [o.name for o in proposals.proposed_options],
-                sorted(proposals.retract_option_names),
-            )
-            logger.info(
-                "After local sandbox query: tool_context.options=%s",
-                sorted(o.name for o in self._tool_context.options),
-            )
-
-        self._conversation_log.append({
-            "query": message,
-            "response": collected,
-        })
+        collected = await self._run_streamed_query(
+            message,
+            log_path=log_path,
+            kind=kind,
+            on_entry=_maybe_interrupt_on_deadline)
 
         return collected
 
-    async def close(self) -> None:
-        """Close the agent session."""
-        if self._client is not None:
-            try:
-                await self._client.disconnect()
-            except Exception as e:  # pylint: disable=broad-except
-                logging.warning("Error closing local sandbox session: %s", e)
-            finally:
-                self._client = None
-                self._started = False
-
-    async def _recover_session(self, _last_message: str) -> None:
-        """Attempt to recover from a session error."""
-        logging.warning("Attempting local sandbox session recovery...")
-        try:
-            if self._client is not None:
-                try:
-                    await self._client.disconnect()
-                except Exception:  # pylint: disable=broad-except
-                    pass
-            self._started = False
-            await self.start_session()
-            logging.info("Local sandbox session recovered.")
-        except Exception as e:  # pylint: disable=broad-except
-            logging.error("Local sandbox session recovery failed: %s", e)
-
-    def save_session_info(self) -> None:
-        """Save session metadata to log directory."""
-        os.makedirs(self._log_dir, exist_ok=True)
-        info = {
+    def _session_info_extras(self) -> Dict[str, Any]:
+        """Extra session-info keys: manager type + sandbox location."""
+        return {
             "session_type": "local_sandbox",
-            "session_id": self._session_id,
-            "total_cost_usd": self._total_cost_usd,
-            "total_turns": self._total_turns,
-            "model": self._model_name,
             "sandbox_dir": self._sandbox_dir,
         }
-        path = os.path.join(self._log_dir, "session_info.json")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(info, f, indent=2)
-        logging.info("Saved session info to %s", path)
 
     # -- Logging helpers --
 
-    def _init_incremental_log(self, query: str) -> Optional[str]:
+    # Matches the new ``NNN_kind[_taskN]_ts.md`` layout and the legacy
+    # ``kind_NNN_ts.md`` layout so resuming across the migration is
+    # lossless. The counter is always captured in group 1 or 2; the
+    # optional ``_task<idx>`` segment tags test queries with their task.
+    def _seed_query_count_from_log_dir(self) -> None:
+        """Make the per-session counter continuous across the run.
+
+        On first use, scan ``_log_dir`` for prior log files matching
+        ``NNN_<kind>_<ts>.md`` (or the legacy ``<kind>_NNN_<ts>.md``)
+        and pick up where the last session left off, never below the
+        resumed lineage's floor. Without this, every fresh session would
+        restart at 001.
+        """
+        if self._query_count_seeded:
+            return
+        self._query_count_seeded = True
+        self._query_count = max(max_session_log_number(self._log_dir),
+                                self._query_count_floor)
+
+    def _init_incremental_log(self,
+                              query: str,
+                              kind: str = "query") -> Optional[str]:
         """Initialize log file for incremental writing.
 
         Writes to both the sandbox ``session_logs/`` dir (so the agent
@@ -316,21 +232,24 @@ class LocalSandboxSessionManager:
             return None
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = (f"local_sandbox_query_{self._query_count:03d}_"
-                    f"{timestamp}.md")
+        # Counter-first layout: alphabetical sort matches chronological
+        # order across mixed ``learn``/``test``/``explore`` phases. Test
+        # queries also carry a ``_task<idx>`` segment for attribution.
+        filename = session_log_filename(
+            self._query_count, kind, timestamp,
+            getattr(self._tool_context, "test_task_idx", None))
         # Primary: main log dir (host-visible)
         filepath = os.path.join(self._log_dir, filename)
         os.makedirs(self._log_dir, exist_ok=True)
 
         # Also write to sandbox/session_logs/ so the agent can read its own logs
-        self._sandbox_log_path = None  # type: ignore[no-redef]
-        if self._sandbox_dir is not None:
-            sandbox_logs = os.path.join(self._sandbox_dir, "session_logs")
-            os.makedirs(sandbox_logs, exist_ok=True)
-            self._sandbox_log_path = os.path.join(sandbox_logs, filename)
+        sandbox_logs = os.path.join(self._sandbox_dir, "session_logs")
+        os.makedirs(sandbox_logs, exist_ok=True)
+        self._sandbox_log_path = os.path.join(sandbox_logs, filename)
 
         self._current_log_meta = {
             "query_number": self._query_count,
+            "kind": kind,
             "timestamp": timestamp,
             "query": query,
             "session_id": self._session_id,
@@ -340,33 +259,14 @@ class LocalSandboxSessionManager:
         # Commit the log file so Claude Code's Glob can discover it.
         # Claude Code indexes git-tracked files at session startup, so the
         # file must be committed before start_session() is called.
-        if self._sandbox_log_path and self._sandbox_dir:
-            try:
-                import subprocess  # pylint: disable=import-outside-toplevel
-                subprocess.run(
-                    ["git", "add", self._sandbox_log_path],
-                    cwd=self._sandbox_dir,
-                    capture_output=True,
-                    timeout=5,
-                    check=False,
-                )
-                subprocess.run(
-                    [
-                        "git", "commit", "-q", "-m",
-                        f"log query {self._query_count}", "--author",
-                        "sandbox <sandbox@local>"
-                    ],
-                    cwd=self._sandbox_dir,
-                    capture_output=True,
-                    timeout=5,
-                    check=False,
-                    env={
-                        **os.environ, "GIT_COMMITTER_NAME": "sandbox",
-                        "GIT_COMMITTER_EMAIL": "sandbox@local"
-                    },
-                )
-            except Exception:  # pylint: disable=broad-except
-                pass
+        try:
+            git_commit_all(self._sandbox_dir,
+                           f"log query {self._query_count}",
+                           paths=[self._sandbox_log_path])
+        except Exception as e:  # pylint: disable=broad-except
+            # A failed commit breaks the agent's Glob discovery of its
+            # own logs, so it is worth a visible warning.
+            logger.warning("git commit of session log failed: %s", e)
         return filepath
 
     def _flush_log(self, filepath: str, response: List[Dict[str,
@@ -381,9 +281,9 @@ class LocalSandboxSessionManager:
             with open(filepath, "w", encoding="utf-8") as lf:
                 lf.write(log_content)
             # Also write to sandbox/session_logs/ for agent access
-            sandbox_path = getattr(self, '_sandbox_log_path', None)
-            if sandbox_path:
-                with open(sandbox_path, "w", encoding="utf-8") as lf:
+            if self._sandbox_log_path:
+                with open(self._sandbox_log_path, "w", encoding="utf-8") as lf:
                     lf.write(log_content)
-        except Exception:  # pylint: disable=broad-except
-            pass  # Don't let logging errors break the agent
+        except Exception as e:  # pylint: disable=broad-except
+            logger.debug("Session-log flush failed: %s", e)
+            # Don't let logging errors break the agent.

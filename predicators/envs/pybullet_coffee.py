@@ -60,7 +60,6 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
     # of the robots, table, etc.
     grasp_finger_tol: ClassVar[float] = 1e-2
     grasp_position_tol: ClassVar[float] = 1e-2
-    _finger_action_tol: ClassVar[float] = 1e-3
     dispense_tol: ClassVar[float] = 1e-2
     plugged_in_tol: ClassVar[float] = 1e-2
     pour_angle_tol: ClassVar[float] = 1e-1

@@ -22,7 +22,8 @@ import pybullet as p
 from predicators import utils
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
-from predicators.pybullet_helpers.objects import create_object, update_object
+from predicators.pybullet_helpers.objects import cap_switch_joint_travel, \
+    create_object, update_object
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
@@ -114,7 +115,8 @@ class PyBulletLaserEnv(PyBulletEnv):
     # -------------
     # Types
     # -------------
-    _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
+    _robot_type = Type("robot",
+                       ["x", "y", "z", "fingers", "roll", "tilt", "wrist"])
     _station_type = Type("station", ["x", "y", "z", "rot", "is_on"],
                          sim_features=["id", "joint_id"])
     _mirror_type = Type("mirror",
@@ -269,6 +271,9 @@ class PyBulletLaserEnv(PyBulletEnv):
         self._station.id = pybullet_bodies["station_id"]
         self._station.joint_id = self._get_joint_id(self._station.id,
                                                     "joint_0")
+        cap_switch_joint_travel(self._station.id, self._station.joint_id,
+                                self.station_joint_scale,
+                                self._physics_client_id)
         for mirror, mirror_id in zip(self._normal_mirrors,
                                      pybullet_bodies["normal_mirror_ids"]):
             mirror.id = mirror_id
@@ -618,6 +623,7 @@ class PyBulletLaserEnv(PyBulletEnv):
                 "y": self.robot_init_y,
                 "z": self.robot_init_z,
                 "fingers": self.open_fingers,
+                "roll": self.robot_init_roll,
                 "tilt": self.robot_init_tilt,
                 "wrist": self.robot_init_wrist,
             }

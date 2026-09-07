@@ -43,9 +43,13 @@ _GUI_ON = False  # Set True for visual debugging
 # Pick: (grasp_z_offset,) in [0.0, 0.1] -- small offset so gripper
 # closes close to the object origin.
 _PICK_PARAMS = [0.01]
-# Push: (approach_distance, contact_z_offset) in [0, 0.06] x [0, 0.11]
-# -- zeros so robot pushes at the target position directly.
-_PUSH_PARAMS = [0.0, 0.0]
+# Push: (approach_distance, contact_z_offset) in [0, 0.10] x [0, 0.11]
+# -- a real stroke: zero approach makes the push degenerate (start point
+# == end point == target), leaving the toggle to the descending hand's
+# footprint, which is orientation-sensitive and marginal even with the
+# legacy front push (a [0, 0] faucet toggle ground for 399 steps vs 29
+# with a stroke, and burner2 failed outright on macOS).
+_PUSH_PARAMS = [0.05, 0.1]
 
 # ---------------------------------------------------------------------------
 # Generic mixin: set_state / get_state / execute_option
@@ -1124,7 +1128,6 @@ def test_pick_holds_domino_with_motion_planning():
         "domino_use_skill_factories": True,
         "skill_phase_use_motion_planning": True,
         "pybullet_ik_validate": False,
-        "domino_use_grid": True,
         "domino_use_domino_blocks_as_target": True,
         "domino_restricted_push": True,
         "num_train_tasks": 1,
@@ -1208,7 +1211,6 @@ def test_pick_holds_domino_without_motion_planning():
         "domino_use_skill_factories": True,
         "skill_phase_use_motion_planning": False,
         "pybullet_ik_validate": False,
-        "domino_use_grid": True,
         "domino_use_domino_blocks_as_target": True,
         "domino_restricted_push": True,
         "num_train_tasks": 1,
@@ -1297,7 +1299,6 @@ def test_domino_pick_place_no_collisions():
         "pybullet_ik_validate": False,
         "domino_initialize_at_finished_state": False,
         "domino_use_domino_blocks_as_target": True,
-        "domino_use_grid": True,
         "domino_include_connected_predicate": False,
         "domino_use_continuous_place": True,
         "domino_restricted_push": True,
@@ -1393,6 +1394,106 @@ def test_domino_pick_place_no_collisions():
         f"Non-held dominoes moved during Place: {place_collisions}"
 
 
+def test_domino_second_place_with_unvalidated_ik():
+    """The seed-0 bridge placement for domino_2 should refine with
+    pybullet_ik_validate disabled.
+
+    This covers a failure mode where the fast one-shot IK solution
+    reaches the EE target but leaves the held domino colliding with the
+    table, so collision-aware BiRRT needs to retry the IK target with
+    validation before declaring Place infeasible.
+    """
+    try:
+        from predicators.envs.pybullet_domino import PyBulletDominoEnv
+    except ImportError:
+        pytest.skip("pybullet_domino not available")
+
+    from predicators.ground_truth_models.domino.processes import \
+        _pick_option_sampler, _place_option_sampler
+    from predicators.option_model import _OracleOptionModel
+    from predicators.structs import GroundAtom
+
+    utils.reset_config({
+        "env": "pybullet_domino",
+        "use_gui": False,
+        "pybullet_control_mode": "position",
+        "pybullet_robot": "fetch",
+        "domino_use_skill_factories": True,
+        "skill_phase_use_motion_planning": True,
+        "option_model_terminate_on_repeat": False,
+        "pybullet_ik_validate": False,
+        "domino_initialize_at_finished_state": False,
+        "domino_use_domino_blocks_as_target": True,
+        "domino_include_connected_predicate": False,
+        "domino_use_continuous_place": True,
+        "domino_restricted_push": True,
+        "domino_prune_actions": False,
+        "domino_has_glued_dominos": False,
+        "pybullet_birrt_extend_num_interp": 20,
+        "pybullet_birrt_path_subsample_ratio": 2,
+        "num_train_tasks": 1,
+        "num_test_tasks": 1,
+    })
+
+    class _ExposedDominoEnv(  # type: ignore[misc]
+            _ExposedEnvMixin, PyBulletDominoEnv):
+        pass
+
+    env = _ExposedDominoEnv(use_gui=False)
+    options = env._options
+    model = _OracleOptionModel(set(options.values()), env.simulate)
+    state = env.get_test_tasks()[0].init
+    objs = {o.name: o for o in state}
+    preds = {p.name: p for p in env.predicates}
+    robot = objs["robot"]
+    d0 = objs["domino_0"]
+    d1 = objs["domino_1"]
+    d2 = objs["domino_2"]
+    d3 = objs["domino_3"]
+
+    def _run_option(option, cur_state):
+        next_state, num_actions = model.get_next_state_and_num_actions(
+            cur_state, option)
+        assert num_actions > 0, model.last_execution_failure
+        return next_state
+
+    pick1 = options["Pick"].ground([robot, d1],
+                                   _pick_option_sampler(
+                                       state, set(), np.random.default_rng(0),
+                                       [robot, d1]))
+    state = _run_option(pick1, state)
+
+    subgoal1 = {
+        GroundAtom(preds["InFront"], [d1, d0]),
+        GroundAtom(preds["HandEmpty"], [robot]),
+    }
+    place1 = options["Place"].ground([robot],
+                                     _place_option_sampler(
+                                         state, subgoal1,
+                                         np.random.default_rng(0), [robot]))
+    state = _run_option(place1, state)
+
+    pick2 = options["Pick"].ground([robot, d2],
+                                   _pick_option_sampler(
+                                       state, set(), np.random.default_rng(0),
+                                       [robot, d2]))
+    state = _run_option(pick2, state)
+
+    subgoal2 = {
+        GroundAtom(preds["InFront"], [d3, d2]),
+        GroundAtom(preds["InFront"], [d2, d1]),
+        GroundAtom(preds["HandEmpty"], [robot]),
+    }
+    place2 = options["Place"].ground([robot],
+                                     _place_option_sampler(
+                                         state, subgoal2,
+                                         np.random.default_rng(0), [robot]))
+    state = _run_option(place2, state)
+
+    assert GroundAtom(preds["HandEmpty"], [robot]).holds(state)
+    assert state.get(d2, "is_held") < 0.5
+
+
 @pytest.mark.xfail(reason="Button detection zone overlaps dispense area "
                    "approach path — robot arm triggers button during place")
 def test_coffee_place_no_button_press():
@@ -1480,8 +1581,8 @@ def test_coffee_place_no_button_press():
         f"PlaceJugInMachine — robot arm likely triggered the button.")
 
 
-def test_human_interaction_scripted_domino_solves_task():
-    """Full pipeline: human_interaction approach with scripted option plan
+def test_human_option_control_scripted_domino_solves_task():
+    """Full pipeline: human_option_control approach with scripted option plan
     (domino2.txt) solves the 1st test task in pybullet_domino."""
     try:
         from predicators.envs.pybullet_domino import PyBulletDominoEnv
@@ -1495,7 +1596,7 @@ def test_human_interaction_scripted_domino_solves_task():
 
     utils.reset_config({
         "env": "pybullet_domino",
-        "approach": "human_interaction",
+        "approach": "human_option_control",
         "seed": 0,
         "use_gui": False,
         "pybullet_control_mode": "position",
@@ -1506,7 +1607,6 @@ def test_human_interaction_scripted_domino_solves_task():
         "domino_use_skill_factories": True,
         "domino_initialize_at_finished_state": False,
         "domino_use_domino_blocks_as_target": True,
-        "domino_use_grid": True,
         "domino_include_connected_predicate": False,
         "domino_use_continuous_place": True,
         "domino_restricted_push": True,
@@ -1514,8 +1614,8 @@ def test_human_interaction_scripted_domino_solves_task():
         "domino_has_glued_dominos": False,
         "keep_failed_demos": True,
         "skill_phase_use_motion_planning": True,
-        "human_interaction_approach_use_scripted_option": True,
-        "human_interaction_approach_use_all_options": True,
+        "human_option_control_approach_use_scripted_option": True,
+        "human_option_control_approach_use_all_options": True,
         "scripted_option_dir": "scripted_option_policies",
         "script_option_file_name": "domino2.txt",
     })
@@ -1528,7 +1628,7 @@ def test_human_interaction_scripted_domino_solves_task():
 
     options = get_gt_options(env.get_name())
     approach = create_approach(
-        "human_interaction",
+        "human_option_control",
         env.predicates,
         options,
         env.types,

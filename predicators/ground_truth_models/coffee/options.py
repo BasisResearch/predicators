@@ -591,10 +591,10 @@ class PyBulletCoffeeGroundTruthOptionFactory(_PyBulletCoffeeLegacyOptionsMixin,
         # pylint: disable-next=import-outside-toplevel
         from predicators.ground_truth_models.skill_factories import \
             SkillConfig, create_pick_skill, create_place_skill, \
-            create_pour_skill, create_push_skill, create_wait_option
+            create_pour_skill, create_push_skill, create_wait_option, \
+            shared_skill_robot, shared_skill_simulator
 
-        _, pybullet_robot, _ = \
-            PyBulletCoffeeEnv.initialize_pybullet(using_gui=False)
+        pybullet_robot = shared_skill_robot(PyBulletCoffeeEnv)
 
         robot_type = types["robot"]
         jug_type = types["jug"]
@@ -603,7 +603,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(_PyBulletCoffeeLegacyOptionsMixin,
 
         env_cls = cls.env_cls
 
-        simulator = env_cls(use_gui=False) \
+        simulator = shared_skill_simulator(env_cls) \
             if CFG.skill_phase_use_motion_planning else None
         config = SkillConfig(
             robot=pybullet_robot,

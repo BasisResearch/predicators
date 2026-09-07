@@ -53,3 +53,5 @@ tracked_particles.npz
 /rollout*.mp4
 /rollout*.gif
 *.pth
+
+paper/

@@ -115,7 +115,8 @@ class PyBulletFloatEnv(PyBulletEnv):
                                       float]] = (1.0, 0.6, 0.0, 1.0)
 
     # Types
-    _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
+    _robot_type = Type("robot",
+                       ["x", "y", "z", "fingers", "roll", "tilt", "wrist"])
     _vessel_type = Type("vessel", ["x", "y", "z", "water_height"])
     _block_type = Type("block", ["x", "y", "z", "in_water", "is_held"],
                        sim_features=["id", "is_light"])
@@ -529,6 +530,7 @@ class PyBulletFloatEnv(PyBulletEnv):
                 "y": self.robot_init_y,
                 "z": self.robot_init_z,
                 "fingers": self.open_fingers,
+                "roll": self.robot_init_roll,
                 "tilt": self.robot_init_tilt,
                 "wrist": self.robot_init_wrist,
             }

@@ -42,7 +42,7 @@ Example::
     )
 """
 
-from typing import Sequence, Tuple
+from typing import Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -54,7 +54,9 @@ from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
 # Canonical continuous parameters for Pick.
 _PICK_PARAMS = [
-    ("grasp_z_offset (height above object origin to close gripper)", 0.0, 0.1),
+    ("grasp_z_offset (height above object origin to close gripper; low "
+     "values can put the gripper in contact with the object or its support "
+     "at the grasp pose, making the grasp config infeasible)", 0.0, 0.1),
 ]
 
 
@@ -63,6 +65,12 @@ def create_pick_skill(
     types: Sequence[Type],
     config: SkillConfig,
     get_target_pose_fn: TargetPoseFn,
+    approach_open: bool = False,
+    anchor_lift: bool = False,
+    grasp_finger_tol: Optional[float] = None,
+    lift_dz: float = 0.01,
+    verify_lift: bool = False,
+    param_defs: Optional[Sequence[Tuple[str, float, float]]] = None,
 ) -> ParameterizedOption:
     """Create a multi-phase pick skill that grasps and lifts an object.
 
@@ -84,11 +92,57 @@ def create_pick_skill(
         config: Shared skill configuration (``config.transport_z`` is used).
         get_target_pose_fn: Callback returning ``(x, y, z, yaw)`` from
             ``(state, objects, params, config)``.  ``params`` will be empty.
+        approach_open: If True, the MoveAbove phase travels with OPEN
+            fingers. The default closed-finger approach reopens the
+            fingers only gradually during the descend, so the still-closed
+            gripper can ram a light object and drag it a few cm before the
+            grasp -- breaking tight downstream placement tolerances.
+        anchor_lift: If True, the LiftSlightly phase lifts straight up
+            from the xy cached at descend time instead of re-reading the
+            (now held) object's xy each step. A held object hangs at a
+            small offset from the EE, so a chasing lift target is
+            unreachable and the lift can spin or fail IK near the reach
+            limit.
+        grasp_finger_tol: Optional override for the Grasp phase's finger
+            terminal tolerance (squared). Needed when the grasped object
+            is wide enough to block the fingers above the default
+            terminal (target + sqrt(config.grasp_tol)).
+        lift_dz: How far LiftSlightly rises above the grasp height.
+            Raise it in cluttered scenes: with the default 1 cm, the
+            just-closed gripper can end the pick still grazing (~1 mm)
+            a neighboring object, which then invalidates the NEXT
+            option's BiRRT start config -- unrecoverable by replanning
+            since the arm physically stays put.
+        verify_lift: If True, the option only succeeds when the target
+            object actually rose with the gripper: at the end of
+            LiftSlightly its pose-fn z must have gained at least half of
+            ``lift_dz``, else the option raises
+            ``OptionExecutionFailure`` instead of reporting a successful
+            pick. This is the honest failure for grasps that contact-
+            level held detection cannot reject: pads that close above a
+            block cam over its top corners or pinch its top edge, the
+            grasp constraint freezes the block dangling below the
+            gripper, and the support drags it out of the constraint
+            during the lift -- the block is left (near) its support
+            while the state claims it is held, and the downstream place
+            jams it into the support instead of failing here.
+        param_defs: Optional override for the continuous parameter
+            definitions (``(description, low, high)`` triples). The
+            default box spans the whole plausible range for any hand,
+            so on a short-fingered arm most of it is dead: below the
+            collision edge the grasp pose is infeasible, and above the
+            reach edge the fingers close on nothing. Narrow it when the
+            env knows its object and its robot -- the dead ends are what
+            a sampler spends its budget on.
 
     Returns:
         A ``ParameterizedOption`` implementing the pick skill.
     """
-    params_space, params_description = build_params_space(_PICK_PARAMS)
+    if param_defs is None:
+        param_defs = _PICK_PARAMS
+    assert len(param_defs) == len(_PICK_PARAMS), \
+        "param_defs must keep the canonical (grasp_z_offset,) order"
+    params_space, params_description = build_params_space(param_defs)
     _empty = np.array([], dtype=np.float32)
     _shared: dict = {}
 
@@ -125,6 +179,11 @@ def create_pick_skill(
         x, y, z, yaw = get_target_pose_fn(state, objects, _empty, cfg)
         grasp_z = z + grasp_z_offset
         _shared["grasp_z"] = grasp_z
+        _shared["grasp_xy_yaw"] = (x, y, yaw)
+        # The object's own (pose-fn) height while it still rests on its
+        # support: the lift verification measures the object's rise
+        # against this.
+        _shared["rest_pose_z"] = z
         return x, y, grasp_z, yaw
 
     def _slight_lift_pose(
@@ -134,20 +193,58 @@ def create_pick_skill(
         cfg: SkillConfig,
     ) -> Tuple[float, float, float, float]:
         del params
-        x, y, _, yaw = get_target_pose_fn(state, objects, _empty, cfg)
-        return x, y, _shared["grasp_z"] + 0.01, yaw
+        if anchor_lift:
+            x, y, yaw = _shared["grasp_xy_yaw"]
+        else:
+            x, y, _, yaw = get_target_pose_fn(state, objects, _empty, cfg)
+        return x, y, _shared["grasp_z"] + lift_dz, yaw
+
+    def _object_rose_with_gripper(
+        state: State,
+        objects: Sequence[Object],
+        params: Array,
+        cfg: SkillConfig,
+    ) -> bool:
+        del params
+        z_now = get_target_pose_fn(state, objects, _empty, cfg)[2]
+        # Half of lift_dz separates cleanly: a properly-held object
+        # tracks the gripper to within a few mm (constraint sag), while
+        # a degenerate grasp's object is dragged out of the constraint
+        # by its support and gains at most a third of the lift.
+        return bool(z_now - _shared["rest_pose_z"] >= 0.5 * lift_dz)
 
     phases = []
     phases.extend([
-        make_move_to_phase("MoveAbove", _above_pose, "closed"),
-        make_move_to_phase("MoveToGrasp", _descend_pose, "open"),
+        make_move_to_phase("MoveAbove", _above_pose,
+                           "open" if approach_open else "closed"),
+        # Validate the grasp goal IK: the gripper descends to envelop the
+        # target, and an imprecise (unvalidated) IK config can clip the target
+        # object, making BiRRT reject a reachable grasp. See Phase.validate_ik.
+        make_move_to_phase("MoveToGrasp",
+                           _descend_pose,
+                           "open",
+                           validate_ik=True),
         Phase(
             name="Grasp",
             action_type=PhaseAction.CHANGE_FINGERS,
             target_fn=_close_fingers_target,
             terminal_fn=None,
+            finger_direction="close",
+            finger_tol=grasp_finger_tol,
         ),
-        make_move_to_phase("LiftSlightly", _slight_lift_pose, "closed")
+        make_move_to_phase(
+            "LiftSlightly",
+            _slight_lift_pose,
+            "closed",
+            allow_shallow_held_object_contacts=True,
+            verify_fn=_object_rose_with_gripper if verify_lift else None,
+            verify_failure_msg=(
+                "grasp verification failed: the object did not rise "
+                "with the gripper (it was never actually wrapped by the "
+                "fingers, or its support dragged it out of the grasp "
+                "during the lift). Retry the pick with a grasp_z_offset "
+                "that closes the fingers around the object's body, not "
+                "above it.") if verify_lift else None)
     ])
 
     return PhaseSkill(name,
@@ -155,4 +252,5 @@ def create_pick_skill(
                       params_space,
                       config,
                       phases,
-                      params_description=params_description).build()
+                      params_description=params_description,
+                      base_mode="home").build()

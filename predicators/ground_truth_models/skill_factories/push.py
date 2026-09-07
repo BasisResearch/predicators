@@ -55,14 +55,35 @@ from predicators.ground_truth_models.skill_factories.base import Phase, \
     PhaseAction, PhaseSkill, SkillConfig, TargetPoseFn, build_params_space
 from predicators.ground_truth_models.skill_factories.move_to import \
     make_move_to_phase
+from predicators.settings import CFG
 from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
-# Canonical continuous parameters for Push.
+# Canonical continuous parameters for Push. The approach upper bound
+# leaves room for a side-oriented gripper (yaw offset 0),
+# whose body extends along the approach axis: a descend waypoint closer
+# than ~0.07 m can itself collide with the pushed object. That caveat is
+# stated in the description because the tool-facing params text is the
+# only place an agent learns the advertised range's usable interior.
 _PUSH_PARAMS = [
-    ("approach_distance (dist behind target along facing dir to start push)",
-     0.00, 0.06),
-    ("contact_z_offset (height above target z for contact)", 0.0, 0.11),
+    ("approach_distance (dist behind target along facing dir to start push; "
+     "small values put the descend waypoint inside the gripper's own "
+     "footprint along the approach axis, colliding with the target)", 0.00,
+     0.10),
+    ("contact_z_offset (height above target z for contact; near-zero values "
+     "descend into the target/support and can stall, near-max values may "
+     "pass over a short target)", 0.0, 0.11),
 ]
+
+
+def resolve_ee_yaw_offset(config: SkillConfig) -> float:
+    """The EE yaw offset Push should use, in radians.
+
+    Which face of the gripper leads into the object is a property of the
+    hand, so it comes from the robot unless the config forces one.
+    """
+    if CFG.skill_push_ee_yaw_offset is None:
+        return config.robot.push_ee_yaw_offset
+    return float(CFG.skill_push_ee_yaw_offset)
 
 
 def create_push_skill(
@@ -123,7 +144,7 @@ def create_push_skill(
         push_xy = obj_xy
         home_xy = np.array(cfg.robot_home_pos[:2])
         home_z = cfg.robot_home_pos[2]
-        ee_yaw = oyaw + np.pi / 2
+        ee_yaw = oyaw + resolve_ee_yaw_offset(cfg)
         return [
             (*behind_xy, cfg.transport_z, ee_yaw, "closed"),
             (*behind_xy, oz + s_offset_z, ee_yaw, "closed"),
@@ -156,7 +177,7 @@ def create_push_skill(
         robot_obj = objects[0]
         current = cfg.fingers_state_to_joint(cfg.robot,
                                              state.get(robot_obj, "fingers"))
-        target = cfg.open_fingers_joint - 0.01
+        target = cfg.open_fingers_joint
         return current, target
 
     def _make_waypoint_position_fn(
@@ -183,26 +204,52 @@ def create_push_skill(
     phases.append(
         Phase(name="CloseFingers",
               action_type=PhaseAction.CHANGE_FINGERS,
-              target_fn=_close_fingers_target))
+              target_fn=_close_fingers_target,
+              finger_direction="close"))
 
     for i in range(4):
         # Waypoint_2 (push into target) and Waypoint_3 (retreat from target)
         # expect robot-object contact, so suppress collision diagnostics.
+        #
+        # They must also NOT be motion-planned: their goal poses sit at (or
+        # inside) the pushed object, and BiRRT plans a COLLISION-FREE path.
+        # What that does is a knife-edge of scene and hand geometry. If the
+        # goal config registers as colliding (every sim scene so far),
+        # planning fails and the ``expect_contact`` fallback quietly runs
+        # incremental IK. If it squeaks past the ~1 mm
+        # ``pybullet_birrt_contact_margin`` (the real captured scenes), BiRRT
+        # SUCCEEDS by routing around -- measured: over the block's top, 59 mm
+        # out to the side, past the block, then down onto the goal from the
+        # far side, so the last hop struck the block AGAINST the push
+        # direction and toppled it backwards. The direction of travel is the
+        # payload of a stroke, and only stepping IK straight at the target
+        # guarantees it -- identically in sim and on the real bench.
+        #
+        # Deliberately not fixed by dropping the pushed object from the
+        # planner's collision set: the planner then remains free to detour
+        # around a BYSTANDER near the stroke (the same wrong-direction strike
+        # one object over), and the restricted Push variant grounds as
+        # ``[robot]`` alone, where an index into ``objects`` silently misses.
+        # A stroke that cannot go straight should fail and be resampled, not
+        # rerouted.
         phases.append(
             make_move_to_phase(
                 name=f"Waypoint_{i}",
                 get_target_pose_fn=_make_waypoint_position_fn(i),
                 finger_status="closed",
-                expect_contact=(i >= 2)))
+                expect_contact=(i >= 2),
+                use_motion_planning=(False if i >= 2 else None)))
 
     phases.append(
         Phase(name="OpenFingers",
               action_type=PhaseAction.CHANGE_FINGERS,
-              target_fn=_open_fingers_target))
+              target_fn=_open_fingers_target,
+              finger_direction="open"))
 
     return PhaseSkill(name,
                       types,
                       params_space,
                       config,
                       phases,
-                      params_description=params_description).build()
+                      params_description=params_description,
+                      base_mode="home").build()

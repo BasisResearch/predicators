@@ -13,11 +13,14 @@ import importlib
 import io
 import itertools
 import logging
+import math
 import os
 import pkgutil
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from argparse import ArgumentParser
 from collections import defaultdict, namedtuple
@@ -25,8 +28,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Collection, Dict, \
-    FrozenSet, Generator, Generic, Hashable, Iterable, Iterator, List, \
+from typing import IO, TYPE_CHECKING, Any, Callable, ClassVar, Collection, \
+    Dict, FrozenSet, Generator, Generic, Hashable, Iterable, Iterator, List, \
     Optional, Sequence, Set, Tuple
 from typing import Type as TypingType
 from typing import TypeVar, Union, cast
@@ -1079,7 +1082,14 @@ class PyBulletState(State):
         state_dict_copy = copied.data
         # simulator_state_copy = list(self.joint_positions)
         simulator_state_copy = copied.simulator_state
-        return PyBulletState(state_dict_copy, simulator_state_copy)
+        # Forward the hidden blocks `super().copy()` deep-copied: `latent`
+        # (agent belief) and `privileged` (env-hidden ground truth). Both
+        # are dropped if not passed explicitly, since this rebuilds the
+        # PyBulletState rather than returning `copied`.
+        return PyBulletState(state_dict_copy,
+                             simulator_state_copy,
+                             latent=copied.latent,
+                             privileged=copied.privileged)
 
     def get_obj_mask(self, obj: Object) -> Mask:
         """Return the mask for the object."""
@@ -1276,10 +1286,22 @@ class VLMState(PyBulletState):
         option_history_copy = copy.copy(self.option_history)
         bbox_features_copy = copy.deepcopy(self.bbox_features)
         prev_state_copy = self.prev_state.copy() if self.prev_state else None
-        return VLMState(pybullet_state_copy.data,
-                        pybullet_state_copy.simulator_state, state_image_copy,
-                        obj_mask_copy, labeled_image_copy, option_history_copy,
-                        bbox_features_copy, prev_state_copy)
+        # Use kwargs for the VLM-specific fields so positional shifts in
+        # the base `State` dataclass (e.g. the `latent` block added for
+        # the recurrent partial-observability approach) don't reorder
+        # this call.
+        return VLMState(
+            data=pybullet_state_copy.data,
+            simulator_state=pybullet_state_copy.simulator_state,
+            latent=pybullet_state_copy.latent,
+            privileged=pybullet_state_copy.privileged,
+            state_image=state_image_copy,
+            obj_mask_dict=obj_mask_copy,
+            labeled_image=labeled_image_copy,
+            option_history=option_history_copy,
+            bbox_features=bbox_features_copy,
+            prev_state=prev_state_copy,
+        )
 
     def get_obj_mask(self, obj: Object) -> Mask:
         """Return the mask for the object."""
@@ -1365,8 +1387,13 @@ class StateWithCache(State):
         return State(self.data).allclose(State(other.data))
 
     def copy(self) -> State:
-        state_dict_copy = super().copy().data
-        return StateWithCache(state_dict_copy, self.cache)
+        copied = super().copy()
+        # The cache (simulator_state) is deliberately shared, not copied;
+        # forward the hidden latent/privileged blocks so they survive.
+        return StateWithCache(copied.data,
+                              self.cache,
+                              latent=copied.latent,
+                              privileged=copied.privileged)
 
 
 class LoggingMonitor(abc.ABC):
@@ -1584,6 +1611,99 @@ class EnvironmentFailure(ExceptionWithInfo):
         return repr(self)
 
 
+def real_episode_step_budget(phase: Optional[str]) -> int:
+    """Low-level steps a real episode of this ``phase`` may use.
+
+    Explore (interaction-request) episodes are capped by
+    ``max_num_steps_interaction_request`` on top of the horizon; test
+    and any other episodes by ``horizon`` alone. The belief tools quote
+    this number to the agent so its plans are sized for the budget the
+    real executor enforces (a 1000-step explore cap once went unstated
+    while the tools quoted the 3000-step horizon, and half the bridge
+    experiments were cut mid-plan).
+    """
+    if phase == "explore":
+        return int(min(CFG.horizon, CFG.max_num_steps_interaction_request))
+    return int(CFG.horizon)
+
+
+class _LatentAccessProbe:
+    """Stand-in for a State that records whether ``latent`` was read.
+
+    Every other attribute (``data``, ``get``, ``simulator_state``, ...)
+    is delegated to the wrapped state, so a classifier runs normally
+    while ``latent`` reads back ``None`` exactly as on a real
+    observation. Used to find annotations a real executor could never
+    see satisfied (see :func:`predicate_reads_latent`).
+    """
+
+    def __init__(self, state: State) -> None:
+        object.__setattr__(self, "_state", state)
+        object.__setattr__(self, "read", False)
+
+    def __getattr__(self, name: str) -> Any:
+        if name == "latent":
+            object.__setattr__(self, "read", True)
+            return None
+        return getattr(object.__getattribute__(self, "_state"), name)
+
+
+def predicate_reads_latent(pred: Predicate, state: State,
+                           objects: Sequence[Object]) -> bool:
+    """Whether ``pred``'s classifier consults ``state.latent`` on these
+    arguments.
+
+    Invented predicates that read the belief's latent block (a bond set,
+    a cure counter) are unconditionally False on real observations,
+    where ``latent`` is ``None``; anything that waits for or monitors
+    such an atom on the real robot waits forever. The probe runs the
+    classifier against a proxy whose ``latent`` reads back ``None`` and
+    reports whether it was touched; a classifier that raises after
+    touching it (``None.get``) counts as reading it, one that raises
+    before does not.
+    """
+    probe = _LatentAccessProbe(state)
+    try:
+        pred.holds(cast(State, probe), objects)
+    except Exception:  # pylint: disable=broad-except
+        pass
+    return bool(probe.read)
+
+
+def strip_latent_wait_targets(options: Sequence[_Option],
+                              state: State) -> List[str]:
+    """Drop Wait targets that read the belief's latent block.
+
+    A real executor observes no latent, so a positive target on such an
+    atom never becomes True (the Wait burns its whole step cap) and a
+    negative one is trivially satisfied (the Wait ends at once). Both
+    are removed from every Wait's ``memory`` in place; with no targets
+    left the Wait falls back to any-atom-change termination. Returns a
+    description per dropped target for logging. Mirrors the capture's
+    execution-verifiability filter on subgoal annotations.
+    """
+    dropped: List[str] = []
+    for i, option in enumerate(options):
+        if option.name != "Wait":
+            continue
+        for key in ("wait_target_atoms", "wait_target_neg_atoms"):
+            atoms = option.memory.get(key)
+            if not atoms:
+                continue
+            keep = set()
+            for atom in atoms:
+                if predicate_reads_latent(atom.predicate, state, atom.objects):
+                    polarity = "NOT " if key.endswith("neg_atoms") else ""
+                    dropped.append(f"step {i}: {polarity}{atom}")
+                else:
+                    keep.add(atom)
+            if keep:
+                option.memory[key] = keep
+            else:
+                del option.memory[key]
+    return dropped
+
+
 def check_wait_target_atoms(
     option: _Option,
     state: State,
@@ -1686,14 +1806,21 @@ def strip_wait_annotations(text: str) -> str:
 
 def _format_wait_target_debug(
         state: State, target_atoms: Set[GroundAtom],
+        neg_target_atoms: Set[GroundAtom],
         abstract_function: Callable[[State], Set[GroundAtom]]) -> str:
-    """Format state details for debugging why Wait has not terminated."""
+    """Format state details for debugging why Wait has not terminated.
+
+    ``target_atoms`` must become true and ``neg_target_atoms`` must
+    become false; either set may be empty (a cure Wait is often
+    annotated with only NOT atoms).
+    """
     cur_atoms = abstract_function(state)
     missing_targets = target_atoms - cur_atoms
+    lingering_targets = neg_target_atoms & cur_atoms
     target_objects = sorted(
         {
             ent
-            for atom in target_atoms
+            for atom in target_atoms | neg_target_atoms
             for ent in atom.entities if isinstance(ent, Object)
         },
         key=lambda o: o.name)
@@ -1709,13 +1836,35 @@ def _format_wait_target_debug(
             feature_values.append(f"{feature_name}={value_str}")
         object_details.append(f"{obj}: " + ", ".join(feature_values))
     details = [
-        f"Targets: {sorted(target_atoms)}",
+        f"Targets: {sorted(target_atoms)} "
+        f"NOT {sorted(neg_target_atoms)}",
         f"Missing: {sorted(missing_targets)}",
+        f"Lingering (must become false): {sorted(lingering_targets)}",
         f"cur_atoms: {sorted(cur_atoms)}",
     ]
     if object_details:
         details.append(f"target_objects: {'; '.join(object_details)}")
     return "; ".join(details)
+
+
+def wait_rollout_step_cap() -> int:
+    """The step count at which a belief-rollout Wait is force-terminated.
+
+    Wait termination has two ceilings: the option model's
+    ``wait_option_max_steps`` backstop (active with
+    ``wait_option_terminate_on_atom_change``, mirroring the real
+    executor's branches in :func:`option_policy_to_policy`) and the
+    generic ``max_num_steps_option_rollout`` cap. Report code asking
+    "did this Wait stall?" must compare against whichever fires FIRST:
+    the bridge configures the backstop at 120 against a 1000-step
+    rollout cap, so a notice keyed on the rollout cap alone can never
+    fire in exactly the runs it was written for.
+    """
+    cap = int(CFG.max_num_steps_option_rollout)
+    if CFG.wait_option_terminate_on_atom_change and \
+            math.isfinite(CFG.wait_option_max_steps):
+        cap = min(cap, int(CFG.wait_option_max_steps))
+    return cap
 
 
 def option_policy_to_policy(
@@ -1758,25 +1907,60 @@ def option_policy_to_policy(
 
         # whether the noop option should terminate
         wait_terminate = False
+        # Honest per-branch reason: the backstop caps used to be logged
+        # as "atom change during Wait", which misreported episodes whose
+        # bonds never formed (2026-08-26 ep0 analysis).
+        wait_terminate_reason = "Wait terminated"
         if CFG.wait_option_terminate_on_atom_change \
                 and cur_option.name == "Wait":
             assert abstract_function is not None
             assert last_state is not None
-            target_atoms = cur_option.memory.get("wait_target_atoms")
+            # A Wait may be annotated with positive targets, negative
+            # (NOT ...) targets, or both; check_wait_target_atoms
+            # supports every combination, so this caller must too. A
+            # negative-only cure Wait (-> {NOT GlueEndB(...)}, the
+            # recommended consumption-signature pattern) used to trip
+            # an assert on the missing positive set here and kill the
+            # whole episode (2026-08-27, bridge_demo1 job 21395978).
+            target_atoms = \
+                cur_option.memory.get("wait_target_atoms") or set()
+            neg_target_atoms = \
+                cur_option.memory.get("wait_target_neg_atoms") or set()
+            targets_desc = (f"{sorted(map(str, target_atoms))} "
+                            f"NOT {sorted(map(str, neg_target_atoms))}")
             result = check_wait_target_atoms(cur_option, state,
                                              abstract_function)
             if result is True:
                 cur_atoms = abstract_function(state)
                 logging.debug("Wait terminating: target atoms satisfied. "
-                              f"Targets: {target_atoms}, "
+                              f"Targets: {targets_desc}, "
                               f"cur_atoms: {sorted(cur_atoms)}, "
                               f"num_option_steps={num_cur_option_steps}")
                 wait_terminate = True
+                wait_terminate_reason = "Wait target atoms satisfied"
             elif result is False:
-                assert target_atoms is not None
-                if num_cur_option_steps <= 1 or num_cur_option_steps % 25 == 0:
+                if num_cur_option_steps >= CFG.wait_option_max_steps:
+                    # Backstop: a target atom the world never produces
+                    # (e.g. a learned predicate that is unevaluable on
+                    # real states) would otherwise pin the Wait until
+                    # the episode budget kills it - run_20260819 seed1
+                    # burned ~250 steps per episode this way and lost
+                    # the plan's payoff steps. Terminating here also
+                    # surfaces the model-vs-reality disagreement as an
+                    # explicit signal instead of a silent stall.
+                    logging.info(
+                        "Wait terminating: target atoms not satisfied "
+                        "within %d steps (wait_option_max_steps "
+                        "backstop). Targets: %s", num_cur_option_steps,
+                        targets_desc)
+                    wait_terminate = True
+                    wait_terminate_reason = (
+                        "Wait step cap (target atoms NOT satisfied)")
+                elif num_cur_option_steps <= 1 or \
+                        num_cur_option_steps % 25 == 0:
                     wait_debug = _format_wait_target_debug(
-                        state, target_atoms, abstract_function)
+                        state, target_atoms, neg_target_atoms,
+                        abstract_function)
                     logging.debug(
                         "Wait continuing: target atoms not yet satisfied. "
                         "%s, num_option_steps=%d", wait_debug,
@@ -1790,6 +1974,20 @@ def option_policy_to_policy(
                                   f"Add: {sorted(cur_atoms-prev_atoms)} "
                                   f"Del: {sorted(prev_atoms-cur_atoms)}")
                     wait_terminate = True
+                    wait_terminate_reason = "atom change during Wait"
+                elif num_cur_option_steps >= CFG.wait_option_max_steps:
+                    # Stranded-Wait bail-out: if the awaited change
+                    # happened DURING the previous option, an
+                    # any-change Wait never fires and the plan stalls
+                    # to the horizon. Terminate and let the plan (or a
+                    # replan, via the next process's necessary-atoms
+                    # check) proceed.
+                    logging.info(
+                        "Wait terminating: no atom change within "
+                        "%d steps (wait_option_max_steps).",
+                        num_cur_option_steps)
+                    wait_terminate = True
+                    wait_terminate_reason = "Wait step cap (no atom change)"
 
         last_state = state
 
@@ -1798,7 +1996,7 @@ def option_policy_to_policy(
         if wait_terminate or cur_option is DummyOption or option_terminal:
             if cur_option is not DummyOption:
                 if wait_terminate:
-                    reason = "atom change during Wait"
+                    reason = wait_terminate_reason
                 elif option_terminal:
                     reason = "option self-terminated"
                 else:
@@ -1808,7 +2006,10 @@ def option_policy_to_policy(
             try:
                 cur_option = option_policy(state)
             except OptionExecutionFailure as e:
-                e.info["last_failed_option"] = last_option
+                # An option policy that already attributed the failure
+                # (e.g. to the NEXT option it found non-initiable) knows
+                # better than the previous-option inference here.
+                e.info.setdefault("last_failed_option", last_option)
                 raise e
             if not cur_option.initiable(state):
                 raise OptionExecutionFailure(
@@ -1820,7 +2021,19 @@ def option_policy_to_policy(
 
         num_cur_option_steps += 1
 
-        return cur_option.policy(state)
+        try:
+            return cur_option.policy(state)
+        except OptionExecutionFailure as e:
+            # A skill that refuses mid-execution (e.g. a motion-planning
+            # refusal on a phase start) raises from inside its own
+            # policy, which carries no attribution: without it the
+            # executors' stuck-loop guards cannot tell WHICH command
+            # failed and treat every such failure as unrelated, so a
+            # policy re-issuing one identical collision-refused option
+            # burns its whole option budget instead of ending after K
+            # repeats (2026-08-25 policy-arm cycle-4 test).
+            e.info.setdefault("last_failed_option", cur_option)
+            raise e
 
     return _policy
 
@@ -1840,7 +2053,12 @@ def option_plan_to_policy(
         if not queue:
             logging.info("Option plan exhausted after %d options.",
                          total_options)
-            raise OptionExecutionFailure("Option plan exhausted!")
+            # Flagged, because running out of options is how a plan ENDS, not
+            # how one fails -- and both arrive as the same exception type. A
+            # caller that cannot tell them apart treats every completed plan
+            # as an aborted episode.
+            raise OptionExecutionFailure("Option plan exhausted!",
+                                         info={"plan_exhausted": True})
         option = queue.pop(0)
         option_num = total_options - len(queue)
         next_option = None if not queue else queue[0].simple_str()
@@ -1948,6 +2166,15 @@ def process_plan_to_greedy_option_policy(
         cur_option = cur_process.sample_option(state, goal, rng)
         if atoms_seq is not None:
             inject_wait_targets_for_option(cur_option, step_idx, atoms_seq)
+            # A state without a latent block is a bare observation (no
+            # execution-time latent tracker): targets that read latent
+            # can never fire there, so drop them.
+            if state.latent is None:
+                for desc in strip_latent_wait_targets([cur_option], state):
+                    logging.info(
+                        "Wait target %s reads the belief's latent block and "
+                        "cannot be observed by the real executor; skipping "
+                        "it.", desc)
         step_idx += 1
         logging.debug(f"Using option {cur_option.name}{cur_option.objects}"
                       f"{cur_option.params} from process plan.")
@@ -2465,7 +2692,12 @@ def run_hill_climbing(
                         best_child_node = child_node
             if parallelize:
                 # Parallelize the expensive part (heuristic computation).
-                num_cpus = mp.cpu_count()
+                # Cap the pool: cpu_count() on a large shared node (448
+                # cores observed) exceeds the per-user process rlimit,
+                # so an uncapped fork fan-out dies with EAGAIN - and
+                # more workers than work items is pure overhead anyway.
+                num_cpus = max(
+                    1, min(mp.cpu_count(), len(successors_at_depth), 32))
                 fn = lambda n: (heuristic(n.state), n)
                 with mp.Pool(processes=num_cpus) as p:
                     for child_heuristic, child_node in p.map(
@@ -2818,7 +3050,11 @@ def strip_task(task: Task, included_predicates: Set[Predicate]) -> Task:
         stripped_pred = strip_predicate(atom.predicate)
         stripped_atom = GroundAtom(stripped_pred, atom.objects)
         stripped_goal.add(stripped_atom)
-    return Task(task.init, stripped_goal, alt_goal=task.alt_goal)
+    return Task(task.init,
+                stripped_goal,
+                alt_goal=task.alt_goal,
+                goal_nl=task.goal_nl,
+                evaluator=task.evaluator)
 
 
 def create_vlm_predicate(
@@ -2862,10 +3098,30 @@ def create_vlm_by_name(
                      f"{CFG.pretrained_model_service_provider}")
 
 
+def strip_enumeration_prefix(line: str) -> str:
+    """Strip a leading list-enumeration prefix like ``0:``, ``1.``, ``2)``.
+
+    Agents sometimes number plan/sketch lines, mirroring the numbered
+    format the system itself prints in logs and prior-failure previews
+    (e.g. ``0: Pick(robot:robot, block:block)``). The option-plan parser
+    keys on the option name being the first token of the line, so an
+    unstripped number prefix turns ``0: Pick(...)`` into the bogus token
+    ``"0: Pick"`` and the whole plan parses as empty. Stripping is
+    deliberately conservative: it matches only a leading run of digits
+    followed by one of ``:.)`` so prose bullets like ``- Step 1:`` are
+    left untouched (their option name is still not the first token, so
+    they are correctly ignored as preamble).
+    """
+    return re.sub(r'^\s*\d+\s*[:.)]\s*', '', line)
+
+
 def parse_model_output_into_option_plan(
-    model_prediction: str, objects: Collection[Object],
-    types: Collection[Type], options: Collection[ParameterizedOption],
-    parse_continuous_params: bool
+    model_prediction: str,
+    objects: Collection[Object],
+    types: Collection[Type],
+    options: Collection[ParameterizedOption],
+    parse_continuous_params: bool,
+    strict: bool = False
 ) -> List[Tuple[ParameterizedOption, Sequence[Object], Sequence[float]]]:
     """Assuming text for an option plan that is predicted as text by a large
     model, parse it into a sequence of ParameterizedOptions coupled with a list
@@ -2875,9 +3131,23 @@ def parse_model_output_into_option_plan(
     We assume the model's output is such that each line is formatted as
     option_name(obj0:type0, obj1:type1,...)[continuous_param0,
     continuous_param1, ...].
+
+    By default the parser tolerates freeform model output: preamble lines
+    are skipped, parsing stops at the first non-option line after the plan
+    starts, and malformed lines are dropped with only an INFO log. With
+    ``strict=True`` (for tool inputs that are pure plan text) any line
+    that fails to parse into a step raises ``ValueError`` naming the line
+    and the problem - silently dropping a step and executing the rest has
+    cost agents whole sessions of confusion.
     """
     option_plan: List[Tuple[ParameterizedOption, Sequence[Object],
                             Sequence[float]]] = []
+
+    def _reject(msg: str) -> None:
+        if strict:
+            raise ValueError(msg)
+        logging.info(msg)
+
     # Setup dictionaries enabling us to easily map names to specific
     # Python objects during parsing.
     option_name_to_option = {op.name: op for op in options}
@@ -2885,39 +3155,53 @@ def parse_model_output_into_option_plan(
     obj_name_to_obj = {o.name: o for o in objects}
     options_str_list = model_prediction.split('\n')
     for option_str in options_str_list:
-        option_str_stripped = option_str.strip()
+        # Tolerate a leading enumeration prefix ("0:", "1.", "2)") that
+        # agents emit when mirroring the numbered sketch format shown in
+        # logs; without this the bogus first token makes the plan parse
+        # as empty.
+        option_str_stripped = strip_enumeration_prefix(option_str.strip())
         option_name = option_str_stripped.split('(')[0]
-        # Skip empty option strs.
-        if not option_str:
+        # Skip empty option strs (including whitespace-only lines, which
+        # indented triple-quoted plan text produces; rejecting those in
+        # strict mode read as "Line      ... doesn't contain a valid
+        # option name" - an error about nothing).
+        if not option_str_stripped:
             continue
         if option_name not in option_name_to_option.keys() or \
             "(" not in option_str:
-            if option_plan:
+            if option_plan or strict:
                 # Already found some options; stop on first non-option line.
-                logging.info(
-                    f"Line {option_str} output by model doesn't "
-                    "contain a valid option name. Terminating option plan "
-                    "parsing.")
+                _reject(f"Line {option_str} output by model doesn't "
+                        "contain a valid option name. Terminating option "
+                        "plan parsing.")
                 break
             # Skip preamble lines (analysis text before the plan starts).
             continue
-        if parse_continuous_params and "[" not in option_str:
-            logging.info(
-                f"Line {option_str} output by model doesn't contain a "
-                "'[' and is thus improperly formatted.")
-            break
         option = option_name_to_option[option_name]
+        # A zero-parameter option (e.g. Wait) may omit its '[]': the
+        # harness's own logs and reports render such steps bracket-free,
+        # and demanding brackets the logs never print cost agents a
+        # rejected submission per session (run_20260830).
+        has_params_block = "[" in option_str
+        if (parse_continuous_params and not has_params_block
+                and option.params_space.shape[0] > 0):
+            _reject(f"Line {option_str} output by model doesn't contain a "
+                    "'[' and is thus improperly formatted.")
+            break
         # Now that we have the option, we need to parse out the objects
         # along with specified types.
         try:
             start_index = option_str_stripped.index('(') + 1
             end_index = option_str_stripped.index(')', start_index)
         except ValueError:
-            logging.info(
+            _reject(
                 f"Line {option_str} output by model is improperly formatted.")
             break
-        typed_objects_str_list = option_str_stripped[
-            start_index:end_index].split(',')
+        # Empty parens (a 0-argument option) must yield zero object strings,
+        # not [''] (which would be rejected as a malformed object-type pair).
+        parens_content = option_str_stripped[start_index:end_index].strip()
+        typed_objects_str_list = (parens_content.split(',')
+                                  if parens_content else [])
         objs_list = []
         continuous_params_list = []
         malformed = False
@@ -2925,49 +3209,53 @@ def parse_model_output_into_option_plan(
             object_type_str_list = type_object_string.strip().split(':')
             # We expect this list to be [object_name, type_name].
             if len(object_type_str_list) != 2:
-                logging.info(f"Line {option_str} output by model has a "
-                             "malformed object-type list.")
+                _reject(f"Line {option_str} output by model has a "
+                        "malformed object-type list.")
                 malformed = True
                 break
             object_name = object_type_str_list[0]
             type_name = object_type_str_list[1]
             if object_name not in obj_name_to_obj.keys():
-                logging.info(f"Line {option_str} output by model has an "
-                             "invalid object name.")
+                _reject(f"Line {option_str} output by model has an "
+                        "invalid object name.")
                 malformed = True
                 break
             obj = obj_name_to_obj[object_name]
             # Check that the type of this object agrees
             # with what's expected given the ParameterizedOption.
             if type_name not in type_name_to_type:
-                logging.info(f"Line {option_str} output by model has an "
-                             "invalid type name.")
+                _reject(f"Line {option_str} output by model has an "
+                        "invalid type name.")
                 malformed = True
                 break
             try:
                 if option.types[i] not in type_name_to_type[
                         type_name].get_ancestors():
-                    logging.info(
-                        f"Line {option_str} output by model has an "
-                        "invalid type that doesn't agree with the option"
-                        f"{option}")
+                    _reject(f"Line {option_str} output by model has an "
+                            "invalid type that doesn't agree with the option"
+                            f"{option}")
                     malformed = True
                     break
             except IndexError:
                 # In this case, there's more supplied arguments than the
                 # option has.
-                logging.info(f"Line {option_str} output by model has an "
-                             "too many object arguments for option"
-                             f"{option}")
+                _reject(f"Line {option_str} output by model has "
+                        "too many object arguments for option "
+                        f"{option.name}, which expects "
+                        f"{len(option.types)} argument(s).")
                 malformed = True
                 break
             objs_list.append(obj)
         # The types of the objects match, but we haven't yet checked if
         # all arguments of the option have an associated object.
-        if len(objs_list) != len(option.types):
+        if not malformed and len(objs_list) != len(option.types):
+            _reject(f"Line {option_str} output by model supplies "
+                    f"{len(objs_list)} object argument(s) but option "
+                    f"{option.name} expects {len(option.types)}.")
             malformed = True
-        # Now, we attempt to parse out the continuous parameters.
-        if parse_continuous_params:
+        # Now, we attempt to parse out the continuous parameters (a
+        # zero-parameter option without a '[]' block has none).
+        if parse_continuous_params and has_params_block:
             params_str_list = option_str_stripped.split('[')[1].strip(
                 ']').split(',')
             for i, continuous_params_str in enumerate(params_str_list):
@@ -2977,18 +3265,42 @@ def parse_model_output_into_option_plan(
                 try:
                     curr_cont_param = float(stripped_continuous_param_str)
                 except ValueError:
-                    logging.info(f"Line {option_str} output by model has an "
-                                 "invalid continouous parameter that can't be"
-                                 "converted to a float.")
+                    # A '~' inside the params block is a misplaced
+                    # ground-sampler region annotation; name the correct
+                    # syntax instead of a bare float-parse failure.
+                    hint = ""
+                    if "~" in stripped_continuous_param_str:
+                        hint = (" Region annotations go AFTER the closing "
+                                "']' of the params block: "
+                                "`Opt(obj:type)[p1, p2] ~ [w1, w2]`, one "
+                                "half-width per parameter - not inside "
+                                "`[...]`.")
+                    _reject(f"Line {option_str} output by model has an "
+                            "invalid continuous parameter "
+                            f"{stripped_continuous_param_str!r} that can't "
+                            f"be converted to a float.{hint}")
                     malformed = True
                     break
                 continuous_params_list.append(curr_cont_param)
-            if len(continuous_params_list) != option.params_space.shape[0]:
-                logging.info(f"Line {option_str} output by model has "
-                             "invalid continouous parameter(s) that don't "
-                             f"agree with {option}{option.params_space}.")
-                malformed = True
+            if malformed:
+                # A parameter failed to parse: stop parsing further lines
+                # (same truncation the count-mismatch below applies).
                 break
+            if len(continuous_params_list) != option.params_space.shape[0]:
+                if strict and not continuous_params_list:
+                    # An explicit empty `[]` is the tool sketch grammar's
+                    # "no seed": pass the empty list through and let the
+                    # caller interpret it (refinement samples the params;
+                    # exact-execution paths fail at grounding with a clear
+                    # message).
+                    pass
+                else:
+                    _reject(f"Line {option_str} output by model has "
+                            f"{len(continuous_params_list)} continuous "
+                            f"parameter(s) but option {option.name} expects "
+                            f"{option.params_space.shape[0]}.")
+                    malformed = True
+                    break
         if not malformed:
             option_plan.append((option, objs_list, continuous_params_list))
     return option_plan
@@ -3134,7 +3446,10 @@ def abstract(state: State,
     """Get the atomic representation of the given state (i.e., a set of ground
     atoms), using the given set of predicates.
 
-    Duplicate arguments in predicates are allowed.
+    Duplicate arguments in predicates are allowed. Latent-aware
+    classifiers (invented under `CFG.partially_observable`) read their
+    latent from `state.latent` via `Predicate.holds` - abstract itself
+    does nothing extra to support them.
     """
     # Start by pulling out all VLM predicates.
     vlm_preds = set(pred for pred in preds if isinstance(pred, VLMPredicate))
@@ -3602,6 +3917,32 @@ def save_ground_atom_dataset(ground_atom_dataset: List[GroundAtomTrajectory],
         ground_atom_dataset_to_pkl.append(trajectory)
     with open(dataset_fname, "wb") as f:
         pkl.dump(ground_atom_dataset_to_pkl, f)
+
+
+def pkl_dump_all_or_nothing(obj: Any, f: IO[bytes]) -> None:
+    """``pkl.dump``, but serialise fully before writing a single byte.
+
+    A dump that raises part-way has already written a prefix, and that
+    prefix is a pickle that only fails at LOAD time -- long after the
+    run that produced it could have been repeated. Building the whole
+    blob first means a failure leaves the file empty and raises where
+    the artifact was produced.
+
+    This used to carry a ``gc.collect()`` retry aimed at the
+    intermittent ``TypeError: cannot pickle '_abc._abc_data' object``
+    seen when saving learned NSRTs and GNN weights. That was a guess at
+    collection timing and it did not stop the failures. The cause was
+    the ``dill==0.3.5.1`` pin: dill serialises a class *by value* when
+    it cannot find it again at ``module.qualname``, and before 0.3.6 the
+    by-value path shipped the class ``__dict__`` verbatim -- including
+    the ``_abc_impl`` slot that ``ABCMeta`` puts on every class it
+    builds, which is an unpicklable ``_abc_data``. dill 0.3.6 added
+    ``_get_typedict_abc``, which strips ``_abc_impl`` and the ABC
+    registry caches and re-registers the subclasses on load. The pin is
+    now 0.3.9, so the retry has nothing left to retry.
+    """
+    blob = pkl.dumps(obj)
+    f.write(blob)
 
 
 def merge_ground_atom_datasets(
@@ -4097,6 +4438,73 @@ class VideoMonitor(LoggingMonitor):
 
 
 @dataclass
+class StreamingVideoMonitor(LoggingMonitor):
+    """A VideoMonitor variant that encodes frames to disk as they arrive.
+
+    Peak memory is one frame instead of a whole episode's worth
+    (VideoMonitor buffers every frame until the caller saves, ~1.2GB for
+    a 500-step episode at 900x900). Frames stream into a hidden temp
+    file in the output directory; after the episode the caller must
+    either ``finalize(outfile)`` to move the clip into place or
+    ``discard()`` to delete it. ``discard()`` is a no-op after
+    ``finalize()``, so an unconditional trailing ``discard()`` is the
+    idiom for "keep only if some earlier branch finalized". The
+    trade-offs vs. buffering: encoding cost is paid even for clips that
+    end up discarded, and a process crash mid-episode leaves the hidden
+    temp file behind.
+
+    Use VideoMonitor instead when the raw frames are needed after the
+    episode (e.g. saving per-step images).
+    """
+    _render_fn: Callable[[Optional[Action], Optional[str]], Video]
+    _writer: Any = field(init=False, default=None)
+    _tmp_path: Optional[str] = field(init=False, default=None)
+
+    def reset(self, train_or_test: str, task_idx: int) -> None:
+        self.discard()
+
+    def observe(self, obs: Observation, action: Optional[Action]) -> None:
+        del obs  # unused
+        for frame in self._render_fn(action, None):
+            if self._writer is None:
+                # Temp file lives in the final output directory so
+                # finalize()'s rename never crosses filesystems.
+                outdir = video_run_dir()
+                fd, self._tmp_path = tempfile.mkstemp(prefix=".streaming_",
+                                                      suffix=".mp4",
+                                                      dir=outdir)
+                os.close(fd)
+                self._writer = imageio.get_writer(self._tmp_path,
+                                                  fps=CFG.video_fps)
+            self._writer.append_data(np.asarray(frame, dtype=np.uint8))
+
+    def finalize(self, outfile: str) -> None:
+        """Close the writer and move the clip to video_dir/run_subdir.
+
+        A no-op if no frame was ever observed.
+        """
+        if self._writer is None:
+            return
+        self._writer.close()
+        outpath = os.path.join(video_run_dir(), outfile)
+        assert self._tmp_path is not None
+        os.replace(self._tmp_path, outpath)
+        self._writer = None
+        self._tmp_path = None
+        logging.info(f"Wrote out to {outpath}")
+
+    def discard(self) -> None:
+        """Delete the temp clip, unless already finalized (then no-op)."""
+        if self._writer is None:
+            return
+        self._writer.close()
+        assert self._tmp_path is not None
+        os.remove(self._tmp_path)
+        self._writer = None
+        self._tmp_path = None
+
+
+@dataclass
 class SimulateVideoMonitor(LoggingMonitor):
     """A monitor that calls render_state on each state and action seen.
 
@@ -4173,11 +4581,55 @@ def fig2data(fig: matplotlib.figure.Figure, dpi: int) -> Image:
     return data
 
 
-def save_video(outfile: str, video: Video) -> None:
-    """Save the video to video_dir/outfile."""
-    outdir = CFG.video_dir
+# Matches only the run dirs configure_logging mints, so pruning can never
+# recurse into a directory this module did not create.
+_RUN_DIR_RE = re.compile(r"^run_\d{8}_\d{6}$")
+
+
+def _prune_old_video_runs(outdir: str) -> None:
+    """Keep only the newest CFG.video_max_runs_kept run dirs beside outdir.
+
+    Run-scoped video dirs never collide, so nothing reclaims the space
+    that the old flat layout reclaimed by overwriting. Pruning the
+    oldest runs of this approach/experiment_id/seed restores that, but
+    on a run granularity and only ever discarding whole runs older than
+    the ones kept.
+    """
+    if not CFG.run_subdir or CFG.video_max_runs_kept <= 0:
+        return  # not a run-scoped dir, or pruning disabled
+    parent = os.path.dirname(os.path.normpath(outdir))
+    try:
+        # run_<timestamp> sorts chronologically, so the tail is the oldest.
+        runs = sorted(
+            d for d in os.listdir(parent)
+            if _RUN_DIR_RE.match(d) and os.path.isdir(os.path.join(parent, d)))
+    except OSError:
+        return
+    for stale in runs[:-CFG.video_max_runs_kept]:
+        path = os.path.join(parent, stale)
+        if os.path.realpath(path) == os.path.realpath(outdir):
+            continue  # never prune the run currently being written
+        shutil.rmtree(path, ignore_errors=True)
+        logging.info(f"Pruned old videos: {path}")
+
+
+def video_run_dir() -> str:
+    """Create and return this run's video dir, pruning older runs' dirs.
+
+    Every writer routes through here, so pruning cannot be skipped by
+    whichever one a config happens to select: save_video buffers an
+    episode, while StreamingVideoMonitor writes its own file and never
+    calls it.
+    """
+    outdir = os.path.join(CFG.video_dir, CFG.run_subdir)
     os.makedirs(outdir, exist_ok=True)
-    outpath = os.path.join(outdir, outfile)
+    _prune_old_video_runs(outdir)
+    return outdir
+
+
+def save_video(outfile: str, video: Video) -> None:
+    """Save the video to video_dir/<run subdir>/outfile."""
+    outpath = os.path.join(video_run_dir(), outfile)
     video_uint8 = [np.array(frame).astype(np.uint8) for frame in video]
     imageio.mimwrite(outpath, video_uint8, fps=CFG.video_fps)  # type: ignore
     logging.info(f"Wrote out to {outpath}")
@@ -4279,6 +4731,14 @@ def update_config_with_parser(parser: ArgumentParser, args: Dict[str,
     for d in [arg_specific_settings, args]:
         for k, v in d.items():
             setattr(CFG, k, v)
+    # Skill-factory simulator envs are built from CFG, so a config change
+    # invalidates them. Clear via sys.modules rather than importing: if the
+    # module was never imported, nothing can be cached, and importing it here
+    # would pull pybullet into processes that never use skills.
+    skill_base = sys.modules.get(
+        "predicators.ground_truth_models.skill_factories.base")
+    if skill_base is not None:
+        skill_base.clear_shared_simulator_cache()
 
 
 def reset_config(args: Optional[Dict[str, Any]] = None,
@@ -4291,6 +4751,14 @@ def reset_config(args: Optional[Dict[str, Any]] = None,
     parser = create_arg_parser()
     reset_config_with_parser(parser, args, default_seed,
                              default_render_state_dpi)
+    # The fatal-query counter is process-wide state alongside CFG (a
+    # class attribute so it survives per-attempt manager recreation);
+    # a config reset starts a fresh run, so it must not inherit another
+    # run's (or test's) consecutive failures. Imported lazily: utils is
+    # imported by the agent_sdk package, so a top-level import cycles.
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.agent_sdk.session_base import BaseAgentSessionManager
+    BaseAgentSessionManager._consecutive_fatal_queries = 0  # pylint: disable=protected-access
 
 
 def reset_config_with_parser(parser: ArgumentParser,
@@ -5022,8 +5490,12 @@ def configure_logging() -> None:
     handlers: List[logging.Handler] = [colorlog_handler]
     if CFG.log_file:
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        CFG.log_file += (f"{CFG.approach}/{CFG.experiment_id}/"
-                         f"seed{CFG.seed}/run_{timestamp}/")
+        # save_video mirrors this subdir under CFG.video_dir. Both are derived
+        # from the one timestamp so a run's videos and logs always agree on the
+        # run id, which recomputing the clock per artifact would not guarantee.
+        CFG.run_subdir = (f"{CFG.approach}/{CFG.experiment_id}/"
+                          f"seed{CFG.seed}/run_{timestamp}/")
+        CFG.log_file += CFG.run_subdir
         os.makedirs(CFG.log_file, exist_ok=True)
 
         # Handler for DEBUG level messages
@@ -5053,6 +5525,11 @@ def configure_logging() -> None:
     # Used by openai package
     logging.getLogger("httpx").setLevel(logging.INFO)
     logging.getLogger("httpcore").setLevel(logging.INFO)
+    # The transport babyrobot drives the real arm over. It logs a line per
+    # channel at DEBUG -- one per request, so a hardware run at
+    # loglevel=DEBUG buries its own output in "--> new channel <uuid>".
+    # WARNING still surfaces a transport that is actually failing.
+    logging.getLogger("zerorpc").setLevel(logging.WARNING)
 
 
 def log_initial_info(str_args: str) -> None:

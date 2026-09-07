@@ -12,7 +12,7 @@ from predicators.envs.pybullet_boil import PyBulletBoilEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.ground_truth_models.skill_factories import SkillConfig, \
     create_pick_skill, create_place_skill, create_push_skill, \
-    create_wait_option
+    create_wait_option, shared_skill_robot, shared_skill_simulator
 from predicators.settings import CFG
 from predicators.structs import Array, Object, ParameterizedOption, \
     Predicate, State, Type
@@ -60,8 +60,7 @@ class PyBulletBoilGroundTruthOptionFactory(_BoilLegacyOptionsMixin,
         """Skill-factory-based option implementations for the boil env."""
         del env_name, action_space, predicates  # unused
 
-        _, pybullet_robot, _ = \
-            PyBulletBoilEnv.initialize_pybullet(using_gui=False)
+        pybullet_robot = shared_skill_robot(PyBulletBoilEnv)
 
         robot_type = types["robot"]
         switch_type = types["switch"]
@@ -71,7 +70,7 @@ class PyBulletBoilGroundTruthOptionFactory(_BoilLegacyOptionsMixin,
 
         env_cls = cls.env_cls
 
-        simulator = env_cls(use_gui=False) \
+        simulator = shared_skill_simulator(env_cls) \
             if CFG.skill_phase_use_motion_planning else None
         config = SkillConfig(
             robot=pybullet_robot,
@@ -83,6 +82,17 @@ class PyBulletBoilGroundTruthOptionFactory(_BoilLegacyOptionsMixin,
             robot_home_pos=(env_cls.robot_init_x, env_cls.robot_init_y,
                             env_cls.robot_init_z),
             transport_z=cls._transport_z,
+            # Mobile-base (mobile_fetch) positioning: park the base 0.6 m in
+            # front of each reach target with its x aligned to the target x, so
+            # the arm reaches straight forward at a comfortable distance instead
+            # of sideways over the burner or fully extended. base_y is clamped
+            # to keep the base clear of the table front (y_lb).
+            base_standoff=(CFG.boil_mobile_base_standoff
+                           if CFG.boil_mobile_base_park else None),
+            base_y_max=env_cls.y_lb - 0.28,
+            base_align_x=CFG.boil_mobile_base_align_x,
+            base_home_xy=(env_cls.robot_base_pos[0],
+                          env_cls.robot_base_pos[1]),
             simulator=simulator,
         )
 

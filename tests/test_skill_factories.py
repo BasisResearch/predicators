@@ -4,6 +4,8 @@ Covers: SkillConfig, Phase, PhaseSkill, create_wait_option,
         make_move_to_phase, create_move_to_skill,
         create_pick_skill, create_place_skill, create_push_skill.
 """
+import logging
+
 import numpy as np
 import pybullet as p
 import pytest
@@ -12,7 +14,7 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.ground_truth_models.skill_factories.base import \
     _BIRRT_STEP_KEY, _BIRRT_TRAJ_KEY, Phase, PhaseAction, PhaseSkill, \
-    SkillConfig
+    SkillConfig, _fmt_option_params
 from predicators.ground_truth_models.skill_factories.move_to import \
     create_move_to_skill, make_move_to_phase
 from predicators.ground_truth_models.skill_factories.pick import \
@@ -20,10 +22,13 @@ from predicators.ground_truth_models.skill_factories.pick import \
 from predicators.ground_truth_models.skill_factories.place import \
     create_place_skill
 from predicators.ground_truth_models.skill_factories.push import \
-    create_push_skill
+    create_push_skill, resolve_ee_yaw_offset
 from predicators.ground_truth_models.skill_factories.wait import \
-    create_wait_option
+    create_wait_option, note_external_state_change
 from predicators.pybullet_helpers.geometry import Pose
+from predicators.pybullet_helpers.inverse_kinematics import \
+    InverseKinematicsError
+from predicators.pybullet_helpers.objects import create_pybullet_block
 from predicators.pybullet_helpers.robots import \
     create_single_arm_pybullet_robot
 from predicators.structs import Action, Object, ParameterizedOption, Type
@@ -240,6 +245,7 @@ class TestPhase:
         assert phase.action_type == PhaseAction.MOVE_TO_POSE
         assert phase.terminal_fn is None
         assert phase.use_motion_planning is False  # default from CFG
+        assert not phase.allow_shallow_held_object_contacts
 
     def test_change_fingers_phase(self):
         """Test change fingers phase."""
@@ -275,6 +281,20 @@ class TestPhase:
             use_motion_planning=False,
         )
         assert phase.use_motion_planning is False
+
+    def test_move_to_phase_collision_metadata(self):
+        """Test move-to phase stores collision metadata."""
+
+        def dummy_pose(_state, _objects, _params, _cfg):
+            return 0.0, 0.0, 0.0, 0.0
+
+        phase = make_move_to_phase(
+            "Move",
+            dummy_pose,
+            allow_shallow_held_object_contacts=True,
+        )
+
+        assert phase.allow_shallow_held_object_contacts
 
 
 # ===========================================================================
@@ -352,6 +372,29 @@ class TestPhaseSkill:
         state = _build_state(_make_robot_obj(), robot, *_EE_HOME)
         assert grounded.initiable(state)
         assert grounded.memory["phase_idx"] == 0
+
+    def test_initiable_starts_every_execution_clean(self, robot_scene):
+        """Re-running a grounded option must not inherit the previous
+        execution's memory (BiRRT waypoint cache, aim offset, retry and stall
+        counters).
+
+        The explorer's certified-plan replay re-executes the very
+        objects the first episode ran; with stale memory the skills
+        popped cached waypoints and exhausted retries, and 10 of 11
+        replays of a plan that had just solved the task failed.
+        """
+        _, robot = robot_scene
+        skill, _robot_obj, _ = self._make_single_ik_skill(robot, _EE_HOME)
+        opt = skill.build()
+        grounded = opt.ground([_make_robot_obj()], np.zeros(0))
+        state = _build_state(_make_robot_obj(), robot, *_EE_HOME)
+        assert grounded.initiable(state)
+        grounded.memory["phase_idx"] = 3
+        grounded.memory["aim_offset"] = (0.01, -0.02)
+        grounded.memory["birrt_traj_123"] = [np.zeros(7)]
+        grounded.memory["phase_retries_123"] = 2
+        assert grounded.initiable(state)
+        assert grounded.memory == {"phase_idx": 0}
 
     def test_change_fingers_terminal_when_at_target(self, robot_scene):
         """Test change fingers terminal when at target."""
@@ -692,6 +735,114 @@ class TestWaitOption:
         grounded = opt.ground([robot_obj], np.zeros(0))
         state = _build_state(robot_obj, robot, *_EE_HOME)
         for _ in range(5):
+            assert not grounded.terminal(state)
+
+    def test_wait_quiescence_terminates_when_scene_settles(self, robot_scene):
+        """With wait_quiescence_eps set, Wait terminates after the non-robot
+        scene stops moving for wait_quiescence_steps consecutive steps."""
+        from dataclasses import \
+            replace  # pylint: disable=import-outside-toplevel
+        _, robot = robot_scene
+        config = replace(_make_config(robot),
+                         wait_quiescence_eps=1e-4,
+                         wait_quiescence_steps=3)
+        opt = create_wait_option("Wait", config, _ROBOT_TYPE)
+        robot_obj = _make_robot_obj()
+        block = Object("block0", _OBJ_TYPE)
+
+        def state_with_block_x(x):
+            return _build_state(robot_obj,
+                                robot,
+                                *_EE_HOME,
+                                obj=block,
+                                obj_xyz=(x, 0.0, 0.0))
+
+        grounded = opt.ground([robot_obj], np.zeros(0))
+        assert grounded.initiable(state_with_block_x(0.5))
+        # Block moving: never terminal, count resets.
+        assert not grounded.terminal(state_with_block_x(0.5))
+        assert not grounded.terminal(state_with_block_x(0.51))
+        assert not grounded.terminal(state_with_block_x(0.52))
+        # Block settles: three sub-eps deltas in a row terminate.
+        settled = [state_with_block_x(0.52) for _ in range(4)]
+        assert not grounded.terminal(settled[0])
+        # Re-querying the SAME state must not stand in for physics steps.
+        assert not grounded.terminal(settled[0])
+        assert not grounded.terminal(settled[1])
+        assert grounded.terminal(settled[2])
+        # Re-initiating clears the tracking: a rerun of the same grounded
+        # option must not terminate instantly on stale counts.
+        assert grounded.initiable(settled[3])
+        assert not grounded.terminal(settled[3])
+
+    def test_wait_quiescence_survives_a_twin_resync(self, robot_scene):
+        """Writing perception into the twin moves objects without the scene
+        having moved.
+
+        Counting that jolt as motion would zero the settle tally at
+        every look, and on the real robot Wait would never see the scene
+        rest.
+        """
+        from dataclasses import \
+            replace  # pylint: disable=import-outside-toplevel
+        _, robot = robot_scene
+        config = replace(_make_config(robot),
+                         wait_quiescence_eps=1e-4,
+                         wait_quiescence_steps=3)
+        opt = create_wait_option("Wait", config, _ROBOT_TYPE)
+        robot_obj = _make_robot_obj()
+        block = Object("block0", _OBJ_TYPE)
+
+        def state_with_block_z(z):
+            return _build_state(robot_obj,
+                                robot,
+                                *_EE_HOME,
+                                obj=block,
+                                obj_xyz=(0.5, 0.0, z))
+
+        grounded = opt.ground([robot_obj], np.zeros(0))
+        assert grounded.initiable(state_with_block_z(0.475))
+        # The first call only seeds the baseline; then two settled steps,
+        # leaving the tally one short of the boundary.
+        assert not grounded.terminal(state_with_block_z(0.475))
+        assert not grounded.terminal(state_with_block_z(0.475))
+        assert not grounded.terminal(state_with_block_z(0.475))
+        # A look writes perception in, moving the block 4 mm -- far more than
+        # the eps, so it would otherwise zero the tally.
+        resynced = state_with_block_z(0.471)
+        note_external_state_change(grounded, resynced)
+        # The next settled step is still the boundary.
+        assert grounded.terminal(state_with_block_z(0.471))
+
+    def test_external_state_change_ignores_an_untracked_option(
+            self, robot_scene):
+        """Without quiescence tracking there is no tally to protect, so the
+        hook has to leave the option alone rather than invent one."""
+        _, robot = robot_scene
+        opt = create_wait_option("Wait", _make_config(robot), _ROBOT_TYPE)
+        robot_obj = _make_robot_obj()
+        grounded = opt.ground([robot_obj], np.zeros(0))
+        state = _build_state(robot_obj, robot, *_EE_HOME)
+
+        note_external_state_change(grounded, state)
+
+        assert not grounded.memory
+
+    def test_wait_quiescence_disabled_by_default(self, robot_scene):
+        """Without wait_quiescence_eps the legacy never-terminate behavior
+        holds even on a frozen scene."""
+        _, robot = robot_scene
+        config = _make_config(robot)
+        opt = create_wait_option("Wait", config, _ROBOT_TYPE)
+        robot_obj = _make_robot_obj()
+        block = Object("block0", _OBJ_TYPE)
+        grounded = opt.ground([robot_obj], np.zeros(0))
+        for _ in range(6):
+            state = _build_state(robot_obj,
+                                 robot,
+                                 *_EE_HOME,
+                                 obj=block,
+                                 obj_xyz=(0.5, 0.0, 0.0))
             assert not grounded.terminal(state)
 
     def test_wait_custom_name(self, robot_scene):
@@ -1080,3 +1231,366 @@ class TestCreatePushSkill:
         action = grounded.policy(state)
         assert isinstance(action, Action)
         assert robot.action_space.contains(action.arr)
+
+    def test_ee_yaw_offset_comes_from_the_robot(self, robot_scene):
+        """With no config override, the hand decides the push orientation."""
+        _, robot = robot_scene
+        utils.reset_config({"seed": 123, "skill_push_ee_yaw_offset": None})
+        config = self._make_push_config(robot)
+        # The fetch pushes with the 0.0 default.
+        assert resolve_ee_yaw_offset(config) == robot.push_ee_yaw_offset == 0.0
+
+    def test_ee_yaw_offset_config_override_wins(self, robot_scene):
+        """Setting the flag forces one offset regardless of the robot."""
+        _, robot = robot_scene
+        utils.reset_config({
+            "seed": 123,
+            "skill_push_ee_yaw_offset": np.pi / 2
+        })
+        config = self._make_push_config(robot)
+        assert resolve_ee_yaw_offset(config) == pytest.approx(np.pi / 2)
+        assert robot.push_ee_yaw_offset == 0.0
+        utils.reset_config({"seed": 123})
+
+    def test_contact_phases_never_motion_planned(self, robot_scene):
+        """Waypoint_2 (stroke) and Waypoint_3 (retreat) step IK straight at the
+        target even when the config turns motion planning on.
+
+        A collision-free planner asked for a goal pose inside the pushed
+        object either fails or detours around it and strikes it from the
+        wrong side, so only the free-space phases may follow the config.
+        """
+        _, robot = robot_scene
+        utils.reset_config({
+            "seed": 123,
+            "skill_phase_use_motion_planning": True,
+        })
+        opt = self._make_push(robot)
+        skill = opt.policy.__self__
+        phases = {ph.name: ph for ph in skill._phases}  # pylint: disable=protected-access
+        assert phases["Waypoint_0"].use_motion_planning
+        assert phases["Waypoint_1"].use_motion_planning
+        assert not phases["Waypoint_2"].use_motion_planning
+        assert not phases["Waypoint_3"].use_motion_planning
+        utils.reset_config({"seed": 123})
+
+
+def test_fmt_option_params():
+    """Params render compactly for failure messages, including empty."""
+    assert _fmt_option_params(np.zeros(0, dtype=np.float32)) == "[]"
+    assert _fmt_option_params(np.array([0.05, 0.02],
+                                       dtype=np.float32)) == "[0.05, 0.02]"
+
+
+class TestIkStallAbort:
+    """Incremental-IK stall detection (_check_ik_stall)."""
+
+    def _make_skill_and_phase(self, robot, target_pos):
+        config = _make_config(robot)
+        robot_obj = _make_robot_obj()
+
+        def target_fn(state, _objects, _params, _cfg):
+            x = state.get(robot_obj, "x")
+            y = state.get(robot_obj, "y")
+            z = state.get(robot_obj, "z")
+            orn = p.getQuaternionFromEuler([0, np.pi / 2, -np.pi])
+            return Pose((x, y, z), orn), Pose(target_pos, orn), "open"
+
+        phase = Phase(
+            name="Waypoint",
+            action_type=PhaseAction.MOVE_TO_POSE,
+            target_fn=target_fn,
+            use_motion_planning=True,
+            expect_contact=True,
+        )
+        skill = PhaseSkill("Push", [_ROBOT_TYPE], Box(0, 1, (0, )), config,
+                           [phase])
+        return skill, phase, robot_obj
+
+    def test_stall_raises_after_window(self, robot_scene):
+        """No end-effector progress for a full window aborts the option."""
+        _, robot = robot_scene
+        target = (_EE_HOME[0] + 0.5, _EE_HOME[1], _EE_HOME[2])
+        skill, phase, robot_obj = self._make_skill_and_phase(robot, target)
+        state = _build_state(robot_obj, robot, *_EE_HOME)
+        memory: dict = {}
+        params = np.zeros(0, dtype=np.float32)
+        # First call initializes the best distance; the next window-1
+        # no-progress calls only count up.
+        for _ in range(PhaseSkill._ik_stall_window):  # pylint: disable=protected-access
+            skill._check_ik_stall(phase, state, memory, [robot_obj], params)  # pylint: disable=protected-access
+        with pytest.raises(utils.OptionExecutionFailure) as e:
+            skill._check_ik_stall(phase, state, memory, [robot_obj], params)  # pylint: disable=protected-access
+        assert "incremental-IK stalled" in str(e.value)
+        # The message names the phase target and echoes the option params
+        # (the agent's only channel for diagnosing which values failed).
+        assert "m from the target (" in str(e.value)
+        assert "commanded by params []" in str(e.value)
+
+    def test_progress_resets_counter(self, robot_scene):
+        """Steady progress toward the target never trips the abort."""
+        _, robot = robot_scene
+        target = (_EE_HOME[0] + 0.5, _EE_HOME[1], _EE_HOME[2])
+        skill, phase, robot_obj = self._make_skill_and_phase(robot, target)
+        memory: dict = {}
+        params = np.zeros(0, dtype=np.float32)
+        # 5 mm of progress per step (> _ik_stall_min_progress) for three
+        # windows' worth of steps: no abort.
+        for i in range(3 * PhaseSkill._ik_stall_window):  # pylint: disable=protected-access
+            state = _build_state(robot_obj, robot, _EE_HOME[0] + 0.005 * i,
+                                 _EE_HOME[1], _EE_HOME[2])
+            skill._check_ik_stall(phase, state, memory, [robot_obj], params)  # pylint: disable=protected-access
+
+
+# ---------------------------------------------------------------------------
+# PhaseSkill._solve_goal_ik_candidates acceptance logic
+# ---------------------------------------------------------------------------
+
+
+class _FakeGoalIkRobot:
+    """Scripted stand-in for the planning robot in goal-IK tests.
+
+    The unvalidated one-shot IK returns an in-limits branch whose true
+    forward kinematics misses the target by ``one_shot_error_m`` meters;
+    validated IK returns a branch that hits the target exactly.
+    """
+
+    joint_lower_limits = [-3.0] * 7
+    joint_upper_limits = [3.0] * 7
+    initial_joint_positions = [0.0] * 7
+    # Accepted candidates get their finger entries pinned to the current
+    # finger positions (IK leaves fingers wherever the seed put them).
+    left_finger_joint_idx = 5
+    right_finger_joint_idx = 6
+
+    def __init__(self, target_pose: Pose, one_shot_error_m: float) -> None:
+        self._target = target_pose
+        self._one_shot_error_m = one_shot_error_m
+        self.validated_calls = 0
+
+    def set_joints(self, joints):
+        """No-op; the fake tracks nothing."""
+
+    def inverse_kinematics(self, target_pose, validate, set_joints=True):
+        """Scripted joints; validated calls get the good solution."""
+        del target_pose, set_joints  # scripted result
+        if validate:
+            self.validated_calls += 1
+            return [0.1] * 7
+        return [0.2] * 7
+
+    def forward_kinematics(self, joints):
+        """Good joints hit the target; others land short by the error."""
+        x, y, z = self._target.position
+        if joints == [0.1] * 7:
+            return Pose((x, y, z))
+        return Pose((x, y, z - self._one_shot_error_m))
+
+
+# Seed count inside _solve_goal_ik_candidates: current joints, home,
+# then the random restarts. Every seed is tried (branch collection).
+_GOAL_IK_NUM_SEEDS = 2 + PhaseSkill._goal_ik_num_restarts  # pylint: disable=protected-access
+
+
+class TestSolveGoalIkCandidates:
+    """Every accepted goal config must hit the pose under FK, and all distinct
+    pose-accurate branches are collected (deduplicated)."""
+
+    def _make_skill(self, robot) -> PhaseSkill:
+        config = _make_config(robot)
+        phase = Phase(
+            name="MoveToDrop",
+            action_type=PhaseAction.MOVE_TO_POSE,
+            target_fn=lambda *args: None,
+            use_motion_planning=True,
+        )
+        return PhaseSkill("Place", [_ROBOT_TYPE], Box(0, 1, (0, )), config,
+                          [phase])
+
+    def test_inaccurate_one_shot_escalates_to_validated(self, robot_scene):
+        """An in-limits one-shot whose FK misses by centimeters must be
+        rejected and the same seed re-solved with validated IK.
+
+        Regression test for run_20260716_133656: with
+        ``pybullet_ik_validate False`` a 5.7 cm one-shot residual used
+        to be accepted without any FK check, so BiRRT's goal collision
+        check placed the carried domino inside the table and refused a
+        valid Place.
+        """
+        _, robot = robot_scene
+        skill = self._make_skill(robot)
+        target = Pose((0.77, 1.34, 0.55))
+        fake = _FakeGoalIkRobot(target, one_shot_error_m=0.057)
+        result = skill._solve_goal_ik_candidates(  # pylint: disable=protected-access
+            fake,
+            target, [0.5] * 7,
+            validate=False)
+        # The validated branch is the only accurate one; every seed
+        # escalates to it and dedup collapses them to one candidate
+        # (fingers pinned to the current joints).
+        assert result == [[0.1] * 5 + [0.5] * 2]
+        assert fake.validated_calls == _GOAL_IK_NUM_SEEDS
+
+    def test_accurate_one_shot_keeps_fast_path(self, robot_scene):
+        """A one-shot within tolerance is accepted with no validated IK."""
+        _, robot = robot_scene
+        skill = self._make_skill(robot)
+        target = Pose((0.77, 1.34, 0.55))
+        fake = _FakeGoalIkRobot(target, one_shot_error_m=0.002)
+        result = skill._solve_goal_ik_candidates(  # pylint: disable=protected-access
+            fake,
+            target, [0.5] * 7,
+            validate=False)
+        assert result == [[0.2] * 5 + [0.5] * 2]
+        assert fake.validated_calls == 0
+
+    def test_distinct_branches_are_all_collected(self, robot_scene):
+        """Pose-equivalent but distinct arm branches must ALL be returned, in
+        seed order, so the motion planner can pick the first collision-free one
+        (branches are not collision-equivalent: one grasp branch swept a link 6
+        cm through a neighboring leg while another cleared it)."""
+        _, robot = robot_scene
+        skill = self._make_skill(robot)
+        target = Pose((0.77, 1.34, 0.55))
+        fake = _FakeGoalIkRobot(target, one_shot_error_m=0.0)
+        branches = [[0.1 * (i % 3)] * 7 for i in range(_GOAL_IK_NUM_SEEDS)]
+        fake.inverse_kinematics = (  # type: ignore
+            lambda *a, _it=iter(branches), **k: next(_it))
+        fake.forward_kinematics = (  # type: ignore
+            lambda joints: Pose(target.position))
+        result = skill._solve_goal_ik_candidates(  # pylint: disable=protected-access
+            fake,
+            target, [0.5] * 7,
+            validate=False)
+        assert result == [
+            [0.0] * 5 + [0.5] * 2,
+            [0.1] * 5 + [0.5] * 2,
+            [0.2] * 5 + [0.5] * 2,
+        ]
+
+    def test_all_branches_inaccurate_raises(self, robot_scene):
+        """When no branch hits the pose, goal IK raises instead of handing
+        BiRRT a wrong goal configuration."""
+        _, robot = robot_scene
+        skill = self._make_skill(robot)
+        target = Pose((0.77, 1.34, 0.55))
+        fake = _FakeGoalIkRobot(target, one_shot_error_m=0.057)
+        fake.forward_kinematics = lambda joints: Pose(  # type: ignore
+            (target.position[0], target.position[1], target.position[2] - 0.057
+             ))
+        with pytest.raises(InverseKinematicsError):
+            skill._solve_goal_ik_candidates(  # pylint: disable=protected-access
+                fake,
+                target, [0.5] * 7,
+                validate=False)
+
+    def test_escalated_restarts_extend_the_branch_set(self, robot_scene):
+        """More restarts only ever ADD branches, in the same order.
+
+        When every branch of the normal solve puts the goal
+        configuration in collision, ``_plan_with_simulator`` re-solves
+        with ``_goal_ik_escalated_num_restarts``. That is only worth
+        doing if the escalated solve is a superset of the normal one:
+        the deterministic seed prefix is unchanged, so a branch that
+        already failed is not re-planned, and only genuinely new
+        configurations are tried.
+        """
+        _, robot = robot_scene
+        skill = self._make_skill(robot)
+        target = Pose((0.77, 1.34, 0.55))
+        escalated_restarts = PhaseSkill._goal_ik_escalated_num_restarts  # pylint: disable=protected-access
+
+        def _make_fake():
+            fake = _FakeGoalIkRobot(target, one_shot_error_m=0.0)
+            branches = [[0.01 * i] * 7 for i in range(2 + escalated_restarts)]
+            fake.inverse_kinematics = (  # type: ignore
+                lambda *a, _it=iter(branches), **k: next(_it))
+            fake.forward_kinematics = (  # type: ignore
+                lambda joints: Pose(target.position))
+            return fake
+
+        default = skill._solve_goal_ik_candidates(  # pylint: disable=protected-access
+            _make_fake(),
+            target, [0.5] * 7,
+            validate=True)
+        escalated = skill._solve_goal_ik_candidates(  # pylint: disable=protected-access
+            _make_fake(),
+            target, [0.5] * 7,
+            validate=True,
+            num_restarts=escalated_restarts)
+        assert len(default) == _GOAL_IK_NUM_SEEDS
+        assert len(escalated) == 2 + escalated_restarts
+        # The two priority seeds still lead, and every branch the normal
+        # solve found is still offered; the restart-derived ones are
+        # ordered by proximity to the current configuration, so a wider
+        # pool cannot push a NEARER branch behind a contorted one.
+        assert escalated[:2] == default[:2]
+        assert all(cand in escalated for cand in default)
+        current = [0.5] * 7
+        spread = [
+            max(abs(a - b) for a, b in zip(cand, current))
+            for cand in escalated[2:]
+        ]
+        assert spread == sorted(spread)
+
+
+class TestCollisionDiagnosticsLogging:
+    """The diagnostics can be computed quietly, before the failure is known to
+    be final."""
+
+    def _make_skill(self, robot) -> PhaseSkill:
+        config = _make_config(robot)
+        phase = Phase(
+            name="MoveToGrasp",
+            action_type=PhaseAction.MOVE_TO_POSE,
+            target_fn=lambda *args: None,
+            use_motion_planning=True,
+        )
+        return PhaseSkill("Pick", [_ROBOT_TYPE], Box(0, 1, (0, )), config,
+                          [phase])
+
+    def test_log_errors_false_reports_without_logging(self, robot_scene,
+                                                      caplog):
+        """``log_errors=False`` returns the same strings but logs nothing.
+
+        ``_plan_with_simulator`` inspects the diagnostics to decide
+        whether to escalate the goal-IK branch search; escalating can
+        turn the failure into a success, so the ERROR lines must not be
+        emitted until the failure is final.
+        """
+        physics_client_id, robot = robot_scene
+        skill = self._make_skill(robot)
+        robot.reset_state(
+            tuple(_EE_HOME) + tuple(_get_ee_home_pose().orientation) +
+            (robot.open_fingers, ))
+        joints = robot.get_joints()
+        # A block straddling the gripper guarantees START contacts.
+        block_id = create_pybullet_block(color=(1.0, 0.0, 0.0, 1.0),
+                                         half_extents=(0.05, 0.05, 0.05),
+                                         mass=0,
+                                         friction=1,
+                                         orientation=[0., 0., 0., 1.],
+                                         physics_client_id=physics_client_id)
+        p.resetBasePositionAndOrientation(block_id,
+                                          _EE_HOME, [0., 0., 0., 1.],
+                                          physicsClientId=physics_client_id)
+        try:
+            with caplog.at_level(logging.ERROR):
+                quiet = skill._log_collision_diagnostics(  # pylint: disable=protected-access
+                    robot,
+                    physics_client_id,
+                    joints,
+                    joints, {block_id},
+                    None,
+                    None,
+                    "MoveToGrasp",
+                    log_errors=False)
+                assert quiet
+                assert not caplog.records
+                loud = skill._log_collision_diagnostics(  # pylint: disable=protected-access
+                    robot, physics_client_id, joints, joints, {block_id}, None,
+                    None, "MoveToGrasp")
+            assert loud == quiet
+            assert len(caplog.records) == len(loud)
+        finally:
+            p.removeBody(block_id, physicsClientId=physics_client_id)

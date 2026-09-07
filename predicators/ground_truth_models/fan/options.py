@@ -10,7 +10,8 @@ from predicators import utils
 from predicators.envs.pybullet_fan import PyBulletFanEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.ground_truth_models.skill_factories import SkillConfig, \
-    create_push_skill, create_wait_option
+    create_push_skill, create_wait_option, shared_skill_robot, \
+    shared_skill_simulator
 from predicators.settings import CFG
 from predicators.structs import Array, Object, ParameterizedOption, \
     Predicate, State, Type
@@ -58,8 +59,7 @@ class PyBulletFanGroundTruthOptionFactory(_FanLegacyOptionsMixin,
         """Skill-factory-based option implementations for the fan env."""
         del env_name, predicates, action_space  # unused
 
-        _, pybullet_robot, _ = \
-            PyBulletFanEnv.initialize_pybullet(using_gui=False)
+        pybullet_robot = shared_skill_robot(PyBulletFanEnv)
 
         robot_type = types["robot"]
         switch_type = types["switch"]
@@ -69,7 +69,7 @@ class PyBulletFanGroundTruthOptionFactory(_FanLegacyOptionsMixin,
 
         _push_transport_z = cls._hand_empty_move_z
 
-        simulator = env_cls(use_gui=False) \
+        simulator = shared_skill_simulator(env_cls) \
             if CFG.skill_phase_use_motion_planning else None
         config = SkillConfig(
             robot=pybullet_robot,

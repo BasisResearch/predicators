@@ -9,7 +9,7 @@ import random
 import textwrap
 from dataclasses import dataclass, field, replace
 from functools import cached_property, lru_cache
-from inspect import getsource
+from inspect import Parameter, getsource, signature
 from typing import TYPE_CHECKING, Any, Callable, Collection, DefaultDict, \
     Dict, Iterator, List, Optional, Sequence, Set, Tuple, TypeVar, Union, \
     cast
@@ -50,6 +50,13 @@ class Type:
     locations. One might think they could reset any feature at when reset is
     called. But this would require the information is first stored in the State
     object.
+
+    angular_features marks features that are angles in radians (yaw, roll,
+    joint angles, ...). Consumers that compare feature values across states
+    (e.g. system-identification residuals) wrap differences of these
+    features to [-pi, pi] so that equivalent orientations (roll -pi vs +pi)
+    do not read as a 2*pi error. Declaring it is optional metadata; the
+    default (no angular features) preserves plain arithmetic differences.
     """
     name: str
     feature_names: Sequence[str] = field(repr=False)
@@ -57,6 +64,9 @@ class Type:
     sim_features: Sequence[str] = field(default_factory=lambda: ["id"],
                                         repr=False,
                                         compare=False)
+    angular_features: Sequence[str] = field(default_factory=tuple,
+                                            repr=False,
+                                            compare=False)
 
     @property
     def dim(self) -> int:
@@ -111,6 +121,27 @@ class _TypedEntity:
     @cached_property
     def _hash(self) -> int:
         return hash(str(self))
+
+    def __getstate__(self) -> Dict:
+        """Drop cached properties from the pickled state.
+
+        ``_hash`` caches ``hash(str(self))``, and Python string hashes
+        are salted per process (PYTHONHASHSEED): an entity pickled in
+        one process and loaded in another would carry a stale hash, land
+        in the wrong dict bucket, and raise KeyError on every
+        ``State.data`` lookup even though ``__eq__`` holds (hit by the
+        offline consumers of the persisted ``fit_data`` pickles).
+        """
+        state = self.__dict__.copy()
+        state.pop("_str", None)
+        state.pop("_hash", None)
+        return state
+
+    def __setstate__(self, state: Dict) -> None:
+        """Also scrub on load, so pre-fix pickles are repaired."""
+        state.pop("_str", None)
+        state.pop("_hash", None)
+        self.__dict__.update(state)
 
     def __str__(self) -> str:
         return self._str
@@ -212,11 +243,35 @@ class Variable(_TypedEntity):
 
 @dataclass
 class State:
-    """Struct defining the low-level state of the world."""
+    """Low-level world state.
+
+    Separates the agent's observation (`data`) from two optional hidden
+    blocks - the agent's belief (`latent`) and the environment's ground
+    truth (`privileged`) - plus opaque simulator bookkeeping
+    (`simulator_state`). Only `data` defines state identity (`__hash__`
+    and `allclose` ignore the other three).
+    """
+    # Object-centric *observable* features = the agent's observation.
+    # Fully observable: the complete world state. Partially observable:
+    # only the exposed features (some causally-relevant features are
+    # omitted). The only field that defines state identity (`__hash__`,
+    # `allclose`).
     data: Dict[Object, Array]
-    # Some environments will need to store additional simulator state, so
-    # this field is provided.
+    # Opaque per-environment simulator bookkeeping (e.g. PyBullet joint
+    # positions); env-internal, not agent-facing.
     simulator_state: Optional[Any] = None
+    # The agent's *inferred estimate* of the hidden state (its belief),
+    # threaded by partially-observable / recurrent approaches; None under
+    # full observability. Deep-copied by `copy()`. See
+    # `predicators.code_sim_learning.utils.init_latent` for the canonical
+    # initial value.
+    latent: Optional[Dict[str, Any]] = None
+    # The environment's *true* hidden state that the partially-observable
+    # observation omits; None under full observability, where those
+    # features live in `data` instead. The truth to `latent`'s belief -
+    # env-only, never surfaced through any `data`/`feature_names` channel
+    # (inspect tools, dict_str, abstraction). Deep-copied by `copy()`.
+    privileged: Optional[Dict[str, Any]] = None
 
     def __post_init__(self) -> None:
         # Check feature vector dimensions.
@@ -277,7 +332,9 @@ class State:
         for obj in self:
             new_data[obj] = self._copy_state_value(self.data[obj])
         return State(new_data,
-                     simulator_state=copy.deepcopy(self.simulator_state))
+                     simulator_state=copy.deepcopy(self.simulator_state),
+                     latent=copy.deepcopy(self.latent),
+                     privileged=copy.deepcopy(self.privileged))
 
     def _copy_state_value(self, val: Any) -> Any:
         if val is None or isinstance(val, (float, bool, int, str)):
@@ -393,6 +450,26 @@ class State:
 DefaultState = State({})
 
 
+@lru_cache(maxsize=None)
+def _classifier_accepts_latent(classifier: Callable) -> bool:
+    """Return True iff `classifier` declares a `latent` parameter or **kwargs.
+
+    Used by `Predicate.holds` to thread the sample's latent state-
+    feature block only into classifiers that opted in. Cached because
+    predicate classifiers are typically reused across many `.holds()`
+    calls and introspecting `inspect.signature` is not free.
+    """
+    try:
+        params = signature(classifier).parameters
+    except (TypeError, ValueError):
+        # Built-ins, C-extensions, or anything whose signature we can't
+        # introspect: assume legacy 2-arg form.
+        return False
+    if "latent" in params:
+        return True
+    return any(p.kind == Parameter.VAR_KEYWORD for p in params.values())
+
+
 @dataclass(frozen=True, order=False, repr=False)
 class Predicate:
     """Struct defining a predicate (a lifted classifier over states)."""
@@ -445,15 +522,42 @@ class Predicate:
         """The arity of this predicate (number of arguments)."""
         return len(self.types)
 
-    def holds(self, state: State, objects: Sequence[Object]) -> bool:
+    @cached_property
+    def accepts_latent(self) -> bool:
+        """Whether the classifier reads the belief latent block.
+
+        Such a predicate's truth can depend on belief-only state that
+        real observations do not carry, so it may be unverifiable at
+        execution time (see the capture gate's latent-stripped probe).
+        """
+        return _classifier_accepts_latent(self._classifier)
+
+    def holds(self,
+              state: State,
+              objects: Sequence[Object],
+              latent: Optional[Dict[str, Any]] = None) -> bool:
         """Public method for calling the classifier.
 
-        Performs type checking first.
+        Performs type checking first. `latent` is the sample's latent
+        state-feature block, threaded by the sim-learning approaches
+        when the learned rules are recurrent (see
+        `agent_sim_predicate_invention` under
+        `CFG.partially_observable`). When the caller does not pass
+        `latent` explicitly, the block attached to `state.latent` is
+        used (so callers like `utils.abstract` do not need to know about
+        the recurrent extension). Classifiers that don't accept a
+        `latent` kwarg are called with the legacy `(state, objects)`
+        signature for backwards compatibility.
         """
         assert len(objects) == self.arity
         for obj, pred_type in zip(objects, self.types):
             assert isinstance(obj, Object)
             assert obj.is_instance(pred_type)
+        if _classifier_accepts_latent(self._classifier):
+            effective_latent = latent if latent is not None else state.latent
+            return self._classifier(
+                state, objects,
+                latent=effective_latent)  # type: ignore[call-arg]
         return self._classifier(state, objects)
 
     def __str__(self) -> str:
@@ -576,7 +680,7 @@ class DerivedPredicate(Predicate):
                 return False
         return True
 
-    def holds(  # type: ignore[override]
+    def holds(  # type: ignore[override]  # pylint: disable=arguments-differ
             self, state: Set[GroundAtom], objects: Sequence[Object]) -> bool:
         """Public method for calling the classifier.
 
@@ -711,7 +815,7 @@ class ConceptPredicate(Predicate):
     def __hash__(self) -> int:
         return self._hash
 
-    def holds(  # type: ignore[override]
+    def holds(  # type: ignore[override]  # pylint: disable=arguments-differ
             self, state: Set[GroundAtom], objects: Sequence[Object]) -> bool:
         """Public method for calling the classifier.
 
@@ -846,9 +950,15 @@ class GroundAtom(_Atom):
         assert set(self.objects).issubset(set(sub.keys()))
         return LiftedAtom(self.predicate, [sub[o] for o in self.objects])
 
-    def holds(self, state: State) -> bool:
-        """Check whether this ground atom holds in the given state."""
-        return self.predicate.holds(state, self.objects)
+    def holds(self,
+              state: State,
+              latent: Optional[Dict[str, Any]] = None) -> bool:
+        """Check whether this ground atom holds in the given state.
+
+        `latent` is forwarded to predicate classifiers that opted in to
+        the latent-aware signature; ignored otherwise.
+        """
+        return self.predicate.holds(state, self.objects, latent=latent)
 
     def get_vlm_query_str(self) -> str:
         """If this GroundAtom is associated with a VLMPredicate, then get the
@@ -892,11 +1002,27 @@ class Task:
     # *intent* behind the goal atoms (e.g. "arrange dominoes so the chain
     # reaction topples the targets" rather than just Toppled(target0)).
     goal_nl: Optional[str] = None
+    # Optional per-task ground truth in the standard RL (reward, terminated)
+    # shape, propagated from EnvironmentTask.evaluator. Safe to hand to
+    # approaches because a TaskEvaluator is by contract a pure,
+    # physics-independent function of a state trajectory holding no env
+    # handle and no oracle quantities (agent surfaces still expose only
+    # VERDICTS, never this object). Dropped by replace_goal_with_alt_goal:
+    # its ``goal`` holds the original goal atoms, which alt-goal replacement
+    # exists to hide.
+    evaluator: Optional[TaskEvaluator] = None
 
     def __post_init__(self) -> None:
         # Verify types.
         for atom in self.goal:
             assert isinstance(atom, GroundAtom)
+        # An attached evaluator must judge THIS task's goal:
+        # ``evaluator.terminated`` and ``goal_holds`` are two views of
+        # one goal-atom set, and a mismatch (e.g. an evaluator built for
+        # the demonstrator goal attached to an alt-goal task) would make
+        # them silently disagree. replace_goal_with_alt_goal preserves
+        # this by dropping the evaluator together with the goal it holds.
+        assert self.evaluator is None or self.evaluator.goal == self.goal
 
     def goal_holds(
         self,
@@ -919,13 +1045,169 @@ class Task:
         exists."""
         # We may not want the agent to access the goal predicates given to the
         # demonstrator. To prevent leakage of this information, we discard the
-        # original goal.
+        # original goal - and the evaluator, whose ``goal`` holds it.
         if self.alt_goal:
             return Task(self.init, goal=self.alt_goal, goal_nl=self.goal_nl)
         return self
 
 
 DefaultTask = Task(DefaultState, set())
+
+# A per-step option label: (option name, grounded object names, continuous
+# parameters), or None when the action carries no option. Trajectory-level
+# evaluator inputs use these instead of raw options so evaluators stay
+# picklable and comparison-friendly; the parameters let physics-replaying
+# certificates (the domino counterfactual push probe) re-run a step with the
+# plan's own continuous values. Consumers must tolerate legacy
+# (name, objects) 2-tuples, which some tests and agent-authored label lists
+# still produce.
+StepOption = Optional[Tuple[str, Tuple[str, ...], Tuple[float, ...]]]
+
+
+def step_option_labels(actions: Sequence[Action]) -> List[StepOption]:
+    """Label each action with its producing option as a ``StepOption``."""
+    labels: List[StepOption] = []
+    for act in actions:
+        if act.has_option():
+            option = act.get_option()
+            labels.append((option.name, tuple(o.name for o in option.objects),
+                           tuple(float(p) for p in option.params)))
+        else:
+            labels.append(None)
+    return labels
+
+
+class TaskEvaluator:
+    """Per-task success/legitimacy/reward: the environment-side ground truth
+    for an ``EnvironmentTask``, in the standard RL (reward, terminated) shape.
+
+    ``terminated`` is purely physical: the goal atoms hold in the given
+    state, however that came about (an illegitimate topple still
+    terminates). Legitimacy (``_certify``) gates only the success bonus
+    inside ``reward``, so a rule-violating episode terminates with no
+    bonus rather than "not counting" as terminal. ``_certify`` is
+    private by design: the agent contract is the public
+    (solved, reward) pair - both of which the real environment
+    genuinely reveals at episode end - plus roster verdicts;
+    ``terminated`` the agent computes itself from the public goal
+    atoms, and env-side code (BaseEnv, logging) is the sanctioned
+    reader of the certificate's bool/reason.
+
+    The evaluator rides on the agent-facing ``Task``, so instances must
+    be leak-free by construction: no live env handle stored on the
+    object, and NO oracle quantity anywhere on it (not even in
+    ``offline_metrics`` - per-task oracle numbers like the domino K*
+    belong in ``EnvironmentTask.offline_task_metrics``, which never
+    reaches a ``Task``). Certificates that need a physics rollout (the
+    domino counterfactual push probe) receive the caller's env as a
+    transient ``sim_env`` argument per call instead - see ``_certify``.
+
+    Subclasses override ``_certify`` for trajectory-level legitimacy
+    rules, ``reward`` for cost terms, ``offline_metrics`` for
+    experimenter-only episode statistics, and ``objective_description``
+    for an agent-showable NL statement of the reward. Defaults
+    reproduce the plain atom-set-goal semantics. ``solved`` is the
+    public episode-success bit (the standard RL end-of-episode success
+    flag; the roster's ``success=`` field): it never depends on a
+    reward sign convention, so consumers that need "did this episode
+    earn the success credit" (e.g. refinement's accept test) must read
+    it rather than compare ``reward`` against zero. Reward contract: a
+    certified success must yield strictly positive reward and anything
+    else at most zero (the domino evaluator asserts this), so success
+    and rejection are decodable from the (reward, terminated) pair
+    alone - see ``EpisodeEvaluation.rejected``.
+    """
+
+    def __init__(self, goal: Set[GroundAtom]) -> None:
+        self.goal = goal
+
+    def terminated(self, state: State) -> bool:
+        """Absorbing-state check: do the goal atoms hold?
+
+        The evaluator-side view of ``Task.goal_holds`` (which is the
+        public, per-state check and additionally handles VLM
+        predicates); ``Task.__post_init__`` asserts the two judge one
+        and the same goal-atom set. Subclasses may override to terminate
+        on other absorbing states.
+        """
+        return all(atom.holds(state) for atom in self.goal)
+
+    def reward(self,
+               states: Sequence[State],
+               step_options: Optional[Sequence[StepOption]],
+               sim_env: Optional[Any] = None) -> float:
+        """Episode reward: certified-success bonus (no cost by default)."""
+        ok, _ = self._certify(states, step_options, sim_env=sim_env)
+        return float(self.terminated(states[-1]) and ok)
+
+    def solved(self,
+               states: Sequence[State],
+               step_options: Optional[Sequence[StepOption]],
+               sim_env: Optional[Any] = None) -> bool:
+        """Public episode-success bit: goal atoms hold at the end AND the
+        success credit was awarded (the episode certifies)."""
+        ok, _ = self._certify(states, step_options, sim_env=sim_env)
+        return self.terminated(states[-1]) and ok
+
+    def _certify(self,
+                 states: Sequence[State],
+                 step_options: Optional[Sequence[StepOption]],
+                 sim_env: Optional[Any] = None) -> Tuple[bool, str]:
+        """Trajectory-level legitimacy: (ok, human-readable reason).
+
+        ``sim_env`` is the certifying caller's live environment (the
+        true env in ``BaseEnv``, an agent's belief env in sandbox
+        verdicts) for certificates that need a physics rollout - e.g.
+        the domino counterfactual push probe. It is passed per call and
+        MUST NOT be stored on the evaluator: the evaluator rides on the
+        agent-facing ``Task`` and stays leak-free precisely because it
+        holds no env handle. ``None`` (the default) runs whatever pure
+        rules the certificate has.
+        """
+        del states, step_options, sim_env  # unused in the default
+        return True, ""
+
+    def offline_metrics(
+            self, states: Sequence[State],
+            step_options: Optional[Sequence[StepOption]]) -> Dict[str, float]:
+        """Experimenter-only episode metrics (never shown to agents)."""
+        del states, step_options  # unused in the default
+        return {}
+
+    def objective_description(self) -> str:
+        """Agent-showable NL statement of the reward; '' = nothing to
+        show."""
+        return ""
+
+
+@dataclass(frozen=True)
+class EpisodeEvaluation:
+    """A ``TaskEvaluator``'s verdict on one executed episode, as computed by
+    ``BaseEnv.evaluate_episode``.
+
+    ``reward``/``terminated`` are agent-visible by design; ``reason``
+    and ``offline_metrics`` are env-side only (the agent gets at most
+    the boolean rejection flag). There is deliberately no separate
+    ``certified`` field: certification only gates the success bonus, so
+    it carries information only when the episode terminated - and there
+    the evaluator contract (a certified success strictly outscores any
+    failure) makes it decodable as ``reward > 0``.
+    """
+    reward: float
+    terminated: bool
+    reason: str
+    offline_metrics: Dict[str, float]
+
+    @property
+    def rejected(self) -> bool:
+        """Terminated without the certified-success bonus: the goal atoms hold,
+        but the episode broke the task rules (e.g. a reward-hacked topple).
+
+        A non-terminated episode is never "rejected" - it is just a
+        failure; whether its trajectory also broke rules is irrelevant
+        because certification only gates the bonus.
+        """
+        return self.terminated and self.reward <= 0.0
 
 
 @dataclass(frozen=True, eq=False)
@@ -945,6 +1227,34 @@ class EnvironmentTask:
     alt_goal_desc: Optional[GoalDescription] = field(default=None)
     # Optional natural language goal description (passed through to Task).
     goal_nl: Optional[str] = None
+    # Optional per-task ground truth in the standard RL (reward, terminated)
+    # shape. When None (every ordinary task), success = all goal_description
+    # atoms hold and every trajectory is accepted. When set,
+    # ``evaluator.terminated`` IS the success criterion consumed by
+    # ``BaseEnv.goal_reached`` (purely physical: goal atoms, however
+    # reached), while ``evaluator._certify`` constrains HOW the goal may be
+    # reached and gates the success bonus inside ``evaluator.reward``
+    # (consumed by ``BaseEnv.check_episode_trajectory`` /
+    # ``BaseEnv.evaluate_episode``). Propagated into the agent-facing
+    # ``Task`` (see Task.evaluator for why that is leak-free) and dropped
+    # by replace_goal_with_alt_goal.
+    evaluator: Optional[TaskEvaluator] = None
+    # Experimenter-only per-task oracle quantities (e.g. the domino K*, the
+    # searched minimum block count at the true physics), merged into the
+    # PER_TASK results by main.py. Kept OFF the evaluator and never
+    # propagated into ``Task``, so nothing agent-reachable encodes them.
+    offline_task_metrics: Dict[str, float] = field(default_factory=dict)
+    # Env-side early-stopping bar: when set, a solved training episode
+    # counts toward online-learning early stopping only if its episode
+    # reward reaches this value (minus
+    # CFG.online_learning_early_stopping_reward_slack). Domains express
+    # "solved well enough to stop training" in the one domain-general
+    # currency, reward - e.g. domino min-block tasks set the optimal
+    # reward 1 - block_cost * K*, so an over-built solve keeps training
+    # going. May encode oracle quantities, so like offline_task_metrics
+    # it never reaches the agent-facing ``Task``. None (the default)
+    # keeps the plain solved criterion.
+    early_stop_min_reward: Optional[float] = None
 
     @cached_property
     def task(self) -> Task:
@@ -954,7 +1264,10 @@ class EnvironmentTask:
         # goal exists, then there's nothing particular to set the task's
         # alt_goal field to.
         if self.alt_goal_desc is None:
-            return Task(self.init, self.goal, goal_nl=self.goal_nl)
+            return Task(self.init,
+                        self.goal,
+                        goal_nl=self.goal_nl,
+                        evaluator=self.evaluator)
         # If we turn the environment task into a task before replacing the goal
         # with the alternative goal, we have to set the task's alt_goal field
         # accordingly to leave open the possibility of doing that replacement
@@ -967,7 +1280,8 @@ class EnvironmentTask:
         return Task(self.init,
                     self.goal,
                     alt_goal=self.alt_goal_desc,
-                    goal_nl=self.goal_nl)
+                    goal_nl=self.goal_nl,
+                    evaluator=self.evaluator)
 
     @cached_property
     def init(self) -> State:
@@ -990,9 +1304,16 @@ class EnvironmentTask:
         See Task.replace_goal_with_alt_goal for the reason for this
         function.
         """
+        # The evaluator is dropped along with the original goal: its
+        # ``goal`` field holds exactly the atoms this replacement hides.
+        # The early-stop reward bar goes with it (its value is only
+        # meaningful under the dropped evaluator's reward). The env-side
+        # offline metrics stay (they never reach a Task).
         if self.alt_goal_desc is not None:
-            return EnvironmentTask(self.init_obs,
-                                   goal_description=self.alt_goal_desc)
+            return EnvironmentTask(
+                self.init_obs,
+                goal_description=self.alt_goal_desc,
+                offline_task_metrics=self.offline_task_metrics)
         return self
 
 
@@ -1064,10 +1385,21 @@ class ParameterizedOption:
                     f"expected '{t.name}'")
         params = np.array(params, dtype=self.params_space.dtype)
         if not self.params_space.contains(params):
-            raise ValueError(
-                f"Cannot ground '{self.name}': params {params.tolist()} "
-                f"outside bounds low={self.params_space.low.tolist()}, "
-                f"high={self.params_space.high.tolist()}")
+            # Values that passed through float32 (e.g. parsed agent plans)
+            # can round a boundary value just past a float64 bound, since
+            # float32(pi) > pi; treat within-precision violations as the
+            # boundary itself and only reject genuine overshoots.
+            low = self.params_space.low
+            high = self.params_space.high
+            tol = 1e-6 * np.maximum(1.0, np.maximum(np.abs(low), np.abs(high)))
+            if np.all(params >= low - tol) and np.all(params <= high + tol):
+                params = np.clip(params, low,
+                                 high).astype(self.params_space.dtype)
+            else:
+                raise ValueError(
+                    f"Cannot ground '{self.name}': params {params.tolist()} "
+                    f"outside bounds low={self.params_space.low.tolist()}, "
+                    f"high={self.params_space.high.tolist()}")
         memory: Dict = {}  # each option has its own memory dict
         return _Option(
             self.name,
@@ -1723,6 +2055,11 @@ class LowLevelTrajectory:
     _actions: List[Action]
     _is_demo: bool = field(default=False)
     _train_task_idx: Optional[int] = field(default=None)
+    _source_simulator_version: Optional[str] = field(default=None)
+    _source_predicates_version: Optional[str] = field(default=None)
+    _source_samplers_version: Optional[str] = field(default=None)
+    _env_reward: Optional[float] = field(default=None)
+    _env_terminated: Optional[bool] = field(default=None)
 
     def __post_init__(self) -> None:
         assert len(self._states) == len(self._actions) + 1
@@ -1750,6 +2087,60 @@ class LowLevelTrajectory:
         assert self._train_task_idx is not None, \
             "This trajectory doesn't contain a train task idx!"
         return self._train_task_idx
+
+    @property
+    def source_simulator_version(self) -> Optional[str]:
+        """Snapshot tag of the simulator that generated the plan that collected
+        this trajectory (e.g. ``cycle_002_vers_005``), or ``None`` for offline
+        demos / trajectories collected before the provenance tracking
+        existed."""
+        return self._source_simulator_version
+
+    @property
+    def source_predicates_version(self) -> Optional[str]:
+        """Snapshot tag of the predicates set used to generate the plan that
+        collected this trajectory, or ``None`` if not tracked."""
+        return self._source_predicates_version
+
+    @property
+    def source_samplers_version(self) -> Optional[str]:
+        """Snapshot tag of the per-skill samplers used to generate the plan
+        that collected this trajectory, or ``None`` if not tracked."""
+        return self._source_samplers_version
+
+    @property
+    def env_rejected(self) -> bool:
+        """Whether the supervisor (the environment's evaluator) rejected the
+        episode that produced this trajectory: the goal atoms held but the
+        episode broke the task rules, so the success bonus was withheld.
+
+        Derived from the stored (reward, terminated) pair - see
+        ``EpisodeEvaluation.rejected`` for the decode contract; no
+        separate flag is stored. Deliberately a bare boolean - this
+        object is exposed to the agent's sandbox, and the agent must
+        infer the violated rule from the task's NL goal description and
+        the observed trajectory, not be told it.
+        """
+        return bool(self.env_terminated) and self.env_reward is not None \
+            and self.env_reward <= 0.0
+
+    @property
+    def env_reward(self) -> Optional[float]:
+        """The env evaluator's episode reward, or ``None`` if not evaluated.
+
+        Computed by ``BaseEnv.evaluate_episode`` and passed through
+        ``InteractionResult``. Agent-visible by design: the reward form
+        is public and physics-independent, so the value leaks nothing
+        about true dynamics. ``getattr`` guards keep pre-field pickles
+        loadable.
+        """
+        return getattr(self, "_env_reward", None)
+
+    @property
+    def env_terminated(self) -> Optional[bool]:
+        """The env evaluator's terminated verdict (goal atoms held in the final
+        state, however reached), or ``None`` if not evaluated."""
+        return getattr(self, "_env_terminated", None)
 
 
 @dataclass(frozen=True, repr=False, eq=False)
@@ -2177,6 +2568,15 @@ class InteractionRequest:
     act_policy: Callable[[State], Action]
     query_policy: Callable[[State], Optional[Query]]  # query can be None
     termination_function: Callable[[State], bool]
+    # Optional verdict from a planning explorer: did the *mental model*
+    # (the learned simulator) reach the task goal when refining this
+    # request's plan? ``None`` means "no verdict" (e.g. non-planning
+    # explorers); online learning treats ``False`` as not-solved for
+    # early stopping even if real-env execution happens to reach the
+    # goal, so a model that executes-but-mispredicts isn't certified as
+    # trained. See AgentModelBasedExplorer /
+    # run.online_learning.generate_interaction_results.
+    mental_model_solved: Optional[bool] = None
 
 
 @dataclass(frozen=True, eq=False, repr=False)
@@ -2189,6 +2589,16 @@ class InteractionResult:
     states: List[State]
     actions: List[Action]
     responses: List[Optional[Response]]
+    # The env evaluator's (reward, terminated) verdict on the executed
+    # episode (see ``BaseEnv.evaluate_episode``); ``None`` when the env
+    # defines no evaluator. Agent-visible by design: both are
+    # physics-independent functions of the observed trajectory, and the
+    # supervisor-rejection boolean is decodable from the pair (see
+    # ``EpisodeEvaluation.rejected``) - the specific violation stays in
+    # the env-side logs, since the rules themselves are stated in the
+    # task's NL goal description.
+    episode_reward: Optional[float] = None
+    episode_terminated: Optional[bool] = None
 
     def __post_init__(self) -> None:
         assert len(self.states) == len(self.responses) == len(self.actions) + 1
@@ -3171,6 +3581,23 @@ NSRTSampler = Callable[
 NSRTSamplerWithEpsilonIndicator = Callable[
     [State, Set[GroundAtom], np.random.Generator, Sequence[Object]],
     Tuple[Array, bool]]
+# Parameterized (per-skill) sampler consulted during bilevel-sketch
+# refinement: keyed by ParameterizedOption name, authored/learned once, and
+# consulted for every ground call of that option - though each call passes
+# the ground binding, so the function can (and should) specialize per
+# grounding. Shares NSRTSampler's call signature (state, atoms, rng,
+# objects) so the two are interchangeable, but the GroundAtom set it
+# receives is the step's *subgoal* (not the task goal), letting it aim
+# continuous params at the subgoal instead of drawing uniformly; at steps
+# with no subgoal annotation the set is empty, which the sampler must
+# tolerate. Returns a params array matching the option's params_space;
+# refinement clips it to that box and falls back to uniform on a
+# wrong-shaped return. The ground level of the hierarchy is
+# bilevel_sketch.GroundSampler, a per-step distribution compiled from a
+# `~ [widths]` region annotation (precedence: ground sampler >
+# parameterized sampler > uniform).
+ParameterizedSampler = Callable[
+    [State, Set[GroundAtom], np.random.Generator, Sequence[Object]], Array]
 Metrics = DefaultDict[str, float]
 LiftedOrGroundAtom = TypeVar("LiftedOrGroundAtom", LiftedAtom, GroundAtom,
                              _Atom)

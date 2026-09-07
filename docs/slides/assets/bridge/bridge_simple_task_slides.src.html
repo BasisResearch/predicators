@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The Bridge Domain (Simple Variant)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/theme/white.css">
+<style>
+  .reveal { font-size: 30px; }
+  .reveal h1 { font-size: 1.6em; }
+  .reveal h2 { font-size: 1.15em; margin-bottom: 0.6em; }
+  .reveal ul { font-size: 0.82em; line-height: 1.45; }
+  .reveal li { margin: 0.28em 0; }
+  .reveal table { font-size: 0.62em; margin: 0 auto; }
+  .reveal table th, .reveal table td { padding: 0.28em 0.6em; }
+  .reveal .small { font-size: 0.6em; color: #555; }
+  .reveal .good { color: #1a7a1a; }
+  .reveal .bad { color: #a01515; }
+  .reveal .hl { color: #b3541e; font-weight: 600; }
+  .reveal img { max-height: 540px; border-radius: 6px; }
+  .reveal blockquote { font-size: 0.75em; width: 92%; }
+  .reveal code { color: #2a5d8a; }
+  .reveal pre { font-size: 0.55em; width: 96%; }
+  .reveal .cols { display: flex; gap: 0.8em; align-items: flex-start; }
+  .reveal .cols > div { flex: 1; }
+  .reveal svg text { font-family: "Source Sans Pro", sans-serif; }
+  .reveal .strip { display: flex; gap: 0.4em; justify-content: center; }
+  .reveal .strip figure { flex: 1; margin: 0; }
+  .reveal .strip img { width: 100%; max-height: 260px; object-fit: cover; }
+  .reveal figcaption { font-size: 0.55em; color: #555; margin-top: 0.2em; }
+  .reveal video { max-height: 480px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<div class="reveal"><div class="slides">
+
+<!-- 1 - Title -->
+<section>
+  <h1>The Bridge Domain</h1>
+  <p>Glue construction with a hidden curing process<br>(simple variant walkthrough)</p>
+  <img src="assets/bridge/07_finished_bridge.png" style="max-height:320px">
+  <p class="small"><code>pybullet_bridge</code> &middot; <code>envs/pybullet_bridge.py</code> &middot;
+  <code>ground_truth_models/bridge/</code></p>
+  <aside class="notes">Walkthrough of the simple (5-block) bridge task:
+  world, mechanics, predicates, processes, oracle plan, and the
+  partially-observable learning story.</aside>
+</section>
+
+<!-- 2 - Why this domain -->
+<section>
+  <h2>Why another domain?</h2>
+  <ul>
+    <li>Suite motivation: <b>partial observability + slow hidden processes</b>
+      (boil: heat, bond: bonding, ...)</li>
+    <li>Bridge adds the missing archetype: a hidden latent whose consequence is
+      <span class="hl">kinematic, not a feature readout</span></li>
+    <li>Once a glue joint <b>cures</b>, the two blocks are physically welded
+      (<code>JOINT_FIXED</code> constraint) into one rigid assembly</li>
+    <li>Picking any block of the assembly transports the <b>whole thing</b> -
+      the hidden latent changes <span class="hl">what actions <em>do</em></span></li>
+    <li>No other domain in the suite has that property</li>
+  </ul>
+</section>
+
+<!-- 3 - The world -->
+<section>
+  <h2>The world (simple variant)</h2>
+  <div class="cols">
+    <div style="flex:1.35">
+      <img src="assets/bridge/01_initial_staging.png" style="width:100%">
+      <p class="small" style="text-align:center">Initial staging: legs standing
+      (periwinkle, teal), spans lying (rosewood, amber, terracotta), glue
+      bottle (white), two slate site pads mid-table</p>
+    </div>
+    <div>
+      <ul style="font-size:0.7em">
+        <li><b>5 identical 10&times;5&times;5 cm blocks</b>: 2 "legs"
+          stand on end, 3 "spans" lie flat - the SAME block at
+          different orientations</li>
+        <li><b>Glue bottle</b>: slim box, top-graspable; its tip wets faces</li>
+        <li><b>2 site pads</b>: slate markers mid-table where the legs
+          must stand</li>
+        <li>Fetch arm in front; staging on a jittered grid split around
+          the bridge band (two front rows + one back row)</li>
+        <li>Block colors draw per task from role families - legs cool
+          blues/teals, spans warm terracotta/ambers - without
+          replacement, so same-role blocks stay distinct</li>
+        <li>One collision shape, one logical <code>block</code> type;
+          FULL 6D pose = (x, y, z, roll, pitch, rot) - any physical
+          orientation is representable, nothing is silently erased at
+          state syncs. Reads are canonicalized from the quaternion
+          (roll folds to 0 within ~1&deg; of the gimbal pole) and
+          orientation checks compare geodesically, so the standing
+          pose (pitch = -&pi;/2, the Euler singularity) is exact</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 3b - Why two site pads -->
+<section>
+  <h2>Why two site pads?</h2>
+  <div class="cols">
+    <div style="flex:1.25">
+      <img src="assets/bridge/02_legs_at_sites.png" style="width:100%">
+      <p class="small" style="text-align:center">One pad per bridge leg,
+      25 cm apart, centered on the table</p>
+    </div>
+    <div>
+      <ul style="font-size:0.62em">
+        <li><b>Symbolic goal grounding</b>: the goal says
+          <code>AtSite(leg0, site0)</code> / <code>AtSite(leg1, site1)</code> -
+          without site objects there is no way to express <em>where</em> the
+          bridge must stand, and <code>PlaceLegAtSite</code>'s sampler would
+          have no grounded target</li>
+        <li><b>Separation encodes the bridge footprint</b>:
+          <code>site_sep = 0.25</code> is matched to the welded 3-span row
+          (each 10 cm span seats 2.5 cm inboard of its leg, so the row's
+          outer ends land flush over the leg tops). The row's length is frozen
+          by the weld <em>before</em> seating, so the legs must already stand
+          at exactly that separation</li>
+        <li><b>Build-order gates</b>: <code>SiteFree</code> gates
+          <code>PlaceLegAtSite</code>; <code>AtSite</code> is a
+          <code>SeatSpan3</code> precondition - without it the planner seated
+          the span onto legs still at their staged spots and "moved" them
+          afterwards</li>
+        <li><b>Task diversity</b>: the pad pair's midpoint x is jittered per
+          task (<code>site_x_jitter</code>), so leg placement varies instead
+          of being memorizable</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 4 - Glue mechanics -->
+<section>
+  <h2>Glue mechanics (the hidden process)</h2>
+  <div class="cols">
+    <div style="flex:1.3">
+      <img src="assets/bridge/03_wet_glue.png" style="width:100%">
+      <p class="small" style="text-align:center">Wet faces render as yellow
+      patches: the two row ends (span0/span1 <code>end_b</code>) are glued</p>
+    </div>
+    <div>
+      <ul style="font-size:0.66em">
+        <li>3 glue-able faces per block (local frame): <code>top</code>,
+          <code>end_a</code>/<code>end_b</code> (long-axis ends); a
+          standing leg's world-top IS its <code>end_b</code> face - one
+          face mechanics covers row joints and leg tops</li>
+        <li><b>Wet</b>: bottle tip within 2 cm of a face's dab point
+          &rarr; <code>glue_&lt;face&gt;</code> flips</li>
+        <li><b>Cure</b>: wet face in aligned resting contact with another
+          block (<span class="hl">neither held</span>) &rarr; hidden
+          <code>cure_&lt;face&gt;</code> counter ticks each step</li>
+        <li>At <code>cure_threshold = 25</code> the joint
+          <span class="hl">irreversibly latches</span>: glue consumed,
+          <code>attached_*</code> set on both blocks, physical weld created</li>
+        <li>Interrupting the contact (e.g. a pick mid-cure)
+          <b>resets the counter</b>; the wet glue persists</li>
+        <li>Welds snap relative pose (yaw-only, ideal &Delta;z) before
+          freezing, else the assembly creeps across the table</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 5 - The simple task in pictures -->
+<section>
+  <h2>The simple task: 5 blocks, 2 glue joints</h2>
+  <div class="strip">
+    <figure><img src="assets/bridge/02_legs_at_sites.png">
+      <figcaption>1. Stand a leg at each site</figcaption></figure>
+    <figure><img src="assets/bridge/03_wet_glue.png">
+      <figcaption>2. Wet the two row ends (span0/span1
+      <code>end_b</code>)</figcaption></figure>
+  </div>
+  <div class="strip">
+    <figure><img src="assets/bridge/04_butt_joint_curing.png">
+      <figcaption>3. Butt the 3-span row end-to-end; the two lateral joints
+      cure into one welded assembly</figcaption></figure>
+    <figure><img src="assets/bridge/07_finished_bridge.png">
+      <figcaption>4. Seat the welded row across the legs - done. No seat
+      glue: the row rests by gravity</figcaption></figure>
+  </div>
+  <p class="small">Goal atoms pin the geometric layout + the row welds:
+  AtSite &times;2, SeatedOn &times;2, NextToEnd &times;2, Attached &times;2
+  (row only). Seat joints are deliberately NOT in the goal - glue appears
+  only where physics demands it.</p>
+</section>
+
+<!-- 5b - Structural necessity -->
+<section>
+  <h2>Why glue? It's structural</h2>
+  <div class="strip">
+    <figure><img src="assets/bridge/collapse_A_unglued.png">
+      <figcaption><span class="bad">Unglued</span>: the middle span has no leg
+      under it - it falls straight into the gap (idle-sim probe,
+      300 steps)</figcaption></figure>
+    <figure><img src="assets/bridge/collapse_B_welded_row.png">
+      <figcaption><span class="good">Row welded</span> (no seat glue): the
+      rigid 3-span beam rests stably across the legs</figcaption></figure>
+  </div>
+  <ul style="font-size:0.68em">
+    <li>The 3-span row is the <b>minimum</b> that makes glue structurally
+      necessary: a 2-span row mutually supports as a <span class="hl">friction
+      arch</span> (verified up to 16 cm spans), and a lone span's ~1 cm
+      overhang is damped by rolling friction</li>
+    <li>The <b>seat joints are not structural</b>: the welded row sits stably
+      on the legs by gravity - so they are <b>not in the goal</b> and the
+      oracle never glues leg tops. Every glue joint the task uses is a
+      physical necessity the agent can discover, never a goal
+      decoration (the goal_nl is outcome-only: no glue recipe)</li>
+    <li>So the lateral welds are load-bearing in both senses: the row cannot
+      be seated without them, and picking either end carries the whole
+      beam</li>
+  </ul>
+</section>
+
+<!-- 6 - Kinematic consequence -->
+<section>
+  <h2>The latent is kinematic</h2>
+  <div class="strip">
+    <figure><img src="assets/bridge/04_butt_joint_curing.png">
+      <figcaption>Before the latch: three loose spans in contact.
+      Picking span0 moves <b>only span0</b>.</figcaption></figure>
+    <figure><img src="assets/bridge/05_span_assembly_welded.png">
+      <figcaption>After the latch: same-looking scene, but the spans are
+      welded. Picking span0 now transports <b>the whole row</b>.</figcaption></figure>
+  </div>
+  <ul style="font-size:0.72em">
+    <li>The two frames are <span class="hl">visually identical</span> - the
+      cure completed between them (only the <code>attached_*</code> features
+      flipped)</li>
+    <li>Seating exploits this: grasp either span; the far span lands over its
+      leg purely by the rigid geometry</li>
+    <li>The motion planner excludes welded partners of the held block from
+      the collision set (<code>get_welded_partner_ids</code>)</li>
+  </ul>
+</section>
+
+<!-- 7 - State and predicates -->
+<section>
+  <h2>State &amp; predicates</h2>
+  <p class="small">Block features: full 6D pose (<code>x y z roll pitch
+  rot</code> - a
+  block "stands" iff |<code>pitch</code>| &gt; &pi;/4; a standing leg's
+  world-top is its local <code>end_b</code> face), <code>is_held</code>,
+  wet flags <code>glue_top/end_a/end_b</code> (local frame), hidden
+  counters <code>cure_*</code>, partner indices <code>attached_*</code>
+  (-1 = none; FO mode only - in PO mode both cure and attached ride the
+  privileged channel), color.</p>
+  <table>
+    <tr><th>Group</th><th>Predicates</th><th>Role</th></tr>
+    <tr><td>Robot</td><td>HandEmpty, Holding, HoldingBottle</td><td>gripper state</td></tr>
+    <tr><td>Glue</td><td>GlueEndB</td><td>wet-face flag (the one face the task's joints use; the env physics wets any face)</td></tr>
+    <tr><td>Geometry</td><td>AtSite, SiteFree, NextToEnd, SeatedOn</td><td>placement gates (mirror the cure-mate geometry)</td></tr>
+    <tr><td>Structure</td><td>Attached</td><td>cured joints (rigid assembly)</td></tr>
+    <tr><td>Planning helpers</td><td>Standing, Lying, Loose, Resting, TopFree, EndsFree</td><td>grounding pruners + process gates</td></tr>
+  </table>
+  <ul style="font-size:0.7em">
+    <li><code>Loose</code>: no cured attachments - a welded block can't be individually re-placed</li>
+    <li><code>Resting</code>: not held - cure processes require it throughout their delay,
+      so picking mid-cure abstractly aborts, matching the env's counter reset</li>
+    <li><code>TopFree</code>: nothing on the top face - gates gluing/picking under a seated span</li>
+    <li><code>EndsFree</code>: no <em>unwelded</em> butt neighbor - a
+      <span class="hl">derived</span> predicate (recomputed from
+      NextToEnd/Attached atoms each abstract state) gating the plain pick;
+      without it the planner exploits the NextToEnd frame bug (butt a span
+      against a still-staged neighbor, move the neighbor, and count on the
+      fictional joint curing)</li>
+  </ul>
+</section>
+
+<!-- 8 - Skills -->
+<section>
+  <h2>Skills (options) - the agent's initial knowledge</h2>
+  <p class="small">These five skills are GIVEN to every approach,
+  oracle and learning agent alike. Everything above them - predicates,
+  processes, goals-as-atoms - is oracle-only (next slides).</p>
+  <table>
+    <tr><th>Option</th><th>Objects</th><th>What it does</th><th>Notes</th></tr>
+    <tr><td><code>PickBlock</code></td><td>robot, block</td><td>top-grasp a block</td><td>wrist yaw = block rot (fingers straddle the 5 cm width); anchored lift</td></tr>
+    <tr><td><code>PickBottle</code></td><td>robot, bottle</td><td>top-grasp the glue bottle</td><td>same pick factory</td></tr>
+    <tr><td><code>Place</code></td><td>robot</td><td>generic place at (x, y, release_z, yaw)</td><td>ONE placement skill; carries at transport_z; compensates held-offset</td></tr>
+    <tr><td><code>MoveTo</code></td><td>robot</td><td>generic move-through-pose at (x, y, z, yaw): approach at transport height, descend (validated IK), retreat; xy compensated for the held object, like Place</td><td>there is <b>no glue skill at all</b>: gluing a face is just MoveTo with the sampler aiming the held bottle's tip at the face's dab point - the wetting is the env's proximity response</td></tr>
+    <tr><td><code>Wait</code></td><td>robot</td><td>no-op step</td><td>lets exogenous cures elapse</td></tr>
+  </table>
+  <ul style="font-size:0.68em">
+    <li>The skill set carries <b>zero task semantics</b>: the single
+      <code>Place</code> backs six oracle processes and the single
+      <code>MoveTo</code> backs the two glue processes; all placement
+      and dab geometry lives in the per-process <b>samplers</b>
+      (at-site, stack, butt-join with a nominal gap, seat with inboard
+      offset, tip-at-dab-point). A learning agent must discover its own
+      parameterizations - including that MoveTo near a face causes
+      wetting at all</li>
+    <li>All four manipulation skills are composed from the same
+      <code>make_move_to_phase</code> primitive; <code>MoveTo</code> is
+      that primitive exposed directly (plus approach/retreat at
+      transport height so BiRRT start configs stay clear)</li>
+  </ul>
+</section>
+
+<!-- 9 - Processes -->
+<section>
+  <h2>Processes (oracle world model)</h2>
+  <div class="cols">
+    <div>
+      <p style="font-size:0.7em"><b>Endogenous</b> (option-backed, delay &mu; 2-4):</p>
+      <ul style="font-size:0.66em">
+        <li>PickBlockFromTable (gated by EndsFree + Loose: loose
+          blocks only), PickGlueBottle</li>
+        <li>PickSpanFromRow (dismantles an uncured butt joint;
+          <b>deletes</b> the named NextToEnd - the Unstack analog)</li>
+        <li>PickRow (grasp the welded row by its MIDDLE span; requires
+          the COMPLETE Attached chain, so a half-cured row can never be
+          lifted - lifting would dangle the welded partner and break
+          the pending joint's resting contact)</li>
+        <li>PlaceLegAtSite, PlaceSpanNextTo</li>
+        <li>SeatSpan3 (seat the welded row across the legs: mid block
+          to the midpoint of the leg tops)</li>
+        <li>ApplyGlueEndB (backs the generic MoveTo skill; the sampler
+          aims the bottle tip at the face)</li>
+        <li>PlaceBlockOnTable, PlaceBottleOnTable (staging escape hatch)</li>
+        <li>Wait (ConstantDelay 1)</li>
+      </ul>
+    </div>
+    <div>
+      <p style="font-size:0.7em"><b>Exogenous</b> (hidden dwell, &mu; = 25):</p>
+      <ul style="font-size:0.66em">
+        <li><b>CureLateralJoint</b>: GlueEndB(left) &and; NextToEnd(right, left)
+          &and; both Resting &rarr; Attached(left, right)</li>
+        <li class="small">The env's physics cures ANY wet face in aligned
+          contact (top faces included) - the abstract model only names
+          the joint the task needs</li>
+      </ul>
+    </div>
+  </div>
+  <ul style="font-size:0.7em">
+    <li>Condition must hold <b>throughout the delay</b>: a pick mid-cure kills
+      the process, exactly like the env's counter reset</li>
+    <li><code>SeatSpan3</code> preconditions force the real build order:
+      fully Attached span chain + legs AtSite (no glue conditions - seat
+      welds are neither structural nor in the goal)</li>
+    <li>CureLateralJoint adds only the goal-order <code>Attached(left, right)</code>:
+      both orders let the planner "satisfy" the goal with a reversed, unseatable row</li>
+    <li>No NSRT adds <code>Attached</code> - the domain is solved by
+      <code>oracle_process_planning</code>, not plain sesame oracle</li>
+  </ul>
+</section>
+
+<!-- 10 - Oracle plan -->
+<section>
+  <h2>A typical simple-variant plan</h2>
+  <pre style="line-height:1.5">
+Pick(leg0)    -> PlaceLegAtSite(leg0, site0)
+Pick(bottle)  -> ApplyGlueEndB(span0), ApplyGlueEndB(span1)  # row joints
+              -> PlaceBottleOnTable
+Pick(span1)   -> PlaceSpanNextTo(span1, span0) # first butt joint forms
+Pick(leg1)    -> PlaceLegAtSite(leg1, site1)   # while the joint cures
+Wait ...                                       # CureLateralJoint #1
+Pick(span2)   -> PlaceSpanNextTo(span2, span1) # second butt joint forms
+Wait ...                                       # CureLateralJoint #2
+PickRow(mid)  -> SeatSpan3(span0..2, leg0, leg1)  # done
+  </pre>
+  <ul style="font-size:0.72em">
+    <li>The planner interleaves work with cure delays where it can
+      (e.g. erecting legs or parking the bottle while a joint cures)</li>
+    <li><code>cure_threshold</code> (25) deliberately exceeds a Place's ~14
+      steps, so a cure never completes during the place retreat and strands
+      the following Wait with its target already true</li>
+  </ul>
+</section>
+
+<!-- 11 - Oracle demo video -->
+<section>
+  <h2>Oracle demo (bilevel process planning)</h2>
+  <video controls muted loop playsinline
+         src="assets/bridge/oracle_demo_simple.mp4"
+         style="width:88%"></video>
+  <p class="small">One full test episode:
+  <code>oracle_process_planning</code>, seed 0, with the
+  generic 5-skill set (16-step task plan from a single skeleton - zero
+  backtracks - executed in PyBullet in 504 steps, then held 50 more:
+  the finished bridge stands under its cured welds)</p>
+</section>
+
+<!-- 11b - Execution stills -->
+<section>
+  <h2>Execution stills (from the demo)</h2>
+  <div class="strip">
+    <figure><img src="assets/bridge/exec_01_place_leg.png">
+      <figcaption>Placing a leg on its mid-table site pad</figcaption></figure>
+    <figure><img src="assets/bridge/exec_02_glue.png">
+      <figcaption>Dabbing glue with the held bottle</figcaption></figure>
+  </div>
+  <div class="strip">
+    <figure><img src="assets/bridge/exec_03_carry_row.png">
+      <figcaption>Carrying the welded 3-span row by its middle span - the
+      hidden welds transport the whole beam</figcaption></figure>
+    <figure><img src="assets/bridge/exec_04_done.png">
+      <figcaption>The finished bridge standing centered on the
+      table</figcaption></figure>
+  </div>
+</section>
+
+<!-- 12 - Partial observability -->
+<section>
+  <h2>The partially-observable learning story</h2>
+  <div class="strip">
+    <figure><img src="assets/bridge/04_butt_joint_curing.png">
+      <figcaption>Row joints mid-cure (hidden counters at ~k/25)</figcaption></figure>
+    <figure><img src="assets/bridge/05_span_assembly_welded.png">
+      <figcaption>Cured: indistinguishable frame; only the hidden
+      attachment state flipped</figcaption></figure>
+  </div>
+  <ul style="font-size:0.68em">
+    <li>With <code>CFG.partially_observable</code>, the block type drops
+      <code>cure_*</code> AND <code>attached_*</code> (no perception system
+      reports "attached to block 3") - the agent sees only
+      <span class="hl">wet flags, poses, and the kinematic
+      consequences</span>, and must postulate attachment itself as a
+      <b>latent relation</b> inferred from co-motion</li>
+    <li>True counters and attachments live env-side and in
+      <code>state.privileged</code>, so planner backtracking restores each
+      search node's own hidden state (and goal checking stays exact)</li>
+    <li>GT simulator program (<code>gt_simulator_po.py</code>): <b>Pattern A</b> -
+      recurrent hidden counter (<code>latent["cure"]</code>) whose latch
+      writes <code>latent["attached"]</code>; the weld rule re-emits every
+      latent pair as an <code>Attach</code> physics command - the latch's
+      only observable footprint. Fit params: <code>cure_threshold</code>,
+      <code>apply_glue_radius</code>, contact tolerances</li>
+    <li>The threshold is identifiable from <b>when</b> joints latch across
+      trajectories; gates are hard &rarr; the recurrent fit is gradient-free</li>
+  </ul>
+</section>
+
+<!-- 12b - Oracle vs agent knowledge -->
+<section>
+  <h2>Who knows what: oracle vs learning agent</h2>
+  <table>
+    <tr><th></th><th><code>oracle_process_planning</code></th>
+      <th><code>agent_po_sim_predicate_invention</code></th></tr>
+    <tr><td><b>Skills</b></td><td colspan="2" style="text-align:center">the
+      same 7 options - the shared initial knowledge</td></tr>
+    <tr><td><b>Goal</b></td><td>symbolic <b>goal atoms</b> (AtSite,
+      SeatedOn, NextToEnd, Attached)</td><td>natural language only
+      (<code>goal_nl</code>); env goal atoms are
+      <span class="bad">deliberately hidden</span> - the approach asserts
+      every task supplies a <code>goal_nl</code></td></tr>
+    <tr><td><b>Predicates</b></td><td>full GT vocabulary (15 predicates
+      incl. the derived EndsFree)</td><td>stripped to
+      <code>Holding</code>; the rest must be <b>invented</b></td></tr>
+    <tr><td><b>Dynamics</b></td><td>GT processes incl. the Cure* delays
+      (&mu; = 25)</td><td>learned residual simulator program; the cure
+      counter is a <b>recurrent latent</b> it must postulate</td></tr>
+    <tr><td><b>Observations</b></td><td>cure counters and attachments
+      observable (FO mode) or privileged-restorable</td><td>PO: wet flags
+      + poses only - attachment must be postulated as a latent relation
+      from co-motion</td></tr>
+  </table>
+  <p class="small">So the agent starts from: raw PO observations, the 5
+  skills, <code>Holding</code>, and a sentence describing the bridge - and
+  must invent the predicates, ground the goal, and identify the hidden
+  curing process.</p>
+</section>
+
+<!-- 13 - Design decisions worth knowing -->
+<section>
+  <h2>Design decisions worth knowing</h2>
+  <ul style="font-size:0.78em">
+    <li><b>Tolerances are asymmetric on purpose</b>: a lateral placement error
+      is frozen into the weld and shifts where the far span meets its leg, so
+      the perp tolerance (3 cm) exceeds real place accuracy - a 2 cm gate left
+      bridges with a seat joint that could never cure</li>
+    <li><b>Weld strength</b> 10000 N: PyBullet's default 500 sags under a
+      cantilevered span</li>
+    <li><b>Staging is a jittered grid</b>, not rejection sampling: the 6
+      staged objects + span-assembly strip + site keepouts don't pack
+      randomly; the span row is assembled in place along the front row</li>
+    <li><b>Bottle parking is corridor-aware</b>: cells to a lying span's right
+      are future row-placement targets even though they look empty now</li>
+  </ul>
+</section>
+
+<!-- 14 - Run it -->
+<section>
+  <h2>Running it</h2>
+  <pre>
+python predicators/main.py --env pybullet_bridge \
+    --approach oracle_process_planning --seed 0 \
+    --num_train_tasks 0 --num_test_tasks 5 \
+    --timeout 3000 --sesame_check_expected_atoms False
+  </pre>
+  <ul style="font-size:0.78em">
+    <li>Add <code>--partially_observable True</code> for the PO variant,
+      <code>--make_test_videos</code> for episode videos</li>
+    <li>Quick visual check: <code>python predicators/envs/pybullet_bridge.py</code>
+      (spawns the GUI with a staged task)</li>
+    <li>Key files:
+      <code>envs/pybullet_bridge.py</code> (world + hidden dynamics),
+      <code>ground_truth_models/bridge/{options,processes,nsrts}.py</code>,
+      <code>gt_simulator_po.py</code> (learnable residual program)</li>
+  </ul>
+</section>
+
+</div></div>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/reveal.js"></script>
+<script>
+  Reveal.initialize({ hash: true, slideNumber: true });
+</script>
+</body>
+</html>

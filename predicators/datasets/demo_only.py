@@ -252,6 +252,14 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
                 termination_function = (  # type: ignore[assignment]
                     lambda state, vlm=None: False)
 
+        # If solving failed and we are not keeping failed demos there is
+        # no policy to execute (the except branch above only assigns
+        # ``policy`` when ``CFG.keep_failed_demos`` is True), so skip the
+        # task entirely. Without this guard, the else branch below hits
+        # an ``UnboundLocalError`` on ``policy``.
+        if not succeed_in_solving and not CFG.keep_failed_demos:
+            continue
+
         # --- Execute the policy to generate a demonstration.
         try:
             logging.info("Executing policy...")

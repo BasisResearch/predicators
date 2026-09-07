@@ -7,6 +7,8 @@ from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
 from predicators.envs.pybullet_domino.components.grid_component import \
     GridComponent
+from predicators.envs.pybullet_domino.task_generators import \
+    domino_task_generator as dtg
 from predicators.settings import CFG
 from predicators.structs import Object, State, Type
 
@@ -75,6 +77,203 @@ class TestDominoComponent:
         d = self.comp.place_domino(1, 0.6, 1.3, 0.0, is_target_block=True)
         # Target should have purple/pink color
         assert d["r"] == pytest.approx(0.85, abs=0.01)
+
+
+def test_unfinished_state_avoids_staging_collisions() -> None:
+    """Test unfinished movable blocks avoid start/target blocks."""
+    workspace_bounds = {
+        "x_lb": 0.4,
+        "x_ub": 1.1,
+        "y_lb": 1.1,
+        "y_ub": 1.6,
+        "z_lb": 0.4,
+        "z_ub": 0.95,
+    }
+    CFG.domino_use_domino_blocks_as_target = True
+    CFG.domino_has_glued_dominos = False
+    comp = DominoComponent(num_dominos_max=5,
+                           num_targets_max=2,
+                           num_pivots_max=1,
+                           workspace_bounds=workspace_bounds)
+    robot = Object("robot", Type("robot", ["x", "y", "z"]))
+    generator = dtg.DominoTaskGenerator(comp, robot, {})
+
+    first_staging_x = comp.domino_x_lb + comp.domino_width
+    first_staging_y = comp.domino_y_lb + comp.domino_width
+    obj_dict = {
+        comp.dominos[0]:
+        comp.place_domino(0,
+                          first_staging_x,
+                          first_staging_y,
+                          0.0,
+                          is_start_block=True),
+        comp.dominos[1]:
+        comp.place_domino(1,
+                          first_staging_x + 0.25,
+                          first_staging_y,
+                          0.0,
+                          is_target_block=True),
+        comp.dominos[2]:
+        comp.place_domino(2, 0.9, 1.35, 0.0),
+    }
+
+    # pylint: disable=protected-access
+    moved = generator.stage_movable_blocks(obj_dict)
+
+    assert moved is not None
+    movable = comp.dominos[2]
+    assert not generator._placement_collides(
+        movable, moved[movable], {
+            comp.dominos[0]: moved[comp.dominos[0]],
+            comp.dominos[1]: moved[comp.dominos[1]],
+        })
+    assert moved[movable]["x"] != pytest.approx(first_staging_x)
+
+
+def test_plain_task_attaches_domino_evaluator() -> None:
+    """The plain chain generator attaches a DominoEvaluator (cascade
+    certificate + per-toppled-blue reward cost) exactly when targets are domino
+    blocks and dominoes are the only dynamic component; composed variants with
+    extra components keep evaluator=None."""
+    workspace_bounds = {
+        "x_lb": 0.4,
+        "x_ub": 1.1,
+        "y_lb": 1.1,
+        "y_ub": 1.6,
+        "z_lb": 0.4,
+        "z_ub": 0.95,
+    }
+    CFG.domino_use_domino_blocks_as_target = True
+    CFG.domino_has_glued_dominos = False
+    CFG.domino_min_block_tasks = False
+    CFG.domino_initialize_at_finished_state = True
+    comp = DominoComponent(num_dominos_max=5,
+                           num_targets_max=2,
+                           num_pivots_max=1,
+                           workspace_bounds=workspace_bounds)
+    robot = Object("robot", Type("robot", ["x", "y", "z"]))
+    robot_init = {"x": 0.75, "y": 0.72, "z": 0.9}
+    generator = dtg.DominoTaskGenerator(comp, robot, robot_init)
+
+    # pylint: disable=protected-access
+    task = generator._generate_single_task(0, np.random.default_rng(0), [3],
+                                           [1], [0])
+    assert task is not None
+    from predicators.envs.pybullet_domino.env import \
+        DominoEvaluator  # pylint: disable=import-outside-toplevel
+    assert isinstance(task.evaluator, DominoEvaluator)
+    assert task.goal_nl is not None
+    assert "Only the green domino may ever be pushed." in task.goal_nl
+    # Every enforced rule is stated in the goal text, including the
+    # counterfactual fingertip verification - without it an arm-assisted
+    # layout fails with verdicts the agent cannot explain
+    # (run_20260718_141716).
+    assert "every robot link except the fingertips" in task.goal_nl
+
+    # A ball/fan-style extra component can topple dominoes without a
+    # robot Push, which the certificate would falsely reject - so its
+    # presence must disable the evaluator.
+    composed = dtg.DominoTaskGenerator(comp,
+                                       robot,
+                                       robot_init,
+                                       additional_components=[object()])
+    task = composed._generate_single_task(0, np.random.default_rng(0), [3],
+                                          [1], [0])
+    assert task is not None
+    assert task.evaluator is None
+
+
+def test_counterfactual_cascade_probe() -> None:
+    """The counterfactual push probe certifies the generator's own finished
+    chain (guaranteed cascade geometry) and rejects the same scene with its
+    blues removed from the chain."""
+    # pylint: disable=protected-access
+    from predicators.envs.pybullet_domino.env import \
+        PyBulletDominoEnv  # pylint: disable=import-outside-toplevel
+    from predicators.utils import \
+        reset_config  # pylint: disable=import-outside-toplevel
+    reset_config({
+        "env": "pybullet_domino",
+        "approach": "oracle",
+        "seed": 0,
+        "num_train_tasks": 0,
+        "num_test_tasks": 1,
+        "domino_test_turn_ratio": 1.0,
+        "domino_initialize_at_finished_state": True,
+        "domino_use_domino_blocks_as_target": True,
+        "domino_use_continuous_place": True,
+        "domino_has_glued_dominos": False,
+    })
+    env = PyBulletDominoEnv(use_gui=False)
+    task = env.get_test_tasks()[0].task
+    init, goal = task.init, task.goal
+    domino_type = next(t for t in env.types if t.name == "domino")
+    greens = [
+        d for d in init.get_objects(domino_type)
+        if DominoComponent._StartBlock_holds(init, [d])
+    ]
+    blues = [
+        d for d in init.get_objects(domino_type)
+        if DominoComponent._MovableBlock_holds(init, [d])
+    ]
+    assert greens and blues
+    ok, detail = env.run_counterfactual_cascade_probe(init.copy(), greens,
+                                                      goal)
+    assert ok, detail
+    # Remove the chain's blues: the same push cannot reach the target.
+    broken = init.copy()
+    for i, blue in enumerate(blues):
+        broken.set(blue, "x", 0.45)
+        broken.set(blue, "y", 1.55 - 0.1 * i)
+    ok, detail = env.run_counterfactual_cascade_probe(broken, greens, goal)
+    assert not ok
+    assert "reaches the goal at none of" in detail
+
+    # Combined substrate: with a probe_process_model_factory stamped (a
+    # belief env whose approach learned residual rules), the same broken
+    # scene certifies when the rules model the propagation the base sim
+    # lacks - and the detail carries the load-bearing diagnostic. The
+    # real env never stamps a factory, so clearing it restores the
+    # base-only rejection.
+    targets = sorted(
+        {a.objects[0]
+         for a in goal if a.predicate.name == "Toppled"}, key=str)
+    assert targets
+
+    def make_stepper():
+        """Force-topple every target once a green has toppled."""
+
+        def step(state, action):
+            del action
+            if all(abs(state.get(g, "roll")) < 1.2 for g in greens):
+                return state
+            new_state = state.copy()
+            for t in targets:
+                new_state.set(t, "roll", 1.57)
+            return new_state
+
+        return step
+
+    env.probe_process_model_factory = make_stepper
+    ok, detail = env.run_counterfactual_cascade_probe(broken, greens, goal)
+    assert ok, detail
+    assert "residual rules riding on the base sim" in detail
+    assert "load-bearing" in detail
+
+    # Physically no-op rules must NOT be flagged load-bearing: the
+    # base-only diagnostic replay runs the same attempt count as the
+    # combined probe, so identical physics yields identical verdicts
+    # (run_20260728_111805 logged 14 spurious notes off a 3-vs-1
+    # attempt asymmetry on a knife-edge layout).
+    env.probe_process_model_factory = lambda: (lambda state, action: state)
+    ok, detail = env.run_counterfactual_cascade_probe(init.copy(), greens,
+                                                      goal)
+    assert ok, detail
+    assert "load-bearing" not in detail
+
+    env.probe_process_model_factory = None
+    ok, _ = env.run_counterfactual_cascade_probe(broken, greens, goal)
+    assert not ok
 
 
 class TestGridComponent:

@@ -5,7 +5,7 @@ Converts ``claude_agent_sdk`` message types (``AssistantMessage``,
 logging and serialization.  Used by ``AgentSessionManager``,
 ``LocalSandboxSessionManager``, and ``docker_agent_runner``.
 """
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 
 def parse_assistant_message(msg: Any) -> Dict[str, Any]:
@@ -77,8 +77,15 @@ def parse_result_message(msg: Any) -> Dict[str, Any]:
     """Convert a ``ResultMessage`` to a serializable dict."""
     return {
         "type": "result",
+        # "success" or an error marker such as "error_max_turns" (the
+        # session ended because it hit ClaudeAgentOptions.max_turns).
+        "subtype": getattr(msg, "subtype", None),
         "num_turns": getattr(msg, "num_turns", None),
         "total_cost_usd": getattr(msg, "total_cost_usd", None),
+        # Error results carry the error text in "result"; both feed the
+        # fatal-session check (session_base.query_fatal_error).
+        "is_error": getattr(msg, "is_error", False),
+        "result": getattr(msg, "result", None),
     }
 
 
@@ -99,3 +106,23 @@ def parse_message(msg: Any) -> Optional[Dict[str, Any]]:
     if isinstance(msg, ResultMessage):
         return parse_result_message(msg)
     return None
+
+
+def extract_final_text(responses: Sequence[Dict[str, Any]]) -> str:
+    """Extract the text of the last assistant message in ``responses``.
+
+    Uses only the final assistant message so intermediate
+    reasoning/tool-call text preceding it is excluded. This is how the
+    plan (or policy summary) an agent leaves as its final text is read
+    back by the approaches and explorers.
+    """
+    last_text_parts: List[str] = []
+    for resp in responses:
+        if resp.get("type") == "assistant":
+            parts = [
+                block.get("text", "") for block in resp.get("content", [])
+                if isinstance(block, dict) and block.get("type") == "text"
+            ]
+            if parts:
+                last_text_parts = parts
+    return "\n".join(last_text_parts)

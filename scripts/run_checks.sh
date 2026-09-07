@@ -4,8 +4,12 @@ echo "Running autoformatting."
 uv run yapf -i -r --style .style.yapf --exclude '**/third_party' predicators
 uv run yapf -i -r --style .style.yapf scripts
 uv run yapf -i -r --style .style.yapf tests
-uv run docformatter -i -r . --exclude venv predicators/third_party
-uv run isort .
+# submodules/ holds git submodules: formatting them would dirty another repo's
+# working tree with changes this repo's style config, not theirs, asked for.
+# logs/ holds recorded experiment artifacts (including synthesized-code
+# snapshots); formatting would silently rewrite them.
+uv run docformatter -i -r . --exclude venv predicators/third_party submodules logs
+uv run isort . --skip submodules
 echo "Autoformatting complete."
 
 echo "Running type checking."

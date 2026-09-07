@@ -27,7 +27,7 @@ Example::
     )
 """
 
-from typing import Optional, Sequence, Tuple
+from typing import Callable, Optional, Sequence, Tuple
 
 import pybullet as p
 from gym.spaces import Box
@@ -35,6 +35,7 @@ from gym.spaces import Box
 from predicators.ground_truth_models.skill_factories.base import Phase, \
     PhaseAction, PhaseSkill, SkillConfig, TargetPoseFn
 from predicators.pybullet_helpers.geometry import Pose
+from predicators.settings import CFG
 from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
 
@@ -45,14 +46,27 @@ def create_move_to_skill(
     config: SkillConfig,
     get_target_pose_fn: TargetPoseFn,
     params_description: Optional[Tuple[str, ...]] = None,
+    use_move_above: bool = False,
+    retreat: bool = False,
+    validate_ik: bool = False,
+    base_mode: Optional[str] = None,
+    dwell_steps: int = 0,
 ) -> ParameterizedOption:
-    """Create a single-phase move-to-pose skill.
+    """Create a move-to-pose skill.
 
     Preserves the current finger status (open/closed) from state.
 
-    Phases:
-        0. **Move** -- Move end-effector to the target pose, preserving
+    Phases (with the default flags, only the middle one):
+        0. **MoveAbove** (``use_move_above``) -- Move to the target xy
+           at ``config.transport_z``, so the approach comes from above
+           and a held object clears the scene.
+        1. **Move** -- Move end-effector to the target pose, preserving
            the current finger state.
+        2. **Retreat** (``retreat``) -- Return to the target xy at
+           ``config.transport_z``.  Allows shallow held-object contacts
+           at the start, so a target pose that ends grazing a surface
+           by ~1 mm doesn't invalidate the retreat's motion-planning
+           start config.
 
     Args:
         name: Option name.
@@ -62,16 +76,48 @@ def create_move_to_skill(
         config: Shared skill configuration.  See ``SkillConfig``.
         get_target_pose_fn: Callback that returns the target as
             ``(x, y, z, yaw)`` from ``(state, objects, params, config)``.
+        use_move_above: Prepend the transport-height approach phase.
+        retreat: Append the transport-height retreat phase.
+        validate_ik: Gate the Move phase's target through validated IK.
+        base_mode: Optional ``PhaseSkill`` base mode (e.g. ``"home"``).
+        dwell_steps: Hold at the reached target for this many extra
+            steps before retreating (see ``Phase.dwell_steps``) --
+            "move there and DWELL" semantics, e.g. for sustained-
+            proximity glue application.
 
     Returns:
         A ``ParameterizedOption`` implementing the move-to-pose skill.
     """
-    phase = make_move_to_phase(name, get_target_pose_fn)
+
+    def _above_pose(
+        state: State,
+        objects: Sequence[Object],
+        params: Array,
+        cfg: SkillConfig,
+    ) -> Tuple[float, float, float, float]:
+        x, y, _, yaw = get_target_pose_fn(state, objects, params, cfg)
+        return x, y, cfg.transport_z, yaw
+
+    phases = []
+    if use_move_above:
+        phases.append(make_move_to_phase("MoveAbove", _above_pose))
+    phases.append(
+        make_move_to_phase("Move",
+                           get_target_pose_fn,
+                           validate_ik=validate_ik,
+                           dwell_steps=dwell_steps))
+    if retreat:
+        phases.append(
+            make_move_to_phase("Retreat",
+                               _above_pose,
+                               allow_shallow_held_object_contacts=True))
     return PhaseSkill(name,
                       types,
                       params_space,
-                      config, [phase],
-                      params_description=params_description).build()
+                      config,
+                      phases,
+                      params_description=params_description,
+                      base_mode=base_mode).build()
 
 
 def _get_current_ee_pose(state: State, robot_obj: Object) -> Pose:
@@ -101,6 +147,19 @@ def make_move_to_phase(
     get_target_pose_fn: TargetPoseFn,
     finger_status: Optional[str] = None,
     expect_contact: bool = False,
+    allow_shallow_held_object_contacts: bool = False,
+    validate_ik: bool = False,
+    check_release_clearance: bool = False,
+    use_motion_planning: Optional[bool] = None,
+    terminal_fn: Optional[Callable[
+        [State, Sequence[Object], Array, SkillConfig], bool]] = None,
+    max_step_norm: Optional[float] = None,
+    dwell_steps: int = 0,
+    verify_fn: Optional[Callable[[State, Sequence[Object], Array, SkillConfig],
+                                 bool]] = None,
+    retry_to_phase: Optional[str] = None,
+    max_retries: int = 0,
+    verify_failure_msg: Optional[str] = None,
 ) -> Phase:
     """Create a MOVE_TO_POSE phase for use in a ``PhaseSkill``.
 
@@ -112,8 +171,37 @@ def make_move_to_phase(
         name: Phase name (for logging).
         get_target_pose_fn: Callback that returns ``(x, y, z, yaw)``
             from ``(state, objects, params, config)``.
-        finger_status: ``"open"`` or ``"closed"``.  If ``None``, preserves
-            the current finger status from state.
+        finger_status: ``"open"``, ``"closed"``, or ``"hold"`` (keep the
+            current width, e.g. retreating from a partial-open release).
+            If ``None``, preserves the current finger status from state.
+        use_motion_planning: ``None`` (the default) defers to
+            ``CFG.skill_phase_use_motion_planning``. Pass ``False`` for a
+            contact stroke -- a phase whose goal pose is at or inside an
+            object -- which must step IK straight at the target; a
+            collision-free planner asked for such a goal either fails or
+            reaches it by a detour that arrives from the wrong direction
+            (see ``create_push_skill``).
+        terminal_fn: Optional custom terminal override forwarded to the
+            ``Phase`` (e.g. "held object made contact"); when ``None``
+            the phase uses the default distance-based terminal.
+        max_step_norm: Optional gentle-stroke step clamp forwarded to
+            the ``Phase`` (see ``Phase.max_step_norm``): small EE steps
+            plus a joint-jump guard and the stall abort, for
+            incremental-IK phases that deliberately seek contact.
+        dwell_steps: Hold at the reached target for this many extra
+            policy steps before advancing (see ``Phase.dwell_steps``),
+            for "move there and DWELL" semantics such as sustained-
+            proximity glue application.
+        verify_fn: Optional verified-advancement predicate forwarded to
+            the ``Phase`` (see ``Phase.verify_fn``): the phase only
+            advances when it returns True; otherwise the skill rewinds
+            to ``retry_to_phase`` up to ``max_retries`` times.
+        retry_to_phase: Name of the phase to rewind to on a failed
+            verification.
+        max_retries: Verification retry budget (see ``Phase``).
+        verify_failure_msg: When set, exhausting the verification budget
+            raises ``OptionExecutionFailure`` with this message instead
+            of advancing best-effort (see ``Phase.verify_failure_msg``).
 
     Returns:
         A ``Phase`` that can be included in a ``PhaseSkill``.
@@ -161,9 +249,25 @@ def make_move_to_phase(
             status = _get_finger_status(state, robot_obj, cfg)
         return current_pose, target_pose, status
 
+    # None means "whatever the config says", which is what Phase's own default
+    # resolves to; both are read at construction time, so naming it here is the
+    # same value the default would have picked.
+    plan_motion = (CFG.skill_phase_use_motion_planning
+                   if use_motion_planning is None else use_motion_planning)
     return Phase(
         name=name,
         action_type=PhaseAction.MOVE_TO_POSE,
         target_fn=_target_fn,
+        terminal_fn=terminal_fn,
         expect_contact=expect_contact,
+        allow_shallow_held_object_contacts=allow_shallow_held_object_contacts,
+        validate_ik=validate_ik,
+        check_release_clearance=check_release_clearance,
+        use_motion_planning=plan_motion,
+        max_step_norm=max_step_norm,
+        dwell_steps=dwell_steps,
+        verify_fn=verify_fn,
+        retry_to_phase=retry_to_phase,
+        max_retries=max_retries,
+        verify_failure_msg=verify_failure_msg,
     )

@@ -4,11 +4,22 @@ Anything that varies between runs should be a command-line arg
 (args.py).
 """
 
+import os
 from collections import defaultdict
 from types import SimpleNamespace
-from typing import Any, Dict, Set
+from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
+
+# Working directory at process start. run_python's exec window chdirs
+# into the agent sandbox (see agent_sdk/tools/python_exec.py), so any
+# consumer that resolves a RELATIVE CFG path at call time must anchor
+# it here rather than on os.getcwd() - first observed on the fan
+# domain's relative rollout track path, which a sim.fit invoked inside
+# run_python would fail to find, silently falling back to per-step
+# scoring. This module is imported at process start, before any agent
+# session (and therefore any sandbox chdir) can exist.
+LAUNCH_CWD = os.path.abspath(os.getcwd())
 
 
 class GlobalSettings:
@@ -22,8 +33,49 @@ class GlobalSettings:
     online_learning_max_transitions = float("inf")
     online_learning_early_stopping = False
     skip_test_until_last_ite_or_early_stopping = False
+    # When True, skip only the pre-loop (cycle-0) test that evaluates the
+    # offline-learned model before any online learning. Per-cycle testing is
+    # unaffected, so the learning-progression curve is still measured; only
+    # the (usually predictable) evaluation of the uncalibrated initial model
+    # is saved. Subsumed by skip_test_until_last_ite_or_early_stopping.
+    skip_initial_test = False
     # just for plotting
     online_learning_early_stopping_by_test_solve_rate = False
+    # Test-driven early stopping fires only after this many CONSECUTIVE
+    # test phases solved every test task. With a small test set a single
+    # perfect phase can be one lucky rollout of a stochastic
+    # environment; requiring more phases turns the criterion into
+    # evidence of reliability. The streak is re-seeded from the saved
+    # per-cycle test results on --auto_resume, so a timeout/relaunch
+    # continues the count. Only read when
+    # online_learning_early_stopping_by_test_solve_rate is True.
+    online_learning_early_stopping_consecutive_perfect_tests = 1
+    # When True, every interaction request in the cycle (not just the first
+    # per task) must succeed before early stopping is triggered. Catches
+    # "lucky single-sample" successes that mask a buggy learned model.
+    online_learning_early_stopping_require_all_attempts = False
+    # Slack (in reward units) below a task's ``early_stop_min_reward`` bar
+    # that still counts as solved for early stopping. Only tasks that set
+    # ``EnvironmentTask.early_stop_min_reward`` are affected (e.g. domino
+    # min-block tasks set it to the optimal reward, 1 - block_cost * K*):
+    # with the default 0.0, training continues until the agent solves at
+    # the bar (or cycles run out) instead of stopping on an inefficient
+    # solve. Tasks that leave the bar None keep the plain solved criterion.
+    online_learning_early_stopping_reward_slack = 0.0
+    # When True, ignore ``EnvironmentTask.early_stop_min_reward`` entirely:
+    # any solved (env-accepted) training episode counts toward early
+    # stopping, regardless of its reward. Episode legitimacy is still
+    # enforced by the env's solved verdict itself; only the optimality
+    # requirement is dropped. Subsumes any reward_slack setting.
+    online_learning_early_stopping_ignore_reward_bar = False
+    # When True, the early-stopping cycle does NOT re-run testing, provided
+    # every cycle is already being tested (skip_test_until_last_ite_or_early
+    # _stopping is False). On the early-stopping cycle learning is skipped, so
+    # the model is identical to the one the previous cycle already tested;
+    # re-testing it only re-measures test-time stochasticity at full test-set
+    # cost. Has no effect when skip_test_until_last_ite_or_early_stopping is
+    # True, since then the early-stopping cycle is the model's only test.
+    online_learning_early_stopping_skip_redundant_test = False
     # Maximum number of training tasks to give a demonstration for, if the
     # offline_data_method is demo-based.
     max_initial_demos = float("inf")
@@ -36,6 +88,21 @@ class GlobalSettings:
     pretty_print_when_loading = False
     # Used for random seeding in test environment.
     test_env_seed_offset = 10000
+    # Run each test episode in a freshly-constructed env instance (the
+    # generated test tasks are shared, so the tasks are identical).
+    # State-level resets on a long-lived PyBullet env leave
+    # history-dependent residuals - velocities the reconstruction diff
+    # skips, auxiliary joints no reset touches, contact-solver state
+    # that survives ``restoreState`` - so by test time the world's
+    # behavior depends on everything the run executed before it
+    # (measured on run_20260721_205821 seed0: the captured plan's
+    # cascade stalled mid-chain in the run's long-lived env but
+    # completes deterministically, 10/10 across placement jitters, in a
+    # fresh env). Same rationale as the fresh-env-per-rollout sysID fix
+    # in code_sim_learning.rollout_env. Envs that cannot be duplicated
+    # (GUI mode: one client only) fall back to the shared instance; see
+    # ``BaseEnv.make_fresh_test_instance``.
+    test_fresh_env_per_episode = True
     # Optionally define test tasks in JSON format
     test_task_json_dir = None
     # The method to use for segmentation. By default, segment using options.
@@ -60,6 +127,15 @@ class GlobalSettings:
     allow_state_allclose_comparison_despite_simulator_state = False
 
     env_include_bbox_features = False
+
+    # Cross-cutting partial-observability flag. When True, envs that
+    # support it hide selected latent features in `get_observation()`
+    # (e.g. pybullet_boil hides `heat_level` and exposes a derived
+    # `bubbling_level` instead), the GT simulator factories dispatch to
+    # their `gt_simulator_po` variants, and the sim-learning approaches
+    # switch their synthesis prompt to the recurrent 5-arg rule form.
+    # Each env decides which of its features count as latent.
+    partially_observable = False
     # cover_multistep_options env parameters
     cover_multistep_action_limits = [-np.inf, np.inf]
     cover_multistep_degenerate_oracle_samplers = False
@@ -179,12 +255,62 @@ class GlobalSettings:
     pybullet_max_ik_iters = 100
     pybullet_ik_tol = 1e-3
     pybullet_robot = "fetch"
+    # Override the sim gripper's closed-finger joint value (metres). None keeps
+    # each robot's built-in default (Panda: 0.03). Lower it to clamp a thin
+    # object the default gap is wider than (e.g. the real 0.029 m domino).
+    pybullet_closed_fingers = None
     pybullet_birrt_num_attempts = 10
     pybullet_birrt_num_iters = 100
     pybullet_birrt_smooth_amt = 50
     pybullet_birrt_extend_num_interp = 10
     pybullet_birrt_path_subsample_ratio = 1
     pybullet_birrt_contact_margin = -0.001
+    # During a lift after grasping, the held object can start in shallow
+    # penetration from grasp settling. Allow escaping these initial contacts
+    # only up to this depth; deeper penetration remains a collision. 6mm
+    # covers a tall block grasped mid-rock (a ~7 degree tilt frozen into the
+    # grasp puts a 10cm block's corner ~4-5mm below its resting plane).
+    pybullet_birrt_shallow_held_contact_margin = -0.006
+    # Required separation (metres) from "bystander" bodies during BiRRT -
+    # bodies the plan neither starts nor deliberately ends in proximity of.
+    # The hard contact margin above tolerates ~1mm of penetration (needed
+    # for resting contacts), which lets a planned path physically graze a
+    # bystander; against knife-edge objects (dominoes) that graze topples
+    # them and voids the episode (run_20260712_122549 test task1). Bodies
+    # already within this clearance of the robot/held object at the start
+    # or goal configuration are treated as intended contact partners and
+    # keep the hard margin. 0 disables the clearance entirely.
+    pybullet_birrt_bystander_clearance = 0.003
+    # Required separation (metres) between the HELD OBJECT and bystander
+    # bodies during BiRRT. The held object hangs on a grasp constraint and
+    # lags the end effector's mid-path orientation swings by ~0.05 rad
+    # (~7 mm at the tip of a 15 cm domino), so a plan that clears a
+    # bystander by only pybullet_birrt_bystander_clearance still
+    # physically grazes it at execution (run_20260717_230436 test task1:
+    # a transported domino toppled a standing one the plan cleared by
+    # 3 mm). Bodies already within this clearance of the held object at
+    # the start or goal configuration fall back to the plain bystander
+    # clearance so deliberately tight placements stay plannable. Must stay
+    # below Bullet's 0.02 contactBreakingThreshold. 0 disables (falls back
+    # to the plain bystander clearance). Kept off globally because tight
+    # workspaces (boil) cannot afford the margin; graze-sensitive envs
+    # opt in per skill via SkillConfig.held_bystander_clearance (domino
+    # uses 0.015).
+    pybullet_birrt_held_bystander_clearance = 0.0
+    # BiRRT replay tracking gate: a waypoint is re-commanded until every
+    # arm joint is within this tolerance (radians) of it, so the executed
+    # path stays on the collision-checked plan. Popping one waypoint per
+    # control step regardless of tracking error lets the arm lag several
+    # waypoints behind and cut corners - the EE tilted up to 0.28 rad off
+    # the planned configs during a domino Place transport, swinging the
+    # held domino centimetres past the planner's bystander clearance and
+    # toppling a standing domino (run_20260717_230436 test task1). 0
+    # disables the gate.
+    pybullet_birrt_replay_track_tol = 0.03
+    # Deadlock guard for the tracking gate: after this many consecutive
+    # re-commands of the same waypoint, advance anyway (an unreachable
+    # waypoint otherwise stalls the phase until the episode horizon).
+    pybullet_birrt_replay_max_hold_steps = 10
     pybullet_control_mode = "position"
     pybullet_max_vel_norm = 0.05
     # env -> robot -> quaternion
@@ -210,6 +336,19 @@ class GlobalSettings:
             }
         })
     pybullet_ik_validate = True
+    # Kinematically pin welded assemblies while HELD. The rule layer's
+    # contract for a rigid attachment ("the pair moves as one rigid
+    # body" - commands.Attach) and the motion planner's carried-shape
+    # model both promise rigidity, but JOINT_FIXED constraints are
+    # enforced by capped iterative impulses and flex ~9-12 deg under a
+    # carried load (scripts/weld_sag_probe.py; solver iterations buy
+    # ~25%, constraint erp measurably nothing). With this flag, after
+    # each step's dynamics every weld partner of the held body is
+    # re-posed through the constraints' own declared frames and its
+    # velocity zeroed - rigid by construction (probe: exactly 0 deg /
+    # 0 mm) - while resting and released assemblies keep normal
+    # constraint physics (plus any env re-anchoring machinery).
+    pybullet_pin_held_weld_assemblies = False
 
     # IKFast parameters
     ikfast_max_time = 0.05
@@ -360,6 +499,16 @@ class GlobalSettings:
 
     # skill phase parameters
     skill_phase_use_motion_planning = False
+    # EE yaw relative to the pushed object's yaw during Push. None (the
+    # default) takes it from the robot.
+    skill_push_ee_yaw_offset = None
+    # Place settle-stroke preload (N): when > 0, the guarded settle ends
+    # at this much support normal force instead of first touch, pressing
+    # the arm's position-control sag out against the support before the
+    # release (see create_place_skill's settle_preload_force). 0 keeps
+    # the first-touch behavior. Read by envs whose place skill enables
+    # the settle stroke (currently pybullet_bridge).
+    skill_place_settle_preload_force = 0.0
 
     # coffee env parameters
     coffee_num_cups_train = [1, 2]
@@ -422,7 +571,6 @@ class GlobalSettings:
     domino_some_dominoes_are_connected = False
     domino_initialize_at_finished_state = True
     domino_use_domino_blocks_as_target = False
-    domino_use_grid = False
     domino_include_connected_predicate = False
     domino_has_glued_dominos = True
     domino_prune_actions = False  # Set to True to enable action pruning
@@ -434,6 +582,16 @@ class GlobalSettings:
     domino_test_num_targets = [1, 2]
     domino_train_num_pivots = [0]
     domino_test_num_pivots = [0]
+    # Fraction of generated tasks that are L-shaped (contain one 90-degree
+    # domino turn) rather than straight, shared by both task pipelines:
+    # min-block generation fills its turn/straight quotas from it, and the
+    # plain DominoTaskGenerator resamples each task's chain until it
+    # contains (or avoids) a turn90 to meet the same quota, turn tasks
+    # first. Turn tasks are the hard family (tighter topple reach ~0.11 vs
+    # ~0.15 straight, corner-relay staging). 0.0 = all straight, 1.0 = all
+    # turns. Split per task set: train tasks default to straight-only.
+    domino_train_turn_ratio = 0.0
+    domino_test_turn_ratio = 0.5
     domino_train_num_pos_x = 3
     domino_train_num_pos_y = 2
     domino_test_num_pos_x = 4  # 5 is too large for robot to reach sometimes
@@ -446,6 +604,305 @@ class GlobalSettings:
     domino_restricted_push = False
     # Use skill_factories-based option implementations
     domino_use_skill_factories = True
+    # --- real robot (any env driving a real arm; see
+    # pybullet_helpers.real_robot_executor and .real_robot_bridge) -----------
+    # When True, a RealRobotExecutor is attached to the executed env and its
+    # rollouts drive the arm. Default False = safe dry-run (pure sim, no
+    # motion).
+    real_robot_execute = False
+    # Construct the RealRobot without an arm: every method still runs (and the
+    # gripper state is still tracked) but nothing moves. Only consulted when
+    # real_robot_execute.
+    real_robot_dry = False
+    # Perception source handed to the RealRobot: "zed" (live cameras, held
+    # open for the whole session), "scene_file" (replay domino_real_scene --
+    # cameraless, but it always reports the captured layout), or "none" (no
+    # cameras at all, blind open-loop run).
+    real_robot_perception = "zed"
+    # Look at the scene at each option boundary and correct the twin from what
+    # was seen. This is the point of running on real hardware -- the learner
+    # sees perceived transitions rather than the simulator's guesses.
+    real_robot_observe_at_option_boundary = True
+    # Ship the whole episode's motion in one batch once it has all been
+    # simulated, instead of one option at a time as each is simulated. The arm
+    # then runs the plan as one contiguous motion rather than idling through
+    # the next option's motion planning. Mutually exclusive with
+    # real_robot_observe_at_option_boundary: a boundary look has to happen
+    # between the two options it separates, and here there is no such moment.
+    # Off by default -- batching removes every natural stopping point, so a
+    # bad plan runs to its end with the e-stop as the only intervention.
+    real_robot_open_loop_episode = False
+    # Record each episode's execution to an SVO take, for offline pose
+    # estimation. Nothing is estimated during the run: the markerless pipeline
+    # runs at roughly 3x real time, so a take is post-processed after the
+    # episode that produced it. Mutually exclusive with a live "zed"
+    # perception, which owns the same cameras.
+    real_robot_record_episodes = False
+    # Where takes are written; one directory per episode. Empty means
+    # logs/zed_takes.
+    real_robot_recording_dir = ""
+    # HD720 is the resolution the markerless pipeline was measured on.
+    real_robot_recording_resolution = "HD720"
+    # 60, not 30: a real cascade's topple onsets came 6, 4 and 2 frames apart
+    # at 30 fps, and those inter-domino intervals are what the friction fit is
+    # scored on -- at 30 fps a one-frame detection error is half the shortest
+    # interval. HD720 runs at 60, so the resolution is already paid for.
+    real_robot_recording_fps = 60
+    # Stop a take after this many frames per camera; 0 is unbounded. A guard
+    # against a take nothing stops, not a disk-budget knob -- bundles are
+    # ~48 MB now that depth is no longer stored.
+    real_robot_recording_max_frames = 0
+    # Rebuild each episode's task from a short markerless take instead of a
+    # live look. The live "zed" perception is the MARKER pipeline, and the
+    # markers are not resolvable at this camera distance, so this is how a
+    # per-episode scene rebuild is served on this bench. Needs
+    # real_robot_record_episodes: the snapshot is a second short take on the
+    # recorder's already-open session, which is what keeps it from fighting the
+    # episode recording for the cameras.
+    real_robot_snapshot_rebuild = False
+    # An earlier run's boxes.json, replayed as stage 2's prompt boxes. Empty
+    # opens the drag window and waits for a human EVERY episode, which no
+    # learning loop can sit through -- so this is what makes the rebuild
+    # unattended.
+    real_robot_snapshot_boxes_json = ""
+    # Frames the snapshot exports. More than one is worth having: the fit seeds
+    # each frame from the previous one.
+    real_robot_snapshot_frames = 5
+    # "contact" (z from the table) is right for a scene rebuild, where a human
+    # has just arranged every domino upright on the table. "free" is for a
+    # cascade, where dominoes come to rest on each other.
+    real_robot_snapshot_z_mode = "contact"
+    # Write the stage-2 box and stage-3 mask overlays. They are what show
+    # whether a particular capture is trustworthy.
+    real_robot_snapshot_viz = True
+    # ZED serial the scene is fitted from. Markerless is single-camera (the
+    # second's cloud is not fused). Empty uses the recorder's first serial.
+    real_robot_snapshot_camera = ""
+    # Run the markerless pipeline over each episode's take automatically, in
+    # the background, and write a manifest saying which track belongs to which
+    # episode. Off leaves the takes on disk for a human to process. The job is
+    # launched when a take closes and joined at the end of the run, so it
+    # overlaps the next episode's scene reset rather than the episode loop.
+    real_robot_process_takes = False
+    # Draw the pipeline's prompt boxes once at the start of the run, in a
+    # drag window, instead of requiring real_robot_snapshot_boxes_json to have
+    # been produced beforehand. One human interaction per RUN rather than per
+    # take, which is what makes an otherwise-interactive pipeline usable in a
+    # learning loop -- and valid because a fixed-plan replay trains and tests
+    # on one arrangement. Needs a display; over SSH that means X forwarding.
+    # Ignored when boxes are supplied by file.
+    real_robot_pick_boxes_at_start = False
+    # Open the take in front of the option with this name, instead of in
+    # front of the whole batch. Only the cascade is scored, so the
+    # pick-and-place that arranges the row is recorded for nothing -- and it
+    # is most of the take: on run_20260818_092302 the push landed 107 s into
+    # a 131 s track, and post-processing scales with frames, not seconds.
+    #
+    # It also puts the track's first frame at the arrangement the push acts
+    # on. Track ids are matched to objects by position against the scored
+    # segment's first state, and that segment begins AFTER the dominoes have
+    # been placed -- so a take starting at the reset has its frame 0 showing
+    # them ~130 mm from where the twin says they are, and the match fails.
+    #
+    # Empty records the whole batch, as every episode did before this
+    # existed, and so does a name the episode never runs: too much video is
+    # slow, but too little is an episode whose first topple happened off
+    # camera, and the first onset is what every interval is measured from.
+    real_robot_record_from_option = ""
+    # Where the per-episode bundles and the run manifest are written. Empty
+    # means logs/zed_tracks.
+    real_robot_track_dir = ""
+    # z from the table, as for a scene capture. The scored quantity is when
+    # each domino STARTS to fall, and at that moment it is still standing on
+    # the table, so the mode that constrains z there is the right one. "free"
+    # fits z as a 5th parameter, which matters for the poses a cascade ends in
+    # -- dominoes at rest on each other -- and those are not scored.
+    real_robot_track_z_mode = "contact"
+    # ZED serial the poses are fitted from. Markerless is single-camera -- the
+    # second's cloud is not fused -- and the two are NOT interchangeable: on
+    # hand-measured ground truth 30264679 is 6x better on orientation (1.03 deg
+    # median against 6.29) while 32294776 tracks 99.9% of frames against 82%.
+    # Empty takes the session's first serial, which is arbitrary rather than
+    # considered.
+    real_robot_track_camera = "30264679"
+    # Drop the still lead-in and tail at stage 1, so SAM-2 never sees frames
+    # where nothing happens. An episode take makes its own dead air: recording
+    # starts at the reset and the twin then simulates every option with the arm
+    # parked. Measured on run_20260817_162250 -- 420 s recorded, 268 s of arm
+    # motion, so 152 s (36%, ~6.5k frames) was a static scene. Both of the
+    # scan's failure modes keep frames rather than lose them.
+    #
+    # Needs BabyRobotPredicator's --trim-motion; a driver that predates it
+    # ignores the request rather than failing, so this is safe to leave on
+    # before the submodule has it.
+    real_robot_trim_still_frames = True
+    # Extra --trim-* flags for tuning the scan. Empty uses its own defaults;
+    # check a window with `svo_to_bundle.py --trim-dry-run` before pinning one.
+    real_robot_trim_args = ""
+    # Stage-4 worker processes. 0 leaves the driver's own default, which is 16
+    # -- sized for the machine it was tuned on, not for this one. Stage 4 is
+    # the pipeline's largest step and it is cleanly core-limited: on a
+    # 7773-frame take it ran 486 frames per worker in 364 s, which is 16.0
+    # cores busy for the whole stage, on a 32-core box. Raising it is the one
+    # speedup available without changing any code.
+    #
+    # Set it to the cores you are willing to give the pipeline, remembering it
+    # runs in the BACKGROUND while the next episode executes -- taking every
+    # core would starve the run that is driving the robot.
+    real_robot_track_jobs = 0
+    # Render stage 3's masks_overlay.mp4. It is a debugging aid nothing
+    # downstream reads, and it is written BEFORE stage 4, so its cost lands
+    # directly on the wait for the track rather than after it: 163 s of a
+    # 1008 s pipeline, 16% of time-to-track, for a 120 MB file no fit opens.
+    #
+    # Worth turning back on when the tracks themselves look wrong -- the
+    # overlay is how id swaps are spotted. Needs BabyRobotPredicator's
+    # TRACK_VIZ; a driver that predates it renders the overlay anyway rather
+    # than failing, so this is safe to set before the submodule has it.
+    real_robot_track_viz = False
+    # Dwell before a capture, so the dominoes come to rest after the motion.
+    real_robot_settle_s = 0.5
+    # How far (metres) the scene may be from where the twin predicted before
+    # the disagreement is worth logging.
+    real_robot_divergence_atol = 0.02
+    # Write every option-boundary look to this directory as JSON: what was
+    # perceived, what the twin predicted, and the per-object disagreement.
+    # Empty disables it. The divergence WARNING only fires above tolerance, so
+    # without this a run leaves no record of the looks that behaved -- and no
+    # way to tell a systematic offset from one bad capture after the fact.
+    real_robot_observation_dump_dir = ""
+    # Plan file the "fixed_plan" explorer replays every episode, in
+    # replay_plan.py's format. Lets the online loop be exercised without
+    # paying for a planning explorer.
+    fixed_plan_explorer_path = ""
+    # Between episodes, home the arm and wait for a human to rearrange the
+    # scene, then rebuild that episode's task from what the cameras then see.
+    # False keeps the captured scene, which is what a fixed-plan
+    # replay wants (rebuilding would change the objects the plan named).
+    real_robot_human_reset = True
+    # --- real-world domino scene (pybullet_domino_real env) ------------------
+    # The reconstructed-scene JSON (robot_base frame) the pybullet_domino_real
+    # env builds its single train/test task from; the env sizes its domino
+    # component from this scene's role counts.
+    domino_real_scene = ("/home/amberli/babyrobot/BabyRobotPredicator/"
+                         "scenes/domino_straight.json")
+    # Raw capture JSONs have no per-domino role, so roles are keyed by domino
+    # id: the id of the start (green) domino and of the target (purple) domino;
+    # every other domino is movable (blue). Ignored if the scene already carries
+    # an explicit 'role' field per domino.
+    domino_real_start_id = 6
+    domino_real_target_id = 5
+    # Real-scene geometry.
+    domino_real_table_z = -0.041  # real table height in the robot base frame
+    domino_real_robot_init_tilt = np.pi
+    domino_real_robot_init_wrist = np.pi / 2
+    domino_real_domino_dims = [0.15, 0.07,
+                               0.029]  # (L, W, H) -> height,width,depth
+    domino_real_decorate = True  # spawn extended-table tile + robot pedestal
+    # Allow a task built from the scene JSON to be used while the cameras are
+    # live. Off by default, and deliberately: the JSON's poses are a snapshot,
+    # so planning against them while the arm works a scene nobody looked at
+    # plans for a world that is not there -- silently, because the twin only
+    # jumps to the truth at the first option boundary. Replaying a recorded
+    # plan is the one case that wants it (the plan was written against those
+    # poses), which is why replay_plan turns it on.
+    real_robot_allow_captured_scene_task = False
+    # Reach-limited "minimum-blocks" task mode: generate start/target pairs
+    # spaced so that toppling requires bridging near the reach limit, and
+    # attach each task a ``DominoEvaluator``. Success = toppling the target
+    # via a legitimate cascade; each toppled blue costs domino_block_cost
+    # reward, so a solver with a miscalibrated (too-high) reach model
+    # over-reaches and fails, while an over-builder succeeds at lower
+    # reward. K* (the minimum blues needed at the true friction) is stored
+    # env-side on each EnvironmentTask (offline_task_metrics) for offline
+    # metrics only - it never enters the criterion the solver is scored
+    # against, and never reaches the agent-facing Task. Off by default
+    # (existing behavior).
+    domino_min_block_tasks = False
+    # The "real" domino lateral friction the env runs at. Applied to the live
+    # PyBullet bodies at env init via set_domino_physical_params and used when
+    # computing K* for min-block tasks. Default matches the ClassVar (0.5), so
+    # leaving it unset preserves existing behavior; lower it to make a
+    # high-friction (no-learning) planner over-reach.
+    domino_true_friction = 0.5
+    # Friction for the *planning* base sim only — envs created with
+    # skip_residual_dynamics=True (the approaches' base envs / option models),
+    # the same flag that already denies planners the ground-truth delayed
+    # dynamics. The eval env (main.py) is created without that flag and keeps
+    # domino_true_friction. Either mismatch direction defeats an uncalibrated
+    # planner on min-block tasks (the task filters are direction-aware):
+    #   * ABOVE true friction: planner over-estimates reach -> UNDER-builds
+    #     -> chain dies short of the target;
+    #   * BELOW true friction: planner under-estimates reach -> OVER-builds
+    #     -> target topples but the per-block reward cost (or, when the
+    #     staged blue budget binds, an under-reaching build) penalizes it.
+    # A sysID learner must recover the true value either way. None (default)
+    # = planning sim uses domino_true_friction (no mismatch).
+    domino_planning_friction: Optional[float] = None
+    # Start->target distance (metres) sampled per min-block task, uniformly
+    # from [lo, hi]. Choose a range that lands K* in {1, 2} at the true
+    # friction (calibrate with the reach probe). Two scalars (not a tuple) so
+    # the value passes cleanly through the shell-based launch flag plumbing.
+    domino_min_block_span_lo = 0.13
+    domino_min_block_span_hi = 0.30
+    # How many blue (movable) blocks to stage per min-block task. Must exceed
+    # the largest expected K* so over-building is possible (and thus penalized
+    # by the per-block reward cost) rather than budget-limited.
+    domino_min_block_num_blues = 4
+    # Per-blue-block cost in the DominoEvaluator's reward:
+    # reward = 1.0 * (terminated AND certified) - cost * blues_toppled.
+    # Must satisfy domino_block_cost * num_staged_blues < 1 so a
+    # legitimate success always outscores any failure (the reward's sign
+    # alone then separates them); the evaluator asserts this against the
+    # min-block budget flag or, for plain chain tasks, the scene's actual
+    # movable count. Public by design - the agent is told the
+    # reward form; only the dynamics stay hidden. NOTE: as a domino_* flag
+    # this enters the min-block task cache key, so tuning it regenerates
+    # the cached tasks.
+    domino_block_cost = 0.05
+    # Directory for caching generated min-block tasks (with their simulated
+    # K*). The cache key hashes the task-relevant CFG flags, the seed, AND
+    # the domino env/skill source code, so tasks regenerate automatically
+    # whenever the config or code changes. Lives with the other cached
+    # datasets; note cluster prep (get_cmds_to_prep_repo) wipes SAVE_DIRS
+    # including saved_datasets, so cluster runs regenerate once. Empty
+    # string disables caching.
+    domino_min_block_task_cache_dir = "saved_datasets/domino_min_block_tasks"
+    # Turn-task leg bands: entry/exit leg lengths (metres) sampled uniformly
+    # from [lo, hi] per attempt. None (default) = the legacy over_reach band
+    # hardcoded in _make_turn_task (the low-friction arm); under_reach arms
+    # MUST set these explicitly - the legacy under_reach band shipped
+    # agent-intractable pair-corner tasks. Probe candidate bands with
+    # scripts/domino_debug/probe_min_block_bands.py whenever the friction
+    # pair changes (the differentiating cells move with the frictions).
+    domino_min_block_turn_entry_lo: Optional[float] = None
+    domino_min_block_turn_entry_hi: Optional[float] = None
+    domino_min_block_turn_exit_lo: Optional[float] = None
+    domino_min_block_turn_exit_hi: Optional[float] = None
+    # Heavy-block (immovable obstacle) task type — the single switch for the
+    # variant. A HEAVY gray domino-shaped block sits with natural alignment
+    # in one of two shapes (mixed per domino_{train,test}_turn_ratio):
+    #   * straight: start -> gray -> target on ONE line, all co-facing; the
+    #     true solution is a half-circle swerve around the gray;
+    #   * turn: an L whose believed-cheapest corner layout is found first,
+    #     and the gray stands exactly where that natural corner blue would
+    #     go; the true solution skips around it with an own corner.
+    # The gray's true mass (DominoComponent.heavy_block_true_mass) makes it
+    # untopple-able and unmovable, but planning sims believe it has normal
+    # domino mass (env init sets the ``block_mass`` override), so the
+    # believed-cheapest plan runs THROUGH the gray (a free link/corner) and
+    # dies against it at execution. Run WITHOUT domino_planning_friction -
+    # this task type isolates the MASS dimension. (2026-07-25: generation
+    # verified at the default true friction 0.5 - turn lures and skip-around
+    # detours both certify; an older note claimed corners cannot propagate
+    # at 0.5, no longer true after the short-leg corner retune.) Reuses the
+    # min-block machinery (DominoEvaluator; the offline k_star = the
+    # STAGED blues: heavy tasks differentiate on topple-vs-not, and the
+    # searched K* certifies solvability only — corner minima are
+    # solver-history sensitive at the margin; quota loop, disk cache,
+    # domino_min_block_num_blues); domino_min_block_tasks does not also
+    # need to be set.
+    domino_heavy_block_tasks = False
 
     # burger env parameters
     burger_render_set_of_marks = True
@@ -472,9 +929,14 @@ class GlobalSettings:
     fan_train_num_pos_x = 3
     fan_train_num_pos_y = 3
     fan_test_num_pos_x = 6  # can do 9
-    fan_test_num_pos_y = 4
+    fan_test_num_pos_y = 6
     fan_train_num_walls_per_task = [1]
     fan_test_num_walls_per_task = [2, 3]  # can do 4
+    # When True, 3x3 grids use curated task generation: ball on an edge
+    # cell, target axis-aligned two cells away, and a single wall placed
+    # to block the direct path. When False, all grid sizes use uniform
+    # random placement of ball, target, and walls.
+    fan_3x3_strategic_task_gen = False
 
     # domino_fan env (combined domino + fan environment)
     domino_domino_on_stairs = False
@@ -518,9 +980,32 @@ class GlobalSettings:
     boil_num_burner_train = [1]
     boil_num_burner_test = [1]
     boil_water_fill_speed = 0.002
+    # For the mobile_fetch robot: park the base (x-aligned to each reach
+    # target, a stand-off in front in y) before reaching, so the arm reaches
+    # straight forward at a comfortable distance instead of sideways over the
+    # burner or fully extended. No-op for fixed bases. Set False to disable
+    # (e.g. to isolate base-positioning effects).
+    boil_mobile_base_park = True
+    # Forward (y) stand-off distance for the parked base. Smaller = closer to
+    # the target = more reach margin (incl. sideways switch push-through),
+    # bounded by the table-clear y cap.
+    boil_mobile_base_standoff = 0.45
+    # Align the parked base x with the reach target x. True is best for picks
+    # (straight approach avoids sweeping over the burner); False keeps the base
+    # at the home x (diagonal approach) which leaves room for sideways switch
+    # push-throughs.
+    boil_mobile_base_align_x = True
 
     # parameters for random options approach
     random_options_max_tries = 100
+
+    # Max steps an any-atom-change Wait may run without seeing a change
+    # before it bails out (see option_policy_to_policy). Infinite by
+    # default (legacy behavior); envs whose plans interleave work with
+    # exogenous delays (e.g. bridge) should set a finite cap, because
+    # the awaited change can complete during the PREVIOUS option and
+    # strand the Wait until the horizon.
+    wait_option_max_steps = float("inf")
 
     # option model parameters
     option_model_terminate_on_repeat = True
@@ -590,9 +1075,9 @@ class GlobalSettings:
     vlm_open_loop_use_training_demos = False
     vlm_open_loop_no_image = False  # Use object-centric state
 
-    # parameters for the human_interaction_approach
-    human_interaction_approach_use_scripted_option = False
-    human_interaction_approach_use_all_options = False
+    # parameters for the human_option_control_approach
+    human_option_control_approach_use_scripted_option = False
+    human_option_control_approach_use_all_options = False
     scripted_option_dir = "scripted_options"
     script_option_file_name = "scripted_plan.txt"
 
@@ -631,6 +1116,11 @@ class GlobalSettings:
     planning_filter_unreachable_nsrt = True
     planning_check_dr_reachable = True
     no_repeated_arguments_in_grounding = False
+    # If True, replace per-attempt backtracking and option-execution log
+    # output with a tqdm progress bar during run_backtracking_refinement.
+    # Suppresses DEBUG/INFO/WARNING/ERROR on all handlers (terminal + log
+    # files) for the duration of the search; only CRITICAL passes through.
+    refinement_progress_bar = True
 
     # evaluation parameters
     log_dir = "logs"
@@ -640,6 +1130,17 @@ class GlobalSettings:
     data_dir = "saved_datasets"
     video_dir = "videos"
     image_dir = "images"
+    # Run-scoped subdir (approach/experiment_id/seed<N>/run_<timestamp>/) that
+    # video_dir mirrors from the log dir, so two runs sharing a config write to
+    # separate dirs instead of overwriting each other's videos. Set by
+    # utils.configure_logging; stays empty when there is no log dir (ad-hoc
+    # scripts, unit tests), which keeps writing flat as before.
+    run_subdir = ""
+    # How many runs of one approach/experiment_id/seed keep their videos. Those
+    # run dirs no longer overwrite each other, so save_video prunes the oldest
+    # instead, reclaiming space when an arm is re-run much as overwriting used
+    # to. 0 disables pruning and lets videos accumulate forever.
+    video_max_runs_kept = 3
     video_fps = 2
     failure_video_mode = "longest_only"
     terminate_on_goal_reached = True
@@ -749,6 +1250,17 @@ class GlobalSettings:
     process_planning_use_abstract_policy = False
     process_planning_max_policy_guided_rollout = 10
     process_planning_set_parameters_one = False
+    # On an execution-time option failure (e.g. a fresh BiRRT collision caused
+    # by drift between the refinement simulator and the real environment),
+    # re-refine from the current state and retry, up to this many times. 0
+    # disables replanning (the option failure is terminal, as before).
+    process_planning_max_execution_replans = 0
+    # Whether non-oracle planning approaches augment with the ground-truth
+    # helper types, predicates, and objects (e.g. the domino/fan grid). Shared
+    # by both the process-planning family (process/param learning, predicate
+    # invention, ExoPredicator, ...) and the agent-planning family; the oracle
+    # always does regardless, the others opt in via this flag.
+    use_gt_helpers = False
     process_task_planning_heuristic = 'h_ff'
     wait_option_terminate_on_atom_change = True
     running_no_invent_baseline = False
@@ -981,16 +1493,41 @@ class GlobalSettings:
     vlm_predicator_num_proposal_batches = 1
 
     # agent SDK online abstraction learning parameters
-    agent_sdk_model_name = "claude-sonnet-4-6"
-    agent_sdk_max_agent_turns_per_iteration = 20
+    agent_sdk_model_name = "claude-opus-5"
+    agent_sdk_max_agent_turns_per_iteration = 50
+    # Consecutive agent queries that die without the agent doing ANY work
+    # (an auth/billing banner as the only assistant text, an error result,
+    # or a stream error before the first tool call) before the run
+    # terminates with AgentSessionFatalError. Such failures make every
+    # future query hopeless, but each one returns in ~1 s at $0.00 and is
+    # otherwise indistinguishable from a no-capture attempt, so without
+    # this check the solve restart / replan / online-cycle budgets grind
+    # through hundreds of instant failures (run_20260721_161159: 300
+    # "organization has disabled Claude subscription access" queries
+    # across 10 cycles, agent never ran). 0 disables the check.
+    agent_sdk_max_consecutive_fatal_queries = 3
+    # Reasoning effort for the agent SDK's Claude agent. One of "low",
+    # "medium", "high", "max" to set it, or "" / "default" to leave it unset
+    # (the model's own default). With adaptive thinking this is the control
+    # for how much the agent deliberates per response.
+    agent_sdk_reasoning_effort = ""
     agent_sdk_agent_timeout = 300  # seconds per iteration
+    # Longest side (px) of scene images rendered for the agent (saved to the
+    # sandbox and, rarely, returned inline). Every image the agent Reads
+    # stays in its conversation for the rest of the session, and vision
+    # tokens scale with pixel count (~(w*h)/750), so 900px renders cost
+    # ~1100 tokens per view vs ~350 at 512px. Agent-facing renders scope
+    # pybullet_camera_width/height down to this cap at generation time
+    # (see agent_render_resolution), which also makes the render itself
+    # cheaper; 0 disables the cap. Videos are unaffected.
+    agent_sdk_image_max_px = 512
+    # Max size (bytes) of a single newline-delimited JSON message the agent SDK
+    # subprocess transport will buffer. The SDK default is 1 MB, which a tool
+    # result embedding a base64 scene image (e.g. a sim.render() at
+    # 900x900) can exceed -> "JSON message exceeded
+    # maximum buffer size". 20 MB comfortably fits full-res scene images.
+    agent_sdk_max_buffer_size = 20 * 1024 * 1024
     agent_sdk_resume_session = True  # resume previous session if available
-    agent_sdk_propose_types = True
-    agent_sdk_propose_predicates = True
-    agent_sdk_propose_objects = True
-    agent_sdk_propose_processes = True
-    agent_sdk_propose_options = True
-    agent_sdk_auto_select_predicates = True  # run hill-climbing after proposals
     agent_sdk_max_trajectories_in_context = 3
     agent_sdk_log_agent_responses = True
 
@@ -1001,30 +1538,587 @@ class GlobalSettings:
     agent_sdk_use_local_sandbox = False
 
     # Agent explorer settings
-    agent_explorer_max_turns = 5  # max agent turns per exploration query
     agent_explorer_fallback_to_random = True  # fall back to random on failure
 
     # Agent planner approach settings
     agent_planner_use_scratchpad = False  # include notes.md scratchpad
-    agent_planner_use_visualize_state = False  # include visualize_state tool
-    agent_planner_use_annotate_scene = False  # include annotate_scene tool
+    # Whether the planner is given a simulator to test candidate plans with
+    # (the submit_plan tool / option-model rollouts). When False, the
+    # agent must plan open-loop from trajectory data and LLM reasoning alone
+    # -- the genuinely model-free baseline.
+    agent_planner_use_simulator = True
+    # When a simulator IS given, whether to wrap the *base* env
+    # (skip_residual_dynamics=True -- delayed _domain_specific_step effects
+    # such as boiling/heating are disabled) instead of the real env. Lets the
+    # model-free planner be denied the ground-truth delayed dynamics that a
+    # world-model learner has to reconstruct. No effect when
+    # agent_planner_use_simulator is False.
+    agent_planner_use_base_simulator = False
 
     # Agent bilevel approach settings
     agent_bilevel_max_samples_per_step = 50  # param samples per step
-    agent_bilevel_max_retries = 1  # re-query agent on refinement failure
     agent_bilevel_check_subgoals = True  # check subgoal atoms after each step
+    # When True, the agent proposes per-step continuous parameters inside the
+    # plan sketch (`Option(obj:type)[p1, p2] -> {subgoals}`). Refinement tries
+    # the proposed params first, then falls back to the registered sampler /
+    # uniform backtracking on failure. Default False keeps the param-free
+    # sketch (search finds all continuous params).
+    agent_bilevel_use_llm_initial_params = False
+    # When True, sketch steps may carry GROUND samplers - per-step, per-call
+    # sampling priors that override any learned parameterized sampler for
+    # that step (precedence: ground > parameterized > uniform). Two forms
+    # after a step's `[params]`: a uniform window `~ [w1, w2]`
+    # (per-dimension half-widths around the proposed params) or a named
+    # code sampler `~ my_sampler` referencing GROUND_SAMPLERS in the
+    # sandbox's ground_samplers.py, loaded fresh on each refine call
+    # (signature (state, subgoal_atoms, rng, objects) -> params, same as a
+    # parameterized sampler, so any state-conditioned region is
+    # expressible). Default False hides the grammar from the agent and
+    # rejects the annotations, keeping baseline arms free of the channel.
+    agent_bilevel_ground_samplers = False
+    # When True, close the agent SDK session at the start of each test task
+    # so every test solve begins with a FRESH conversation (no context from
+    # earlier test tasks). The sandbox filesystem and learned artifacts are
+    # untouched. Default False keeps the current behavior: all test tasks
+    # share one continuous agent conversation.
+    agent_fresh_session_per_test_task = False
+    # Restart loop for test-task solving. Solve-time outcomes are close to
+    # heavy-tailed in agent-search quality (run_20260717 family split: the
+    # same tasks solved in 9-32 min in one launch and burned 2-11 h without
+    # solving in its identical sibling, anchored on wrong conclusions), so
+    # several short, independent attempts beat one long one. Each attempt
+    # above the first starts from a fresh conversation; the solve journal
+    # (below) carries curated knowledge across attempts. An attempt ends
+    # early with a validated (evaluator-solved) capture; otherwise its
+    # best-effort capture is banked and the best across attempts executes.
+    # Each attempt is exactly ONE agent query: however that query ends -
+    # a spent budget, an unparseable sketch, or a session that simply
+    # never submitted - the fresh-context restart is the only retry, so
+    # this is the sole knob controlling how many shots a task gets. Only
+    # the final attempt (no restart left) pays for the best-effort
+    # submission nudge.
+    agent_solve_max_attempts = 1
+    # Wall-clock budget per solve attempt, in seconds (0 disables). The
+    # turn cap bounds turns, not compute - one run_python sweep hid
+    # 47k rollouts (~7 h) inside a single turn. On expiry, exploration
+    # tools refuse with a submit-now message and the approach runs the
+    # same best-effort submission flow as turn-cap exhaustion.
+    agent_solve_attempt_wall_clock = 0.0
+    # When True, every solve attempt (including the first, i.e. every test
+    # task) begins with a fresh agent conversation; cross-attempt and
+    # cross-task knowledge travels through the solve journal instead of
+    # raw transcript history, which also carries the *wrong* conclusions
+    # of failed attempts.
+    agent_solve_fresh_context = False
+    # Persistent per-run solve journal: the harness logs each attempt's
+    # outcome + captured plan to <sandbox>/attempts.md, the agent keeps
+    # its own lessons in <sandbox>/journal.md with the file tools, and
+    # both are injected into every solve prompt. The prompts ask for
+    # facts/measurements rather than verdicts, so failed attempts steer
+    # later ones away from repeated sweeps without re-importing their
+    # anchoring mistakes.
+    agent_solve_use_journal = False
+    # Closed-loop policy mode: the solve agent's deliverable is a per-task
+    # PROGRAM (<sandbox>/policy.py with get_option(state, memory) -> next
+    # plan line or None) validated in the belief model via the
+    # submit_policy tool and executed at test time WITHOUT an LLM in
+    # the loop. Option failures are surfaced to the policy (via
+    # memory["last_failure"]) instead of ending the episode, so recovery
+    # (re-place a drifted block, re-aim after a BiRRT refusal) is the
+    # policy's job - which is why this mode is mutually exclusive with
+    # the sketch-divergence replan machinery
+    # (agent_bilevel_max_execution_replans must be 0).
+    agent_solve_policy_mode = False
+    # Total options a policy episode may issue (belief validation AND real
+    # execution): the anti-oscillation bound that converts a retry loop
+    # that never progresses into a bounded, attributable failure.
+    agent_policy_max_options = 50
+    # Consecutive identical failures (same option, objects, and params)
+    # after which a policy episode ends with a fatal stuck-loop error, in
+    # belief validation AND real execution. An unchanged command that
+    # just failed fails the same way; re-issuing it is a policy bug, not
+    # recovery (the 2026-08-22 policy-arm tests burned 20+ of their 50
+    # options on one identical colliding PickBlock). 3 still allows a
+    # couple of deliberate retries against stochastic motion planning.
+    agent_policy_max_repeated_failures = 3
+    # The no-effect twin of the guard above: consecutive re-issues of one
+    # identical command that keeps COMPLETING with no observable state
+    # change (e.g. a MoveTo to the pose the robot already holds). The
+    # 2026-08-26 policy-arm cycle-6 test livelocked this way, spinning
+    # 10+ of its 50 options on one completed MoveTo the failure guard
+    # cannot see (nothing fails). 3 tolerates a benign settle-in-place
+    # step without letting a livelock burn the budget.
+    agent_policy_max_repeated_noops = 3
+    # LLM-free bypass: path to a prewritten policy.py used as the captured
+    # artifact for every test task (mirrors the sketch-file bypass). For
+    # smoke tests and debugging the execution path.
+    agent_policy_file = ""
+    # --auto_resume only resumes from checkpoints modified within this
+    # many hours. The checkpoint path ignores the run timestamp, so a
+    # RELAUNCH of a finished experiment under the same experiment_id
+    # would otherwise silently continue the old run; a Slurm requeue or
+    # a prompt resubmission of a live run is always recent.
+    auto_resume_max_age_hours = 36.0
+    # Per-call wall-clock limit for solve-session run_python calls, in
+    # seconds (0 disables). Enforced cooperatively at every probe sim
+    # call, plus a hard async-exception watchdog for sim-free code (a
+    # pure-Python loop blocks the event loop, so nothing else can stop
+    # it), so a combinatorial sweep stops with its printed output
+    # returned (partial results + a cost lesson) instead of blocking the
+    # session for hours. Synthesis sessions (candidate-simulator probes,
+    # whose rollouts are far slower and whose reset can trigger a
+    # refit) are exempt from THIS cap and get the generous one below.
+    agent_sdk_python_call_timeout = 600.0
+    # Standalone hard cap on one synthesis-session run_python call.
+    # Sized for legitimate slow work (candidate-sim rollouts, refits)
+    # while still killing runaway in-call sweeps: run_20260826_151728's
+    # cycle-1 learn spent 2+ hours inside ONE uncapped ~670-point grid
+    # sweep, silent in the logs, headed for the job's wall. The watchdog
+    # returns the call's printed output so partial sweep results
+    # survive. 0 disables.
+    agent_sdk_synthesis_python_call_timeout = 1800.0
+    # Wall-clock cap for one canonical ``sim.fit()``. The fit owns its
+    # budget: the enclosing run_python call's cap is paused for its
+    # duration (see agent_sdk.tools.budget.suspend_budget_watchdog), so
+    # a long rollout system-ID fit is never stopped mid-way by the
+    # per-call limit. Probes never fit implicitly: after an edit they run
+    # the candidate at the last fit's values (declared init values for
+    # new params) and report UNFITTED until the agent fits the current
+    # file. 0 disables the cap.
+    agent_sdk_fit_call_timeout = 3600.0
+    # Test-time closed-loop recovery. After each option in the refined plan
+    # finishes, the subgoal_annotations execution monitor checks the
+    # sketch's subgoal annotation for that step against the REAL state; on
+    # divergence (execution left the option-model rollout — e.g. a place
+    # that settled off-target), CogMan re-invokes solve(), which resumes a
+    # re-refined suffix of the executed sketch from the current state,
+    # instead of running the rest of the stale plan open-loop. Value =
+    # recoveries per test episode, shared across chained replans; when no
+    # suffix refines (or the budget is spent) the remaining plan resumes
+    # open-loop rather than failing the episode. 0 disables (legacy
+    # open-loop execution). Requires --execution_monitor
+    # subgoal_annotations (enforced at approach construction).
+    agent_bilevel_max_execution_replans = 0
+    # When an execution replan's suffix refinement fails, whether to fall
+    # back to querying the agent for a fresh sketch - a brand-new
+    # full-turn-budget session. Default False: the cheap suffix replan is
+    # the only recovery, and when no suffix of the executed sketch
+    # refines from the diverged state the remaining plan resumes
+    # open-loop (the divergence is logged; the goal check decides the
+    # episode). Re-opening the agent budget is especially wasteful after
+    # a best-effort (non-solve) capture, whose execution diverges by
+    # construction.
+    agent_bilevel_replan_agent_fallback = False
     # log state pretty_str before/after each step
     agent_bilevel_log_state = False
-    agent_bilevel_plan_sketch_file = ""  # load sketch from file instead of LLM
+    # Load a plan sketch from a file instead of querying the LLM. The dir is
+    # under scripts/; the file may be a bare name or an absolute path.
+    agent_bilevel_plan_sketch_dir = "plan_sketches"
+    agent_bilevel_plan_sketch_file = ""
+    # When a sketch refinement runs without an explicit timeout, the
+    # caller computes
+    #   max(_min, _per_step * len(sketch))
+    # so plans with more steps automatically get more wall-clock budget.
+    agent_bilevel_refinement_timeout_per_step = 30.0  # seconds per step
+    agent_bilevel_refinement_timeout_min = 30.0  # floor on auto-scaled timeout
+    # Total number of belief-sim rollouts a goal-reaching plan must pass in
+    # submit_plan before it is captured as the agent's answer. The
+    # shared sim env is nondeterministic across repeats (motion-planner
+    # sampling, physics-solver state), so repeats sample the same execution
+    # variability the real rollout will - a flaky plan is reported to the
+    # agent in-session (where it can add margin and resubmit) instead of
+    # captured and discovered as a failed real episode. 1 disables repeats.
+    # An n-rollout gate passes a plan with per-rollout success rate p with
+    # probability p^n, so small n lets marginal plans through: at p=0.85,
+    # 3 rollouts pass 61% and 5 pass 44% (bridge run_20260819_053515: a
+    # knife-edge grasp offset validated 3/3, then cammed out on the real
+    # episode). The agent can request a stricter gate per submission via
+    # the tool's validation_rollouts argument; it can never lower this.
+    agent_plan_validation_rollouts = 5
+    # Escalated rollout count once a task has produced a FLAKY rejection
+    # (see the p^n math above; run_20260717_182321: a 20/20-swept relay
+    # placement validated 3/3, then missed the target for real). A FLAKY
+    # rejection is direct evidence the agent is tuning in a marginal
+    # region, so subsequent captures on that task must clear this stricter
+    # gate instead. Never lowers the base count.
+    agent_plan_validation_rollouts_after_flaky = 10
+    # Run each validation rollout inside ``ctx.validation_env_scope`` (a
+    # freshly constructed sim env) when the approach installs one. A shared
+    # env's reset provably cannot reconstruct state exactly (solver
+    # warm-start state, velocity residuals, near-matching bodies skipped by
+    # the reconstruction diff - see rollout_states in physical_sysid.py), so
+    # repeated rollouts on it are correlated with each other and offset from
+    # the fresh real env; fresh envs make them honest i.i.d. samples of what
+    # the real episode will draw. Costs one env construction per rollout.
+    agent_plan_validation_fresh_env = True
+    # Physics-margin gate on captures: after a goal-reaching plan passes
+    # the execution-validation rollouts, re-run it at a grid of
+    # perturbations spanning +-1 sigma of the identified physical
+    # parameters (sigma = the posterior width the sysID fit reported,
+    # floored by code_sim_learning_rollout_min_posterior_width). The
+    # execution repeats above only sample motion-planner/physics-stepping
+    # variability AT the fitted values; a plan can pass them all and
+    # still have zero margin to the fit's parameter error
+    # (run_20260723_091108: a capture validated 8/8 at fitted
+    # lateral_friction 0.5319 failed deterministically at true 0.5 -
+    # the design's success band started at the fitted value). A failing
+    # perturbed rollout refuses the capture as PARAM-SENSITIVE so the
+    # agent adds design margin in-session. Runs only when the approach
+    # installs a fresh-env scope (perturbing the shared env would leak)
+    # and a fit with nonzero posterior width has been applied. Default
+    # False so existing arms keep their behavior; the main arm
+    # (approaches/all.yaml sim_predicator)
+    # turns it on.
+    agent_plan_validation_physics_margin = False
+    # Number of grid points the margin gate (and the sim.run physics
+    # sweep) spreads evenly across the +-1-sigma range, endpoints
+    # included. Endpoints alone (2) are provably insufficient: near a
+    # feasibility boundary success is a SPECKLED function of the
+    # params, and run_20260724_140531's capture passed both +-1-sigma
+    # endpoints (lateral_friction 0.4295/0.5246) while failing
+    # deterministically at the true 0.5 between them. Replaying that
+    # capture mapped the speckle: a hazard band [~0.494, 0.511] holding
+    # ~30% failures at ~0.001 grain, so ANY even grid is a
+    # probabilistic detector - a 16-point grid's two in-band points
+    # both passed (would still have captured), while the 32-point
+    # grid's 0.5046 fails (rejects it). Per-point rollouts are
+    # deterministic measurements costing one rollout (~seconds), and
+    # captures are infrequent, so density is cheap sensitivity; designs
+    # with real margin pass every density identically.
+    agent_plan_validation_physics_margin_points = 32
+    # Rule-parameter margin gate: after the physics points, re-run each
+    # capture-eligible submission under the calibrated rule-parameter
+    # ensemble members (the same posterior draws info-seeking
+    # exploration scores with), rejecting as PARAM-SENSITIVE a plan
+    # that survives only at the point estimate of an uncertain LEARNED
+    # constant (a gate threshold, a geometric offset). The physics
+    # sweep cannot catch these: it perturbs identified base-physics
+    # params, while a learned rule constant baked near a data boundary
+    # carries its own posterior uncertainty. No-op unless the approach
+    # installs the ensemble providers (see rule_param_margin_provider),
+    # which requires agent_explorer_info_seeking's ensemble.
+    agent_plan_validation_rule_param_margin = False
+    # Fork-parallel rollouts: the capture gate's repeat rollouts, its
+    # physics/rule-param margin sweeps, the belief probe's
+    # trials/physics_sweep modes, and the rollout-sysID objective (each
+    # candidate theta scores N trajectory segments) all run N
+    # INDEPENDENT fresh-env rollouts; with a value W > 1, up to W run
+    # concurrently as forked children (see
+    # agent_sdk/parallel_rollouts.py). Verdict/fit semantics are
+    # unchanged: each rollout runs under the exact seed / override
+    # scope it would run under sequentially, and a failed child is
+    # transparently re-run in-process. Benchmark (job 21336169, 8-CPU
+    # node, fresh bridge env per rollout): 1.89x at W=2, 3.74x at W=4,
+    # 4.81x at W=8. 0 (the default) keeps every rollout sequential;
+    # enable in experiment configs sized to the job's CPU allocation
+    # (e.g. 6 with --cpus-per-task=8).
+    agent_validation_parallel_workers = 0
     # Agent bilevel explorer settings. Separate from the solve-path budget
     # above because the explorer runs full backtracking while looking for
-    # the deepest subgoal-failure to truncate at, and each exhausted
-    # upstream step multiplies the cost.
-    agent_bilevel_explorer_max_samples_per_step = 50
+    # the deepest subgoal-failure to truncate at. Denominated in
+    # option-model rollouts per search node: plain steps spend one per
+    # backtracking attempt (classic semantics); info-seeking steps spend
+    # the same budget pooling candidates (see refine_sketch).
+
+    # Active-experiment-design exploration: build the learned model's
+    # parameter ensemble so the agent can rank candidate probes by the
+    # ensemble's disagreement on a step's subgoal atoms
+    # (sim.suggest_probes) and the capture gate can sweep the rule-param
+    # margin. The agent decides what to run; the harness never moves
+    # its parameters. Off => no ensemble is built.
+    agent_explorer_info_seeking = False
+    # Ensemble size used to estimate disagreement. 1 disables scoring
+    # (every candidate scores 0) and reduces to first-feasible.
+    agent_explorer_info_ensemble_size = 6
+    # A plan the explore session validated through the capture gate
+    # (submit_plan: goal reached in
+    # agent_plan_validation_rollouts fresh belief rollouts) is executed
+    # verbatim as the episode's solve attempt with mental_model_solved=
+    # True. The cycle's remaining requests on that task still query the
+    # agent, which sees the certified plan among the plans already
+    # scheduled and is asked for a different certified plan (a second,
+    # independent test of the belief), resubmitting the same one only as
+    # a last resort; every certified attempt solving for real satisfies
+    # the train-driven early-stop rule. Off feeds the capture into the
+    # experiment search as seeds instead.
+    agent_explorer_execute_certified_plan = True
+    # Per-parameter jitter as a fraction of the ParamSpec box width, for
+    # the uniform-fallback ensemble only (see calibrated flag below).
+    agent_explorer_info_perturb_frac = 0.15
+    # Prefer a *calibrated* ensemble when the fit provides one: posterior
+    # subsample when MCMC ran, else a Laplace draw from the LM Jacobian
+    # (per-transition or recurrent); uniform jitter only when neither is
+    # available (e.g. oracle params, where no fit runs).
+    agent_explorer_info_calibrated_ensemble = True
+    # Extra MCMC budget for the once-per-cycle active-experiment posterior
+    # fit. The solver/test-time fit still follows
+    # code_sim_learning_num_mcmc_steps; this budget is used only when it
+    # exceeds the global solver budget, and only to calibrate the
+    # info-seeking ensemble. Keep >= ~250: emcee burn-in (200) eats the
+    # budget first. See _exploration_fit_num_steps for the rationale
+    # (posterior subsampling covers gate/threshold params that a Laplace
+    # approximation cannot).
+    agent_explorer_info_mcmc_steps = 300
 
     # Code sim-learning parameter fitting settings.
     # Set to 0 to skip MCMC and use initial parameter values directly.
-    code_sim_learning_num_mcmc_steps = 500
+    code_sim_learning_num_mcmc_steps = 0
+    # Persist the raw rollout-fit trajectories (states + actions per
+    # recorded episode) to <log_dir>/fit_data/ at every cycle-level
+    # fit. The fit data otherwise lives only in memory, which made the
+    # wrong fits of run_20260724_232411 (lateral_friction 1.0358 /
+    # 0.3236 vs true 0.5) impossible to replay offline: approximate
+    # re-execution from logged plans cannot reproduce mid-episode
+    # replans or the warm-env recording context, the very channel
+    # suspected of corrupting the fits. Cost: one small pickle per fit.
+    code_sim_learning_persist_fit_data = True
+    # Truncate each rollout-fit trajectory once the scored features have
+    # settled (physical_sysid.truncate_settled_tail): keep everything up
+    # to the last observed motion plus a margin, drop the static tail.
+    # Rationale: a free-running rollout diverges chaotically from the
+    # recording over hundreds of contact steps, and a long settled tail
+    # only re-scores that accumulated divergence every step, drowning
+    # the physical-parameter signal (run_20260705_203314: SSE at the
+    # TRUE friction exceeded SSE at the wrong one on full 500-step
+    # trajectories). Domino-style trajectories (push -> cascade ->
+    # long static settle) lose no information to the cut.
+    code_sim_learning_rollout_truncate_settled = True
+    # Per-step observed feature delta that counts as "still moving"
+    # (meters / radians; settled dominoes jitter ~1e-5, a toppling one
+    # moves ~1e-2/step).
+    code_sim_learning_rollout_settle_tol = 1e-3
+    # Steps kept after the last observed motion, so the rollout is still
+    # scored on coming to rest at the right pose.
+    code_sim_learning_rollout_settle_margin = 20
+    # Candidates per physical parameter for the coarse grid sweep that
+    # seeds the rollout LM start (0 disables). Needed because the
+    # rollout SSE can be locally flat at the declared init (domino
+    # topple reach saturates above friction ~0.5), stalling LM's finite
+    # differences even on informative data; the sweep costs
+    # num_points+1 rollout evals per physical param.
+    code_sim_learning_rollout_grid_seed_points = 7
+    # Coordinate-sweep passes for the grid seeding. One pass sweeps each
+    # physical param in declaration order with the others held fixed, so
+    # a param swept early is stuck with its neighbors' pre-sweep values;
+    # later passes re-sweep in the updated context, and the loop stops
+    # early once a full pass moves nothing. Deterministic rollouts are
+    # memoized within one seeding call, so a converged extra pass costs
+    # no new rollouts; 3 passes (vs 2) buys a final sweep whose pools
+    # were all evaluated in the settled context whenever pass 2 still
+    # moved something.
+    code_sim_learning_rollout_grid_sweep_passes = 3
+    # Relative SSE tolerance defining the sweep's "data-equivalent" flat
+    # set: candidates whose SSE is within max(same-theta noise floor,
+    # frac * best SSE) of the best candidate are indistinguishable on
+    # this data, and the value chosen among them is the one nearest the
+    # anchor (the prior belief) in fit space. This keeps a compensating
+    # param at its anchor instead of chasing insignificant SSE gains
+    # (run_20260711_224624: spinning_friction was dragged 0.5 -> 0.024,
+    # true 0.5, for a 1.6% SSE gain after lateral_friction over-moved),
+    # and resolves a saturated landscape to its anchor-side edge instead
+    # of an arbitrary interior grid point. 0 disables the flat set (the
+    # raw per-candidate argmin wins, the legacy behavior).
+    code_sim_learning_rollout_grid_flat_frac = 0.05
+    # Bisection evaluations per moved param that refine the anchor-side
+    # edge of its flat set to sub-grid resolution (0 disables). The
+    # 7-point log grid has ~2.4x spacing, so a true value mid-gap is
+    # unrepresentable: on run_20260711_224624 true lateral friction 0.5
+    # sat between candidates 0.342 and 0.827 and the fit reported the
+    # 0.827 grid point (+65%) every cycle, LM being unable to descend
+    # a chaotic replay landscape from a coarse seed.
+    code_sim_learning_rollout_grid_refine_evals = 4
+    # Floor (in FIT space, so ~fractional for log-scale params) on the
+    # posterior width the identifiability report assigns to a
+    # rollout-fit parameter. Two systematic errors make a raw landscape
+    # width dishonest at the low end: (1) the flat-edge bisection can
+    # collapse the flat set to a single point (each midpoint lowers the
+    # best SSE, shrinking the relative flat tolerance until only the
+    # newest point survives), which reads as posterior_std = 0 -
+    # certainty the sweep's finite evaluations cannot support; (2) the
+    # free-running replay objective carries model bias that no local
+    # landscape statistic can see (measured fits land 1-40% off truth
+    # on clean data: lateral_friction 0.5319 vs 0.5 on
+    # run_20260723_091108, 0.1414 vs 0.1 on run_20260708_213258). The
+    # default 0.1 (~+-10% for log params) brackets the typical bias;
+    # the consumers of the reported width (verdict contraction, the
+    # capture gate's physics-margin sigma points) inherit the floor.
+    # 0 disables.
+    code_sim_learning_rollout_min_posterior_width = 0.1
+    # Post-fit anchor-ablation backward elimination (False disables):
+    # for each physical param the LM MAP moved off its env-registry
+    # anchor, refit the REMAINING params with that param pinned at the
+    # anchor; if the refit is data-equivalent (SSE within
+    # max(noise floor, grid_flat_frac * SSE)), the move was compensatory
+    # and the param is reverted to its anchor. This is a global
+    # alternative-hypothesis test the local curvature probe cannot make:
+    # a co-adapted MAP has real curvature in every direction, so the
+    # probe stamps a compensating param "identified" even when an
+    # anchor-consistent basin explains the data equally well (measured on
+    # run_20260721_205821 seed1: the coordinate sweep overshot
+    # lateral_friction to 0.827 (true 0.5) and restitution 0.02 -> 0.75
+    # (true 0.02) / spinning_friction 0.5 -> 0.01 (true 0.5) then
+    # compensated for it, all three declared "identified"; the resulting
+    # belief sim invalidated every test plan). Uses the same
+    # data-equivalence tolerance as the grid flat set, so a genuinely
+    # identified param (whose revert destroys the SSE) is never touched.
+    code_sim_learning_rollout_anchor_ablation = True
+    # Goodness-of-fit trimming threshold for rollout sysID, as a
+    # multiple of the fit's noise_sigma (0 disables): a segment whose
+    # best-achievable RMS over the candidate param grid exceeds
+    # factor*noise_sigma is unexplainable at ANY params (chaotic
+    # recording / model misfit), so it is dropped before fitting.
+    # With normalized residuals the clean vs chaotic clusters sit at
+    # <=0.012 vs >=0.074 dimensionless RMS on domino replay data
+    # (run_20260711_141026): factor 2.0 (threshold 0.10) separates
+    # them, while 3.0 (0.15) admits robot-scraping segments that drag
+    # the friction fit 40% low on sparse early-cycle data (measured:
+    # cycle-1 replay fits 0.0564 at 3.0 vs 0.0988 at 2.0, true 0.1).
+    code_sim_learning_rollout_trim_rms_factor = 2.0
+    # Consistency requirement among surviving trajectories (0 disables):
+    # at the joint fit, each survivor's RMS must be within this factor
+    # of its own best-achievable RMS. A survivor fitting much worse than
+    # it could means the set disagrees on the params (a recording can be
+    # accidentally explainable at WRONG params and outvote clean data);
+    # the survivor with the largest best-RMS is dropped and the fit
+    # reruns, anchoring on the cleanest data.
+    code_sim_learning_rollout_consistency_factor = 3.0
+    # Normalize rollout residuals per (type, feature): each residual is
+    # divided by the feature's observed motion span over the fit data
+    # (floored below), and residuals of features marked angular on their
+    # Type are wrapped to [-pi, pi] first and scaled by pi. Without
+    # this, raw angle errors dominate the SSE (a settled domino at roll
+    # -pi vs +pi reads as a (2*pi)^2 error per step; measured on
+    # run_20260711_141026: roll+yaw were 83% of the post-fit SSE with
+    # max errors of exactly 2*pi and pi) and position information is
+    # drowned. With normalization the SSE and every RMS threshold below
+    # are dimensionless fractions of typical motion.
+    code_sim_learning_rollout_scale_residuals = True
+    # Huber cap on each (scaled) rollout residual: residuals beyond
+    # this many scale units contribute linearly instead of
+    # quadratically to the SSE/LM objective (0 disables). Rationale:
+    # per-step residuals through contact are chaotic in theta - a
+    # replay can diverge QUALITATIVELY at one grid candidate and not
+    # its neighbors (measured 2026-07-25 on a recorded single-domino
+    # topple at true friction 0.5: SSE 248.7 at theta 0.4746 vs 0.0025
+    # at 0.4743, the spike being a diverged replay that slid 0.22 m vs
+    # the recorded 0.09 m) - and one such spike can steer the grid fit
+    # to a wrong basin. Capping bounds a diverged replay's vote while
+    # still penalizing it. Value in dimensionless scale units (typical
+    # motion ~1 under scale_residuals).
+    code_sim_learning_rollout_huber_delta = 1.0
+    # Extra weight on the per-trajectory SUMMARY residuals appended to
+    # the per-step objective (0 disables): the settled endpoint
+    # features and the per-object motion-onset step. These are the
+    # smooth-in-theta observables (an ABC-style summary-statistic
+    # objective): slide distances and rest poses respond monotonically
+    # to friction while mid-flight paths are chaos. Offline A/B on
+    # run_20260724_232411's re-executed explore episodes: the summary
+    # objective separates the true friction from the neighboring grid
+    # point by ~21x where per-step SSE manages ~1.25x. Each summary
+    # residual enters the SSE with this factor squared.
+    code_sim_learning_rollout_summary_weight = 5.0
+    # --- scoring against an external observation track (Step 3) --------------
+    # Score the free-running rollout against a markerless per-frame pose track
+    # instead of against every recorded state. Under open-loop execution the
+    # recorded states are the TWIN's own simulation -- correcting nothing --
+    # so a per-step SSE over them recovers the twin's friction by
+    # construction. The track is the only real evidence in the episode.
+    code_sim_learning_rollout_score_observed_only = False
+    # The track to score against: the trajectory JSON the markerless pipeline
+    # emits. Empty means none available, which is a fallback-and-warn rather
+    # than a silent zero (see the flag above).
+    code_sim_learning_rollout_track_path = ""
+    # Restrict the scored feature scope to these object types; empty keeps
+    # every type, which is what the global-fidelity report wants. ["domino"]
+    # for the friction experiment: the arm is commanded, so it reproduces at
+    # every friction and can only dilute -- and with it in scope the episode
+    # never rests, so rest-point segmentation can never cut.
+    code_sim_learning_rollout_scope_types: List[str] = []
+    # Features that cannot carry physics signal, dropped from the scored scope
+    # when scope_types is set. A colour channel does not move; a settle
+    # tolerance is not meaningful applied to a boolean.
+    code_sim_learning_rollout_nonkinematic_features: List[str] = [
+        "r", "g", "b", "is_held"
+    ]
+    # A fall is believed only once it rises this far above a domino's own
+    # first reading, and holds for onset_min_persist samples. Far above both
+    # measured spurious effects: gripper occlusion produced 29 deg and
+    # orientation drift 13 deg, so neither can manufacture a topple.
+    code_sim_learning_onset_confirm_deg = 45.0
+    # Having confirmed, the onset is backdated to where the angle last sat
+    # within this much of the domino's baseline.
+    code_sim_learning_onset_deg = 5.0
+    # Consecutive samples required at or past the confirmation angle. Mirrors
+    # cascade_certificate._TOPPLE_MIN_STEPS: one sample carries no
+    # information.
+    code_sim_learning_onset_min_persist = 3
+    # Object-name prefix mapped onto the track's integer domino ids.
+    code_sim_learning_track_object_prefix = "domino_"
+    # Rigid transform taking the track's frame into the env's world frame,
+    # applied to the track's positions before they are matched to objects.
+    # The markerless pipeline emits poses in the ROBOT BASE frame while a
+    # twin state is in the env's own world frame, and for the domino env
+    # those differ by a quarter turn (see
+    # pybullet_domino.real_geometry.base_to_world_transform). Matching is
+    # invariant to a translation -- it votes over candidate offsets, which is
+    # what absorbs the camera calibration error -- but NOT to a rotation, so
+    # without this every pair sits hundreds of mm apart and nothing matches.
+    # Identity by default: an env whose track is already in world frame, and
+    # every test that builds both sides in one frame, must be untouched.
+    code_sim_learning_track_frame_yaw = 0.0
+    code_sim_learning_track_frame_xy = (0.0, 0.0)
+    # Frames per second assumed when a track carries no per-frame timestamps.
+    code_sim_learning_track_fallback_fps = 60.0
+    # How long a fit waits for the tracks its manifest promised. The online
+    # loop fits as soon as an episode ends, while post-processing is still
+    # running -- about 3x the length of the take. Not waiting means falling
+    # back to per-step scoring, which under open-loop scores the twin against
+    # itself, so the wait is what keeps the flag meaning what it says. This is
+    # the LEARNER waiting for its data, which is fine; open-loop exists to
+    # stop the ROBOT waiting. 0 disables.
+    code_sim_learning_track_wait_s = 900.0
+    # Floor for the per-feature motion span used in residual
+    # normalization, so a feature that never moves in the fit data does
+    # not blow up its (noise) residuals. Units: the feature's own
+    # (meters / radians / ...).
+    code_sim_learning_rollout_feature_scale_floor = 0.05
+    # Split each rollout-fit trajectory at rest points (all scored
+    # features quiescent for at least segment_min_rest_steps) into
+    # independently-scored segments, each re-anchored at an observed
+    # at-rest state (multiple shooting). Free-running an entire
+    # manipulation trajectory lets chaotic contact divergence compound
+    # across phases and shifts the SSE minimum away from the true
+    # parameters (replay-divergence bias, both directions observed);
+    # segments bound the compounding horizon and let trimming drop only
+    # the chaotic phase of a trajectory instead of the whole recording.
+    # Rest anchoring keeps the zero-velocity reset exact.
+    code_sim_learning_rollout_segment_on_rest = True
+    # Consecutive settled steps (per settle_tol) required for a rest
+    # point to become a segment boundary.
+    code_sim_learning_rollout_segment_min_rest_steps = 10
+    # Pre-fit sensitivity screen: a physical param whose SSE span over
+    # its own grid sweep does not exceed factor * the same-theta SSE
+    # noise floor is "insensitive" on this data - the rollouts do not
+    # respond to it, so its fitted value is noise. It is reported as
+    # such and its anchor (env-registry baseline) is kept instead of
+    # the fitted value. 0 disables the screen.
+    code_sim_learning_rollout_sensitivity_factor = 2.0
+    # Cross-cycle consistency check on the final per-cycle fit: a param
+    # whose MAP moved more than this many combined posterior sigmas
+    # since the previous cycle's fit is flagged (and its "identified"
+    # verdict downgraded) - mutually-incompatible confident fits are
+    # the signature of an overconfident probe. 0 disables.
+    code_sim_learning_rollout_cross_cycle_sigma = 3.0
+    # Pooled-evidence arbitration of a cross-cycle conflict: when the
+    # new fit is flagged (see above) but explains the fit's surviving
+    # segments with an SSE at least this factor smaller than the
+    # held value does, the jump is accepted instead of held - the two
+    # fits are nested (the new one saw a superset of the data), so a
+    # decisive pooled-objective gap is real evidence, not probe
+    # overconfidence (run_20260727_210827 seed1: pooled SSE 0.14 at the
+    # new 0.4748 vs ~4.4 at the held 0.9313, yet the hold kept 0.9313
+    # for the rest of the run). 0 disables arbitration.
+    code_sim_learning_rollout_consistency_sse_ratio = 3.0
     # Diagnostic: log the Hessian eigendecomposition at the MAP to
     # spot unidentifiable parameter combinations. Adds ~5-15s per fit.
     code_sim_learning_log_hessian_identifiability = False
@@ -1033,13 +2127,62 @@ class GlobalSettings:
     code_sim_learning_warm_start_with_lm = True
 
     # Sim-learning oracle flags (for ablation / debugging).
-    # When True, load GT process rules instead of running agent synthesis.
+    # When True, load GT residual rules instead of running agent synthesis.
     # Parameters init_values are perturbed so MCMC still has work to do.
     agent_sim_learn_oracle_sim_program = False
     # Relative scale for perturbing oracle parameter init_values before MCMC.
     agent_sim_learn_oracle_sim_param_noise_scale = 0.2
     # When True, use GT parameter values directly, skipping MCMC fitting.
+    # Also grants planning base sims the TRUE physical params (e.g. the true
+    # domino friction even when domino_planning_friction is set) — as if all
+    # param learning, rule-level and physical, had already succeeded. Task
+    # generation still reads domino_planning_friction for the
+    # differentiation filter, so the oracle, the no-learning baseline, and
+    # the sysID learner all see IDENTICAL tasks (and share the task cache:
+    # this agent_ flag is outside the cache key's
+    # domino_/pybullet_/skill_phase_ prefixes on purpose).
     agent_sim_learn_oracle_sim_params = False
+    # When True, the agent learns PARAMETERIZED samplers - per-option
+    # (lifted-skill) functions that aim continuous option parameters at each
+    # sketch step's subgoal, instead of bilevel refinement drawing them
+    # uniformly from the option's box. The agent authors a versioned
+    # ``samplers.py`` (LEARNED_SAMPLERS keyed by option name) and tunes it
+    # with ``sim.samplers()``. Sampler learning rides along in
+    # the sim/predicate synthesis session when one runs
+    # (oracle_sim_program=False); when no synthesis session runs
+    # (oracle_sim_program=True) it gets a dedicated session of its own.
+    # The GROUND level of the sampler hierarchy needs no flag: a sketch
+    # step's ``~ [widths]`` region annotation compiles to a per-step
+    # GroundSampler that overrides the parameterized sampler for that step
+    # (ground > parameterized > uniform).
+    agent_sim_learn_parameterized_samplers = False
+    # When True (and parameterized_samplers is on), use ground-truth
+    # per-skill samplers from the env's GroundTruthSamplerFactory instead of
+    # having the agent learn them — if such samplers exist for the env;
+    # otherwise warn and fall back to synthesis. Mirrors
+    # agent_sim_learn_oracle_sim_program.
+    agent_sim_learn_oracle_samplers = False
+
+    # Allowlist of env predicate names surfaced to the agent for
+    # agent_sim_learning and its subclasses (e.g.
+    # agent_sim_predicate_invention). Empty list defers to the class's
+    # KEPT_INITIAL_PREDICATE_NAMES attribute: None for agent_sim_learning
+    # (keep every env predicate), {"Holding"} for the invention approach.
+    # Setting it on agent_sim_learning strips the named-out predicates -
+    # even goal predicates - from the agent's prompts/tools; tasks whose
+    # goal atoms are stripped must then carry goal_nl.
+    agent_sim_learn_kept_predicates_names: List[str] = []
+    # Ablation axis ("the robot knows its own simulator"): when True,
+    # copy the env's declared base-sim source modules
+    # (``get_base_sim_source_files()``, e.g. pybullet_fan_base.py +
+    # pybullet_env.py) into the sandbox's ./reference/base_sim/ for
+    # every agent session (solve, explore, and synthesis). The
+    # visibility split is structural: residual dynamics, task
+    # generation, and goal semantics live in modules that are never
+    # declared, so the provided files are byte-identical to the code
+    # the base-sim rollouts execute. Envs that declare no source files
+    # are unaffected.
+    agent_sim_provide_base_sim_source = False
 
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1070,6 +2213,9 @@ class GlobalSettings:
                     "pybullet_laser": 2000,
                     "pybullet_ants": 2000,
                     "pybullet_fan": 2000,
+                    # Bridge plans are long (up to ~27 options in the
+                    # full variant), each option ~60-100 low-level steps.
+                    "pybullet_bridge": 3000,
                     "pybullet_switch": 2000,
                     "pybullet_barrier": 2000,
                     "doors": 1000,

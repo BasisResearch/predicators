@@ -20,9 +20,9 @@ from predicators.envs.cover import CoverEnv
 from predicators.execution_monitoring import create_execution_monitor
 from predicators.ground_truth_models import _get_predicates_by_names, \
     get_gt_options
-from predicators.main import _run_testing
 from predicators.perception import create_perceiver
 from predicators.predicate_search_score_functions import create_score_function
+from predicators.run.testing import run_testing
 from predicators.settings import CFG
 from predicators.structs import Dataset, Object, Predicate, State, Task
 
@@ -244,7 +244,7 @@ def _run_proxy_analysis_for_predicates(
         execution_monitor = create_execution_monitor(CFG.execution_monitor)
         cogman = CogMan(approach, perceiver, execution_monitor)
         cogman.learn_from_offline_dataset(dataset)
-        planning_result = _run_testing(env, cogman)
+        planning_result = run_testing(env, cogman)
         results.update(planning_result)
     return results
 

@@ -2,6 +2,7 @@
 
 import copy
 import os
+import shlex
 import subprocess
 from dataclasses import dataclass
 from typing import Any, Dict, Iterator, List, Optional, Tuple
@@ -61,10 +62,27 @@ def config_to_logfile(cfg: RunConfig, suffix: str = ".log") -> str:
     return name
 
 
+def _cmd_flag_value(value: Any) -> str:
+    """Render one flag value as a single shell token.
+
+    List/tuple values (e.g. agent_sim_learn_kept_predicates_names) use
+    the space-free bracketed form that utils.string_to_python_object
+    parses back; str(list) would repr into multiple argv tokens and
+    break parse_args' flag/value pairing. shlex.quote keeps the brackets
+    one token under zsh/bash glob expansion.
+    """
+    if isinstance(value, (list, tuple)):
+        inner = ",".join(str(x) for x in value)
+        rendered = f"[{inner}]" if isinstance(value, list) else f"({inner})"
+        return shlex.quote(rendered)
+    return shlex.quote(str(value))
+
+
 def config_to_cmd_flags(cfg: RunConfig) -> str:
     """Create a string of command flags from a run config."""
     arg_str = " ".join(f"--{a}" for a in cfg.args)
-    flag_str = " ".join(f"--{f} {v}" for f, v in cfg.flags.items())
+    flag_str = " ".join(f"--{f} {_cmd_flag_value(v)}"
+                        for f, v in cfg.flags.items())
     args_and_flags_str = (f"--env {cfg.env} "
                           f"--approach {cfg.approach} "
                           f"--experiment_id {cfg.experiment_id} "

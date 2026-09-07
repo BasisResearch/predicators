@@ -1,4 +1,4 @@
-"""Test that test_option_plan produces correct results.
+"""Test that submit_plan produces correct results.
 
 Validates that multi-step option plans (Pick→Place→Pick→Place→Push) produce
 non-zero actions at every step, both in-process and in a subprocess that
@@ -31,14 +31,13 @@ from predicators.settings import CFG
 # Config matching predicatorv3/predicator_v3.yaml (mf_agent approach)
 _CFG_OVERRIDES = {
     "env": "pybullet_domino",
-    "approach": "agent_planner",
+    "approach": "agent_model_free",
     "seed": 0,
     "use_gui": False,
     "domino_restricted_push": True,
     "domino_use_continuous_place": True,
     "domino_use_skill_factories": True,
     "domino_use_domino_blocks_as_target": True,
-    "domino_use_grid": True,
     "domino_has_glued_dominos": False,
     "domino_initialize_at_finished_state": False,
     "num_train_tasks": 1,
@@ -120,7 +119,7 @@ def _run_option_plan(ctx: Any,
         plan = OPTION_PLAN
 
     task = ctx.current_task
-    all_options = ctx.options | ctx.iteration_proposals.proposed_options
+    all_options = ctx.options
     opt_map = {o.name: o for o in all_options}
 
     state = task.init

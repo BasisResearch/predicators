@@ -1,10 +1,12 @@
 """Test cases for option models."""
+import numpy as np
 import pytest
 from gym.spaces import Box
 
 from predicators import utils
 from predicators.option_model import _OracleOptionModel, create_option_model
-from predicators.structs import Action, ParameterizedOption, State, Type
+from predicators.structs import Action, Object, ParameterizedOption, State, \
+    Type
 
 
 def test_default_option_model():
@@ -192,3 +194,39 @@ def test_create_option_model():
     })
     model = create_option_model("oracle_blocks")
     assert isinstance(model, _OracleOptionModel)
+
+
+def test_oracle_option_model_returns_partial_state_on_failure():
+    """A skill raising mid-option yields the last simulated state (where the
+    real env would be), not the pre-option state, with 0 actions."""
+    utils.reset_config({"env": "cover"})
+    t = Type("thing", ["x"])
+    obj = Object("thing0", t)
+    calls = {"n": 0}
+
+    def _policy(_s, _m, _o, _p):
+        calls["n"] += 1
+        if calls["n"] >= 3:
+            raise utils.OptionExecutionFailure("boom")
+        return Action(np.array([1.0], dtype=np.float32))
+
+    opt = ParameterizedOption("Step",
+                              types=[],
+                              params_space=Box(0, 1, (0, )),
+                              policy=_policy,
+                              initiable=lambda _s, _m, _o, _p: True,
+                              terminal=lambda _s, _m, _o, _p: False)
+
+    def _sim(s, a):
+        nxt = s.copy()
+        nxt.set(obj, "x", s.get(obj, "x") + float(a.arr[0]))
+        return nxt
+
+    model = _OracleOptionModel({opt}, _sim)
+    init = State({obj: np.array([0.0], dtype=np.float32)})
+    post, n = model.get_next_state_and_num_actions(init, opt.ground([], []))
+    assert n == 0
+    assert model.last_execution_failure == "boom"
+    # Two actions were applied before the raise: the returned state is
+    # the partial post-failure state, not the pre-option state.
+    assert post.get(obj, "x") == 2.0

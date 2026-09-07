@@ -8,6 +8,16 @@ a human-readable markdown document.  Used by
 import json
 from typing import Any, Dict, List, Optional
 
+_MAX_PARAM_LEN = 120
+
+
+def truncate(value: Any, max_len: int = _MAX_PARAM_LEN) -> str:
+    """Return a short string repr of *value*, truncating if needed."""
+    s = repr(value)
+    if len(s) > max_len:
+        return s[:max_len] + "..."
+    return s
+
 
 def format_conversation_markdown(
     collected: List[Dict[str, Any]],
@@ -42,25 +52,63 @@ def format_conversation_markdown(
     lines.append("## Conversation\n")
 
     turn_num = 0
+    # Duplicate suppression: the SDK can deliver the same assistant
+    # message (and its tool results) more than once, and tool_use /
+    # tool_result ids are unique per call, so a repeated id is always a
+    # re-render of an already-logged turn (run_20260830 transcripts
+    # rendered turns twice verbatim).
+    seen_tool_use_ids: set = set()
+    seen_tool_result_ids: set = set()
     for entry in collected:
         etype = entry.get("type", "")
 
         if etype == "assistant":
+            blocks = entry.get("content", [])
+            ids = [
+                b.get("id") for b in blocks if isinstance(b, dict)
+                and b.get("type") == "tool_use" and b.get("id")
+            ]
+            if ids and all(i in seen_tool_use_ids for i in ids):
+                continue
+            # Render into a buffer first: a turn whose blocks produce no
+            # output (empty or redacted thinking) gets no header at all,
+            # instead of an empty "### Turn N" stub.
+            body: List[str] = []
+            for block in blocks:
+                _format_assistant_block(block, body)
+            if not body:
+                continue
+            seen_tool_use_ids.update(ids)
             turn_num += 1
             if turn_num > 1:
                 lines.append("---\n")
             lines.append(f"### Turn {turn_num}\n")
-            for block in entry.get("content", []):
-                _format_assistant_block(block, lines)
+            lines.extend(body)
 
         elif etype == "user":
             for block in entry.get("content", []):
+                if (isinstance(block, dict)
+                        and block.get("type") == "tool_result"):
+                    tid = block.get("tool_use_id")
+                    if tid and tid in seen_tool_result_ids:
+                        continue
+                    if tid:
+                        seen_tool_result_ids.add(tid)
                 _format_user_block(block, lines)
 
         elif etype == "result":
             turns = entry.get("num_turns", "?")
-            cost = entry.get("total_cost_usd")
-            cost_str = f"${cost:.2f}" if cost is not None else "?"
+            # Prefer the per-solve/total split the sandbox derives (the
+            # raw total_cost_usd is the cumulative session cost); fall
+            # back to the raw cumulative value when it isn't supplied.
+            solve_cost = meta.get("solve_cost_usd") if meta else None
+            total_cost = meta.get("total_cost_usd") if meta else None
+            if solve_cost is not None and total_cost is not None:
+                cost_str = (f"${solve_cost:.2f} this solve, "
+                            f"${total_cost:.2f} total")
+            else:
+                cost = entry.get("total_cost_usd")
+                cost_str = f"${cost:.2f}" if cost is not None else "?"
             lines.append(f"---\n\n**Result:** {turns} turns, {cost_str}\n")
 
         elif etype == "error":
@@ -87,9 +135,8 @@ def _format_assistant_block(block: Dict[str, Any], lines: List[str]) -> None:
         tool_id = block.get("id", "")
         inp = block.get("input", {})
         lines.append(f"**Tool Call:** `{name}` (id: `{tool_id}`)")
-        lines.append("```json")
-        lines.append(json.dumps(inp, indent=2, default=str))
-        lines.append("```\n")
+        _format_tool_input(inp, lines)
+        lines.append("")
     else:
         _format_unknown_block(block, lines)
 
@@ -127,6 +174,47 @@ def _format_user_block(block: Dict[str, Any], lines: List[str]) -> None:
         lines.append(f"**User:** {block.get('text', '')}\n")
     else:
         _format_unknown_block(block, lines)
+
+
+_LANG_BY_KEY = {
+    "code": "python",
+    "command": "bash",
+    "script": "bash",
+    "content": "",
+    "new_string": "",
+    "old_string": "",
+    "query": "",
+}
+
+
+def _format_tool_input(inp: Any, lines: List[str]) -> None:
+    """Render a tool-call input dict.
+
+    Multiline string values become fenced code blocks (so embedded
+    newlines render verbatim instead of as ``\\n``); the remaining
+    scalar fields go in a compact JSON block.
+    """
+    if not isinstance(inp, dict) or not any(
+            isinstance(v, str) and "\n" in v for v in inp.values()):
+        lines.append("```json")
+        lines.append(json.dumps(inp, indent=2, default=str))
+        lines.append("```")
+        return
+
+    scalars: Dict[str, Any] = {}
+    for k, v in inp.items():
+        if isinstance(v, str) and "\n" in v:
+            lang = _LANG_BY_KEY.get(k, "")
+            lines.append(f"*{k}:*")
+            lines.append(f"```{lang}")
+            lines.append(v)
+            lines.append("```")
+        else:
+            scalars[k] = v
+    if scalars:
+        lines.append("```json")
+        lines.append(json.dumps(scalars, indent=2, default=str))
+        lines.append("```")
 
 
 def _format_unknown_block(block: Dict[str, Any], lines: List[str]) -> None:

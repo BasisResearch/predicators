@@ -3,7 +3,9 @@ import os
 import shutil
 import sys
 import tempfile
-from typing import Callable
+import time
+from collections import defaultdict
+from typing import Callable, Dict, List
 
 import pytest
 
@@ -11,13 +13,22 @@ import predicators.ground_truth_models
 from predicators import utils
 from predicators.approaches import ApproachFailure, ApproachTimeout, \
     BaseApproach, create_approach
+from predicators.approaches.agent_model_free_approach import \
+    AgentModelFreeApproach
 from predicators.cogman import CogMan
 from predicators.envs.cover import CoverEnv
 from predicators.execution_monitoring import create_execution_monitor
 from predicators.ground_truth_models import get_gt_options
-from predicators.main import _run_testing, main
+from predicators.main import main
 from predicators.perception import create_perceiver
-from predicators.structs import Action, State, Task
+from predicators.run.checkpoints import ApproachCheckpoints, \
+    InflightInteractions, discover_resume_cycles, load_test_solve_rate, \
+    perfect_test_streak_from_disk
+from predicators.run.early_stopping import below_reward_bar_msg
+from predicators.run.testing import run_testing, save_test_results
+from predicators.settings import CFG
+from predicators.structs import Action, DefaultState, EnvironmentTask, State, \
+    Task
 
 _GROUND_TRUTH_MODULE_PATH = predicators.ground_truth_models.__name__
 
@@ -237,7 +248,7 @@ def test_bilevel_planning_approach_failure_and_timeout():
     perceiver = create_perceiver("trivial")
     exec_monitor = create_execution_monitor("trivial")
     cogman = CogMan(approach, perceiver, exec_monitor)
-    _run_testing(env, cogman)
+    run_testing(env, cogman)
 
     approach = _DummySolveTimeoutApproach(env.predicates,
                                           get_gt_options(env.get_name()),
@@ -247,7 +258,7 @@ def test_bilevel_planning_approach_failure_and_timeout():
     perceiver = create_perceiver("trivial")
     exec_monitor = create_execution_monitor("trivial")
     cogman = CogMan(approach, perceiver, exec_monitor)
-    _run_testing(env, cogman)
+    run_testing(env, cogman)
 
     approach = _DummyExecutionTimeoutApproach(env.predicates,
                                               get_gt_options(env.get_name()),
@@ -257,7 +268,38 @@ def test_bilevel_planning_approach_failure_and_timeout():
     perceiver = create_perceiver("trivial")
     exec_monitor = create_execution_monitor("trivial")
     cogman = CogMan(approach, perceiver, exec_monitor)
-    _run_testing(env, cogman)
+    run_testing(env, cogman)
+
+
+def testbelow_reward_bar_msg():
+    """A solved episode counts toward early stopping only when its reward
+    clears the task's early_stop_min_reward bar (minus slack)."""
+    utils.reset_config({"online_learning_early_stopping_reward_slack": 0.0})
+    # No bar set: never gated.
+    no_bar_task = EnvironmentTask(DefaultState, set())
+    assert below_reward_bar_msg(-1.0, no_bar_task) is None
+    # Bar set (e.g. domino optimal reward 1 - 0.05 * 3 = 0.85).
+    task = EnvironmentTask(DefaultState, set(), early_stop_min_reward=0.85)
+    # Over-built solve falls short.
+    msg = below_reward_bar_msg(0.75, task)
+    assert msg is not None and "0.75" in msg and "0.85" in msg
+    # Reward computed exactly at the bar clears it despite float rounding
+    # (1 - 0.05 * 3 != 0.85 in binary).
+    assert below_reward_bar_msg(1.0 - 0.05 * 3, task) is None
+    assert below_reward_bar_msg(0.9, task) is None
+    # Slack relaxes the bar (one spare block at 0.05 block cost).
+    utils.update_config({"online_learning_early_stopping_reward_slack": 0.05})
+    assert below_reward_bar_msg(0.80, task) is None
+    assert below_reward_bar_msg(0.75, task) is not None
+    # Ignoring the bar makes any solved episode count, regardless of slack.
+    utils.update_config({
+        "online_learning_early_stopping_reward_slack":
+        0.0,
+        "online_learning_early_stopping_ignore_reward_bar":
+        True,
+    })
+    assert below_reward_bar_msg(0.75, task) is None
+    assert below_reward_bar_msg(-1.0, task) is None
 
 
 def test_env_failure():
@@ -281,4 +323,165 @@ def test_env_failure():
     perceiver = create_perceiver("trivial")
     exec_monitor = create_execution_monitor("trivial")
     cogman = CogMan(approach, perceiver, exec_monitor)
-    _run_testing(env, cogman)
+    run_testing(env, cogman)
+
+
+def test_skip_initial_test():
+    """--skip_initial_test skips only the pre-loop test; per-cycle tests
+    still run and save results."""
+    utils.reset_config()
+    parent_dir = os.path.dirname(__file__)
+    results_dir = os.path.join(parent_dir, "_fake_results_skip_initial")
+    sys.argv = [
+        "dummy", "--env", "cover", "--approach", "interactive_learning",
+        "--seed", "123", "--num_online_learning_cycles", "1",
+        "--excluded_predicates", "Covers",
+        "--interactive_num_ensemble_members", "1", "--num_train_tasks", "3",
+        "--num_test_tasks", "1", "--predicate_mlp_classifier_max_itr",
+        "lambda n: n * 50", "--skip_initial_test", "True", "--results_dir",
+        results_dir
+    ]
+    main()
+    saved = os.listdir(results_dir)
+    assert not any(f.endswith("__None.pkl") for f in saved)
+    assert any(f.endswith("__0.pkl") for f in saved)
+    shutil.rmtree(results_dir)
+
+
+def testperfect_test_streak_from_disk():
+    """Test-driven early stopping's consecutive-perfect-test streak is re-
+    derived from the saved per-cycle results, so an --auto_resume relaunch
+    continues the count instead of restarting it."""
+    parent_dir = os.path.dirname(__file__)
+    results_dir = os.path.join(parent_dir, "_fake_results_streak")
+    utils.reset_config({
+        "env": "cover",
+        "approach": "random_actions",
+        "seed": 123,
+        "results_dir": results_dir,
+    })
+
+    def _fake_results(num_solved: int, num_total: int) -> dict:
+        results: Dict[str, float] = defaultdict(float)
+        results["num_solved"] = num_solved
+        results["num_total"] = num_total
+        return results
+
+    # Fresh run: nothing on disk, seed is 0.
+    assert perfect_test_streak_from_disk(-1) == 0
+    assert perfect_test_streak_from_disk(2) == 0
+    assert load_test_solve_rate(0) is None
+    # Cycle 0 imperfect, cycles 1-2 perfect: the walk stops at cycle 0.
+    save_test_results(_fake_results(0, 1), online_learning_cycle=0)
+    save_test_results(_fake_results(1, 1), online_learning_cycle=1)
+    save_test_results(_fake_results(1, 1), online_learning_cycle=2)
+    assert load_test_solve_rate(0) == 0.0
+    assert load_test_solve_rate(1) == 1.0
+    assert perfect_test_streak_from_disk(2) == 2
+    assert perfect_test_streak_from_disk(1) == 1
+    assert perfect_test_streak_from_disk(0) == 0
+    # A missing cycle (3) breaks the streak even with cycle 4 perfect.
+    save_test_results(_fake_results(1, 1), online_learning_cycle=4)
+    assert perfect_test_streak_from_disk(4) == 1
+    # An empty test set never counts as perfect.
+    save_test_results(_fake_results(0, 0), online_learning_cycle=5)
+    assert perfect_test_streak_from_disk(5) == 0
+    shutil.rmtree(results_dir)
+
+
+def test_inflight_interactions_roundtrip(tmp_path):
+    """A cycle's episodes persisted before LEARN survive a mid-learn death:
+
+    reloadable at the same cycle, invisible to the checkpoint scanner,
+    ignored when stale, and gone once discarded.
+    """
+    utils.reset_config({
+        "env": "cover",
+        "approach": "random_actions",
+        "seed": 0,
+        "approach_dir": str(tmp_path),
+    })
+
+    class _FakeApproach:
+        _save_suffix = "test_ckpt"
+
+    class _FakeCogman:
+        _approach = _FakeApproach()
+
+    checkpoints = ApproachCheckpoints.for_cogman(_FakeCogman())
+    results: List[Dict[str, int]] = [{
+        "episode": 1
+    }, {
+        "episode": 2
+    }]  # picklable stand-ins
+    checkpoints.save_inflight(
+        InflightInteractions(cycle=3,
+                             interaction_results=results,
+                             task_idxs=[0, 0],
+                             task_solved_status=[True, False],
+                             query_cost=1.5))
+    # Wrong cycle finds nothing.
+    assert checkpoints.load_inflight(2) is None
+    data = checkpoints.load_inflight(3)
+    assert data is not None
+    assert data.interaction_results == results
+    assert data.task_idxs == [0, 0]
+    assert data.task_solved_status == [True, False]
+    assert data.query_cost == 1.5
+    # The checkpoint scanner must not mistake the stash for a checkpoint
+    # (its cycle token is non-integer by construction).
+    load_path = utils.get_approach_load_path_str()
+    found, max_cycle = discover_resume_cycles(load_path)
+    assert not found
+    assert max_cycle is None
+    # A stale stash (older than the auto-resume gate) is ignored.
+    path = checkpoints.inflight_path(3)
+    old_ts = time.time() - CFG.auto_resume_max_age_hours * 3600.0 - 10
+    os.utime(path, (old_ts, old_ts))
+    assert checkpoints.load_inflight(3) is None
+    os.utime(path, None)
+    assert checkpoints.load_inflight(3) is not None
+    # Discard removes it.
+    checkpoints.discard_inflight(3)
+    assert checkpoints.load_inflight(3) is None
+
+    # A non-checkpointing approach neither saves nor loads a stash.
+    class _NoCkptApproach:
+        _save_suffix = None
+
+    no_ckpt = ApproachCheckpoints.for_approach(_NoCkptApproach())
+    assert not no_ckpt.checkpointing
+    no_ckpt.save_inflight(
+        InflightInteractions(cycle=4,
+                             interaction_results=results,
+                             task_idxs=[0],
+                             task_solved_status=[True],
+                             query_cost=0.0))
+    assert not os.path.exists(no_ckpt.inflight_path(4))
+
+
+def test_stash_resume_restores_request_bookkeeping():
+    """A resume that reuses a cycle's persisted episodes never calls
+    get_interaction_requests, so the result->train-task pairing that
+    learn_from_interaction_results needs must come from
+    restore_interaction_requests (run_20260828_173451 asserted on it)."""
+    # The model-free family records the pairing in get_interaction_requests
+    # and asserts on it in learn_from_interaction_results.
+    approach = object.__new__(AgentModelFreeApproach)
+    approach._requests_train_task_idxs = None  # pylint: disable=protected-access
+    approach.restore_interaction_requests([0, 0])
+    assert approach._requests_train_task_idxs == [0, 0]  # pylint: disable=protected-access
+
+    # CogMan forwards to whatever approach it wraps.
+    class _RecordingApproach:
+        restored = None
+
+        def restore_interaction_requests(self, train_task_idxs):
+            """Record what CogMan forwarded."""
+            self.restored = list(train_task_idxs)
+
+    rec = _RecordingApproach()
+    cogman = CogMan(rec, create_perceiver("trivial"),
+                    create_execution_monitor("trivial"))
+    cogman.restore_interaction_requests([1, 0])
+    assert rec.restored == [1, 0]

@@ -1,16 +1,15 @@
 """Oracle bilevel process planning approach."""
-from typing import Callable, List, Optional, Set
+from typing import List, Optional, Set
 
 from gym.spaces import Box
 
 from predicators.approaches.process_planning_approach import \
     BilevelProcessPlanningApproach
-from predicators.ground_truth_models import augment_task_with_helper_objects, \
-    get_gt_helper_predicates, get_gt_helper_types, get_gt_processes
+from predicators.ground_truth_models import get_gt_processes
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
-from predicators.structs import NSRT, Action, CausalProcess, \
-    ParameterizedOption, Predicate, State, Task, Type
+from predicators.structs import NSRT, CausalProcess, ParameterizedOption, \
+    Predicate, Task, Type
 
 
 class OracleBilevelProcessPlanningApproach(BilevelProcessPlanningApproach):
@@ -36,12 +35,8 @@ class OracleBilevelProcessPlanningApproach(BilevelProcessPlanningApproach):
                          max_skeletons_optimized,
                          bilevel_plan_without_sim,
                          option_model=option_model)
-        # Add optional helpful types and predicates (such as in dominoes the
-        # ones about positions and directions)
-        helper_types = get_gt_helper_types(CFG.env)
-        helper_predicates = get_gt_helper_predicates(CFG.env)
-        self._types = types | helper_types
-        self._initial_predicates = initial_predicates | helper_predicates
+        # The optional helper types/predicates (e.g. the domino grid) are
+        # added by the base class because _use_gt_helpers() returns True here.
 
         if processes is None:
             # use only_endogenous for the no_invent baseline
@@ -75,14 +70,14 @@ class OracleBilevelProcessPlanningApproach(BilevelProcessPlanningApproach):
     def is_learning_based(self) -> bool:
         return False
 
+    def _use_gt_helpers(self) -> bool:
+        # The oracle always uses the ground-truth helper types/predicates/
+        # objects (e.g. the domino grid), independent of the CFG flag.
+        return True
+
     def _get_current_processes(self) -> Set[CausalProcess]:
         return self._processes
 
     def _get_current_nsrts(self) -> Set[NSRT]:
         """Get the current set of NSRTs."""
         return set()
-
-    def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
-        # Augment task with helper objects if needed
-        task = augment_task_with_helper_objects(task, CFG.env)
-        return super()._solve(task, timeout)

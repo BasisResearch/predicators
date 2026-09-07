@@ -6,12 +6,12 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.structs import NSRT, PNAD, Action, DefaultState, \
-    DemonstrationQuery, DummyOption, EnvironmentTask, GroundAtom, \
-    GroundMacro, ImageOptionTrajectory, InteractionRequest, \
+    DemonstrationQuery, DummyOption, EnvironmentTask, EpisodeEvaluation, \
+    GroundAtom, GroundMacro, ImageOptionTrajectory, InteractionRequest, \
     InteractionResult, LDLRule, LiftedAtom, LiftedDecisionList, \
     LowLevelTrajectory, Macro, Object, ParameterizedOption, Predicate, Query, \
-    Segment, State, STRIPSOperator, Task, Type, Variable, _Atom, _GroundNSRT, \
-    _GroundSTRIPSOperator, _Option
+    Segment, State, STRIPSOperator, Task, TaskEvaluator, Type, Variable, \
+    _Atom, _GroundNSRT, _GroundSTRIPSOperator, _Option, step_option_labels
 
 
 def test_object_type():
@@ -195,7 +195,69 @@ obj9                11       12       13
     state5.simulator_state = "not dummy"
     assert not state4.allclose(state5)
 
+    # Restore the defaults so the override does not leak into whatever test
+    # happens to run after this module-scoped fixture (the CFG is global).
+    utils.reset_config()
+
     return state
+
+
+def test_state_latent():
+    """Tests for State.latent - the latent state-feature block threaded by the
+    sim-learning approaches when the learned rules are recurrent."""
+    t = Type("t", ["x"])
+    o = t("o")
+    s = State({o: np.array([1.0])})
+    # Defaults to None - fully-observed code never touches it.
+    assert s.latent is None
+    # Mutating the dict is the standard pattern for recurrent rules.
+    s.latent = {"heat": 0.5, "streak": 3}
+    assert s.latent == {"heat": 0.5, "streak": 3}
+    # copy() deep-copies the latent so siblings can mutate independently.
+    s_copy = s.copy()
+    assert s_copy.latent == {"heat": 0.5, "streak": 3}
+    s_copy.latent["heat"] = 0.9
+    s_copy.latent["streak"] = 10
+    assert s.latent == {"heat": 0.5, "streak": 3}
+    # The latent is *not* part of hash or allclose - two states identical
+    # in observable features but with different latents still hash-equal
+    # and compare-equal (search-node identity for fully-observed code is
+    # preserved). Backtracking restores the latent via `traj[cur_idx]`
+    # which is the same state object, not via hash equality.
+    s_a = State({o: np.array([1.0])})
+    s_a.latent = {"completely": "different"}
+    s_b = State({o: np.array([1.0])})
+    s_b.latent = {"heat": 0.5}
+    assert hash(s_a) == hash(s_b)
+    assert s_a.allclose(s_b)
+
+
+def test_predicate_holds_latent_autoread():
+    """Tests for Predicate.holds auto-routing state.latent to classifiers."""
+    t = Type("t", ["x"])
+    o = t("o")
+    s = State({o: np.array([1.0])})
+    # Classifier opted in to the latent via the kwarg.
+    pred = Predicate(
+        "LatentPred",
+        [t],
+        lambda state, objs, latent=None: (latent or {}).get("on", False),
+    )
+    # No latent attached → classifier sees None → default branch.
+    assert not pred.holds(s, [o])
+    # Attach a latent to the state → no kwarg → auto-read.
+    s.latent = {"on": True}
+    assert pred.holds(s, [o])
+    # Explicit kwarg overrides state.latent.
+    assert not pred.holds(s, [o], latent={"on": False})
+    # Legacy 2-arg classifier ignores the latent entirely.
+    legacy_pred = Predicate(
+        "LegacyPred",
+        [t],
+        lambda state, objs: state.get(objs[0], "x") > 0.5,
+    )
+    s.latent = {"anything": 42}  # should be ignored by the legacy form
+    assert legacy_pred.holds(s, [o])
 
 
 def test_predicate_and_atom():
@@ -315,9 +377,18 @@ def test_task(state):
     pred3 = Predicate("AlternativeOn", [cup_type, plate_type],
                       lambda s, o: True)
     goal3 = {pred3([cup, plate])}
-    task3 = Task(state, goal=goal, alt_goal=goal3)
+    task3 = Task(state,
+                 goal=goal,
+                 alt_goal=goal3,
+                 evaluator=TaskEvaluator(goal))
     alt_task = task3.replace_goal_with_alt_goal()
     assert alt_task.goal == goal3
+    # The evaluator is dropped with the original goal (its `goal` holds
+    # exactly the atoms the replacement hides).
+    assert alt_task.evaluator is None
+    # Without an alt goal, the task (and its evaluator) is unchanged.
+    task4 = Task(state, goal=goal, evaluator=task3.evaluator)
+    assert task4.replace_goal_with_alt_goal().evaluator is task3.evaluator
 
 
 def test_environment_task(state):
@@ -340,6 +411,82 @@ def test_environment_task(state):
     alt_env_task = env_task.replace_goal_with_alt_goal()
     assert alt_env_task.goal_description == alt_goal
     assert alt_env_task.alt_goal_desc is None
+    # The evaluator propagates into the agent-facing Task but is dropped
+    # by the alt-goal replacement (its `goal` holds the hidden atoms).
+    evaluator = TaskEvaluator(goal)
+    env_task_with_eval = EnvironmentTask(state,
+                                         goal_description=goal,
+                                         alt_goal_desc=alt_goal,
+                                         evaluator=evaluator,
+                                         early_stop_min_reward=0.85)
+    assert env_task_with_eval.task.evaluator is evaluator
+    assert env_task_with_eval.task.replace_goal_with_alt_goal().evaluator \
+        is None
+    alt_with_eval = env_task_with_eval.replace_goal_with_alt_goal()
+    assert alt_with_eval.evaluator is None
+    # The early-stop reward bar is dropped alongside the evaluator (its
+    # value is only meaningful under the dropped evaluator's reward).
+    assert alt_with_eval.early_stop_min_reward is None
+    # Without an alt goal, the evaluator reaches the Task untouched.
+    plain_env_task = EnvironmentTask(state,
+                                     goal_description=goal,
+                                     evaluator=evaluator)
+    assert plain_env_task.task.evaluator is evaluator
+
+
+def test_task_evaluator(state):
+    """The TaskEvaluator defaults reproduce plain atom-set-goal semantics:
+
+    terminated = goal atoms hold, every trajectory certified, binary reward,
+    no offline metrics, no stated objective.
+    """
+    cup_type = Type("cup_type", ["feat1"])
+    cup = cup_type("cup")
+    plate_type = Type("plate_type", ["feat1"])
+    plate = plate_type("plate")
+    pred_true = Predicate("On", [cup_type, plate_type], lambda s, o: True)
+    pred_false = Predicate("Off", [cup_type, plate_type], lambda s, o: False)
+    reached = TaskEvaluator({pred_true([cup, plate])})
+    unreached = TaskEvaluator({pred_false([cup, plate])})
+    assert reached.terminated(state)
+    assert not unreached.terminated(state)
+    # pylint: disable=protected-access
+    assert reached._certify([state], None) == (True, "")
+    assert reached.reward([state], None) == 1.0
+    assert unreached.reward([state], None) == 0.0
+    # solved: the public episode-success bit = terminated AND certified.
+    assert reached.solved([state], None)
+    assert not unreached.solved([state], None)
+    assert not reached.offline_metrics([state], None)
+    assert reached.objective_description() == ""
+    # step_option_labels: option-carrying actions get (name, objects,
+    # params) labels, bare actions get None.
+    push = utils.SingletonParameterizedOption(
+        "Push", lambda s, m, o, p: Action(np.zeros(1, dtype=np.float32)))
+    act_with_option = Action(np.zeros(1, dtype=np.float32))
+    act_with_option.set_option(push.ground([], np.zeros(0, dtype=np.float32)))
+    act_without_option = Action(np.zeros(1, dtype=np.float32))
+    assert step_option_labels([act_with_option, act_without_option]) == \
+        [("Push", (), ()), None]
+    # EpisodeEvaluation.rejected decodes rejection from the (reward,
+    # terminated) pair: terminated without a positive reward = a
+    # rule-breaking "success"; a non-terminated episode is never
+    # rejected, whatever its trajectory did.
+    hacked = EpisodeEvaluation(reward=-0.05,
+                               terminated=True,
+                               reason="pushed a blue",
+                               offline_metrics={})
+    legit = EpisodeEvaluation(reward=0.95,
+                              terminated=True,
+                              reason="",
+                              offline_metrics={})
+    failed = EpisodeEvaluation(reward=-0.05,
+                               terminated=False,
+                               reason="pushed a blue",
+                               offline_metrics={})
+    assert hacked.rejected
+    assert not legit.rejected
+    assert not failed.rejected
 
 
 def test_option(state):
@@ -421,6 +568,31 @@ def test_option(state):
     assert not option.terminal(state)
     assert not option.terminal(state)  # try it again
     assert option.terminal(state.copy())  # should be True on a copy
+
+
+def test_option_ground_clamps_float_precision_boundary():
+    """A boundary param that float32 rounding pushed just past a float64 bound
+    grounds (clamped to the bound) instead of raising; genuinely out-of-range
+    params still raise.
+
+    Regression: an agent-parsed yaw of pi stored as float32 exceeds the
+    float64 pi upper bound (float32(pi) > pi) and crashed
+    sketch refinement with a raw ValueError (run_20260707_112310).
+    """
+    params_space = Box(np.array([-np.pi]), np.array([np.pi]), dtype=np.float64)
+
+    def policy(s, m, o, p):
+        del s, m, o  # unused
+        return Action(p)
+
+    opt = ParameterizedOption("Turn", [], params_space, policy,
+                              lambda s, m, o, p: True, lambda s, m, o, p: True)
+    over_pi = np.array([np.pi], dtype=np.float32)  # float32(pi) > pi
+    assert float(over_pi[0]) > np.pi
+    option = opt.ground([], over_pi)
+    assert option.params[0] <= np.pi  # clamped to the bound
+    with pytest.raises(ValueError, match="outside bounds"):
+        opt.ground([], np.array([np.pi + 0.01]))
 
 
 def test_option_memory_incorrect():
@@ -785,6 +957,43 @@ def test_low_level_trajectory():
     with pytest.raises(AssertionError):
         # Incompatible lengths of states and actions.
         traj = LowLevelTrajectory(states[:-1], actions)
+
+
+def test_low_level_trajectory_provenance_defaults():
+    """Source-version fields default to ``None`` for backward compatibility.
+
+    The provenance fields are optional so existing callers that build a
+    ``LowLevelTrajectory`` positionally (e.g. demo-replay datasets, pre-
+    update fixtures) keep working unchanged.
+    """
+    cup_type = Type("cup_type", ["f"])
+    cup = cup_type("cup")
+    states = [State({cup: [0.0]}), State({cup: [1.0]})]
+    actions = [Action([0.5])]
+    traj = LowLevelTrajectory(states, actions)
+    assert traj.source_simulator_version is None
+    assert traj.source_predicates_version is None
+
+
+def test_low_level_trajectory_provenance_roundtrip():
+    """Provenance tags assigned at construction are surfaced via properties."""
+    cup_type = Type("cup_type", ["f"])
+    cup = cup_type("cup")
+    states = [State({cup: [0.0]}), State({cup: [1.0]})]
+    actions = [Action([0.5])]
+    traj = LowLevelTrajectory(
+        states,
+        actions,
+        _is_demo=False,
+        _train_task_idx=3,
+        _source_simulator_version="cycle_002_vers_005",
+        _source_predicates_version="cycle_002_vers_003",
+    )
+    assert traj.source_simulator_version == "cycle_002_vers_005"
+    assert traj.source_predicates_version == "cycle_002_vers_003"
+    # Existing fields still work.
+    assert traj.train_task_idx == 3
+    assert not traj.is_demo
 
 
 def test_image_option_trajectory():
@@ -1292,3 +1501,30 @@ def test_macros():
     assert len(remainder) == 0
     ground_macro4 = GroundMacro.from_ground_nsrts(ground_macro2.ground_nsrts)
     assert ground_macro4 == ground_macro2
+
+
+def test_typed_entity_pickle_drops_cached_hash():
+    """Objects pickle without their cached ``_hash``/``_str``.
+
+    ``_hash`` caches ``hash(str(self))``, and string hashes are salted
+    per process (PYTHONHASHSEED): carrying the cache across processes
+    made every ``State.data`` lookup on unpickled objects miss its dict
+    bucket (KeyError on ``fit_data`` pickles loaded offline). Both
+    directions are covered: fresh pickles omit the cache, and legacy
+    payloads that baked one in are scrubbed on load.
+    """
+    import pickle  # pylint: disable=import-outside-toplevel
+    obj = Type("ball", ["x"])("ball0")
+    str(obj)  # warm the cached properties
+    hash(obj)
+    assert "_hash" in obj.__dict__ and "_str" in obj.__dict__
+    loaded = pickle.loads(pickle.dumps(obj))
+    assert "_hash" not in loaded.__dict__
+    assert "_str" not in loaded.__dict__
+    assert loaded == obj
+    assert hash(loaded) == hash(obj)
+    # Legacy payload: a stale cache in the pickled dict is dropped.
+    stale = pickle.loads(pickle.dumps(obj))
+    stale.__setstate__({"_hash": 12345, "_str": "bogus"})
+    assert "_hash" not in stale.__dict__
+    assert "_str" not in stale.__dict__

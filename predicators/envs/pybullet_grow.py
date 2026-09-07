@@ -53,11 +53,12 @@ class PyBulletGrowEnv(PyBulletEnv):
     z_ub: ClassVar[float] = 0.75 + table_height / 2
 
     # robot config
-    # this smaller value is needed for grasping jugs
-    grasp_tol_small: ClassVar[float] = 5e-2
+    # grasp_tol_small and _finger_action_tol used to be overridden here
+    # (5e-2 / 5e-3, legacy tuning for the pre-skill-factory options); the
+    # base-class values work for the jug handle grasp and keep grasp
+    # detection consistent with every other domain.
     pour_pos_tol_factor: ClassVar[float] = 1.8
     pour_pos_tol: ClassVar[float] = 0.005 * pour_pos_tol_factor
-    _finger_action_tol: ClassVar[float] = 5e-3
     robot_init_x: ClassVar[float] = (x_lb + x_ub) * 0.5
     robot_init_y: ClassVar[float] = (y_lb + y_ub) * 0.5
     robot_init_z: ClassVar[float] = z_ub - 0.1
@@ -105,7 +106,8 @@ class PyBulletGrowEnv(PyBulletEnv):
     _camera_target: ClassVar[Pose3D] = (0.75, 1.25, 0.42)
 
     # Types now include r, g, b features for color
-    _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
+    _robot_type = Type("robot",
+                       ["x", "y", "z", "fingers", "roll", "tilt", "wrist"])
     _cup_type = Type("cup", ["x", "y", "z", "growth", "r", "g", "b"])
     _jug_type = Type("jug", ["x", "y", "z", "rot", "is_held", "r", "g", "b"],
                      sim_features=["id", "init_x", "init_y", "init_z"])
@@ -538,6 +540,7 @@ class PyBulletGrowEnv(PyBulletEnv):
                 "y": self.robot_init_y,
                 "z": self.robot_init_z,
                 "fingers": self.open_fingers,
+                "roll": self.robot_init_roll,
                 "tilt": self.robot_init_tilt,
                 "wrist": self.robot_init_wrist
             }

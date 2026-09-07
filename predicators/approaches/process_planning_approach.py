@@ -9,6 +9,9 @@ from predicators import utils
 from predicators.approaches import ApproachFailure, ApproachTimeout
 from predicators.approaches.bilevel_planning_approach import \
     BilevelPlanningApproach
+from predicators.ground_truth_models import \
+    augment_state_with_helper_objects, augment_task_with_helper_objects, \
+    merge_gt_helper_predicates, merge_gt_helper_types
 from predicators.option_model import _OptionModelBase
 from predicators.planning import PlanningFailure, PlanningTimeout
 from predicators.planning_with_processes import ProcessWorldModel, \
@@ -45,6 +48,16 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
                          option_model=option_model)
         self._last_option_plan: List[_Option] = []  # used if plan WITH sim
 
+        # Optionally augment with ground-truth helper types and predicates
+        # (e.g. the domino grid loc/angle/direction types and predicates).
+        # The oracle always uses them (overrides _use_gt_helpers); other
+        # process-planning approaches opt in via CFG. No-op for envs without
+        # a helper factory.
+        if self._use_gt_helpers():
+            self._types = merge_gt_helper_types(self._types, CFG.env)
+            self._initial_predicates = merge_gt_helper_predicates(
+                self._initial_predicates, CFG.env)
+
         # Conditionally load VLM components if an abstract policy is used.
         self._vlm = None
         self.base_prompt = ""
@@ -62,17 +75,49 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
             with open(filepath_to_vlm_prompt, "r", encoding="utf-8") as f:
                 self.base_prompt = f.read()
 
+    def _use_gt_helpers(self) -> bool:
+        """Whether to augment with ground-truth helper
+        types/predicates/objects.
+
+        The oracle always uses them (overrides this to return True);
+        other process-planning approaches opt in via the shared
+        ``CFG.use_gt_helpers`` flag (also read by the agent-planning
+        approaches, e.g. for ExoPredicator).
+        """
+        return CFG.use_gt_helpers
+
     @abc.abstractmethod
     def _get_current_processes(self) -> Set[CausalProcess]:
         """Get the current set of Processes."""
         raise NotImplementedError("Override me!")
 
-    def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
+    def _solve(self,
+               task: Task,
+               timeout: int,
+               _allow_replan: bool = True) -> Callable[[State], Action]:
         self._num_calls += 1
         # ensure random over successive
         seed = self._seed + self._num_calls
+        # Augment with ground-truth helper objects (e.g. the domino grid
+        # locations) when enabled; see _use_gt_helpers. No-op otherwise.
+        if self._use_gt_helpers():
+            task = augment_task_with_helper_objects(task, CFG.env)
         processes = self._get_current_processes()
         preds = self._get_current_predicates()
+
+        # When helpers are enabled, the executed states are otherwise
+        # helper-free (the grid is injected only into the planning task), so
+        # closed-loop policies would be unable to evaluate helper predicates
+        # (e.g. the fan grid's BallAtLoc) during execution. Re-derive the
+        # helper objects on every state before abstracting so the greedy
+        # process policy can keep tracking progress. No-op when helpers are
+        # disabled.
+        use_helpers = self._use_gt_helpers()
+
+        def abstract_fn(s: State) -> Set[GroundAtom]:
+            if use_helpers:
+                s = augment_state_with_helper_objects(s, CFG.env)
+            return utils.abstract(s, preds)
 
         abstract_policy = None
         if CFG.process_planning_use_abstract_policy:
@@ -99,7 +144,7 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
                 process_plan,
                 task.goal,
                 self._rng,
-                abstract_function=lambda s: utils.abstract(s, preds),
+                abstract_function=abstract_fn,
                 atoms_seq=atoms_seq)
             logging.debug("Current Task Plan:")
             for process in process_plan:
@@ -119,17 +164,44 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
             self._last_option_plan = option_plan
             self._last_process_plan = process_plan
             # pylint: enable=attribute-defined-outside-init
-            policy = utils.option_plan_to_policy(
-                option_plan,
-                abstract_function=lambda s: utils.abstract(s, preds))
+            policy = utils.option_plan_to_policy(option_plan,
+                                                 abstract_function=abstract_fn)
 
         self._save_metrics(metrics, processes, preds)
 
+        # A raw (replanned) policy is returned unwrapped so the wrapper below
+        # owns all replanning, avoiding nested replanning loops.
+        if not _allow_replan:
+            return policy
+
+        max_replans = CFG.process_planning_max_execution_replans
+
         def _policy(s: State) -> Action:
-            try:
-                return policy(s)
-            except utils.OptionExecutionFailure as e:
-                raise ApproachFailure(e.args[0], e.info)
+            nonlocal policy
+            replans = 0
+            while True:
+                try:
+                    return policy(s)
+                except utils.OptionExecutionFailure as e:
+                    if replans >= max_replans:
+                        raise ApproachFailure(e.args[0], e.info)
+                    replans += 1
+                    # An option failed mid-execution (typically a fresh BiRRT
+                    # collision from drift between the refinement simulator and
+                    # the real environment). Re-refine from the current state
+                    # so the remaining options use parameters valid for the
+                    # actual world, then retry. Bounded by the setting above.
+                    logging.info(
+                        "[ProcessPlanning] Execution failure (%s); replanning "
+                        "from the current state (attempt %d/%d).", e.args[0],
+                        replans, max_replans)
+                    try:
+                        policy = self._solve(Task(s, task.goal),
+                                             timeout,
+                                             _allow_replan=False)
+                    except (ApproachFailure, ApproachTimeout, PlanningFailure,
+                            PlanningTimeout) as solve_err:
+                        raise ApproachFailure(e.args[0], e.info) from solve_err
 
         return _policy
 

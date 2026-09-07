@@ -96,7 +96,8 @@ class PyBulletCircuitEnv(PyBulletEnv):
     _camera_target: ClassVar[Pose3D] = (0.75, 1.25, 0.42)
 
     # Types
-    _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
+    _robot_type = Type("robot",
+                       ["x", "y", "z", "fingers", "roll", "tilt", "wrist"])
     _wire_type = Type("wire", ["x", "y", "z", "rot", "is_held"])
     _switch_box_type = Type("switch_box", ["x", "y", "z", "rot", "is_on"],
                             sim_features=["id", "joint_id", "joint_scale"])
@@ -657,6 +658,7 @@ class PyBulletCircuitEnv(PyBulletEnv):
                 "y": self.robot_init_y,
                 "z": self.robot_init_z,
                 "fingers": self.open_fingers,
+                "roll": self.robot_init_roll,
                 "tilt": self.robot_init_tilt,
                 "wrist": self.robot_init_wrist,
             }

@@ -18,8 +18,8 @@ import pybullet as p
 from predicators import utils
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
-from predicators.pybullet_helpers.objects import create_object, \
-    create_pybullet_block
+from predicators.pybullet_helpers.objects import cap_switch_joint_travel, \
+    create_object, create_pybullet_block
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
@@ -80,7 +80,8 @@ class PyBulletMagicBinEnv(PyBulletEnv):
     _camera_target: ClassVar[Pose3D] = (0.75, 1.25, 0.42)
 
     # Types
-    _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
+    _robot_type = Type("robot",
+                       ["x", "y", "z", "fingers", "roll", "tilt", "wrist"])
     _block_type = Type("block", ["x", "y", "z", "is_held", "vanished"])
     _switch_type = Type("switch", ["x", "y", "z", "rot", "is_on"],
                         sim_features=["id", "joint_id", "joint_scale"])
@@ -226,6 +227,9 @@ class PyBulletMagicBinEnv(PyBulletEnv):
         self._switch.joint_id = self._get_joint_id(self._switch.id, "joint_0",
                                                    self._physics_client_id)
         self._switch.joint_scale = 0.1
+        cap_switch_joint_travel(self._switch.id, self._switch.joint_id,
+                                self._switch.joint_scale,
+                                self._physics_client_id)
 
         # Store bin ID
         self._bin.id = pybullet_bodies["bin_id"]
@@ -401,6 +405,7 @@ class PyBulletMagicBinEnv(PyBulletEnv):
                 "y": self.robot_init_y,
                 "z": self.robot_init_z,
                 "fingers": self.open_fingers,
+                "roll": self.robot_init_roll,
                 "tilt": self.robot_init_tilt,
                 "wrist": self.robot_init_wrist,
             }

@@ -211,7 +211,7 @@ _ENV_REGISTRY: List[Tuple[str, str]] = [
      "predicators.envs.pybullet_coffee:PyBulletCoffeeEnv"),
     ("robodisco/Cover-v0", "predicators.envs.pybullet_cover:PyBulletCoverEnv"),
     ("robodisco/Domino-v0",
-     "predicators.envs.pybullet_domino.composed_env:PyBulletDominoEnvNew"),
+     "predicators.envs.pybullet_domino.env:PyBulletDominoEnv"),
     ("robodisco/Fan-v0", "predicators.envs.pybullet_fan:PyBulletFanEnv"),
     ("robodisco/Float-v0", "predicators.envs.pybullet_float:PyBulletFloatEnv"),
     ("robodisco/Grow-v0", "predicators.envs.pybullet_grow:PyBulletGrowEnv"),

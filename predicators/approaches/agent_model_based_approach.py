@@ -1,0 +1,1298 @@
+"""Agent model-based approach: the agent delivers a simulator-validated plan.
+
+The agent plans a sequence of parameterized skills with object bindings,
+subgoal atoms after each step, and continuous parameters, and must
+DELIVER it as an ``submit_plan`` capture on the current task -
+nothing it did not validate in the simulator (the model) is ever
+executed. A backtracking parameter search remains available to the agent
+as a probe method (``sim.refine``) and to mid-episode
+suffix replans, but there is no approach-side refinement of unvalidated
+sketches.
+
+Registered under the CLI approach name ``agent_model_based``
+(``agent_bilevel`` is kept as a deprecated alias).
+
+Example command::
+
+    python predicators/main.py --env pybullet_domino \
+        --approach agent_model_based --seed 0 \
+        --num_train_tasks 1 --num_test_tasks 1 \
+        --num_online_learning_cycles 1 --explorer agent_model_free
+"""
+import dataclasses
+import hashlib
+import logging
+import os
+import time
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
+
+import numpy as np
+
+from predicators import utils
+from predicators.agent_sdk import bilevel_sketch
+from predicators.agent_sdk.session_base import AgentSessionFatalError, \
+    query_fatal_error
+from predicators.agent_sdk.sketch_types import SketchStep as _SketchStep
+from predicators.agent_sdk.tools import BUILTIN_TOOLS, load_ground_sampler_fns
+from predicators.approaches import ApproachFailure
+from predicators.approaches.agent_model_free_approach import \
+    AgentModelFreeApproach
+from predicators.execution_monitoring.subgoal_annotations_monitor import \
+    SubgoalExecutionStatus
+from predicators.settings import CFG
+from predicators.structs import Action, GroundAtom, Object, \
+    ParameterizedOption, Predicate, State, Task, _Option
+
+# Fraction of agent_solve_attempt_wall_clock below which the attempt's
+# budget counts as spent, not merely close to it: agents that watch the
+# [budget] footer wrap up shortly BEFORE the deadline, and a query whose
+# remaining tools would only refuse has nothing left to give. Used to
+# label why an attempt ended (see _attempt_end_reason).
+_SPENT_WALL_FRACTION = 0.2
+
+# Cap on the natural-language goal text in a task's journal entry: long
+# enough for any real goal_nl, short enough that a runaway goal string
+# cannot crowd the journal's entry budget.
+_JOURNAL_GOAL_MAX_CHARS = 400
+
+# Final-submission nudge (see _nudge_final_submission). It runs once per
+# task, on the LAST attempt, so it accepts a plan that falls short of a
+# validated solve: the restarts are gone and a partial plan beats
+# forfeiting the task.
+_FINAL_SUBMIT_NUDGE = (
+    "You are out of exploration budget for this attempt. Do NOT explore "
+    "further. In as few tool calls as possible, submit your single best "
+    "plan NOW via submit_plan on the current task (omit "
+    "task_idx), using the best parameters you have already validated. "
+    "It is captured as your answer even if it does not fully reach the "
+    "goal or does not score as a solve; then finish.")
+
+# Policy-mode variant: a best-effort POLICY is genuinely better than a
+# best-effort plan - it is closed-loop, so whatever recovery logic it
+# carries still applies at execution.
+_FINAL_SUBMIT_POLICY_NUDGE = (
+    "You are out of exploration budget for this attempt. Do NOT explore "
+    "further. In as few tool calls as possible, submit your current best "
+    "./policy.py NOW via submit_policy on the current task. It is "
+    "captured as your answer even if it does not fully reach the goal or "
+    "does not score as a solve; then finish.")
+
+
+@dataclasses.dataclass
+class _CaptureInfo:
+    """Metadata of the most recently consumed captured plan.
+
+    Recorded by :meth:`AgentModelBasedApproach._consume_validated_plan` so
+    the restart loop can distinguish a validated solve (return
+    immediately) from a best-effort capture (bank it, rank across
+    attempts by evaluator reward) and journal the plan.
+    """
+    validated: bool
+    reward: Optional[float]
+    plan_lines: List[str]
+    # One-line capture-time validation record (rollout tally, first
+    # failing step, physics-margin tally), journaled so a later
+    # fresh-context attempt sees HOW reliable the capture was (e.g.
+    # "8/10 rollouts ok; first failure: ... step 25 (Place) ...")
+    # instead of only that it exists.
+    validation_summary: Optional[str] = None
+
+
+class AgentModelBasedApproach(AgentModelFreeApproach):
+    """Model-based planning: the agent plans a skeleton with subgoals and
+    parameters and submits it as a simulator-validated capture.
+
+    Extends AgentModelFreeApproach - reuses agent session, tools,
+    trajectory management, exploration, save/load.  Overrides solving
+    with the capture-only query loop plus the restart/journal machinery.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if CFG.agent_bilevel_max_execution_replans > 0 and \
+                CFG.execution_monitor != "subgoal_annotations":
+            raise ValueError(
+                "agent_bilevel_max_execution_replans > 0 requires "
+                "--execution_monitor subgoal_annotations (got "
+                f"{CFG.execution_monitor!r}): divergence detection lives "
+                "in the execution monitor, so without it test execution "
+                "is silently open-loop.")
+        if CFG.agent_solve_policy_mode:
+            if CFG.agent_bilevel_max_execution_replans > 0:
+                raise ValueError(
+                    "agent_solve_policy_mode is mutually exclusive with "
+                    "agent_bilevel_max_execution_replans > 0: the policy "
+                    "OWNS closed-loop recovery (option failures are "
+                    "surfaced to it), so the sketch-divergence replan "
+                    "machinery must be off.")
+            if not CFG.agent_planner_use_simulator:
+                raise ValueError(
+                    "agent_solve_policy_mode requires "
+                    "agent_planner_use_simulator: the policy is validated "
+                    "in the belief model before execution.")
+        # Live status of the currently executing annotated plan, exported
+        # to the subgoal_annotations execution monitor. None whenever no
+        # monitored plan is active (exploration, replanning disabled).
+        self._exec_status: Optional[SubgoalExecutionStatus] = None
+        # The grounded option plan behind _exec_status, kept so a
+        # divergence with no refinable suffix can resume the remaining
+        # not-yet-executed options open-loop (the dispensed policy holds
+        # them only in its closure). Set/cleared alongside _exec_status.
+        self._exec_plan: Optional[List[_Option]] = None
+        # Per-episode replan budget, refreshed by reset_for_new_episode.
+        self._exec_replans_left = 0
+        # Whether the most recent sketch query ended because the agent hit
+        # agent_sdk_max_agent_turns_per_iteration. Set by
+        # _query_agent_for_plan_sketch; every query ending is terminal for
+        # its attempt, so this only labels WHY the attempt ended (see
+        # _attempt_end_reason) in the logs and the journal.
+        self._last_sketch_query_hit_turn_cap = False
+        # Why the last capture-less attempt ended (_attempt_end_reason),
+        # sampled inside the attempt while its budget signals are still
+        # armed - _solve clears them before writing the journal entry.
+        self._last_attempt_end_reason = ""
+        # Metadata of the last capture consumed by
+        # _consume_validated_plan; read by the restart loop in _solve.
+        self._last_capture_info: Optional[_CaptureInfo] = None
+        # Tasks whose goal + init-state journal entry is already written
+        # (one context entry per task, at the top of its section).
+        self._journal_task_context_recorded: Set[Any] = set()
+        # Snapshot of that set at begin_test_phase: test-task keys are
+        # rolled back with the journal itself, so a later evaluation
+        # (whose entries were removed) re-writes its context entries.
+        self._pre_test_journal_context_keys: Optional[Set[Any]] = None
+
+    @classmethod
+    def get_name(cls) -> str:
+        return "agent_model_based"
+
+    # ------------------------------------------------------------------ #
+    # Execution monitoring (closed-loop test execution)
+    # ------------------------------------------------------------------ #
+
+    def reset_for_new_episode(self) -> None:
+        super().reset_for_new_episode()
+        self._exec_status = None
+        self._exec_plan = None
+        self._exec_replans_left = CFG.agent_bilevel_max_execution_replans
+        # Optionally give each test solve a fresh agent conversation. reset()
+        # fires once per test task (not on mid-episode replans, which go
+        # through step()); the next query lazily rebuilds the session with the
+        # same sandbox + artifacts but empty chat context. Test-phase only, so
+        # exploration episodes keep their shared session.
+        if CFG.agent_fresh_session_per_test_task and self._in_test_phase:
+            self._close_agent_session()
+
+    def get_execution_monitoring_info(self) -> List[Any]:
+        if self._exec_status is None:
+            return []
+        return [self._exec_status]
+
+    def begin_test_phase(self) -> None:
+        super().begin_test_phase()
+        self._pre_test_journal_context_keys = set(
+            self._journal_task_context_recorded)
+
+    def end_test_phase(self) -> None:
+        super().end_test_phase()
+        # The journal rollback removed this evaluation's entries, so its
+        # task-context dedup keys must go too - the same test tasks are
+        # re-solved next evaluation and need fresh goal + init entries.
+        if self._pre_test_journal_context_keys is not None:
+            self._journal_task_context_recorded = \
+                self._pre_test_journal_context_keys
+            self._pre_test_journal_context_keys = None
+
+    # ------------------------------------------------------------------ #
+    # Agent session hooks
+    # ------------------------------------------------------------------ #
+
+    def _get_synthesis_tool_names(self) -> Optional[List[str]]:
+        """No synthesis phase in this approach - declare an empty set."""
+        return []
+
+    # ------------------------------------------------------------------ #
+    # System prompt
+    # ------------------------------------------------------------------ #
+
+    def _get_agent_system_prompt(self) -> str:
+        # Sessions are per-phase (see _ensure_agent_session: a phase
+        # change closes and rebuilds the session), so a solve session
+        # only ever receives solve queries and an explore session only
+        # explore queries: each phase's system prompt states just its
+        # own deliverable contract and rules. The query carries the task
+        # data and the run state (sketch_prompts.build_solve_prompt).
+        return bilevel_sketch.build_solve_system_prompt(
+            explore=self._explore_phase,
+            policy_mode=CFG.agent_solve_policy_mode,
+            propose_params=CFG.agent_bilevel_use_llm_initial_params,
+            ground_samplers=CFG.agent_bilevel_ground_samplers,
+            physics_margin=CFG.agent_plan_validation_physics_margin,
+            rule_param_margin=CFG.agent_plan_validation_rule_param_margin,
+            use_journal=CFG.agent_solve_use_journal,
+            execute_certified_plan=CFG.agent_explorer_execute_certified_plan,
+            early_stop_note=bilevel_sketch.build_early_stop_note(),
+            policy_max_options=CFG.agent_policy_max_options,
+            policy_max_repeated_failures=CFG.
+            agent_policy_max_repeated_failures,
+            policy_max_repeated_noops=CFG.agent_policy_max_repeated_noops,
+        )
+
+    # ------------------------------------------------------------------ #
+    # Solve prompt (no continuous params, subgoal format)
+    # ------------------------------------------------------------------ #
+
+    def _build_solve_prompt(self, task: Task) -> str:
+        """Build prompt asking for a plan sketch without continuous params."""
+        journal_text = ""
+        strategy_text = ""
+        attempts_text = ""
+        if CFG.agent_solve_use_journal:
+            # pylint: disable-next=import-outside-toplevel
+            from predicators.agent_sdk import journal as journal_mod
+            journal_text = journal_mod.read_journal(
+                self._tool_context.sandbox_dir)
+            attempts_text = journal_mod.read_journal(
+                self._tool_context.sandbox_dir,
+                filename=journal_mod.ATTEMPTS_FILENAME)
+            strategy_text = journal_mod.read_strategy(
+                self._tool_context.sandbox_dir)
+        return bilevel_sketch.build_solve_prompt(
+            task,
+            all_predicates=self._get_all_predicates(),
+            all_options=self._get_all_options(),
+            trajectory_summary=self._build_trajectory_summary(),
+            tool_names=self._solve_prompt_tool_names(),
+            initial_image_section=self._initial_image_section(),
+            propose_params=CFG.agent_bilevel_use_llm_initial_params,
+            require_tool_validation=True,
+            journal=journal_text,
+            strategy=strategy_text,
+            attempts=attempts_text,
+        )
+
+    def _solve_prompt_tool_names(self) -> Optional[List[str]]:
+        """Tool list advertised in the solve prompt's "Available Tools".
+
+        Mirrors what the explore prompt lists (the explorer renders
+        ``agent_session.tool_names``): the same MCP subset *plus* the
+        sandbox's built-in tools (Bash/Read/Write/...). The built-ins are
+        only actually granted under the local or docker sandbox -- which
+        is exactly when ``LocalSandboxSessionManager.tool_names`` prepends
+        them -- so they are advertised only then. Without a sandbox the
+        list is the bare MCP subset, unchanged.
+        """
+        names = self._get_solve_tool_names()
+        if names is None:
+            return None
+        if CFG.agent_sdk_use_local_sandbox or CFG.agent_sdk_use_docker_sandbox:
+            return list(BUILTIN_TOOLS) + names
+        return names
+
+    # ------------------------------------------------------------------ #
+    # Solving
+    # ------------------------------------------------------------------ #
+
+    def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
+        replan_policy = self._maybe_replan_from_divergence(task, timeout)
+        if replan_policy is not None:
+            return replan_policy
+        ctx = self._tool_context
+        self._record_task_context_in_journal(task)
+        max_attempts = max(1, CFG.agent_solve_max_attempts)
+        wall_clock = CFG.agent_solve_attempt_wall_clock
+        # Best best-effort capture across attempts, ranked by evaluator
+        # reward. A validated (evaluator-solved) capture returns
+        # immediately; only when no attempt produces one does the best
+        # banked policy execute for its honest reward.
+        best_policy: Optional[Callable[[State], Action]] = None
+        best_reward = -float("inf")
+        last_failure: Optional[ApproachFailure] = None
+        for attempt in range(1, max_attempts + 1):
+            if CFG.agent_solve_fresh_context:
+                # Fresh conversation per attempt (and per test task): a
+                # failed attempt's context carries its confidently wrong
+                # world model (run_20260717_230436 seed1's "hard collision
+                # boundary" that its identical sibling placed through), so
+                # a restart is the cheapest de-anchoring mechanism. Curated
+                # knowledge travels through the solve journal instead.
+                self._close_agent_session()
+            ctx.begin_attempt(attempt, wall_clock)
+            self._last_capture_info = None
+            policy: Optional[Callable[[State], Action]] = None
+            unexpected: Optional[Exception] = None
+            try:
+                policy = self._solve_attempt(task)
+            except ApproachFailure as e:
+                last_failure = e
+            except AgentSessionFatalError:
+                # The session backend is unusable (auth/billing/config);
+                # neither a banked capture nor further restarts can help.
+                # Re-raise so the run terminates (the finally still runs
+                # for bookkeeping).
+                raise
+            except Exception as e:  # pylint: disable=broad-except
+                # ApproachTimeout is a SIBLING of ApproachFailure (both
+                # subclass ExceptionWithInfo), and env/SDK errors can
+                # also escape - none of them may skip the cleanup below,
+                # and a banked capture from an earlier attempt should
+                # still execute rather than be forfeited (handled after
+                # the finally).
+                unexpected = e
+            finally:
+                # Attempt bookkeeping must not outlive the attempt on ANY
+                # exit path (including KeyboardInterrupt): stale fields
+                # would append bogus [budget] footers and mislabel journal
+                # entries in later sessions sharing this ToolContext.
+                ctx.attempt_deadline = None
+                # Policy mode is scoped to solve attempts: left armed, it
+                # would silently disable submit_plan's capture
+                # gate for the EXPLORER's queries, which deliver sketches
+                # even in policy-mode configs.
+                ctx.policy_capture_mode = False
+                info = self._take_capture_info()
+                self._record_attempt_in_journal(attempt, max_attempts, policy,
+                                                info)
+                ctx.attempt_start = None
+                ctx.attempt_index = 0
+            if unexpected is not None:
+                if best_policy is not None:
+                    logging.warning(
+                        "[%s] Solve attempt %d/%d raised %s; executing the "
+                        "banked best-effort capture instead of forfeiting.",
+                        self._run_id, attempt, max_attempts, unexpected)
+                    return best_policy
+                raise unexpected
+            if policy is not None and (info is None or info.validated):
+                # Defensive: every capture path records metadata, so a
+                # missing record is treated as a validated solve rather
+                # than banked at unknown reward.
+                return policy
+            if policy is not None:
+                assert info is not None
+                reward = (info.reward
+                          if info.reward is not None else -float("inf"))
+                if best_policy is None or reward > best_reward:
+                    best_policy = policy
+                    best_reward = reward
+            if attempt < max_attempts:
+                logging.info(
+                    "[%s] Solve attempt %d/%d ended without a validated "
+                    "solve%s; restarting with %s context.", self._run_id,
+                    attempt, max_attempts, " (best-effort capture banked)"
+                    if policy is not None else "",
+                    "fresh" if CFG.agent_solve_fresh_context else "the same")
+        if best_policy is not None:
+            logging.info(
+                "[%s] No validated solve in %d attempt(s); executing the "
+                "best best-effort capture (evaluator reward %s).",
+                self._run_id, max_attempts,
+                f"{best_reward:.2f}" if best_reward > -float("inf") else "n/a")
+            return best_policy
+        if last_failure is not None:
+            raise last_failure
+        raise ApproachFailure(
+            f"Bilevel solve produced no captured plan in {max_attempts} "
+            "attempt(s).")
+
+    def _attempt_wall_spent(self) -> bool:
+        """Whether the attempt's wall clock is spent (or nearly so).
+
+        True once less than :data:`_SPENT_WALL_FRACTION` of the wall
+        clock remains, not merely once the deadline passes: agents that
+        watch the [budget] footer wrap up shortly BEFORE the deadline
+        (run_20260718_125643 ended an attempt with 2 minutes left), and
+        an attempt whose remaining tools would only refuse is spent in
+        every sense that matters. Tool-side refusals keep using the
+        exact deadline, so the closing minutes still allow submissions.
+        """
+        deadline = self._tool_context.attempt_deadline
+        if deadline is None:
+            return False
+        floor = _SPENT_WALL_FRACTION * CFG.agent_solve_attempt_wall_clock
+        return time.monotonic() > deadline - floor
+
+    def _attempt_end_reason(self) -> str:
+        """Why the attempt's single query ended, for logs and journal."""
+        if self._last_sketch_query_hit_turn_cap:
+            return "turn cap"
+        if self._attempt_wall_spent():
+            return "wall clock spent"
+        return "no submission"
+
+    def _take_capture_info(self) -> Optional[_CaptureInfo]:
+        """Pop the metadata _consume_validated_plan recorded (or None).
+
+        An accessor rather than a bare attribute read: the attribute is
+        set as a side effect of _solve_attempt, which mypy cannot see,
+        so reading it directly right after ``= None`` is flagged
+        unreachable.
+        """
+        info = self._last_capture_info
+        self._last_capture_info = None
+        return info
+
+    def _append_journal_auto_entry(self, header: str,
+                                   body_lines: List[str]) -> bool:
+        """Best-effort append of a harness-written solve-journal entry.
+
+        Callers guard with :meth:`_journal_active`. Returns True on a
+        successful write; a failed write is logged, never raised - the
+        journal must not be able to fail a solve.
+        """
+        sandbox_dir = self._tool_context.sandbox_dir
+        assert self._journal_active() and sandbox_dir
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk import journal as journal_mod
+        try:
+            journal_mod.append_entry(
+                sandbox_dir,
+                header,
+                "\n".join(body_lines),
+                max_chars=journal_mod.MAX_AUTO_ENTRY_CHARS,
+                filename=journal_mod.ATTEMPTS_FILENAME)
+        except OSError as e:
+            logging.warning("Journal entry %r failed: %s", header, e)
+            return False
+        return True
+
+    def _journal_task_label(self) -> str:
+        """The journal's label for the task currently being solved.
+
+        Carries the HARNESS cycle number so the attempt log anchors a
+        canonical numbering: without it agents invented their own cycle
+        counts (a journal's "cycle 4" was the harness's cycle 1), and
+        cross-referencing run logs against the journal needed a mental
+        offset.
+        """
+        idx = self._tool_context.test_task_idx
+        task_part = f"task {idx}" if idx is not None else "task ?"
+        return f"cycle {self._tool_context.iteration_id} {task_part}"
+
+    def _record_task_context_in_journal(self, task: Task) -> None:
+        """Append the task's goal + init-state entry, once per task.
+
+        Written at the START of the task's first attempt so it tops the
+        task's journal section - above even the agent's own in-attempt
+        notes - keeping every later entry interpretable: a recorded
+        plan's geometry is only meaningful relative to its layout. The
+        init dict uses the exact representation the solve prompt shows
+        (including its excluded-objects filtering).
+        """
+        if not self._journal_active():
+            return
+        key = (self._tool_context.test_task_idx, id(task))
+        if key in self._journal_task_context_recorded:
+            return
+        if task.goal_nl:
+            goal_txt = " ".join(task.goal_nl.split())
+            if len(goal_txt) > _JOURNAL_GOAL_MAX_CHARS:
+                goal_txt = goal_txt[:_JOURNAL_GOAL_MAX_CHARS].rstrip() + "..."
+        else:
+            goal_txt = ", ".join(str(a) for a in sorted(task.goal, key=str))
+        body = [f"- goal: {goal_txt}", "- initial state features:"]
+        body.extend(f"  {line}"
+                    for line in task.init.dict_str(indent=2).splitlines())
+        header = f"{self._journal_task_label()} goal + initial state (auto)"
+        if self._append_journal_auto_entry(header, body):
+            self._journal_task_context_recorded.add(key)
+
+    def _record_attempt_in_journal(self, attempt: int, max_attempts: int,
+                                   policy: Optional[Any],
+                                   info: Optional[_CaptureInfo]) -> None:
+        """Auto-append this attempt's factual record to the attempt log.
+
+        The harness-written record (outcome, budget spent, captured or
+        best refused plan) guarantees the essentials of every attempt
+        are on record even when the agent writes nothing; the agent's
+        own lessons live in journal.md, which it edits directly.
+        """
+        if not self._journal_active():
+            return
+        ctx = self._tool_context
+        body = [f"- outcome: {self._attempt_outcome_text(policy, info)}"]
+        if ctx.attempt_start is not None:
+            elapsed_min = (time.monotonic() - ctx.attempt_start) / 60.0
+            body.append(f"- budget spent: {elapsed_min:.1f} min, "
+                        f"{ctx.attempt_rollout_count} sim rollouts")
+        if info is not None and info.validation_summary:
+            body.append(f"- {info.validation_summary}")
+        if info is not None and info.plan_lines:
+            body.append("- captured plan:")
+            body.extend(f"  {line}" for line in info.plan_lines)
+        elif ctx.best_uncaptured_plan_lines:
+            # Nothing captured, but the attempt's best refused submission
+            # (evaluator non-solve or flaky) is worth carrying: a later
+            # attempt - or the final best-effort nudge - can resubmit it
+            # instead of the work vanishing with the attempt's context.
+            reward_txt = (f"evaluator reward {ctx.best_uncaptured_reward:.2f}"
+                          if ctx.best_uncaptured_reward is not None else
+                          "no evaluator verdict")
+            body.append(f"- best refused submission ({reward_txt}, "
+                        "not captured):")
+            body.extend(f"  {line}" for line in ctx.best_uncaptured_plan_lines)
+        header = (f"{self._journal_task_label()} attempt "
+                  f"{attempt}/{max_attempts} (auto)")
+        self._append_journal_auto_entry(header, body)
+
+    def _attempt_outcome_text(self, policy: Optional[Any],
+                              info: Optional[_CaptureInfo]) -> str:
+        """One-line outcome for an attempt's journal record."""
+        if policy is None:
+            # The reason is the one fact a fresh-context restart cannot
+            # rediscover: it tells the next attempt whether the last one
+            # ran out of budget or talked itself out of submitting.
+            if self._last_attempt_end_reason:
+                return f"no capture ({self._last_attempt_end_reason})"
+            return "no capture"
+        if info is None or info.validated:
+            return "SOLVED (validated capture)"
+        if info.reward is not None:
+            return f"best-effort capture (evaluator reward {info.reward:.2f})"
+        return "best-effort capture (no evaluator verdict)"
+
+    def _solve_attempt(self, task: Task) -> Callable[[State], Action]:
+        """One full solve attempt: a single agent query on one session.
+
+        The attempt's budgets are the wall clock
+        (``agent_solve_attempt_wall_clock``) and the query's turn cap;
+        the only deliverable is an ``submit_plan`` capture
+        (consumed via :meth:`_consume_validated_plan`).
+
+        However that query ends - a spent budget, an unparseable sketch,
+        or a session that simply never submitted - the attempt is over.
+        A second query on the same conversation would re-explore from a
+        context that already contains whatever went wrong
+        (run_20260808_113951 queries 004-009: three full-price queries
+        restating the same "no plan can reach the goal" argument), so the
+        fresh-context restart is the only retry. See :meth:`_end_attempt`
+        for the one exception, on the final attempt.
+        """
+        self._sync_tool_context()
+        self._tool_context.current_task = task
+        # Let submit_plan record a goal-reaching
+        # plan on this task into solved_plan/solved_sketch (consumed below).
+        self._tool_context.capture_goal_reaching_plans = True
+        # Policy mode: the deliverable is policy.py via submit_policy;
+        # submit_plan stays available for probing but cannot
+        # capture.
+        self._tool_context.policy_capture_mode = CFG.agent_solve_policy_mode
+        # LLM-free bypass: a prewritten policy.py as the captured
+        # artifact (smoke tests / debugging the execution path).
+        if CFG.agent_solve_policy_mode and CFG.agent_policy_file:
+            with open(CFG.agent_policy_file, "r", encoding="utf-8") as f:
+                self._tool_context.solved_policy_source = f.read()
+            self._tool_context.solved_plan_reached_goal = True
+            policy = self._consume_validated_plan()
+            assert policy is not None
+            return policy
+        # Render the initial state so the agent can see the scene layout.
+        self._render_initial_state_image(task)
+        # Whether later fresh-context restarts exist after this attempt;
+        # decides whether this attempt pays for the final-submission nudge
+        # (see _end_attempt). attempt_index == 0 (no restart loop in
+        # flight) behaves like a final attempt.
+        restarts_remain = (0 < self._tool_context.attempt_index < max(
+            1, CFG.agent_solve_max_attempts))
+        # Clear any prior capture so we only act on this query's result.
+        self._tool_context.clear_plan_capture()
+        self._last_sketch_query_hit_turn_cap = False
+        self._last_attempt_end_reason = ""
+        try:
+            self._query_agent_for_plan_sketch(task)
+        except AgentSessionFatalError:
+            raise
+        except Exception as e:  # pylint: disable=broad-except
+            # The agent may have validated a working plan via
+            # submit_plan even if its final text didn't parse.
+            policy = self._consume_validated_plan()
+            if policy is not None:
+                return policy
+            logging.warning("[%s] Solve query failed: %s", self._run_id, e)
+        else:
+            # Fast path: the agent already refined + forward-validated
+            # a plan on this task via submit_plan - return it
+            # directly instead of re-refining the (possibly different)
+            # final-text sketch.
+            policy = self._consume_validated_plan()
+            if policy is not None:
+                return policy
+            # The agent must itself reach a confirmed
+            # submit_plan capture (consumed above) so we
+            # never execute a plan it didn't verify.
+            logging.info("[%s] Query ended without a validated plan.",
+                         self._run_id)
+        # Sample the end reason before _end_attempt: the nudge suspends
+        # the attempt deadline, and _solve clears it outright before the
+        # journal entry is written.
+        self._last_attempt_end_reason = self._attempt_end_reason()
+        policy = self._end_attempt(restarts_remain)
+        if policy is not None:
+            return policy
+        raise ApproachFailure("Bilevel solve failed: the attempt's agent "
+                              "query produced no captured plan "
+                              f"({self._last_attempt_end_reason}).")
+
+    def _end_attempt(
+            self,
+            restarts_remain: bool) -> Optional[Callable[[State], Action]]:
+        """End an attempt that produced no capture.
+
+        With later fresh-context restarts remaining, end with NO nudge
+        (return None): the restart is the retry, and the journal
+        auto-entry already records the attempt's best refused
+        submission. On the final attempt the best-effort submission
+        nudge is the ultimate fallback - return whatever policy it
+        captures (None when even that yields nothing, giving up on the
+        task).
+        """
+        if restarts_remain:
+            return None
+        return self._nudge_final_submission()
+
+    # ------------------------------------------------------------------ #
+    # Plan sketch extraction
+    # ------------------------------------------------------------------ #
+
+    def _query_agent_for_plan_sketch(self, task: Task) -> List[_SketchStep]:
+        """Query agent for a plan sketch and parse it."""
+        sketch_file = CFG.agent_bilevel_plan_sketch_file
+        if sketch_file:
+            # An absolute path is used as-is; a bare filename is resolved
+            # against the configured plan-sketch directory under scripts/.
+            if os.path.isabs(sketch_file):
+                filepath = sketch_file
+            else:
+                filepath = (
+                    f"{utils.get_path_to_predicators_root()}/scripts/"
+                    f"{CFG.agent_bilevel_plan_sketch_dir}/{sketch_file}")
+            with open(filepath, "r", encoding="utf-8") as f:
+                plan_text = f.read().strip()
+            logging.info("Loaded plan sketch from file: %s", sketch_file)
+        else:
+            prompt = self._build_solve_prompt(task)
+            responses = self._query_agent_sync(prompt, kind="test")
+            dead = query_fatal_error(responses)
+            if dead is not None:
+                # An outage is not a failed attempt: recording 0/1 here
+                # would write a bogus eval datapoint. Stop the run; the
+                # relaunch re-runs this cycle's test.
+                raise AgentSessionFatalError(
+                    "test query died without the agent doing any work "
+                    f"({dead}); not recording this attempt as a failure.")
+            # Record cap-exhaustion before parsing: a capped session usually
+            # has no final text, so the "empty plan text" failure below is
+            # still attributable to the turn cap by _attempt_end_reason.
+            self._last_sketch_query_hit_turn_cap = \
+                self._responses_hit_turn_cap(responses)
+            plan_text = self._extract_option_plan_text(responses)
+
+        if not plan_text:
+            raise ApproachFailure("Agent returned empty plan text.")
+
+        # Tolerant parse of the agent's final text; named `~ my_sampler`
+        # references resolve against the sandbox's ground_samplers.py (a
+        # broken file just drops the annotations here - this is the
+        # best-effort fallback path, not the strict tool path).
+        gs_fns, gs_err = load_ground_sampler_fns(self._tool_context)
+        if gs_err is not None:
+            logging.warning("[%s] %s", self._run_id, gs_err)
+        sketch = bilevel_sketch.parse_sketch_from_text(
+            plan_text,
+            task,
+            predicates=self._get_all_predicates(),
+            options=self._get_all_options(),
+            types=self._types,
+            parse_continuous_params=CFG.agent_bilevel_use_llm_initial_params,
+            parse_ground_samplers=CFG.agent_bilevel_ground_samplers,
+            ground_sampler_fns=gs_fns or None,
+        )
+
+        if not sketch:
+            option_names = sorted(o.name for o in self._get_all_options())
+            raise ApproachFailure(f"Parsed empty plan sketch from agent.\n"
+                                  f"  Plan text:\n{plan_text}\n"
+                                  f"  Available option names: {option_names}")
+
+        logging.info(
+            "[%s] Agent produced sketch with %d steps, %d with "
+            "subgoals.", self._run_id, len(sketch),
+            sum(1 for s in sketch if s.subgoal_atoms))
+        return sketch
+
+    @staticmethod
+    def _responses_hit_turn_cap(responses: List[Dict[str, Any]]) -> bool:
+        """Whether a query's response stream ended on the SDK turn cap.
+
+        The SDK reports the cap as result subtype ``error_max_turns``;
+        the num_turns comparison is a fallback for backends whose result
+        entries lack the subtype field.
+        """
+        max_turns = CFG.agent_sdk_max_agent_turns_per_iteration
+        for entry in responses:
+            if entry.get("type") != "result":
+                continue
+            if entry.get("subtype") == "error_max_turns":
+                return True
+            num_turns = entry.get("num_turns")
+            if num_turns is not None and num_turns >= max_turns:
+                return True
+        return False
+
+    # ------------------------------------------------------------------ #
+    # Backtracking refinement (used by mid-episode suffix replans)
+    # ------------------------------------------------------------------ #
+
+    def _refine_sketch(
+        self,
+        task: Task,
+        sketch: List[_SketchStep],
+        timeout: float,
+        attempt: int = 0,
+        on_step_fail: Optional[Callable[[int, List[Optional[_Option]], str],
+                                        None]] = None,
+    ) -> Tuple[List[_Option], bool]:
+        """Backtracking search over continuous parameters for a plan sketch.
+
+        Returns ``(plan, success)``.  On success, ``plan`` is a list of
+        grounded options that achieves the task goal.  On failure,
+        ``plan`` is the longest partial refinement found.
+
+        This is the approach-flavored entry to
+        ``bilevel_sketch.refine_sketch`` (which stays settings-free):
+        it gathers the approach-owned inputs (option model, predicates,
+        samplers, run id), reads the search knobs from ``CFG``, and
+        first passes the task through :meth:`_attach_initial_latent` so
+        partially-observable approaches can seed ``task.init.latent``
+        with the initial latent block. Used by mid-episode suffix
+        replans and by the offline replay scripts under
+        ``scripts/domino_debug/``.
+
+        ``attempt`` perturbs the RNG so retries explore different
+        samples - without it, refinement is deterministic in
+        ``CFG.seed`` and a forward-validation failure would loop on
+        the identical plan. ``on_step_fail`` is forwarded to the search
+        (called with the step index, the partial plan, and the failure
+        reason whenever a step fails to refine).
+        """
+        task = self._attach_initial_latent(task)
+        assert self._option_model is not None, \
+            "agent_bilevel requires a simulator " \
+            "(agent_planner_use_simulator=True)."
+        outcome = bilevel_sketch.refine_sketch(
+            task,
+            sketch,
+            self._option_model,
+            predicates=self._get_all_predicates(),
+            timeout=timeout,
+            rng=np.random.default_rng(CFG.seed + attempt),
+            max_samples_per_step=CFG.agent_bilevel_max_samples_per_step,
+            check_subgoals=CFG.agent_bilevel_check_subgoals,
+            log_state=CFG.agent_bilevel_log_state,
+            run_id=self._run_id,
+            parameterized_samplers=self._get_all_samplers(),
+            on_step_fail=on_step_fail,
+            strip_latent_wait_targets=(
+                not self._tool_context.latent_tracking_available),
+        )
+        return outcome.plan, outcome.success
+
+    def _attach_initial_latent(self, task: Task) -> Task:
+        """Hook for partial-observability approaches to seed the latent.
+
+        Subclasses that thread a ``latent`` state block through the
+        simulator (``AgentSimLearningApproach`` when the loaded rules
+        are recurrent) override this to attach an initial latent to
+        ``task.init.latent`` before refinement begins. The default
+        returns ``task`` unchanged - fully-observable approaches need do
+        nothing.
+        """
+        return task
+
+    def _sample_params(self, option: ParameterizedOption, _state: State,
+                       rng: np.random.Generator) -> np.ndarray:
+        """Sample continuous parameters for an option."""
+        return bilevel_sketch.sample_params(option, rng)
+
+    def _parse_subgoal_annotations(
+        self,
+        text: str,
+        predicates: Set[Predicate],
+        objects: Sequence[Object],
+    ) -> List[Optional[Tuple[Set[GroundAtom], Set[GroundAtom]]]]:
+        """Shim over ``bilevel_sketch.parse_subgoal_annotations``."""
+        option_names = {o.name for o in self._get_all_options()}
+        return bilevel_sketch.parse_subgoal_annotations(
+            text, predicates, objects, option_names)
+
+    # ------------------------------------------------------------------ #
+    # Helpers
+    # ------------------------------------------------------------------ #
+
+    def _maybe_replan_from_divergence(
+            self, task: Task,
+            timeout: int) -> Optional[Callable[[State], Action]]:
+        """Handle a mid-episode re-solve triggered by the subgoal_annotations
+        execution monitor.
+
+        CogMan calls solve() identically at episode start and on a
+        monitor-triggered replan; ``_exec_status`` distinguishes them
+        (non-None only while a monitored plan executes;
+        reset_for_new_episode clears it at episode start). On a replan
+        ``task.init`` is the real state where the just-finished step's
+        annotation failed. Divergence is usually a continuous-execution
+        problem (a sampled parameter whose real outcome differed from
+        the option-model rollout), not a wrong skeleton, so we first try
+        to resume a suffix of the executed sketch (cheap, no agent
+        query; see :meth:`_replan_suffix`). When no suffix refines - or
+        the episode's replan budget is spent - the remaining
+        not-yet-executed options resume OPEN-LOOP instead of failing the
+        episode: an annotation is the agent's prediction, not proof the
+        goal is out of reach, and aborting a plan whose remaining
+        settle/cure steps might still deliver turns a maybe-fail into a
+        certain fail. The divergence stays in the log and the goal check
+        decides the episode. Set
+        ``CFG.agent_bilevel_replan_agent_fallback`` to instead fall
+        through to a fresh agent sketch query when no suffix refines.
+        """
+        status = self._exec_status
+        if status is None or status.steps_initiated == 0:
+            return None
+        self._exec_status = None
+        exec_plan = self._exec_plan or []
+        self._exec_plan = None
+        failed_idx = status.steps_initiated - 1
+        steps = list(status.sketch)
+        failed_name = steps[failed_idx].option.name
+        if self._exec_replans_left > 0:
+            self._exec_replans_left -= 1
+            logging.info(
+                "Subgoal divergence after step %d (%s). Replanning from the "
+                "current state (%d execution replans left).", failed_idx,
+                failed_name, self._exec_replans_left)
+            policy = self._replan_suffix(task.init, task, steps, failed_idx,
+                                         timeout)
+            if policy is not None:
+                return policy
+            if CFG.agent_bilevel_replan_agent_fallback:
+                # No suffix of the executed skeleton refines from here;
+                # fall through to pay for a fresh agent sketch.
+                logging.info("Suffix replan failed; querying the agent for "
+                             "a fresh sketch.")
+                return None
+            reason = "no suffix of the executed sketch refines from here"
+        else:
+            reason = "no execution replans left"
+        remaining = list(exec_plan[failed_idx + 1:])
+        logging.warning(
+            "Subgoal divergence after step %d (%s): %s. Resuming the "
+            "remaining %d step(s) open-loop; the divergence stands "
+            "recorded and the goal check decides the episode.", failed_idx,
+            failed_name, reason, len(remaining))
+        return self._plan_to_policy(remaining, sketch=steps[failed_idx + 1:])
+
+    def _nudge_final_submission(self) -> Optional[Callable[[State], Action]]:
+        """One short follow-up query on the LAST attempt, after its query ended
+        with no captured plan: tell the agent to submit its best plan now.
+
+        A session that hits the turn cap mid-iteration contributes
+        nothing, even when it has a near-working plan in context; this
+        converts that dead end into a submission attempt at the cost of a
+        few turns.
+
+        The submitted plan is captured and executed even if its belief
+        rollout does not reach the goal, is scored a non-solve by the
+        task evaluator, or is flaky: there are no restarts left, and a
+        partial plan beats forfeiting the task.
+        """
+        nudge = (_FINAL_SUBMIT_POLICY_NUDGE
+                 if CFG.agent_solve_policy_mode else _FINAL_SUBMIT_NUDGE)
+        if CFG.agent_solve_use_journal:
+            nudge += (" If an earlier attempt's entry in the Attempt Log "
+                      "records a better plan (captured or refused) than "
+                      "anything from this attempt, resubmit that plan instead."
+                      " After the submission, append ONE short factual entry "
+                      "to ./journal.md for later fresh-context attempts and "
+                      "tasks: what you tried (exact parameters), the key "
+                      "measurements, and what to try differently - facts and "
+                      "measurements only, no verdicts like 'impossible'.")
+        # SUSPEND (not clear) the attempt deadline for the nudge query:
+        # its cooperative refusals and the sandbox interrupt backstop
+        # must not block the submission (or the journal entry) itself.
+        # Restore it afterwards rather than leaking the None: _solve's
+        # per-attempt bookkeeping owns clearing the deadline, and a
+        # helper that silently disarms the wall clock is a trap for any
+        # future caller that runs mid-attempt.
+        saved_deadline = self._tool_context.attempt_deadline
+        self._tool_context.attempt_deadline = None
+        self._tool_context.capture_best_effort_plan = True
+        try:
+            nudge_responses = self._query_agent_sync(nudge, kind="test")
+            dead = query_fatal_error(nudge_responses)
+            if dead is not None:
+                raise AgentSessionFatalError(
+                    "final-submission nudge died without the agent doing "
+                    f"any work ({dead}); not recording this attempt as a "
+                    "failure.")
+        except AgentSessionFatalError:
+            raise
+        except Exception as e:  # pylint: disable=broad-except
+            logging.warning("Final-submission nudge failed: %s", e)
+        finally:
+            self._tool_context.capture_best_effort_plan = False
+            self._tool_context.attempt_deadline = saved_deadline
+        policy = self._consume_validated_plan()
+        if policy is not None:
+            logging.info(
+                "[%s] Final-submission nudge produced a validated plan.",
+                self._run_id)
+        return policy
+
+    def _consume_validated_plan(self) -> Optional[Callable[[State], Action]]:
+        """Return a policy from an agent-validated plan, or None.
+
+        ``submit_plan`` records a captured (goal-reaching, validated)
+        plan on the current solve task into the tool context. Returning
+        that exact simulator-verified plan guarantees the agent's tool-
+        validated answer is what executes, and avoids a fresh refinement
+        that with a different seed might not reproduce it.
+        """
+        capture = self._tool_context.take_plan_capture()
+        if capture.policy_source:
+            return self._policy_capture_to_policy(capture)
+        if not capture.plan:
+            return None
+        # A capture with reached_goal False was accepted under the
+        # best-effort nudge; anything else is a validated solve.
+        validated = capture.reached_goal is not False
+        lines = list(
+            bilevel_sketch.format_plan_lines(capture.plan,
+                                             sketch=capture.sketch))
+        self._last_capture_info = _CaptureInfo(
+            validated=validated,
+            reward=capture.eval_reward,
+            plan_lines=lines,
+            validation_summary=capture.validation_summary)
+        verdict = ("simulator-verified" if validated else
+                   "best-effort: not a validated solve in the belief rollout")
+        # Log the full plan (options + continuous params + subgoal
+        # annotations) so the run log shows exactly what will execute.
+        logging.info(
+            "[%s] Using agent-validated plan from capture "
+            "(%d steps, %s):\n%s", self._run_id, len(capture.plan), verdict,
+            "\n".join(lines))
+        return self._plan_to_policy(capture.plan, sketch=capture.sketch)
+
+    def _policy_capture_to_policy(self,
+                                  capture: Any) -> Callable[[State], Action]:
+        """Turn a captured policy.py source into the execution policy.
+
+        Policy-mode counterpart of the plan branch below: records the
+        capture metadata (the journal gets the source hash + validation
+        summary rather than plan lines), composes the SNAPSHOTTED source
+        against the real task and vocabulary, and wraps it in the
+        closed-loop executor. No ``SubgoalExecutionStatus`` is ever
+        published: the monitor and the divergence-replan path stay inert
+        (the constructor enforces replans == 0 in policy mode).
+        """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.policy_execution import \
+            build_policy_option_fn
+        source = capture.policy_source
+        validated = capture.reached_goal is not False
+        sha = hashlib.sha256(source.encode("utf-8")).hexdigest()[:12]
+        n_lines = len(source.splitlines())
+        self._last_capture_info = _CaptureInfo(
+            validated=validated,
+            reward=capture.eval_reward,
+            plan_lines=[
+                f"<closed-loop policy.py sha={sha}, "
+                f"{n_lines} lines>"
+            ],
+            validation_summary=capture.validation_summary)
+        verdict = ("simulator-verified" if validated else
+                   "best-effort: not a validated solve in the belief rollout")
+        logging.info(
+            "[%s] Using agent-validated POLICY from capture (sha=%s, "
+            "%d lines, %s).", self._run_id, sha, n_lines, verdict)
+        task = self._tool_context.current_task
+        assert task is not None
+        option_fn, err = build_policy_option_fn(
+            source,
+            task,
+            predicates=self._get_all_predicates(),
+            options=self._get_all_options(),
+            types=self._types)
+        if err is not None or option_fn is None:
+            raise ApproachFailure(
+                f"Captured policy.py failed to load for execution: {err}")
+        return self._policy_to_execution_policy(option_fn)
+
+    def _policy_to_execution_policy(
+            self, option_fn: Any) -> Callable[[State], Action]:
+        """Closed-loop real executor for a composed policy option fn.
+
+        Mirrors ``execute_policy_forward``'s semantics on the real env:
+        option execution failures (non-initiable, a skill raising
+        mid-execution - e.g. a motion-planning refusal - or an option
+        step-cap timeout) do NOT end the episode; the failure text is
+        surfaced to the policy via ``memory['last_failure']`` and the
+        next option is requested from the current state, bounded by
+        ``CFG.agent_policy_max_options`` total options,
+        ``CFG.agent_policy_max_repeated_failures`` consecutive failures
+        of one identical command (the stuck-loop guard), and
+        ``CFG.agent_policy_max_repeated_noops`` consecutive clean
+        completions of one identical command that changed nothing
+        observable (the guard's livelock twin). ``get_option``
+        bugs and DONE end the episode via ``ApproachFailure`` (harmless
+        when the goal already holds).
+
+        Implementation note: each issued option still runs through
+        ``utils.option_policy_to_policy`` (per-option step caps and the
+        Wait atom-change machinery live there), but the wrapper is
+        REBUILT after every surfaced failure - the failed option is
+        stuck inside the old wrapper's closure (its terminal never
+        holds), so a fresh wrapper is what makes the next call request a
+        new option.
+        """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.policy_execution import PolicyError, \
+            option_repeat_key, repeated_failure_message, \
+            repeated_noop_message, states_features_allclose
+        predicates = self._get_all_predicates()
+
+        def _abstract(s: State) -> Set[GroundAtom]:
+            return utils.abstract(s, predicates)
+
+        issued = 0
+        last_failure: Optional[str] = None
+        repeat_key: Optional[Any] = None
+        repeat_count = 0
+        issued_option: Optional[_Option] = None
+        issued_state: Optional[State] = None
+        noop_key: Optional[Any] = None
+        noop_count = 0
+
+        class _PolicyFatal(utils.OptionExecutionFailure):
+            """DONE / policy bug / budget: never surfaced, ends episode."""
+
+        def _option_policy(state: State) -> _Option:
+            nonlocal issued, last_failure, repeat_key, repeat_count, \
+                issued_option, issued_state, noop_key, noop_count
+            if last_failure is None and issued > 0:
+                # The previous option completed cleanly: the policy is
+                # making progress, so the stuck-loop counter resets.
+                repeat_key = None
+                repeat_count = 0
+                # ...unless the clean completion changed nothing
+                # observable: an identical command re-completing as a
+                # no-op K times is a livelock the failure guard cannot
+                # see (mirrors execute_policy_forward).
+                if issued_option is not None and issued_state is not None \
+                        and states_features_allclose(issued_state, state):
+                    key = option_repeat_key(issued_option)
+                    noop_count = noop_count + 1 if key == noop_key else 1
+                    noop_key = key
+                    if noop_count >= CFG.agent_policy_max_repeated_noops:
+                        raise _PolicyFatal(
+                            repeated_noop_message(issued_option, noop_count))
+                else:
+                    noop_key = None
+                    noop_count = 0
+            if issued >= CFG.agent_policy_max_options:
+                raise _PolicyFatal(
+                    "Policy exhausted its option budget "
+                    f"({CFG.agent_policy_max_options} options) without "
+                    "signalling DONE.")
+            try:
+                nxt = option_fn(state, last_failure)
+            except PolicyError as e:
+                raise _PolicyFatal(f"policy error: {e}") from e
+            if nxt is None:
+                logging.info("Policy signaled DONE after %d options.", issued)
+                raise _PolicyFatal("Policy signaled DONE.")
+            issued += 1
+            last_failure = None
+            logging.info("Executing policy option %d/%d: %s", issued,
+                         CFG.agent_policy_max_options, nxt.simple_str())
+            if not nxt.initiable(state):
+                # Same text and attribution as execute_policy_forward
+                # (option_policy_to_policy's own "Unsound option policy"
+                # raise would name the PREVIOUS option in its info).
+                raise utils.OptionExecutionFailure(
+                    "not initiable", info={"last_failed_option": nxt})
+            issued_option = nxt
+            issued_state = state
+            return nxt
+
+        def _fresh_inner() -> Callable[[State], Action]:
+            return utils.option_policy_to_policy(
+                _option_policy,
+                max_option_steps=CFG.max_num_steps_option_rollout,
+                abstract_function=_abstract)
+
+        inner_box = {"inner": _fresh_inner()}
+
+        def _execution_policy(state: State) -> Action:
+            nonlocal last_failure, repeat_key, repeat_count
+            while True:
+                try:
+                    return inner_box["inner"](state)
+                except _PolicyFatal as e:
+                    raise ApproachFailure(str(e)) from e
+                except utils.OptionExecutionFailure as e:
+                    # Surface to the policy and continue: the failed
+                    # option is stuck in the old wrapper, so rebuild.
+                    failed = getattr(e, "info", {}).get("last_failed_option")
+                    prefix = (f"{failed.name}: " if failed is not None else "")
+                    last_failure = f"{prefix}{e}"
+                    logging.info("Option failure surfaced to the policy: %s",
+                                 last_failure)
+                    # Mirrors execute_policy_forward: K consecutive
+                    # failures of one identical command are a policy
+                    # bug, not recovery - end the episode attributably
+                    # instead of burning the remaining option budget.
+                    if failed is not None:
+                        key = option_repeat_key(failed)
+                        repeat_count = (repeat_count +
+                                        1 if key == repeat_key else 1)
+                        repeat_key = key
+                        if (repeat_count >=
+                                CFG.agent_policy_max_repeated_failures):
+                            raise ApproachFailure(
+                                repeated_failure_message(failed,
+                                                         repeat_count)) from e
+                    else:
+                        repeat_key = None
+                        repeat_count = 0
+                    inner_box["inner"] = _fresh_inner()
+
+        return _execution_policy
+
+    def _plan_to_policy(
+        self,
+        plan: List[_Option],
+        sketch: Optional[List[_SketchStep]] = None,
+    ) -> Callable[[State], Action]:
+        """Wrap a grounded option plan into a step-by-step policy.
+
+        With ``CFG.agent_bilevel_max_execution_replans > 0`` and a full
+        per-step sketch, the policy also publishes a live
+        ``SubgoalExecutionStatus`` (via
+        ``get_execution_monitoring_info``) that the subgoal_annotations
+        execution monitor reads to check, at each option boundary, that
+        the just-finished step's annotation holds in the REAL state. On
+        divergence the monitor makes CogMan re-invoke solve(), which
+        lands in :meth:`_maybe_replan_from_divergence`.
+        """
+        predicates = self._get_all_predicates()
+
+        def _abstract(s: State) -> Set[GroundAtom]:
+            return utils.abstract(s, predicates)
+
+        monitored = (CFG.agent_bilevel_max_execution_replans > 0
+                     and sketch is not None and len(sketch) == len(plan))
+
+        queue = list(plan)
+        total = len(queue)
+        status: Optional[SubgoalExecutionStatus] = None
+        if monitored:
+            assert sketch is not None
+            status = SubgoalExecutionStatus(sketch=list(sketch))
+            self._exec_status = status
+            self._exec_plan = list(plan)
+
+        def _option_policy(state: State) -> _Option:
+            del state  # unused
+            if not queue:
+                logging.info("Option plan exhausted after %d options.", total)
+                # See the twin of this raise in utils.option_plan_to_policy:
+                # a finished plan and a failed option arrive as the same
+                # exception type, so the normal terminus is flagged.
+                raise utils.OptionExecutionFailure(
+                    "Option plan exhausted!", info={"plan_exhausted": True})
+            option = queue.pop(0)
+            num_done = total - len(queue)
+            if status is not None:
+                status.steps_initiated = num_done
+                status.current_option = option
+            next_option = None if not queue else queue[0].simple_str()
+            logging.info("Executing option %d/%d: %s (remaining=%d, next=%s)",
+                         num_done, total, option.simple_str(), len(queue),
+                         next_option)
+            return option
+
+        inner = utils.option_policy_to_policy(
+            _option_policy,
+            max_option_steps=CFG.max_num_steps_option_rollout,
+            abstract_function=_abstract)
+        return self._wrap_option_failures(inner)
+
+    def _replan_suffix(
+        self,
+        state: State,
+        task: Task,
+        sketch: List[_SketchStep],
+        failed_idx: int,
+        timeout: int,
+    ) -> Optional[Callable[[State], Action]]:
+        """Cheap-first recovery: re-refine a suffix of the current sketch.
+
+        Divergence is usually a continuous-execution problem (a sampled
+        parameter whose real outcome differed from the option-model
+        rollout), not a wrong skeleton, so before paying for a fresh
+        agent sketch we retry the one we have. Candidate resume points
+        run from the failed step backward to just after the latest
+        earlier annotated step whose subgoals still hold in the current
+        state. The holds-check only bounds the walk-back - annotations
+        are optional and can hold coincidentally (e.g. a final
+        SwitchOff's {Off} atom holds before the switch was ever touched)
+        - so every candidate suffix must still refine AND forward-
+        validate from the current state before we trust it. Returns None
+        when no suffix candidate validates.
+        """
+        assert self._option_model is not None
+        sub_task = Task(state, task.goal)
+        resume_floor = 0
+        for j in range(failed_idx - 1, -1, -1):
+            step = sketch[j]
+            if step.subgoal_atoms is None and step.subgoal_neg_atoms is None:
+                continue
+            pos_ok = all(a.holds(state) for a in (step.subgoal_atoms or set()))
+            neg_ok = not any(
+                a.holds(state) for a in (step.subgoal_neg_atoms or set()))
+            if pos_ok and neg_ok:
+                resume_floor = j + 1
+                break
+        start = time.perf_counter()
+        for j in range(failed_idx, resume_floor - 1, -1):
+            remaining = timeout - (time.perf_counter() - start)
+            if remaining <= 0:
+                break
+            suffix = list(sketch[j:])
+            plan, success = self._refine_sketch(sub_task,
+                                                suffix,
+                                                remaining,
+                                                attempt=j)
+            if not success:
+                logging.info(
+                    "Suffix replan: refinement failed resuming at "
+                    "step %d.", j)
+                continue
+            ok, reason = bilevel_sketch.validate_plan_forward(
+                sub_task,
+                plan,
+                self._option_model,
+                predicates=self._get_all_predicates(),
+                sketch=suffix,
+                run_id=self._run_id,
+            )
+            if ok:
+                logging.info(
+                    "Suffix replan: resuming executed sketch at step %d "
+                    "(%d steps).", j, len(plan))
+                return self._plan_to_policy(plan, sketch=suffix)
+            logging.info(
+                "Suffix replan: forward validation failed resuming at "
+                "step %d: %s", j, reason)
+        return None

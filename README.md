@@ -68,6 +68,26 @@ match the `pyg-torch271-cu128` index to your torch build for `torch-scatter`.
   isort, ...).
 
 
+### Optional: real-robot execution (BabyRobotPredicator)
+
+Driving a real Franka arm additionally needs
+[BabyRobotPredicator](https://github.com/BasisResearch/BabyRobotPredicator), which
+predicators carries as the git submodule `submodules/BabyRobotPredicator`. It is a
+**private** repository and is deliberately **not** in `install_requires`, so:
+
+* Everything except real-robot execution works without it. The submodule simply does
+  not clone if you lack access.
+* With access, check it out and install it from the submodule path:
+
+  ```bash
+  git submodule update --init submodules/BabyRobotPredicator
+  pip install -e submodules/BabyRobotPredicator
+  ```
+
+Predicators then drives the arm in-process: it constructs babyrobot's `RealRobot`
+and calls it like any Python object, in the same interpreter. Set `--real_robot_execute True`
+to execute (and `--real_robot_dry True` to run the whole path with no arm).
+
 ## Instructions For Running Code
 
 ### `PYTHONHASHSEED`
