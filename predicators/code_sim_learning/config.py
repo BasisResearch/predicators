@@ -18,9 +18,15 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Optional, Tuple
 
+from predicators.observation_noise import ObservationNoise
 from predicators.settings import CFG, LAUNCH_CWD
+
+# Width of the rollout objective's Gaussian likelihood on scaled
+# residuals (dimensionless fractions of typical motion): the
+# model-error floor, 5% of a feature's motion span.
+DEFAULT_NOISE_SIGMA = 0.05
 
 
 def _anchor_at_launch_cwd(path: str) -> str:
@@ -36,6 +42,14 @@ def _anchor_at_launch_cwd(path: str) -> str:
     if not path or os.path.isabs(path):
         return path
     return os.path.join(LAUNCH_CWD, path)
+
+
+def _declared_observation_noise() -> Optional[ObservationNoise]:
+    """The channel the fit may know about: enabled and declared."""
+    noise = ObservationNoise.from_cfg()
+    if noise.enabled and noise.declared:
+        return noise
+    return None
 
 
 @dataclass(frozen=True)
@@ -75,6 +89,10 @@ class SysIdConfig:
     track_wait_s: float
     track_frame_yaw: float
     track_frame_xy: Tuple[float, float]
+    # The declared observation-noise channel, folded into the residual
+    # scales (predicators/observation_noise.py); None when observations
+    # are exact or the channel is undeclared.
+    observation_noise: Optional[ObservationNoise] = None
 
     @classmethod
     def from_cfg(cls) -> SysIdConfig:
@@ -123,4 +141,5 @@ class SysIdConfig:
             track_wait_s=CFG.code_sim_learning_track_wait_s,
             track_frame_yaw=CFG.code_sim_learning_track_frame_yaw,
             track_frame_xy=tuple(CFG.code_sim_learning_track_frame_xy),
+            observation_noise=_declared_observation_noise(),
         )
