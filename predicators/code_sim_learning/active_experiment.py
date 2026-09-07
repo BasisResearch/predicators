@@ -1,13 +1,18 @@
 """Active-experiment-design primitives for sim-learning exploration.
 
 Pure, dependency-light helpers used to turn the explorer's refinement
-from *feasibility-seeking* into *information-seeking*. Three pieces:
+from *feasibility-seeking* into *information-seeking*. The pieces:
 
 * :func:`perturbation_ensemble` — build a small ensemble of plausible
   parameter vectors around a point estimate (the MAP), by perturbing
   each parameter within its ``ParamSpec`` bounds. This is the universal
   fallback that works for both per-transition and recurrent simulators
   (no Jacobian required).
+
+* :func:`subsample_ensemble` — subsample an explicit sample set the fit
+  already carries (the declared-params ablation's
+  ``declared_interval_fit_result`` fills it with uniform draws over the
+  declared boxes), anchoring at the fit's own combined point estimate.
 
 * :func:`laplace_ensemble` — the *calibrated* upgrade, preferred when
   the fit supplies a Jacobian. It draws from the Laplace covariance
@@ -112,6 +117,45 @@ def perturbation_ensemble(
             else:
                 perturbed = value + rng.normal(0.0, sigma)
             member[name] = _clip_to_spec(perturbed, spec)
+        members.append(member)
+    return members
+
+
+def subsample_ensemble(
+    point: Dict[str, float],
+    names: Sequence[str],
+    samples: np.ndarray,
+    num_members: int,
+    rng: np.random.Generator,
+) -> List[Dict[str, float]]:
+    """Build an ensemble by subsampling an EXPLICIT sample set ``samples``.
+
+    Used when the fit already carries its own draws rather than a
+    Jacobian - the declared-params ablation, whose
+    ``declared_interval_fit_result`` fills ``samples`` (shape
+    ``(num_draws, len(names))``) with uniform draws over each parameter's
+    declared box. Each non-anchor member is one of those rows verbatim,
+    so the spread is the declared plausible range.
+
+    Member 0 is always ``point`` (the ensemble anchor), so a size-1
+    ensemble reduces to the point estimate. Draws are without replacement
+    when the pool is large enough, with replacement otherwise. Keys of
+    ``point`` not in ``names`` are carried through each member unperturbed.
+    """
+    if num_members < 1:
+        raise ValueError("num_members must be >= 1")
+    arr = np.asarray(samples, dtype=float)
+    anchor = {k: float(v) for k, v in point.items()}
+    members: List[Dict[str, float]] = [dict(anchor)]
+    num_draws = arr.shape[0] if arr.ndim == 2 else 0
+    if num_members == 1 or num_draws == 0:
+        return members
+    need = num_members - 1
+    idx = rng.choice(num_draws, size=need, replace=num_draws < need)
+    for i in idx:
+        member = dict(anchor)
+        for j, name in enumerate(names):
+            member[name] = float(arr[int(i), j])
         members.append(member)
     return members
 

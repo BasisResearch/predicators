@@ -49,7 +49,7 @@ from predicators.approaches.sampler_learning_mixin import SamplerLearningMixin
 from predicators.approaches.synthesis_validation import \
     build_candidate_option_model
 from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
-    mean_bernoulli_entropy, perturbation_ensemble
+    mean_bernoulli_entropy, perturbation_ensemble, subsample_ensemble
 from predicators.code_sim_learning.commands import CommandBuffer
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
     declared_interval_fit_result, declared_interval_report
@@ -1328,6 +1328,11 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
         Dispatch, most- to least-calibrated:
 
+        * ``subsample`` - when the fit carries an explicit multi-row
+          sample set (the declared-params ablation's
+          ``declared_interval_fit_result`` fills it with uniform draws
+          over the declared boxes), subsample those rows and anchor at
+          the fit's own combined point estimate (physical + rule params).
         * ``laplace`` - when the fit attached an LM Jacobian, draw from the
           Laplace covariance at the MAP (per-transition or recurrent).
         * ``uniform`` - otherwise (oracle params, LM skipped/failed, or
@@ -1336,6 +1341,15 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         fit = self._last_fit_result
         calibrated = CFG.agent_explorer_info_calibrated_ensemble
         if calibrated and fit is not None:
+            samples = np.asarray(fit.samples, dtype=float)
+            if samples.ndim == 2 and samples.shape[0] > 1:
+                return subsample_ensemble(
+                    fit.point_estimate,
+                    fit.names,
+                    samples,
+                    num_members=num_members,
+                    rng=self._rng,
+                ), "subsample"
             if (fit.jacobian is not None and fit.noise_sigma is not None
                     and fit.prior_sigma is not None):
                 return laplace_ensemble(
