@@ -1,5 +1,6 @@
 """Synthesis-session tools for sim learning (create_synthesis_tools)."""
 import dataclasses
+import hashlib
 import os
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -260,7 +261,7 @@ def create_synthesis_tools(
         compute_residual_scaling
     from predicators.code_sim_learning.utils import apply_rules, \
         has_latent_rules, has_physics_rules, iter_feature_residuals, \
-        read_latent_init, read_physical_param_specs, \
+        read_latent_init, read_physical_param_specs, read_residual_env, \
         read_simulator_components, rollout_predictions, \
         stamp_physical_spec_scales
     from predicators.settings import CFG
@@ -311,6 +312,27 @@ def create_synthesis_tools(
         rules, specs, features = read_simulator_components(ns)
         latent_init = read_latent_init(ns)
         physical_specs = read_physical_param_specs(ns)
+        # The subclass model form (RESIDUAL_ENV): its overridden
+        # _domain_specific_step is the dynamics and its AGENT_PARAM_SPECS
+        # are the physical params to identify, so it is a valid artifact
+        # with empty rules/specs. Install it as the approach's planning
+        # base env (keyed on content so identical re-execs reuse it), so
+        # the rollout system-ID (sim.fit) and the residual rollouts
+        # (sim.residuals) run against an instance of the subclass.
+        residual_env_cls = read_residual_env(ns)
+        if residual_env_cls is not None:
+            physical_specs = list(residual_env_cls.AGENT_PARAM_SPECS)
+            if features is None:
+                features = getattr(residual_env_cls, "RESIDUAL_FEATURES", None)
+        # Keep the approach's planning base env in step with the loaded
+        # file: install the subclass, or clear a previously-installed one
+        # when this file is a rule form (so a later rule-form fit anchors
+        # against the stock base env, not a stale subclass instance).
+        if approach is not None and hasattr(approach,
+                                            "_install_residual_env_cls"):
+            approach._install_residual_env_cls(  # pylint: disable=protected-access
+                residual_env_cls,
+                hashlib.sha256(raw).hexdigest())
         if rules is None:
             if not physical_specs:
                 return None, None, None, None, None, version_tag, (

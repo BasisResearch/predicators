@@ -71,7 +71,7 @@ from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, apply_rules_with_latent, has_latent_rules, \
     has_physics_rules, init_latent, iter_feature_residuals, merge_updates, \
     observation_view, read_latent_init, read_physical_param_specs, \
-    read_simulator_components, stamp_physical_spec_scales
+    read_residual_env, read_simulator_components, stamp_physical_spec_scales
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_simulator
 from predicators.option_model import _OptionModelBase, _OracleOptionModel
@@ -298,6 +298,11 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # every stock arm, where the base env is the fixed base-sim class
         # with skip_residual_dynamics=True.
         self._residual_env_cls: Optional[type] = None
+        # Content key (simulator.py SHA256) of the installed subclass, so
+        # repeated execs of unchanged content reuse the planning base env
+        # instead of rebuilding it every probe/fit call (each exec makes
+        # a fresh class object, so identity comparison never matches).
+        self._residual_env_key: Optional[str] = None
         # Loss-scope mask for parameter fitting (compute_sse).
         self._residual_features: Dict[str, List[str]] = {}
         self._residual_rules: Optional[List] = None
@@ -839,21 +844,41 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         rules, specs, declared_features, sim_ns = (
             self._load_simulator_from_module_file(paths.simulator_file,
                                                   trajectories))
-        if not rules or specs is None:
+        residual_env_cls = read_residual_env(sim_ns) if isinstance(
+            sim_ns, dict) else None
+        # The subclass model form carries its dynamics on the class, so
+        # its rules load empty; every other form must have non-empty
+        # rules to be loadable.
+        if (not rules and residual_env_cls is None) or specs is None:
             logger.warning(
                 "Restored simulator.py failed to load; continuing with "
                 "the initial option model (the next learn cycle will "
                 "rebuild it).")
             self._rehydrate_extra_artifacts(paths.base)
             return
+        # Past the guard rules is a list (empty only for the subclass form,
+        # whose dynamics live on the class); coerce a None the guard let
+        # through (subclass present) so the downstream step_fn sees a list.
+        rules = rules or []
+        self._install_residual_env_cls(residual_env_cls)
         self._residual_rules = rules
         if declared_features:
             self._residual_features = declared_features
+        elif residual_env_cls is not None:
+            self._residual_features = dict(
+                getattr(residual_env_cls, "RESIDUAL_FEATURES", {}))
         self._latent_init = (read_latent_init(sim_ns) if isinstance(
             sim_ns, dict) else None)
-        self._physical_param_specs = stamp_physical_spec_scales(
-            list((read_physical_param_specs(sim_ns) if isinstance(
-                sim_ns, dict) else None) or []), self._base_env)
+        # Subclass form: the physical params to identify are the class's
+        # AGENT_PARAM_SPECS (stamped against the now-installed subclass
+        # instance); otherwise the optional PHYSICAL_PARAM_SPECS export.
+        if residual_env_cls is not None:
+            self._physical_param_specs = stamp_physical_spec_scales(
+                list(residual_env_cls.AGENT_PARAM_SPECS), self._base_env)
+        else:
+            self._physical_param_specs = stamp_physical_spec_scales(
+                list((read_physical_param_specs(sim_ns) if isinstance(
+                    sim_ns, dict) else None) or []), self._base_env)
         # The agent may have edited simulator.py after the last fit:
         # pickled fitted params are only valid for matching spec names.
         spec_names = {s.name for s in specs}
@@ -1192,6 +1217,19 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                                  if features is not None else inferred_hint)
             latent_init = read_latent_init(ns) if isinstance(ns,
                                                              dict) else None
+            # The subclass model form: install the candidate's RESIDUAL_ENV
+            # as the planning base env (keyed on content so identical
+            # re-execs reuse it) and take its AGENT_PARAM_SPECS as the
+            # physical params to fit, so the option model built below runs
+            # over an instance of the subclass and sim.run / sim.fit /
+            # sim.residuals all exercise its dynamics. None on the rule
+            # form, which clears any previously installed subclass.
+            residual_env_cls = read_residual_env(ns) if isinstance(
+                ns, dict) else None
+            self._install_residual_env_cls(residual_env_cls, digest)
+            if residual_env_cls is not None:
+                self._physical_param_specs = stamp_physical_spec_scales(
+                    list(residual_env_cls.AGENT_PARAM_SPECS), self._base_env)
             # Never fit here: fitting is the agent's explicit ``sim.fit``
             # (its own budget, its own report). The candidate runs at
             # the last published fit's values (declared init values for
@@ -1793,13 +1831,27 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # leaves every latent path dormant.
         self._latent_init = (read_latent_init(sim_ns) if isinstance(
             sim_ns, dict) else None)
-        # Optional PHYSICAL_PARAM_SPECS export: base-sim parameters to
-        # identify jointly with the rule params (system ID). The fit
-        # scale (log vs linear) is stamped from the env registry; agents
-        # copy name/init/bounds but need not know about it.
-        self._physical_param_specs = stamp_physical_spec_scales(
-            list((read_physical_param_specs(sim_ns) if isinstance(
-                sim_ns, dict) else None) or []), self._base_env)
+        # The subclass model form (RESIDUAL_ENV): install the subclass as
+        # the planning base env, and take its AGENT_PARAM_SPECS as the
+        # physical params to system-ID (they are already fully-specified
+        # ParamSpecs, so stamp them against an INSTANCE of the subclass -
+        # which _install_residual_env_cls has just made self._base_env -
+        # never the stock base env, which does not carry them). None on
+        # the rule form and every stock arm, which keep today's behavior.
+        residual_env_cls = read_residual_env(sim_ns) if isinstance(
+            sim_ns, dict) else None
+        self._install_residual_env_cls(residual_env_cls)
+        if residual_env_cls is not None:
+            self._physical_param_specs = stamp_physical_spec_scales(
+                list(residual_env_cls.AGENT_PARAM_SPECS), self._base_env)
+        else:
+            # Optional PHYSICAL_PARAM_SPECS export: base-sim parameters to
+            # identify jointly with the rule params (system ID). The fit
+            # scale (log vs linear) is stamped from the env registry;
+            # agents copy name/init/bounds but need not know about it.
+            self._physical_param_specs = stamp_physical_spec_scales(
+                list((read_physical_param_specs(sim_ns) if isinstance(
+                    sim_ns, dict) else None) or []), self._base_env)
         if self._physical_param_specs:
             logger.info("Agent declared %d physical params for system ID: %s",
                         len(self._physical_param_specs),
@@ -3123,25 +3175,35 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             return None, None, None, None
 
         rules, specs, features = read_simulator_components(ns)
-        # A physics-only artifact (PHYSICAL_PARAM_SPECS with no residual rules)
-        # is valid: the base sim carries all the dynamics once its
-        # parameters are identified, so rules/specs default to empty.
+        residual_env_cls = read_residual_env(ns)
+        # A physics-only artifact (PHYSICAL_PARAM_SPECS with no residual
+        # rules) or a subclass artifact (RESIDUAL_ENV, whose overridden
+        # _domain_specific_step is the dynamics) is valid without
+        # RESIDUAL_RULES/PARAM_SPECS: the base sim / subclass carries all
+        # the dynamics once its parameters are identified, so rules/specs
+        # default to empty.
         physics_only = read_physical_param_specs(ns) is not None
+        allow_no_rules = physics_only or residual_env_cls is not None
         if rules is None:
-            if not physics_only:
+            if not allow_no_rules:
                 logger.warning("Simulator file %s missing RESIDUAL_RULES.",
                                path)
                 return None, None, None, ns
             rules = []
         if specs is None:
-            if not physics_only:
+            if not allow_no_rules:
                 logger.warning("Simulator file %s missing PARAM_SPECS.", path)
                 return None, None, None, ns
             specs = []
+        # The subclass declares the features it owns on the class; use it
+        # as the fallback when the file omits the module-level export.
+        if residual_env_cls is not None and features is None:
+            features = getattr(residual_env_cls, "RESIDUAL_FEATURES", None)
 
+        kind = (" (subclass artifact)" if residual_env_cls is not None else
+                " (physics-only artifact)" if physics_only else "")
         logger.info("Loaded %d rules, %d param specs from %s%s.", len(rules),
-                    len(specs), path,
-                    " (physics-only artifact)" if physics_only else "")
+                    len(specs), path, kind)
         return rules, specs, features, ns
 
     # ── Static helpers ───────────────────────────────────────────
@@ -3218,6 +3280,22 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
     def _recreate_base_env(self) -> None:
         """Reconnect after a PyBullet physics-server crash."""
+        self._rebuild_base_env("PyBullet physics client crashed; recreating "
+                               "base env")
+
+    def _rebuild_base_env(self, reason: str) -> None:
+        """Dispose the current base env and build a fresh planning base env.
+
+        Shared by the PyBullet-crash recovery
+        (:meth:`_recreate_base_env`) and the subclass-form install
+        (:meth:`_install_residual_env_cls`): both need a fresh env from
+        :meth:`_make_planning_base_env` (the stock base sim, or an
+        instance of the agent's ``RESIDUAL_ENV`` subclass when one is
+        installed) with the identified physical params re-applied (the
+        in-place override does not survive env recreation) and the
+        option model's certificate env and probe substrate re-pointed at
+        the new instance.
+        """
         try:
             # dispose_env releases the secondary probe world too; the
             # domino override disposes it BEFORE the (possibly dead)
@@ -3225,9 +3303,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             dispose_env(self._base_env)
         except Exception:  # pylint: disable=broad-except  # client may already be dead
             pass
-        logging.warning(
-            "PyBullet physics client crashed; recreating base env "
-            "(use_gui=%s).", CFG.option_model_use_gui)
+        logging.warning("%s (use_gui=%s).", reason, CFG.option_model_use_gui)
         self._base_env = self._make_planning_base_env(
             use_gui=CFG.option_model_use_gui)
         # A fresh env comes up with built-in physics; re-assert any
@@ -3245,6 +3321,42 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # The probe's combined substrate rides on the env instance too.
         self._base_env.probe_process_model_factory = \
             self._make_probe_process_model_factory()
+
+    def _install_residual_env_cls(self,
+                                  residual_env_cls: Optional[type],
+                                  content_key: Optional[str] = None) -> None:
+        """Install (or clear) the subclass model form's base-env class.
+
+        The subclass model form (``simulator.py`` exports ``RESIDUAL_ENV``)
+        supplies its dynamics by overriding ``_domain_specific_step``, so
+        the planning base env must be an INSTANCE of the subclass
+        (``skip_residual_dynamics`` False) rather than the stock base sim:
+        then the deployed option model, the combined simulator and the
+        rollout system-ID all step the agent's dynamics, and the fit
+        identifies its ``AGENT_PARAM_SPECS``. Clearing it (``None``, the
+        rule form and every stock arm) restores the stock base sim.
+
+        ``content_key`` (the simulator.py SHA256) makes the install
+        idempotent across the many re-execs of one file within a session:
+        each exec defines a fresh class object, so an identity check would
+        rebuild the base env every probe/fit call. When the key is
+        unchanged the existing base env (whose class carries the identical
+        code) is kept; a genuine edit changes the key and rebuilds. A
+        ``None`` key forces a rebuild whenever the class presence changes
+        (the once-per-cycle finalize/rehydrate paths).
+        """
+        cur_cls = getattr(self, "_residual_env_cls", None)
+        cur_key = getattr(self, "_residual_env_key", None)
+        unchanged = ((residual_env_cls is None and cur_cls is None) or
+                     (residual_env_cls is not None and cur_cls is not None
+                      and content_key is not None and content_key == cur_key))
+        if unchanged:
+            return
+        self._residual_env_cls = residual_env_cls
+        self._residual_env_key = content_key
+        self._rebuild_base_env(
+            "Installing subclass model base env" if residual_env_cls
+            is not None else "Restoring stock base env (no subclass model)")
 
     @contextmanager
     def _fresh_validation_env_scope(

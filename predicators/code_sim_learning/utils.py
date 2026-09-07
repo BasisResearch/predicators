@@ -39,14 +39,17 @@ import copy
 import inspect
 import logging
 from functools import lru_cache
-from typing import Any, Callable, Dict, Iterable, Iterator, List, Mapping, \
-    Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Iterator, \
+    List, Mapping, Optional, Sequence, Tuple, Type
 
 import numpy as np
 
 from predicators.code_sim_learning.commands import CommandBuffer
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.structs import Action, Object, State
+
+if TYPE_CHECKING:
+    from predicators.envs.pybullet_env import PyBulletEnv
 
 logger = logging.getLogger(__name__)
 
@@ -497,7 +500,7 @@ def read_physical_param_specs(ns: Mapping[str, Any]) -> Optional[List]:
     return specs
 
 
-def read_residual_env(ns: Mapping[str, Any]) -> Optional[type]:
+def read_residual_env(ns: Mapping[str, Any]) -> Optional[Type["PyBulletEnv"]]:
     """Pull ``RESIDUAL_ENV`` (optional) from a simulator namespace.
 
     The subclass model form: instead of ``RESIDUAL_RULES`` the file
