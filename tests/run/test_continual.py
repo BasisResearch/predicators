@@ -12,7 +12,7 @@ from typing import Any, Dict, List
 import numpy as np
 import pytest
 
-from predicators import utils
+from predicators import observation_noise, utils
 from predicators.approaches import create_approach
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
@@ -203,10 +203,19 @@ class _StopAfter:
             session.invoke = original  # type: ignore[method-assign]
 
 
-def test_preemption_resume_replays_losslessly(tmp_path: Any) -> None:
+@pytest.mark.parametrize("noise", [0.0, 0.001])
+def test_preemption_resume_replays_losslessly(tmp_path: Any, monkeypatch: Any,
+                                              noise: float) -> None:
     """A kill mid-level resumes with the env rebuilt from the action log, the
-    counts untouched, and one resume recorded."""
-    _config(tmp_path, "oracle", num_test_tasks=1, horizon=200)
+    counts untouched, and one resume recorded; under the observation-noise
+    channel too, since the checkpoint keeps the true state."""
+    monkeypatch.setattr(observation_noise, "POSITION_FEATURES",
+                        frozenset({"pose"}))
+    _config(tmp_path,
+            "oracle",
+            num_test_tasks=1,
+            horizon=200,
+            continual_obs_noise_position=noise)
     env, approach = _make("oracle")
     # The random controller keeps a level busy for many invocations, so
     # the kill lands mid-episode.
@@ -225,7 +234,8 @@ def test_preemption_resume_replays_losslessly(tmp_path: Any) -> None:
             "oracle",
             num_test_tasks=1,
             horizon=200,
-            auto_resume=True)
+            auto_resume=True,
+            continual_obs_noise_position=noise)
     env2, approach2 = _make("oracle")
     second = ContinualRun(env2, approach2, OracleController(approach2))
     lv = second.card.levels[0]
@@ -754,3 +764,129 @@ def test_no_episode_horizon_by_default(tmp_path: Any) -> None:
     lv = card.levels[0]
     assert lv.game_overs == [] and lv.resets == 0
     assert lv.steps == card.step_cap == 12
+
+
+def test_scorecard_records_the_claude_account(monkeypatch) -> None:
+    """The launcher exports the run's Claude account; the card keeps it, and
+    cards written before the field existed load with it empty."""
+    monkeypatch.setenv("PREDICATORS_CLAUDE_ACCOUNT", "b")
+    card = RunCard(run_id="r",
+                   env="cover",
+                   seed=0,
+                   arm="oracle",
+                   levels=[],
+                   step_cap=10,
+                   wall_clock_cap=1.0)
+    assert card.claude_account == "b"
+    assert RunCard.from_dict(card.to_dict()).claude_account == "b"
+    monkeypatch.delenv("PREDICATORS_CLAUDE_ACCOUNT")
+    old = card.to_dict()
+    del old["claude_account"]
+    assert RunCard.from_dict(old).claude_account == ""
+
+
+def test_observation_noise_channel(tmp_path: Any, monkeypatch: Any) -> None:
+    """The agent observes the channel's draw, one per step: the frame differs
+    from the truth on object positions only, re-reading it is idempotent, the
+    data file shows the same draws, the recording and the evaluators keep the
+    true state, and the run card and level index record the channel."""
+    # Cover's position feature is ``pose``; the channel's default classes
+    # name PyBullet's x, y, z.
+    monkeypatch.setattr(observation_noise, "POSITION_FEATURES",
+                        frozenset({"pose"}))
+    _config(tmp_path,
+            "oracle",
+            num_test_tasks=1,
+            continual_obs_noise_position=0.002)
+    env, approach = _make("oracle")
+    seen: Dict[str, Any] = {}
+
+    class _Probe:
+
+        def play_level(self, session: ProtocolSession) -> None:
+            """Level 0: inspect the channel, then let the oracle win.
+
+            Level 1: the finished level's data reproduces its draws.
+            """
+            if session.level_index > 0:
+                prev = session.previous_level_episodes(0)
+                assert prev[0]["states"][0].allclose(seen["frame0"])
+                assert prev[0]["states"][1].allclose(seen["frame1"])
+                OracleController(approach).play_level(session)
+                return
+            truth = run._runner.observation()  # pylint: disable=protected-access
+            obs = session.observe()
+            frame = obs.frame
+            assert frame is not truth
+            assert session.observe().frame is frame, "one draw per step"
+            blocks = [o for o in truth if o.type.name == "block"]
+            robot = [o for o in truth if o.type.name == "robot"][0]
+            assert any(
+                frame.get(b, "pose") != truth.get(b, "pose") for b in blocks)
+            assert all(
+                abs(frame.get(b, "pose") - truth.get(b, "pose")) < 0.02
+                for b in blocks)
+            assert all(
+                frame.get(b, "is_block") == truth.get(b, "is_block")
+                for b in blocks)
+            assert np.array_equal(frame[robot], truth[robot])
+            # The protocol's own atoms are the truth's.
+            assert obs.atoms == utils.abstract(truth, env.predicates)
+            seen["truth0"] = truth.copy()
+            seen["frame0"] = frame
+            zero = Action(np.zeros(env.action_space.shape, dtype=np.float32))
+            session.step(zero)
+            frame1 = session.observe().frame
+            assert not frame1.allclose(frame), "a new step is a new draw"
+            seen["frame1"] = frame1
+            # The data the arm reads carries the draws the agent saw.
+            states = session.level_episodes()[0]["states"]
+            assert states[0] is frame and states[1] is frame1
+            OracleController(approach).play_level(session)
+            assert session.level_card().won
+
+    run = ContinualRun(env, approach, _Probe())
+    card = run.run()
+    assert card.end_reason == "all_levels_won"
+    assert card.obs_noise_position == 0.002
+    assert card.obs_noise_orientation == 0.0 and card.obs_noise_declared
+    _check_card_invariants(run)
+    rec = LevelRecording(os.path.join(run.run_dir, "L01"))
+    start = [e for e in rec.read_index() if e["event"] == "level_start"][0]
+    assert start["observation_noise"] == {
+        "position": 0.002,
+        "orientation": 0.0,
+        "declared": True,
+    }
+    # The recording keeps the true state, not the agent's view.
+    recorded = rec.read_episodes()[0]["states"][0]
+    rec.close()
+    assert recorded.allclose(seen["truth0"])
+    assert not recorded.allclose(seen["frame0"])
+
+
+def test_scorecard_records_the_observation_noise() -> None:
+    """The card carries the channel's sigmas and cards written before the
+    fields existed load as exact observations."""
+    card = RunCard(run_id="r",
+                   env="cover",
+                   seed=0,
+                   arm="oracle",
+                   levels=[],
+                   step_cap=10,
+                   wall_clock_cap=1.0,
+                   obs_noise_position=0.005,
+                   obs_noise_orientation=0.02,
+                   obs_noise_declared=False)
+    back = RunCard.from_dict(card.to_dict())
+    assert back.obs_noise_position == 0.005
+    assert back.obs_noise_orientation == 0.02
+    assert back.obs_noise_declared is False
+    old = card.to_dict()
+    for key in ("obs_noise_position", "obs_noise_orientation",
+                "obs_noise_declared"):
+        del old[key]
+    exact = RunCard.from_dict(old)
+    assert exact.obs_noise_position == 0.0
+    assert exact.obs_noise_orientation == 0.0
+    assert exact.obs_noise_declared is True
