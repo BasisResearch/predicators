@@ -1,0 +1,47 @@
+# Redesigned balloons (transient/overshoot discriminator), MODEL-FREE
+# baseline arm, seeds 0-2. Paired with the model-based transient config.
+# The model-free agent has no dynamics model and cannot predict a new
+# subset's overshoot; it can only read rest heights (which are identical
+# for the safe subset and the in-band decoy) and try, and a burst is an
+# irreversible loss - so this arm should now fall behind the model-based
+# arm on a domain where the two were previously tied.
+---
+START_SEED: 0
+NUM_SEEDS: 3
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ARGS:
+  - auto_resume
+FLAGS:
+  experiment_protocol: "continual"
+  continual_levels: "train_then_test"
+  continual_steps_per_level: 5000
+  continual_wall_clock_hours: 48.0
+  continual_render: True
+  continual_make_video: True
+  test_fresh_env_per_episode: True
+  continual_runs_dir: "/home/ycliang/predicators/logs"
+  log: "/home/ycliang/predicators/logs/"
+ENVS:
+  boil:
+    SKIP: True
+  balloons:
+    SKIP: False
+    FLAGS:
+      num_train_tasks: 2
+APPROACHES:
+  oracle:
+    SKIP: True
+  agent_continual_model_free_transient:
+    NAME: "agent_continual_model_free"
+    SKIP: False
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_planner_use_simulator: False
+      agent_solve_use_journal: True
+      agent_sdk_max_agent_turns_per_iteration: 10000
+      agent_sdk_image_max_px: 900
+      continual_max_idle_rounds: 5

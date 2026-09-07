@@ -1,0 +1,63 @@
+# Fresh start of fan seed 0 of the model-based arm of
+# protocol_continual_noise_fan_domino.yaml. Its first run crashed on the
+# observed-view bug, and its resume crashed again because the arm reuses
+# a finished level's trajectories from its saved checkpoint, which the
+# crashed run had written with the old plain-state views. The crashed run
+# directory and checkpoint are set aside, so this launch starts at level 1
+# on the fixed code. Seed 0 of fan was on account b in the first launch.
+---
+START_SEED: 0
+NUM_SEEDS: 1
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ARGS:
+  - auto_resume
+FLAGS:
+  experiment_protocol: "continual"
+  continual_levels: "train_then_test"
+  continual_steps_per_level: 5000
+  continual_wall_clock_hours: 48.0
+  continual_render: True
+  continual_make_video: True
+  test_fresh_env_per_episode: True
+  continual_runs_dir: "/home/ycliang/predicators/logs"
+  log: "/home/ycliang/predicators/logs/"
+  continual_obs_noise_position: 0.005
+  continual_obs_noise_orientation: 0.02
+  continual_obs_noise_declared: True
+ENVS:
+  boil:
+    SKIP: True
+  domino_high_friction_turn:
+    SKIP: True
+  fan:
+    SKIP: False
+APPROACHES:
+  oracle:
+    SKIP: True
+  agent_continual_noise5mm:
+    NAME: "agent_continual"
+    SKIP: False
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_sdk_max_agent_turns_per_iteration: 10000
+      agent_sdk_image_max_px: 900
+      agent_bilevel_use_llm_initial_params: True
+      agent_solve_use_journal: True
+      agent_validation_parallel_workers: 6
+      code_sim_learning_rollout_min_posterior_width: 0.1
+      continual_max_idle_rounds: 5
+  agent_continual_model_free_noise5mm:
+    NAME: "agent_continual_model_free"
+    SKIP: True
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_planner_use_simulator: False
+      agent_solve_use_journal: True
+      agent_sdk_max_agent_turns_per_iteration: 10000
+      agent_sdk_image_max_px: 900
+      continual_max_idle_rounds: 5
