@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Iterable, Sequence
 
 from predicators.agent_sdk.prompt_templates import render
+from predicators.observation_noise import ObservationNoise
 from predicators.settings import CFG
 
 # Tool descriptions shown in the system prompt, in this order. The
@@ -73,6 +74,14 @@ def build_play_system_prompt(tool_names: Sequence[str],
     sections = [
         render("play_system", "identity" + variant),
         render("play_system", "protocol"),
+    ]
+    noise = ObservationNoise.from_cfg()
+    if noise.enabled and noise.declared:
+        sections.append(
+            render("play_system",
+                   "observation_noise",
+                   noise_line=noise.describe() + "."))
+    sections += [
         render("play_system", "tools", tool_list=render_tool_list(tool_names)),
         render("play_system", "grammar"),
         render("play_system",
@@ -141,6 +150,12 @@ def build_model_contract(
     if partially_observable:
         parts.append(render("play_model_contract", "hidden_state"))
     parts.append(render("play_model_contract", "paramspec"))
+    noise = ObservationNoise.from_cfg()
+    if noise.enabled and noise.declared:
+        parts.append(
+            render("play_model_contract",
+                   "observation_noise",
+                   noise_line=noise.describe()))
     parts.append(render("play_model_contract", "subclass"))
     if physical_params_section:
         parts.append(physical_params_section)

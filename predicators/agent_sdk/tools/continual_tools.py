@@ -25,6 +25,7 @@ from predicators.agent_sdk.sketch_parsing import parse_sketch_from_text
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.digests import render_options_digest
 from predicators.agent_sdk.tools.results import _error_result, _text_result
+from predicators.observation_noise import ObservationNoise
 from predicators.run.episode import EpisodeOver, EpisodeState
 from predicators.structs import Action, GroundAtom, Predicate, State, Task, \
     _Option
@@ -169,6 +170,9 @@ def format_observation(
                  f"atoms: {goal_text}")
     if spec.task.goal_nl:
         lines.append(f"[goal] {spec.task.goal_nl}")
+    noise = ObservationNoise.from_cfg()
+    if noise.enabled and noise.declared:
+        lines.append(f"[noise] {noise.summary()}")
     if obs.evaluation is not None:
         lines.append(f"[evaluation] reward {obs.evaluation.reward:.3f}, "
                      f"terminated {obs.evaluation.terminated}")

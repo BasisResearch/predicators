@@ -510,3 +510,59 @@ def test_an_invented_predicate_under_an_env_name_stays_the_arms(
                                         env.predicates)
     assert not env_origin and invented
     assert all(a.startswith(goal_pred.name + "(") for a in invented)
+
+
+def test_observation_noise_in_the_prompts_and_the_frame(tmp_path: Any) -> None:
+    """A declared channel is stated to both arms, explained to the model arm's
+    fit, and repeated on every frame; an undeclared one is nowhere."""
+    env, approach, ctx = _setup(tmp_path,
+                                continual_obs_noise_position=0.005,
+                                continual_obs_noise_orientation=0.02)
+    model = build_play_system_prompt(["run_python"] +
+                                     list(CONTINUAL_TOOL_NAMES))
+    free = build_play_system_prompt(list(CONTINUAL_TOOL_NAMES))
+    for system in (model, free):
+        assert "## Observation noise" in system
+        assert "sigma 0.005 m" in system and "sigma 0.02 rad" in system
+        assert "costs a step" in system
+    contract = build_model_contract(partially_observable=False)
+    assert "## Observation noise and the fit" in contract
+    assert "Do not smooth or filter the data" in contract
+    seen: Dict[str, Any] = {}
+    driver = _Driver()
+
+    def body(session: ProtocolSession) -> None:
+        text = format_observation(session.observe(),
+                                  ctx,
+                                  with_state=False,
+                                  render_path=None)
+        assert "[noise] position sigma 0.005 m, orientation sigma 0.02 rad" \
+            in text
+        seen["ok"] = True
+        session.end_run("done")
+
+    driver.body = body
+    ContinualRun(env, approach, driver).run()
+    assert seen["ok"]
+
+    # Undeclared: the agent is told nothing, and neither is the fit.
+    env, approach, ctx = _setup(tmp_path,
+                                continual_obs_noise_position=0.005,
+                                continual_obs_noise_declared=False)
+    assert "## Observation noise" not in build_play_system_prompt(
+        ["run_python"] + list(CONTINUAL_TOOL_NAMES))
+    assert "Observation noise and the fit" not in build_model_contract(
+        partially_observable=False)
+
+    def body2(session: ProtocolSession) -> None:
+        text = format_observation(session.observe(),
+                                  ctx,
+                                  with_state=False,
+                                  render_path=None)
+        assert "[noise]" not in text
+        seen["ok2"] = True
+        session.end_run("done")
+
+    driver.body = body2
+    ContinualRun(env, approach, driver).run()
+    assert seen["ok2"]
