@@ -141,6 +141,7 @@ def build_model_contract(
     if partially_observable:
         parts.append(render("play_model_contract", "hidden_state"))
     parts.append(render("play_model_contract", "paramspec"))
+    parts.append(render("play_model_contract", "subclass"))
     if physical_params_section:
         parts.append(physical_params_section)
     if declared_params_only:
