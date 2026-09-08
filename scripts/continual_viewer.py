@@ -26,11 +26,14 @@ Pages:
   or env-name headers (a toggle, as in the phased log viewer) with a
   filter box: levels won, steps, resets, invocations, active and queue
   time, LLM cost, liveness. A row names its run by start stamp and
-  seed (``20260904_065251/seed3``) and carries three buttons: copy the recording
-  path, pause (cancel the run's Slurm job or local process; the run
-  keeps its scorecard, recording and checkpoints, so relaunching its
-  config with ``--auto_resume`` continues it) and delete (scorecard,
-  recording and approach checkpoints).
+  seed (``20260904_065251/seed3``) and carries four buttons: copy the recording
+  path, hide (mark the run hidden so it drops out of the index without
+  touching any of its files; a ``show hidden`` toggle in the top bar
+  brings hidden runs back, each with an unhide button), pause (cancel
+  the run's Slurm job or local process; the run keeps its scorecard,
+  recording and checkpoints, so relaunching its config with
+  ``--auto_resume`` continues it) and delete (scorecard, recording and
+  approach checkpoints).
 * ``/run/<key>``: the run as a sidebar plus a content pane that the
   hash route fills. ``#overview``: metadata, the cumulative steps-
   versus-levels-won curve, one row per level with the section 4.4
@@ -96,6 +99,12 @@ APPROACHES_ROOT = ""  # absolute, set in main(); checkpoints to delete
 SCORECARD_FILENAME = "scorecard.json"
 VIDEO_FILENAME = "run.mp4"
 AGENT_DIRNAME = "agent"
+# Sentinel file in a run directory marking it hidden from the index. A
+# hide touches nothing else: the scorecard, recording, checkpoints and
+# logs stay, so unhiding (removing the sentinel) or resuming the run is
+# lossless. It travels with the run directory and a delete removes it
+# along with the rest.
+HIDDEN_FILENAME = ".hidden"
 # A run's URL key: its directory relative to the root.
 RUN_KEY_RE = re.compile(r"^[^/]+/[^/]+/seed\d+/run_\d{8}_\d{6}$")
 LIVE_WINDOW_S = 15 * 60  # a card updated within this window is "live"
@@ -246,8 +255,11 @@ def index_stamp() -> str:
         stale = int(now - st.st_mtime >= LIVE_WINDOW_S)
         agent_age = agent_activity_age(key)
         agent_stale = int(agent_age is None or agent_age >= LIVE_WINDOW_S)
-        parts.append(
-            f"{key}:{st.st_mtime_ns}:{st.st_size}:{stale}{agent_stale}")
+        hidden = int(
+            os.path.exists(os.path.join(os.path.dirname(path),
+                                        HIDDEN_FILENAME)))
+        parts.append(f"{key}:{st.st_mtime_ns}:{st.st_size}:"
+                     f"{stale}{agent_stale}{hidden}")
     procs = [
         line for line in _ps_lines()
         if _PS_MAIN_RE.match(line.strip().partition(" ")[2].strip())
@@ -272,7 +284,15 @@ def load_card(key: str) -> Optional[Dict[str, Any]]:
         return None
     card["key"] = key
     card.setdefault("run_id", key)
+    card["hidden"] = os.path.exists(os.path.join(root, HIDDEN_FILENAME))
     return card
+
+
+def is_hidden(key: str) -> bool:
+    """True when the run is marked hidden (its sentinel file exists)."""
+    root = run_dir(key)
+    return root is not None and \
+        os.path.exists(os.path.join(root, HIDDEN_FILENAME))
 
 
 def level_dir(key: str, level_index: int) -> Optional[str]:
@@ -650,6 +670,10 @@ tr.runrow:hover button.rowbtn { visibility: visible; }
 button.rowbtn:hover { color: var(--accent); border-color: var(--accent); }
 button.rowbtn.del:hover { color: var(--bad); border-color: var(--bad); }
 button.rowbtn.copied { color: var(--ok); visibility: visible; }
+/* a hidden run, shown only under "show hidden", reads dimmed; its
+   unhide button stays visible so it can be brought back */
+tr.hiddenrun td { opacity: .55; }
+tr.hiddenrun button.rowbtn.hide { visibility: visible; opacity: 1; }
 table.lvgrid { border-collapse: collapse; table-layout: fixed; margin: 0;
   width: 100%; }
 table.lvgrid td { border: none; padding: 0 6px 0 0; white-space: nowrap;
@@ -775,6 +799,22 @@ function paintSelBtn() {
   var n = $all('input.sel:checked').length;
   b.textContent = selOnly() ? 'show: selected (' + n + ')' : 'show: all';
 }
+// Hidden runs (a .hidden sentinel in their dir) drop out of the index
+// by default; this toggle reveals them. A view preference, so it lives
+// in localStorage and survives the auto-refresh reloads.
+function showHidden() { return localStorage.getItem('cv-showhidden') === '1'; }
+function toggleShowHidden() {
+  localStorage.setItem('cv-showhidden', showHidden() ? '0' : '1');
+  paintHideBtn();
+  applyRunVisibility(true);
+}
+function paintHideBtn() {
+  var b = document.getElementById('hidebtn');
+  if (!b) return;
+  var n = $all('tr[data-hidden="1"]').length;
+  b.textContent = showHidden() ? 'hidden: shown (' + n + ')'
+                               : 'show hidden (' + n + ')';
+}
 // The filter matches every word against a row's run id, config, arm,
 // env, seed and state. Per tab.
 function filterRuns(text) {
@@ -794,6 +834,7 @@ function applyRunVisibility(expand) {
   box.value = text;
   var words = text.toLowerCase().split(/\s+/).filter(Boolean);
   var only = selOnly();
+  var showHid = showHidden();
   var narrowing = words.length > 0 || only;
   $all('tr[data-text]').forEach(function (tr) {
     var hay = tr.dataset.text.toLowerCase();
@@ -802,6 +843,7 @@ function applyRunVisibility(expand) {
       var cb = tr.querySelector('input.sel');
       hide = !(cb && cb.checked);
     }
+    if (!hide && !showHid && tr.dataset.hidden === '1') hide = true;
     tr.classList.toggle('hidden', hide);
   });
   $all('details.grp.exp').forEach(function (d) {
@@ -844,14 +886,22 @@ document.addEventListener('click', function (e) {
 // Pause / delete buttons on index run rows. POST only, so the auto-
 // refresh GETs can never trip these; reload shortly after success so
 // the state chip reflects the job actually leaving the queue.
-function postRun(url, msg) {
-  if (!confirm(msg)) return;
+function doPost(url) {
   fetch(url, {method: 'POST'}).then(function (r) {
     r.text().then(function (t) {
       if (!r.ok) { alert(t); return; }
       setTimeout(function () { location.reload(); }, 600);
     });
   }).catch(function (e) { alert('request failed: ' + e); });
+}
+function postRun(url, msg) {
+  if (!confirm(msg)) return;
+  doPost(url);
+}
+// Hide / unhide is a lightweight view action (no files touched), so no
+// confirm; the reload drops or restores the row.
+function hideRun(id, on) {
+  doPost('/hide?r=' + encodeURIComponent(id) + '&on=' + (on ? '1' : '0'));
 }
 function pauseRun(id) {
   postRun('/pause?r=' + encodeURIComponent(id),
@@ -913,6 +963,7 @@ document.addEventListener('DOMContentLoaded', function () {
   restoreGroups();
   applyGroupMode();
   restoreSelection();
+  paintHideBtn();
   applyRunVisibility();
 });
 
@@ -1493,6 +1544,32 @@ def pause_run(key: str) -> Tuple[bool, str]:
                   "when relaunched with --auto_resume")
 
 
+def set_hidden(key: str, hidden: bool) -> Tuple[bool, str]:
+    """Mark a run hidden or shown by creating or removing its sentinel file.
+
+    Hiding only declutters the index: the run's scorecard, recording,
+    checkpoints and logs are untouched, a hidden run that is still live
+    keeps running, and unhiding restores it in place. Purely a view
+    action, so no owner is stopped.
+    """
+    if load_card(key) is None:
+        return False, "no such run"
+    root = run_dir(key)
+    if root is None:
+        return False, "not a run key"
+    path = os.path.join(root, HIDDEN_FILENAME)
+    try:
+        if hidden:
+            with open(path, "w", encoding="utf-8"):
+                pass
+            return True, f"hid {key}"
+        if os.path.exists(path):
+            os.remove(path)
+        return True, f"unhid {key}"
+    except OSError as e:
+        return False, f"hide failed: {e}"
+
+
 def _remove_checkpoints(run_id: str) -> int:
     """Delete the approach checkpoints of a run (named by the scorecard's run
     id); their count."""
@@ -1601,9 +1678,13 @@ def index_page() -> str:
     # as the largest level count, so L1, L2, ... line up across groups.
     n_levels = max(len(card.get("levels", [])) for card in cards)
     owners = live_owners(cards)
+    n_hidden = sum(1 for card in cards if card.get("hidden"))
+    hidden_note = (f" <span class='muted'>({n_hidden} hidden; use "
+                   "<b>show hidden</b>)</span>") if n_hidden else ""
     parts = [
-        f"<p class='muted'>{len(cards)} run(s) under "
-        f"<code>{esc(RUNS_ROOT)}</code>. Reloads when a run changes.</p>"
+        f"<p class='muted'>{len(cards) - n_hidden} run(s) under "
+        f"<code>{esc(RUNS_ROOT)}</code>.{hidden_note} "
+        "Reloads when a run changes.</p>"
     ]
     # Agent view: every leaf rendered once under its agent header.
     parts.append("<div id='view-agent'>")
@@ -1635,7 +1716,10 @@ def index_page() -> str:
         "<button onclick='setAllGroups(false)'>collapse all</button>"
         "<button id='selbtn' onclick='toggleSelOnly()' title='Show only "
         "the checked runs (grouped under their experiment ids; the "
-        "selection survives refresh)'></button>")
+        "selection survives refresh)'></button>"
+        "<button id='hidebtn' onclick='toggleShowHidden()' title='Show the "
+        "runs hidden from the index (each with an unhide button); hiding "
+        "touches no files'></button>")
     return page("continual viewer", "runs", "".join(parts), controls=controls)
 
 
@@ -1670,12 +1754,14 @@ def _leaf_table(agent: str, env: str, config: str, cards: Sequence[Dict[str,
 
 
 # Fixed column widths of the runs grid, in the order of _runs_table's
-# header: the selection checkbox, run (start stamp/seed plus the
-# buttons), state, levels (None: LEVEL_COL_W per level of the page's
-# largest level count), steps, resets, invocations, active, queue, LLM
-# cost, updated, git. Every leaf table uses them, so columns line up
-# across agents and envs, as in the phased log viewer.
-RUN_COL_W = (30, 250, 190, None, 64, 72, 84, 72, 64, 64, 112, 80)
+# header: the selection checkbox, run (start stamp/seed plus the copy,
+# hide, pause and delete buttons; wide enough for the full name without
+# ellipsis even with every button shown), state, levels (None:
+# LEVEL_COL_W per level of the page's largest level count), steps,
+# resets, invocations, active, queue, LLM cost, updated, git. Every leaf
+# table uses them, so columns line up across agents and envs, as in the
+# phased log viewer.
+RUN_COL_W = (30, 340, 190, None, 64, 72, 84, 72, 64, 64, 112, 80)
 LEVEL_COL_W = 104
 
 
@@ -1691,12 +1777,16 @@ def _runs_table(cards: Sequence[Dict[str, Any]], n_levels: int,
         run_owners = owners.get(key, [])
         label, cls = liveness(card, run_owners)
         levels = card.get("levels", [])
+        hidden = bool(card.get("hidden"))
         search = " ".join(
             str(x) for x in (key, card.get("run_id"), card.get("config") or "",
                              card.get("arm"), card.get("env"),
-                             f"seed{card.get('seed')}", label))
+                             f"seed{card.get('seed')}", label,
+                             "hidden" if hidden else ""))
         rows.append(
-            f"<tr class='runrow' data-text='{esc(search)}'>"
+            f"<tr class='runrow{' hiddenrun' if hidden else ''}' "
+            f"data-hidden='{'1' if hidden else '0'}' "
+            f"data-text='{esc(search)}'>"
             f"<td><input type='checkbox' class='sel' value='{esc(key)}' "
             "onchange='selChanged(this)' title='Select this run for the "
             "show-selected toggle'></td>"
@@ -1736,6 +1826,12 @@ def _run_cell(card: Dict[str, Any], owners: Sequence[Owner]) -> str:
     name = run_name(key)
     esc_id = esc(key)
     live = bool(owners)
+    hidden = bool(card.get("hidden"))
+    hide = (
+        f"<button class='rowbtn hide' title='"
+        f"{'Unhide: show this run in the index again' if hidden else 'Hide: drop this run from the index (its files stay; unhide from show hidden)'}' "  # noqa: E501 pylint: disable=line-too-long
+        f"onclick='hideRun(\"{esc_id}\", {'false' if hidden else 'true'})'>"
+        f"{'⊕' if hidden else '⊖'}</button>")
     pause = ""
     if live:
         pause = (f"<button class='rowbtn pause' title='Pause: cancel "
@@ -1751,8 +1847,8 @@ def _run_cell(card: Dict[str, Any], owners: Sequence[Owner]) -> str:
     return (f"<div class='runcell'><a href='/run/{q(key)}' "
             f"title='{esc_id}'>{esc(name)}</a><span class='btns'>"
             f"<button class='rowbtn copy' data-copy='{esc(copy_path(key))}'"
-            f" title='Copy the run directory path'>⧉</button>{pause}{delete}"
-            "</span></div>")
+            f" title='Copy the run directory path'>⧉</button>"
+            f"{hide}{pause}{delete}</span></div>")
 
 
 def run_name(key: str) -> str:
@@ -2584,7 +2680,8 @@ def _is_level(part: str) -> bool:
 class Handler(BaseHTTPRequestHandler):
     """Routes: /, /run/<id> (the run page), /run/<id>/frag/<route> (its
     pane content), /run/<id>/replay.json, /card/<id>, /file/<rel>; POST
-    /pause?r=<id> and POST /delete?r=<id>[&kill=1]. The former
+    /pause?r=<id>, POST /hide?r=<id>&on=<0|1> and POST
+    /delete?r=<id>[&kill=1]. The former
     /run/<id>/L<k>[/replay] and /run/<id>/session/<name> pages redirect
     to the run page's hash routes."""
 
@@ -2650,6 +2747,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if parsed.path == "/pause":
                 ok, msg = pause_run(params.get("r", ""))
+            elif parsed.path == "/hide":
+                ok, msg = set_hidden(params.get("r", ""),
+                                     params.get("on") == "1")
             elif parsed.path == "/delete":
                 ok, msg = delete_run(params.get("r", ""),
                                      kill=params.get("kill") == "1")

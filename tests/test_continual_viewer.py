@@ -448,6 +448,49 @@ def test_owners_pause_and_delete(tmp_path: Any, monkeypatch: Any) -> None:
     assert viewer.delete_run("", kill=False) == (False, "not a run key")
 
 
+def test_hide_and_unhide_a_run(tmp_path: Any, monkeypatch: Any) -> None:
+    """Hiding a run marks it (a sentinel file, no other file touched), drops it
+    from the index count and tags its row; unhiding reverses it."""
+    run = _run(tmp_path, "oracle", continual_render=False)
+    _no_owners(monkeypatch)
+    _serve(tmp_path)
+    key = viewer.run_key(run.run_dir)
+    # A fresh run is shown, with a hide button and a shown row.
+    assert not viewer.is_hidden(key)
+    card = viewer.load_card(key)
+    assert card is not None and card["hidden"] is False
+    index = viewer.index_page()
+    assert f'hideRun("{key}", true)' in index
+    assert "data-hidden='0'" in index and "id='hidebtn'" in index
+    assert "1 run(s) under" in index and "hidden; use" not in index
+    # Hiding writes the sentinel and nothing else; the scorecard stays.
+    ok, msg = viewer.set_hidden(key, True)
+    assert ok and "hid" in msg
+    assert viewer.is_hidden(key)
+    assert os.path.exists(os.path.join(run.run_dir, viewer.HIDDEN_FILENAME))
+    assert os.path.exists(os.path.join(run.run_dir, "scorecard.json"))
+    index = viewer.index_page()
+    # The row is still rendered (the client hides it) but tagged hidden,
+    # with an unhide button, and the count drops with a hidden note.
+    assert "data-hidden='1'" in index and "hiddenrun" in index
+    assert f'hideRun("{key}", false)' in index
+    assert "0 run(s) under" in index and "1 hidden; use" in index
+    # Unhiding removes the sentinel and restores the run.
+    ok, msg = viewer.set_hidden(key, False)
+    assert ok and "unhid" in msg
+    assert not viewer.is_hidden(key)
+    assert not os.path.exists(os.path.join(run.run_dir,
+                                           viewer.HIDDEN_FILENAME))
+    assert "data-hidden='1'" not in viewer.index_page()
+    # Unhiding an already-shown run is a no-op success; a missing run and
+    # a bad key are refused.
+    assert viewer.set_hidden(key, False) == (True, f"unhid {key}")
+    assert viewer.set_hidden("no-such/x/seed0/run_20260101_000000",
+                             True)[0] is False
+    assert viewer.set_hidden("../runs", True) == (False, "no such run")
+    assert not viewer.is_hidden("no-such/x/seed0/run_20260101_000000")
+
+
 def _call(host: str,
           method: str,
           path: str,
@@ -511,6 +554,13 @@ def test_http_endpoints(tmp_path: Any, monkeypatch: Any) -> None:
         assert _call(host, "POST", "/nope")[0] == 404
         status, body = _call(host, "POST", f"/pause?r={qkey}")
         assert status == 409 and "no queued" in body
+        # Hide and unhide over POST, same-origin only.
+        status, body = _call(host, "POST", f"/hide?r={qkey}&on=1",
+                             {"Origin": f"http://{host}"})
+        assert status == 200 and "hid" in body and viewer.is_hidden(key)
+        assert _call(host, "POST", f"/hide?r={qkey}&on=0",
+                     {"Origin": f"http://{host}"})[0] == 200
+        assert not viewer.is_hidden(key)
         status, body = _call(host, "POST", f"/delete?r={qkey}",
                              {"Origin": f"http://{host}"})
         assert status == 200 and "run directory" in body
