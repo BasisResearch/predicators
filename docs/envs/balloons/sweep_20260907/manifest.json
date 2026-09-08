@@ -1,0 +1,210 @@
+{
+  "version": "2026-09-07 uniform sweep, contact-decoy chute, drag 2.2",
+  "metrics": "All train and test levels; arithmetic mean of seeds 0-2; unconditional real steps and agent resets.",
+  "runs": [
+    {
+      "arm": "MB",
+      "seed": 0,
+      "scorecard": "logs/agent_continual/balloons-agent_continual_uniform/seed0/run_20260907_102820/scorecard.json",
+      "sha256": "dec290d07be287a2e9e894233b7ad5207399d4c8e3114e0637b002e1a0ad91ca",
+      "git_sha": "ec09e55fcaac",
+      "won": 3,
+      "levels": 3,
+      "steps": 273,
+      "resets": 0,
+      "end_reason": "all_levels_won",
+      "per_level": [
+        {
+          "split": "train",
+          "won": true,
+          "steps": 177,
+          "resets": 0
+        },
+        {
+          "split": "train",
+          "won": true,
+          "steps": 48,
+          "resets": 0
+        },
+        {
+          "split": "test",
+          "won": true,
+          "steps": 48,
+          "resets": 0
+        }
+      ]
+    },
+    {
+      "arm": "MB",
+      "seed": 1,
+      "scorecard": "logs/agent_continual/balloons-agent_continual_uniform/seed1/run_20260907_160923/scorecard.json",
+      "sha256": "f783385da490b272af5ca17e49853c5d040a13cd9ffe862d68beb1fbb7c9291f",
+      "git_sha": "fefee34c6206",
+      "won": 3,
+      "levels": 3,
+      "steps": 385,
+      "resets": 1,
+      "end_reason": "all_levels_won",
+      "per_level": [
+        {
+          "split": "train",
+          "won": true,
+          "steps": 92,
+          "resets": 0
+        },
+        {
+          "split": "train",
+          "won": true,
+          "steps": 162,
+          "resets": 1
+        },
+        {
+          "split": "test",
+          "won": true,
+          "steps": 131,
+          "resets": 0
+        }
+      ]
+    },
+    {
+      "arm": "MB",
+      "seed": 2,
+      "scorecard": "logs/agent_continual/balloons-agent_continual_uniform/seed2/run_20260907_160930/scorecard.json",
+      "sha256": "4861fa0324e7da95c6e489391a478d40791baab963e840ce4509f8969856df3d",
+      "git_sha": "fefee34c6206",
+      "won": 3,
+      "levels": 3,
+      "steps": 787,
+      "resets": 1,
+      "end_reason": "all_levels_won",
+      "per_level": [
+        {
+          "split": "train",
+          "won": true,
+          "steps": 48,
+          "resets": 0
+        },
+        {
+          "split": "train",
+          "won": true,
+          "steps": 662,
+          "resets": 1
+        },
+        {
+          "split": "test",
+          "won": true,
+          "steps": 77,
+          "resets": 0
+        }
+      ]
+    },
+    {
+      "arm": "MF",
+      "seed": 0,
+      "scorecard": "logs/agent_continual_model_free/balloons-agent_continual_model_free_uniform/seed0/run_20260907_102819/scorecard.json",
+      "sha256": "32225662f8375e803ecc5da802a0d407c79d4a47df84202bd27dbd934049b24e",
+      "git_sha": "ec09e55fcaac",
+      "won": 3,
+      "levels": 3,
+      "steps": 506,
+      "resets": 1,
+      "end_reason": "all_levels_won",
+      "per_level": [
+        {
+          "split": "train",
+          "won": true,
+          "steps": 323,
+          "resets": 0
+        },
+        {
+          "split": "train",
+          "won": true,
+          "steps": 135,
+          "resets": 1
+        },
+        {
+          "split": "test",
+          "won": true,
+          "steps": 48,
+          "resets": 0
+        }
+      ]
+    },
+    {
+      "arm": "MF",
+      "seed": 1,
+      "scorecard": "logs/agent_continual_model_free/balloons-agent_continual_model_free_uniform/seed1/run_20260907_160938/scorecard.json",
+      "sha256": "7e85e98b44323cc2756619c4b6fb1cf1ceff25b785823cde174a2a4146c9e63e",
+      "git_sha": "fefee34c6206",
+      "won": 2,
+      "levels": 3,
+      "steps": 558,
+      "resets": 1,
+      "end_reason": "agent_ended",
+      "per_level": [
+        {
+          "split": "train",
+          "won": true,
+          "steps": 93,
+          "resets": 0
+        },
+        {
+          "split": "train",
+          "won": true,
+          "steps": 290,
+          "resets": 1
+        },
+        {
+          "split": "test",
+          "won": false,
+          "steps": 175,
+          "resets": 0
+        }
+      ]
+    },
+    {
+      "arm": "MF",
+      "seed": 2,
+      "scorecard": "logs/agent_continual_model_free/balloons-agent_continual_model_free_uniform/seed2/run_20260907_160921/scorecard.json",
+      "sha256": "65a628aa0c3e5b6edff6e50fc385c6cfa0efa145fd0a55004519c05ccac72e55",
+      "git_sha": "fefee34c6206",
+      "won": 3,
+      "levels": 3,
+      "steps": 423,
+      "resets": 1,
+      "end_reason": "all_levels_won",
+      "per_level": [
+        {
+          "split": "train",
+          "won": true,
+          "steps": 58,
+          "resets": 0
+        },
+        {
+          "split": "train",
+          "won": true,
+          "steps": 287,
+          "resets": 1
+        },
+        {
+          "split": "test",
+          "won": true,
+          "steps": 78,
+          "resets": 0
+        }
+      ]
+    }
+  ],
+  "images": [
+    {
+      "file": "test_start.png",
+      "source": "logs/agent_continual/balloons-agent_continual_uniform/seed0/run_20260907_102820/L03/renders/ep000_start.png",
+      "sha256": "5559bee9a241d5c56159de68519feff5ce3e0ef03aed97fc70006392473dec3f"
+    },
+    {
+      "file": "test_won.png",
+      "source": "logs/agent_continual/balloons-agent_continual_uniform/seed0/run_20260907_102820/L03/renders/ep000_win.png",
+      "sha256": "3b71996b43d04f684cd83ea376187afc20676a8e500b08f3ff2750376ed87ec6"
+    }
+  ]
+}
