@@ -244,6 +244,7 @@ Where MDA does not reach:
    the contraction thresholds and the flat tolerance in units of sigma, and the refusal's exceeds-sigma bit where it is still missing.
    Landed 2026-09-08 (section 8), behind flags, untested on a run: the build-all-then-ablate plan runs steps 3 to 7 first and validates after.
 4. The filter inside the fit (section 3.3): each segment's initial condition as a latent under the declared sigma, sigma-relative motion detection for the settled-tail truncation and the rest-point segmentation, and the carried posterior as the next level's prior.
+   Landed 2026-09-08 (section 8), behind flags, untested on a run.
 5. The Laplace evidence in the fit report and the evidence delta between simulator versions (section 3.4).
 6. The belief at execution (sections 3.3 and 3.6): the particle or smoothed frame beside the raw one, atom fractions in `sim.predicates`, belief draws in `sim.run` and `evaluate_trajectory`, the likelihood-based monitor, the spread in the attempts log, and placements certified over the target object's plausible positions.
 7. The scalar-reading class of the channel: `continual_obs_noise_scalar` on `bubbling_level`, `water_volume`, `spilled_level` and any Type-declared sensor feature, additive and unclipped, switch states exact; the contract, the frame line and the scorecard carry the third sigma; the fit's residual scale folds it like the others.
@@ -285,7 +286,20 @@ Step 3 of section 7 landed on 2026-09-08 (branch `bridge-learning`), behind two 
 - The noise-aware probe value: `score_atom_disagreement` reads each ensemble member's predicted state through eight draws of the declared channel and scores the mutual information between the member and the read truth (`noisy_read_information`), so a disagreement finer than sigma scores zero and is not worth real steps.
 - Tests: `tests/code_sim_learning/test_interval_belief.py`, the noise-aware case in `tests/approaches/test_sim_learning_info_seeking.py`, the straddle cases in `tests/agent_sdk/test_belief_probe_physics_sweep.py` and `tests/agent_sdk/test_submit_plan_capture.py`, the declared-channel case in `tests/agent_sdk/test_trim_cause_note.py`.
 
-Not yet built: the filter (3.3), the evidence comparison (3.4) and the belief-aware tool surface (3.6).
+Step 4 of section 7 landed on 2026-09-08 (branch `bridge-learning`), behind `code_sim_learning_rollout_noise_filter` (the fit-side filter) and `code_sim_learning_carry_posterior` (the carried posterior), both off by default.
+
+- Sigma-relative motion detection in `predicators/code_sim_learning/trajectory_prep.py`: under a declared channel a step is active when the mean of the next `noise_window` frames differs from the mean of the previous `noise_window` frames by more than `settle_sigmas` standard errors of that difference, floored at the settle tolerance; exact features keep the per-step test and angular features are wrapped.
+  Both the settled-tail truncation and the rest-point segmentation use it, so under a centimetre of noise a tail is cut and a rest point is found again (the per-step detector flagged every step against its millimetre tolerance).
+- The initial condition: each rest-anchored segment starts from the mean of its preceding rest window (circular mean for angles), so the rollout's initial condition carries sigma over the square root of the window instead of one frame's sigma.
+  This is what an initial-condition latent under the declared sigma resolves to while the objects are at rest, at no extra fit parameters; the full latent (one per object feature per segment) would cost a rollout per Levenberg-Marquardt column and was not built.
+  The expected noise SSE of step 3 leaves the rollout's own start error out, so it stays conservative.
+- The carried posterior: `fit_prior_anchors` on the sim-learning approach hands both the harness fit and `sim.fit` the most likely value of every parameter the last applied fit deployed as the prior centre, in place of the env registry's default, and `note_carried_posterior` records it after each applied fit (never an anchor fallback).
+  The centre is what data-flat directions stay at, what the grid sweep's anchor-nearest choice and the anchor ablation revert to, and what an uninformative parameter falls back to, so a level's fit starts where the last one ended.
+  The width is not carried: the fit pools every level's data, and a carried width would count the earlier levels twice.
+  The carried values are checkpointed with the approach.
+- Tests: `tests/code_sim_learning/test_noise_filter.py`.
+
+Not yet built: the particle filter at execution (3.3, step 6), the evidence comparison (3.4) and the belief-aware tool surface (3.6).
 
 First launch (step 2, one point of the sweep), 2026-09-07: fan and domino, both arms, seeds 0 and 1, position sigma 5 mm and orientation sigma 0.02 rad, declared, via `scripts/configs/predicatorv3/protocol_continual_noise_fan_domino.yaml` from the worktree `predicators-noise-r1` (Slurm 22197846 domino model-based, 22197847 fan model-based, 22197848 domino model-free, 22197849 fan model-free).
 The sigma is about half the tightest scale of each env: fan's target tolerance is 1 cm on a 4 cm ball, a domino is 7 cm wide.
