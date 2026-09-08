@@ -275,3 +275,54 @@ Sixteen runs then shared the two Claude accounts, and at 11:05 EDT both accounts
 A window's budget is fixed, so sixteen runs only spread it thinner: the stage-3 arrays were cancelled at 11:17 EDT with at most 168 steps taken, to be relaunched when stage 2 ends, restoring the eight-run load.
 The step counts are unaffected by the sleeps.
 Decision, 2026-09-07: the sweep runs to completion in the background and step 3 of the build order starts now with the filter inside the fit (section 3.3, the initial condition as a latent under the declared sigma) plus the section 3.5 items, since the only noise-linked fit evidence so far is the domino seed-1 fit at 5 mm boxing friction at 0.32 against a sweep optimum of 0.69.
+
+Boil at 1.25 cm, 2026-09-07: the two model-based runs were invalid and were cancelled after 4136 and 1831 steps, and the cause is a harness bug that observation noise exposed, not the noise itself.
+Their true-state recordings show the jug's bubbling collapsing from 1.0 to 0.0 at the first step of every skill invocation while the burner is on and the full jug sits centred on it, in a pattern the env's heating rule cannot produce (heat only ever rises), and the model-free runs of the same launch show no such drop.
+The boil env kept each jug's hidden heat as an attribute of the jug `Object`, and a `State` hands the same `Object` instances to every env that is set to it.
+The model-based arm's workbench refreshes its base-simulator predictions after every charged env call by running its own base env over the new transitions of the recording, and under noise those transitions are observed views, which carry no privileged block: setting the workbench env to a view zeroed the shared attribute, and so the live env's heat.
+Under exact observation the same call carried the true state's privileged heat, so the leak was invisible, and it was a leak: the agent's data then carried the hidden heat that partial observability is meant to hide.
+Settled 2026-09-07: the agent's view is the sanitized state in both cases, so the exact-observation boil baseline (m3, model-based 2/2 in 524) was run with the hidden heat in the agent's data and needs a rerun before it is compared with the noisy points.
+The fix keeps the heat per env instance (`_heat_levels` in `predicators/envs/pybullet_boil.py`, with `tests/envs/test_pybullet_boil_heat.py` as the regression test); the model-based arm was relaunched alone as `protocol_continual_noise_boil_12mm_r2.yaml` (Slurm 22223294, experiment id `boil-agent_continual_noise12mm_r2`, fresh run directories), and the model-free runs of the first launch stand: seed 1 won both levels in 1525 steps with no agent reset (573 of them lost to a preemption's diverged replay), seed 0 was at 2575 steps and 8 resets on level 1 when this was written.
+The stage-3 boil point inherits the fix, since it launches from the same worktree.
+
+Domino at 1 cm, 2026-09-07, all four runs final: the model-based advantage of the 5 mm point is gone, and the fit is where it went.
+
+| Seed | Model-based | Model-free |
+|---|---|---|
+| 0 | 1/2, gave up on the test level at 786 steps (level 1 in 195) | 1/2, gave up on the test level at 858 steps (level 1 in 379) |
+| 1 | 1/2, gave up on the test level at 528 steps (level 1 in 184) | 1/2, gave up on the test level at 1719 steps, 1000 of them a Push cap stall |
+
+Both model-based runs won the train level as fast as the exact baseline and both planned the test level on a wrong friction.
+Seed 1's harness fit moved friction from the 0.1 anchor to 0.40 (true value 0.5) with the SSE falling from 54 to 41, then ruled the parameter not identified and kept the anchor; the agent had its own open-loop evidence for about 0.69, wrote it in the journal, and still screened its turning chain on the 0.1 substrate, where a struck domino slides instead of leaning, so the real chain stalled at the first link and a recovery push bulldozed it.
+Seed 0's fit deployed 0.68 from the train level, and its test placement collapsed a metastable stall and toppled the only striker.
+At 5 mm the same fits had landed near enough (0.32 boxed, 0.52 and 0.69 sweeps) for both seeds to win.
+This is the sample the section 3.3 filter and the section 3.4 evidence comparison are for: at 1 cm the observed deltas of a resting domino are of the order of the motion the fit reads, the settled-tail truncation and rest-point segmentation stayed no-ops (tolerance 1 mm), and the identification verdict has no sigma to measure its flat tolerance against.
+Boil at 1.25 cm after the heat fix: the model-based arm won both levels on both seeds, seed 0 in 701 steps with no reset (train 375, test 326) and seed 1 in 1171 with one reset (a spill while probing a fill spot under the noisy faucet position; train 890, test 281), against the exact baseline's 524; the model-free arm won both on seed 1 in 1525 steps and on seed 0 in 5409 with 18 resets (train 5058, test 351), against its exact baseline of 4648 with 8 resets.
+The boil gap therefore survives the quarter-tolerance point on both seeds, at a model-based cost near the exact baseline, while the model-free cost on seed 0 is the exact baseline's pattern of repeated resets made worse.
+Stage 3 was relaunched at about 16:10 EDT the same day, at the user's call, while the last two boil runs of stage 2 were still going: with a and b now separate accounts, ten runs are five per account, under the load that tripped the morning's limit.
+Slurm 22225387 (domino model-based), 22225388 (domino model-free), 22225390 (boil model-based) and 22225391 (boil model-free); the boil model-based directories from the cancelled launch predate the heat fix and were set aside so that point starts fresh, the others resume their directories.
+
+Stage 3, the full-tolerance points, final 2026-09-08 (the last two runs were killed by account b's weekly limit on the evening of the 7th and resumed on account a at 02:33 on the 8th; the resumes replayed their recorded steps without divergence).
+
+| Point, seed | Model-based | Model-free |
+|---|---|---|
+| Domino 2 cm, 0 | 1/2, gave up on the test level at 660 (train 216) | 1/2, test level rejected by the evaluator at 926 (train 257) |
+| Domino 2 cm, 1 | 1/2, gave up on the test level at 402 (train 112) | 1/2, gave up on the test level at 1555 (train 176) |
+| Boil 2.5 cm, 0 | 2/2 in 527, no reset | 2/2 in 2929, one reset |
+| Boil 2.5 cm, 1 | 2/2 in 539, no reset | 2/2 in 1736, two resets |
+
+The sweep as a whole (exact baselines: domino model-based 2/2 in 297 against model-free 1/2 in 555; boil model-based 2/2 in 524 against model-free 2/2 in 4648 with eight resets):
+
+| Sigma | Domino model-based | Domino model-free | Boil model-based | Boil model-free |
+|---|---|---|---|---|
+| 5 mm (domino) | 2/2, 2/2 (397, 526) | 1/2, 1/2 (1153, 652) | | |
+| half tolerance (1 cm, 1.25 cm) | 1/2, 1/2 (786, 528) | 1/2, 1/2 (858, 1719) | 2/2, 2/2 (701, 1171) | 2/2, 2/2 (1525, 5409 with 18 resets) |
+| full tolerance (2 cm, 2.5 cm) | 1/2, 1/2 (660, 402) | 1/2, 1/2 (926, 1555) | 2/2, 2/2 (527, 539) | 2/2, 2/2 (2929, 1736) |
+
+Two readings.
+Boil keeps the model-based advantage at every sigma, and the advantage does not shrink with noise: the model-based cost stays within twenty percent of the exact baseline (527 to 1171 steps against 524) while the model-free cost is three to ten times it, paid in resets (spills at the noisy faucet position, jugs swept off the burner).
+Boil's hidden mechanism is a monotone heating process the agent reads off a clean observable, so the noise on object poses only touches manipulation, where the model-based arm's planning on a simulator pays off; the fit plays no part.
+Domino loses the advantage at half tolerance and never recovers it, and every model-based loss traces to the friction fit under noise: at 1 cm one seed refused a near-correct fit and kept the anchor while the other deployed an overshoot, at 2 cm both seeds never moved off the 0.1 anchor, and in every case the agent screened its chain on a sliding substrate that the real, stickier dominoes did not follow.
+The model-free arm loses the same levels for its own reasons (bulldozed strikers, an evaluator rejection), so at the domino points the arms tie at 1/2 and the model-based advantage is gone rather than reversed.
+Domino's discriminating parameter has to be read from a few centimetres of motion in data whose per-frame noise is of that order, which is exactly what the section 3.3 filter, the section 3.4 evidence and the section 3.5 sigma-measured gates address; the sweep is the case for building them, and domino at 1 cm is their validation point.
+Fan's numbers stay out of the sweep until the cap-stall fixes land and its exact pair is rerun, and the exact boil baseline needs a rerun under the sanitized-frame rule before the boil column is quoted.
