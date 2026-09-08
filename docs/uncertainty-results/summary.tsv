@@ -1,0 +1,18 @@
+domain	noise	arm	seeds	successful_seeds	solve_rate_pct	mean_steps_successful	mean_resets	unfinished_runs	historical_unsanitized
+Domino	No noise	MB	1	1	100.0	297	0	0	False
+Domino	No noise	MF	1	0	50.0		0	0	False
+Domino	Pose 0.5 cm / 0.02 rad	MB	2	2	100.0	461.5	0	0	False
+Domino	Pose 0.5 cm / 0.02 rad	MF	2	0	50.0		0	0	False
+Domino	Pose 1 cm / 0.04 rad	MB	2	0	50.0		0	0	False
+Domino	Pose 1 cm / 0.04 rad	MF	2	0	50.0		0	0	False
+Domino	Pose 1 cm / 0.04 rad	MB + uncertainty	2	2	100.0	376.5	0	0	False
+Domino	Pose 2 cm / 0.08 rad	MB	2	0	50.0		0	0	False
+Domino	Pose 2 cm / 0.08 rad	MF	2	0	50.0		0	0	False
+Boil	No noise	MB	1	1	100.0	524	0	0	True
+Boil	No noise	MF	1	1	100.0	4648	8	0	True
+Boil	Pose 1.25 cm / 0.05 rad	MB	2	2	100.0	936	0.5	0	False
+Boil	Pose 1.25 cm / 0.05 rad	MF	2	2	100.0	3467	9	0	False
+Boil	Pose 2.5 cm / 0.10 rad	MB	2	2	100.0	533	0	0	False
+Boil	Pose 2.5 cm / 0.10 rad	MF	2	2	100.0	2332.5	1.5	0	False
+Boil	Pose 1.25 cm / 0.05 rad + reading 0.07	MB + uncertainty	2	2	100.0	630	0	0	False
+Boil	Pose 1.25 cm / 0.05 rad + reading 0.07	MF	2	0	25.0		5	0	False
