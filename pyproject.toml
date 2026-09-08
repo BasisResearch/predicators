@@ -49,6 +49,8 @@ dependencies = [
     # gym_sokoban (below) does `import pkg_resources`, which setuptools
     # stopped shipping as of 81 (see docker/Dockerfile for the same pin).
     "setuptools<81",
+    "hydra-core>=1.3",
+    "stable-baselines3==2.7.0",
 ]
 
 [project.optional-dependencies]
@@ -81,7 +83,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["predicators", "predicators.*"]
+include = ["predicators", "predicators.*", "particle_world_model", "particle_world_model.*", "agent_robot_control", "agent_robot_control.*"]
 
 [tool.setuptools.package-data]
 predicators = ["**/*"]

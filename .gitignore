@@ -55,3 +55,9 @@ tracked_particles.npz
 *.pth
 
 paper/
+
+# agent_robot_control run outputs and slurm logs
+/outputs/
+/logs/
+/analysis/
+agent_robot_control/slurm/*.generated.sub

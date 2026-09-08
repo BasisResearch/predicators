@@ -201,3 +201,19 @@ viz.clear()
 tracks_3d, visibility = track_particles_in_video(
     rgb_frames, depth_maps, cam_params, init_pts_3d)
 ```
+
+## Planned: action-conditioned model for `agent_robot_control`
+
+`agent_robot_control` (see its `PLAN.md`, Section 7) logs every simulator step
+as a transition (`transitions/shard_*.npz`: per-object particles before and
+after, EE pose/gripper before and after, the joint-target action). The planned
+`run_model_based_rl_on_particles` tool will train an action-conditioned
+variant of `PTv3FlowModel` on those shards (per-point features = xyz + the
+broadcast EE delta + a one-hot object id) and plan with MPC (CEM/MPPI over EE
+deltas) scored by the agent's reward function, reusing `rollout_model` once it
+takes an action input. Until then the tool reports "not implemented".
+
+Note (2026-09-07): `particles.py`/`geometry.py` back-project with `np.einsum`
+instead of `@` because numpy 1.23.5's bundled OpenBLAS returns wrong rows for
+tall-skinny matmuls when multithreaded on AVX-512 Xeons; set
+`OPENBLAS_NUM_THREADS=1` in jobs as well.

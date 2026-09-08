@@ -37,6 +37,8 @@ class PyBulletDonutEnv(PyBulletEnv):
     robot_base_orn: ClassVar[Tuple[float, float, float, float]] = (0., 0., 0., 1.)
 
     # Donut parameters
+    num_donuts: ClassVar[int] = 8  # cap on live donuts (reset-free use)
+    spawn_interval: ClassVar[int] = 100
     donut_major_radius: ClassVar[float] = 0.02
     donut_minor_radius: ClassVar[float] = 0.013
     donut_mass: ClassVar[float] = 0.2
@@ -61,8 +63,11 @@ class PyBulletDonutEnv(PyBulletEnv):
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         self._robot = Object("robot", self._robot_type)
         self._donuts: List[Object] = []
-        for i in range(5):
+        for i in range(self.num_donuts):
             self._donuts.append(Object(f"donut_{i}", self._donut_type))
+        # Spawn order of live donuts (indices); oldest first. Used to pick
+        # which donut to recycle when all slots are live.
+        self._spawn_order: List[int] = []
         self._target = Object("target", self._target_type)
 
         # Predicates
@@ -128,7 +133,7 @@ class PyBulletDonutEnv(PyBulletEnv):
 
         # Donuts
         donut_ids = []
-        for _ in range(5):
+        for _ in range(cls.num_donuts):
             donut_id = cls._create_pybullet_donut(
                 color=(0.8, 0.5, 0.2, 1.0),
                 major_radius=cls.donut_major_radius,
@@ -202,6 +207,11 @@ class PyBulletDonutEnv(PyBulletEnv):
         self._table_id = pybullet_bodies["table_id"]
         self._target_id = pybullet_bodies["target_id"]
         self._donut_ids = pybullet_bodies["donut_ids"]
+        # Expose PyBullet ids on the Objects so body ids map back to names
+        # (segmentation masks, particle extraction, get_object_by_id).
+        self._target.id = self._target_id
+        for donut, donut_id in zip(self._donuts, self._donut_ids):
+            donut.id = donut_id
 
     def _get_object_ids_for_held_check(self) -> List[int]:
         return self._donut_ids
@@ -215,26 +225,60 @@ class PyBulletDonutEnv(PyBulletEnv):
 
     def reset(self, train_or_test: str, task_idx: int, render: bool = False) -> Observation:
         self._step_count = 0
-        return super().reset(train_or_test, task_idx, render=render)
+        obs = super().reset(train_or_test, task_idx, render=render)
+        self._spawn_order = [
+            i for i, donut_id in enumerate(self._donut_ids)
+            if not self._is_out_of_view(donut_id)
+        ]
+        return obs
+
+    def _is_out_of_view(self, donut_id: int) -> bool:
+        (dx, _dy, _dz), _ = p.getBasePositionAndOrientation(
+            donut_id, physicsClientId=self._physics_client_id)
+        return dx > 5.0  # parked at _out_of_view_xy
 
     def _domain_specific_step(self) -> None:
         self._step_count += 1
-        spawn_interval = 100
-        if self._step_count > 0 and self._step_count % spawn_interval == 0:
+        # Donuts that fell off the table are parked out of view so they can
+        # be respawned (they are unreachable anyway).
+        for i, donut_id in enumerate(self._donut_ids):
+            if donut_id == self._held_obj_id or self._is_out_of_view(donut_id):
+                continue
+            (_dx, _dy, dz), _ = p.getBasePositionAndOrientation(
+                donut_id, physicsClientId=self._physics_client_id)
+            if dz < self.table_height - 0.05:
+                self._park_donut(i)
+        if self._step_count > 0 and self._step_count % self.spawn_interval == 0:
             self._spawn_donut()
 
+    def _park_donut(self, idx: int) -> None:
+        p.resetBasePositionAndOrientation(
+            self._donut_ids[idx],
+            [self._out_of_view_xy[0], self._out_of_view_xy[1], 10.0 + idx * 0.1],
+            (0., 0., 0., 1.),
+            physicsClientId=self._physics_client_id)
+        p.resetBaseVelocity(self._donut_ids[idx], [0, 0, 0], [0, 0, 0],
+                            physicsClientId=self._physics_client_id)
+        if idx in self._spawn_order:
+            self._spawn_order.remove(idx)
+
     def _spawn_donut(self) -> None:
-        # Find first OOV donut
+        # Prefer a parked (out-of-view) donut. If every donut is live, the
+        # cap is reached: recycle the oldest live donut that is neither the
+        # goal donut (donut_0) nor held.
         oov_idx = -1
         for i, donut_id in enumerate(self._donut_ids):
-            (dx, dy, dz), _ = p.getBasePositionAndOrientation(
-                donut_id, physicsClientId=self._physics_client_id)
-            if dx > 5.0: # Check if it's OOV (x=10.0)
+            if self._is_out_of_view(donut_id):
                 oov_idx = i
                 break
-        
+        if oov_idx == -1:
+            for i in self._spawn_order:
+                if i != 0 and self._donut_ids[i] != self._held_obj_id:
+                    oov_idx = i
+                    break
         if oov_idx == -1:
             return
+        self._park_donut(oov_idx)
 
         # Sample position avoiding others
         from predicators.utils import Circle
@@ -266,6 +310,7 @@ class PyBulletDonutEnv(PyBulletEnv):
                     [px, py, self.table_height + self.donut_minor_radius + 0.5],
                     (0., 0., 0., 1.),
                     physicsClientId=self._physics_client_id)
+                self._spawn_order.append(oov_idx)
                 break
 
     def _set_domain_specific_state(self, state: State) -> None:
@@ -335,11 +380,19 @@ class PyBulletDonutEnv(PyBulletEnv):
 
     @classmethod
     def _InTarget_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Donut rests on the table inside the target square (not held, not
+        hovering above it)."""
         donut, target = objects
+        if state.get(donut, "is_held") > 0.5:
+            return False
         dx = state.get(donut, "x")
         dy = state.get(donut, "y")
+        dz = state.get(donut, "z")
         tx = state.get(target, "x")
         ty = state.get(target, "y")
+        tz = state.get(target, "z")
+        if dz > tz + 2.5 * cls.donut_minor_radius:
+            return False
         dist = np.sqrt((dx - tx)**2 + (dy - ty)**2)
         return dist < (cls.target_width / 2)
 

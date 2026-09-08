@@ -60,6 +60,7 @@ def backproject_2d_to_3d(
     ndc_y = 2.0 * (height - v) / height - 1.0
     ndc_z = 2.0 * depth - 1.0
     pts = np.stack([ndc_x, ndc_y, ndc_z, np.ones_like(ndc_x)], axis=1)
-    world = pts @ inv_vp.T
+    # einsum, not ``@``: see the OpenBLAS note in particles.py.
+    world = np.einsum("ij,kj->ik", pts, inv_vp)
     world /= world[:, 3:]
     return world[:, :3]

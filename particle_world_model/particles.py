@@ -52,8 +52,13 @@ def get_particles_from_rgbd_and_matrices(
 
     inv_view_proj_matrix = np.linalg.inv(pm @ vm)
 
-    # Back-project to world coordinates
-    world_pos = pix_pos @ inv_view_proj_matrix.T
+    # Back-project to world coordinates. NOTE: this is deliberately einsum
+    # rather than ``pix_pos @ inv.T``: the OpenBLAS 0.3.20 bundled with
+    # numpy 1.23.5 returns wrong rows for tall (N x 4) @ (4 x 4) products
+    # when multithreaded on AVX-512 Xeons (verified 2026-09-07 on a Xeon
+    # Gold 6448Y; OPENBLAS_NUM_THREADS=1 also avoids it). einsum does not
+    # go through BLAS.
+    world_pos = np.einsum("ij,kj->ik", pix_pos, inv_view_proj_matrix)
     world_pos /= world_pos[:, 3:]
     points = world_pos[:, :3]
 

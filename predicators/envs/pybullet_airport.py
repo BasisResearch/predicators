@@ -11,7 +11,8 @@ from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
 from predicators.pybullet_helpers.objects import create_pybullet_block
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
-from predicators.structs import Action, EnvironmentTask, Object, State
+from predicators.structs import Action, EnvironmentTask, GroundAtom, \
+    Object, State
 
 
 class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
@@ -29,9 +30,16 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
     robot_base_orn: ClassVar[Quaternion] = (0.0, 0.0, -0.7071, 0.7071)
     conveyor_height: ClassVar[float] = 0.4
     conveyor_width: ClassVar[float] = 0.4
-    conveyor_length: ClassVar[float] = 5.0
-    conveyor_x: ClassVar[float] = 1.5
+    # The belt slab is centred at conveyor_x and spans conveyor_length in x.
+    # Items advance by belt_speed per step and wrap around from the far end
+    # back to the near end (with belt_wrap_margin inset from each edge), so
+    # the belt behaves like a loop and every item keeps coming back.
+    conveyor_length: ClassVar[float] = 3.0
+    conveyor_x: ClassVar[float] = 2.0
     conveyor_y: ClassVar[float] = 0.5
+    belt_speed: ClassVar[float] = 0.01
+    belt_wrap_margin: ClassVar[float] = 0.15
+    item_spacing: ClassVar[float] = 0.5
     button_stand_x: ClassVar[float] = 1.2
     button_stand_y: ClassVar[float] = 1.2
     button_stand_z: ClassVar[float] = 0.4
@@ -74,8 +82,8 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
                           cls.conveyor_height / 2.0),
             mass=0.0,
             friction=1.0,
-            position=(cls.conveyor_x + cls.conveyor_length / 2.0,
-                      cls.conveyor_y, cls.conveyor_height / 2.0),
+            position=(cls.conveyor_x, cls.conveyor_y,
+                      cls.conveyor_height / 2.0),
             physics_client_id=physics_client_id)
         bodies["conveyor_id"] = conveyor_id
 
@@ -89,26 +97,21 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
             physics_client_id=physics_client_id)
         bodies["button_stand_id"] = button_stand_id
 
+        # The button is a static contact switch: it counts as pressed while
+        # the robot touches it (see _button_is_pressed). It used to be a light
+        # body on a prismatic constraint resting directly on the stand, so the
+        # only way to "press" it was to drive it into the stand with unbounded
+        # motor force; with realistic force limits that is impossible.
         button_id = create_pybullet_block(
             color=(1.0, 0.0, 0.0, 1.0),
             half_extents=(cls.button_radius, cls.button_radius,
                           cls.button_height / 2.0),
-            mass=0.005,
+            mass=0.0,
             friction=1.0,
             position=(cls.button_stand_x, cls.button_stand_y,
                       cls.button_stand_z + cls.button_height / 2.0),
             physics_client_id=physics_client_id)
         bodies["button_id"] = button_id
-        # Constraint to keep button on stand but allow vertical movement
-        p.createConstraint(button_stand_id,
-                           -1,
-                           button_id,
-                           -1,
-                           p.JOINT_PRISMATIC,
-                           jointAxis=[0, 0, 1],
-                           parentFramePosition=[0, 0, cls.button_stand_z / 2.0],
-                           childFramePosition=[0, 0, -cls.button_height / 2.0],
-                           physicsClientId=physics_client_id)
 
         pusher_id = create_pybullet_block(
             color=(0.8, 0.8, 0.2, 1.0),
@@ -172,13 +175,11 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
                 item.id, [10.0, 10.0, i * 0.1], (0.0, 0.0, 0.0, 1.0),
                 physicsClientId=self._physics_client_id)
 
-        # Set button state
-        button_pos = [self.button_stand_x, self.button_stand_y,
-                      self.button_stand_z + self.button_height / 2.0]
-        if state.get(self._button, "is_pressed") > 0.5:
-            button_pos[2] -= 0.02
+        # The button is static; its pressed state is derived from contact.
         p.resetBasePositionAndOrientation(
-            self._button_id, button_pos, (0.0, 0.0, 0.0, 1.0),
+            self._button_id, [self.button_stand_x, self.button_stand_y,
+                              self.button_stand_z + self.button_height / 2.0],
+            (0.0, 0.0, 0.0, 1.0),
             physicsClientId=self._physics_client_id)
 
         # Set pusher state
@@ -205,9 +206,7 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
             if feature == "y": return self.button_stand_y
             if feature == "z": return self.button_stand_z + self.button_height / 2.0
             if feature == "is_pressed":
-                pos = p.getBasePositionAndOrientation(
-                    self._button_id, physicsClientId=self._physics_client_id)[0]
-                return 1.0 if pos[2] < self.button_stand_z + self.button_height / 2.0 - 0.001 else 0.0
+                return 1.0 if self._button_is_pressed() else 0.0
         if obj.type == self._button_stand_type:
             if feature == "x": return self.button_stand_x
             if feature == "y": return self.button_stand_y
@@ -231,16 +230,37 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
 
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
+    # Minimum normal force (N) on the button for it to count as pressed.
+    button_press_force: ClassVar[float] = 0.5
+
+    def _button_is_pressed(self) -> bool:
+        """True while the robot pushes on the button's top face."""
+        total = 0.0
+        for c in p.getContactPoints(self._pybullet_robot.robot_id,
+                                    self._button_id,
+                                    physicsClientId=self._physics_client_id):
+            total += c[9]
+        return total >= self.button_press_force
+
     def _domain_specific_step(self) -> None:
         state = self._get_state()
-        # Conveyor movement
+        # Conveyor movement (looping belt).
+        belt_start = self.conveyor_x - self.conveyor_length / 2.0 + \
+            self.belt_wrap_margin
+        belt_end = self.conveyor_x + self.conveyor_length / 2.0 - \
+            self.belt_wrap_margin
         for item in self._items:
             if item not in state: continue
             if item.id == self._held_obj_id: continue
             if self._OnConveyor_holds(state, [item, self._conveyor]):
                 pos, orn = p.getBasePositionAndOrientation(
                     item.id, physicsClientId=self._physics_client_id)
-                new_pos = (pos[0] + 0.01, pos[1], pos[2])
+                new_x = pos[0] + self.belt_speed
+                if new_x > belt_end:
+                    new_x = belt_start
+                    p.resetBaseVelocity(item.id, [0, 0, 0], [0, 0, 0],
+                                        physicsClientId=self._physics_client_id)
+                new_pos = (new_x, pos[1], pos[2])
                 p.resetBasePositionAndOrientation(
                     item.id,
                     new_pos,
@@ -274,7 +294,9 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
 
     def _get_tasks(self, num_tasks: int) -> List[EnvironmentTask]:
         tasks = []
-        for _ in range(num_tasks):
+        belt_start = self.conveyor_x - self.conveyor_length / 2.0 + \
+            self.belt_wrap_margin
+        for task_idx in range(num_tasks):
             # Use 5 items for each task
             items = self._items[:5]
             data: Dict[Object, Any] = {}
@@ -321,24 +343,19 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
             }
             for i, item in enumerate(items):
                 data[item] = {
-                    "x": self.conveyor_x + 0.1 + i * 0.5 - 1.5, # TODO
-                    # "x": self.conveyor_x + 0.1 + i * 0.5 - 0,
+                    "x": belt_start + 0.05 + i * self.item_spacing,
                     "y": self.conveyor_y,
-                    "z": self.conveyor_height / 2 + 0.05,
+                    "z": self.conveyor_height + 0.03,
                     "is_held": 0.0
                 }
             state = utils.create_state_from_dict(data)
-            tasks.append(EnvironmentTask(state, set()))
+            # Goal: a designated item ends up on the table, whether pushed
+            # off the belt by the gripper or shoved by the pusher after the
+            # button is pressed.
+            goal_item = items[task_idx % len(items)]
+            goal = {GroundAtom(self._OnTable, [goal_item, self._table])}
+            tasks.append(EnvironmentTask(state, goal))
         return self._add_pybullet_state_to_tasks(tasks)
-
-    def reset(self, train_or_test: str, task_idx: int, render: bool = False) -> State:
-        if train_or_test == "train":
-            tasks = self.get_train_tasks()
-        else:
-            tasks = self.get_test_tasks()
-        task = tasks[task_idx]
-        self._set_state(task.init)
-        return self._get_state()
 
 
 if __name__ == "__main__":
