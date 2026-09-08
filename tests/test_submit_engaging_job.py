@@ -5,19 +5,22 @@ time TIMEOUT by itself (requeue + --auto_resume), instead of relying on
 an external watcher process to notice the TIMEOUT and resubmit.
 """
 
+import json
 import os
 import subprocess
+import time
 from pathlib import Path
 from typing import Tuple
 
 import pytest
 
+from scripts.engaging import claude_accounts
 from scripts.engaging.claude_accounts import ACCOUNTS_ENV_VAR, LOGIN_ACCOUNT, \
     POLICY_ENV_VAR, POLICY_ROUND_ROBIN, POLICY_USAGE, USAGE_FILE_ENV_VAR, \
     AccountUsage, account_block, assigned_account, describe_assignment
 from scripts.engaging.claude_accounts import main as accounts_main
-from scripts.engaging.claude_accounts import pick_account, resolve_accounts, \
-    same_account_warning
+from scripts.engaging.claude_accounts import pick_account, read_usages, \
+    resolve_accounts, same_account_warning
 from scripts.engaging.submit_engaging_job import _build_batch_script
 
 
@@ -299,3 +302,89 @@ def test_accounts_cli_usage_and_pick(tmp_path, capsys, monkeypatch) -> None:
     captured = capsys.readouterr()
     assert captured.out.strip() == "b"
     assert "within margin" in captured.err
+
+
+def test_read_usages_shares_fresh_readings_through_the_cache(
+        tmp_path, monkeypatch) -> None:
+    """Tasks starting together read one another's readings from the cache
+    instead of each hitting the rate-limited endpoint; a stale entry is re-
+    fetched, and an unreadable account is never cached."""
+    _write_token(tmp_path, "a", "tok-a")
+    _write_token(tmp_path, "b", "tok-b")
+    monkeypatch.delenv(USAGE_FILE_ENV_VAR, raising=False)
+    calls = []
+
+    def fake_fetch(token: str, timeout: float = 0.0) -> AccountUsage:
+        del timeout
+        calls.append(token)
+        if token == "tok-b":
+            return None  # type: ignore[return-value]
+        return _usage(session=40.0, weekly=10.0)
+
+    monkeypatch.setattr(claude_accounts, "fetch_usage", fake_fetch)
+    first = read_usages(["a", "b"], tmp_path)
+    assert first["a"] == _usage(40.0, 10.0) and first["b"] is None
+    assert calls == ["tok-a", "tok-b"]
+    cache_path = tmp_path / ".usage-cache.json"
+    assert cache_path.stat().st_mode & 0o077 == 0
+    # A second reader within the cache window fetches only the missing one.
+    second = read_usages(["a", "b"], tmp_path)
+    assert second["a"] == _usage(40.0, 10.0)
+    assert calls == ["tok-a", "tok-b", "tok-b"]
+    # A stale entry is refreshed.
+    stale = json.loads(cache_path.read_text(encoding="utf-8"))
+    stale["a"]["at"] = 0.0
+    cache_path.write_text(json.dumps(stale), encoding="utf-8")
+    read_usages(["a"], tmp_path)
+    assert calls[-1] == "tok-a"
+
+
+def test_pick_account_keeps_off_a_limited_account() -> None:
+    """A live limit marker on the round-robin choice moves the task onto a free
+    account, round-robin over the free ones; with every account limited the
+    plain round-robin choice stands; usage still decides among the free
+    accounts."""
+    usages = {"a": _usage(50.0, 20.0), "b": _usage(50.0, 20.0)}
+    name, reason = pick_account(["a", "b"],
+                                0,
+                                0,
+                                usages,
+                                limited={
+                                    "a": time.time() + 3600.0,
+                                    "b": None
+                                })
+    assert name == "b" and "a is limited until" in reason
+    name, reason = pick_account(["a", "b"],
+                                0,
+                                0,
+                                usages,
+                                limited={
+                                    "a": 1.0e12,
+                                    "b": 1.0e12
+                                })
+    assert name == "a" and "every account is limited" in reason
+    three = {"a": _usage(50.0, 20.0), "b": _usage(90.0, 20.0), "c": None}
+    name, reason = pick_account(["a", "b", "c"],
+                                0,
+                                0,
+                                three,
+                                limited={
+                                    "a": None,
+                                    "b": None,
+                                    "c": 1.0e12
+                                })
+    assert name == "a" and "within margin" in reason
+    three["b"] = _usage(5.0, 5.0)
+    assert pick_account(["a", "b", "c"], 0, 0, three,
+                        limited={"c": 1.0e12})[0] == "b"
+
+
+def test_account_block_exports_the_limit_dir(tmp_path) -> None:
+    """The batch script tells the harness where the markers live, under the
+    launch's token directory."""
+    _write_token(tmp_path, "a", "tok-a")
+    block = account_block(["a"], offset=0, token_dir=tmp_path)
+    result = _run_account_block(
+        block + '\necho "limits=$PREDICATORS_CLAUDE_LIMIT_DIR"\n', 0)
+    assert result.returncode == 0, result.stderr
+    assert f"limits={tmp_path}/.limited" in result.stdout

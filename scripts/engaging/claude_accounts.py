@@ -65,6 +65,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
+from predicators.agent_sdk.account_limits import LIMIT_DIR_ENV_VAR, read_limits
+
 TOKEN_DIR = Path.home() / ".claude-tokens"
 LOGIN_ACCOUNT = "login"
 # Launch-time override for callers that do not pass --accounts.
@@ -86,6 +88,14 @@ USAGE_FILE_ENV_VAR = "PREDICATORS_CLAUDE_USAGE_FILE"
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 USAGE_BETA_HEADER = "oauth-2025-04-20"
 USAGE_TIMEOUT_SECS = 15.0
+# The endpoint rate-limits repeated reads (a 429 with a one-hour
+# Retry-After), and an array's tasks start together, so readings are
+# shared through a small cache in the token directory for this long.
+USAGE_CACHE_SECS = 120.0
+USAGE_CACHE_NAME = ".usage-cache.json"
+# Per-account limit markers written by the harness (predicators/agent_sdk
+# /account_limits.py), under the token directory.
+LIMIT_DIR_NAME = ".limited"
 # Leftover-budget lead (percentage points) the best account needs over
 # the round-robin choice before it displaces it.
 PICK_MARGIN = 10.0
@@ -248,41 +258,116 @@ def read_usages(
                             AccountUsage(session=float(entry["session"]),
                                          weekly=float(entry["weekly"])))
         return usages
+    cache = _read_usage_cache(token_dir)
+    now = time.time()
+    fetched = False
     for name in accounts:
+        entry = cache.get(name)
+        if (isinstance(entry, dict)
+                and now - float(entry.get("at", 0.0)) < USAGE_CACHE_SECS):
+            usages[name] = AccountUsage(session=float(entry["session"]),
+                                        weekly=float(entry["weekly"]))
+            continue
         token = account_token(name, token_dir)
-        usages[name] = None if token is None else fetch_usage(token)
+        usage = None if token is None else fetch_usage(token)
+        usages[name] = usage
+        if usage is not None:
+            cache[name] = {
+                "session": usage.session,
+                "weekly": usage.weekly,
+                "at": now
+            }
+            fetched = True
+    if fetched:
+        _write_usage_cache(token_dir, cache)
     return usages
 
 
-def pick_account(accounts: Sequence[str],
-                 offset: int,
-                 task_id: int,
-                 usages: Mapping[str, Optional[AccountUsage]],
-                 margin: float = PICK_MARGIN) -> Tuple[str, str]:
+def _usage_cache_path(token_dir: Path) -> Path:
+    return token_dir / USAGE_CACHE_NAME
+
+
+def _read_usage_cache(token_dir: Path) -> Dict[str, Dict[str, float]]:
+    """The shared cache of recent readings, or empty when absent or
+    unreadable."""
+    try:
+        with open(_usage_cache_path(token_dir), encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_usage_cache(token_dir: Path, cache: Dict[str, Dict[str,
+                                                              float]]) -> None:
+    """Replace the cache atomically (temp file + rename, mode 600), so tasks
+    starting together never read a half-written file; a failure to write is not
+    worth failing a pick over."""
+    path = _usage_cache_path(token_dir)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(cache, f)
+        os.replace(tmp, path)
+    except OSError as exc:
+        print(f"[claude-account] usage cache not written: {exc}",
+              file=sys.stderr)
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def pick_account(
+    accounts: Sequence[str],
+    offset: int,
+    task_id: int,
+    usages: Mapping[str, Optional[AccountUsage]],
+    margin: float = PICK_MARGIN,
+    limited: Optional[Mapping[str,
+                              Optional[float]]] = None) -> Tuple[str, str]:
     """The account a task should run on and a one-line reason.
 
-    The account with the most leftover budget wins when it leads the
-    round-robin choice by at least ``margin`` points; otherwise the
-    round-robin choice stands (a burst of simultaneous starts sees the
-    same snapshot, and the margin keeps it spread). Any unreadable usage
-    means round-robin.
+    Accounts with a live limit marker (``limited`` maps a name to its
+    reset time, see :mod:`predicators.agent_sdk.account_limits`) are
+    kept off while any other account is free. Among the rest, the
+    account with the most leftover budget wins when it leads the round-
+    robin choice by at least ``margin`` points; otherwise the round-
+    robin choice stands (a burst of simultaneous starts sees the same
+    snapshot, and the margin keeps it spread). Unreadable usage means
+    round-robin over the free accounts.
     """
     fallback = assigned_account(accounts, offset, task_id)
     if len(accounts) == 1:
         return fallback, "single account"
+    limited = limited or {}
+    free = [name for name in accounts if limited.get(name) is None]
+    if not free:
+        return fallback, "round-robin: every account is limited"
+    if fallback not in free:
+        # Rotate the round-robin choice onto the free accounts so a burst
+        # of starts still spreads over them.
+        chosen = free[(offset + task_id) % len(free)]
+        until = time.strftime("%H:%M", time.localtime(limited[fallback]))
+        reason = (f"{fallback} is limited until {until}, "
+                  f"round-robin over {', '.join(free)}")
+        fallback = chosen
+    else:
+        reason = "round-robin"
     known = {
         name: usage
         for name, usage in usages.items() if usage is not None
     }
-    missing = [name for name in accounts if name not in known]
+    missing = [name for name in free if name not in known]
     if missing:
-        return fallback, ("round-robin: usage unavailable for "
+        return fallback, (f"{reason}: usage unavailable for "
                           f"{', '.join(missing)}")
-    leftovers = {name: known[name].leftover for name in accounts}
-    best = max(accounts, key=lambda name: leftovers[name])
-    summary = ", ".join(f"{name} {leftovers[name]:.0f}%" for name in accounts)
+    leftovers = {name: known[name].leftover for name in free}
+    best = max(free, key=lambda name: leftovers[name])
+    summary = ", ".join(f"{name} {leftovers[name]:.0f}%" for name in free)
     if best == fallback or leftovers[best] - leftovers[fallback] < margin:
-        return fallback, f"round-robin within margin ({summary} left)"
+        return fallback, f"{reason} within margin ({summary} left)"
     return best, f"most budget left ({summary} left)"
 
 
@@ -307,17 +392,27 @@ def same_account_warning(
             "which spreads no load.")
 
 
-def format_usages(accounts: Sequence[str],
-                  usages: Mapping[str, Optional[AccountUsage]]) -> str:
-    """A small table of session/weekly utilization and leftover budget."""
-    lines = [f"{'account':<10} {'session':>8} {'weekly':>8} {'left':>6}"]
+def format_usages(
+        accounts: Sequence[str],
+        usages: Mapping[str, Optional[AccountUsage]],
+        limited: Optional[Mapping[str, Optional[float]]] = None) -> str:
+    """A small table of session/weekly utilization, leftover budget and any
+    live limit marker."""
+    limited = limited or {}
+    lines = [
+        f"{'account':<10} {'session':>8} {'weekly':>8} {'left':>6}  limited"
+    ]
     for name in accounts:
         usage = usages.get(name)
+        reset_at = limited.get(name)
+        until = ("" if reset_at is None else "until " +
+                 time.strftime("%H:%M", time.localtime(reset_at)))
         if usage is None:
-            lines.append(f"{name:<10} {'?':>8} {'?':>8} {'?':>6}")
+            lines.append(f"{name:<10} {'?':>8} {'?':>8} {'?':>6}  {until}")
         else:
             lines.append(f"{name:<10} {usage.session:>7.0f}% "
-                         f"{usage.weekly:>7.0f}% {usage.leftover:>5.0f}%")
+                         f"{usage.weekly:>7.0f}% {usage.leftover:>5.0f}%  "
+                         f"{until}")
     return "\n".join(lines)
 
 
@@ -364,6 +459,7 @@ else
   export {TOKEN_ENV_VAR}
 fi
 export {ACCOUNT_ENV_VAR}="$_ACCOUNT"
+export {LIMIT_DIR_ENV_VAR}={dir_arg}/{LIMIT_DIR_NAME}
 echo "[claude-account] $_ACCOUNT"
 """
 
@@ -396,15 +492,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     accounts = [n.strip() for n in args.accounts.split(",") if n.strip()]
     if args.command == "usage":
         usages = read_usages(accounts, args.token_dir)
-        print(format_usages(accounts, usages))
+        limited = read_limits(accounts, args.token_dir / LIMIT_DIR_NAME)
+        print(format_usages(accounts, usages, limited))
         warning = same_account_warning(usages)
         if warning:
             print(warning)
         return 0
     try:
         usages = read_usages(accounts, args.token_dir)
-        name, reason = pick_account(accounts, args.offset, args.task_id,
-                                    usages)
+        limited = read_limits(accounts, args.token_dir / LIMIT_DIR_NAME)
+        name, reason = pick_account(accounts,
+                                    args.offset,
+                                    args.task_id,
+                                    usages,
+                                    limited=limited)
     except Exception as exc:  # pylint: disable=broad-except
         print(f"[claude-account] pick failed, keeping round-robin: {exc}",
               file=sys.stderr)
