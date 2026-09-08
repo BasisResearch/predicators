@@ -26,10 +26,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
-from typing import Dict, Tuple
+from functools import partial
+from typing import Dict, Optional, Tuple
 
 from predicators import utils
 from predicators.envs import create_new_env
+from predicators.envs.pybullet_balloons import PyBulletBalloonsEnv
 from predicators.settings import CFG
 
 FLAGS = {
@@ -42,8 +44,14 @@ FLAGS = {
 }
 
 
-def _net_offset(env, subset, n) -> float:
+def _net_offset(env: PyBulletBalloonsEnv, subset: Tuple[int, ...],
+                n: int) -> float:
     return abs(sum(env._attach_offset(i, n) for i in subset))  # pylint: disable=protected-access
+
+
+def _height_gap(eqz: Dict[Tuple[int, ...], float], reference: float,
+                subset: Tuple[int, ...]) -> float:
+    return abs(eqz[subset] - reference)
 
 
 def main() -> None:
@@ -56,6 +64,7 @@ def main() -> None:
     flags["seed"] = args.seed
     utils.reset_config(flags)
     env = create_new_env("pybullet_balloons", do_cache=True, use_gui=False)
+    assert isinstance(env, PyBulletBalloonsEnv)
     # pylint: disable-next=import-outside-toplevel
     from predicators.ground_truth_models.balloons.oracle import solve_level
 
@@ -82,16 +91,17 @@ def main() -> None:
         ]
         safe_eq = eqz.get(safe) if safe is not None else None
         # Height gap between the safe subset and the nearest jamming decoy.
-        near = min((s for s in jams),
-                   key=lambda s, e=eqz, r=safe_eq: abs(e[s] - r),
-                   default=None) if safe_eq is not None and jams else None
-        hgap = abs(eqz[near] - safe_eq) if near is not None else None
+        near: Optional[Tuple[int, ...]] = None
+        hgap: Optional[float] = None
+        if safe_eq is not None and jams:
+            near = min(jams, key=partial(_height_gap, eqz, safe_eq))
+            hgap = abs(eqz[near] - safe_eq)
         # Naive height heuristic: the in-band subset whose equilibrium is
         # closest to band centre. Does it (wrongly) match a jam?
         centre = 0.5 * (lo + hi)
-        naive_h = min(eqz, key=lambda s, e=eqz, c=centre: abs(e[s] - c))
+        naive_h = min(eqz, key=partial(_height_gap, eqz, centre))
         # Naive balance heuristic: most balanced in-band subset.
-        naive_b = min(eqz, key=lambda s, cnt=n: _net_offset(env, s, cnt))
+        naive_b = min(eqz, key=partial(_net_offset, env, n=n))
         # Height must MISLEAD: the subset a rest-height reader is drawn to (the
         # in-band subset nearest band centre) must itself JAM, and must not be
         # the safe one. Then height points at a losing pick.
@@ -110,7 +120,8 @@ def main() -> None:
         tol = CFG.balloons_contact_height_tol
         h_tag = "(=safe)" if naive_h == safe else "(WRONG)"
         b_tag = "(=safe)" if naive_b == safe else "(WRONG)"
-        print(f"  safe={safe} eq={safe_eq:.3f} | jam decoys={jams} "
+        safe_eq_text = "none" if safe_eq is None else f"{safe_eq:.3f}"
+        print(f"  safe={safe} eq={safe_eq_text} | jam decoys={jams} "
               f"| nearest jam eq gap={hgap} (tol={tol}) "
               f"| naive_height_pick={naive_h}{h_tag} "
               f"| naive_balance_pick={naive_b}{b_tag} "
