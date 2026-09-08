@@ -3,7 +3,9 @@
 The next comparison uses seeds 0 and 1 in bridge, fan and balloons.
 All arms use the same frozen code, task generation, skill controllers and observation channel.
 The experiment checkout is `/home/ycliang/predicators-noise-crossdomain-r1`, based on `92d37ec97` with the bridge manipulation fixes and fan stall fixes applied before validation.
-Its uncommitted patch and file hashes will accompany the run manifest.
+Its uncommitted patch and file hashes accompany the run manifest.
+The validated runtime changes are also committed on `bridge-learning`: `c57b9972b` (manipulation), `f9b85d79c` (bridge goal), `c13a7d524` (rehearsal prompt) and `ab23a35ef` (fan Wait).
+The experiment checkout remains frozen independently of later main-checkout edits.
 
 | Domain | Position sigma | Orientation sigma | Train + test levels per seed |
 |---|---:|---:|---:|
@@ -47,15 +49,23 @@ These two-seed comparisons are exploratory evidence, not a precise estimate of r
 ## Launch status
 
 The 18 noisy agent runs are submitted as nine arrays on `mit_preemptable`, with automatic requeue and continual-protocol resume.
-No agent run has started yet; validation is waiting for scheduler priority.
-The first array requires the preflight gate `22319420` to pass, and subsequent arrays depend on the preceding array finishing, limiting this sweep to two concurrent agent processes.
-The gate checks regression job `22318792`, fan replay job `22318760`, all six oracle tasks in array `22318844`, and the frozen source hashes.
-A failed prerequisite prevents the agent sweep from starting.
+Every array requires preflight gate `22320276` to pass.
+Each array after the first also requires the preceding array to finish, limiting this sweep to two concurrent agent processes.
+The gate checks regression job `22318792`, fan replay job `22318760`, all six oracle tasks in array `22320170`, and the frozen source hashes.
+The regression suite passed 160 tests plus four fan integration tests.
+The recorded fan replays no longer hit the 1000-step cap: stationary Wait terminates in 16 steps, and the two infeasible switch commands return bounded motion failures.
+Short validation jobs may use `mit_quicktest` or `mit_normal`; all agent arrays use `mit_preemptable`.
+
+The first oracle attempt selected `oracle` instead of `oracle_process_planning`, so all six tasks failed before executing a skill.
+That configuration failure caused the original gate `22319420` to fail and first agent array `22319426` to be cancelled; no agent task started.
+The corrected oracle uses the canonical process-planning flags and fresh experiment IDs ending in `crossdomain_oracle_r2`.
+The dependency chain was also corrected so every array requires successful validation even if an earlier array is cancelled.
+At this status update, both bridge seeds, both fan seeds and balloons seed 0 passed; balloons seed 1 is waiting to start, and all agent arrays remain pending.
 Account selection uses the existing limit-aware launcher with accounts `a,c`.
 
 | Domain | Noisy MB on | Noisy MB off | Noisy MF |
 |---|---|---|---|
-| Bridge | 22319426 | 22319429 | 22319432 |
+| Bridge | 22320299 | 22319429 | 22319432 |
 | Fan | 22319427 | 22319430 | 22319433 |
 | Balloons | 22319428 | 22319431 | 22319435 |
 
