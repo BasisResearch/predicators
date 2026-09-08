@@ -70,4 +70,3 @@ APPROACHES:
       agent_sdk_max_agent_turns_per_iteration: 10000
       agent_sdk_image_max_px: 900
       continual_max_idle_rounds: 5
-      continual_belief_frame: True
