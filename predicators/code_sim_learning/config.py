@@ -90,6 +90,9 @@ class SysIdConfig:
     summary_weight: float
     consistency_factor: float
     log_hessian_identifiability: bool
+    # The Laplace evidence in the fit report (settings
+    # code_sim_learning_fit_evidence).
+    fit_evidence: bool
     score_observed_only: bool
     track_path: str
     onset_confirm_deg: float
@@ -145,6 +148,7 @@ class SysIdConfig:
                 CFG.code_sim_learning_rollout_consistency_factor),
             log_hessian_identifiability=(
                 CFG.code_sim_learning_log_hessian_identifiability),
+            fit_evidence=CFG.code_sim_learning_fit_evidence,
             score_observed_only=(
                 CFG.code_sim_learning_rollout_score_observed_only),
             track_path=_anchor_at_launch_cwd(

@@ -52,6 +52,7 @@ from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
     mean_bernoulli_entropy, noisy_read_information, perturbation_ensemble, \
     subsample_ensemble
 from predicators.code_sim_learning.commands import CommandBuffer
+from predicators.code_sim_learning.evidence import LaplaceEvidence
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
     declared_interval_fit_result, declared_interval_report
 from predicators.code_sim_learning.fitting import FIT_NOISE_SIGMA, \
@@ -358,6 +359,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # most likely value of every physical param the last applied fit
         # deployed, the prior centre of the next fit.
         self._carried_physical_prior: Dict[str, float] = {}
+        # Per canonical simulator version, the fit's Laplace evidence
+        # record (code_sim_learning_fit_evidence): the sim.fit report's
+        # delta against the previous version reads from here.
+        self._fit_evidence_history: Dict[str, Dict[str, float]] = {}
         # +-1-posterior-sigma perturbations of the applied params (the
         # capture gate's physics-margin points). Set only by the joint
         # rollout fit, which has the identifiability report; cleared by
@@ -765,6 +770,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             dict(self._identified_physical_params),
             "carried_physical_prior":
             dict(self._carried_physical_prior),
+            "fit_evidence_history":
+            dict(self._fit_evidence_history),
             "identified_physical_sigma_points":
             list(self._identified_physical_sigma_points),
             "sysid_fit_history":
@@ -810,6 +817,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             save_dict.get("identified_physical_params") or {})
         self._carried_physical_prior = dict(
             save_dict.get("carried_physical_prior") or {})
+        self._fit_evidence_history = dict(
+            save_dict.get("fit_evidence_history") or {})
         self._sysid_fit_history = dict(
             save_dict.get("sysid_fit_history") or {})
         self._residual_features = dict(
@@ -2406,6 +2415,24 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             if verdict is not None and verdict.applies_fitted:
                 self._carried_physical_prior[name] = float(value)
 
+    def note_fit_evidence(self, version_tag: str,
+                          evidence: LaplaceEvidence) -> None:
+        """Record a canonical fit's Laplace evidence under its simulator
+        version, the history the report's version delta reads from."""
+        self._fit_evidence_history[version_tag] = evidence.as_dict()
+
+    def previous_fit_evidence(
+            self, version_tag: str) -> Optional[Dict[str, LaplaceEvidence]]:
+        """The most recently recorded evidence of a version other than
+        ``version_tag``, as a one-entry dict, or None."""
+        for tag in reversed(list(self._fit_evidence_history)):
+            if tag != version_tag:
+                return {
+                    tag:
+                    LaplaceEvidence.from_dict(self._fit_evidence_history[tag])
+                }
+        return None
+
     def _fit_parameters_joint_rollout(
         self,
         rules: List,
@@ -2493,6 +2520,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         log_param_changes(init_params, outcome.fitted)
         self._apply_identified_physical_params(outcome.applied)
         self.note_carried_posterior(outcome.applied, outcome.report)
+        if outcome.evidence is not None:
+            self.note_fit_evidence(
+                self._current_simulator_version or "harness", outcome.evidence)
         # Snapshot the cycle-level decision: this (not whatever the
         # agent's in-session sim.fit last applied) is what a future
         # INCONSISTENT verdict holds on to.

@@ -261,6 +261,7 @@ def create_synthesis_tools(
     from claude_agent_sdk import tool as _sdk_tool
     tool = _make_coercing_tool(_sdk_tool)
 
+    from predicators.code_sim_learning.evidence import format_evidence_lines
     from predicators.code_sim_learning.fit_space import ParamSpec
     from predicators.code_sim_learning.fitting import compute_sse, \
         compute_sse_recurrent, fit_rule_parameters, \
@@ -571,6 +572,12 @@ def create_synthesis_tools(
             if exploratory else "canonical")
         fit_reason = ("PHYSICAL_PARAM_SPECS declared"
                       if physical_specs else "command-emitting rules")
+        evidence_lines: List[str] = []
+        if CFG.code_sim_learning_fit_evidence:
+            evidence_lines = format_evidence_lines(
+                outcome.evidence, approach.previous_fit_evidence(version_tag))
+            if not exploratory and outcome.evidence is not None:
+                approach.note_fit_evidence(version_tag, outcome.evidence)
         lines = [
             f"[{version_tag}] JOINT ROLLOUT SYSTEM-ID FIT ({fit_reason}; "
             f"{mode_note}) on {len(rollouts)} motion segments "
@@ -584,6 +591,7 @@ def create_synthesis_tools(
             (f", {pre_surv:.6f}{surv_note}" if surv_note else ""),
             f"After joint fit:  rollout SSE = {post_sse:.6f}{surv_note}  "
             f"{pct_str}",
+            *evidence_lines,
             "",
             "Fitted parameters:",
         ]

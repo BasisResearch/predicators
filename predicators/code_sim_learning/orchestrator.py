@@ -28,6 +28,8 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from predicators.code_sim_learning.config import SysIdConfig
+from predicators.code_sim_learning.evidence import LaplaceEvidence, \
+    laplace_log_evidence
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
     scalar_to_fit_space
 from predicators.code_sim_learning.identifiability import \
@@ -80,6 +82,9 @@ class SysIdOutcome:
     pre_sse_survivors: float = float("nan")
     hull_candidates: List[Dict[str, float]] = field(default_factory=list)
     from_cache: bool = False
+    # The Laplace evidence at the MAP (code_sim_learning_fit_evidence);
+    # None when off or when the fit carries no Jacobian.
+    evidence: Optional[LaplaceEvidence] = None
 
 
 @dataclass
@@ -95,6 +100,8 @@ class _FitComputation:
     post_sse: float = float("nan")
     # See SysIdOutcome.pre_sse_survivors.
     pre_sse_survivors: float = float("nan")
+    # See SysIdOutcome.evidence.
+    evidence: Optional[LaplaceEvidence] = None
     # SSE of an arbitrary joint theta on the fit's surviving segments
     # with the fit's own scaling (the closure identifiability_report
     # consumed); None when no fit ran. Cache-safe: it closes over the
@@ -205,7 +212,8 @@ def run_rollout_sysid(
         # checkpoint restores its saved __dict__ without the default.
         pre_sse_survivors=getattr(core, "pre_sse_survivors", float("nan")),
         hull_candidates=list(core.hull_candidates),
-        from_cache=from_cache)
+        from_cache=from_cache,
+        evidence=getattr(core, "evidence", None))
 
 
 def _log_data_health(report: Dict[str, Dict[str, Any]],
@@ -332,6 +340,18 @@ def _compute_fit(
         # else the declared init (what the fit's prior was centred on).
         anchors={s.name: anchors.get(s.name, s.init_value)
                  for s in all_specs})
+    evidence: Optional[LaplaceEvidence] = None
+    if config.fit_evidence:
+        evidence = laplace_log_evidence(
+            result, post_sse,
+            {s.name: anchors.get(s.name, s.init_value)
+             for s in all_specs}, all_specs)
+        if evidence is not None:
+            logger.info("Rollout sysID Laplace evidence: %s",
+                        evidence.summary())
+        else:
+            logger.info("Rollout sysID Laplace evidence: unavailable (no "
+                        "Jacobian at the MAP).")
     # The consistency loop's disagreement hull rides on the report so
     # every consumer of the fit (margin sweep, diagnostics, agents
     # reading sim.fit output) sees the same uncertainty evidence.
@@ -349,4 +369,5 @@ def _compute_fit(
                            pre_sse=pre_sse,
                            post_sse=post_sse,
                            pre_sse_survivors=pre_sse_survivors,
+                           evidence=evidence,
                            sse_fn=rollout_sse_fn)

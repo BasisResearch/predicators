@@ -2570,6 +2570,15 @@ class GlobalSettings:
     # Diagnostic: log the Hessian eigendecomposition at the MAP to
     # spot unidentifiable parameter combinations. Adds ~5-15s per fit.
     code_sim_learning_log_hessian_identifiability = False
+    # The Laplace evidence (docs/continual-uncertainty.md, section 3.4):
+    # every rollout fit with a Jacobian at the MAP reports its log
+    # evidence next to its SSE, and the sim.fit report quotes the delta
+    # against the previous canonical simulator version when both score
+    # the same residual set. A version that adds parameters has to win
+    # on evidence, not on residual: the evidence integrates over the
+    # parameters, so under noise a rule that only fits the noise lowers
+    # it while the SSE falls. Off: no evidence is computed or reported.
+    code_sim_learning_fit_evidence = False
     # If True, run the LM fit from a grid-seeded start rather than the
     # declared init_values, and attach its MAP + Jacobian. Adds ~5-15s
     # per fit.
