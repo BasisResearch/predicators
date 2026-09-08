@@ -417,6 +417,25 @@ class GlobalSettings:
     # re-commands of the same waypoint, advance anyway (an unreachable
     # waypoint otherwise stalls the phase until the episode horizon).
     pybullet_birrt_replay_max_hold_steps = 10
+    # Direct paths (Phase.direct_descend: a grasp or place descend) are
+    # IK-chained straight Cartesian lines - lift to the higher of the two
+    # heights, cross to the target xy, descend - sampled every this many
+    # metres; the samples are the replayed waypoints, so this is also
+    # the executed step. A joint-space segment traces an arc instead: a
+    # bridge grasp descent bowed 26 mm off its vertical and set a finger
+    # pad on top of the standing block it was to straddle (2026-09-07).
+    pybullet_direct_path_step = 0.01
+    # Consecutive samples of a direct path that differ by more than this
+    # (radians) on any arm joint are a branch discontinuity the arm could
+    # only execute as a sweep through the scene: the path is refused.
+    pybullet_direct_path_max_joint_step = 0.5
+    # Tracking-gate hold cap for a direct path's waypoints (see
+    # pybullet_birrt_replay_max_hold_steps). A waypoint on a straight
+    # descent that the arm cannot reach means it is blocked - a held
+    # block on a neighbour's corner, a finger on the target's top - so
+    # the phase reacts (Phase.on_blocked) instead of pressing on through
+    # the remaining waypoints.
+    pybullet_direct_path_max_hold_steps = 5
     pybullet_control_mode = "position"
     pybullet_max_vel_norm = 0.05
     # env -> robot -> quaternion

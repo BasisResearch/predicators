@@ -14,6 +14,7 @@ from predicators.pybullet_helpers.motion_planning import run_motion_planning
 from predicators.pybullet_helpers.objects import create_pybullet_block
 from predicators.pybullet_helpers.robots import \
     create_single_arm_pybullet_robot
+from predicators.settings import CFG
 
 USE_GUI = False
 
@@ -188,34 +189,47 @@ def test_bystander_clearance(physics_client_id):
     p.removeBody(block_id, physicsClientId=physics_client_id)
 
 
-def test_relaxed_direct_descend(physics_client_id):
-    """``relaxed_direct`` accepts the straight segment down to the goal when
-    nothing along it penetrates past the hard contact margin, even though a
-    bystander sits inside the clearance the normal check enforces mid-way.
-
-    A grasp descend starts directly above its target, so a body within
-    clearance of the straight segment is the target or a neighbour
-    butted against it. The normal check rejects the segment and plans a
-    detour that arrives laterally at the target's height, which the
-    executed sweep then knocks away (bridge seed 3, 2026-09-04); the
-    relaxed direct segment is the vertical stroke the phase intends.
-    """
+def _direct_path_scene(physics_client_id):
+    """A Fetch at its home pose, for the direct-path tests."""
     ee_home_position = (1.35, 0.75, 0.75)
     ee_orn = p.getQuaternionFromEuler([0.0, np.pi / 2, -np.pi])
-    ee_home_pose = Pose(ee_home_position, ee_orn)
     robot = create_single_arm_pybullet_robot("fetch", physics_client_id,
-                                             ee_home_pose)
+                                             Pose(ee_home_position, ee_orn))
     robot_init_state = tuple(ee_home_position) + tuple(
         ee_orn, ) + (robot.open_fingers, )
     robot.reset_state(robot_init_state)
-    joint_initial = robot.get_joints()
+    utils.reset_config({
+        "pybullet_birrt_bystander_clearance": 0.005,
+        "pybullet_birrt_contact_margin": -0.001,
+    })
+    return robot, ee_home_position, ee_orn, robot.get_joints()
+
+
+def _ee_positions(robot, path):
+    return [np.array(robot.forward_kinematics(pt).position) for pt in path]
+
+
+def test_relaxed_direct_descend(physics_client_id):
+    """``relaxed_direct`` returns the IK-chained straight Cartesian path down
+    to the goal when nothing along it penetrates past the hard contact margin,
+    even though a bystander sits inside the clearance the normal check enforces
+    mid-way.
+
+    A grasp descend starts directly above its target, so a body within
+    clearance of the straight path is the target or a neighbour butted
+    against it. The normal check rejects the path and plans a detour
+    that arrives laterally at the target's height, which the executed
+    sweep then knocks away (bridge seed 3, 2026-09-04). The path is a
+    Cartesian line, not a joint-space segment: the latter traces an arc,
+    and a 26 mm bow once set a finger pad on top of the standing block
+    the descent was to straddle (bridge seed 2, 2026-09-07).
+    """
+    robot, ee_home_position, ee_orn, joint_initial = _direct_path_scene(
+        physics_client_id)
     # A thin slab beside the vertical descend line at MID height: the
-    # straight stroke never touches it, it is inside the clearance only
-    # part-way down, and it is farther than the clearance from both the
-    # start and the goal, so the normal check treats it as a bystander.
-    # The pass is a couple of millimetres: Bullet reports separations
-    # to getContactPoints only at millimetre scale for these links, so
-    # a wider clearance would be invisible to the normal check.
+    # straight stroke never touches it, and it is farther than the
+    # clearance from both the start and the goal, so the normal check
+    # treats it as a bystander.
     slab_id = create_pybullet_block(color=(1.0, 0.0, 0.0, 1.0),
                                     half_extents=(0.2, 0.005, 0.03),
                                     mass=0,
@@ -227,11 +241,7 @@ def test_relaxed_direct_descend(physics_client_id):
                                       physicsClientId=physics_client_id)
     ee_target = Pose((1.35, 0.75, 0.45), ee_orn)
     joint_target = robot.inverse_kinematics(ee_target, validate=True)
-    clearance = 0.005
-    utils.reset_config({
-        "pybullet_birrt_bystander_clearance": clearance,
-        "pybullet_birrt_contact_margin": -0.001,
-    })
+    clearance = CFG.pybullet_birrt_bystander_clearance
 
     def _closest(pt):
         robot.set_joints(pt)
@@ -241,31 +251,35 @@ def test_relaxed_direct_descend(physics_client_id):
                                  physicsClientId=physics_client_id)
         return min(c[8] for c in pts)
 
-    def _ee_positions(path):
-        return [np.array(robot.forward_kinematics(pt).position) for pt in path]
-
     # Bystander at both endpoints.
     assert _closest(joint_initial) > clearance
     assert _closest(joint_target) > clearance
 
     robot.set_joints(joint_initial)
+    diagnostics = []
     direct = run_motion_planning(robot,
                                  joint_initial,
                                  joint_target,
                                  collision_bodies={slab_id},
                                  seed=123,
                                  physics_client_id=physics_client_id,
-                                 relaxed_direct=True)
-    assert direct is not None
-    # The straight joint-space segment: the end effector bows off the
-    # vertical line above the target by a couple of centimetres at most
-    # (joint interpolation is not a Cartesian line), never touches the
-    # slab, and passes inside the clearance of it on the way down.
-    for pos in _ee_positions(direct):
-        assert np.linalg.norm(pos[:2] - np.array(ee_home_position[:2])) < 0.03
-    closest = min(_closest(pt) for pt in direct)
-    assert 0.0 < closest < clearance
-    # The normal check cannot return that segment: it fails or detours.
+                                 relaxed_direct=True,
+                                 direct_diagnostics=diagnostics)
+    assert direct is not None and not diagnostics
+    positions = _ee_positions(robot, direct)
+    # A straight line: every sample within millimetres of the vertical
+    # through the target, sampled at the configured step, ending at
+    # the target, never penetrating the slab.
+    step = CFG.pybullet_direct_path_step
+    for pos in positions:
+        assert np.linalg.norm(pos[:2] - np.array(ee_home_position[:2])) < 0.003
+    assert np.linalg.norm(positions[-1] - np.array(ee_target.position)) < 0.003
+    assert len(direct) >= int(0.30 / step)
+    for a, b in zip(positions, positions[1:]):
+        assert np.linalg.norm(b - a) < 1.5 * step
+    assert min(_closest(pt) for pt in direct) > 0.0
+    # The normal check keeps its bystander clearance (a detour or a
+    # refusal), never the straight path within it.
     robot.set_joints(joint_initial)
     strict = run_motion_planning(robot,
                                  joint_initial,
@@ -275,10 +289,96 @@ def test_relaxed_direct_descend(physics_client_id):
                                  physics_client_id=physics_client_id)
     if strict is not None:
         assert min(_closest(pt) for pt in strict) >= clearance - 1e-6
-        deviation = max(
-            np.linalg.norm(pos[:2] - np.array(ee_home_position[:2]))
-            for pos in _ee_positions(strict))
-        assert deviation > 0.03
+    p.removeBody(slab_id, physicsClientId=physics_client_id)
+
+
+def test_direct_path_crosses_at_the_higher_height(physics_client_id):
+    """A direct path lifts to the higher of its two heights, crosses to the
+    goal xy there, and only then descends: a descent from an approach that
+    parked a few centimetres off corrects sideways at the safe height, and a
+    re-approach from a settled (low) pose lifts before it moves sideways."""
+    robot, ee_home_position, ee_orn, joint_initial = _direct_path_scene(
+        physics_client_id)
+    hx, hy, hz = ee_home_position
+    # Descent to a goal 3 cm / 2 cm off in xy and 30 cm down.
+    goal_pos = np.array((hx + 0.03, hy - 0.02, hz - 0.30))
+    joint_goal = robot.inverse_kinematics(Pose(tuple(goal_pos), ee_orn),
+                                          validate=True)
+    robot.set_joints(joint_initial)
+    path = run_motion_planning(robot,
+                               joint_initial,
+                               joint_goal,
+                               collision_bodies=set(),
+                               seed=123,
+                               physics_client_id=physics_client_id,
+                               relaxed_direct=True)
+    assert path is not None
+    positions = _ee_positions(robot, path)
+    crossed = next(i for i, pos in enumerate(positions)
+                   if np.linalg.norm(pos[:2] - goal_pos[:2]) < 0.003)
+    assert crossed > 1
+    for pos in positions[:crossed]:
+        assert abs(pos[2] - hz) < 0.003
+    for pos in positions[crossed:]:
+        assert np.linalg.norm(pos[:2] - goal_pos[:2]) < 0.003
+    assert np.linalg.norm(positions[-1] - goal_pos) < 0.003
+    # The reverse: from that low goal back up to a pose 3 cm aside and
+    # 20 cm higher, the path lifts first and crosses at the top.
+    up_pos = np.array((hx, hy, hz - 0.10))
+    joint_up = robot.inverse_kinematics(Pose(tuple(up_pos), ee_orn),
+                                        validate=True)
+    robot.set_joints(joint_goal)
+    path = run_motion_planning(robot,
+                               joint_goal,
+                               joint_up,
+                               collision_bodies=set(),
+                               seed=123,
+                               physics_client_id=physics_client_id,
+                               relaxed_direct=True)
+    assert path is not None
+    positions = _ee_positions(robot, path)
+    lifted = next(i for i, pos in enumerate(positions)
+                  if abs(pos[2] - up_pos[2]) < 0.003)
+    assert lifted > 1
+    for pos in positions[:lifted]:
+        assert np.linalg.norm(pos[:2] - goal_pos[:2]) < 0.003
+    for pos in positions[lifted:]:
+        assert abs(pos[2] - up_pos[2]) < 0.003
+    assert np.linalg.norm(positions[-1] - up_pos) < 0.003
+
+
+def test_direct_path_refuses_penetration_and_names_the_body(physics_client_id):
+    """A body on the straight path refuses the direct path, and the diagnostic
+    says where along the path and what was hit."""
+    robot, ee_home_position, ee_orn, joint_initial = _direct_path_scene(
+        physics_client_id)
+    hx, hy, hz = ee_home_position
+    slab_id = create_pybullet_block(color=(1.0, 0.0, 0.0, 1.0),
+                                    half_extents=(0.08, 0.08, 0.005),
+                                    mass=0,
+                                    friction=1,
+                                    orientation=(0., 0., 0., 1.),
+                                    physics_client_id=physics_client_id)
+    p.resetBasePositionAndOrientation(slab_id, (hx, hy, hz - 0.15),
+                                      [0., 0., 0., 1.],
+                                      physicsClientId=physics_client_id)
+    joint_goal = robot.inverse_kinematics(Pose((hx, hy, hz - 0.30), ee_orn),
+                                          validate=True)
+    robot.set_joints(joint_initial)
+    diagnostics = []
+    path = run_motion_planning(robot,
+                               joint_initial,
+                               joint_goal,
+                               collision_bodies={slab_id},
+                               seed=123,
+                               physics_client_id=physics_client_id,
+                               relaxed_direct=True,
+                               direct_diagnostics=diagnostics,
+                               body_names={slab_id: "shelf"})
+    assert path is None
+    assert len(diagnostics) == 1
+    assert diagnostics[0].startswith("DIRECT: the straight path penetrates")
+    assert "of the way" in diagnostics[0] and "into shelf" in diagnostics[0]
     p.removeBody(slab_id, physicsClientId=physics_client_id)
 
 
