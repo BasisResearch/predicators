@@ -413,3 +413,27 @@ where 0.30 to 0.50 m all fail, so the delay moved the working press about
 20 cm upstream, exactly the belt travel during the lag. The window itself
 stayed roughly as wide as before, which is the point: the task is harder
 because the agent must anticipate, not because the target got smaller.
+
+## 23. The push has a 22 mm height band, and an agent misread the force stop
+
+Measured on the new push domain, one stroke per height with the goal disc:
+
+| EE height above the table | disc moved | peak contact force |
+|---|---|---|
+| 20 mm | 0.0 cm | 278 N, pads on the table |
+| 35 mm | 17.0 cm | 0 N |
+| 45 mm | 17.2 cm | 9 N |
+| 60 mm | 0.0 cm | 0 N, pads pass over the disc |
+
+A legitimate push costs under 10 N, so the 80 N limit never blocks one. Below
+about 33 mm the finger pads (32 mm under the EE frame) scrape the table and
+the limit trips; above about 55 mm they clear the 25 mm disc entirely.
+
+The first sweep-2 donut run stopped 10 cm short and its closing message blamed
+"the force limit ... refusing", having pushed too low. The tool result names
+the body it hit ("contact force 278 N on table exceeded the 80 N limit") and
+the system prompt states the pad offset, so the information was available and
+misread. Recorded as an agent failure, not an environment fault.
+
+That run also hit the $20 per-run spending cap ($19.94), so it is flagged
+`budget_cap_hit` and excluded from success rates.
