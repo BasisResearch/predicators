@@ -94,12 +94,17 @@ def run(cfg: DictConfig) -> Dict[str, Any]:
         "account_limit_hit": bool(outcome.extra.get("account_limit")),
         # Reaching the per-run spending cap is a resource stop we chose: it is
         # reported separately rather than counted as a task failure.
-        "budget_cap_hit": bool(outcome.extra.get("budget_cap")),
-        "invalid": (bool(outcome.extra.get("account_limit"))
-                    or bool(outcome.extra.get("budget_cap"))) and not sim.get("goal_reached_ever", False),
+        # Either the harness said so, or the run spent essentially the whole
+        # cap (belt and braces: the subtype string is not documented).
+        "budget_cap_hit": bool(outcome.extra.get("budget_cap")) or (
+            outcome.cost_usd is not None
+            and outcome.cost_usd >= 0.98 * float(cfg.harness.max_budget_usd)),
+        "invalid": False,  # set below, once budget_cap_hit is known
     }
     if merged["invalid"]:
         log.warning("run truncated by the account usage limit; marked invalid")
+    merged["invalid"] = (merged["account_limit_hit"] or merged["budget_cap_hit"]) \
+        and not merged.get("goal_reached_ever", False)
     (run_dir / "results.json").write_text(json.dumps(merged, indent=2, default=str))
     log.info("done: success=%s first_success=%s interactions=%s turns=%s",
              merged.get("goal_reached_ever"), merged.get("first_success_interaction"),

@@ -131,9 +131,12 @@ def parse_stream_json(path: Path) -> Dict[str, Any]:
             subtype = str(ev.get("subtype", "")).lower()
             if "session limit" in text or "usage limit" in text:
                 account_limit = True
-            # The run stopped because it reached the --max-budget-usd we set.
-            # That is a resource limit we chose, not a task failure.
-            if "budget" in subtype or "budget" in text:
+            # The run stopped because it reached the --max-budget-usd we set:
+            # a resource limit we chose, not a task failure. Detect it from the
+            # result subtype only. Matching the word "budget" anywhere in the
+            # final message flagged runs costing a third of the cap, because
+            # agents talk about their *interaction* budget constantly.
+            if "budget" in subtype:
                 budget_cap = True
             md.append(f"**Result:** {ev.get('subtype')} turns={ev.get('num_turns')} "
                       f"cost=${cost} duration_ms={ev.get('duration_ms')}\n")
