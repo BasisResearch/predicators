@@ -60,8 +60,19 @@ The first oracle attempt selected `oracle` instead of `oracle_process_planning`,
 That configuration failure caused the original gate `22319420` to fail and first agent array `22319426` to be cancelled; no agent task started.
 The corrected oracle uses the canonical process-planning flags and fresh experiment IDs ending in `crossdomain_oracle_r2`.
 The dependency chain was also corrected so every array requires successful validation even if an earlier array is cancelled.
-At this status update, both bridge seeds, both fan seeds and balloons seed 0 passed; balloons seed 1 is waiting to start, and all agent arrays remain pending.
+All six corrected oracle runs passed every level with zero resets, and preflight `22320276` passed at 20:26 UTC on 2026-09-08.
+Both bridge MB-on seeds subsequently started on compute nodes in `mit_preemptable`.
+Startup logs confirm the frozen source, 5 mm position noise, 0.02 rad orientation noise, partial observations and all six uncertainty flags enabled.
+The remaining arrays wait for the preceding pair to finish.
 Account selection uses the existing limit-aware launcher with accounts `a,c`.
+
+| Oracle validation | Seed 0 levels won | Seed 1 levels won | Steps, seed 0 / seed 1 |
+|---|---:|---:|---:|
+| Bridge | 2/2 | 2/2 | 1822 / 1845 |
+| Fan | 2/2 | 2/2 | 302 / 296 |
+| Balloons | 3/3 | 3/3 | 183 / 174 |
+
+These oracle runs validate the environments and shared controllers using exact perception; they are not MB/MF noise-comparison results.
 
 | Domain | Noisy MB on | Noisy MB off | Noisy MF |
 |---|---|---|---|
