@@ -202,6 +202,51 @@ def compute_residual_scaling(
     return ResidualScaling(angular=frozenset(angular), scales=scales)
 
 
+def expected_noise_sse(
+    trajectories: List[RolloutTrajectory],
+    residual_features: Dict[str, List[str]],
+    scaling: Optional[ResidualScaling],
+    config: Optional[SysIdConfig] = None,
+) -> float:
+    """The SSE the declared observation noise alone leaves in the fit's
+    objective, in expectation.
+
+    Every scored per-step residual ``(pred - obs) / scale`` carries the
+    observation's own noise: variance ``(sigma_f / scale_f)^2`` for a
+    feature with declared sigma ``sigma_f``. Summed over the residuals
+    the objective scores (one per object, in-scope feature and
+    rolled-out step, plus the settled-endpoint summary residuals at
+    their weight) this is the SSE a perfect model is still left with.
+    Under the interval belief the grid sweep's data-equivalence
+    tolerance measures its relative fraction against the SSE in EXCESS
+    of this floor (:func:`grid_seed.flat_tolerance`), so a noisy
+    dataset's floor no longer widens the flat set. The rollout's own
+    error from starting at a noisy initial observation is not counted
+    (it is the errors-in-variables term the fit-side filter removes),
+    which keeps the estimate conservative. 0 without a declared channel
+    or without residual scaling (the raw objective has no per-feature
+    scale to express the noise in).
+    """
+    config = config or SysIdConfig.from_cfg()
+    noise = config.observation_noise
+    if noise is None or scaling is None:
+        return 0.0
+    weight = max(config.summary_weight, 0.0)
+    total = 0.0
+    for states, _actions in trajectories:
+        n_steps = len(states) - 1
+        if n_steps <= 0:
+            continue
+        for obj in states[0]:
+            for feat in residual_features.get(obj.type.name, []):
+                sigma = noise.feature_sigma(obj.type, feat)
+                if sigma <= 0.0:
+                    continue
+                scale = scaling.scales.get((obj.type.name, feat), 1.0)
+                total += (sigma / scale)**2 * (n_steps + weight)
+    return float(total)
+
+
 def split_at_rest_points(
     trajectory: RolloutTrajectory,
     residual_features: Dict[str, List[str]],

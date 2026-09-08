@@ -320,12 +320,18 @@ def _compute_fit(
                                    residual_features, physical_names, rules,
                                    latent_init, scaling)
 
+    all_specs = list(physical_specs) + list(rule_specs)
     report = identifiability_report(
         result,
         rollout_sse_fn,
-        list(physical_specs) + list(rule_specs),
+        all_specs,
         num_explainable=len(survivors),
-        min_posterior_width=(config.min_posterior_width))
+        min_posterior_width=(config.min_posterior_width),
+        belief_interval=config.interval_belief,
+        # The prior centres: the registry anchor where one is known,
+        # else the declared init (what the fit's prior was centred on).
+        anchors={s.name: anchors.get(s.name, s.init_value)
+                 for s in all_specs})
     # The consistency loop's disagreement hull rides on the report so
     # every consumer of the fit (margin sweep, diagnostics, agents
     # reading sim.fit output) sees the same uncertainty evidence.

@@ -66,6 +66,11 @@ class SysIdConfig:
     grid_sweep_passes: int
     grid_refine_evals: int
     grid_flat_frac: float
+    # The interval-first parameter belief (settings
+    # code_sim_learning_interval_belief) and its flat-tolerance floor in
+    # posterior sigmas (code_sim_learning_rollout_flat_sigmas).
+    interval_belief: bool
+    flat_sigmas: float
     min_posterior_width: float
     anchor_ablation: bool
     trim_rms_factor: float
@@ -110,6 +115,8 @@ class SysIdConfig:
             grid_refine_evals=(
                 CFG.code_sim_learning_rollout_grid_refine_evals),
             grid_flat_frac=CFG.code_sim_learning_rollout_grid_flat_frac,
+            interval_belief=CFG.code_sim_learning_interval_belief,
+            flat_sigmas=CFG.code_sim_learning_rollout_flat_sigmas,
             min_posterior_width=(
                 CFG.code_sim_learning_rollout_min_posterior_width),
             anchor_ablation=(CFG.code_sim_learning_rollout_anchor_ablation),

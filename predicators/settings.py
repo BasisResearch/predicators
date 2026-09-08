@@ -2208,6 +2208,19 @@ class GlobalSettings:
     # the robustness on levels where a fragile plan is caught. Off =>
     # info-seeking is always active (the original behaviour).
     agent_explorer_info_seeking_adaptive = False
+    # Noise-aware probe value (docs/continual-uncertainty.md, section
+    # 3.5): under a declared observation-noise channel the ensemble
+    # disagreement that ranks probes (sim.suggest_probes, the
+    # info-seeking sampler, the explorer's disagreement summary) is the
+    # mutual information between the ensemble member and the atom's
+    # truth as READ from a noisy observation. Each member's predicted
+    # state is jittered by the declared sigmas; members whose
+    # predictions differ by less than sigma all read the atom as a coin
+    # flip and the score goes to 0, because one noisy observation
+    # cannot tell them apart and the probe is not worth real steps.
+    # Exact channel, undeclared channel or flag off: the plain Bernoulli
+    # entropy of the members' truth split (the original score).
+    agent_explorer_info_seeking_noise_aware = False
     # Ensemble size used to estimate disagreement. 1 disables scoring
     # (every candidate scores 0) and reduces to first-feasible.
     agent_explorer_info_ensemble_size = 6
@@ -2289,6 +2302,38 @@ class GlobalSettings:
     # of an arbitrary interior grid point. 0 disables the flat set (the
     # raw per-candidate argmin wins, the legacy behavior).
     code_sim_learning_rollout_grid_flat_frac = 0.05
+    # Interval-first parameter belief (docs/continual-uncertainty.md,
+    # section 3.7): the planner's belief about a physical parameter is
+    # the fit's posterior - the most likely value with its +-1 sigma
+    # interval - for every parameter the data moved off its anchor, not
+    # only for the ones whose posterior contracted below a fixed
+    # fraction of the prior. A parameter that moved but whose posterior
+    # stayed wide gets the dedicated verdict "wide posterior"
+    # (Verdict.WIDE): its most likely value is deployed, and the capture
+    # gate's physics-margin sweep and sim.run(physics_sweep=True)
+    # certify plans across its whole interval. A mixed sweep (some
+    # points pass, some fail) is reported as the interval straddling the
+    # plan's success boundary, with the passing and failing ranges, and
+    # arms adaptive info-seeking (the probe trigger). The fit report
+    # states each interval in words with the anchor's position relative
+    # to it. The grid sweep's data-equivalence tolerance then measures
+    # the model-bias part of the SSE only: the declared noise channel's
+    # expected SSE is subtracted first (see expected_noise_sse) and a
+    # likelihood-ratio floor of flat_sigmas^2 * noise_sigma^2 applies,
+    # so a wider posterior under noise reads as the honest answer rather
+    # than as failure. Motivated by the sigma sweep (section 8): at 1 cm
+    # domino noise the friction posterior 0.40 [0.22, 0.72] did not
+    # contract below 0.7 of the prior, so the verdict switch discarded
+    # it for the 0.1 anchor (outside the interval) and never swept.
+    # Off keeps the verdict switch (ablation).
+    code_sim_learning_interval_belief = False
+    # Likelihood-ratio floor of the grid sweep's flat tolerance under
+    # the interval belief, in posterior sigmas: candidates whose SSE
+    # differ by less than flat_sigmas^2 * noise_sigma^2 are
+    # data-equivalent at that confidence (delta chi-square = k^2 for
+    # one parameter under the objective's own Gaussian). Only used with
+    # code_sim_learning_interval_belief.
+    code_sim_learning_rollout_flat_sigmas = 1.0
     # Bisection evaluations per moved param that refine the anchor-side
     # edge of its flat set to sub-grid resolution (0 disables). The
     # 7-point log grid has ~2.4x spacing, so a true value mid-gap is
