@@ -246,6 +246,7 @@ Where MDA does not reach:
 4. The filter inside the fit (section 3.3): each segment's initial condition as a latent under the declared sigma, sigma-relative motion detection for the settled-tail truncation and the rest-point segmentation, and the carried posterior as the next level's prior.
    Landed 2026-09-08 (section 8), behind flags, untested on a run.
 5. The Laplace evidence in the fit report and the evidence delta between simulator versions (section 3.4).
+   Landed 2026-09-08 (section 8), behind a flag, untested on a run.
 6. The belief at execution (sections 3.3 and 3.6): the particle or smoothed frame beside the raw one, atom fractions in `sim.predicates`, belief draws in `sim.run` and `evaluate_trajectory`, the likelihood-based monitor, the spread in the attempts log, and placements certified over the target object's plausible positions.
 7. The scalar-reading class of the channel: `continual_obs_noise_scalar` on `bubbling_level`, `water_volume`, `spilled_level` and any Type-declared sensor feature, additive and unclipped, switch states exact; the contract, the frame line and the scorecard carry the third sigma; the fit's residual scale folds it like the others.
    Boil sweep points relative to the ramp step of 0.15 and the 0.07 boil margin, about 0.03, 0.07 and 0.15, with pose noise and reading noise swept as separate axes.
@@ -299,7 +300,16 @@ Step 4 of section 7 landed on 2026-09-08 (branch `bridge-learning`), behind `cod
   The carried values are checkpointed with the approach.
 - Tests: `tests/code_sim_learning/test_noise_filter.py`.
 
-Not yet built: the particle filter at execution (3.3, step 6), the evidence comparison (3.4) and the belief-aware tool surface (3.6).
+Step 5 of section 7 landed on 2026-09-08 (branch `bridge-learning`), behind `code_sim_learning_fit_evidence`, off by default.
+
+- `predicators/code_sim_learning/evidence.py`: the Laplace log evidence at the MAP from what the fit already has, the SSE, the Jacobian, the noise width and the prior centres and widths in fit space: log likelihood plus log prior plus the Occam term (half the parameter count times log two pi, minus half the log determinant of the Gauss-Newton curvature).
+  The approximation is exact for a linear residual model, and the test checks it against quadrature; a data-flat parameter leaves the evidence unchanged and a constrained parameter that buys no residual lowers it.
+- The orchestrator computes it on the surviving segments when the fit carries a Jacobian (Levenberg-Marquardt ran and the anchor ablation pinned nothing) and hands it back on the fit outcome; the fit report states it next to the SSE with the residual and parameter counts, and quotes the delta against the previous canonical simulator version when both score the same residual set, naming the winner.
+  A different residual set (scope or survivors) is named as not comparable rather than compared.
+- The approach keeps the per-version history in its checkpoint, so the delta survives a resume.
+- Tests: `tests/code_sim_learning/test_evidence.py` and the flag case in `tests/code_sim_learning/test_orchestrator.py`.
+
+Not yet built: the particle filter at execution (3.3, step 6) and the belief-aware tool surface (3.6).
 
 First launch (step 2, one point of the sweep), 2026-09-07: fan and domino, both arms, seeds 0 and 1, position sigma 5 mm and orientation sigma 0.02 rad, declared, via `scripts/configs/predicatorv3/protocol_continual_noise_fan_domino.yaml` from the worktree `predicators-noise-r1` (Slurm 22197846 domino model-based, 22197847 fan model-based, 22197848 domino model-free, 22197849 fan model-free).
 The sigma is about half the tightest scale of each env: fan's target tolerance is 1 cm on a 4 cm ball, a domino is 7 cm wide.
