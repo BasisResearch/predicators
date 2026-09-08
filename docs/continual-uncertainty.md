@@ -251,7 +251,7 @@ Where MDA does not reach:
    Landed 2026-09-08 as the smoothed frame (section 8), behind a flag, untested on a run; the particle filter proper and belief draws in `evaluate_trajectory` were not built.
 7. The scalar-reading class of the channel: `continual_obs_noise_scalar` on `bubbling_level`, `water_volume`, `spilled_level` and any Type-declared sensor feature, additive and unclipped, switch states exact; the contract, the frame line and the scorecard carry the third sigma; the fit's residual scale folds it like the others.
    Boil sweep points relative to the ramp step of 0.15 and the 0.07 boil margin, about 0.03, 0.07 and 0.15, with pose noise and reading noise swept as separate axes.
-   Landed 2026-09-08 (section 8); the sweep configs are `scripts/configs/predicatorv3/protocol_continual_noise_boil_reading{03,07,15}.yaml`, not yet run.
+   Landed 2026-09-08 (section 8); the sweep configs are `scripts/configs/predicatorv3/protocol_continual_noise_boil_p12_r{03,07,15}.yaml`, each the earlier 1.25 cm pose point with the reading sigma on top (decided 2026-09-08: one experiment tests both channels at once), the 0.07 point launched the same day.
 
 Validation: domino at 1 cm with four seeds after step 3, which is where the advantage was lost first; boil under reading noise after step 7; the exact boil model-based baseline rerun under the sanitized-frame rule before the boil column is quoted; fan back in the sweep once its cap-stall fixes land.
 
