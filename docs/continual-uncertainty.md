@@ -248,6 +248,7 @@ Where MDA does not reach:
 5. The Laplace evidence in the fit report and the evidence delta between simulator versions (section 3.4).
    Landed 2026-09-08 (section 8), behind a flag, untested on a run.
 6. The belief at execution (sections 3.3 and 3.6): the particle or smoothed frame beside the raw one, atom fractions in `sim.predicates`, belief draws in `sim.run` and `evaluate_trajectory`, the likelihood-based monitor, the spread in the attempts log, and placements certified over the target object's plausible positions.
+   Landed 2026-09-08 as the smoothed frame (section 8), behind a flag, untested on a run; the particle filter proper and belief draws in `evaluate_trajectory` were not built.
 7. The scalar-reading class of the channel: `continual_obs_noise_scalar` on `bubbling_level`, `water_volume`, `spilled_level` and any Type-declared sensor feature, additive and unclipped, switch states exact; the contract, the frame line and the scorecard carry the third sigma; the fit's residual scale folds it like the others.
    Boil sweep points relative to the ramp step of 0.15 and the 0.07 boil margin, about 0.03, 0.07 and 0.15, with pose noise and reading noise swept as separate axes.
 
@@ -309,7 +310,20 @@ Step 5 of section 7 landed on 2026-09-08 (branch `bridge-learning`), behind `cod
 - The approach keeps the per-version history in its checkpoint, so the delta survives a resume.
 - Tests: `tests/code_sim_learning/test_evidence.py` and the flag case in `tests/code_sim_learning/test_orchestrator.py`.
 
-Not yet built: the particle filter at execution (3.3, step 6) and the belief-aware tool surface (3.6).
+Step 6 of section 7 landed on 2026-09-08 (branch `bridge-learning`) as the smoothed frame, behind `continual_belief_frame`, off by default, with `continual_belief_window`, `continual_belief_sigmas` and `continual_belief_draws` as its knobs.
+
+- `predicators/observation_belief.py`: per object, the belief is the mean of its noisy features over the frames it has rested through, up to the window, with the spread sigma over the square root of the frames; rest is judged sigma-relatively on the window's two halves, the way the fit-side filter judges motion, so a moving object is never smoothed across its motion and the window restarts at a jump.
+  Angles average circularly.
+  Draws of the belief jitter each noisy feature by its spread, and the atom fractions are the share of draws on which an atom holds.
+- The observation carries the belief beside the raw frame: the `[objects]` block is followed by a `[belief]` block naming each object's smoothed features with their spread and the frames averaged, and the atom lines are followed by `[atoms under the belief]` listing the atoms whose fraction is strictly between zero and one.
+  The truth view the reference arms use carries no belief.
+- The likelihood-based monitor: an invocation's expected atom is missing when it holds on fewer than half the belief draws after the skill, and an expected-absent atom is present on the same rule, so one frame's noise never aborts a healthy plan; the invocation's result text and the level index carry the fractions and the belief's largest spread, which is where the agent's notes read the spread from.
+- `sim.run(plan, belief_draws=K)`: the plan rolled once from each of K draws of the belief, on a fresh env at the base planner seed, reporting the successes and each draw's largest feature shift; a mixed result says the plan depends on a pose the observation cannot pin down, and this is how a placement is certified over where its target may really be.
+  The draws come from the belief shown in the last observation when the probe still sits on it, else from the current state with the declared sigma on every noisy feature.
+- Not built: the particle filter proper (the smoothed frame is the rest-window special case of it, exact for objects at rest, and objects in motion keep the raw frame), belief draws inside `evaluate_trajectory` (it scores a trajectory the agent already has; the parameter belief there is the physics sweep), and atom fractions inside `sim.predicates()` (which reports on the invented predicates' file, not on a state; the fractions live in the observation instead).
+- Tests: `tests/test_observation_belief.py`, the belief cases in `tests/run/test_continual.py`, `tests/agent_sdk/test_continual_tools.py` and `tests/agent_sdk/test_belief_probe_physics_sweep.py`.
+
+Not yet built: the particle filter proper (3.3) and the scalar-reading noise class (step 7).
 
 First launch (step 2, one point of the sweep), 2026-09-07: fan and domino, both arms, seeds 0 and 1, position sigma 5 mm and orientation sigma 0.02 rad, declared, via `scripts/configs/predicatorv3/protocol_continual_noise_fan_domino.yaml` from the worktree `predicators-noise-r1` (Slurm 22197846 domino model-based, 22197847 fan model-based, 22197848 domino model-free, 22197849 fan model-free).
 The sigma is about half the tightest scale of each env: fan's target tolerance is 1 cm on a 4 cm ball, a domino is 7 cm wide.
