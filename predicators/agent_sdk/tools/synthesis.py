@@ -32,11 +32,29 @@ def _trim_cause_note(traj_rms: Sequence[float], threshold: float) -> List[str]:
     parameters - a model-fidelity floor, not a chaotic recording - so
     re-collecting equivalent experiments cannot help and the advice says
     so; only far-over segments get the chaotic-recording advice.
+
+    Under a declared observation-noise channel the note leads with the
+    exceeds-sigma bit (docs/continual-uncertainty.md, 3.5): the
+    threshold is in units of the total noise with the declared sigma
+    folded in, so a dropped segment's residual exceeds what the noise
+    can explain and the model, not the fit, has to change.
     """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.observation_noise import ObservationNoise
     dropped = [r for r in traj_rms if r > threshold]
     close = [r for r in dropped if r <= _TRIM_BORDERLINE_FACTOR * threshold]
     far = [r for r in dropped if r > _TRIM_BORDERLINE_FACTOR * threshold]
     notes: List[str] = []
+    noise = ObservationNoise.from_cfg()
+    if dropped and noise.enabled and noise.declared:
+        notes.append(
+            "The trimming threshold is in units of the total noise, which "
+            f"folds the declared observation sigma ({noise.summary()}) into "
+            f"every feature's residual scale: these {len(dropped)} "
+            "segment(s) exceed what the declared noise can explain, so the "
+            "answer is a different model where the replay deviates from "
+            "the recording, not a harder fit and not the same experiments "
+            "re-collected.")
     if close:
         pct = int(round((_TRIM_BORDERLINE_FACTOR - 1) * 100))
         notes.append(
@@ -611,12 +629,28 @@ def create_synthesis_tools(
             lines.append(f"  {name:<28} [{kind:<8}] {init_val:.4f} -> "
                          f"{fit_val:.4f}  (delta={delta:+.4f}, {ppct:+.1f}%)")
 
+        interval_belief = CFG.code_sim_learning_interval_belief
+        if interval_belief:
+            ident_heading = (
+                "Identifiability and belief (posterior_std / prior_std; the "
+                "'belief:' line under a parameter is the planner's belief - "
+                "the most likely value with its +-1 sigma interval, the "
+                "anchor's position relative to it, and whether the planner "
+                "runs on it. 'wide posterior' means the data moved the "
+                "parameter but only weakly: its most likely value is "
+                "deployed and plans are certified across the whole "
+                "interval. ~1 with no move means the data did NOT constrain "
+                "the parameter, so remove it from PHYSICAL_PARAM_SPECS or "
+                "collect data that exercises it):")
+        else:
+            ident_heading = (
+                "Identifiability (posterior_std / prior_std; ~1 means the "
+                "data did NOT constrain the parameter — its fitted value is "
+                "arbitrary, so remove it from PHYSICAL_PARAM_SPECS or "
+                "collect data that exercises it):")
         lines.extend([
             "",
-            "Identifiability (posterior_std / prior_std; ~1 means the data "
-            "did NOT constrain the parameter — its fitted value is "
-            "arbitrary, so remove it from PHYSICAL_PARAM_SPECS or collect data "
-            "that exercises it):",
+            ident_heading,
             format_identifiability(ident_report),
             "",
         ])
@@ -629,6 +663,23 @@ def create_synthesis_tools(
                 "individually-explainable trajectories indicate "
                 "heterogeneous data (e.g. an arm-touched episode), not a "
                 "parameter value.")
+        elif interval_belief:
+            kept_note = (
+                f"{', '.join(kept_at_init)} carried no information (or "
+                "failed the sensitivity screen, sat at a box edge, or was "
+                "data-equivalent to the baseline), so their baseline values "
+                "were kept. " if kept_at_init else "")
+            lines.append(
+                "Applied to the planning base env: the most likely value of "
+                "every parameter the data moved (identified, weakly "
+                "identified or wide posterior). " + kept_note +
+                "submit_plan and sim.run(plan, physics_sweep=True) certify "
+                "a plan across each deployed parameter's belief interval; "
+                "a plan that passes only part of an interval is reported "
+                "with the passing and failing ranges, which is the cue "
+                "that one real experiment narrowing that parameter is "
+                "worth more than more planning. Probe rollouts (sim.run / "
+                "sim.refine) now run against the calibrated sim.")
         elif kept_at_init:
             lines.append(
                 "Applied to the planning base env: fitted values for the "

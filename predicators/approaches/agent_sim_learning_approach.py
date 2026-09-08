@@ -49,7 +49,8 @@ from predicators.approaches.sampler_learning_mixin import SamplerLearningMixin
 from predicators.approaches.synthesis_validation import \
     build_candidate_option_model
 from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
-    mean_bernoulli_entropy, perturbation_ensemble, subsample_ensemble
+    mean_bernoulli_entropy, noisy_read_information, perturbation_ensemble, \
+    subsample_ensemble
 from predicators.code_sim_learning.commands import CommandBuffer
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
     declared_interval_fit_result, declared_interval_report
@@ -74,6 +75,7 @@ from predicators.code_sim_learning.utils import LearnedSimulator, \
     read_residual_env, read_simulator_components, stamp_physical_spec_scales
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_simulator
+from predicators.observation_noise import ObservationNoise
 from predicators.option_model import _OptionModelBase, _OracleOptionModel
 from predicators.settings import CFG
 from predicators.structs import Action, Dataset, DerivedPredicate, \
@@ -1385,21 +1387,62 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         Wired into refinement as the info-scorer for the agent_model_based
         explorer; a read-only query that leaves ``_fitted_params``
         unchanged on return.
+
+        Under ``agent_explorer_info_seeking_noise_aware`` with a declared
+        observation-noise channel, each member reads the atoms from
+        noisy views of ``state`` (:meth:`_noisy_read_views`) and the
+        score is the mutual information between the member and the
+        read truth (:func:`noisy_read_information`): members whose
+        predictions differ by less than sigma all read a coin flip and
+        contribute nothing, because one noisy observation cannot tell
+        them apart.
         """
         atom_list = list(atoms)
         if len(self._param_ensemble) <= 1 or not atom_list:
             return 0.0
+        views = self._noisy_read_views(state)
         saved = dict(self._fitted_params)
         try:
-            rows: List[List[bool]] = []
+            rows: List[List[float]] = []
             for member in self._param_ensemble:
                 self._fitted_params.clear()
                 self._fitted_params.update(member)
-                rows.append([bool(a.holds(state)) for a in atom_list])
+                if views is None:
+                    rows.append([float(a.holds(state)) for a in atom_list])
+                else:
+                    rows.append([
+                        float(np.mean([bool(a.holds(v)) for v in views]))
+                        for a in atom_list
+                    ])
         finally:
             self._fitted_params.clear()
             self._fitted_params.update(saved)
-        return mean_bernoulli_entropy(np.asarray(rows, dtype=bool))
+        if views is None:
+            return mean_bernoulli_entropy(np.asarray(rows, dtype=bool))
+        return noisy_read_information(np.asarray(rows, dtype=float))
+
+    # Noisy views per scored state: enough to resolve a coin flip from
+    # a near-certain read, few enough that scoring stays cheap.
+    _NOISY_READ_DRAWS = 8
+
+    def _noisy_read_views(self, state: State) -> Optional[List[State]]:
+        """The observations a real step ending at ``state`` could return under
+        the declared noise channel, or None when the score is exact (flag off,
+        channel off or undeclared).
+
+        Common random numbers: the draws are seeded identically for
+        every scored state, so candidate scores are comparable and a re-
+        score is repeatable.
+        """
+        if not CFG.agent_explorer_info_seeking_noise_aware:
+            return None
+        noise = ObservationNoise.from_cfg()
+        if not (noise.enabled and noise.declared):
+            return None
+        rng = np.random.default_rng(CFG.seed)
+        return [
+            noise.perturb(state, rng) for _ in range(self._NOISY_READ_DRAWS)
+        ]
 
     @contextmanager
     def _rule_param_override_scope(
@@ -2635,6 +2678,25 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                         "covers that whole hull). A clean, repeatable "
                         "interaction that excites this parameter and "
                         "little else would collapse the hull.")
+                continue
+            belief = entry.get("belief_interval")
+            if verdict is Verdict.WIDE and belief is not None:
+                anchor = entry.get("anchor")
+                if anchor is None:
+                    where = ""
+                elif anchor < belief[0] or anchor > belief[1]:
+                    where = (f"; the baseline {anchor:.4g} lies outside it, "
+                             "so the data already exclude the baseline")
+                else:
+                    where = f"; the baseline {anchor:.4g} lies inside it"
+                lines.append(
+                    f"- physical param '{name}': the data moved it to "
+                    f"{entry.get('map', float('nan')):.4g} but only weakly; "
+                    f"the planner's belief is the interval [{belief[0]:.4g}, "
+                    f"{belief[1]:.4g}]{where}. Plans are certified across "
+                    "the whole interval, so an experiment whose observable "
+                    "outcome DIFFERS across it would narrow the belief and "
+                    "widen the set of certifiable plans.")
                 continue
             interval = entry.get("flat_interval")
             if (verdict in (Verdict.WEAKLY_IDENTIFIED, Verdict.NOT_IDENTIFIED)

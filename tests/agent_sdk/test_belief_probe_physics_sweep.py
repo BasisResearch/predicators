@@ -126,6 +126,31 @@ def test_physics_sweep_reports_interior_hole():
     assert ctx.attempt_rollout_count == 5
 
 
+def test_physics_sweep_straddle_arms_the_probe_trigger():
+    """Under the interval belief a mixed sweep is reported as the interval
+    straddling the plan's success boundary, with the passing and failing
+    ranges, and arms adaptive info-seeking; off, the sweep reads as before."""
+    points = [{"friction": mu} for mu in (0.43, 0.48, 0.5, 0.52)]
+    utils.reset_config({"code_sim_learning_interval_belief": True})
+    ctx, _, _ = _make_ctx(points)
+    sim = BeliefProbe(ctx)
+    sim.reset()
+    res = sim.run("Move(block0:block)[0.95]", render=False, physics_sweep=True)
+    assert "straddles this plan's success boundary" in res.text
+    assert ("3/4 interval points passed; friction: passes on [0.43, 0.48], "
+            "fails at 0.5, passes at 0.52") in res.text
+    assert ctx.param_sensitive_refusal_pending
+    utils.reset_config({"code_sim_learning_interval_belief": False})
+    ctx_off, _, _ = _make_ctx(points)
+    sim_off = BeliefProbe(ctx_off)
+    sim_off.reset()
+    res_off = sim_off.run("Move(block0:block)[0.95]",
+                          render=False,
+                          physics_sweep=True)
+    assert "straddles" not in res_off.text
+    assert not ctx_off.param_sensitive_refusal_pending
+
+
 def test_physics_sweep_all_pass_has_no_hole_guidance():
     """A clean sweep reports plainly, without the failure guidance."""
     utils.reset_config({})

@@ -1373,6 +1373,36 @@ class BeliefProbe:
                     "low-level steps) - the real executor would run out "
                     "of steps.")
             sweep_successes = sum(1 for p in point_dicts if p["goal_reached"])
+            if CFG.code_sim_learning_interval_belief:
+                # pylint: disable-next=import-outside-toplevel
+                from predicators.code_sim_learning.identifiability import \
+                    straddle_summary
+
+                # Certification over the belief interval: a mixed sweep
+                # means the interval straddles the plan's success
+                # boundary, which is the probe trigger - one narrowing
+                # experiment beats more planning, so adaptive
+                # info-seeking is armed here, not only by a refusal.
+                interval_pts = [
+                    p for p in point_dicts if p["params"] is not None
+                ]
+                n_ok = sum(1 for p in interval_pts if p["goal_reached"])
+                if interval_pts and 0 < n_ok < len(interval_pts):
+                    straddle = straddle_summary(
+                        [p["params"] for p in interval_pts],
+                        [bool(p["goal_reached"]) for p in interval_pts])
+                    notices.append(
+                        "the belief interval straddles this plan's success "
+                        f"boundary ({n_ok}/{len(interval_pts)} interval "
+                        "points passed" +
+                        (f"; {straddle}" if straddle else "") + "). One "
+                        "real experiment that narrows that parameter is "
+                        "worth more than more planning here: "
+                        "sim.suggest_probes(plan_text) ranks probes on your "
+                        "sketch (adaptive info-seeking is now armed), or "
+                        "find a design that holds across the whole "
+                        "interval.")
+                    ctx.param_sensitive_refusal_pending = True
             return ProbeSweepResult(point_dicts, sweep_successes, notices)
 
         if trials > 1:
