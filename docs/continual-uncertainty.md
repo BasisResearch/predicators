@@ -73,7 +73,8 @@ Proposed flags and records:
 | `continual_obs_noise_declared` | whether the contract states the sigmas and the fit knows them (default on) |
 | scorecard | `obs_noise_position`, `obs_noise_orientation`, `obs_noise_declared`; `aggregate_scorecards.py` carries the columns and the viewer's run page shows the channel |
 
-A scalar-feature class (fill levels, joint values) is deferred: none of the target envs discriminates on one, and a noisy discrete feature is the dropout follow-up, not a Gaussian.
+A scalar-feature class (fill levels, sensor readings) was deferred in the first version because none of the target envs discriminated on one; the sweep showed that boil does (section 8), so it is now step 7 of the build order.
+A noisy discrete feature stays the dropout follow-up, not a Gaussian.
 
 Sigma values are chosen per env relative to the tightest predicate tolerance in that env, not as absolute numbers.
 A sweep at a quarter, a half, and the full tolerance answers the question at the scale where the abstraction starts to flip.
@@ -160,6 +161,24 @@ Probing stays where it is.
 The agent already decides when a belief rollout beats a real step.
 With a spread readout it can also decide when a repeated look beats acting, which is the only decision a belief-space planner would have added.
 
+### 3.7 The parameter belief is an interval, never a switch
+
+Added 2026-09-08 from the sweep's domino losses (section 8).
+The fit already computes a posterior width per parameter and the plan gate already sweeps a band around a fitted value, but both sit behind a binary verdict: a parameter whose posterior did not contract below a fixed fraction of the prior is "not identified", its fitted value is thrown away for the registry anchor, and the gate sweeps only parameters whose fitted value was deployed.
+Under noise the honest posterior is wider, so the verdict flips, the estimate is discarded and the sweep never runs: on domino at 1 cm the fit put friction at 0.40 with an interval of about 0.22 to 0.72, which excludes the 0.1 anchor the planner then ran with, unchecked.
+
+The rule becomes:
+
+- The planner's belief about a parameter is its posterior, the most likely value with its interval, for every parameter the data moved at all.
+  The anchor is the prior, and it is what the posterior collapses to when the data say nothing; it is never a replacement for an estimate the data support.
+- Certification samples the whole interval of every moved parameter, weakly identified ones included, rather than one sigma around a point that may be the anchor.
+  A plan is certified when it succeeds across the samples, and the fraction is reported.
+- The fit report states the interval in plain words, with the anchor's position relative to it, so the agent can reason about it as the 5 mm seed-1 agent did by hand when it scored layouts at three frictions.
+- The probe suggestion fires when the interval straddles a plan's success boundary, which is when one cheap experiment is worth more than any amount of planning, instead of waiting for a refusal the switch prevented.
+- The contraction thresholds and the flat tolerance are expressed in units of the declared sigma, so a wider posterior under noise reads as the honest answer, not as failure.
+
+Object poses get the same treatment at placement time: a placement is certified over the plausible positions of the target object under the declared sigma, not at the observed one, which is where boil paid its resets.
+
 ## 4. Relation to the Model Discovery Agent
 
 MDA is an LLM-assisted Bayesian experiment designer for mechanistic models.
@@ -214,8 +233,22 @@ Where MDA does not reach:
 ## 7. Build order
 
 1. The channel: flags, seeded draw at the runner boundary, true state kept in the level index, scorecard fields, contract text, the fit's `noise_sigma` taken from the channel, the refusal's exceeds-sigma bit, and tests that the evaluators see the true state and the recording sees the observed one.
-2. Sweep configs for both arms over the sigma grid on two envs: bridge for geometry noise, domino or balloons for dynamics noise.
-3. If step 2 asks for them: the filter at execution and inside the fit, the Laplace evidence in the fit report, the sigma-normalised probe margin, and the belief-aware tool surface.
+   Landed 2026-09-07.
+2. Sweep configs for both arms over the sigma grid: domino and boil at a quarter, a half and the full tolerance, fan and bridge deferred.
+   Landed and run 2026-09-07 to 2026-09-08 (section 8).
+3. The parameter belief as an interval (section 3.7), the group the sweep asked for first, in this order:
+   the interval-first deployment rule replacing the verdict switch;
+   certification over the full interval of every moved parameter in the plan gate and in `sim.run`'s physics sweep;
+   the interval in the fit report, in words, with the anchor's position;
+   the probe trigger on a straddling interval, with the probe value normalised by sigma (section 3.5);
+   the contraction thresholds and the flat tolerance in units of sigma, and the refusal's exceeds-sigma bit where it is still missing.
+4. The filter inside the fit (section 3.3): each segment's initial condition as a latent under the declared sigma, sigma-relative motion detection for the settled-tail truncation and the rest-point segmentation, and the carried posterior as the next level's prior.
+5. The Laplace evidence in the fit report and the evidence delta between simulator versions (section 3.4).
+6. The belief at execution (sections 3.3 and 3.6): the particle or smoothed frame beside the raw one, atom fractions in `sim.predicates`, belief draws in `sim.run` and `evaluate_trajectory`, the likelihood-based monitor, the spread in the attempts log, and placements certified over the target object's plausible positions.
+7. The scalar-reading class of the channel: `continual_obs_noise_scalar` on `bubbling_level`, `water_volume`, `spilled_level` and any Type-declared sensor feature, additive and unclipped, switch states exact; the contract, the frame line and the scorecard carry the third sigma; the fit's residual scale folds it like the others.
+   Boil sweep points relative to the ramp step of 0.15 and the 0.07 boil margin, about 0.03, 0.07 and 0.15, with pose noise and reading noise swept as separate axes.
+
+Validation: domino at 1 cm with four seeds after step 3, which is where the advantage was lost first; boil under reading noise after step 7; the exact boil model-based baseline rerun under the sanitized-frame rule before the boil column is quoted; fan back in the sweep once its cap-stall fixes land.
 
 ## 8. Implementation status
 
