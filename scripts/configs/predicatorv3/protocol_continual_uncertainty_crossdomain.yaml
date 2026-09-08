@@ -1,11 +1,7 @@
-# Domino at the half-tolerance pose noise point (1 cm, 0.04 rad) with
-# every uncertainty feature of build-order steps 3 to 7 on: the
-# validation point of docs/continual-uncertainty.md section 7, where the
-# model-based advantage was lost first (section 8: both arms 1/2 on both
-# seeds, every model-based loss a friction fit the verdict switch
-# discarded or overshot). Two seeds, matching the first-launch 1 cm
-# runs (seeds 0 and 1, features off). The existing model-free pair is
-# the baseline; the ablations flip one feature at a time from this base.
+# Paired noise validation: bridge/fan 5 mm, balloons 10 mm; 0.02 rad.
+# Two seeds for MF, MB with the six uncertainty flags off, and MB with them on.
+# Launch only from the validated, frozen predicators-noise-crossdomain-r1 tree.
+# Reuse the existing noiseless references; do not launch new exact controls.
 ---
 START_SEED: 0
 NUM_SEEDS: 2
@@ -25,24 +21,37 @@ FLAGS:
   test_fresh_env_per_episode: True
   continual_runs_dir: "/home/ycliang/predicators/logs"
   log: "/home/ycliang/predicators/logs/"
-  continual_obs_noise_position: 0.01
-  continual_obs_noise_orientation: 0.04
+  continual_obs_noise_position: 0.005
+  continual_obs_noise_orientation: 0.02
   continual_obs_noise_scalar: 0.0
   continual_obs_noise_declared: True
+  # Shared defaults keep the plain code-agent arm free of harness belief tools.
+  code_sim_learning_interval_belief: False
+  agent_explorer_info_seeking_noise_aware: False
+  code_sim_learning_rollout_noise_filter: False
+  code_sim_learning_carry_posterior: False
+  code_sim_learning_fit_evidence: False
+  continual_belief_frame: False
 ENVS:
-  boil:
-    SKIP: True
-  domino_high_friction_turn:
+  bridge:
     SKIP: False
+    FLAGS:
+      continual_steps_per_level: 10000
   fan:
-    SKIP: True
+    SKIP: False
+  balloons:
+    SKIP: False
+    FLAGS:
+      num_train_tasks: 2
+      balloons_require_jam_decoy: True
+      continual_obs_noise_position: 0.01
 APPROACHES:
   oracle:
     SKIP: True
-  agent_continual_noise10mm_v2:
+  agent_continual_cross_noise_off:
     NAME: "agent_continual"
     SKIP: False
-    FLAGS:
+    FLAGS: &mb_flags
       agent_sdk_use_local_sandbox: True
       partially_observable: True
       agent_sdk_max_agent_turns_per_iteration: 10000
@@ -52,17 +61,23 @@ APPROACHES:
       agent_validation_parallel_workers: 6
       code_sim_learning_rollout_min_posterior_width: 0.1
       continual_max_idle_rounds: 5
-      # The uncertainty build order, steps 3 to 7 (docs/continual-uncertainty.md
-      # section 8), all on; the ablations flip these one at a time.
+      agent_plan_validation_rule_param_margin: True
+      agent_explorer_info_seeking: True
+      agent_explorer_info_seeking_adaptive: True
+  agent_continual_cross_noise_on:
+    NAME: "agent_continual"
+    SKIP: False
+    FLAGS:
+      <<: *mb_flags
       code_sim_learning_interval_belief: True
       agent_explorer_info_seeking_noise_aware: True
       code_sim_learning_rollout_noise_filter: True
       code_sim_learning_carry_posterior: True
       code_sim_learning_fit_evidence: True
       continual_belief_frame: True
-  agent_continual_model_free_noise10mm_v2:
+  agent_continual_model_free_cross_noise:
     NAME: "agent_continual_model_free"
-    SKIP: True
+    SKIP: False
     FLAGS:
       agent_sdk_use_local_sandbox: True
       partially_observable: True

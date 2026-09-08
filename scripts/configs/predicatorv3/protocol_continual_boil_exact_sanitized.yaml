@@ -1,0 +1,37 @@
+# Exact-observation model-based control for the uncertainty sweep.
+# Match the original boil m3 seed-0 flags on the fixed code tree, with
+# sanitized observation frames and per-env heat storage. A distinct
+# experiment id prevents auto_resume from adopting the old baseline.
+# Retained as a prepared reference, disabled: reuse the existing noiseless
+# results unless a new control is explicitly requested.
+---
+includes:
+  - protocol_continual_noise_boil_12mm_r2.yaml
+START_SEED: 0
+NUM_SEEDS: 1
+FLAGS:
+  continual_obs_noise_position: 0.0
+  continual_obs_noise_orientation: 0.0
+  continual_obs_noise_scalar: 0.0
+APPROACHES:
+  agent_continual_noise12mm_r2:
+    SKIP: True
+  agent_continual_exact_sanitized:
+    NAME: "agent_continual"
+    SKIP: True
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_sdk_max_agent_turns_per_iteration: 10000
+      agent_sdk_image_max_px: 900
+      agent_bilevel_use_llm_initial_params: True
+      agent_solve_use_journal: True
+      agent_validation_parallel_workers: 6
+      code_sim_learning_rollout_min_posterior_width: 0.1
+      continual_max_idle_rounds: 5
+      code_sim_learning_interval_belief: False
+      agent_explorer_info_seeking_noise_aware: False
+      code_sim_learning_rollout_noise_filter: False
+      code_sim_learning_carry_posterior: False
+      code_sim_learning_fit_evidence: False
+      continual_belief_frame: False
