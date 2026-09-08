@@ -242,6 +242,7 @@ Where MDA does not reach:
    the interval in the fit report, in words, with the anchor's position;
    the probe trigger on a straddling interval, with the probe value normalised by sigma (section 3.5);
    the contraction thresholds and the flat tolerance in units of sigma, and the refusal's exceeds-sigma bit where it is still missing.
+   Landed 2026-09-08 (section 8), behind flags, untested on a run: the build-all-then-ablate plan runs steps 3 to 7 first and validates after.
 4. The filter inside the fit (section 3.3): each segment's initial condition as a latent under the declared sigma, sigma-relative motion detection for the settled-tail truncation and the rest-point segmentation, and the carried posterior as the next level's prior.
 5. The Laplace evidence in the fit report and the evidence delta between simulator versions (section 3.4).
 6. The belief at execution (sections 3.3 and 3.6): the particle or smoothed frame beside the raw one, atom fractions in `sim.predicates`, belief draws in `sim.run` and `evaluate_trajectory`, the likelihood-based monitor, the spread in the attempts log, and placements certified over the target object's plausible positions.
@@ -269,7 +270,22 @@ Step 1 of section 7 landed on 2026-09-07 (branch `bridge-learning`).
 - The prompts: a declared channel adds an "Observation noise" section to both arms' system prompt, an "Observation noise and the fit" section to the model contract, and a `[noise]` line to every frame.
 - Tests: `tests/test_observation_noise.py`, the channel, resume-under-noise and card tests in `tests/run/test_continual.py`, the scaling fold in `tests/code_sim_learning/test_physical_sysid.py`, the prompt and frame test in `tests/agent_sdk/test_continual_tools.py`.
 
-Not yet built: the filter (3.3), the evidence comparison (3.4), the sigma-measured gates (3.5) and the belief-aware tool surface (3.6).
+Step 3 of section 7 landed on 2026-09-08 (branch `bridge-learning`), behind two flags so the later ablations are flag flips: `code_sim_learning_interval_belief` (the parameter belief) and `agent_explorer_info_seeking_noise_aware` (the probe value), both off by default.
+
+- The verdict `Verdict.WIDE` ("wide posterior") in `predicators/code_sim_learning/identifiability.py`: a parameter whose posterior did not contract below the weak threshold but is narrower than the prior, and whose most likely value moved off the prior centre by more than 0.001 in fit space.
+  It deploys, so `select_trustworthy_params` applies the most likely value and `physics_sigma_points` sweeps its whole interval; the verdict enum stays the single decision surface, so every consumer follows without a second switch.
+  A parameter that never moved, or whose reported width exceeds the prior, still reads NOT identified and keeps the anchor: the data said nothing.
+- Every report entry carries the belief interval (the most likely value plus and minus one posterior sigma, clipped to the box), the most likely value and the anchor, and `format_identifiability` renders a `belief:` line in words with the anchor's position (below, inside, above) and whether the planner runs on it.
+  The `sim.fit` report's heading and its "Applied" sentence say the same, and the explorer's system-identification diagnostics name the interval as the experiment target.
+- Certification: the capture gate's PARAM-SENSITIVE refusal and `sim.run(plan, physics_sweep=True)` report the fraction of interval points passed and the passing and failing ranges per parameter (`straddle_summary`).
+  A mixed sweep is the interval straddling the plan's success boundary; it arms adaptive info-seeking from the probe as well as from the gate, with the cue that one narrowing experiment beats more planning.
+- The flat tolerance in sigma units: `flat_tolerance` in `grid_seed.py` takes the relative tolerance on the SSE in excess of the declared channel's expected noise SSE (`expected_noise_sse` in `trajectory_prep.py`, one variance per scored residual) and floors it at `flat_sigmas^2 * noise_sigma^2` (`code_sim_learning_rollout_flat_sigmas`, the likelihood-ratio interval); the anchor ablation uses the same tolerance.
+  The contraction thresholds stay ratios: under the interval belief they label, they no longer gate.
+- The exceeds-sigma bit: under a declared channel the fit's trimming note leads with the statement that the dropped segments exceed what the declared noise can explain, so the model has to change rather than the fit.
+- The noise-aware probe value: `score_atom_disagreement` reads each ensemble member's predicted state through eight draws of the declared channel and scores the mutual information between the member and the read truth (`noisy_read_information`), so a disagreement finer than sigma scores zero and is not worth real steps.
+- Tests: `tests/code_sim_learning/test_interval_belief.py`, the noise-aware case in `tests/approaches/test_sim_learning_info_seeking.py`, the straddle cases in `tests/agent_sdk/test_belief_probe_physics_sweep.py` and `tests/agent_sdk/test_submit_plan_capture.py`, the declared-channel case in `tests/agent_sdk/test_trim_cause_note.py`.
+
+Not yet built: the filter (3.3), the evidence comparison (3.4) and the belief-aware tool surface (3.6).
 
 First launch (step 2, one point of the sweep), 2026-09-07: fan and domino, both arms, seeds 0 and 1, position sigma 5 mm and orientation sigma 0.02 rad, declared, via `scripts/configs/predicatorv3/protocol_continual_noise_fan_domino.yaml` from the worktree `predicators-noise-r1` (Slurm 22197846 domino model-based, 22197847 fan model-based, 22197848 domino model-free, 22197849 fan model-free).
 The sigma is about half the tightest scale of each env: fan's target tolerance is 1 cm on a 4 cm ball, a domino is 7 cm wide.
