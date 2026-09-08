@@ -674,8 +674,8 @@ def test_degenerate_top_edge_grasp_fails_honestly():
 
 
 def test_goal_is_fully_observable(env_and_task):
-    """The task goal contains no Attached atoms: it pins the geometric layout
-    only, so a learned belief model can represent every goal atom without
+    """The task goal is the one geometric layout atom, Bridged(site0, site1),
+    with no Attached atom: a learned belief model can represent it without
     access to the hidden attachment state.
 
     The row welds the goal implies are certified physically instead (see
@@ -683,9 +683,59 @@ def test_goal_is_fully_observable(env_and_task):
     """
     env, task = env_and_task
     goal_preds = {atom.predicate.name for atom in task.goal_description}
-    assert "Attached" not in goal_preds
-    assert {"AtSite", "SeatedOn", "NextToEnd"} <= goal_preds
-    assert "Attached" not in {p_.name for p_ in env.goal_predicates}
+    assert goal_preds == {"Bridged"}
+    assert {p_.name for p_ in env.goal_predicates} == {"Bridged"}
+    assert "Bridged" in {p_.name for p_ in env.predicates}
+
+
+def test_bridged_is_role_free(env_and_task):
+    """Bridged(site, site) accepts any block as either leg and the spans in any
+    order: the blocks are identical, and a bridge welded in the order
+    span0|span2|span1 with the legs swapped is still the bridge the NL goal
+    asks for (a name-pinned goal lost a level to exactly that layout,
+    2026-09-07 seed 2)."""
+    env, task = env_and_task
+    state = task.init.copy()
+    blocks = state.get_objects(env._block_type)
+    by_name = {b.name: b for b in blocks}
+    site0, site1 = env._sites
+    sx0, sy = state.get(site0, "x"), state.get(site0, "y")
+    sx1 = state.get(site1, "x")
+    mid = (sx0 + sx1) / 2
+    top_z = env.table_height + 2 * env.leg_half_extents[2] + \
+        env.span_half_extents[2]
+
+    def _layout(legs_at_sites, row_order):
+        s = state.copy()
+        for leg_name, sx in zip(legs_at_sites, (sx0, sx1)):
+            leg = by_name[leg_name]
+            s.set(leg, "x", sx)
+            s.set(leg, "y", sy)
+            s.set(leg, "z", env.table_height + env.leg_half_extents[2])
+        for i, span_name in enumerate(row_order):
+            span = by_name[span_name]
+            s.set(span, "x", mid + (i - 1) * 2 * env.span_half_extents[0])
+            s.set(span, "y", sy)
+            s.set(span, "z", top_z)
+            for feat in ("roll", "pitch", "yaw"):
+                s.set(span, feat, 0.0)
+        return s
+
+    bridged = next(p_ for p_ in env.predicates if p_.name == "Bridged")
+    # Name order, and the swapped-and-permuted bridge, both count.
+    for legs, row in ((("leg0", "leg1"), ("span0", "span1", "span2")),
+                      (("leg1", "leg0"), ("span2", "span0", "span1"))):
+        s = _layout(legs, row)
+        assert bridged.holds(s, [site0, site1]), (legs, row)
+        assert bridged.holds(s, [site1, site0]), (legs, row)
+    # A broken row (middle span pulled out of line) is not a bridge.
+    s = _layout(("leg1", "leg0"), ("span2", "span0", "span1"))
+    s.set(by_name["span0"], "y", sy + 0.05)
+    assert not bridged.holds(s, [site0, site1])
+    # Nor is a row resting on a single leg with the other site empty.
+    s = _layout(("leg1", "leg0"), ("span2", "span0", "span1"))
+    s.set(by_name["leg0"], "x", sx1 + 0.3)
+    assert not bridged.holds(s, [site0, site1])
 
 
 def test_settle_certificate_rejects_dry_row(env_and_task):

@@ -43,6 +43,7 @@ class PyBulletBridgeGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         NextToEnd = predicates["NextToEnd"]
         SeatedOn = predicates["SeatedOn"]
         AtSite = predicates["AtSite"]
+        Bridged = predicates["Bridged"]
         SiteFree = predicates["SiteFree"]
         Attached = predicates["Attached"]
         Standing = predicates["Standing"]
@@ -214,7 +215,8 @@ class PyBulletBridgeGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         nsrts.add(
             NSRT(
                 "SeatSpan3",
-                [robot, span_a, mid, span_b, leg_l, leg_r, site_l, site_r], {
+                [robot, span_a, mid, span_b, leg_l, leg_r, site_l, site_r],
+                {
                     LiftedAtom(Holding, [robot, mid]),
                     LiftedAtom(Lying, [span_a]),
                     LiftedAtom(Lying, [mid]),
@@ -225,18 +227,28 @@ class PyBulletBridgeGroundTruthNSRTFactory(GroundTruthNSRTFactory):
                     LiftedAtom(Standing, [leg_r]),
                     LiftedAtom(AtSite, [leg_l, site_l]),
                     LiftedAtom(AtSite, [leg_r, site_r]),
-                }, {
+                },
+                {
                     LiftedAtom(HandEmpty, [robot]),
                     LiftedAtom(SeatedOn, [span_a, leg_l]),
                     LiftedAtom(SeatedOn, [span_b, leg_r]),
+                    # The goal atom: the welded row seated across the
+                    # two legs standing at the sites (its adjacency
+                    # atoms persist from the row build).
+                    LiftedAtom(Bridged, [site_l, site_r]),
                     LiftedAtom(Resting, [span_a]),
                     LiftedAtom(Resting, [mid]),
                     LiftedAtom(Resting, [span_b]),
-                }, {
+                },
+                {
                     LiftedAtom(Holding, [robot, mid]),
                     LiftedAtom(TopFree, [leg_l]),
                     LiftedAtom(TopFree, [leg_r]),
-                }, set(), Place, [robot], _seat_span_sampler))
+                },
+                set(),
+                Place,
+                [robot],
+                _seat_span_sampler))
 
         # Wait
         robot = Variable("?robot", robot_type)

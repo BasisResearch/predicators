@@ -294,6 +294,7 @@ class PyBulletBridgeGroundTruthProcessFactory(GroundTruthProcessFactory):
         NextToEnd = predicates["NextToEnd"]
         SeatedOn = predicates["SeatedOn"]
         AtSite = predicates["AtSite"]
+        Bridged = predicates["Bridged"]
         SiteFree = predicates["SiteFree"]
         Attached = predicates["Attached"]
         Standing = predicates["Standing"]
@@ -571,6 +572,7 @@ class PyBulletBridgeGroundTruthProcessFactory(GroundTruthProcessFactory):
                     LiftedAtom(HandEmpty, [robot]),
                     LiftedAtom(SeatedOn, [span_a, leg_l]),
                     LiftedAtom(SeatedOn, [span_b, leg_r]),
+                    LiftedAtom(Bridged, [site_l, site_r]),
                     LiftedAtom(Resting, [span_a]),
                     LiftedAtom(Resting, [mid]),
                     LiftedAtom(Resting, [span_b]),
