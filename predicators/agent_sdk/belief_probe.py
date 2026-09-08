@@ -351,6 +351,59 @@ class ProbeTrialsResult(_StrLikeResult):
 
 
 @dataclasses.dataclass(repr=False)
+class ProbeBeliefResult(_StrLikeResult):
+    """Outcome of one ``BeliefProbe.run(..., belief_draws=K)`` call.
+
+    ``draws`` holds one dict per draw of the belief (``goal_reached``,
+    ``num_actions``, ``failure``, ``max_shift`` - the largest feature
+    move of the drawn start state from the probe's current state);
+    ``successes`` counts goal-reaching draws. Each draw is where the
+    objects may really be given the observation and the declared noise,
+    rolled on a fresh env at the base planner seed, so a failing draw
+    is a pose the plan does not tolerate, not execution variability.
+    The current state is NOT advanced.
+    """
+    draws: List[Dict[str, Any]]
+    successes: int
+    from_belief: bool
+    notes: List[str] = dataclasses.field(default_factory=list)
+
+    def __repr__(self) -> str:
+        n = len(self.draws)
+        source = ("the belief shown in the last observation (its smoothed "
+                  "frame and spread)" if self.from_belief else
+                  "the current state with the declared sigma on every "
+                  "noisy feature")
+        lines = [
+            f"Belief draws: {self.successes}/{n} start states reached the "
+            f"goal (each draw is one place the objects may really be, "
+            f"from {source}; fresh env + base planner seed per draw)"
+        ]
+        for k, d in enumerate(self.draws):
+            head = f"  draw {k} (max feature shift {d['max_shift']:.4f})"
+            if d["failure"]:
+                lines.append(f"{head}: FAILED - {d['failure']}")
+            elif d["goal_reached"]:
+                lines.append(f"{head}: goal reached ({d['num_actions']} "
+                             "actions)")
+            else:
+                lines.append(f"{head}: goal NOT reached "
+                             f"({d['num_actions']} actions)")
+        if 0 < self.successes < n:
+            lines.append(
+                "  the plan depends on a pose the observation cannot pin "
+                "down: it succeeds on some plausible poses and fails on "
+                "others. Either look again from rest (the belief narrows "
+                "with every frame an object rests through) or choose "
+                "parameters with margin over the whole spread before "
+                "spending real steps.")
+        elif self.successes == 0 and n:
+            lines.append("  no plausible pose lets this plan reach the goal.")
+        lines.extend(f"NOTE: {n_}" for n_ in self.notes)
+        return "\n".join(lines)
+
+
+@dataclasses.dataclass(repr=False)
 class ProbeSweepResult(_StrLikeResult):
     """Outcome of one ``BeliefProbe.run(..., physics_sweep=True)`` call.
 
@@ -579,6 +632,7 @@ class BeliefProbe:
         self._snapshots: Dict[int, Tuple[State, bool]] = {}
         self._next_snapshot_id = 1
         self._refine_calls = 0
+        self._belief_draw_calls = 0
         self._instance_id = BeliefProbe._next_instance_id
         BeliefProbe._next_instance_id += 1
         # True while the current state IS the task's unmodified initial
@@ -1026,6 +1080,108 @@ class BeliefProbe:
 
     # ── Execution ────────────────────────────────────────────────
 
+    def _run_belief_draws(self, probe_task: Task, grounded: List[Any],
+                          sketch_steps: Any, all_predicates: Any,
+                          num_draws: int, seed: Optional[int],
+                          notices: List[str]) -> ProbeBeliefResult:
+        """The ``belief_draws`` mode of :meth:`run`."""
+        # pylint: disable=import-outside-toplevel
+        import contextlib
+
+        import numpy as np
+
+        from predicators.agent_sdk import bilevel_sketch
+        from predicators.observation_belief import BeliefFrame, belief_draw
+        from predicators.observation_noise import ObservationNoise
+        from predicators.settings import CFG
+
+        # pylint: enable=import-outside-toplevel
+        ctx = self._ctx
+        noise = ObservationNoise.from_cfg()
+        if not (noise.enabled and noise.declared):
+            raise ValueError(
+                "belief_draws needs a declared observation-noise channel: "
+                "without one the start state is exact and there is nothing "
+                "to draw.")
+        belief = getattr(ctx, "current_belief", None)
+        current = probe_task.init
+        from_belief = (isinstance(belief, BeliefFrame)
+                       and ctx.current_observation is not None
+                       and current.allclose(ctx.current_observation))
+        fresh_scope = (ctx.validation_env_scope
+                       if ValidationConfig.from_cfg().fresh_env
+                       and ctx.validation_env_scope is not None
+                       and ctx.probe_option_model_provider is None else None)
+        if fresh_scope is None:
+            notices.append("no fresh-env scope in this session: the draws "
+                           "ran on the shared env, so they are correlated.")
+        self._belief_draw_calls += 1
+        rng = np.random.default_rng(CFG.seed + 104729 *
+                                    (self._instance_id + 1) +
+                                    self._belief_draw_calls)
+        starts: List[State] = []
+        for _ in range(num_draws):
+            if from_belief:
+                assert isinstance(belief, BeliefFrame)
+                starts.append(belief_draw(belief, rng))
+            else:
+                starts.append(noise.perturb(current, rng))
+
+        def _shift(start: State) -> float:
+            by_name = {o.name: o for o in current}
+            worst = 0.0
+            for obj in start:
+                base = by_name.get(obj.name)
+                if base is None:
+                    continue
+                worst = max(worst,
+                            float(np.max(np.abs(start[obj] - current[base]))))
+            return worst
+
+        def _one_draw(k: int) -> Dict[str, Any]:
+            task_k = dataclasses.replace(probe_task, init=starts[k])
+            with (fresh_scope() if fresh_scope is not None else
+                  contextlib.nullcontext()), absolute_rollout_seed(seed):
+                model = self._option_model()
+                r = bilevel_sketch.execute_plan_forward(
+                    task_k,
+                    grounded,
+                    model,
+                    predicates=all_predicates,
+                    sketch=sketch_steps,
+                    stop_on_failure=True)
+            failure: Optional[str] = None
+            if r.first_failure_idx is not None:
+                fs = r.steps[r.first_failure_idx]
+                failure = (f"step {r.first_failure_idx} "
+                           f"({_fmt_option(fs.option)}): "
+                           f"{fs.failure_reason or 'not initiable'}")
+            return {
+                "goal_reached": r.goal_reached,
+                "num_actions": sum(s.num_actions for s in r.steps),
+                "failure": failure,
+                "max_shift": _shift(starts[k]),
+            }
+
+        prefetched = prefetch_parallel(
+            [functools.partial(_one_draw, k) for k in range(num_draws)],
+            "probe belief draws")
+        draws: List[Dict[str, Any]] = []
+        try:
+            for k in range(num_draws):
+                _check_time_budget(ctx)
+                _count_rollout(ctx)
+                pre = prefetched[k]
+                draws.append(pre if pre is not None else _one_draw(k))
+        except ProbeBudgetExceeded as e:
+            if not draws:
+                raise
+            notices.append(f"time budget expired after {len(draws)}/"
+                           f"{num_draws} draws - the remaining draws were "
+                           f"skipped ({e})")
+        successes = sum(1 for d in draws if d["goal_reached"])
+        return ProbeBeliefResult(draws, successes, from_belief, notices)
+
     def _parse_sketch(self, plan_text: str) -> Any:
         """Parse ``plan_text`` against the current state.
 
@@ -1114,8 +1270,21 @@ class BeliefProbe:
         physics_sweep: bool = False,
         seed: Optional[int] = None,
         fresh: bool = False,
-    ) -> Union[ProbeResult, ProbeTrialsResult, ProbeSweepResult]:
+        belief_draws: int = 0,
+    ) -> Union[ProbeResult, ProbeTrialsResult, ProbeSweepResult,
+               ProbeBeliefResult]:
         """Execute an option plan from the current state.
+
+        ``belief_draws=K`` (K > 0, its own mode) rolls the plan once
+        from each of K draws of the execution-time belief - where the
+        objects may really be given the observation and the declared
+        noise (the smoothed frame and spread the last observation
+        showed when the probe still sits on it, else the current state
+        with the declared sigma) - on a fresh env at the base planner
+        seed, and returns a ``ProbeBeliefResult``. This is how a
+        placement is certified over the target's plausible poses before
+        real steps are spent on it. Needs a declared observation-noise
+        channel.
 
         ``plan_text`` uses the same grammar as ``submit_plan``:
         one option per line, ``Option(obj:type, ...)[params]`` with
@@ -1224,6 +1393,15 @@ class BeliefProbe:
                 "per rollout (one deterministic rollout per parameter "
                 "point), while trials/solved/contacts measure the plan at "
                 "the fitted values. Run them as separate calls.")
+        if belief_draws < 0:
+            raise ValueError(f"belief_draws must be >= 0, got {belief_draws}")
+        if belief_draws > 0 and (trials > 1 or solved or contacts
+                                 or physics_sweep or fresh):
+            raise ValueError(
+                "belief_draws=K is its own mode: it varies the START STATE "
+                "over the belief (one rollout per draw); run trials, "
+                "solved, contacts, physics_sweep and fresh as separate "
+                "calls.")
         if solved and trials < 2:
             raise ValueError(
                 "solved=True needs trials >= 2: a single shared-env rollout "
@@ -1277,6 +1455,11 @@ class BeliefProbe:
         evaluator: Any = None
         if solved:
             evaluator = self._require_solved_evaluator("solved=True")
+
+        if belief_draws > 0:
+            return self._run_belief_draws(probe_task, grounded, sketch_steps,
+                                          all_predicates, belief_draws, seed,
+                                          notices)
 
         if physics_sweep:
             fresh_scope = (ctx.validation_env_scope

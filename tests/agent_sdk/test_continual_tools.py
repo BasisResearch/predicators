@@ -7,9 +7,10 @@ import os
 import re
 from typing import Any, Dict, List
 
+import numpy as np
 import pytest
 
-from predicators import utils
+from predicators import observation_noise, utils
 from predicators.agent_sdk.belief_probe import BeliefProbe
 from predicators.agent_sdk.play_prompts import build_model_contract, \
     build_play_query, build_play_system_prompt, render_data_status
@@ -23,6 +24,7 @@ from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun, ProtocolSession, RunEnded
 from predicators.run.episode import EpisodeState
 from predicators.settings import CFG
+from predicators.structs import Action
 
 
 class _Driver:
@@ -566,3 +568,59 @@ def test_observation_noise_in_the_prompts_and_the_frame(tmp_path: Any) -> None:
     driver.body = body2
     ContinualRun(env, approach, driver).run()
     assert seen["ok2"]
+
+
+def test_belief_lines_in_the_frame(tmp_path: Any, monkeypatch: Any) -> None:
+    """Under the belief the frame text shows each object's smoothed features
+    with their spread and the frames averaged, growing while objects rest."""
+    monkeypatch.setattr(observation_noise, "POSITION_FEATURES",
+                        frozenset({"pose"}))
+    env, approach, ctx = _setup(tmp_path,
+                                continual_obs_noise_position=0.002,
+                                continual_belief_frame=True)
+    seen: Dict[str, Any] = {}
+    driver = _Driver()
+
+    def body(session: ProtocolSession) -> None:
+        obs = session.observe()
+        assert obs.belief is not None
+        text = format_observation(obs, ctx, with_state=True, render_path=None)
+        assert "[belief] each object smoothed" in text
+        assert "(1 frame)" in text
+        zero = Action(np.zeros(env.action_space.shape, dtype=np.float32))
+        session.step(zero)
+        session.step(zero)
+        text3 = format_observation(session.observe(),
+                                   ctx,
+                                   with_state=True,
+                                   render_path=None)
+        assert "(3 frames)" in text3
+        assert "+-" in text3
+        # Without the state block the belief lines stay out of the way.
+        brief = format_observation(session.observe(),
+                                   ctx,
+                                   with_state=False,
+                                   render_path=None)
+        assert "[belief]" not in brief
+        seen["ok"] = True
+        session.end_run("done")
+
+    driver.body = body
+    ContinualRun(env, approach, driver).run()
+    assert seen["ok"]
+    # Off: no belief on the observation and nothing in the text.
+    env, approach, ctx = _setup(tmp_path,
+                                continual_obs_noise_position=0.002,
+                                continual_belief_frame=False)
+
+    def body_off(session: ProtocolSession) -> None:
+        obs = session.observe()
+        assert obs.belief is None
+        text = format_observation(obs, ctx, with_state=True, render_path=None)
+        assert "[belief]" not in text
+        seen["off"] = True
+        session.end_run("done")
+
+    driver.body = body_off
+    ContinualRun(env, approach, driver).run()
+    assert seen["off"]

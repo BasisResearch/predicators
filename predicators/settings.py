@@ -132,6 +132,26 @@ class GlobalSettings:
     # where the agent has to find the noise itself and the harness's
     # model tools know nothing about it either.
     continual_obs_noise_declared = True
+    # The execution-time belief (docs/continual-uncertainty.md, sections
+    # 3.3 and 3.6; predicators/observation_belief.py). Under a declared
+    # channel the observation carries, beside the raw frame, the
+    # smoothed frame: per object, the mean of its noisy features over
+    # the frames it has rested through (up to continual_belief_window,
+    # rest judged at continual_belief_sigmas standard errors, like the
+    # fit-side filter), with the spread sigma / sqrt(frames). The atoms
+    # the agent is unsure about are listed with the fraction of
+    # continual_belief_draws draws of the belief on which they hold; an
+    # invocation's expected outcome is checked by the same fraction (an
+    # atom is missing when it holds on fewer than half the draws), so one
+    # noisy frame never aborts a healthy plan; and sim.run(plan,
+    # belief_draws=K) rolls a plan from K draws of the belief, which
+    # certifies a placement over where its target may really be. Off,
+    # or an exact channel: the raw frame, the hard atom check and no
+    # belief draws.
+    continual_belief_frame = False
+    continual_belief_window = 8
+    continual_belief_sigmas = 3.0
+    continual_belief_draws = 16
     # Slack (in reward units) below a task's ``early_stop_min_reward`` bar
     # that still counts as solved for early stopping. Only tasks that set
     # ``EnvironmentTask.early_stop_min_reward`` are affected (e.g. domino

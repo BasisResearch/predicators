@@ -903,6 +903,7 @@ def test_exact_observation_view_is_the_sanitized_state(tmp_path: Any) -> None:
     class _Probe:
 
         def play_level(self, session: ProtocolSession) -> None:
+            """Level 0: compare the frame with the truth, then win."""
             if session.level_index > 0:
                 OracleController(approach).play_level(session)
                 return
@@ -925,3 +926,71 @@ def test_exact_observation_view_is_the_sanitized_state(tmp_path: Any) -> None:
     run = ContinualRun(env, approach, _Probe())
     card = run.run()
     assert card.end_reason == "all_levels_won"
+
+
+def test_belief_frame_smooths_resting_objects(tmp_path: Any,
+                                              monkeypatch: Any) -> None:
+    """Under the belief the observation carries, beside the raw frame, each
+    resting object's mean over the frames it rested through with the spread
+    sigma / sqrt(frames), capped by the window; the truth view carries none;
+    invocations record the belief's spread and the atom fractions."""
+    monkeypatch.setattr(observation_noise, "POSITION_FEATURES",
+                        frozenset({"pose"}))
+    _config(tmp_path,
+            "oracle",
+            num_test_tasks=1,
+            continual_obs_noise_position=0.002,
+            continual_belief_frame=True,
+            continual_belief_window=4)
+    env, approach = _make("oracle")
+    seen: Dict[str, Any] = {}
+
+    class _Probe:
+
+        def play_level(self, session: ProtocolSession) -> None:
+            """Level 0: rest a few steps, read the belief, then win."""
+            if session.level_index > 0:
+                OracleController(approach).play_level(session)
+                return
+            obs = session.observe()
+            assert obs.belief is not None
+            blocks = [o for o in obs.frame if o.type.name == "block"]
+            assert all(obs.belief.frames_used[b.name] == 1 for b in blocks)
+            assert session.observe_truth().belief is None
+            truth0 = session.observe_truth().frame
+            zero = Action(np.zeros(env.action_space.shape, dtype=np.float32))
+            frames = [obs.frame]
+            for _ in range(5):
+                session.step(zero)
+                frames.append(session.observe().frame)
+            truth = session.observe_truth().frame
+            still = [
+                b for b in blocks
+                if truth.get(b, "pose") == truth0.get(b, "pose")
+            ]
+            assert still, "a zero action leaves some block where it was"
+            belief = session.observe().belief
+            assert belief is not None
+            b = still[0]
+            assert belief.frames_used[b.name] == 4
+            assert belief.spread[(b.name, "pose")] == pytest.approx(0.001)
+            expect = float(np.mean([f.get(b, "pose") for f in frames[-4:]]))
+            assert belief.frame.get(b, "pose") == pytest.approx(expect)
+            # The smoothed estimate sits closer to the truth than a single
+            # frame does on average; here just check it is a mean of the
+            # frames, not one of them.
+            assert belief.frame.get(
+                b, "pose") not in [f.get(b, "pose") for f in frames]
+            OracleController(approach).play_level(session)
+            invokes = [
+                e for e in session.index_entries() if e["event"] == "invoke"
+            ]
+            assert invokes
+            assert all("atom_fractions" in e for e in invokes)
+            assert all(e["belief_spread"] is not None for e in invokes)
+            seen["ok"] = True
+
+    run = ContinualRun(env, approach, _Probe())
+    card = run.run()
+    assert card.end_reason == "all_levels_won"
+    assert seen["ok"]

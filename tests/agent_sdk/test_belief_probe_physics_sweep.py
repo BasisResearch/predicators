@@ -18,6 +18,8 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.agent_sdk.belief_probe import BeliefProbe, ProbeBudgetExceeded
 from predicators.agent_sdk.tools import ToolContext
+from predicators.observation_belief import smooth_frames
+from predicators.observation_noise import ObservationNoise
 from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
     Object, ParameterizedOption, Predicate, State, Task, Type
 
@@ -284,3 +286,40 @@ def test_trials_report_inexact_start_reconstruction():
     assert "2/2 trials started from an inexactly reconstructed state" \
         in res.text
     assert "block0.x" in res.text
+
+
+def test_belief_draws_roll_the_plan_from_plausible_starts():
+    """belief_draws=K rolls the plan from K draws of where the objects may be;
+    without a declared channel, or mixed with another mode, it refuses."""
+    utils.reset_config({
+        "continual_obs_noise_position": 0.01,
+        "continual_obs_noise_declared": True,
+    })
+    ctx, _, scope_overrides = _make_ctx([])
+    sim = BeliefProbe(ctx)
+    sim.reset()
+    res = sim.run("Move(block0:block)[0.95]", render=False, belief_draws=4)
+    assert res.successes == 4 and len(res.draws) == 4
+    assert not res.from_belief
+    assert all(d["max_shift"] > 0.0 for d in res.draws)
+    assert "Belief draws: 4/4 start states reached the goal" in res.text
+    assert "the current state with the declared sigma" in res.text
+    assert scope_overrides == [None] * 4
+    assert sim._require_state().get(_block, "x") == 0.0
+    # With the observation's belief in hand the draws come from it.
+    state = sim._require_state()
+    ctx.current_observation = state
+    ctx.current_belief = smooth_frames([state] * 4,
+                                       ObservationNoise(position=0.01), 8, 3.0)
+    res2 = sim.run("Move(block0:block)[0.95]", render=False, belief_draws=3)
+    assert res2.from_belief and res2.successes == 3
+    assert all(d["max_shift"] < 0.03 for d in res2.draws)
+    with pytest.raises(ValueError, match="its own mode"):
+        sim.run("Move(block0:block)[0.95]",
+                render=False,
+                belief_draws=2,
+                trials=2)
+    utils.reset_config({"continual_obs_noise_position": 0.0})
+    with pytest.raises(ValueError, match="declared observation-noise"):
+        sim.run("Move(block0:block)[0.95]", render=False, belief_draws=2)
+    utils.reset_config({})

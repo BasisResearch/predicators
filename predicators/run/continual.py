@@ -26,6 +26,8 @@ from predicators import utils
 from predicators.approaches import ApproachFailure, ApproachTimeout, \
     BaseApproach
 from predicators.envs import BaseEnv
+from predicators.observation_belief import BeliefFrame, atom_fractions, \
+    likely_atoms, smooth_frames
 from predicators.observation_noise import ObservationNoise, noise_or_none, \
     step_rng
 from predicators.run import paths
@@ -150,6 +152,9 @@ class ProtocolObservation:
     evaluation: Optional[EpisodeEvaluation]
     ledger: Ledger
     skills: List[ParameterizedOption]
+    # The execution-time belief beside the raw frame
+    # (continual_belief_frame); None when off, exact, or the truth.
+    belief: Optional[BeliefFrame] = None
 
 
 @dataclass(frozen=True)
@@ -161,6 +166,10 @@ class InvocationResult:
     render: Optional[str]
     # Atoms the caller expected to be absent that hold afterwards.
     present: Set[GroundAtom] = field(default_factory=set)
+    # Under the belief (continual_belief_frame): the fraction of belief
+    # draws on which each atom the caller named holds; missing/present
+    # are then the likelihood test's verdicts (below one half).
+    fractions: Dict[GroundAtom, float] = field(default_factory=dict)
 
     @property
     def diverged(self) -> bool:
@@ -434,6 +443,12 @@ class ContinualRun:
         # atoms and the data file all show the one draw of that step.
         self._noise = noise_or_none(ObservationNoise.from_cfg())
         self._observed_views: Dict[Tuple[int, int, int], State] = {}
+        # The execution-time belief (observation_belief.py) rides on a
+        # declared channel only: with exact observations the frame is
+        # the belief, and an undeclared channel is the agent's problem.
+        self._belief_on = (bool(CFG.continual_belief_frame)
+                           and self._noise is not None
+                           and self._noise.declared)
         self._run_id = utils.get_config_path_str()
         self._levels = build_levels(env, self._arm)
         if skills is None:
@@ -557,6 +572,29 @@ class ContinualRun:
 
     # -- Session operations ---------------------------------------------
 
+    def belief(self) -> Optional[BeliefFrame]:
+        """The execution-time belief over the current frame: the observed views
+        of the episode so far, smoothed per object over the frames it rested
+        through (:func:`observation_belief.smooth_frames`).
+
+        None when the belief is off (``continual_belief_frame``), the
+        channel is exact or undeclared, or no episode is open.
+        """
+        if not self._belief_on or not self._level_episodes:
+            return None
+        assert self._noise is not None
+        _, lv = self._require_level()
+        episode = self._level_episodes[-1]
+        window = max(int(CFG.continual_belief_window), 1)
+        states = episode["states"][-window:]
+        offset = len(episode["states"]) - len(states)
+        frames = [
+            self._observed(s, lv.index, episode["episode"], offset + k)
+            for k, s in enumerate(states)
+        ]
+        return smooth_frames(frames, self._noise, window,
+                             float(CFG.continual_belief_sigmas))
+
     def observation(self, *, truth: bool = False) -> ProtocolObservation:
         """The protocol observation of the current level.
 
@@ -582,6 +620,7 @@ class ContinualRun:
             evaluation=evaluation,
             ledger=self.ledger(),
             skills=self.skills,
+            belief=None if truth else self.belief(),
         )
 
     def ledger(self) -> Ledger:
@@ -704,6 +743,23 @@ class ContinualRun:
                            self._episode_index(), runner.num_steps))
         missing = set(expected) - atoms_after
         present = set(expected_absent or set()) & atoms_after
+        fractions: Dict[GroundAtom, float] = {}
+        belief = self.belief()
+        if belief is not None and (expected or expected_absent):
+            # The likelihood test: an expected atom is missing when it
+            # holds on fewer than half the draws of the belief, so a
+            # frame's own noise never reads as a divergence.
+            fractions = atom_fractions(
+                belief, self._predicates, int(CFG.continual_belief_draws),
+                step_rng(CFG.seed, lv.index, self._episode_index(),
+                         runner.num_steps, (1, )))
+            likely = likely_atoms(fractions)
+            missing = set(expected) - likely
+            present = set(expected_absent or set()) & likely
+            fractions = {
+                a: fractions.get(a, 0.0)
+                for a in set(expected) | set(expected_absent or set())
+            }
         if missing or present:
             lv.divergences += 1
         render = self.render(f"ep{self._episode_index():03d}_s{lv.steps:06d}_"
@@ -750,6 +806,10 @@ class ContinualRun:
             note,
             "render":
             render,
+            "atom_fractions": {str(a): f
+                               for a, f in fractions.items()},
+            "belief_spread":
+            belief.max_spread() if belief is not None else None,
         })
         if self._pending_terminal is not None:
             self._index(self._pending_terminal)
@@ -757,7 +817,7 @@ class ContinualRun:
         self._flush()
         self._check_caps()
         return InvocationResult(outcome, set(expected), missing, render,
-                                present)
+                                present, fractions)
 
     def run_policy(self, policy: Callable[[State], Action],
                    note: str) -> PolicyRunOutcome:
@@ -857,7 +917,15 @@ class ContinualRun:
             note,
             "render":
             render,
+            "atom_fractions": {},
+            "belief_spread":
+            self._belief_spread(),
         })
+
+    def _belief_spread(self) -> Optional[float]:
+        """The current belief's largest standard error, None without one."""
+        belief = self.belief()
+        return None if belief is None else belief.max_spread()
 
     def record_sandbox(self, key: str, delta: float) -> None:
         """Accumulate a sandbox-usage counter on the current level and write
