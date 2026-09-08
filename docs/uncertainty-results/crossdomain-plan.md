@@ -86,3 +86,13 @@ The additional boil jobs remain held and are outside this launch.
 
 Config: [noisy comparison](../../scripts/configs/predicatorv3/protocol_continual_uncertainty_crossdomain.yaml).
 Validation logs and the launch manifest live under `logs/uncertainty_crossdomain_20260908/` in the shared checkout.
+
+## Automatic performance table
+
+Collection job `22323724` is queued on `mit_preemptable` after all nine noisy arrays terminate.
+It reads only the 18 active noisy runs from a saved copy of the launch manifest and writes [the performance table](crossdomain-table.md), [TSV](crossdomain-summary.tsv) and [source snapshot](crossdomain-snapshot.json).
+The initial table contains pending rows; the collection job replaces it after the sweep ends.
+An incomplete or missing scorecard leaves that arm's averages pending and makes the collection job fail explicitly, so a crashed seed cannot silently disappear from the denominator.
+The generator follows the successful-seed step definition above and reports per-seed outcomes and source paths.
+Its frozen copy, manifest and job receipt are in `logs/uncertainty_crossdomain_20260908/` with the `performance-table` prefix.
+Regenerate the saved table with `python docs/uncertainty-results/make_crossdomain_table.py`; add `--refresh --require-finished` to collect final scorecards again.
