@@ -1,10 +1,14 @@
-# Boil under reading noise (docs/continual-uncertainty.md, sections 3.1
-# and 7, build-order step 7): sigma 0.15 on bubbling_level,
+# Boil under pose noise and reading noise together (docs/continual-
+# uncertainty.md, sections 3.1 and 7, build-order step 7): position
+# sigma 1.25 cm and orientation sigma 0.05 rad, the quarter-tolerance
+# pose point of the earlier sweep, plus sigma 0.15 on bubbling_level,
 # water_volume and spilled_level, additive and unclipped, against the
-# bubbling ramp step of 0.15 and the 0.07 boil margin; pose noise off, so
-# reading noise is its own axis. Both arms, seeds 0 and 1, every
-# uncertainty feature of steps 3 to 7 on for the model-based arm and the
-# belief frame on for the model-free arm (the ablation configs flip them).
+# bubbling ramp step of 0.15 and the 0.07 boil margin. Both arms, seeds 0
+# and 1; every uncertainty feature of steps 3 to 7 on for the model-based
+# arm, the model-free arm as it always has been (the ablation configs
+# flip them). Compare against the 1.25 cm pose-only point (model-based
+# 2/2 in 701 and 1171 steps, model-free 2/2 in 1525 and 5409 with 18
+# resets).
 ---
 START_SEED: 0
 NUM_SEEDS: 2
@@ -24,8 +28,8 @@ FLAGS:
   test_fresh_env_per_episode: True
   continual_runs_dir: "/home/ycliang/predicators/logs"
   log: "/home/ycliang/predicators/logs/"
-  continual_obs_noise_position: 0.0
-  continual_obs_noise_orientation: 0.0
+  continual_obs_noise_position: 0.0125
+  continual_obs_noise_orientation: 0.05
   continual_obs_noise_scalar: 0.15
   continual_obs_noise_declared: True
 ENVS:
@@ -38,7 +42,7 @@ ENVS:
 APPROACHES:
   oracle:
     SKIP: True
-  agent_continual_noise_reading15:
+  agent_continual_noise_p12_r15:
     NAME: "agent_continual"
     SKIP: False
     FLAGS:
@@ -59,7 +63,7 @@ APPROACHES:
       code_sim_learning_carry_posterior: True
       code_sim_learning_fit_evidence: True
       continual_belief_frame: True
-  agent_continual_model_free_noise_reading15:
+  agent_continual_model_free_noise_p12_r15:
     NAME: "agent_continual_model_free"
     SKIP: False
     FLAGS:
