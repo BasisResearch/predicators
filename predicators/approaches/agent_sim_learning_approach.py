@@ -3180,7 +3180,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
         def evaluate_trajectory(states: Sequence[State],
                                 actions: Optional[Sequence[Any]] = None,
-                                task_idx: int = 0) -> Dict[str, Any]:
+                                task_idx: int = 0,
+                                physics_sweep: bool = False) -> Dict[str, Any]:
             """Score ``states`` with the task's reward model.
 
             ``states``: the sequence, ``states[t]`` before action ``t``.
@@ -3195,6 +3196,16 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             substrate ("" when nothing was replayed). On a rollout of
             your simulator, or a sequence you assembled, the substrate
             is your belief simulator at its current fit.
+
+            ``physics_sweep=True`` also scores the sequence at every
+            point of the identified physical parameters' belief
+            interval (the same grid ``sim.run(physics_sweep=True)`` and
+            the capture gate use), each on a fresh env at that physics,
+            and adds ``sweep``: the per-point verdicts and the fraction
+            scored solved. A verdict that replays physics can flip
+            across the interval; a sequence is certified only when it
+            is scored a solve at every point. ``sweep`` is None with a
+            note when no identified parameter carries a width.
             """
             if not 0 <= task_idx < len(tasks):
                 raise ValueError(f"task_idx {task_idx} out of range "
@@ -3218,13 +3229,56 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                                            sim_env=getattr(
                                                self._option_model, "sim_env",
                                                None))
-            return {
+            result = {
                 "reward": verdict["reward"],
                 "solved": verdict["solved"],
                 "note": verdict.get("note", ""),
             }
+            if physics_sweep:
+                result["sweep"] = self._sweep_evaluation(
+                    evaluator, list(states), step_options)
+            return result
 
         return evaluate_trajectory
+
+    def _sweep_evaluation(self, evaluator: Any, states: List[State],
+                          step_options: Optional[Sequence[Any]]) -> Any:
+        """``evaluate_trajectory``'s ``physics_sweep``: the verdict at every
+        physics-margin point on a fresh env at that physics, and the fraction
+        scored solved; None with a note when there is nothing to sweep."""
+        points = list(self._identified_physical_sigma_points)
+        if not points:
+            return None
+        per_point: List[Dict[str, Any]] = []
+        for point in points:
+            with self._fresh_validation_env_scope(physical_overrides=point):
+                try:
+                    verdict = evaluate_states_with(evaluator,
+                                                   states,
+                                                   step_options,
+                                                   sim_env=getattr(
+                                                       self._option_model,
+                                                       "sim_env", None))
+                    entry = {
+                        "params": dict(point),
+                        "solved": bool(verdict["solved"]),
+                        "reward": float(verdict["reward"]),
+                        "note": str(verdict.get("note") or ""),
+                    }
+                except Exception as e:  # pylint: disable=broad-except
+                    entry = {
+                        "params": dict(point),
+                        "solved": None,
+                        "reward": None,
+                        "note": f"verdict failed: {e}",
+                    }
+            per_point.append(entry)
+        solved = sum(1 for p in per_point if p["solved"])
+        return {
+            "points": per_point,
+            "solved_fraction": solved / len(per_point),
+            "certified": solved == len(per_point),
+        }
 
     @staticmethod
     def _format_trajectory_listing(

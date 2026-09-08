@@ -404,6 +404,45 @@ class ProbeBeliefResult(_StrLikeResult):
 
 
 @dataclasses.dataclass(repr=False)
+class ProbeBeliefState(_StrLikeResult):
+    """Outcome of ``BeliefProbe.belief()``: the execution-time belief at the
+    probe's current state.
+
+    ``objects`` holds one line per object with noisy features (value and
+    spread per feature, frames averaged); ``fractions`` maps each atom
+    of the session's predicates that holds on any belief draw to the
+    fraction of draws it holds on; ``from_observation`` says whether the
+    belief is the one the last real observation showed (the probe still
+    sits on it) or the current state with the declared sigma.
+    """
+    objects: List[str]
+    fractions: Dict[str, float]
+    from_observation: bool
+    num_draws: int
+
+    def __repr__(self) -> str:
+        source = ("the last real observation's belief"
+                  if self.from_observation else
+                  "the current state with the declared sigma on every noisy "
+                  "feature")
+        lines = [
+            f"Belief at the current state (from {source}; atoms scored on "
+            f"{self.num_draws} draws):"
+        ]
+        lines.extend(f"  {line}" for line in self.objects)
+        unsure = sorted((a for a, f in self.fractions.items() if 0 < f < 1),
+                        key=lambda a: (abs(self.fractions[a] - 0.5), a))
+        sure = sorted(a for a, f in self.fractions.items() if f >= 1)
+        if unsure:
+            lines.append("  unsure atoms (fraction of draws): " +
+                         ", ".join(f"{a} {self.fractions[a]:.2f}"
+                                   for a in unsure))
+        lines.append("  atoms holding on every draw: " +
+                     (", ".join(sure) if sure else "(none)"))
+        return "\n".join(lines)
+
+
+@dataclasses.dataclass(repr=False)
 class ProbeSweepResult(_StrLikeResult):
     """Outcome of one ``BeliefProbe.run(..., physics_sweep=True)`` call.
 
@@ -1079,6 +1118,61 @@ class BeliefProbe:
         return saved
 
     # ── Execution ────────────────────────────────────────────────
+
+    def belief(self, draws: Optional[int] = None) -> ProbeBeliefState:
+        """The execution-time belief at the probe's current state: each
+        object's smoothed features with their spread, and the fraction of
+        belief draws on which each atom of the session's predicates holds.
+
+        The belief is the one the last real observation showed when the
+        probe still sits on that observation, else the current state
+        with the declared sigma on every noisy feature (one frame's
+        worth of uncertainty). ``draws`` defaults to the run's
+        ``continual_belief_draws``. Needs a declared observation-noise
+        channel.
+        """
+        # pylint: disable=import-outside-toplevel
+        import numpy as np
+
+        from predicators.observation_belief import BeliefFrame, \
+            atom_fractions, smooth_frames
+        from predicators.observation_noise import ObservationNoise
+        from predicators.settings import CFG
+
+        # pylint: enable=import-outside-toplevel
+        ctx = self._ctx
+        _check_time_budget(ctx)
+        noise = ObservationNoise.from_cfg()
+        if not (noise.enabled and noise.declared):
+            raise ValueError(
+                "sim.belief() needs a declared observation-noise channel: "
+                "without one the observation is exact and the belief is "
+                "the state itself.")
+        current = self._require_state()
+        shown = getattr(ctx, "current_belief", None)
+        from_observation = (isinstance(shown, BeliefFrame)
+                            and ctx.current_observation is not None
+                            and current.allclose(ctx.current_observation))
+        belief = shown if from_observation else smooth_frames(
+            [current], noise, 1, float(CFG.continual_belief_sigmas))
+        assert isinstance(belief, BeliefFrame)
+        num_draws = int(
+            draws if draws is not None else CFG.continual_belief_draws)
+        self._belief_draw_calls += 1
+        rng = np.random.default_rng(CFG.seed + 15485863 *
+                                    (self._instance_id + 1) +
+                                    self._belief_draw_calls)
+        fractions = atom_fractions(belief, set(ctx.predicates), num_draws, rng)
+        hidden = excluded_object_type_names()
+        objects = [
+            belief.object_line(obj)
+            for obj in sorted(belief.frame, key=lambda o: o.name)
+            if obj.name in belief.frames_used and obj.type.name not in hidden
+        ]
+        return ProbeBeliefState(objects,
+                                {str(a): f
+                                 for a, f in fractions.items()},
+                                from_observation, num_draws)
 
     def _run_belief_draws(self, probe_task: Task, grounded: List[Any],
                           sketch_steps: Any, all_predicates: Any,

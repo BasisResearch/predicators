@@ -323,3 +323,41 @@ def test_belief_draws_roll_the_plan_from_plausible_starts():
     with pytest.raises(ValueError, match="declared observation-noise"):
         sim.run("Move(block0:block)[0.95]", render=False, belief_draws=2)
     utils.reset_config({})
+
+
+def test_probe_belief_lists_the_unsure_atoms():
+    """sim.belief() scores the session's atoms on draws around the current
+    state (the declared sigma when the probe left the observation)."""
+    utils.reset_config({
+        "continual_obs_noise_position": 0.01,
+        "continual_obs_noise_declared": True,
+        "continual_belief_draws": 200,
+    })
+    ctx, _, _ = _make_ctx([])
+    sim = BeliefProbe(ctx)
+    sim.reset()
+    far = sim.belief()
+    assert not far.from_observation and far.num_draws == 200
+    assert not far.fractions
+    assert "atoms holding on every draw: (none)" in far.text
+    assert any(
+        line.startswith("block0: x 0.0000+-0.0100") for line in far.objects)
+    sim.run("Move(block0:block)[0.9]", render=False)
+    edge = sim.belief(draws=400)
+    frac = edge.fractions["ReachedHi(block0:block)"]
+    assert 0.3 < frac < 0.7
+    assert "unsure atoms (fraction of draws): ReachedHi(block0:block)" \
+        in edge.text
+    # On the observation itself the shown belief is used.
+    state = sim._require_state()
+    ctx.current_observation = state
+    ctx.current_belief = smooth_frames([state] * 16,
+                                       ObservationNoise(position=0.01), 16,
+                                       3.0)
+    shown = sim.belief(draws=100)
+    assert shown.from_observation
+    assert any("(16 frames)" in line for line in shown.objects)
+    utils.reset_config({"continual_obs_noise_position": 0.0})
+    with pytest.raises(ValueError, match="declared observation-noise"):
+        sim.belief()
+    utils.reset_config({})

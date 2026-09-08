@@ -181,7 +181,14 @@ On a rollout of your simulator, or a sequence you assemble by hand,
 the physics behind the verdict is your belief simulator at its current
 fit, not the environment: `sim.run(plan, solved=True)` is the
 straightforward way to ask it, and `result.states` of a `sim.run` is
-the sequence `evaluate_trajectory` scores. A rule that replays an
+the sequence `evaluate_trajectory` scores, and
+`evaluate_trajectory(states, actions, physics_sweep=True)` scores it at
+every point of the identified parameters' belief interval, so a verdict
+that holds only at the fitted values shows up before you act on it.
+Under a declared observation noise, `sim.run(plan, belief_draws=K)`
+rolls a plan from K plausible poses of the objects and `sim.belief()`
+lists the current belief with the atoms it is unsure about. A rule that
+replays an
 action (the goal text says when one does) replays the action you label
 the transition with, `("Skill", ("obj", ...), (param, ...))` per
 transition with `None` for an unlabeled one, and a canonical action

@@ -342,6 +342,7 @@ def test_evaluate_trajectory_helper(approach_cls):
     assert verdict == {
         "reward": 0.0,  # bonus gated by the internal rejection
         "solved": False,
+        "note": "",
     }
     # Labels are (name, objects, params) triples since plan-capture
     # gating started matching on exact params.
@@ -355,6 +356,71 @@ def test_evaluate_trajectory_helper(approach_cls):
         fn(states, None, task_idx=2)
     with pytest.raises(ValueError, match="non-empty"):
         fn([], None, task_idx=0)
+
+
+def test_evaluate_trajectory_physics_sweep(approach_cls):
+    """physics_sweep=True scores the sequence at every physics-margin point
+    on a fresh env at that physics and reports the fraction scored solved;
+    with no points to sweep it says so."""
+    import contextlib
+    import functools
+    from types import SimpleNamespace
+
+    from predicators.structs import TaskEvaluator
+
+    physics = {"friction": 0.5}
+
+    class _FrictionEvaluator(TaskEvaluator):
+        """Certifies only when the (swept) friction is at least 0.5."""
+
+        def __init__(self):
+            super().__init__(set())
+
+        def _certify(self, states, step_options, sim_env=None):
+            return physics["friction"] >= 0.5, "friction"
+
+    cup_type = Type("cup_type", ["f"])
+    cup = cup_type("cup")
+    states = [State({cup: [0.0]}), State({cup: [1.0]})]
+    seen = []
+
+    @contextlib.contextmanager
+    def _scope(physical_overrides=None):
+        seen.append(dict(physical_overrides or {}))
+        prev = dict(physics)
+        physics.update(physical_overrides or {})
+        try:
+            yield
+        finally:
+            physics.clear()
+            physics.update(prev)
+
+    stub = SimpleNamespace(
+        _train_tasks=[Task(states[0], set(), evaluator=_FrictionEvaluator())],
+        _option_model=None,
+        _identified_physical_sigma_points=[{
+            "friction": 0.4
+        }, {
+            "friction": 0.5
+        }, {
+            "friction": 0.6
+        }],
+        _fresh_validation_env_scope=_scope)
+    stub._sweep_evaluation = functools.partial(approach_cls._sweep_evaluation,
+                                               stub)
+    fn = approach_cls._make_evaluate_trajectory_fn(stub)
+    plain = fn(states, None, task_idx=0)
+    assert "sweep" not in plain and plain["solved"] is True
+    swept = fn(states, None, task_idx=0, physics_sweep=True)
+    assert swept["solved"] is True
+    sweep = swept["sweep"]
+    assert [p["solved"] for p in sweep["points"]] == [False, True, True]
+    assert sweep["solved_fraction"] == pytest.approx(2 / 3)
+    assert sweep["certified"] is False
+    assert seen == [{"friction": 0.4}, {"friction": 0.5}, {"friction": 0.6}]
+    assert physics == {"friction": 0.5}  # the scope restored the physics
+    stub._identified_physical_sigma_points = []
+    assert fn(states, None, task_idx=0, physics_sweep=True)["sweep"] is None
 
 
 def test_format_objective_block(approach_cls):
