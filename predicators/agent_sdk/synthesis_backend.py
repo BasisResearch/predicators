@@ -112,6 +112,15 @@ class SynthesisBackend(Protocol):
             self, identified: Dict[str, float]) -> None:
         ...
 
+    def fit_prior_anchors(
+            self, physical_specs: Sequence[ParamSpec]) -> Dict[str, float]:
+        """The prior centres of a rollout fit: the registry anchors, or the
+        carried posterior's values under code_sim_learning_carry_posterior."""
+
+    def note_carried_posterior(self, applied: Dict[str, float],
+                               report: Dict[str, Dict[str, Any]]) -> None:
+        """Record a fit's deployed values as the next fit's prior centres."""
+
     def _record_sysid_diagnostics(self, report: Dict[str, Dict[str, Any]],
                                   physical_names: Sequence[str],
                                   num_survivors: int, num_segments: int,

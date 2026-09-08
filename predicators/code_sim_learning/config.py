@@ -79,6 +79,12 @@ class SysIdConfig:
     feature_scale_floor: float
     sensitivity_factor: float
     segment_min_rest_steps: int
+    # The fit-side filter (settings code_sim_learning_rollout_noise_*):
+    # sigma-relative windowed motion detection and denoised segment
+    # starts under a declared channel.
+    noise_filter: bool
+    noise_window: int
+    settle_sigmas: float
     scale_residuals: bool
     huber_delta: float
     summary_weight: float
@@ -129,6 +135,9 @@ class SysIdConfig:
                 CFG.code_sim_learning_rollout_sensitivity_factor),
             segment_min_rest_steps=(
                 CFG.code_sim_learning_rollout_segment_min_rest_steps),
+            noise_filter=CFG.code_sim_learning_rollout_noise_filter,
+            noise_window=CFG.code_sim_learning_rollout_noise_window,
+            settle_sigmas=CFG.code_sim_learning_rollout_settle_sigmas,
             scale_residuals=CFG.code_sim_learning_rollout_scale_residuals,
             huber_delta=CFG.code_sim_learning_rollout_huber_delta,
             summary_weight=CFG.code_sim_learning_rollout_summary_weight,

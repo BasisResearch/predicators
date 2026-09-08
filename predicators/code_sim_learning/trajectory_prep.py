@@ -18,14 +18,140 @@ import numpy as np
 from predicators.code_sim_learning.config import DEFAULT_NOISE_SIGMA, \
     SysIdConfig
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory
+from predicators.observation_noise import ObservationNoise
 from predicators.structs import Action, State, Type
 
 logger = logging.getLogger(__name__)
 
 
-def _active_step_indices(states: List[State], actions: List[Action],
+def _filter_params(
+        config: SysIdConfig) -> Tuple[Optional[ObservationNoise], int, float]:
+    """The fit-side filter's ``(noise, window, sigmas)``: the declared channel
+    with its detection window and threshold when the filter is on and a channel
+    is declared, else ``(None, 1, 0.0)`` (the per-step detector, the observed
+    first frame)."""
+    noise = config.observation_noise
+    if not config.noise_filter or noise is None:
+        return None, 1, 0.0
+    return noise, max(int(config.noise_window), 1), float(config.settle_sigmas)
+
+
+def _wrap_angle(delta: float) -> float:
+    """``delta`` wrapped to [-pi, pi]."""
+    return float((delta + np.pi) % (2.0 * np.pi) - np.pi)
+
+
+def _circular_mean(values: np.ndarray) -> float:
+    """The mean direction of angles in radians (robust to the +-pi seam)."""
+    return float(np.arctan2(np.mean(np.sin(values)), np.mean(np.cos(values))))
+
+
+def _mean_delta(after: np.ndarray, before: np.ndarray, angular: bool) -> float:
+    """The displacement between two frame windows' means, wrapped for an
+    angular feature; nan when either window is empty."""
+    if after.size == 0 or before.size == 0:
+        return float("nan")
+    if angular:
+        return _wrap_angle(_circular_mean(after) - _circular_mean(before))
+    return float(after.mean() - before.mean())
+
+
+def _windowed_active_steps(states: List[State], actions: List[Action],
+                           residual_features: Dict[str, List[str]],
+                           motion_tol: float, noise: ObservationNoise,
+                           window: int, sigmas: float) -> List[int]:
+    """The sigma-relative detector behind :func:`_active_step_indices`.
+
+    Under a declared channel the per-step delta of a noisy feature is
+    mostly noise (its standard deviation is ``sqrt(2) * sigma_f``), so
+    the detector compares the mean of the ``window`` frames after step
+    ``i`` with the mean of the ``window`` frames up to and including it:
+    the difference has standard error ``sigma_f * sqrt(2 / window)`` at
+    rest, and a step is active when it exceeds ``sigmas`` of those
+    (floored at ``motion_tol``). Exact features keep the per-step test.
+    Windows are truncated at the trajectory's ends. Objects are matched
+    by name across frames; an object missing from a frame contributes
+    nothing there.
+    """
+    num_steps = len(actions)
+    if num_steps == 0:
+        return []
+    by_name = [{o.name: o for o in s} for s in states]
+    tracked: List[Tuple[np.ndarray, bool, float, bool]] = []
+    for obj in states[0]:
+        feats = residual_features.get(obj.type.name, [])
+        if not feats:
+            continue
+        angular = set(getattr(obj.type, "angular_features", ()))
+        for feat in feats:
+            series = np.array([
+                float(s.get(m[obj.name], feat)) if obj.name in m else np.nan
+                for s, m in zip(states, by_name)
+            ])
+            sigma = noise.feature_sigma(obj.type, feat)
+            noisy = sigma > 0.0
+            tol = (max(motion_tol, sigmas * sigma *
+                       np.sqrt(2.0 / window)) if noisy else motion_tol)
+            tracked.append((series, feat in angular, tol, noisy))
+    active: List[int] = []
+    for i in range(num_steps):
+        for series, is_angular, tol, noisy in tracked:
+            if noisy:
+                before = series[max(0, i - window + 1):i + 1]
+                after = series[i + 1:i + 1 + window]
+                delta = _mean_delta(after[np.isfinite(after)],
+                                    before[np.isfinite(before)], is_angular)
+            else:
+                delta = series[i + 1] - series[i]
+                if is_angular:
+                    delta = _wrap_angle(delta)
+            if np.isfinite(delta) and abs(delta) > tol:
+                active.append(i)
+                break
+    return active
+
+
+def _rest_mean_state(states: List[State], index: int, window: int,
+                     noise: ObservationNoise) -> State:
+    """A copy of ``states[index]`` whose noisy features are the mean over the
+    ``window`` frames ending at ``index`` (circular for angular features).
+
+    The rest pose the noise hides: a rest-anchored segment starts here,
+    so its rollout's initial condition carries ``sigma / sqrt(window)``
+    of noise instead of one frame's ``sigma``. Exact features and
+    objects absent from the earlier frames keep the frame's values.
+    """
+    start = states[index].copy()
+    lo = max(0, index - window + 1)
+    frames = states[lo:index + 1]
+    if len(frames) <= 1:
+        return start
+    by_name = [{o.name: o for o in s} for s in frames]
+    for obj in start:
+        angular = set(getattr(obj.type, "angular_features", ()))
+        for feat in obj.type.feature_names:
+            if noise.feature_sigma(obj.type, feat) <= 0.0:
+                continue
+            values = np.array([
+                float(s.get(m[obj.name], feat))
+                for s, m in zip(frames, by_name) if obj.name in m
+            ])
+            if values.size <= 1:
+                continue
+            start.set(
+                obj, feat,
+                _circular_mean(values)
+                if feat in angular else float(values.mean()))
+    return start
+
+
+def _active_step_indices(states: List[State],
+                         actions: List[Action],
                          residual_features: Dict[str, List[str]],
-                         motion_tol: float) -> List[int]:
+                         motion_tol: float,
+                         noise: Optional[ObservationNoise] = None,
+                         window: int = 1,
+                         sigmas: float = 0.0) -> List[int]:
     """Indices of steps where any scored feature moved more than
     ``motion_tol``.
 
@@ -33,7 +159,13 @@ def _active_step_indices(states: List[State], actions: List[Action],
     :func:`split_at_rest_points`: step ``i`` compares ``states[i]`` to
     ``states[i + 1]`` (objects matched by name) and counts as active as
     soon as one in-scope feature's per-step delta exceeds the tolerance.
+    With ``noise`` and a ``window`` above 1 (the fit-side filter, see
+    :func:`_filter_params`) noisy features are judged by
+    :func:`_windowed_active_steps` instead.
     """
+    if noise is not None and window > 1:
+        return _windowed_active_steps(states, actions, residual_features,
+                                      motion_tol, noise, window, sigmas)
     active: List[int] = []
     for i in range(len(actions)):
         s_prev, s_next = states[i], states[i + 1]
@@ -84,8 +216,9 @@ def truncate_settled_tail(
     if margin is None:
         margin = config.settle_margin
     states, actions = trajectory
+    noise, window, sigmas = _filter_params(config)
     active = _active_step_indices(states, actions, residual_features,
-                                  motion_tol)
+                                  motion_tol, noise, window, sigmas)
     last_active = active[-1] if active else -1
     if last_active < 0:
         logger.warning(
@@ -279,6 +412,11 @@ def split_at_rest_points(
     Trimming/consistency then operate per segment, so one chaotic phase
     (e.g. a scraping robot push) no longer discards the clean cascade
     recorded seconds later in the same episode.
+
+    Under the fit-side filter (:func:`_filter_params`) motion is
+    detected sigma-relatively and each segment's first frame is the
+    mean of its preceding rest window (:func:`_rest_mean_state`), the
+    errors-in-variables correction for the rollout's initial condition.
     """
     config = config or SysIdConfig.from_cfg()
     if motion_tol is None:
@@ -289,8 +427,9 @@ def split_at_rest_points(
         margin = config.settle_margin
     states, actions = trajectory
     num_steps = len(actions)
+    noise, window, sigmas = _filter_params(config)
     active = _active_step_indices(states, actions, residual_features,
-                                  motion_tol)
+                                  motion_tol, noise, window, sigmas)
     if not active:
         return []
     runs: List[Tuple[int, int]] = []
@@ -305,5 +444,9 @@ def split_at_rest_points(
     segments: List[RolloutTrajectory] = []
     for a, b in runs:
         end = min(num_steps, b + 1 + margin)
-        segments.append((states[a:end + 1], actions[a:end]))
+        seg_states = states[a:end + 1]
+        if noise is not None and window > 1:
+            seg_states = [_rest_mean_state(states, a, window, noise)
+                          ] + seg_states[1:]
+        segments.append((seg_states, actions[a:end]))
     return segments

@@ -2511,6 +2511,39 @@ class GlobalSettings:
     # Consecutive settled steps (per settle_tol) required for a rest
     # point to become a segment boundary.
     code_sim_learning_rollout_segment_min_rest_steps = 10
+    # The fit-side filter (docs/continual-uncertainty.md, section 3.3,
+    # the errors-in-variables fallback): under a declared
+    # observation-noise channel the settled-tail truncation and the
+    # rest-point segmentation detect motion sigma-relatively. A step is
+    # active when the mean of the next noise_window frames differs from
+    # the mean of the previous noise_window frames by more than
+    # settle_sigmas standard errors of that difference
+    # (sigma_f * sqrt(2 / window)), floored at settle_tol, instead of
+    # the per-step delta, which under a centimetre of noise flags every
+    # step (1 cm noise against a 1 mm tolerance) so no rest point is
+    # ever found and no tail is ever cut. Each rest-anchored segment
+    # then starts from the mean of its preceding rest window: the
+    # rollout's initial condition is the denoised rest pose (noise
+    # sigma / sqrt(window)) rather than one noisy frame, which is what
+    # an initial-condition latent under the declared sigma resolves to
+    # while the objects are at rest, without extra fit parameters. Off,
+    # or an exact channel, keeps the per-step detector and the observed
+    # first frame.
+    code_sim_learning_rollout_noise_filter = False
+    code_sim_learning_rollout_noise_window = 8
+    code_sim_learning_rollout_settle_sigmas = 3.0
+    # Carried posterior (section 3.3): the most likely value of every
+    # physical parameter the last applied fit deployed becomes the prior
+    # centre (the anchor) of the next fit - the value data-flat
+    # directions stay at, the grid sweep's anchor-nearest choice, the
+    # anchor ablation's baseline and the fallback for an uninformative
+    # parameter - so a level's fit starts where the last one ended
+    # instead of at the env registry's default (domino at 2 cm noise:
+    # friction stayed at the 0.1 registry anchor for the whole run).
+    # The width is not carried: the fit pools every level's data, so a
+    # carried width would count the earlier levels twice. Off keeps the
+    # registry anchor for every fit.
+    code_sim_learning_carry_posterior = False
     # Pre-fit sensitivity screen: a physical param whose SSE span over
     # its own grid sweep does not exceed factor * the same-theta SSE
     # noise floor is "insensitive" on this data - the rollouts do not

@@ -354,6 +354,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # _get_rollout_fit_env), never touching the planning base env.
         self._physical_param_specs: List[ParamSpec] = []
         self._identified_physical_params: Dict[str, float] = {}
+        # The carried posterior (code_sim_learning_carry_posterior): the
+        # most likely value of every physical param the last applied fit
+        # deployed, the prior centre of the next fit.
+        self._carried_physical_prior: Dict[str, float] = {}
         # +-1-posterior-sigma perturbations of the applied params (the
         # capture gate's physics-margin points). Set only by the joint
         # rollout fit, which has the identifiability report; cleared by
@@ -759,6 +763,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             list(self._param_ensemble),
             "identified_physical_params":
             dict(self._identified_physical_params),
+            "carried_physical_prior":
+            dict(self._carried_physical_prior),
             "identified_physical_sigma_points":
             list(self._identified_physical_sigma_points),
             "sysid_fit_history":
@@ -802,6 +808,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         self._param_ensemble = list(save_dict.get("param_ensemble") or [])
         self._identified_physical_params = dict(
             save_dict.get("identified_physical_params") or {})
+        self._carried_physical_prior = dict(
+            save_dict.get("carried_physical_prior") or {})
         self._sysid_fit_history = dict(
             save_dict.get("sysid_fit_history") or {})
         self._residual_features = dict(
@@ -2360,6 +2368,44 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                     {k: f"{v:.4f}"
                      for k, v in identified.items()})
 
+    def fit_prior_anchors(
+            self, physical_specs: Sequence[ParamSpec]) -> Dict[str, float]:
+        """The prior centres of a rollout fit: the env-registry anchors, or
+        under ``code_sim_learning_carry_posterior`` the carried posterior's
+        most likely values where one exists (see the flag in settings).
+
+        Shared by the harness fit and the ``sim.fit`` tool, so both fits
+        start from the same belief.
+        """
+        anchors = physical_param_anchors(self._base_env, physical_specs)
+        if not CFG.code_sim_learning_carry_posterior:
+            return anchors
+        carried = {
+            s.name: self._carried_physical_prior[s.name]
+            for s in physical_specs if s.name in self._carried_physical_prior
+        }
+        if carried:
+            logger.info(
+                "Rollout sysID: prior centres carried from the last applied "
+                "fit: %s (registry anchors for the rest).",
+                {k: f"{v:.4f}"
+                 for k, v in carried.items()})
+        anchors.update(carried)
+        return anchors
+
+    def note_carried_posterior(self, applied: Dict[str, float],
+                               report: Dict[str, Dict[str, Any]]) -> None:
+        """Record the values a fit just deployed as the next fit's prior
+        centres (``code_sim_learning_carry_posterior``): only params whose
+        verdict applied the fitted value, so an anchor fallback is never
+        carried as a belief."""
+        if not CFG.code_sim_learning_carry_posterior:
+            return
+        for name, value in applied.items():
+            verdict = report.get(name, {}).get("verdict")
+            if verdict is not None and verdict.applies_fitted:
+                self._carried_physical_prior[name] = float(value)
+
     def _fit_parameters_joint_rollout(
         self,
         rules: List,
@@ -2390,7 +2436,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             s.name: s.init_value
             for s in physical_specs + rule_specs
         }
-        anchors = physical_param_anchors(self._base_env, physical_specs)
+        anchors = self.fit_prior_anchors(physical_specs)
         if not rollouts:
             logger.warning(
                 "No complete trajectories for rollout sysID; keeping the "
@@ -2446,6 +2492,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                     format_identifiability(outcome.report))
         log_param_changes(init_params, outcome.fitted)
         self._apply_identified_physical_params(outcome.applied)
+        self.note_carried_posterior(outcome.applied, outcome.report)
         # Snapshot the cycle-level decision: this (not whatever the
         # agent's in-session sim.fit last applied) is what a future
         # INCONSISTENT verdict holds on to.

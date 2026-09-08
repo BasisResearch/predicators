@@ -271,8 +271,6 @@ def create_synthesis_tools(
     from predicators.code_sim_learning.orchestrator import run_rollout_sysid
     from predicators.code_sim_learning.physical_sysid import \
         DEFAULT_NOISE_SIGMA
-    from predicators.code_sim_learning.rollout_env import \
-        physical_param_anchors
     from predicators.code_sim_learning.rollout_objective import \
         compute_rollout_sse, per_trajectory_rms
     from predicators.code_sim_learning.trajectory_prep import \
@@ -438,9 +436,7 @@ def create_synthesis_tools(
             s.name: s.init_value
             for s in list(physical_specs) + list(rule_specs)
         }
-        anchors = physical_param_anchors(
-            approach._base_env,  # pylint: disable=protected-access
-            physical_specs)
+        anchors = approach.fit_prior_anchors(physical_specs)
         try:
             with suspend_budget_watchdog(CFG.agent_sdk_fit_call_timeout):
                 outcome = run_rollout_sysid(
@@ -524,6 +520,7 @@ def create_synthesis_tools(
         pre_sse, post_sse = outcome.pre_sse, outcome.post_sse
         if not exploratory:
             approach._apply_identified_physical_params(applied)  # pylint: disable=protected-access
+            approach.note_carried_posterior(applied, ident_report)
             # Deploy the rule params to the candidate probe (physical
             # params were applied to the planning base env above).
             rule_names = {s.name for s in rule_specs}
