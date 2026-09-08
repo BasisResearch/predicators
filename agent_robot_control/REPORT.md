@@ -160,6 +160,92 @@ Twice an agent reached for RL not for precision but because straight-line moves 
 failing outright, reasoning that the tool "acts via small incremental deltas rather than
 straight-line IK". On Airport that produced two stagnated calls and no progress.
 
+### Every reward the agents wrote
+
+Twelve rewards across the sweep, written from the tool description and the particle
+files with no examples to copy. They fall into five kinds, and the kind an agent chose
+predicted whether its reward could see success at all. Donut is absent because no donut
+run ever called the tool.
+
+| kind | what it measures | used in | reward successes | policy replay |
+|---|---|---|---|---|
+| pose tracker | end effector held at a fixed offset above the outlet centroid; never mentions the plug | plug hard, seed 0 (3 calls) | 16, 6, 7 | none |
+| dead reckoning | prong tip inferred from the EE pose plus measured grasp and tip offsets, socket centre hardcoded | plug hard, seed 1 (last call) | 11 | yes, the only one |
+| visible-geometry depth | lowest visible plug points against the outlet top face | plug medium, all 3 seeds; plug hard, seed 1 (2 calls) | 0 | none |
+| goal detector | any item centroid inside the table footprint, distance-shaped while outside | airport, seed 1 | 0 | none |
+| mechanism proxy | the pusher becoming visible, as a stand-in for a successful press | airport, seed 1 | 0 | none |
+
+Only the dead-reckoning reward produced a policy that reproduced success on replay, and
+it is the only reward that does not depend on seeing the prong. The agent measured the
+grasp offset and tip height once from particles, hardcoded the socket centre, then
+computed the tip from the end-effector pose, which stays observable after the prong
+disappears into the socket. Working around the occlusion was something one agent
+discovered on its own:
+
+```python
+def reward(particles, visible, ee_pos, ee_quat, gripper):
+    ee = np.asarray(ee_pos)
+    hole_xy = np.array([1.3477, 0.9495])       # measured earlier from particles
+    outlet_top_z = 0.2277
+    grasp_offset = np.array([-0.0017, -0.0055])
+    tip_z_offset = 0.0544                      # prong tip below the EE frame
+    tip_xy = ee[:2] + grasp_offset
+    tip_z = ee[2] - tip_z_offset
+    xy_dist = float(np.linalg.norm(tip_xy - hole_xy))
+    depth = max(0.0, outlet_top_z - tip_z)
+    depth_error = max(0.0, 0.0096 - depth)
+    r = -100.0 * xy_dist - 100.0 * depth_error
+    if xy_dist < 0.003 and depth >= 0.008:
+        r = 1.0 + (0.008 - xy_dist) * 10.0
+    return float(np.clip(r, -10.0, 2.0))
+```
+
+Every reward built on the plug's visible lowest points reported zero successes on both
+tiers. They are well written and would be correct with a second camera; they fail
+because the quantity they measure stops existing at the moment of success. Plug medium,
+seed 2, is representative:
+
+```python
+def reward(particles, visible, ee_pos, ee_quat, gripper):
+    plug, outlet = np.asarray(particles['plug']), np.asarray(particles['outlet'])
+    order = np.argsort(plug[:, 2])
+    tip = plug[order[:max(1, len(plug) // 8)]].mean(axis=0)   # lowest points = prong tip
+    outlet_top = outlet[:, 2].max()
+    horiz_err = float(np.linalg.norm(tip[:2] - outlet[:, :2].mean(axis=0)))
+    depth = float(outlet_top - tip[2])
+    r = -horiz_err * 20.0
+    r += depth * 60.0 if depth > 0.0 else -2.0 * min(-depth, 0.02)
+    return float(r)          # success = depth > 0.015 and small horiz_err, never observed
+```
+
+On Airport the two rewards are of different kinds and both stagnated. The first is a
+correct goal detector; it fails because its shaping term rewards the arm being near an
+item and the item being near the table, neither of which a policy can change from a pose
+above the button, and the mechanism that actually solves the task, a timed press, is not
+reachable by centimetre end-effector deltas:
+
+```python
+def reward(particles, visible, ee_pos, ee_quat, gripper):
+    table_x_min, table_x_max, target_y, best = 1.65, 2.35, 0.9, -2.0
+    for i in range(5):
+        pts = np.array(particles.get(f"item_{i}", []))
+        if pts.shape[0] == 0:
+            continue
+        x, y, z = pts.mean(axis=0)
+        if table_x_min <= x <= table_x_max and y > 0.72:
+            return 1.0                                  # item is on the table
+        if x < 1.5:
+            continue
+        best = max(best, -abs(target_y - y) - 0.5 * np.linalg.norm(pts.mean(axis=0) - ee_pos))
+    return float(best)
+```
+
+The second replaces the goal with a proxy for the mechanism, returning 1.0 as soon as
+the pusher is visible at all, on the reasoning that a visible pusher means the press
+worked. And in the discarded pre-`wait` Airport runs one agent submitted
+`return (ee_pos[2] - 1.0) / 0.5`, a reward for lifting the gripper, purely to make the
+conveyor advance while spending few turns.
+
 ## 4c. When runs stop, and why
 
 Four limits are configured; only two ever ended a run, and the interaction budget was
