@@ -70,8 +70,10 @@ def test_perturb_keeps_the_pybullet_joint_data() -> None:
     view = noise.perturb(live, step_rng(0, 0, 0, 0))
     assert isinstance(view, PyBulletState)
     assert view.joint_positions == [0.1, 0.2, 0.3]
+    assert view.simulator_state is not None
     assert set(view.simulator_state) == {"joint_positions"}
     assert view.get(b, "x") != truth.get(b, "x")
+    assert live.simulator_state is not None
     assert live.simulator_state["physics_client_id"] == 4
 
 
