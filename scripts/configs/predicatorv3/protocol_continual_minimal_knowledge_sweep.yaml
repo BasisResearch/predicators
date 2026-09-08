@@ -1,0 +1,28 @@
+# Four continual agents across balloons, boil, bridge, domino and fan.
+# Inherit the uniform sweep's domains, budgets, seeds and two existing arms.
+# The new arms act directly or execute their own low-level Python policies.
+# Only the minimal model-based arm receives the generic PyBulletEnv class;
+# neither minimal arm receives a domain simulator or primitive skills.
+#
+# Usage:
+#   python scripts/local/launch.py \
+#       -c predicatorv3/protocol_continual_minimal_knowledge_sweep.yaml
+---
+includes:
+  - protocol_continual_uniform_sweep.yaml
+APPROACHES:
+  agent_continual_model_free_minimal_uniform:
+    NAME: "agent_continual_model_free_minimal"
+    SKIP: False
+    FLAGS: &minimal_flags
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_planner_use_simulator: False
+      agent_solve_use_journal: True
+      agent_sdk_max_agent_turns_per_iteration: 10000
+      agent_sdk_image_max_px: 900
+      continual_max_idle_rounds: 5
+  agent_continual_model_based_minimal_uniform:
+    NAME: "agent_continual_model_based_minimal"
+    SKIP: False
+    FLAGS: *minimal_flags

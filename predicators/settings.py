@@ -1381,7 +1381,8 @@ class GlobalSettings:
     crane_settle_speed = 0.02
     # The push skill's approach and contact-height parameters for the
     # oracle's and the generator's swings.
-    crane_push_approach = 0.09
+    # Leave room for the open fingertips during the descent beside the ram.
+    crane_push_approach = 0.10
     crane_push_contact_z = 0.0
     crane_probe_max_steps = 300
     crane_max_sampling_attempts = 30

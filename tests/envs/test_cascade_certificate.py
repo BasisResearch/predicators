@@ -1132,15 +1132,16 @@ def test_pre_tilted_non_movable_fails():
     assert not probe.calls
 
 
-def test_probe_without_labels_uses_pre_onset_state():
+@pytest.mark.parametrize("raw_actions", [False, True])
+def test_probe_without_labels_uses_pre_onset_state(raw_actions):
     """Without option labels the probe still runs, anchored to the state just
     before the first topple onset, and pushes every green."""
     objs, states, _ = _legit_chain_case()
     probe = _FakeProbe(ok=True)
-    ok, reason = check_cascade_legitimacy(states,
-                                          _real_goal(objs),
-                                          None,
-                                          probe=probe)
+    ok, reason = check_cascade_legitimacy(
+        states,
+        _real_goal(objs), [None] * (len(states) - 1) if raw_actions else None,
+        probe=probe)
     assert ok, reason
     assert len(probe.calls) == 1
     pre_push_state, greens, _, push_params = probe.calls[0]

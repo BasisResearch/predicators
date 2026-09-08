@@ -359,9 +359,9 @@ def test_evaluate_trajectory_helper(approach_cls):
 
 
 def test_evaluate_trajectory_physics_sweep(approach_cls):
-    """physics_sweep=True scores the sequence at every physics-margin point
-    on a fresh env at that physics and reports the fraction scored solved;
-    with no points to sweep it says so."""
+    """physics_sweep=True scores the sequence at every physics-margin point on
+    a fresh env at that physics and reports the fraction scored solved; with no
+    points to sweep it says so."""
     import contextlib
     import functools
     from types import SimpleNamespace

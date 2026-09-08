@@ -521,6 +521,7 @@ def test_wet_joint_survives_a_release_impulse(env_and_task):
     before = env._get_state()
     rel_before = np.array(
         [before.get(span2, f) - before.get(span1, f) for f in ("x", "y", "z")])
+    yaw_before = before.get(span2, "yaw") - before.get(span1, "yaw")
     # The shove the arm leaves behind when it releases and retreats.
     p.resetBaseVelocity(span2.id, (-2.0, 0.0, 0.0), (0.0, 0.0, 0.0),
                         physicsClientId=env._physics_client_id)
@@ -532,7 +533,9 @@ def test_wet_joint_survives_a_release_impulse(env_and_task):
     assert abs(after.get(span1, "x") - before.get(span1, "x")) > 0.005, \
         "the shove should still move the assembly"
     assert np.linalg.norm(rel_after - rel_before) < 0.001
-    assert abs(after.get(span2, "yaw") - after.get(span1, "yaw")) < 0.01
+    # The tack preserves the pose at contact, including any initial yaw.
+    yaw_after = after.get(span2, "yaw") - after.get(span1, "yaw")
+    assert abs(yaw_after - yaw_before) < 0.01
     assert after.get(span1, "attached_end_b") == \
         float(env._block_index[span2.name])
 
