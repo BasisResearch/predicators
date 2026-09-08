@@ -73,7 +73,7 @@ Proposed flags and records:
 | `continual_obs_noise_declared` | whether the contract states the sigmas and the fit knows them (default on) |
 | scorecard | `obs_noise_position`, `obs_noise_orientation`, `obs_noise_declared`; `aggregate_scorecards.py` carries the columns and the viewer's run page shows the channel |
 
-A scalar-feature class (fill levels, sensor readings) was deferred in the first version because none of the target envs discriminated on one; the sweep showed that boil does (section 8), so it is now step 7 of the build order.
+A scalar-feature class (fill levels, sensor readings) was deferred in the first version because none of the target envs discriminated on one; the sweep showed that boil does (section 8), so it became step 7 of the build order and landed on 2026-09-08 as `continual_obs_noise_scalar`.
 A noisy discrete feature stays the dropout follow-up, not a Gaussian.
 
 Sigma values are chosen per env relative to the tightest predicate tolerance in that env, not as absolute numbers.
@@ -251,6 +251,7 @@ Where MDA does not reach:
    Landed 2026-09-08 as the smoothed frame (section 8), behind a flag, untested on a run; the particle filter proper and belief draws in `evaluate_trajectory` were not built.
 7. The scalar-reading class of the channel: `continual_obs_noise_scalar` on `bubbling_level`, `water_volume`, `spilled_level` and any Type-declared sensor feature, additive and unclipped, switch states exact; the contract, the frame line and the scorecard carry the third sigma; the fit's residual scale folds it like the others.
    Boil sweep points relative to the ramp step of 0.15 and the 0.07 boil margin, about 0.03, 0.07 and 0.15, with pose noise and reading noise swept as separate axes.
+   Landed 2026-09-08 (section 8); the sweep configs are `scripts/configs/predicatorv3/protocol_continual_noise_boil_reading{03,07,15}.yaml`, not yet run.
 
 Validation: domino at 1 cm with four seeds after step 3, which is where the advantage was lost first; boil under reading noise after step 7; the exact boil model-based baseline rerun under the sanitized-frame rule before the boil column is quoted; fan back in the sweep once its cap-stall fixes land.
 
@@ -323,7 +324,15 @@ Step 6 of section 7 landed on 2026-09-08 (branch `bridge-learning`) as the smoot
 - Not built: the particle filter proper (the smoothed frame is the rest-window special case of it, exact for objects at rest, and objects in motion keep the raw frame), belief draws inside `evaluate_trajectory` (it scores a trajectory the agent already has; the parameter belief there is the physics sweep), and atom fractions inside `sim.predicates()` (which reports on the invented predicates' file, not on a state; the fractions live in the observation instead).
 - Tests: `tests/test_observation_belief.py`, the belief cases in `tests/run/test_continual.py`, `tests/agent_sdk/test_continual_tools.py` and `tests/agent_sdk/test_belief_probe_physics_sweep.py`.
 
-Not yet built: the particle filter proper (3.3) and the scalar-reading noise class (step 7).
+Step 7 of section 7 landed on 2026-09-08 (branch `bridge-learning`): the scalar-reading class of the channel, `continual_obs_noise_scalar`.
+
+- `ObservationNoise.scalar` applies to `bubbling_level`, `water_volume`, `spilled_level` and any feature a Type declares in its new `sensor_features` metadata, additive and unclipped (a full jug reads above one about half the time); switch states, discrete features and the robot stay exact.
+- Because every consumer reads sigmas through `feature_sigma`, the fit's residual scale, the expected noise SSE of step 3, the fit-side filter of step 4 and the execution-time belief of step 6 fold the reading sigma in without further change.
+- The contract and the frame line describe the third sigma through the channel's own text, and the run card, the level index, the scorecard aggregator and the viewer carry it (`obs_noise_scalar`); cards written before the field load as exact readings.
+- Tests: the scalar case in `tests/test_observation_noise.py` and the card round trip in `tests/run/test_continual.py`.
+
+Every step of the build order is now built, all behind flags that default off, and none has run on a level yet: the validation runs of section 7 come next, with the ablations as flag flips on one code tree.
+The particle filter proper (3.3) stays unbuilt; the smoothed frame is its rest-window special case.
 
 First launch (step 2, one point of the sweep), 2026-09-07: fan and domino, both arms, seeds 0 and 1, position sigma 5 mm and orientation sigma 0.02 rad, declared, via `scripts/configs/predicatorv3/protocol_continual_noise_fan_domino.yaml` from the worktree `predicators-noise-r1` (Slurm 22197846 domino model-based, 22197847 fan model-based, 22197848 domino model-free, 22197849 fan model-free).
 The sigma is about half the tightest scale of each env: fan's target tolerance is 1 cm on a 4 cm ball, a domino is 7 cm wide.
