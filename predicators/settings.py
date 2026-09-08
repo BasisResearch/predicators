@@ -126,6 +126,14 @@ class GlobalSettings:
     # 0 disables a class; both 0 is the exact-observation protocol.
     continual_obs_noise_position = 0.0
     continual_obs_noise_orientation = 0.0
+    # The scalar-reading class (section 3.1, build-order step 7):
+    # additive, unclipped Gaussian noise on bubbling_level, water_volume,
+    # spilled_level and any feature a Type declares in sensor_features,
+    # in the reading's own units; switch states stay exact. Boil's sweep
+    # points sit against its ramp step of 0.15 and its 0.07 boil margin,
+    # about 0.03, 0.07 and 0.15, swept as an axis separate from pose
+    # noise.
+    continual_obs_noise_scalar = 0.0
     # Whether the channel is declared: the agent's contract states the
     # sigmas and the model arm's fit folds them into its likelihood
     # (predicators/observation_noise.py). Off is the harder ablation

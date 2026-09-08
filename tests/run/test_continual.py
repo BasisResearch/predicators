@@ -856,6 +856,7 @@ def test_observation_noise_channel(tmp_path: Any, monkeypatch: Any) -> None:
     assert start["observation_noise"] == {
         "position": 0.002,
         "orientation": 0.0,
+        "scalar": 0.0,
         "declared": True,
     }
     # The recording keeps the true state, not the agent's view.
@@ -877,18 +878,21 @@ def test_scorecard_records_the_observation_noise() -> None:
                    wall_clock_cap=1.0,
                    obs_noise_position=0.005,
                    obs_noise_orientation=0.02,
+                   obs_noise_scalar=0.07,
                    obs_noise_declared=False)
     back = RunCard.from_dict(card.to_dict())
     assert back.obs_noise_position == 0.005
     assert back.obs_noise_orientation == 0.02
+    assert back.obs_noise_scalar == 0.07
     assert back.obs_noise_declared is False
     old = card.to_dict()
     for key in ("obs_noise_position", "obs_noise_orientation",
-                "obs_noise_declared"):
+                "obs_noise_scalar", "obs_noise_declared"):
         del old[key]
     exact = RunCard.from_dict(old)
     assert exact.obs_noise_position == 0.0
     assert exact.obs_noise_orientation == 0.0
+    assert exact.obs_noise_scalar == 0.0
     assert exact.obs_noise_declared is True
 
 

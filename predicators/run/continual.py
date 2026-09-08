@@ -1089,6 +1089,7 @@ class ContinualRun:
             "observation_noise": (None if self._noise is None else {
                 "position": self._noise.position,
                 "orientation": self._noise.orientation,
+                "scalar": self._noise.scalar,
                 "declared": self._noise.declared,
             }),
         })
@@ -1438,6 +1439,7 @@ class ContinualRun:
             config=CFG.experiment_id,
             obs_noise_position=float(CFG.continual_obs_noise_position),
             obs_noise_orientation=float(CFG.continual_obs_noise_orientation),
+            obs_noise_scalar=float(CFG.continual_obs_noise_scalar),
             obs_noise_declared=bool(CFG.continual_obs_noise_declared),
         )
 

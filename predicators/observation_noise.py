@@ -2,9 +2,12 @@
 
 Design: ``docs/continual-uncertainty.md``, section 3.1. Every arm sees
 the env state through this channel: object positions and orientations
-carry additive zero-mean Gaussian noise, discrete features and the
-robot's own state (proprioception) stay exact, and everything the
-harness judges (the evaluators, the level index) keeps the true state.
+carry additive zero-mean Gaussian noise, and so do scalar readings (a
+level, a volume, any feature a Type declares as a sensor) under the
+scalar class, additive and unclipped; discrete features, switch states
+and the robot's own state (proprioception) stay exact, and everything
+the harness judges (the evaluators, the level index) keeps the true
+state.
 One draw per env step, keyed by run seed, level, episode and step, so a
 run is reproducible and a resumed run re-observes the same frames.
 
@@ -26,8 +29,12 @@ from predicators.settings import CFG
 from predicators.structs import State, Type
 
 # Feature classes. Positions are metres; orientations are radians, and a
-# Type's own ``angular_features`` extend the orientation class.
+# Type's own ``angular_features`` extend the orientation class; scalar
+# readings are in the feature's own units, and a Type's own
+# ``sensor_features`` extend the scalar class.
 POSITION_FEATURES = frozenset({"x", "y", "z"})
+SCALAR_FEATURES = frozenset(
+    {"bubbling_level", "water_volume", "spilled_level"})
 ORIENTATION_FEATURES = frozenset(
     {"rot", "roll", "pitch", "yaw", "tilt", "wrist"})
 # Types observed exactly: the robot reads its own joints.
@@ -39,6 +46,10 @@ class ObservationNoise:
     """Per-feature-class sigmas of the channel; zeros disable it."""
     position: float = 0.0
     orientation: float = 0.0
+    # The scalar class: readings of a continuous quantity, in the
+    # feature's own units, additive and unclipped (a level can read
+    # above 1 or below 0).
+    scalar: float = 0.0
     # Whether the agent's contract states the sigmas (the base case) or
     # the agent has to find the noise itself (the harder ablation).
     declared: bool = True
@@ -48,12 +59,14 @@ class ObservationNoise:
         """The channel the current flags describe."""
         return cls(position=float(CFG.continual_obs_noise_position),
                    orientation=float(CFG.continual_obs_noise_orientation),
+                   scalar=float(CFG.continual_obs_noise_scalar),
                    declared=bool(CFG.continual_obs_noise_declared))
 
     @property
     def enabled(self) -> bool:
         """Whether any feature class carries noise."""
-        return self.position > 0.0 or self.orientation > 0.0
+        return (self.position > 0.0 or self.orientation > 0.0
+                or self.scalar > 0.0)
 
     def feature_sigma(self, obj_type: Type, feat: str) -> float:
         """The sigma of ``feat`` on an object of ``obj_type``; 0 if exact."""
@@ -64,6 +77,9 @@ class ObservationNoise:
         if feat in ORIENTATION_FEATURES or feat in getattr(
                 obj_type, "angular_features", ()):
             return self.orientation
+        if feat in SCALAR_FEATURES or feat in getattr(obj_type,
+                                                      "sensor_features", ()):
+            return self.scalar
         return 0.0
 
     def residual_scale(self, obj_type: Type, feat: str, motion_scale: float,
@@ -94,6 +110,8 @@ class ObservationNoise:
             parts.append(f"position sigma {self.position:g} m")
         if self.orientation > 0.0:
             parts.append(f"orientation sigma {self.orientation:g} rad")
+        if self.scalar > 0.0:
+            parts.append(f"reading sigma {self.scalar:g}")
         return (", ".join(parts) +
                 " on object features (robot exact; one draw per step)")
 
@@ -107,10 +125,17 @@ class ObservationNoise:
         if self.orientation > 0.0:
             parts.append(f"orientations (rot, roll, pitch, yaw) sigma "
                          f"{self.orientation:g} rad")
+        if self.scalar > 0.0:
+            parts.append(
+                "scalar readings (bubbling_level, water_volume, "
+                "spilled_level and any declared sensor feature) sigma "
+                f"{self.scalar:g} in the reading's own units, additive and "
+                "unclipped, so a level can read outside its nominal range")
         return ("Gaussian observation noise on every non-robot object: " +
-                "; ".join(parts) + "; discrete features and the robot's own "
-                "state are exact; one draw per env step, so re-reading an "
-                "observation without stepping returns the same values")
+                "; ".join(parts) + "; discrete features, switch states and "
+                "the robot's own state are exact; one draw per env step, so "
+                "re-reading an observation without stepping returns the "
+                "same values")
 
     def perturb(self, state: State, rng: np.random.Generator) -> State:
         """A copy of ``state`` as the agent observes it.

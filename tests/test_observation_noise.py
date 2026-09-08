@@ -138,3 +138,41 @@ def test_flags_text_and_disabled_channel() -> None:
     truth = _scene()
     view = exact.perturb(truth, step_rng(0, 0, 0, 0))
     assert view.allclose(State(dict(truth.data)))
+
+
+def test_scalar_readings_carry_their_own_class() -> None:
+    """Readings named by the class or declared by a Type as sensors carry the
+    scalar sigma, additive and unclipped; switch states stay exact; the fit's
+    scale folds it like the pose classes."""
+    jug = Type("jug", ["x", "bubbling_level", "water_volume", "is_held"])
+    gauge = Type("gauge", ["pressure", "is_on"], sensor_features=["pressure"])
+    j, g = Object("j", jug), Object("g", gauge)
+    truth = State({
+        j: np.array([0.1, 1.0, 0.0, 0.0]),
+        g: np.array([0.5, 1.0]),
+    })
+    noise = ObservationNoise(scalar=0.07)
+    assert noise.enabled
+    assert noise.feature_sigma(jug, "bubbling_level") == 0.07
+    assert noise.feature_sigma(jug, "water_volume") == 0.07
+    assert noise.feature_sigma(gauge, "pressure") == 0.07
+    assert noise.feature_sigma(gauge, "is_on") == 0.0
+    assert noise.feature_sigma(jug, "x") == 0.0
+    expected = np.sqrt(0.5**2 + (0.07 / 0.05)**2)
+    assert abs(
+        noise.residual_scale(jug, "bubbling_level", 0.5, 0.05) -
+        expected) < 1e-12
+    views = [noise.perturb(truth, step_rng(0, 0, 0, k)) for k in range(200)]
+    levels = np.array([v.get(j, "bubbling_level") for v in views])
+    assert abs(levels.mean() - 1.0) < 0.02 and abs(levels.std() - 0.07) < 0.02
+    # Unclipped: a full jug reads above 1 about half the time.
+    assert 60 < np.sum(levels > 1.0) < 140
+    assert all(
+        v.get(g, "is_on") == 1.0 and v.get(j, "x") == 0.1 for v in views)
+    assert any(v.get(g, "pressure") != 0.5 for v in views)
+    assert "reading sigma 0.07" in noise.summary()
+    assert "additive and unclipped" in noise.describe()
+    utils.reset_config({"continual_obs_noise_scalar": 0.03})
+    assert ObservationNoise.from_cfg().scalar == 0.03
+    utils.reset_config({})
+    assert ObservationNoise.from_cfg().scalar == 0.0

@@ -107,12 +107,15 @@ def _noise_text(card: Dict[str, Any]) -> str:
     """The run card's observation-noise channel, for the meta rows."""
     pos = float(card.get("obs_noise_position") or 0.0)
     rot = float(card.get("obs_noise_orientation") or 0.0)
-    if pos <= 0.0 and rot <= 0.0:
+    scalar = float(card.get("obs_noise_scalar") or 0.0)
+    if pos <= 0.0 and rot <= 0.0 and scalar <= 0.0:
         return "exact"
     declared = "declared" if card.get("obs_noise_declared", True) else \
         "undeclared"
-    return (f"position sigma {pos:g} m, orientation sigma {rot:g} rad "
-            f"({declared})")
+    parts = [f"position sigma {pos:g} m", f"orientation sigma {rot:g} rad"]
+    if scalar > 0.0:
+        parts.append(f"reading sigma {scalar:g}")
+    return ", ".join(parts) + f" ({declared})"
 
 
 def esc(text: Any) -> str:

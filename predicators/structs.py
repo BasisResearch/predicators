@@ -66,6 +66,13 @@ class Type:
     angular_features: Sequence[str] = field(default_factory=tuple,
                                             repr=False,
                                             compare=False)
+    # Features that are sensor readings of a continuous quantity (a
+    # level, a volume, a temperature): the observation-noise channel's
+    # scalar class (predicators/observation_noise.py) adds its sigma to
+    # them, beside the readings it names itself. Optional metadata.
+    sensor_features: Sequence[str] = field(default_factory=tuple,
+                                           repr=False,
+                                           compare=False)
 
     @property
     def dim(self) -> int:
