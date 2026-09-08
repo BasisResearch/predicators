@@ -59,3 +59,32 @@ smaller boxes.
 
 Single fixed camera (occlusion), object names from segmentation, perfect
 depth, 3 seeds, one harness and one model. `model_based` condition pending.
+
+## Per-run ledger (all 24 runs)
+
+| domain | condition | seed | goal | first | steps | turns | ended by | $ | min | move_to | particles | wait | RL |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| airport | RL | 0 | unmet | -- | 408 | 32 | self | 0.77 | 7 | 20 | 5 | 3 | 0 |
+| airport | RL | 1 | unmet | -- | 11391 | 107 | self | 4.52 | 65 | 46 | 32 | 23 | 3 |
+| airport | RL | 2 | met | 1129 | 1212 | 71 | self | 2.13 | 13 | 24 | 23 | 20 | 0 |
+| airport | coarse | 0 | unmet | -- | 2018 | 121 | turn cap | 4.63 | 20 | 44 | 44 | 30 | 0 |
+| airport | coarse | 1 | met | 1128 | 1277 | 35 | self | 1.03 | 10 | 12 | 12 | 8 | 0 |
+| airport | coarse | 2 | met | 3018 | 3066 | 87 | self | 2.98 | 20 | 38 | 26 | 18 | 0 |
+| donut | RL | 0 | met | 103 | 118 | 14 | self | 0.22 | 1 | 8 | 2 | 0 | 0 |
+| donut | RL | 1 | met | 148 | 173 | 14 | self | 0.21 | 1 | 8 | 2 | 0 | 0 |
+| donut | RL | 2 | met | 101 | 115 | 13 | self | 0.22 | 1 | 8 | 2 | 0 | 0 |
+| donut | coarse | 0 | met | 104 | 119 | 13 | self | 0.21 | 1 | 8 | 2 | 0 | 0 |
+| donut | coarse | 1 | met | 117 | 153 | 19 | self | 0.30 | 2 | 13 | 3 | 0 | 0 |
+| donut | coarse | 2 | met | 110 | 125 | 14 | self | 0.21 | 1 | 8 | 2 | 0 | 0 |
+| plug hard | RL | 0 | met | 2660 | 2684 | 40 | self | 0.99 | 15 | 15 | 7 | 0 | 3 |
+| plug hard | RL | 1 | met | 11422 | 13406 | 51 | self | 1.49 | 59 | 18 | 10 | 0 | 4 |
+| plug hard | RL | 2 | met | 1574 | 24574 | 121 | turn cap | 4.39 | 102 | 65 | 27 | 16 | 4 |
+| plug hard | coarse | 0 | met | 87 | 106 | 32 | self | 0.80 | 5 | 12 | 7 | 0 | 0 |
+| plug hard | coarse | 1 | unmet | -- | 158 | 36 | self | 0.93 | 6 | 12 | 8 | 0 | 0 |
+| plug hard | coarse | 2 | met | 162 | 174 | 121 | turn cap | 4.75 | 23 | 56 | 10 | 0 | 0 |
+| plug medium | RL | 0 | met | 1265 | 17434 | 48 | self | 1.30 | 73 | 20 | 10 | 0 | 4 |
+| plug medium | RL | 1 | met | 1651 | 4233 | 60 | self | 1.44 | 22 | 22 | 11 | 0 | 1 |
+| plug medium | RL | 2 | met | 2612 | 11475 | 42 | self | 1.06 | 49 | 14 | 8 | 0 | 2 |
+| plug medium | coarse | 0 | unmet | -- | 159 | 100 | self | 3.31 | 16 | 48 | 12 | 0 | 0 |
+| plug medium | coarse | 1 | met | 388 | 408 | 104 | self | 3.46 | 16 | 62 | 23 | 0 | 0 |
+| plug medium | coarse | 2 | unmet | -- | 7368 | 121 | turn cap | 4.19 | 31 | 62 | 15 | 31 | 0 |

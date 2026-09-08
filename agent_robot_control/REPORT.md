@@ -119,6 +119,131 @@ particles) both stagnated without inserting. The agents' rewards succeeded
 more often, mostly because they chose tighter starting poses and smaller
 workspace boxes than I did.
 
+## 4b. What the RL tool actually contributes
+
+The agent does call the tool: one to four accepted calls per insertion run, and RL
+consumes almost all interactions in those runs (for example medium seed 0: 17,350 RL
+steps against 84 of the agent's own). What it contributes, though, is not a learned
+skill but a randomised fine-alignment search under contact.
+
+| run | goal at | RL calls | RL steps | own steps | reward successes per call | policy replay | goal inside an RL call |
+|---|---|---|---|---|---|---|---|
+| hard, seed 0 | 2,660 | 3 | 2,479 | 205 | 16, 6, 7 | none | no, 43 steps after |
+| hard, seed 1 | 11,422 | 3 | 13,167 | 239 | 0, 0, 11 | 1 of 3 | yes |
+| hard, seed 2 | 1,574 | 4 | 19,298 | 5,276 | 0, 2, 0 | none | yes |
+| medium, seed 0 | 1,265 | 3 | 17,350 | 84 | 0, 0, 0 | none | yes |
+| medium, seed 1 | 1,651 | 1 | 4,096 | 137 | 0 | none | yes |
+| medium, seed 2 | 2,612 | 2 | 11,374 | 101 | 0, 0 | none | yes |
+
+Of fifteen accepted RL calls the trained policy reproduced success on replay exactly
+once. The insertions happen while the learner is still exploring: 1 cm end-effector
+deltas under the 80 N force limit, jiggling the prong until geometry and friction accept
+it. That is a contact-rich search the straight-line controller cannot express.
+
+Most agent-written rewards are position trackers, not task rewards. The first reward from
+hard seed 0, verbatim, rewards holding the end effector at a fixed offset above the
+outlet centroid and never mentions the plug, so nothing in it distinguishes a seated plug
+from one held above the socket:
+
+```python
+def reward(particles, visible, ee_pos, ee_quat, gripper):
+    outlet = np.array(particles['outlet'])
+    ox, oy = float(outlet[:, 0].mean()), float(outlet[:, 1].mean())
+    outlet_top = float(outlet[:, 2].max())
+    ex, ey, ez = ee_pos
+    xy_err = ((ex - ox) ** 2 + (ey - oy) ** 2) ** 0.5
+    z_err = abs(ez - (outlet_top + 0.0388))
+    return float(1.3 - 10.0 * xy_err - 15.0 * z_err)
+```
+
+Twice an agent reached for RL not for precision but because straight-line moves were
+failing outright, reasoning that the tool "acts via small incremental deltas rather than
+straight-line IK". On Airport that produced two stagnated calls and no progress.
+
+## 4c. When runs stop, and why
+
+Four limits are configured; only two ever ended a run, and the interaction budget was
+never one of them (largest consumption 24,574 of 100,000).
+
+| limit | value | ended a coarse run | ended an RL run | largest observed |
+|---|---|---|---|---|
+| conversational turns | 120 | 3 | 1 | 121 (the cap) |
+| agent stops on its own | none | 9 | 11 | -- |
+| environment interactions | 100,000 | 0 | 0 | 24,574 (25%) |
+| API spend | $8.00 | 0 | 0 | $4.75 |
+| wall clock | 10 h | 0 | 0 | 102 min |
+
+Twenty of twenty-four runs ended because the agent decided it was finished; sixteen were
+right. In the other four the agent asserted success while the goal predicate did not
+hold, confidently and specifically: "the block now sits flush on the outlet's top surface
+and stays upright with no support" (hard, coarse, seed 1, stopped at 158 interactions,
+prong never entered), and "item_2 vanished from the belt's item cycle ... consistent with
+landing on the adjacent table" (airport, RL, seed 0, stopped at 408; replay puts the item
+at y = 0.689 with the belt edge at 0.707). Both are inferences from absence: a plausible
+geometry read as a seat, an object leaving the camera frame read as an object leaving the
+belt. Self-stopping is the largest source of unforced failure in the sweep.
+
+Three of four coarse-control failures ended at the turn cap, and coarse runs make more
+tool calls per run than RL runs (31 move_to calls on average against 22). A coarse failure
+therefore means "ran out of conversation or quit", never "exhausted the interaction
+budget", while RL runs spend interactions freely. Rerunning the coarse cells with a
+400-turn cap would settle the comparison.
+
+## 4d. How the agent uses perception and time
+
+Calls per run, six runs per domain, both conditions pooled:
+
+| domain | pixels_to_particles | wait | what for |
+|---|---|---|---|
+| Donut | 2, 2, 2, 2, 2, 3 | none | locate donut, locate target, confirm placement |
+| Plug, medium | 8, 10, 11, 12, 15, 23 | 0 x5, 31 | socket centre, prong depth, re-check per descent |
+| Plug, hard | 7, 7, 8, 10, 10, 27 | 0 x5, 16 | as above, plus verifying the plug stays seated |
+| Airport | 5, 12, 23, 26, 32, 44 | 3, 8, 18, 20, 23, 30 | track the item, estimate belt speed, time the press |
+
+Particle use scales with the precision demanded: two or three calls for a centroid, 7 to
+27 interleaved with descent steps for insertion. `wait` has two distinct uses. On Airport
+all six runs use it (3 to 30 calls, 10 to 500 steps each) because simulation time only
+advances when the agent acts, so waiting is the only way to let the conveyor bring the
+item round, and the agent samples particles during the interval to estimate belt speed.
+In the two insertion runs that use it, the agent is recovering from a dropped or wedged
+plug and waits in blocks of 100 to 400 steps to confirm the object has stopped moving
+before trying again -- a stability test the tool surface does not otherwise provide.
+
+## 4e. One trajectory in full
+
+Hard tier, coarse control, seed 0, the fastest insertion in the sweep. One particle call
+to locate the plug, a grasp, one particle call to locate the socket, then a descent in
+shrinking increments of 100, 50, 12 and 8 mm with a particle check between each. The goal
+holds at interaction 87 on the 8 mm step; the agent spends 19 more interactions verifying
+and releasing.
+
+| call | tool | arguments | steps | cumulative | goal |
+|---|---|---|---|---|---|
+| 1 | pixels_to_particles | max_points 64 | 0 | 0 | -- |
+| 2 | move_to | (1.3695, 0.5475, 0.450) open | 19 | 19 | -- |
+| 3 | move_to | (1.3695, 0.5475, 0.270) open | 18 | 37 | -- |
+| 4 | move_to | (1.3696, 0.5475, 0.2725) close | 9 | 46 | -- |
+| 5 | move_to | (1.3696, 0.5475, 0.450) keep | 9 | 55 | -- |
+| 6 | pixels_to_particles | max_points 64 | 0 | 55 | -- |
+| 7 | move_to | (1.3477, 0.9495, 0.450) keep | 21 | 76 | -- |
+| 8 | pixels_to_particles | max_points 64 | 0 | 76 | -- |
+| 9 | move_to | (1.3492, 0.9502, 0.350) keep | 6 | 82 | -- |
+| 10 | pixels_to_particles | max_points 64 | 0 | 82 | -- |
+| 11 | move_to | (1.3492, 0.9501, 0.300) keep | 3 | 85 | -- |
+| 12 | move_to | (1.3493, 0.9501, 0.288) keep | 1 | 86 | -- |
+| 13 | move_to | (1.3493, 0.9501, 0.280) keep | 1 | 87 | **holds** |
+| 14-19 | particles, move_to x3, particles | verify, release, retract | 19 | 106 | holds |
+
+The same domain in the RL condition, seed 0: coarse moves to a pose above the socket by
+interaction 138, then three RL calls with budgets of 4,000, 6,000 and 15,000 and episode
+lengths of 40, 30 and 50. They consumed 1,250, 229 and 1,000 interactions and reported
+16, 6 and 7 reward successes; none of the three policies reproduced a success on replay.
+The goal held at 2,660, forty-three interactions after the last call returned.
+
+A per-run ledger of all 24 runs (termination, cost, wall clock and per-tool call counts)
+is in `RESULTS_sweep1.md`. Videos of all twelve replayable successes are in
+`~/arc_outputs/videos`; five are embedded in the published web version of this report.
+
 ## 5. Reproducibility
 
 PyBullet is deterministic for a fixed action sequence, so any run whose
