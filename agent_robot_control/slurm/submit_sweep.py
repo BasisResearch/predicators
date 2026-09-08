@@ -1,4 +1,4 @@
-"""Expand a sweep into one Slurm array job (default partition: default_partition).
+"""Expand a sweep into one Slurm array job (partitions: ellis,gpu,default_partition).
 
     uv run python -m agent_robot_control.slurm.submit_sweep \\
         --envs airport donut plug_outlet --conditions move_to model_free model_based \\
@@ -58,8 +58,9 @@ def main() -> None:
     ap.add_argument("--cpus", type=int, default=4)
     # CPU-only runs: default_partition is the general pool and is usually
     # far less contended than ellis. GPU work belongs on the gpu partition.
-    ap.add_argument("--partition", default="default_partition")
-    ap.add_argument("--max-concurrent", type=int, default=0, help="array throttle (0 = none)")
+    ap.add_argument("--partition", default="ellis,gpu,default_partition")
+    ap.add_argument("--max-concurrent", type=int, default=3,
+                    help="array throttle; 3 keeps the account usage limit at bay")
     ap.add_argument("--only", nargs="*", default=None,
                     help="explicit runs as env:condition:seed (overrides the cross product)")
     ap.add_argument("--dry-run", action="store_true")

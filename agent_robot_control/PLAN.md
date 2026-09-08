@@ -688,3 +688,36 @@ and PPO, plug insertion, 20k budget) both stagnated without inserting.
 Open items: model-based backend, OpenCode end-to-end, a second camera or
 occlusion-aware reward guidance for insertion, Airport prompt/tooling for the
 timing task, `model_based` condition once the backend exists.
+
+
+## 13. Sweep 2 (2026-09-08)
+
+Domains changed, so sweep 1 stays a historical record and everything is re-run.
+
+- **Plug-outlet, replaced** by a US three-leg plug: two flat blades 24 mm apart
+  plus an offset round ground pin, into a plate with three holes. Three legs
+  constrain yaw as well as position, so alignment is three-dimensional and the
+  goal predicate needs no separate yaw term. Clearance 4.0 mm, the tightest the
+  ground-truth oracle passes (DEBUG_LOG 22). The medium and hard tiers are gone.
+- **Donut, now a push task.** Solid discs 12 cm across, wider than the jaws can
+  span, on a table two slabs long. The goal disc starts at one end and the
+  target sits 0.90 m away at the other, which is the whole reach of a fixed
+  base at pushing height. Four live discs, a fresh one every 40 steps, landing
+  in the lane between start and target. The goal disc is blue and the others
+  tan so an agent with only the camera can tell them apart.
+- **Airport, now delayed.** The pusher obeys the button as it was 20 steps
+  earlier, so it starts 20 steps after a press and runs 20 steps past the
+  release. Belt speed and pusher size are unchanged. The task prompt no longer
+  mentions the button at all: discovering the mechanism and its lag is part of
+  the task.
+- **New condition `no_particles`:** `move_to` and `wait` only. It tests how much
+  the particle tool is worth and whether an agent can recover geometry from a
+  fixed camera on its own.
+- **Harness:** Opus 5, 300 turns, $20 per run recorded as `budget_cap_hit` and
+  excluded from success rates. Camera stays 335x180. Jobs request
+  `ellis,gpu,default_partition`, throttled to 3 concurrent.
+- **RL visibility:** one episode recorded as video every 2,000 interactions of a
+  call, plus each final policy execution, in that call's directory.
+
+Shape: 3 domains x 3 conditions (`no_particles`, `move_to`, `model_free`) x 3
+seeds = 27 runs. `model_based` still waits on its backend.

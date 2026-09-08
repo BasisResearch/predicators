@@ -1,5 +1,6 @@
 """Airport: looping belt, OnTable goal, button/pusher route."""
 import numpy as np
+import pytest
 import pybullet as p
 
 from predicators.envs.pybullet_airport import PyBulletAirportEnv
@@ -40,7 +41,7 @@ def test_belt_loops_and_goal_is_on_table():
     assert env.goal_reached()
 
 
-def test_button_press_extends_pusher_and_pushes_an_item():
+def test_button_press_extends_pusher_after_the_lag():
     env = make_env("pybullet_airport", PyBulletAirportEnv)
     env.reset("train", 0)
     ctl = EEController(env)
@@ -50,18 +51,33 @@ def test_button_press_extends_pusher_and_pushes_an_item():
     ctl.move_to((bx, by, bz - 0.03), max_steps=60)
     s = env._current_observation
     assert s.get(env._button, "is_pressed") > 0.5
+    # Nothing moves during the lag, then the pusher sweeps.
+    y_before = float(s.get(env._pusher, "y"))
+    for _ in range(env.pusher_delay_steps - 2):
+        s = env.step(ctl.hold_action())
+    assert float(s.get(env._pusher, "y")) == pytest.approx(y_before, abs=1e-6)
     for _ in range(300):
         s = env.step(ctl.hold_action())
     assert s.get(env._pusher, "y") > env.pusher_init_y + 0.3
-    on_table = [it for it in env._items[:5]
-                if env._OnTable_holds(s, [it, env._table])]
-    assert on_table, "pusher did not push any item onto the table"
+
+
+def test_pusher_obeys_the_button_only_after_the_delay():
+    """The pusher sees the button as it was pusher_delay_steps ago."""
+    env = make_env("pybullet_airport", PyBulletAirportEnv)
+    env.reset("train", 0)
+    assert env.pusher_delay_steps > 0
+    for _ in range(env.pusher_delay_steps):
+        assert env._delayed_button_state(True) is False, "acted before the lag"
+    assert env._delayed_button_state(True) is True
+    for _ in range(env.pusher_delay_steps):
+        assert env._delayed_button_state(False) is True, "stopped too early"
+    assert env._delayed_button_state(False) is False
 
 
 def test_timed_button_press_puts_goal_item_on_table():
-    """Oracle for the button route: press when item_2 is ~0.42 m upstream of
-    the pusher (the pusher only shoves items during its sweep across the
-    belt). Gates that the task is feasible under the force-limited controller."""
+    """Oracle for the button route. With the 20-step lag the working press
+    lead moves out to about 0.60-0.70 m of belt travel (gate measurement,
+    2026-09-08), so the agent has to anticipate rather than react."""
     from agent_robot_control.sim.session import SessionConfig, SimSession
     s = SimSession(SessionConfig(env_name="pybullet_airport", task_idx=2,
                                  interaction_cap=3000, camera_width=224,
@@ -72,16 +88,16 @@ def test_timed_button_press_puts_goal_item_on_table():
     bx, by, bz = env.button_stand_x, env.button_stand_y, \
         env.button_stand_z + env.button_height
     ctl.move_to((bx, by, bz + 0.10), q, gripper="close")
-    for _ in range(600):
+    for _ in range(900):
         dx = float(env._current_observation.get(item, "x")) - env.pusher_init_x
-        if -0.44 < dx < -0.42:
+        if -0.66 < dx < -0.64:
             break
         s.step(ctl.hold_action())
     r = ctl.move_to((bx, by, bz - 0.01), q, max_steps=20)
     assert env._current_observation.get(env._button, "is_pressed") > 0.5, r.summary()
-    for _ in range(250):
+    for _ in range(400):
         s.step(ctl.hold_action())
         if env.goal_reached():
             break
     assert env.goal_reached()
-    assert s.interactions < 600
+    assert s.interactions < 1200

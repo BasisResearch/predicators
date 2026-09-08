@@ -2,5 +2,5 @@ name: pybullet_donut
 task_idx: 0
 prompt_file: task_donut.md
 task_text: >-
-  Put donut_0 inside the red square target area on the table. New donuts keep
-  appearing on the table; only donut_0 matters.
+  Get the blue disc onto the red target square at the far end of the table.
+  Other discs keep dropping onto the table; only the blue one matters.

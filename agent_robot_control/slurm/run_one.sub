@@ -8,7 +8,7 @@
 #SBATCH --get-user-env
 #SBATCH --mem=32000
 #SBATCH -t 24:00:00
-#SBATCH --partition=default_partition
+#SBATCH --partition=ellis,gpu,default_partition
 #SBATCH --requeue
 
 # One agent-robot-control run. Usage:

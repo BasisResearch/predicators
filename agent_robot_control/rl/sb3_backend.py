@@ -17,6 +17,7 @@ import numpy as np
 from stable_baselines3 import PPO, SAC
 from stable_baselines3.common.callbacks import BaseCallback
 
+from agent_robot_control.experiments.replay import VideoRecorder
 from agent_robot_control.rl.backend import RLRequest, RLResult
 from agent_robot_control.rl.particle_env import ParticleEnv
 from agent_robot_control.sim.budget import BudgetExhausted
@@ -34,19 +35,43 @@ class _StopCallback(BaseCallback):
     """Budget accounting, early stopping, per-episode logging."""
 
     def __init__(self, env: ParticleEnv, session, request: RLRequest,
-                 start_interactions: int) -> None:
+                 start_interactions: int, out_dir=None) -> None:
         super().__init__()
         self.env = env
         self.session = session
         self.req = request
         self.start = start_interactions
+        self.out_dir = out_dir
         self.logged_episodes = 0
         self.early_stopped = False
         self.budget_hit = False
         self.stagnated = False
+        self.videos: List[str] = []
+        self._next_video_at = 0
+        self._recording_episode = -1
+
+    def _maybe_record(self, used: int) -> None:
+        """Start recording at each video_every boundary; stop when that episode
+        ends. One episode of video per boundary, so a long call produces a
+        filmstrip of how the search changed."""
+        if not self.req.video_every or self.out_dir is None:
+            return
+        env = self.env
+        if env.recorder is not None:
+            if env.episode_index != self._recording_episode:
+                env.recorder.close()
+                self.videos.append(str(env.recorder.path))
+                env.recorder = None
+            return
+        if used >= self._next_video_at:
+            path = self.out_dir / f"episode_{env.episode_index:04d}.mp4"
+            env.recorder = VideoRecorder(path, fps=20)
+            self._recording_episode = env.episode_index
+            self._next_video_at = used + self.req.video_every
 
     def _on_step(self) -> bool:
         used = self.session.interactions - self.start
+        self._maybe_record(used)
         while self.logged_episodes < len(self.env.episode_log):
             ep = self.env.episode_log[self.logged_episodes]
             self.logged_episodes += 1
@@ -109,7 +134,7 @@ class SB3Backend:
                         device="cpu", **kwargs)
         else:
             raise ValueError(f"Unknown algo {request.algo!r}; use 'sac' or 'ppo'.")
-        cb = _StopCallback(env, session, request, start)
+        cb = _StopCallback(env, session, request, start, out_dir)
         budget_exhausted = False
         message = ""
         t0 = time.time()
@@ -122,6 +147,10 @@ class SB3Backend:
             message = "Global interaction budget exhausted during training."
         train_time = time.time() - t0
         cb._on_step()  # flush episode log
+        if env.recorder is not None:  # close a recording cut short
+            env.recorder.close()
+            cb.videos.append(str(env.recorder.path))
+            env.recorder = None
         if cb.stagnated:
             message = (f"STOPPED EARLY: no reward improvement over the last "
                        f"{request.stagnation_episodes} episodes and no success. In a "
@@ -138,8 +167,11 @@ class SB3Backend:
         final_rewards: List[float] = []
         final_success = False
         if not budget_exhausted and not env.dropped and not cb.stagnated:
-            for _ in range(request.final_exec_attempts):
+            for attempt in range(request.final_exec_attempts):
                 try:
+                    if request.video_every and out_dir is not None:
+                        env.recorder = VideoRecorder(
+                            out_dir / f"final_execution_{attempt}.mp4", fps=20)
                     obs, _ = env.reset()
                     best = env.last_raw_reward
                     for _t in range(request.episode_length):
@@ -149,6 +181,10 @@ class SB3Backend:
                         if term or trunc:
                             break
                     final_rewards.append(float(best))
+                    if env.recorder is not None:
+                        env.recorder.close()
+                        cb.videos.append(str(env.recorder.path))
+                        env.recorder = None
                     if best >= 1.0:
                         final_success = True
                         break
@@ -180,8 +216,14 @@ class SB3Backend:
             message=message,
             episode_returns=returns,
             episode_max_rewards=[e["max_reward"] for e in env.episode_log],
+            videos=cb.videos,
         )
+        if env.recorder is not None:
+            env.recorder.close()
+            env.recorder = None
         if out_dir is not None:
+            (out_dir / "videos.txt").write_text("\n".join(cb.videos) + "\n"
+                                                if cb.videos else "")
             summary = {k: v for k, v in result.__dict__.items()}
             summary.update({"algo": algo, "algo_kwargs": {k: str(v) for k, v in kwargs.items()},
                             "train_time_s": train_time, "ik_failures": env.ik_failures,

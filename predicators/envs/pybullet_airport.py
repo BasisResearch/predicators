@@ -58,6 +58,12 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
     table_y: ClassVar[float] = 1.0
 
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
+        # Delay line on the button: the pusher obeys the button as it was
+        # pusher_delay_steps ago, so it starts that many steps after a press
+        # and keeps going that many steps after a release, retraction
+        # included. The agent has to model the lag rather than watch for
+        # immediate cause and effect.
+        self._button_history: List[bool] = []
         self._conveyor_id: int = -1
         self._button_id: int = -1
         self._button_stand_id: int = -1
@@ -167,6 +173,8 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
         return self._item_ids
 
     def _set_domain_specific_state(self, state: State) -> None:
+        # Episode boundary: nothing has reached the pusher yet.
+        self._button_history = []
         items = state.get_objects(self._item_type)
         # Unused items go out of view
         unused_items = [item for item in self._items if item not in items]
@@ -232,6 +240,8 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
 
     # Minimum normal force (N) on the button for it to count as pressed.
     button_press_force: ClassVar[float] = 0.5
+    # Actuation lag between the button and the pusher, in env steps.
+    pusher_delay_steps: ClassVar[int] = 20
 
     def _button_is_pressed(self) -> bool:
         """True while the robot pushes on the button's top face."""
@@ -241,6 +251,15 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
                                     physicsClientId=self._physics_client_id):
             total += c[9]
         return total >= self.button_press_force
+
+    def _delayed_button_state(self, pressed_now: bool) -> bool:
+        """Button state as the pusher sees it: pusher_delay_steps in the past."""
+        self._button_history.append(bool(pressed_now))
+        if len(self._button_history) > self.pusher_delay_steps + 1:
+            self._button_history.pop(0)
+        if len(self._button_history) <= self.pusher_delay_steps:
+            return False  # nothing has reached the pusher yet
+        return self._button_history[0]
 
     def _domain_specific_step(self) -> None:
         state = self._get_state()
@@ -267,8 +286,9 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
                     orn,
                     physicsClientId=self._physics_client_id)
 
-        # Pusher movement
-        is_pressed = state.get(self._button, "is_pressed") > 0.5
+        # Pusher movement, driven by the delayed button state.
+        is_pressed = self._delayed_button_state(
+            state.get(self._button, "is_pressed") > 0.5)
         pusher_pos, pusher_orn = p.getBasePositionAndOrientation(
             self._pusher_id, physicsClientId=self._physics_client_id)
         if is_pressed:

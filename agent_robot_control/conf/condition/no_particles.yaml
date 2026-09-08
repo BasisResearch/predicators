@@ -1,0 +1,2 @@
+name: no_particles
+tools: ["move_to", "wait"]

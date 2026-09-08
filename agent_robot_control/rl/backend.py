@@ -42,6 +42,10 @@ class RLRequest:
     stagnation_eps: float = 0.02
     final_exec_attempts: int = 3
     reward_clip: tuple = (-10.0, 1.0)
+    # Record one whole episode as video every this many interactions of the
+    # call (0 disables), plus the final policy execution. Rendering an episode
+    # costs about 3 s, so this is negligible next to the call itself.
+    video_every: int = 2000
     progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None
 
 
@@ -65,6 +69,7 @@ class RLResult:
     stagnated: bool = False
     episode_returns: List[float] = field(default_factory=list)
     episode_max_rewards: List[float] = field(default_factory=list)
+    videos: List[str] = field(default_factory=list)
 
     def summary(self) -> str:
         """Text for the tool result."""
@@ -92,6 +97,10 @@ class RLResult:
             lines.append("The overall interaction budget is exhausted.")
         if self.policy_path:
             lines.append(f"Policy saved to {self.policy_path}.")
+        if self.videos:
+            lines.append(f"{len(self.videos)} episode videos recorded in the "
+                         "call directory (episode_*.mp4), one every "
+                         "video_every interactions plus the final execution.")
         if self.message:
             lines.append(self.message)
         return "\n".join(lines)

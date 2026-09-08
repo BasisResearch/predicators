@@ -74,6 +74,11 @@ class ParticleEnv(gym.Env):
         self.force_violations = 0
         self._retract: Optional[np.ndarray] = None
         self._last_delta = np.zeros(3)
+        # Episode recording: when self.recorder is set, every env step appends
+        # a captioned frame. The backend turns it on for one episode every
+        # request.video_every interactions (see SB3Backend._maybe_record).
+        self.recorder = None
+        self.episode_index = 0
 
     # ── Observation / reward ────────────────────────────────────
 
@@ -94,6 +99,14 @@ class ParticleEnv(gym.Env):
             np.array([snap.gripper], dtype=np.float32),
         ]).astype(np.float32)
         return obs, raw
+
+    def _caption(self) -> str:
+        """Caption for a recorded frame: where the episode and reward stand."""
+        return (f"RL episode {self.episode_index} | step {self.t}/"
+                f"{self.req.episode_length} | interaction "
+                f"{self.session.interactions} | reward "
+                f"{self.last_raw_reward:+.3f} | "
+                f"{'GOAL' if self.session.goal_reached_now else 'running'}")
 
     # ── Gym API ─────────────────────────────────────────────────
 
@@ -145,6 +158,8 @@ class ParticleEnv(gym.Env):
             joints = self.ctl.robot.get_joints()
         self.session.step(self.ctl._action_from_joints(joints, finger_target))
         self.t += 1
+        if self.recorder is not None:
+            self.recorder.add(self.session.render(), self._caption())
         force, _bodies = self.ctl.contact_force()
         force_violation = force > self.ctl.max_contact_force
         if force_violation:
@@ -169,6 +184,7 @@ class ParticleEnv(gym.Env):
         terminated = success or dropped
         truncated = self.t >= self.req.episode_length
         if terminated or truncated:
+            self.episode_index += 1
             self.episode_log.append({
                 "return": self.episode_return,
                 "max_reward": float(self.episode_max_reward),

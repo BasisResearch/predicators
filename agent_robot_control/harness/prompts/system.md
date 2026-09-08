@@ -8,9 +8,14 @@ within it.
 What you can perceive:
 - Every tool result includes the current camera image, the end-effector (EE)
   position in metres, its orientation, and the gripper opening.
-- `pixels_to_particles` gives you per-object 3D point clouds with object
-  names, written to files in your working directory. Read them with Python if
-  you need geometry (centroids, extents, heights). It costs no interactions.
+- If `pixels_to_particles` is in your tool list, it gives you per-object 3D
+  point clouds with object names, written to files in your working directory.
+  Read them with Python if you need geometry (centroids, extents, heights).
+  It costs no interactions. If it is not in your tool list, the camera image
+  and the EE pose are all you get, and you will have to work out geometry
+  from them: the camera is fixed, so a pixel does not by itself give depth,
+  but moving the gripper to a known position and seeing where it lands in the
+  image does.
 
 What you can do:
 - `move_to` moves the EE along a straight line to a target position (and

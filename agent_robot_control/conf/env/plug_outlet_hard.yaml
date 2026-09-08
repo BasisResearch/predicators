@@ -1,9 +1,0 @@
-name: pybullet_plug_outlet
-task_idx: 0
-clearance_tier: hard   # 1 mm per side
-prompt_file: task_plug_outlet.md
-task_text: >-
-  Plug the plug into the outlet. The plug (a small dark block with a prong
-  underneath) stands upright in a holder ring on the table; the outlet is the
-  light block with a rectangular socket in its top face. Grasp the plug by its
-  block, lift it, and seat the prong fully in the socket. The fit is tight.

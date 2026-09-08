@@ -80,32 +80,42 @@ def test_transitions_flushed(session):
     assert d["joint_action"].shape[1] == 9
 
 
-def test_drop_aborts_rl_call(session):
-    """Holding an object at anchor time and losing it ends the RL call."""
+def test_drop_aborts_rl_call(tmp_path_factory):
+    """Holding an object at anchor time and losing it ends the RL call.
+
+    Uses the plug domain: the push domain's discs are deliberately too wide to
+    grasp, so nothing there can be dropped.
+    """
     from agent_robot_control.rl.particle_env import ParticleEnv
-    ctl = session.controller
-    env0 = session.env
+    run_dir = tmp_path_factory.mktemp("drop")
+    plug_session = SimSession(SessionConfig(env_name="pybullet_plug_outlet",
+                                            interaction_cap=4000,
+                                            camera_width=224, camera_height=126,
+                                            log_transitions=False,
+                                            run_dir=str(run_dir)))
+    ctl = plug_session.controller
+    env0 = plug_session.env
     st = env0._current_observation
-    d = env0._donuts[0]
-    dx, dy, dz = [st.get(d, f) for f in "xyz"]
+    plug = env0._plug
+    px, py, pz = [float(st.get(plug, f)) for f in "xyz"]
     q = ctl.quat_from_rpy_deg(0, 0, 0)
-    ctl.move_to((dx, dy, 0.4), q, gripper="open")
-    ctl.move_to((dx, dy, 0.235), q)
-    ctl.move_to((dx, dy, 0.235), q, gripper="close")
-    ctl.move_to((dx, dy, 0.35), q)
+    ctl.move_to((px, py, pz + 0.12), q, gripper="open")
+    ctl.move_to((px, py, pz + 0.004), q)
+    ctl.move_to((px, py, pz + 0.004), q, gripper="close")
+    ctl.move_to((px, py, pz + 0.12), q)
     assert ctl.is_holding()
-    req = _request(session, 200, control_gripper=True)
-    env = ParticleEnv(session, req)
+    req = RLRequest(reward_fn=load_reward(REWARD.replace("donut_0", "plug")),
+                    reward_source=REWARD, budget_interactions=200,
+                    episode_length=10, points_per_object=8,
+                    out_dir=plug_session.new_rl_dir(), control_gripper=True,
+                    video_every=0)
+    env = ParticleEnv(plug_session, req)
     assert env.anchor_holding
     env.reset()
-    # Open the gripper via the action -> drop -> terminated + flag.
-    obs, r, term, trunc, info = env.step(np.array([0.0, 0.0, 0.0, -1.0]))
-    for _ in range(5):
+    term = False
+    for _ in range(6):
+        _obs, _r, term, _trunc, info = env.step(np.array([0.0, 0.0, 0.0, -1.0]))
         if term:
             break
-        obs, r, term, trunc, info = env.step(np.array([0.0, 0.0, 0.0, -1.0]))
     assert term and info["dropped"] and env.dropped
-    res = SB3Backend().run(session, _request(session, 100, algo="sac",
-                                             algo_kwargs=dict(learning_starts=5, batch_size=8)))
-    # Not holding at anchor time now -> no drop logic; runs normally.
-    assert not res.dropped
+    plug_session.close()

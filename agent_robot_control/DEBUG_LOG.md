@@ -381,3 +381,35 @@ event logs and rendered to video. Every one reproduced its logged
 first-success interaction exactly, with zero per-call step-count mismatches,
 which also validates that the interaction accounting in `SimSession` is
 faithful and that the runs contain no hidden nondeterminism outside RL.
+
+## 22. Sweep 2 feasibility gates (2026-09-08)
+
+Each domain change was gated with a ground-truth oracle before any Opus budget
+was spent. Three of the four gates failed first time, for reasons worth
+keeping.
+
+**Three-leg plug, first attempt: 0/5 at every clearance from 5 mm down.** The
+oracle jammed at about 9 mm of depth with 900 N of contact. Cause: the finger
+pads hang about 32 mm below the end-effector frame, so with 20 mm legs the
+gripper reached the outlet plate before the legs were deep enough. Fix: 30 mm
+blades and a 32 mm ground pin, which leaves the pads 4.5 mm clear of the plate
+at full depth. Second attempt: 4.0 mm clearance inserts 5/5 at zero contact
+force, 3.0 mm only 3/5, and 2.5 mm and below jam at about 900 N with the plug
+8 degrees off square. The floor is the plug tilting in the jaws, not the hole
+size, so the sweep runs at 4.0 mm. Misalignment probe there: 3 mm lateral
+error still inserts 3/3, 5 mm inserts 1/3, and a 15 degree yaw error never
+inserts. The yaw constraint is what a single prong never demanded.
+
+**Donut push, first attempt: 0/3, though the discs travelled most of the way.**
+Two separate faults. The oracle pushed with the end effector at table + 20 mm,
+which puts the finger pads 12 mm *below* the table surface, so the arm was
+skidding its pads on the table rather than pushing the disc; pushing height is
+now table + 45 mm. And the goal disc started at y = 0.28, which puts the
+pose behind it (about 12 cm further back) outside the arm's reachable band, so
+one seed never made contact at all; the disc now starts at y = 0.35.
+
+**Airport press window with the 20-step lag.** Leads of 0.60 to 0.70 m succeed
+where 0.30 to 0.50 m all fail, so the delay moved the working press about
+20 cm upstream, exactly the belt travel during the lag. The window itself
+stayed roughly as wide as before, which is the point: the task is harder
+because the agent must anticipate, not because the target got smaller.

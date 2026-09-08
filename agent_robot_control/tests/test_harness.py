@@ -47,7 +47,7 @@ def test_claude_code_command_and_mcp_config(tmp_path):
     assert "--strict-mcp-config" in joined and "--output-format stream-json" in joined
     assert "mcp__robot__run_rl_on_particles" in joined
     assert "mcp__robot__run_model_based_rl_on_particles" not in joined
-    assert "--model claude-sonnet-5" in joined
+    assert "--model claude-opus-5" in joined
 
 
 def test_opencode_config(tmp_path):
@@ -67,7 +67,7 @@ def test_prompt_renders_tools_and_budget(tmp_path):
     cfg = _cfg(tmp_path, "env=airport", "condition=move_to", "server.interaction_cap=1234")
     text = render_task_prompt(cfg, tmp_path, tmp_path / "initial.png", "Robot now: ok",
                               list(cfg.condition.tools))
-    assert "item_2" in text and "1234" in text and "`move_to`" in text and "`wait`" in text
+    assert "blue cube" in text and "1234" in text and "`move_to`" in text and "`wait`" in text
     assert "run_rl_on_particles" not in text
 
 
@@ -85,3 +85,35 @@ def test_stream_json_parser(tmp_path):
     assert parsed["turns"] == 2 and parsed["tool_calls"] == {"mcp__robot__move_to": 1}
     assert parsed["cost_usd"] == 0.5 and parsed["final_text"] == "done"
     assert "Tool call" in parsed["markdown"]
+
+
+def test_no_particles_condition_hides_the_particle_tool(tmp_path):
+    """The tightest condition gets motion only: no particles, no RL."""
+    cfg = _cfg(tmp_path, "env=plug_outlet", "condition=no_particles")
+    assert list(cfg.condition.tools) == ["move_to", "wait"]
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    mcp = claude_code.write_mcp_config(run_dir)
+    sys_file = run_dir / "system.md"
+    sys_file.write_text("x")
+    cmd = claude_code.build_command(cfg, run_dir, "do it", mcp, sys_file,
+                                    list(cfg.condition.tools))
+    joined = " ".join(cmd)
+    assert "mcp__robot__move_to" in joined and "mcp__robot__wait" in joined
+    assert "pixels_to_particles" not in joined
+    assert "run_rl_on_particles" not in joined
+
+
+def test_budget_cap_is_detected(tmp_path):
+    """A run stopped by --max-budget-usd is a resource stop, not a failure."""
+    import json
+    lines = [
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "working"}]}},
+        {"type": "result", "subtype": "error_max_budget_usd", "num_turns": 40,
+         "total_cost_usd": 20.0, "result": "Budget limit reached"},
+    ]
+    p = tmp_path / "t.jsonl"
+    p.write_text("\n".join(json.dumps(l) for l in lines))
+    parsed = claude_code.parse_stream_json(p)
+    assert parsed["budget_cap"] is True
+    assert parsed["account_limit"] is False

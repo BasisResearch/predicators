@@ -86,6 +86,7 @@ def parse_stream_json(path: Path) -> Dict[str, Any]:
     final_text = ""
     cost = None
     account_limit = False
+    budget_cap = False
     md: List[str] = ["# Transcript\n"]
     for line in path.read_text(errors="replace").splitlines():
         line = line.strip()
@@ -126,14 +127,19 @@ def parse_stream_json(path: Path) -> Dict[str, Any]:
             cost = ev.get("total_cost_usd", ev.get("cost_usd"))
             if ev.get("result"):
                 final_text = ev["result"]
-            if "session limit" in str(ev.get("result", "")).lower() or \
-                    "usage limit" in str(ev.get("result", "")).lower():
+            text = str(ev.get("result", "")).lower()
+            subtype = str(ev.get("subtype", "")).lower()
+            if "session limit" in text or "usage limit" in text:
                 account_limit = True
+            # The run stopped because it reached the --max-budget-usd we set.
+            # That is a resource limit we chose, not a task failure.
+            if "budget" in subtype or "budget" in text:
+                budget_cap = True
             md.append(f"**Result:** {ev.get('subtype')} turns={ev.get('num_turns')} "
                       f"cost=${cost} duration_ms={ev.get('duration_ms')}\n")
     return {"turns": turns, "tool_calls": tool_calls, "final_text": final_text,
             "cost_usd": cost, "account_limit": account_limit,
-            "markdown": "\n".join(md)}
+            "budget_cap": budget_cap, "markdown": "\n".join(md)}
 
 
 def run_claude_code(cfg: DictConfig, run_dir: Path, tool_names: List[str]) -> HarnessOutcome:
@@ -179,4 +185,5 @@ def run_claude_code(cfg: DictConfig, run_dir: Path, tool_names: List[str]) -> Ha
                           tool_call_counts=parsed.get("tool_calls", {}),
                           final_text=parsed.get("final_text", ""),
                           cost_usd=parsed.get("cost_usd"),
-                          extra={"account_limit": parsed.get("account_limit", False)})
+                          extra={"account_limit": parsed.get("account_limit", False),
+                                 "budget_cap": parsed.get("budget_cap", False)})

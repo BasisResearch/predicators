@@ -24,7 +24,7 @@ def load_results(root: Path) -> List[dict]:
         except json.JSONDecodeError:
             continue
         if r.get("invalid"):
-            continue  # truncated by the account usage limit
+            continue  # truncated by the account usage limit or the spend cap
         if "env" in r and "condition" in r:
             r["_path"] = str(p)
             # Run dirs are <env><tier>/<condition>/<harness>/seed_k; the dir

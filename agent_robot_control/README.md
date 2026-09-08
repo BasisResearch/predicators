@@ -17,9 +17,11 @@ every failure we hit and why.
 | `slurm/` | `run_one.sub`, `rl_pilot.sub`, `make_videos*.sub`, `submit_sweep.py` (array job). CPU jobs use `default_partition`; GPU work uses the `gpu` partition |
 | `tests/` | pytest suite; runs on the login node in ~2 min |
 
-Envs live in `predicators/envs/`: `pybullet_airport.py` (looping belt,
-`OnTable` goal), `pybullet_donut.py` (8 live donuts, `InTarget` goal),
-`pybullet_plug_outlet.py` (new insertion task, `PluggedIn` goal).
+Envs live in `predicators/envs/`: `pybullet_airport.py` (looping belt, delayed
+pusher, `OnTable` goal), `pybullet_donut.py` (long-table push with ungraspable
+discs, `InTarget` goal), `pybullet_plug_outlet.py` (US three-leg insertion,
+`PluggedIn` goal). Each has a ground-truth oracle under `experiments/` that
+gates feasibility: `plug_oracle`, `donut_oracle`, `airport_oracle`.
 
 ## Running
 

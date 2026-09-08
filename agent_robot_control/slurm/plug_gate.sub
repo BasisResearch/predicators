@@ -1,17 +1,17 @@
 #!/bin/bash
-#SBATCH -J rl_pilot
+#SBATCH -J plug_gate
 #SBATCH -o logs/%j.out
 #SBATCH -e logs/%j.err
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=1
 #SBATCH --get-user-env
-#SBATCH --mem=16000
-#SBATCH -t 12:00:00
+#SBATCH --mem=2000
+#SBATCH -t 02:00:00
 #SBATCH --partition=ellis,gpu,default_partition
-# Usage: sbatch agent_robot_control/slurm/rl_pilot.sub --task plug_insert --algo sac --seed 0
+
 cd /home/wp237/predicators
 export PYTHONHASHSEED=0
 export OPENBLAS_NUM_THREADS=1
 mkdir -p logs
-uv run python -m agent_robot_control.experiments.rl_pilot "$@"
+uv run python -m "${ORACLE:-agent_robot_control.experiments.plug_oracle}" "$@"

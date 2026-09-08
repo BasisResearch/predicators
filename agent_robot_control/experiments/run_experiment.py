@@ -92,7 +92,11 @@ def run(cfg: DictConfig) -> Dict[str, Any]:
         # The Claude account's usage cap ended the session: the run is not a
         # valid measurement (unless the goal was already reached).
         "account_limit_hit": bool(outcome.extra.get("account_limit")),
-        "invalid": bool(outcome.extra.get("account_limit")) and not sim.get("goal_reached_ever", False),
+        # Reaching the per-run spending cap is a resource stop we chose: it is
+        # reported separately rather than counted as a task failure.
+        "budget_cap_hit": bool(outcome.extra.get("budget_cap")),
+        "invalid": (bool(outcome.extra.get("account_limit"))
+                    or bool(outcome.extra.get("budget_cap"))) and not sim.get("goal_reached_ever", False),
     }
     if merged["invalid"]:
         log.warning("run truncated by the account usage limit; marked invalid")
