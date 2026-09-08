@@ -814,7 +814,7 @@ def test_observation_noise_channel(tmp_path: Any, monkeypatch: Any) -> None:
                 assert prev[0]["states"][1].allclose(seen["frame1"])
                 OracleController(approach).play_level(session)
                 return
-            truth = run._runner.observation()  # pylint: disable=protected-access
+            truth = session.observe_truth().frame
             obs = session.observe()
             frame = obs.frame
             assert frame is not truth
@@ -890,3 +890,38 @@ def test_scorecard_records_the_observation_noise() -> None:
     assert exact.obs_noise_position == 0.0
     assert exact.obs_noise_orientation == 0.0
     assert exact.obs_noise_declared is True
+
+
+def test_exact_observation_view_is_the_sanitized_state(tmp_path: Any) -> None:
+    """Without a noise channel the agent's frame is still not the true
+    object: it is the recording's sanitized form, one cached object per step,
+    with the observable data intact and the privileged block dropped, and the
+    level's data is built from those same objects."""
+    _config(tmp_path, "oracle", num_test_tasks=1)
+    env, approach = _make("oracle")
+
+    class _Probe:
+
+        def play_level(self, session: ProtocolSession) -> None:
+            if session.level_index > 0:
+                OracleController(approach).play_level(session)
+                return
+            truth = session.observe_truth().frame
+            frame = session.observe().frame
+            assert frame is not truth
+            assert frame.allclose(truth)
+            assert frame.privileged is None
+            assert session.observe().frame is frame, "one view per step"
+            assert session.level_episodes()[0]["states"][0] is frame
+            # A state carrying hidden env truth loses it in the view.
+            hidden = truth.copy()
+            hidden.privileged = {"jug0": {"heat_level": 1.0}}
+            view = run._observed(hidden, 0, 0, 999)  # pylint: disable=protected-access
+            assert view.privileged is None and view.allclose(hidden)
+            assert run._observed(hidden, 0, 0, 999) is view  # pylint: disable=protected-access
+            OracleController(approach).play_level(session)
+            assert session.level_card().won
+
+    run = ContinualRun(env, approach, _Probe())
+    card = run.run()
+    assert card.end_reason == "all_levels_won"

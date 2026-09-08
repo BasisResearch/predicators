@@ -223,6 +223,7 @@ Step 1 of section 7 landed on 2026-09-07 (branch `bridge-learning`).
 
 - `predicators/observation_noise.py` is the channel: the feature classes, the per-step keyed generator, `perturb` (the agent's view of a state) and `residual_scale` (the fit's fold).
 - `ContinualRun` in `predicators/run/continual.py` keeps one observed view per (level, episode, step) and hands it to everything agent-facing: the frame of `observe`, the atoms an invocation reports against its expected outcome, `level_episodes` and `previous_level_episodes`, which are the source of `data/trajectories.pkl`, the `run_python` trajectories and `sim.fit`.
+  The view is never the true object: it is the recording's sanitized form of the state (observable data plus the robot's joint data, no privileged block, no engine handles), with the channel's draw on top when noise is declared, so what a partially observable env hides never reaches the agent's data (decided 2026-09-07 after the boil heat finding below).
   The protocol's own atoms, the evaluators, the checkpoint, the recording and the render stay on the true state.
 - The observed frames are not stored: they are reproducible from the run seed, the step coordinates and the true states in `episodes.pkl`, and the level's `level_start` index entry records the channel.
 - Skill controllers servo on the true state.

@@ -31,7 +31,8 @@ from predicators.observation_noise import ObservationNoise, noise_or_none, \
 from predicators.run import paths
 from predicators.run.episode import EpisodeOver, EpisodeRunner, EpisodeState, \
     InvocationOutcome, StepOutcome
-from predicators.run.recording import LevelRecording, states_close
+from predicators.run.recording import LevelRecording, sanitize_state, \
+    states_close
 from predicators.run.scorecard import EpisodeRecord, LevelCard, RunCard
 from predicators.settings import CFG
 from predicators.structs import Action, Dataset, EnvironmentTask, \
@@ -561,8 +562,8 @@ class ContinualRun:
 
         ``truth`` hands out the true state as the frame: the reference
         arms' view (the oracle is the exact-perception upper bound),
-        never an agent's, which sees the observation-noise channel's
-        draw.
+        never an agent's, which sees the sanitized view and, under the
+        observation-noise channel, its draw.
         """
         runner, lv = self._require_level()
         true_state = runner.observation()
@@ -649,19 +650,26 @@ class ContinualRun:
         """The agent's view of ``state``, the true state at ``step`` of
         ``episode`` on ``level``.
 
-        The true object itself when observations are exact; otherwise
-        the channel's draw for that step, keyed by the run seed and the
+        Never the true object: the view is the recording's sanitized
+        form of the state (the observable data plus the robot's own
+        joint data, no privileged block, no engine handles), so what a
+        partially observable env hides (boil's heat) reaches neither the
+        agent's data nor the belief simulator it seeds from a frame.
+        Under exact observations that is all; otherwise the channel
+        draws the step's noise on top, keyed by the run seed and the
         step's coordinates, so a replayed or resumed run observes the
-        same frames, and cached so every reader of one step (the free
-        observe, the invocation's atoms, the data file) sees one draw.
+        same frames. Either way the view is cached so every reader of
+        one step (the free observe, the invocation's atoms, the data
+        file) sees one object.
         """
-        if self._noise is None:
-            return state
         key = (level, episode, step)
         view = self._observed_views.get(key)
         if view is None:
-            view = self._noise.perturb(
-                state, step_rng(CFG.seed, level, episode, step))
+            if self._noise is None:
+                view = sanitize_state(state)
+            else:
+                view = self._noise.perturb(
+                    state, step_rng(CFG.seed, level, episode, step))
             self._observed_views[key] = view
         return view
 
