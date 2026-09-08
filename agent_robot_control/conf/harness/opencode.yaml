@@ -1,0 +1,6 @@
+name: opencode
+binary: opencode
+model: anthropic/claude-sonnet-5
+max_turns: 60
+wall_clock_limit_s: 36000
+mcp_tool_timeout_ms: 21600000

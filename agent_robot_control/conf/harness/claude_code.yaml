@@ -1,0 +1,8 @@
+name: claude_code
+binary: claude
+model: claude-sonnet-5
+max_turns: 120
+max_budget_usd: 8.0
+wall_clock_limit_s: 36000
+mcp_tool_timeout_ms: 21600000   # 6 h; RL calls are long
+allowed_builtin_tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash(python*)", "Bash(ls*)", "Bash(cat*)"]

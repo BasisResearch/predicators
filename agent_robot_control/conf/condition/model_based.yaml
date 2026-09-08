@@ -1,0 +1,2 @@
+name: model_based
+tools: ["move_to", "wait", "pixels_to_particles", "run_rl_on_particles", "run_model_based_rl_on_particles"]

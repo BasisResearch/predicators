@@ -1,0 +1,16 @@
+algo: sac
+points_per_object: 32
+max_step_translation: 0.01
+max_step_yaw_deg: 5.0
+early_stop_successes: 5
+early_stop_window: 8
+final_exec_attempts: 3
+stagnation_episodes: 40
+stagnation_eps: 0.02
+algo_kwargs:
+  learning_rate: 3e-4
+  learning_starts: 500
+  batch_size: 256
+  gamma: 0.95
+  train_freq: 1
+  gradient_steps: 1

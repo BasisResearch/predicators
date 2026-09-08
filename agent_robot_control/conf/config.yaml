@@ -1,0 +1,30 @@
+defaults:
+  - env: donut
+  - harness: claude_code
+  - condition: model_free
+  - rl: sac
+  - _self_
+
+seed: 0
+# Where runs go: <output_root>/<env>/<condition>/<harness>/seed_<k>.
+# Must be OUTSIDE the predicators repo (the harness runs with cwd there and
+# would otherwise see the repo's CLAUDE.md, memory and source).
+output_root: ${oc.env:ARC_OUTPUT_ROOT,${oc.env:HOME}/arc_outputs}
+run_dir: ${output_root}/${env.name}${oc.select:env.clearance_tier,""}/${condition.name}/${harness.name}/seed_${seed}
+
+server:
+  interaction_cap: 100000
+  camera_width: 335
+  camera_height: 180
+  particles_per_object: 64
+  log_transitions: true
+  transition_particles_per_object: 32
+  use_urdf_torque_limits: true
+  torque_limit_scale: 3.0
+  max_contact_force: 80.0   # N; emulated compliant-controller force limit
+
+hydra:
+  run:
+    dir: ${run_dir}/hydra
+  job:
+    chdir: false

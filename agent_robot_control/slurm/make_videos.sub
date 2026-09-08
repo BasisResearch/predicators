@@ -1,0 +1,53 @@
+#!/bin/bash
+#SBATCH -J arc_videos
+#SBATCH -o logs/%A_%a.out
+#SBATCH -e logs/%A_%a.err
+#SBATCH -N 1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=1
+#SBATCH --get-user-env
+# 1.5 GB is enough for one PyBullet render process; ellis-compute-01 often
+# has idle CPUs but only ~3.5 GB of unallocated memory, so a bigger request
+# is what keeps these tasks queued (see DEBUG_LOG 20).
+#SBATCH --mem=1500
+#SBATCH -t 01:00:00
+# Both pools: default_partition is tier 10, so its free nodes are held for
+# the groups' tier-20 partitions; ellis is tier 20 for this account but small.
+# Listing both lets Slurm start each task wherever a slot frees first.
+# Tiers here: ellis 20, gpu 15, default_partition 10. Listing all three lets
+# a CPU-only task start wherever capacity frees first.
+#SBATCH --partition=ellis,gpu,default_partition
+#SBATCH --array=0-11%4
+
+# Render a replay video of every successful run that is deterministically
+# replayable up to its first success (see experiments/replay.py). One array
+# task per video. Usage: sbatch agent_robot_control/slurm/make_videos.sub [outdir]
+cd /home/wp237/predicators
+export PYTHONHASHSEED=0
+export OPENBLAS_NUM_THREADS=1
+OUT=${1:-$HOME/arc_outputs/videos}
+A=$HOME/arc_outputs
+mkdir -p "$OUT" logs
+
+# name:run_dir
+RUNS=(
+  "donut_move_to_seed0:$A/pybullet_donut/move_to/claude_code/seed_0"
+  "donut_move_to_seed1:$A/pybullet_donut/move_to/claude_code/seed_1"
+  "donut_move_to_seed2:$A/pybullet_donut/move_to/claude_code/seed_2"
+  "donut_model_free_seed0:$A/pybullet_donut/model_free/claude_code/seed_0"
+  "donut_model_free_seed1:$A/pybullet_donut/model_free/claude_code/seed_1"
+  "donut_model_free_seed2:$A/pybullet_donut/model_free/claude_code/seed_2"
+  "plug_hard_move_to_seed0:$A/pybullet_plug_outlethard/move_to/claude_code/seed_0"
+  "plug_hard_move_to_seed2:$A/pybullet_plug_outlethard/move_to/claude_code/seed_2"
+  "plug_medium_move_to_seed1:$A/pybullet_plug_outletmedium/move_to/claude_code/seed_1"
+  "airport_move_to_seed1:$A/pybullet_airport/move_to/claude_code/seed_1"
+  "airport_move_to_seed2:$A/pybullet_airport/move_to/claude_code/seed_2"
+  "airport_model_free_seed2:$A/pybullet_airport/model_free/claude_code/seed_2"
+)
+
+ENTRY=${RUNS[$SLURM_ARRAY_TASK_ID]}
+NAME=${ENTRY%%:*}
+DIR=${ENTRY#*:}
+echo "task $SLURM_ARRAY_TASK_ID: $NAME <- $DIR"
+uv run python -m agent_robot_control.experiments.replay "$DIR" \
+    --video "$OUT/$NAME.mp4" --camera 640x360 --fps 30 --stop-at-success

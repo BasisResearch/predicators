@@ -1,0 +1,8 @@
+name: pybullet_airport
+task_idx: 2
+prompt_file: task_airport.md
+task_text: >-
+  Get item_2 off the conveyor belt and onto the brown table next to it. The
+  belt loops, so items keep coming around. You may push the item off the belt
+  with the gripper, or press the red button (which extends the yellow pusher
+  across the belt while it is held down).
