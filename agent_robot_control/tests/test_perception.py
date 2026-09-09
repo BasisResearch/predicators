@@ -83,3 +83,21 @@ def test_flatten_particles_pads_and_masks():
     pts, vis = flatten_particles(snap, names, 8, origin=np.zeros(3))
     assert pts.shape == (3, 8, 3) and vis.shape == (3, 8)
     assert vis[0].sum() == 8 and vis[1].sum() == 0  # donut_7 parked far away
+
+
+def test_video_recorder_handles_odd_frame_sizes(tmp_path):
+    """libx264 rejects odd dimensions and the default camera is 335 px wide.
+
+    Without padding, ffmpeg dies with a broken pipe on the first frame, which
+    is what killed every RL call in sweep 2 (DEBUG_LOG 25).
+    """
+    from agent_robot_control.experiments.replay import VideoRecorder
+    rng = np.random.default_rng(0)
+    out = tmp_path / "odd.mp4"
+    rec = VideoRecorder(out, fps=20)
+    for i in range(6):
+        frame = rng.integers(0, 255, (180, 335, 3), dtype=np.uint8)
+        rec.add(frame, f"frame {i}")
+    rec.close()
+    assert out.exists() and out.stat().st_size > 2000, out.stat().st_size
+    assert rec.frames == 6

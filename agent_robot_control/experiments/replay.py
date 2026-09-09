@@ -43,13 +43,21 @@ class VideoRecorder:
                                           macro_block_size=1, quality=8)
 
     def add(self, rgb: np.ndarray, caption: str) -> None:
-        """Append one frame with ``caption`` drawn under the image."""
+        """Append one frame with ``caption`` drawn under the image.
+
+        The canvas is padded to even width and height: libx264 rejects odd
+        dimensions, and the simulator's default camera is 335 px wide, so
+        without this ffmpeg dies with a broken pipe on the first frame (which
+        took out every RL call in sweep 2 -- see DEBUG_LOG 25).
+        """
         from PIL import Image, ImageDraw
         self.calls += 1
         if (self.calls - 1) % self.every:
             return
         h, w = rgb.shape[:2]
-        canvas = Image.new("RGB", (w, h + CAPTION_H), (16, 16, 16))
+        pad_w = w + (w % 2)
+        canvas = Image.new("RGB", (pad_w, (h + CAPTION_H) + ((h + CAPTION_H) % 2)),
+                           (16, 16, 16))
         canvas.paste(Image.fromarray(rgb), (0, 0))
         draw = ImageDraw.Draw(canvas)
         draw.text((6, h + 6), caption[:120], fill=(235, 235, 235))

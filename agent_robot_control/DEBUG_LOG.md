@@ -459,3 +459,28 @@ Two lessons for handling it:
 Resubmitted the 18 at two concurrent rather than three. The one run that hit
 the $20 spend cap ($19.94, donut `no_particles` seed 0) was left as a reported
 capped result rather than re-run.
+
+## 25. My episode recorder killed every RL call in sweep 2 (2026-09-09)
+
+**Symptom.** Sweep 2 appeared to show the RL tool being called only three
+times in 23 runs. All three calls ended in `rl_error` within six interactions,
+and their `episode_0000.mp4` files were 0 bytes. The agents were shown:
+`RL backend failed with an internal error: [Errno 32] Broken pipe`.
+
+**Cause.** The new periodic episode recorder opens an ffmpeg writer with
+`macro_block_size=1`, so no padding is applied, and the simulator's camera is
+335 px wide. libx264 rejects odd dimensions, so ffmpeg exited immediately and
+the first frame write hit a broken pipe, which propagated out of
+`ParticleEnv.step` and aborted the call. The local smoke test passed only
+because it used a 224-wide camera.
+
+**Fix.** The recorder pads the canvas to even width and height. Verified at
+the real 335x180 camera: four episode videos, 17 to 20 KB each. Guard:
+`tests/test_perception.py::test_video_recorder_handles_odd_frame_sizes`.
+
+**Consequence for the results.** In the six `model_free` runs that never
+called RL, nothing was affected. The two runs that did call it, donut
+`model_free` seed 0 (two calls) and airport `model_free` seed 0 (one call),
+had those calls fail through no fault of the agent, so they are re-run. Note
+what the transparency bought: because the tool reported the real error, the
+donut agent abandoned RL and still solved the task by pushing.
