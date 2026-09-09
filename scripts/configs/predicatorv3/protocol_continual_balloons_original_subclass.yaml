@@ -1,0 +1,83 @@
+# Latest subclass MB on the original noisy task distribution; reuse existing MF.
+{
+  "START_SEED": 0,
+  "NUM_SEEDS": 2,
+  "ARGS": [
+    "debug",
+    "make_failure_videos",
+    "make_test_videos",
+    "make_interaction_videos",
+    "auto_resume"
+  ],
+  "FLAGS": {
+    "num_online_learning_cycles": 5,
+    "online_learning_early_stopping": true,
+    "online_learning_early_stopping_require_all_attempts": true,
+    "online_learning_early_stopping_skip_redundant_test": true,
+    "online_nsrt_learning_requests_per_cycle": 2,
+    "skill_phase_use_motion_planning": true,
+    "max_num_steps_interaction_request": 500,
+    "pretrained_model_service_provider": "openrouter",
+    "llm_model_name": "google/gemini-2.5-pro",
+    "llm_openai_max_response_tokens": "1e6",
+    "terminate_on_goal_reached": false,
+    "pybullet_ik_validate": false,
+    "num_train_tasks": 2,
+    "num_test_tasks": 1,
+    "video_fps": 20,
+    "pybullet_camera_height": 900,
+    "pybullet_camera_width": 900,
+    "planning_filter_unreachable_nsrt": false,
+    "timeout": 600,
+    "log": "/home/ycliang/predicators/logs/",
+    "no_repeated_arguments_in_grounding": true,
+    "experiment_protocol": "continual",
+    "continual_levels": "train_then_test",
+    "continual_steps_per_level": 5000,
+    "continual_wall_clock_hours": 48.0,
+    "continual_render": true,
+    "continual_make_video": true,
+    "test_fresh_env_per_episode": true,
+    "continual_runs_dir": "/home/ycliang/predicators/logs",
+    "continual_obs_noise_position": 0.01,
+    "continual_obs_noise_orientation": 0.02,
+    "continual_obs_noise_scalar": 0.0,
+    "continual_obs_noise_declared": true,
+    "code_sim_learning_interval_belief": true,
+    "agent_explorer_info_seeking_noise_aware": true,
+    "code_sim_learning_rollout_noise_filter": true,
+    "code_sim_learning_carry_posterior": true,
+    "code_sim_learning_fit_evidence": true,
+    "continual_belief_frame": true,
+    "agent_sdk_use_local_sandbox": true,
+    "partially_observable": true,
+    "agent_sdk_max_agent_turns_per_iteration": 10000,
+    "agent_sdk_image_max_px": 900,
+    "agent_bilevel_use_llm_initial_params": true,
+    "agent_solve_use_journal": true,
+    "agent_validation_parallel_workers": 6,
+    "code_sim_learning_rollout_min_posterior_width": 0.1,
+    "continual_max_idle_rounds": 5,
+    "agent_plan_validation_rule_param_margin": true,
+    "agent_explorer_info_seeking": true,
+    "agent_explorer_info_seeking_adaptive": true,
+    "max_initial_demos": 0,
+    "horizon": 1500,
+    "sesame_check_expected_atoms": false,
+    "pybullet_birrt_path_subsample_ratio": 2,
+    "balloons_require_jam_decoy": true,
+    "agent_model_repair": true,
+    "balloons_scene": "chute",
+    "balloons_task_generation": "original"
+  },
+  "ENVS": {
+    "balloons": {
+      "NAME": "pybullet_balloons"
+    }
+  },
+  "APPROACHES": {
+    "agent_continual_original_subclass_r1": {
+      "NAME": "agent_continual"
+    }
+  }
+}

@@ -130,6 +130,15 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
     """A balloon puzzle whose lifts, fade and box masses must be learned."""
 
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
+        if CFG.balloons_task_generation not in ("original", "validated"):
+            raise ValueError("balloons_task_generation must be "
+                             "original or validated")
+        if (CFG.balloons_task_generation == "original"
+                and CFG.balloons_scene != "chute"):
+            raise ValueError(
+                "Original task generation requires balloons_scene=chute")
+        self._original_solution_cache: Dict[Tuple[Any, ...],
+                                            Optional[Tuple[int, ...]]] = {}
         self._candidate_cache: Dict[Tuple[Any, ...],
                                     Dict[Tuple[int, ...],
                                          List[BalloonsProbeOutcome]]] = {}
@@ -457,11 +466,17 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         }
 
     def solution_subset(self, state: State) -> Optional[Tuple[int, ...]]:
-        """A canonical reference whose tested Release orders all win.
+        """Select a reference using the configured task-generation criteria.
 
-        Prefer fewer releases, then lexicographic order. Multiple
-        winning subsets are allowed and scored by the same evaluator.
+        Validated tasks require every tested order of the reference to
+        win, preferring fewer releases and then lexicographic order.
+        Original tasks retain the historical simultaneous-release
+        screen.
         """
+        if CFG.balloons_task_generation == "original":
+            from predicators.envs.balloons_original_tasks import \
+                solution_subset  # pylint: disable=import-outside-toplevel
+            return solution_subset(self, state)
         candidates = self.candidate_outcomes(state)
         robust = [
             subset for subset, outcomes in candidates.items()
@@ -672,6 +687,10 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                     train: bool) -> List[EnvironmentTask]:
         # pylint: disable-next=import-outside-toplevel
         from predicators.ground_truth_models.balloons.oracle import solve_level
+        if CFG.balloons_task_generation == "original":
+            from predicators.envs.balloons_original_tasks import \
+                make_tasks  # pylint: disable=import-outside-toplevel
+            return make_tasks(self, num_tasks, rng, train)
         counts = list(CFG.balloons_num_balloons_train if train else CFG.
                       balloons_num_balloons_test)
         box_colors = list(CFG.balloons_box_colors_train if train else CFG.

@@ -1335,6 +1335,9 @@ class GlobalSettings:
     # Half the band's height.
     # Opt-in cargo-through-hatch prototype; the historical scene is unchanged.
     balloons_scene = "chute"
+    # Selection distribution: historical simultaneous-release screening versus
+    # current public-controller validation. Original is only valid with chute.
+    balloons_task_generation = "validated"
     balloons_hatch_box_half_extents = [0.10, 0.035, 0.018]
     balloons_hatch_attach_span = 0.09
     balloons_hatch_half_gap = 0.085
