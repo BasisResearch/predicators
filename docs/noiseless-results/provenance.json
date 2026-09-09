@@ -1,0 +1,14 @@
+{
+  "source_branch": "bridge-learning",
+  "source_branch_tip": "08614daa0cd14d767f882c27240c600d9b9e8189",
+  "note": "Integration milestone containing archived results, not one identical execution revision for all 30 runs. The r2 jobs ran from an uncommitted worktree; original run metadata is preserved in scorecard_snapshots.json. See manifest.json for arm/version differences.",
+  "artifacts_sha256": {
+    "manifest.json": "27286e6253fe9c5463f738a673dd74940878571a00434e23de0777db3004d70e",
+    "mb_vs_mf.pdf": "b34a4e18c59da92eaf974fdf39ce0850e66bf1db1b56c1b7943a85158c6f23a0",
+    "mb_vs_mf.png": "2d1cb8aad6bc0a12707ab6f772c8628e1b15ba30f4bdc22bcaa8a667cb68f57b",
+    "mb_vs_mf.svg": "7ed49f17532ad97fb116c410e4c8b62ab08d0cb9762653e036c190be6a3f30ae",
+    "per_seed.csv": "d6adf6fdb47252e06a81ef5271b45274b6e9b6c0a3f9dceda88982a6a2485238",
+    "scorecard_snapshots.json": "0216d150488e0237f5fd3208c24484d55353fda30bf4349af3465f212a1deb4c",
+    "summary.csv": "b717da512937e62cfa5c67581a98b7e0bcd81e85ae861a2870560c140bb7cd53"
+  }
+}

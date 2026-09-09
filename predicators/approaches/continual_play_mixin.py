@@ -54,9 +54,9 @@ from predicators.agent_sdk.play_prompts import build_play_query, \
     build_play_system_prompt, render_data_status
 from predicators.agent_sdk.session_base import AgentSessionFatalError, \
     query_fatal_error
-from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
-    PlayState, build_continual_tools, context_status, format_observation, \
-    visible_goal
+from predicators.agent_sdk.tools.continual_tools import \
+    ALL_CONTINUAL_TOOL_NAMES, PlayState, build_continual_tools, \
+    context_status, format_observation, visible_goal
 from predicators.agent_sdk.tools.digests import render_options_digest, \
     render_types_digest
 from predicators.run import paths
@@ -277,7 +277,7 @@ class ContinualPlayMixin:
             save_render=self._save_render,
             tool_names=[
                 n for n in self._continual_tool_names()
-                if n in CONTINUAL_TOOL_NAMES
+                if n in ALL_CONTINUAL_TOOL_NAMES
             ]) + list(extra_tools)
         ctx.extra_session_hooks = self._round_hooks(session)
         # A checkpoint taken mid-round means a preemption: the round's
@@ -375,9 +375,10 @@ class ContinualPlayMixin:
             ledger=obs.ledger.footer(),
             context=context_status(ctx),
             observation=observation,
-            skills=render_options_digest(
-                session.list_skills(),
-                gt_options_ref_path=ctx.gt_options_ref_path),
+            skills=(render_options_digest(
+                ctx.options, gt_options_ref_path=ctx.gt_options_ref_path)
+                    if "skills_list" in self._continual_tool_names() else
+                    "(none; use low-level actions)"),
             predicates=self._render_predicates(),
             types=render_types_digest(ctx.types),
             model=self._model_status(session),

@@ -10,6 +10,9 @@ from gym.spaces import Box
 from numpy.typing import NDArray
 
 from predicators import utils
+from predicators.pybullet_helpers.geometry import Pose
+from predicators.pybullet_helpers.inverse_kinematics import \
+    InverseKinematicsError
 from predicators.pybullet_helpers.joint import JointPositions
 from predicators.pybullet_helpers.link import get_link_state
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
@@ -40,6 +43,124 @@ _START_LOCAL_JOINT_RADIUS = 0.5
 # earned only at the start configuration, once the path has left that
 # start neighborhood: touching stays legal, penetration does not.
 _DEMOTED_PARTNER_MARGIN = 0.0
+# A direct path's IK-chained waypoints must land on the straight line to
+# within this (metres) after joint-limit clamping; a larger miss means
+# the arm cannot track the line on its current branch.
+_DIRECT_PATH_POSE_TOL = 0.002
+# Corners of a direct path closer than this (metres) collapse into one.
+_DIRECT_PATH_MIN_LEG = 1e-4
+
+
+def _direct_cartesian_path(
+    robot: SingleArmPyBulletRobot,
+    initial_positions: JointPositions,
+    target_positions: JointPositions,
+    collision_fn: Any,
+    penetration_report: Any,
+    goal_finger_joint: Optional[float],
+    diagnostics: List[str],
+) -> Optional[Sequence[JointPositions]]:
+    """The IK-chained straight Cartesian path of a direct descend.
+
+    Three legs, each a straight line in Cartesian space: lift to the
+    higher of the start and goal heights, cross to the goal xy at that
+    height, descend to the goal. A descend from directly above has a
+    millimetre-scale crossing and a vertical drop; a re-approach that
+    starts low (a place stroke rewound after a failed verification)
+    lifts before it moves sideways. Every ``CFG.pybullet_direct_path_step``
+    metres along the legs the joints are solved by validated IK seeded
+    from the previous sample, so the chain stays on one arm branch and
+    the executed end effector follows the line instead of the arc a
+    joint-space interpolation traces (a bridge grasp descent planned in
+    joint space bowed 26 mm off its vertical and set a finger pad down
+    on the standing block it was to straddle, 2026-09-07 seed 2).
+
+    Refused (``None``, with the reason appended to ``diagnostics``) when
+    IK loses the line, when joint-limit clamping pulls a sample off it,
+    when consecutive samples differ by more than
+    ``CFG.pybullet_direct_path_max_joint_step`` on any arm joint (a
+    branch discontinuity the arm could only execute as a sweep), or
+    when a sample penetrates a body past the hard contact margin
+    (``collision_fn`` with ``hard_margin_only``). With
+    ``goal_finger_joint`` the final configuration is also checked with
+    the fingers at that width.
+    """
+    step = CFG.pybullet_direct_path_step
+    max_joint_step = CFG.pybullet_direct_path_max_joint_step
+    finger_idxs = {robot.left_finger_joint_idx, robot.right_finger_joint_idx}
+    arm_idxs = [
+        i for i in range(len(initial_positions)) if i not in finger_idxs
+    ]
+    limits = list(zip(robot.joint_lower_limits, robot.joint_upper_limits))
+    start = robot.forward_kinematics(initial_positions)
+    goal = robot.forward_kinematics(target_positions)
+    sx, sy, sz = start.position
+    gx, gy, gz = goal.position
+    z_top = max(sz, gz)
+    corners: List[NDArray] = [np.array(start.position, dtype=np.float64)]
+    for corner in ((sx, sy, z_top), (gx, gy, z_top), (gx, gy, gz)):
+        arr = np.array(corner, dtype=np.float64)
+        if np.linalg.norm(arr - corners[-1]) > _DIRECT_PATH_MIN_LEG:
+            corners.append(arr)
+    samples: List[NDArray] = []
+    for leg_start, leg_end in zip(corners, corners[1:]):
+        num = max(1, int(np.ceil(np.linalg.norm(leg_end - leg_start) / step)))
+        for i in range(1, num + 1):
+            samples.append(leg_start + (leg_end - leg_start) * i / num)
+    if not samples:
+        return [list(initial_positions)]
+    path: List[JointPositions] = [list(initial_positions)]
+    prev = list(initial_positions)
+    total = len(samples)
+    for k, pos in enumerate(samples):
+        where = (f"{k + 1}/{total} of the way, at ({pos[0]:.3f}, "
+                 f"{pos[1]:.3f}, {pos[2]:.3f})")
+        orn = p.getQuaternionSlerp(start.orientation, goal.orientation,
+                                   (k + 1) / total)
+        robot.set_joints(prev)
+        try:
+            solved = robot.inverse_kinematics(Pose(tuple(pos), orn),
+                                              validate=True,
+                                              set_joints=False)
+        except InverseKinematicsError:
+            diagnostics.append(f"DIRECT: IK cannot follow the straight path "
+                               f"{where}")
+            return None
+        q = [
+            float(np.clip(v, lo, hi)) if lo <= hi else float(v)
+            for v, (lo, hi) in zip(solved, limits)
+        ]
+        for f_idx in finger_idxs:
+            q[f_idx] = float(initial_positions[f_idx])
+        reached = np.array(robot.forward_kinematics(q).position)
+        if np.linalg.norm(reached - pos) > _DIRECT_PATH_POSE_TOL:
+            diagnostics.append(f"DIRECT: a joint limit pulls the arm off the "
+                               f"straight path {where}")
+            return None
+        joint_step = max(abs(q[i] - prev[i]) for i in arm_idxs)
+        if joint_step > max_joint_step:
+            diagnostics.append(
+                f"DIRECT: the arm would have to flip branch ({joint_step:.2f} "
+                f"rad on one joint in a {step * 1000:.0f} mm step) to follow "
+                f"the straight path {where}")
+            return None
+        if collision_fn(q, hard_margin_only=True):
+            diagnostics.append(f"DIRECT: the straight path penetrates a body "
+                               f"{where}: {penetration_report(q)}")
+            return None
+        path.append(q)
+        prev = q
+    if goal_finger_joint is not None:
+        release = list(path[-1])
+        release[robot.left_finger_joint_idx] = goal_finger_joint
+        release[robot.right_finger_joint_idx] = goal_finger_joint
+        if collision_fn(release):
+            diagnostics.append(
+                "GOAL with fingers OPEN to release (the opening gripper needs "
+                f"side clearance at the end of the straight path): "
+                f"{penetration_report(release)}")
+            return None
+    return path
 
 
 def run_motion_planning(
@@ -58,6 +179,8 @@ def run_motion_planning(
     held_bystander_clearance: Optional[float] = None,
     goal_candidates: Optional[Sequence[JointPositions]] = None,
     relaxed_direct: bool = False,
+    direct_diagnostics: Optional[List[str]] = None,
+    body_names: Optional[Dict[int, str]] = None,
 ) -> Optional[Sequence[JointPositions]]:
     """Run BiRRT to find a collision-free sequence of joint positions.
 
@@ -67,10 +190,15 @@ def run_motion_planning(
     bystanders from which the path must keep
     ``CFG.pybullet_birrt_bystander_clearance`` of separation.
 
-    ``relaxed_direct`` is for a grasp descend (see ``Phase.direct_descend``):
-    return the straight joint-space segment to the goal when nothing
-    along it penetrates past the hard contact margin, else ``None`` -
-    bystander clearance is not applied and no detour is planned.
+    ``relaxed_direct`` is for a grasp or place descend (see
+    ``Phase.direct_descend``): return the IK-chained straight Cartesian
+    path to the goal pose (lift, cross, descend; see
+    ``_direct_cartesian_path``) when nothing along it penetrates past
+    the hard contact margin and the arm can track it on one branch,
+    else ``None`` - bystander clearance is not applied and no detour is
+    planned. The reason for a refusal is appended to
+    ``direct_diagnostics`` when given, with bodies named through
+    ``body_names`` (id -> name; unnamed ids print as ``body <id>``).
 
     Partner status earned SOLELY at the start configuration is local to
     it: a movable body the robot merely happens to begin near is checked
@@ -333,6 +461,14 @@ def run_motion_planning(
                    pt2: JointPositions) -> Iterator[JointPositions]:
         pt1_arr = np.array(pt1)
         pt2_arr = np.array(pt2)
+        # num_interp samples per started radian of the largest joint
+        # move: a sub-radian segment is checked at num_interp points
+        # however short it is. That density is what keeps a held object
+        # from passing THROUGH a bystander between two checked samples
+        # (a bottle transit sampled every 0.1 rad swept a standing leg
+        # over, 2026-09-08). The replay thins the resulting micro-
+        # waypoints on execution (PhaseSkill._execute_move_birrt), so
+        # the density costs no env steps.
         num = int(np.ceil(max(abs(pt1_arr - pt2_arr)))) * num_interp
         if num == 0:
             yield pt2
@@ -453,20 +589,42 @@ def run_motion_planning(
                         smooth_amt=CFG.pybullet_birrt_smooth_amt)
 
     if relaxed_direct:
-        # A grasp descend (see Phase.direct_descend): the straight
-        # segment to the goal, or nothing. It is accepted when nothing
-        # along it penetrates past the hard contact margin; bystander
-        # clearance is deliberately not applied, because the segment
-        # starts directly above the target and anything within
-        # clearance of it is the target or a body butted against it. No
-        # planned detour: a descend that cannot go straight down is a
-        # bad grasp pose, and a detour arrives laterally at the
-        # target's height, which is the sweep that knocks it away.
-        direct = [initial_positions]
-        for pt in _extend_fn(initial_positions, target_positions):
-            if _collision_fn(pt, hard_margin_only=True):
-                return None
-            direct.append(pt)
+        # A grasp or place descend (see Phase.direct_descend): the
+        # straight Cartesian path to the goal, or nothing. It is
+        # accepted when nothing along it penetrates past the hard
+        # contact margin; bystander clearance is deliberately not
+        # applied, because the path starts directly above the target
+        # and anything within clearance of it is the target or a body
+        # butted against it. No planned detour: a descend that cannot
+        # go straight down is a bad grasp pose, and a detour arrives
+        # laterally at the target's height, which is the sweep that
+        # knocks it away.
+        def _penetration_report(pt: JointPositions) -> str:
+            _set_state(pt)
+            p.performCollisionDetection(physicsClientId=physics_client_id)
+            probes: List[Tuple[int, str]] = [(robot.robot_id, "robot")]
+            probes.extend((body, "held object") for body, _ in held_assembly)
+            found = []
+            for body in sorted(collision_bodies):
+                name = (body_names or {}).get(body, f"body {body}")
+                for probe, label in probes:
+                    depths = [
+                        c[8] for c in p.getContactPoints(
+                            probe, body, physicsClientId=physics_client_id)
+                        if c[8] < hard_margin
+                    ]
+                    if depths:
+                        found.append(f"{label} {-min(depths) * 1000:.1f} mm "
+                                     f"into {name}")
+            return "; ".join(found) if found else "no penetration found"
+
+        reasons: List[str] = []
+        direct = _direct_cartesian_path(robot, initial_positions,
+                                        target_positions, _collision_fn,
+                                        _penetration_report, goal_finger_joint,
+                                        reasons)
+        if direct_diagnostics is not None:
+            direct_diagnostics.extend(reasons)
         return direct
     path = birrt.query(initial_positions, target_positions)
     if path is not None and CFG.pybullet_birrt_path_subsample_ratio > 1:

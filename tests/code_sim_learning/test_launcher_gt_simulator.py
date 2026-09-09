@@ -168,7 +168,12 @@ def _shoot_pair(launcher_setup, init, depth, max_steps=400):
                 s_real.get(ball, k) - s_hyb.get(ball, k)
                 for k in ("x", "y", "z")
             ]))
-        max_gap = max(max_gap, gap)
+        # Contact settling can cross the reload threshold one step apart.
+        # Compare the same ball in flight, not a spent ball with its spare.
+        launcher = real_env._launcher
+        if s_real.get(launcher, "balls_left") == \
+                s_hyb.get(launcher, "balls_left"):
+            max_gap = max(max_gap, gap)
         moving = s_real.get(ball, "speed") > CFG.launcher_settle_speed
         launched |= moving
         if option.terminal(s_real) and launched and not moving:

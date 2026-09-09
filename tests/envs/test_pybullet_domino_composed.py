@@ -183,6 +183,70 @@ def test_plain_task_attaches_domino_evaluator() -> None:
     assert task.evaluator is None
 
 
+def test_raw_action_cascade_certification() -> None:
+    """A real push has the same certified reward without skill annotations.
+
+    Primitive-only controllers send Action arrays without option labels.
+    An all-None label list must use the existing label-free certificate,
+    including its counterfactual physics probe, rather than fail for not
+    having invoked a skill named Push.
+    """
+    # pylint: disable=import-outside-toplevel
+    from predicators import utils
+    from predicators.envs import create_new_env
+    from predicators.ground_truth_models import get_gt_options
+    from predicators.structs import Action
+
+    utils.reset_config({
+        "env": "pybullet_domino",
+        "approach": "oracle",
+        "seed": 0,
+        "num_train_tasks": 0,
+        "num_test_tasks": 1,
+        "domino_test_turn_ratio": 1.0,
+        "domino_initialize_at_finished_state": True,
+        "domino_use_domino_blocks_as_target": True,
+        "domino_use_continuous_place": True,
+        "domino_has_glued_dominos": False,
+    })
+    env = create_new_env("pybullet_domino", use_gui=False)
+    state = env.reset("test", 0)
+    assert isinstance(state, State)
+    task = env.get_test_tasks()[0].task
+    green = next(o for o in state if o.type.name == "domino"
+                 and DominoComponent._StartBlock_holds(state, [o]))  # pylint: disable=protected-access
+    robot = next(o for o in state if o.type.name == "robot")
+    push = next(o for o in get_gt_options("pybullet_domino")
+                if o.name == "Push")
+    option = push.ground([robot, green][:len(push.types)],
+                         np.array([0.04, 0.05], dtype=np.float32))
+    assert option.initiable(state)
+    states, actions = [state], []
+    for _ in range(200):
+        if option.terminal(state):
+            break
+        action = option.policy(state)
+        if option.memory.get("phase_idx", 0) >= 4:
+            break
+        state = env.step(Action(action.arr.copy()))
+        assert isinstance(state, State)
+        actions.append(action)
+        states.append(state)
+    assert actions
+    for _ in range(150):
+        action = Action(actions[-1].arr.copy())
+        state = env.step(action)
+        assert isinstance(state, State)
+        actions.append(action)
+        states.append(state)
+    assert task.goal_holds(state)
+    raw_actions = [Action(action.arr.copy()) for action in actions]
+    raw = env.evaluate_episode(states, raw_actions)
+    labeled = env.evaluate_episode(states, actions)
+    assert raw.terminated and not raw.reason
+    assert raw.reward == labeled.reward > 0
+
+
 def test_counterfactual_cascade_probe() -> None:
     """The counterfactual push probe certifies the generator's own finished
     chain (guaranteed cascade geometry) and rejects the same scene with its

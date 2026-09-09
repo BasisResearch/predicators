@@ -3,12 +3,12 @@
 # validation point of docs/continual-uncertainty.md section 7, where the
 # model-based advantage was lost first (section 8: both arms 1/2 on both
 # seeds, every model-based loss a friction fit the verdict switch
-# discarded or overshot). Four seeds so the comparison against the
-# first-launch 1 cm runs (seeds 0 and 1, features off) has margin; the
-# ablation configs flip one feature at a time from this base.
+# discarded or overshot). Two seeds, matching the first-launch 1 cm
+# runs (seeds 0 and 1, features off). The existing model-free pair is
+# the baseline; the ablations flip one feature at a time from this base.
 ---
 START_SEED: 0
-NUM_SEEDS: 4
+NUM_SEEDS: 2
 includes:
   - common.yaml
   - envs/all.yaml
@@ -62,7 +62,7 @@ APPROACHES:
       continual_belief_frame: True
   agent_continual_model_free_noise10mm_v2:
     NAME: "agent_continual_model_free"
-    SKIP: False
+    SKIP: True
     FLAGS:
       agent_sdk_use_local_sandbox: True
       partially_observable: True

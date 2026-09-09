@@ -1,0 +1,4629 @@
+[
+  {
+    "selection": {
+      "domain": "Balloons",
+      "arm": "MB",
+      "seed": 0,
+      "config": "balloons-agent_continual_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/balloons-agent_continual_uniform/seed0/run_20260907_102820/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual",
+      "claude_account": "a",
+      "config": "balloons-agent_continual_uniform",
+      "end_note": "",
+      "end_reason": "all_levels_won",
+      "env": "pybullet_balloons",
+      "finished_at": 1788798407.0070555,
+      "git_sha": "ec09e55fcaac",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 2,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 177,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788792618.5411618,
+          "game_overs": [],
+          "goal": [
+            "InBand(box:box, band:band)"
+          ],
+          "goal_nl": "Open clips to free balloons so that the oak box floats up and hangs still with its centre inside the green band (0.76 to 0.81 m). Each balloon is held by the clip in front of it: gold (balloon0, clip0), red (balloon1, clip1), green (balloon2, clip2). A balloon that reaches the ceiling bursts and the level is lost; a freed balloon cannot be clipped back.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 6.336256000000002,
+            "rounds": 1.0,
+            "sim_rollouts": 70.0,
+            "turns": 55.0
+          },
+          "skill_invocations": 8,
+          "split": "train",
+          "started_at": 1788791324.007218,
+          "steps": 177,
+          "steps_before_first_win": 177,
+          "task_idx": 0,
+          "wall_clock": 1294.5339484214783,
+          "wall_clock_env": 1.4918883938807994,
+          "won": true,
+          "won_at_step": 177
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 5420.579453468323,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 48,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788798244.7511685,
+          "game_overs": [],
+          "goal": [
+            "InBand(box:box, band:band)"
+          ],
+          "goal_nl": "Open clips to free balloons so that the pine box floats up and hangs still with its centre inside the green band (0.76 to 0.81 m). Each balloon is held by the clip in front of it: blue (balloon0, clip0), gold (balloon1, clip1), green (balloon2, clip2). A balloon that reaches the ceiling bursts and the level is lost; a freed balloon cannot be clipped back.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 1,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 1,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 4.260060500000001,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 15.0
+          },
+          "skill_invocations": 5,
+          "split": "train",
+          "started_at": 1788792618.9849458,
+          "steps": 48,
+          "steps_before_first_win": 48,
+          "task_idx": 1,
+          "wall_clock": 205.1866204738617,
+          "wall_clock_env": 0.3381011940073222,
+          "won": true,
+          "won_at_step": 48
+        },
+        {
+          "attempted": true,
+          "divergences": 1,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 48,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788798406.9912343,
+          "game_overs": [],
+          "goal": [
+            "InBand(box:box, band:band)"
+          ],
+          "goal_nl": "Open clips to free balloons so that the oak box floats up and hangs still with its centre inside the green band (0.50 to 0.55 m). Each balloon is held by the clip in front of it: green (balloon0, clip0), red (balloon1, clip1), blue (balloon2, clip2), gold (balloon3, clip3). A balloon that reaches the ceiling bursts and the level is lost; a freed balloon cannot be clipped back.",
+          "harness_resets": 0,
+          "index": 2,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 1.7505015,
+            "rounds": 1.0,
+            "sim_rollouts": 9.0,
+            "turns": 10.0
+          },
+          "skill_invocations": 2,
+          "split": "test",
+          "started_at": 1788798245.09181,
+          "steps": 48,
+          "steps_before_first_win": 48,
+          "task_idx": 0,
+          "wall_clock": 161.89942836761475,
+          "wall_clock_env": 0.44322551181539893,
+          "won": true,
+          "won_at_step": 48
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_balloons__agent_continual__0______balloons-agent_continual_uniform",
+      "schema": 1,
+      "seed": 0,
+      "started_at": 1788791323.5900009,
+      "step_cap": 15000,
+      "totals": {
+        "levels_completed": 3,
+        "levels_total": 3,
+        "steps_remaining": 14727,
+        "total_downtime": 5420.579453468323,
+        "total_llm_cost": 12.346818000000004,
+        "total_resets": 0,
+        "total_skill_invocations": 15,
+        "total_steps": 273,
+        "total_wall_clock": 1661.6199972629547
+      },
+      "updated_at": 1788798407.0070567,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Balloons",
+      "arm": "MB",
+      "seed": 1,
+      "config": "balloons-agent_continual_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/balloons-agent_continual_uniform/seed1/run_20260907_160923/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual",
+      "claude_account": "b",
+      "config": "balloons-agent_continual_uniform",
+      "end_note": "",
+      "end_reason": "all_levels_won",
+      "env": "pybullet_balloons",
+      "finished_at": 1788814486.2144554,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 1,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 92,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788812261.7394967,
+          "game_overs": [],
+          "goal": [
+            "InBand(box:box, band:band)"
+          ],
+          "goal_nl": "Open clips to free balloons so that the oak box floats up and hangs still with its centre inside the green band (0.65 to 0.70 m). Each balloon is held by the clip in front of it: red (balloon0, clip0), gold (balloon1, clip1). A balloon that reaches the ceiling bursts and the level is lost; a freed balloon cannot be clipped back.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 2.9872915,
+            "rounds": 1.0,
+            "sim_rollouts": 25.0,
+            "turns": 43.0
+          },
+          "skill_invocations": 7,
+          "split": "train",
+          "started_at": 1788811776.116892,
+          "steps": 92,
+          "steps_before_first_win": 92,
+          "task_idx": 0,
+          "wall_clock": 485.6226074695587,
+          "wall_clock_env": 0.40885700192302465,
+          "won": true,
+          "won_at_step": 92
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "reset",
+              "index": 0,
+              "rejected": null,
+              "reward": null,
+              "steps": 109,
+              "terminated": null
+            },
+            {
+              "end": "win",
+              "index": 1,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 52,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788812969.8591661,
+          "game_overs": [],
+          "goal": [
+            "InBand(box:box, band:band)"
+          ],
+          "goal_nl": "Open clips to free balloons so that the pine box floats up and hangs still with its centre inside the green band (0.56 to 0.61 m). Each balloon is held by the clip in front of it: blue (balloon0, clip0), green (balloon1, clip1). A balloon that reaches the ceiling bursts and the level is lost; a freed balloon cannot be clipped back.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 1,
+          "resets_before_first_win": 1,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 3.2881039999999997,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 21.0
+          },
+          "skill_invocations": 17,
+          "split": "train",
+          "started_at": 1788812262.0764377,
+          "steps": 162,
+          "steps_before_first_win": 162,
+          "task_idx": 1,
+          "wall_clock": 707.7827324867249,
+          "wall_clock_env": 0.689184439368546,
+          "won": true,
+          "won_at_step": 162
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 131,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788814486.1946259,
+          "game_overs": [],
+          "goal": [
+            "InBand(box:box, band:band)"
+          ],
+          "goal_nl": "Open clips to free balloons so that the oak box floats up and hangs still with its centre inside the green band (0.51 to 0.56 m). Each balloon is held by the clip in front of it: red (balloon0, clip0), blue (balloon1, clip1), green (balloon2, clip2), gold (balloon3, clip3). A balloon that reaches the ceiling bursts and the level is lost; a freed balloon cannot be clipped back.",
+          "harness_resets": 0,
+          "index": 2,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 11.408511999999998,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 76.0
+          },
+          "skill_invocations": 9,
+          "split": "test",
+          "started_at": 1788812970.230222,
+          "steps": 131,
+          "steps_before_first_win": 131,
+          "task_idx": 0,
+          "wall_clock": 1515.9644074440002,
+          "wall_clock_env": 0.9677872366737574,
+          "won": true,
+          "won_at_step": 131
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_balloons__agent_continual__1______balloons-agent_continual_uniform",
+      "schema": 1,
+      "seed": 1,
+      "started_at": 1788811775.769661,
+      "step_cap": 15000,
+      "totals": {
+        "levels_completed": 3,
+        "levels_total": 3,
+        "steps_remaining": 14615,
+        "total_downtime": 0.0,
+        "total_llm_cost": 17.683907499999997,
+        "total_resets": 1,
+        "total_skill_invocations": 33,
+        "total_steps": 385,
+        "total_wall_clock": 2709.369747400284
+      },
+      "updated_at": 1788814486.2144566,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Balloons",
+      "arm": "MB",
+      "seed": 2,
+      "config": "balloons-agent_continual_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/balloons-agent_continual_uniform/seed2/run_20260907_160930/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual",
+      "claude_account": "a",
+      "config": "balloons-agent_continual_uniform",
+      "end_note": "",
+      "end_reason": "all_levels_won",
+      "env": "pybullet_balloons",
+      "finished_at": 1788824238.9261665,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 1,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 48,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788812471.3827653,
+          "game_overs": [],
+          "goal": [
+            "InBand(box:box, band:band)"
+          ],
+          "goal_nl": "Open clips to free balloons so that the pine box floats up and hangs still with its centre inside the green band (0.76 to 0.81 m). Each balloon is held by the clip in front of it: gold (balloon0, clip0), green (balloon1, clip1), blue (balloon2, clip2). A balloon that reaches the ceiling bursts and the level is lost; a freed balloon cannot be clipped back.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 3.4264405,
+            "rounds": 1.0,
+            "sim_rollouts": 41.0,
+            "turns": 43.0
+          },
+          "skill_invocations": 5,
+          "split": "train",
+          "started_at": 1788811880.1078873,
+          "steps": 48,
+          "steps_before_first_win": 48,
+          "task_idx": 0,
+          "wall_clock": 591.2748825550079,
+          "wall_clock_env": 0.3752278049942106,
+          "won": true,
+          "won_at_step": 48
+        },
+        {
+          "attempted": true,
+          "divergences": 4,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "reset",
+              "index": 0,
+              "rejected": null,
+              "reward": null,
+              "steps": 475,
+              "terminated": null
+            },
+            {
+              "end": "win",
+              "index": 1,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 186,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788823999.0033643,
+          "game_overs": [],
+          "goal": [
+            "InBand(box:box, band:band)"
+          ],
+          "goal_nl": "Open clips to free balloons so that the oak box floats up and hangs still with its centre inside the green band (0.59 to 0.64 m). Each balloon is held by the clip in front of it: red (balloon0, clip0), green (balloon1, clip1), blue (balloon2, clip2). A balloon that reaches the ceiling bursts and the level is lost; a freed balloon cannot be clipped back.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 1,
+          "resets_before_first_win": 1,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 8.162937499999998,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 7.0
+          },
+          "skill_invocations": 55,
+          "split": "train",
+          "started_at": 1788812471.7711945,
+          "steps": 662,
+          "steps_before_first_win": 662,
+          "task_idx": 1,
+          "wall_clock": 11527.232174873352,
+          "wall_clock_env": 5.423087758710608,
+          "won": true,
+          "won_at_step": 662
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 77,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788824238.905934,
+          "game_overs": [],
+          "goal": [
+            "InBand(box:box, band:band)"
+          ],
+          "goal_nl": "Open clips to free balloons so that the oak box floats up and hangs still with its centre inside the green band (0.51 to 0.56 m). Each balloon is held by the clip in front of it: gold (balloon0, clip0), green (balloon1, clip1), red (balloon2, clip2), blue (balloon3, clip3). A balloon that reaches the ceiling bursts and the level is lost; a freed balloon cannot be clipped back.",
+          "harness_resets": 0,
+          "index": 2,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 1.8810709999999997,
+            "rounds": 1.0,
+            "sim_rollouts": 7.0,
+            "turns": 10.0
+          },
+          "skill_invocations": 5,
+          "split": "test",
+          "started_at": 1788823999.458082,
+          "steps": 77,
+          "steps_before_first_win": 77,
+          "task_idx": 0,
+          "wall_clock": 239.44785618782043,
+          "wall_clock_env": 0.7531594638712704,
+          "won": true,
+          "won_at_step": 77
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_balloons__agent_continual__2______balloons-agent_continual_uniform",
+      "schema": 1,
+      "seed": 2,
+      "started_at": 1788811879.6949892,
+      "step_cap": 15000,
+      "totals": {
+        "levels_completed": 3,
+        "levels_total": 3,
+        "steps_remaining": 14213,
+        "total_downtime": 0.0,
+        "total_llm_cost": 13.470448999999999,
+        "total_resets": 1,
+        "total_skill_invocations": 65,
+        "total_steps": 787,
+        "total_wall_clock": 12357.95491361618
+      },
+      "updated_at": 1788824238.9261672,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Balloons",
+      "arm": "MF",
+      "seed": 0,
+      "config": "balloons-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/balloons-agent_continual_model_free_uniform/seed0/run_20260907_102819/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual_model_free",
+      "claude_account": "b",
+      "config": "balloons-agent_continual_model_free_uniform",
+      "end_note": "",
+      "end_reason": "all_levels_won",
+      "env": "pybullet_balloons",
+      "finished_at": 1788793146.5134182,
+      "git_sha": "ec09e55fcaac",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 323,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788792000.4492085,
+          "game_overs": [],
+          "goal": [
+            "InBand(box:box, band:band)"
+          ],
+          "goal_nl": "Open clips to free balloons so that the oak box floats up and hangs still with its centre inside the green band (0.76 to 0.81 m). Each balloon is held by the clip in front of it: gold (balloon0, clip0), red (balloon1, clip1), green (balloon2, clip2). A balloon that reaches the ceiling bursts and the level is lost; a freed balloon cannot be clipped back.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 2.7188044999999996,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 30.0
+          },
+          "skill_invocations": 6,
+          "split": "train",
+          "started_at": 1788791315.2867575,
+          "steps": 323,
+          "steps_before_first_win": 323,
+          "task_idx": 0,
+          "wall_clock": 685.1624555587769,
+          "wall_clock_env": 1.862673672963865,
+          "won": true,
+          "won_at_step": 323
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "game_over:rejected: balloon1 burst on the ceiling",
+              "index": 0,
+              "rejected": true,
+              "reward": 0.0,
+              "steps": 86,
+              "terminated": true
+            },
+            {
+              "end": "win",
+              "index": 1,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 48,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788793048.9352496,
+          "game_overs": [
+            "rejected: balloon1 burst on the ceiling"
+          ],
+          "goal": [
+            "InBand(box:box, band:band)"
+          ],
+          "goal_nl": "Open clips to free balloons so that the pine box floats up and hangs still with its centre inside the green band (0.76 to 0.81 m). Each balloon is held by the clip in front of it: blue (balloon0, clip0), gold (balloon1, clip1), green (balloon2, clip2). A balloon that reaches the ceiling bursts and the level is lost; a freed balloon cannot be clipped back.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 1,
+          "resets_before_first_win": 1,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 4.318850500000001,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 24.0
+          },
+          "skill_invocations": 5,
+          "split": "train",
+          "started_at": 1788792000.795499,
+          "steps": 135,
+          "steps_before_first_win": 135,
+          "task_idx": 1,
+          "wall_clock": 1048.1397547721863,
+          "wall_clock_env": 0.7673541239928454,
+          "won": true,
+          "won_at_step": 135
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 48,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788793146.499479,
+          "game_overs": [],
+          "goal": [
+            "InBand(box:box, band:band)"
+          ],
+          "goal_nl": "Open clips to free balloons so that the oak box floats up and hangs still with its centre inside the green band (0.50 to 0.55 m). Each balloon is held by the clip in front of it: green (balloon0, clip0), red (balloon1, clip1), blue (balloon2, clip2), gold (balloon3, clip3). A balloon that reaches the ceiling bursts and the level is lost; a freed balloon cannot be clipped back.",
+          "harness_resets": 0,
+          "index": 2,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 0.8402904999999999,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 5.0
+          },
+          "skill_invocations": 2,
+          "split": "test",
+          "started_at": 1788793049.263327,
+          "steps": 48,
+          "steps_before_first_win": 48,
+          "task_idx": 0,
+          "wall_clock": 97.23615503311157,
+          "wall_clock_env": 0.3426754374522716,
+          "won": true,
+          "won_at_step": 48
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_balloons__agent_continual_model_free__0______balloons-agent_continual_model_free_uniform",
+      "schema": 1,
+      "seed": 0,
+      "started_at": 1788791314.9510374,
+      "step_cap": 15000,
+      "totals": {
+        "levels_completed": 3,
+        "levels_total": 3,
+        "steps_remaining": 14494,
+        "total_downtime": 0.0,
+        "total_llm_cost": 7.877945500000001,
+        "total_resets": 1,
+        "total_skill_invocations": 13,
+        "total_steps": 506,
+        "total_wall_clock": 1830.5383653640747
+      },
+      "updated_at": 1788793146.5134206,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Balloons",
+      "arm": "MF",
+      "seed": 1,
+      "config": "balloons-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/balloons-agent_continual_model_free_uniform/seed1/run_20260907_160938/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual_model_free",
+      "claude_account": "a",
+      "config": "balloons-agent_continual_model_free_uniform",
+      "end_note": "Level 3 is unwinnable and has no resets. The oak box is at its equilibrium z=0.6000 with blue+green tied; the band is [0.5051, 0.5551] and the only remaining actions (freeing red or gold) add lift and raise the box further, since every balloon has positive buoyancy (level 1's freed red balloon floated above the box). Waiting changes nothing, no skill can remove lift, and physically holding the box down with the arm would not be the box floating and hanging still. Level 3 is the last level, so nothing beyond it is forfeited.",
+      "end_reason": "agent_ended",
+      "env": "pybullet_balloons",
+      "finished_at": 1788824092.1269708,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 93,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788812065.823452,
+          "game_overs": [],
+          "goal": [
+            "InBand(box:box, band:band)"
+          ],
+          "goal_nl": "Open clips to free balloons so that the oak box floats up and hangs still with its centre inside the green band (0.65 to 0.70 m). Each balloon is held by the clip in front of it: red (balloon0, clip0), gold (balloon1, clip1). A balloon that reaches the ceiling bursts and the level is lost; a freed balloon cannot be clipped back.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 1.30291,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 21.0
+          },
+          "skill_invocations": 4,
+          "split": "train",
+          "started_at": 1788811795.3426964,
+          "steps": 93,
+          "steps_before_first_win": 93,
+          "task_idx": 0,
+          "wall_clock": 270.4807584285736,
+          "wall_clock_env": 0.5748839438892901,
+          "won": true,
+          "won_at_step": 93
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "reset",
+              "index": 0,
+              "rejected": null,
+              "reward": null,
+              "steps": 237,
+              "terminated": null
+            },
+            {
+              "end": "win",
+              "index": 1,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 52,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788812479.53388,
+          "game_overs": [],
+          "goal": [
+            "InBand(box:box, band:band)"
+          ],
+          "goal_nl": "Open clips to free balloons so that the pine box floats up and hangs still with its centre inside the green band (0.56 to 0.61 m). Each balloon is held by the clip in front of it: blue (balloon0, clip0), green (balloon1, clip1). A balloon that reaches the ceiling bursts and the level is lost; a freed balloon cannot be clipped back.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 1,
+          "resets_before_first_win": 1,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 1.8465755,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 18.0
+          },
+          "skill_invocations": 6,
+          "split": "train",
+          "started_at": 1788812066.2051892,
+          "steps": 290,
+          "steps_before_first_win": 290,
+          "task_idx": 1,
+          "wall_clock": 413.3286952972412,
+          "wall_clock_env": 1.6526195250917226,
+          "won": true,
+          "won_at_step": 290
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "in_progress",
+              "index": 0,
+              "rejected": null,
+              "reward": null,
+              "steps": 175,
+              "terminated": null
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": null,
+          "game_overs": [],
+          "goal": [
+            "InBand(box:box, band:band)"
+          ],
+          "goal_nl": "Open clips to free balloons so that the oak box floats up and hangs still with its centre inside the green band (0.51 to 0.56 m). Each balloon is held by the clip in front of it: red (balloon0, clip0), blue (balloon1, clip1), green (balloon2, clip2), gold (balloon3, clip3). A balloon that reaches the ceiling bursts and the level is lost; a freed balloon cannot be clipped back.",
+          "harness_resets": 0,
+          "index": 2,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": null,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 6.9716055,
+            "rounds": 2.0,
+            "sim_rollouts": 0.0,
+            "turns": 9.0
+          },
+          "skill_invocations": 4,
+          "split": "test",
+          "started_at": 1788812479.9431264,
+          "steps": 175,
+          "steps_before_first_win": null,
+          "task_idx": 0,
+          "wall_clock": 11612.151073217392,
+          "wall_clock_env": 1.728966125054285,
+          "won": false,
+          "won_at_step": null
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_balloons__agent_continual_model_free__1______balloons-agent_continual_model_free_uniform",
+      "schema": 1,
+      "seed": 1,
+      "started_at": 1788811794.9431882,
+      "step_cap": 15000,
+      "totals": {
+        "levels_completed": 2,
+        "levels_total": 3,
+        "steps_remaining": 14442,
+        "total_downtime": 0.0,
+        "total_llm_cost": 10.121091,
+        "total_resets": 1,
+        "total_skill_invocations": 14,
+        "total_steps": 558,
+        "total_wall_clock": 12295.960526943207
+      },
+      "updated_at": 1788824092.126972,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Balloons",
+      "arm": "MF",
+      "seed": 2,
+      "config": "balloons-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/balloons-agent_continual_model_free_uniform/seed2/run_20260907_160921/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual_model_free",
+      "claude_account": "b",
+      "config": "balloons-agent_continual_model_free_uniform",
+      "end_note": "",
+      "end_reason": "all_levels_won",
+      "env": "pybullet_balloons",
+      "finished_at": 1788813266.4142761,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 58,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 2,
+          "finished_at": 1788812279.845709,
+          "game_overs": [],
+          "goal": [
+            "InBand(box:box, band:band)"
+          ],
+          "goal_nl": "Open clips to free balloons so that the pine box floats up and hangs still with its centre inside the green band (0.76 to 0.81 m). Each balloon is held by the clip in front of it: gold (balloon0, clip0), green (balloon1, clip1), blue (balloon2, clip2). A balloon that reaches the ceiling bursts and the level is lost; a freed balloon cannot be clipped back.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 1.8538794999999997,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 23.0
+          },
+          "skill_invocations": 4,
+          "split": "train",
+          "started_at": 1788811864.3848217,
+          "steps": 58,
+          "steps_before_first_win": 58,
+          "task_idx": 0,
+          "wall_clock": 415.4608910083771,
+          "wall_clock_env": 0.42715911543928087,
+          "won": true,
+          "won_at_step": 58
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "reset",
+              "index": 0,
+              "rejected": null,
+              "reward": null,
+              "steps": 209,
+              "terminated": null
+            },
+            {
+              "end": "win",
+              "index": 1,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 77,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788813158.1660867,
+          "game_overs": [],
+          "goal": [
+            "InBand(box:box, band:band)"
+          ],
+          "goal_nl": "Open clips to free balloons so that the oak box floats up and hangs still with its centre inside the green band (0.59 to 0.64 m). Each balloon is held by the clip in front of it: red (balloon0, clip0), green (balloon1, clip1), blue (balloon2, clip2). A balloon that reaches the ceiling bursts and the level is lost; a freed balloon cannot be clipped back.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 1,
+          "resets_before_first_win": 1,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 4.452290500000001,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 32.0
+          },
+          "skill_invocations": 7,
+          "split": "train",
+          "started_at": 1788812280.219976,
+          "steps": 287,
+          "steps_before_first_win": 287,
+          "task_idx": 1,
+          "wall_clock": 877.9461147785187,
+          "wall_clock_env": 2.20746277901344,
+          "won": true,
+          "won_at_step": 287
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 78,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788813266.3930676,
+          "game_overs": [],
+          "goal": [
+            "InBand(box:box, band:band)"
+          ],
+          "goal_nl": "Open clips to free balloons so that the oak box floats up and hangs still with its centre inside the green band (0.51 to 0.56 m). Each balloon is held by the clip in front of it: gold (balloon0, clip0), green (balloon1, clip1), red (balloon2, clip2), blue (balloon3, clip3). A balloon that reaches the ceiling bursts and the level is lost; a freed balloon cannot be clipped back.",
+          "harness_resets": 0,
+          "index": 2,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 0.8505379999999999,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 6.0
+          },
+          "skill_invocations": 3,
+          "split": "test",
+          "started_at": 1788813158.5621471,
+          "steps": 78,
+          "steps_before_first_win": 78,
+          "task_idx": 0,
+          "wall_clock": 107.83092379570007,
+          "wall_clock_env": 0.7569267996586859,
+          "won": true,
+          "won_at_step": 78
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_balloons__agent_continual_model_free__2______balloons-agent_continual_model_free_uniform",
+      "schema": 1,
+      "seed": 2,
+      "started_at": 1788811863.989023,
+      "step_cap": 15000,
+      "totals": {
+        "levels_completed": 3,
+        "levels_total": 3,
+        "steps_remaining": 14577,
+        "total_downtime": 0.0,
+        "total_llm_cost": 7.156708000000001,
+        "total_resets": 1,
+        "total_skill_invocations": 14,
+        "total_steps": 423,
+        "total_wall_clock": 1401.2379295825958
+      },
+      "updated_at": 1788813266.4142768,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Boil",
+      "arm": "MB",
+      "seed": 0,
+      "config": "boil-agent_continual_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/boil-agent_continual_uniform/seed0/run_20260907_144501/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual",
+      "claude_account": "a",
+      "config": "boil-agent_continual_uniform",
+      "end_note": "",
+      "end_reason": "all_levels_won",
+      "env": "pybullet_boil",
+      "finished_at": 1788810402.22392,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 2,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 264,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788807885.1728206,
+          "game_overs": [],
+          "goal": [
+            "BurnerOff(burner0:burner)",
+            "JugFilled(jug0:jug)",
+            "NoWaterSpilled()",
+            "WaterBoiled(jug0:jug)"
+          ],
+          "goal_nl": "Boil a full jug of water on the burner without spilling any water, turn the burner off once the jug has finished boiling.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 9.210966499999998,
+            "rounds": 1.0,
+            "sim_rollouts": 123.0,
+            "turns": 102.0
+          },
+          "skill_invocations": 12,
+          "split": "train",
+          "started_at": 1788806703.608596,
+          "steps": 264,
+          "steps_before_first_win": 264,
+          "task_idx": 0,
+          "wall_clock": 1181.5642275810242,
+          "wall_clock_env": 1.149654033826664,
+          "won": true,
+          "won_at_step": 264
+        },
+        {
+          "attempted": true,
+          "divergences": 5,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 1135,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 4,
+          "finished_at": 1788810402.140597,
+          "game_overs": [],
+          "goal": [
+            "BurnerOff(burner0:burner)",
+            "JugFilled(jug0:jug)",
+            "JugFilled(jug1:jug)",
+            "NoWaterSpilled()",
+            "WaterBoiled(jug0:jug)",
+            "WaterBoiled(jug1:jug)"
+          ],
+          "goal_nl": "Boil a full jug of water on the burner without spilling any water, turn the burner off once every jug has finished boiling.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 26.640136,
+            "rounds": 1.0,
+            "sim_rollouts": 1124.0,
+            "turns": 131.0
+          },
+          "skill_invocations": 44,
+          "split": "test",
+          "started_at": 1788807885.5107572,
+          "steps": 1135,
+          "steps_before_first_win": 1135,
+          "task_idx": 0,
+          "wall_clock": 2516.62984418869,
+          "wall_clock_env": 6.109735072823241,
+          "won": true,
+          "won_at_step": 1135
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_boil__agent_continual__0______boil-agent_continual_uniform",
+      "schema": 1,
+      "seed": 0,
+      "started_at": 1788806703.247819,
+      "step_cap": 10000,
+      "totals": {
+        "levels_completed": 2,
+        "levels_total": 2,
+        "steps_remaining": 8601,
+        "total_downtime": 0.0,
+        "total_llm_cost": 35.851102499999996,
+        "total_resets": 0,
+        "total_skill_invocations": 56,
+        "total_steps": 1399,
+        "total_wall_clock": 3698.1940717697144
+      },
+      "updated_at": 1788810402.223922,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Boil",
+      "arm": "MB",
+      "seed": 1,
+      "config": "boil-agent_continual_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/boil-agent_continual_uniform/seed1/run_20260907_160923/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual",
+      "claude_account": "a",
+      "config": "boil-agent_continual_uniform",
+      "end_note": "",
+      "end_reason": "all_levels_won",
+      "env": "pybullet_boil",
+      "finished_at": 1788827490.8538845,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 9,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "reset",
+              "index": 0,
+              "rejected": null,
+              "reward": null,
+              "steps": 219,
+              "terminated": null
+            },
+            {
+              "end": "win",
+              "index": 1,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 389,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 4,
+          "finished_at": 1788824586.8574493,
+          "game_overs": [],
+          "goal": [
+            "BurnerOff(burner0:burner)",
+            "JugFilled(jug0:jug)",
+            "NoWaterSpilled()",
+            "WaterBoiled(jug0:jug)"
+          ],
+          "goal_nl": "Boil a full jug of water on the burner without spilling any water, turn the burner off once the jug has finished boiling.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 1,
+          "resets_before_first_win": 1,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 21.91271949999999,
+            "rounds": 1.0,
+            "sim_rollouts": 381.0,
+            "turns": 58.0
+          },
+          "skill_invocations": 59,
+          "split": "train",
+          "started_at": 1788811766.1961446,
+          "steps": 609,
+          "steps_before_first_win": 609,
+          "task_idx": 0,
+          "wall_clock": 12820.661309480667,
+          "wall_clock_env": 2.430542942835018,
+          "won": true,
+          "won_at_step": 609
+        },
+        {
+          "attempted": true,
+          "divergences": 9,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 1321,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 6,
+          "finished_at": 1788827490.760746,
+          "game_overs": [],
+          "goal": [
+            "BurnerOff(burner0:burner)",
+            "JugFilled(jug0:jug)",
+            "JugFilled(jug1:jug)",
+            "NoWaterSpilled()",
+            "WaterBoiled(jug0:jug)",
+            "WaterBoiled(jug1:jug)"
+          ],
+          "goal_nl": "Boil a full jug of water on the burner without spilling any water, turn the burner off once every jug has finished boiling.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 42.38726349999999,
+            "rounds": 1.0,
+            "sim_rollouts": 70.0,
+            "turns": 153.0
+          },
+          "skill_invocations": 107,
+          "split": "test",
+          "started_at": 1788824587.576698,
+          "steps": 1321,
+          "steps_before_first_win": 1321,
+          "task_idx": 0,
+          "wall_clock": 2903.1840522289276,
+          "wall_clock_env": 5.607218025252223,
+          "won": true,
+          "won_at_step": 1321
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_boil__agent_continual__1______boil-agent_continual_uniform",
+      "schema": 1,
+      "seed": 1,
+      "started_at": 1788811765.8152146,
+      "step_cap": 10000,
+      "totals": {
+        "levels_completed": 2,
+        "levels_total": 2,
+        "steps_remaining": 8070,
+        "total_downtime": 0.0,
+        "total_llm_cost": 64.29998299999998,
+        "total_resets": 1,
+        "total_skill_invocations": 166,
+        "total_steps": 1930,
+        "total_wall_clock": 15723.845361709595
+      },
+      "updated_at": 1788827490.853886,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Boil",
+      "arm": "MB",
+      "seed": 2,
+      "config": "boil-agent_continual_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/boil-agent_continual_uniform/seed2/run_20260907_160920/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual",
+      "claude_account": "b",
+      "config": "boil-agent_continual_uniform",
+      "end_note": "",
+      "end_reason": "all_levels_won",
+      "env": "pybullet_boil",
+      "finished_at": 1788814714.403309,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 6,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "reset",
+              "index": 0,
+              "rejected": null,
+              "reward": null,
+              "steps": 620,
+              "terminated": null
+            },
+            {
+              "end": "win",
+              "index": 1,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 277,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 2,
+          "finished_at": 1788814132.9235938,
+          "game_overs": [],
+          "goal": [
+            "BurnerOff(burner0:burner)",
+            "JugFilled(jug0:jug)",
+            "NoWaterSpilled()",
+            "WaterBoiled(jug0:jug)"
+          ],
+          "goal_nl": "Boil a full jug of water on the burner without spilling any water, turn the burner off once the jug has finished boiling.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 1,
+          "resets_before_first_win": 1,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 17.300816499999996,
+            "rounds": 1.0,
+            "sim_rollouts": 297.0,
+            "turns": 139.0
+          },
+          "skill_invocations": 80,
+          "split": "train",
+          "started_at": 1788811763.1590393,
+          "steps": 898,
+          "steps_before_first_win": 898,
+          "task_idx": 0,
+          "wall_clock": 2369.7645602226257,
+          "wall_clock_env": 3.3552465164102614,
+          "won": true,
+          "won_at_step": 898
+        },
+        {
+          "attempted": true,
+          "divergences": 1,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 535,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 1,
+          "finished_at": 1788814714.3574564,
+          "game_overs": [],
+          "goal": [
+            "BurnerOff(burner0:burner)",
+            "JugFilled(jug0:jug)",
+            "JugFilled(jug1:jug)",
+            "NoWaterSpilled()",
+            "WaterBoiled(jug0:jug)",
+            "WaterBoiled(jug1:jug)"
+          ],
+          "goal_nl": "Boil a full jug of water on the burner without spilling any water, turn the burner off once every jug has finished boiling.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 9.258311499999998,
+            "rounds": 1.0,
+            "sim_rollouts": 77.0,
+            "turns": 38.0
+          },
+          "skill_invocations": 23,
+          "split": "test",
+          "started_at": 1788814133.4900413,
+          "steps": 535,
+          "steps_before_first_win": 535,
+          "task_idx": 0,
+          "wall_clock": 580.8674199581146,
+          "wall_clock_env": 2.7284983629360795,
+          "won": true,
+          "won_at_step": 535
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_boil__agent_continual__2______boil-agent_continual_uniform",
+      "schema": 1,
+      "seed": 2,
+      "started_at": 1788811762.79659,
+      "step_cap": 10000,
+      "totals": {
+        "levels_completed": 2,
+        "levels_total": 2,
+        "steps_remaining": 8567,
+        "total_downtime": 0.0,
+        "total_llm_cost": 26.559127999999994,
+        "total_resets": 1,
+        "total_skill_invocations": 103,
+        "total_steps": 1433,
+        "total_wall_clock": 2950.6319801807404
+      },
+      "updated_at": 1788814714.4033108,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Boil",
+      "arm": "MF",
+      "seed": 0,
+      "config": "boil-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/boil-agent_continual_model_free_uniform/seed0/run_20260907_144511/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual_model_free",
+      "claude_account": "b",
+      "config": "boil-agent_continual_model_free_uniform",
+      "end_note": "Level 2 is unwinnable and has no resets. faucet.spilled_level=0.2850 is monotonic and no skill reduces it, so the goal's \"without spilling any water\" clause can never be satisfied; every other feature already matches level 1's winning state (jug1 full 1.30, boiled 1.0, 5mm from the burner centre, burner off, faucet off, nothing held). jug0 is additionally stranded at (2.14,7.00,0.05), outside Place's reachable box. Alternative hypotheses (a tighter on-burner test; a burner-footprint test requiring every jug on the burner) were tested and eliminated in rounds 3-4. Level 2 is the last level, so nothing further is forfeited.",
+      "end_reason": "agent_ended",
+      "env": "pybullet_boil",
+      "finished_at": 1788813361.4562347,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "reset",
+              "index": 0,
+              "rejected": null,
+              "reward": null,
+              "steps": 551,
+              "terminated": null
+            },
+            {
+              "end": "reset",
+              "index": 1,
+              "rejected": null,
+              "reward": null,
+              "steps": 241,
+              "terminated": null
+            },
+            {
+              "end": "win",
+              "index": 2,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 504,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 26,
+          "finished_at": 1788810914.0247931,
+          "game_overs": [],
+          "goal": [
+            "BurnerOff(burner0:burner)",
+            "JugFilled(jug0:jug)",
+            "NoWaterSpilled()",
+            "WaterBoiled(jug0:jug)"
+          ],
+          "goal_nl": "Boil a full jug of water on the burner without spilling any water, turn the burner off once the jug has finished boiling.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 2,
+          "resets_before_first_win": 2,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 33.039896,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 183.0
+          },
+          "skill_invocations": 48,
+          "split": "train",
+          "started_at": 1788806713.6872482,
+          "steps": 1298,
+          "steps_before_first_win": 1298,
+          "task_idx": 0,
+          "wall_clock": 4200.337548494339,
+          "wall_clock_env": 9.08113855915144,
+          "won": true,
+          "won_at_step": 1298
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "in_progress",
+              "index": 0,
+              "rejected": null,
+              "reward": null,
+              "steps": 1931,
+              "terminated": null
+            }
+          ],
+          "failed_skill_invocations": 15,
+          "finished_at": null,
+          "game_overs": [],
+          "goal": [
+            "BurnerOff(burner0:burner)",
+            "JugFilled(jug0:jug)",
+            "JugFilled(jug1:jug)",
+            "NoWaterSpilled()",
+            "WaterBoiled(jug0:jug)",
+            "WaterBoiled(jug1:jug)"
+          ],
+          "goal_nl": "Boil a full jug of water on the burner without spilling any water, turn the burner off once every jug has finished boiling.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": null,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 54.5771495,
+            "rounds": 4.0,
+            "sim_rollouts": 0.0,
+            "turns": 187.0
+          },
+          "skill_invocations": 59,
+          "split": "test",
+          "started_at": 1788810914.552572,
+          "steps": 1931,
+          "steps_before_first_win": null,
+          "task_idx": 0,
+          "wall_clock": 2446.734452486038,
+          "wall_clock_env": 12.530290907947347,
+          "won": false,
+          "won_at_step": null
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_boil__agent_continual_model_free__0______boil-agent_continual_model_free_uniform",
+      "schema": 1,
+      "seed": 0,
+      "started_at": 1788806713.2708147,
+      "step_cap": 10000,
+      "totals": {
+        "levels_completed": 1,
+        "levels_total": 2,
+        "steps_remaining": 6771,
+        "total_downtime": 0.0,
+        "total_llm_cost": 87.61704549999999,
+        "total_resets": 2,
+        "total_skill_invocations": 107,
+        "total_steps": 3229,
+        "total_wall_clock": 6647.072000980377
+      },
+      "updated_at": 1788813361.4562368,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Boil",
+      "arm": "MF",
+      "seed": 1,
+      "config": "boil-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/boil-agent_continual_model_free_uniform/seed1/run_20260907_160924/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual_model_free",
+      "claude_account": "b",
+      "config": "boil-agent_continual_model_free_uniform",
+      "end_note": "",
+      "end_reason": "all_levels_won",
+      "env": "pybullet_boil",
+      "finished_at": 1788849666.519319,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 493,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 16,
+          "finished_at": 1788814545.3740537,
+          "game_overs": [],
+          "goal": [
+            "BurnerOff(burner0:burner)",
+            "JugFilled(jug0:jug)",
+            "NoWaterSpilled()",
+            "WaterBoiled(jug0:jug)"
+          ],
+          "goal_nl": "Boil a full jug of water on the burner without spilling any water, turn the burner off once the jug has finished boiling.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 17.14048750000001,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 141.0
+          },
+          "skill_invocations": 35,
+          "split": "train",
+          "started_at": 1788811766.884222,
+          "steps": 493,
+          "steps_before_first_win": 493,
+          "task_idx": 0,
+          "wall_clock": 2778.4898352622986,
+          "wall_clock_env": 2.2215805603191257,
+          "won": true,
+          "won_at_step": 493
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 24243.26578783989,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 794,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 1,
+          "finished_at": 1788849666.355412,
+          "game_overs": [],
+          "goal": [
+            "BurnerOff(burner0:burner)",
+            "JugFilled(jug0:jug)",
+            "JugFilled(jug1:jug)",
+            "NoWaterSpilled()",
+            "WaterBoiled(jug0:jug)",
+            "WaterBoiled(jug1:jug)"
+          ],
+          "goal_nl": "Boil a full jug of water on the burner without spilling any water, turn the burner off once every jug has finished boiling.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 1,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 1,
+          "sandbox": {
+            "llm_cost_usd": 18.800925,
+            "rounds": 3.0,
+            "sim_rollouts": 0.0,
+            "turns": 27.0
+          },
+          "skill_invocations": 28,
+          "split": "test",
+          "started_at": 1788814545.7406974,
+          "steps": 794,
+          "steps_before_first_win": 794,
+          "task_idx": 0,
+          "wall_clock": 10877.328177213669,
+          "wall_clock_env": 8.519131893990561,
+          "won": true,
+          "won_at_step": 794
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_boil__agent_continual_model_free__1______boil-agent_continual_model_free_uniform",
+      "schema": 1,
+      "seed": 1,
+      "started_at": 1788811766.545848,
+      "step_cap": 10000,
+      "totals": {
+        "levels_completed": 2,
+        "levels_total": 2,
+        "steps_remaining": 8713,
+        "total_downtime": 24243.26578783989,
+        "total_llm_cost": 35.94141250000001,
+        "total_resets": 0,
+        "total_skill_invocations": 63,
+        "total_steps": 1287,
+        "total_wall_clock": 13655.818012475967
+      },
+      "updated_at": 1788849666.5193202,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Boil",
+      "arm": "MF",
+      "seed": 2,
+      "config": "boil-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/boil-agent_continual_model_free_uniform/seed2/run_20260907_220406/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual_model_free",
+      "claude_account": "a",
+      "config": "boil-agent_continual_model_free_uniform",
+      "end_note": "",
+      "end_reason": "all_levels_won",
+      "env": "pybullet_boil",
+      "finished_at": 1788837760.210334,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "reset",
+              "index": 0,
+              "rejected": null,
+              "reward": null,
+              "steps": 591,
+              "terminated": null
+            },
+            {
+              "end": "win",
+              "index": 1,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 430,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 11,
+          "finished_at": 1788836929.053792,
+          "game_overs": [],
+          "goal": [
+            "BurnerOff(burner0:burner)",
+            "JugFilled(jug0:jug)",
+            "NoWaterSpilled()",
+            "WaterBoiled(jug0:jug)"
+          ],
+          "goal_nl": "Boil a full jug of water on the burner without spilling any water, turn the burner off once the jug has finished boiling.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 1,
+          "resets_before_first_win": 1,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 28.001352000000008,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 156.0
+          },
+          "skill_invocations": 36,
+          "split": "train",
+          "started_at": 1788833049.2136445,
+          "steps": 1022,
+          "steps_before_first_win": 1022,
+          "task_idx": 0,
+          "wall_clock": 3879.840152025223,
+          "wall_clock_env": 7.199750348052476,
+          "won": true,
+          "won_at_step": 1022
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 945,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 5,
+          "finished_at": 1788837760.1057441,
+          "game_overs": [],
+          "goal": [
+            "BurnerOff(burner0:burner)",
+            "JugFilled(jug0:jug)",
+            "JugFilled(jug1:jug)",
+            "NoWaterSpilled()",
+            "WaterBoiled(jug0:jug)",
+            "WaterBoiled(jug1:jug)"
+          ],
+          "goal_nl": "Boil a full jug of water on the burner without spilling any water, turn the burner off once every jug has finished boiling.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 23.350417499999992,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 83.0
+          },
+          "skill_invocations": 30,
+          "split": "test",
+          "started_at": 1788836929.890567,
+          "steps": 945,
+          "steps_before_first_win": 945,
+          "task_idx": 0,
+          "wall_clock": 830.2151815891266,
+          "wall_clock_env": 9.338723347347695,
+          "won": true,
+          "won_at_step": 945
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_boil__agent_continual_model_free__2______boil-agent_continual_model_free_uniform",
+      "schema": 1,
+      "seed": 2,
+      "started_at": 1788833048.7094543,
+      "step_cap": 10000,
+      "totals": {
+        "levels_completed": 2,
+        "levels_total": 2,
+        "steps_remaining": 8033,
+        "total_downtime": 0.0,
+        "total_llm_cost": 51.3517695,
+        "total_resets": 1,
+        "total_skill_invocations": 66,
+        "total_steps": 1967,
+        "total_wall_clock": 4710.055333614349
+      },
+      "updated_at": 1788837760.210337,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Bridge",
+      "arm": "MB",
+      "seed": 0,
+      "config": "bridge-agent_continual_uniform_r2",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/bridge-agent_continual_uniform_r2/seed0/run_20260908_075640/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual",
+      "claude_account": "a",
+      "config": "bridge-agent_continual_uniform_r2",
+      "end_note": "",
+      "end_reason": "all_levels_won",
+      "env": "pybullet_bridge",
+      "finished_at": 1788871711.4456916,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 3,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 1217,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788870617.069646,
+          "game_overs": [],
+          "goal": [
+            "Bridged(site0:site, site1:site)"
+          ],
+          "goal_nl": "Build an n-shaped bridge standing at the two marked sites: stand a leg on each site pad, join the three span blocks end-to-end into one rigid span, and seat it resting across the two leg tops.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 11.131806500000003,
+            "rounds": 1.0,
+            "sim_rollouts": 51.0,
+            "turns": 97.0
+          },
+          "skill_invocations": 23,
+          "split": "train",
+          "started_at": 1788868602.2059588,
+          "steps": 1217,
+          "steps_before_first_win": 1217,
+          "task_idx": 0,
+          "wall_clock": 2014.863695859909,
+          "wall_clock_env": 8.979746196419,
+          "won": true,
+          "won_at_step": 1217
+        },
+        {
+          "attempted": true,
+          "divergences": 3,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 1238,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 2,
+          "finished_at": 1788871711.3209128,
+          "game_overs": [],
+          "goal": [
+            "Bridged(site0:site, site1:site)"
+          ],
+          "goal_nl": "Build an n-shaped bridge standing at the two marked sites: stand a leg on each site pad, join the three span blocks end-to-end into one rigid span, and seat it resting across the two leg tops.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 6.643748999999999,
+            "rounds": 1.0,
+            "sim_rollouts": 17.0,
+            "turns": 31.0
+          },
+          "skill_invocations": 22,
+          "split": "test",
+          "started_at": 1788870617.5461988,
+          "steps": 1238,
+          "steps_before_first_win": 1238,
+          "task_idx": 0,
+          "wall_clock": 1093.774721622467,
+          "wall_clock_env": 8.831339785596356,
+          "won": true,
+          "won_at_step": 1238
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_bridge__agent_continual__0______bridge-agent_continual_uniform_r2",
+      "schema": 1,
+      "seed": 0,
+      "started_at": 1788868601.8428068,
+      "step_cap": 20000,
+      "totals": {
+        "levels_completed": 2,
+        "levels_total": 2,
+        "steps_remaining": 17545,
+        "total_downtime": 0.0,
+        "total_llm_cost": 17.775555500000003,
+        "total_resets": 0,
+        "total_skill_invocations": 45,
+        "total_steps": 2455,
+        "total_wall_clock": 3108.638417482376
+      },
+      "updated_at": 1788871711.4456937,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Bridge",
+      "arm": "MB",
+      "seed": 1,
+      "config": "bridge-agent_continual_uniform_r2",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/bridge-agent_continual_uniform_r2/seed1/run_20260908_075639/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual",
+      "claude_account": "a",
+      "config": "bridge-agent_continual_uniform_r2",
+      "end_note": "",
+      "end_reason": "all_levels_won",
+      "env": "pybullet_bridge",
+      "finished_at": 1788870805.5574868,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 1028,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788869797.700277,
+          "game_overs": [],
+          "goal": [
+            "Bridged(site0:site, site1:site)"
+          ],
+          "goal_nl": "Build an n-shaped bridge standing at the two marked sites: stand a leg on each site pad, join the three span blocks end-to-end into one rigid span, and seat it resting across the two leg tops.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 6.5829549999999974,
+            "rounds": 1.0,
+            "sim_rollouts": 49.0,
+            "turns": 65.0
+          },
+          "skill_invocations": 18,
+          "split": "train",
+          "started_at": 1788868602.1216044,
+          "steps": 1028,
+          "steps_before_first_win": 1028,
+          "task_idx": 0,
+          "wall_clock": 1195.578678369522,
+          "wall_clock_env": 6.677945869509131,
+          "won": true,
+          "won_at_step": 1028
+        },
+        {
+          "attempted": true,
+          "divergences": 1,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 1147,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788870805.4505293,
+          "game_overs": [],
+          "goal": [
+            "Bridged(site0:site, site1:site)"
+          ],
+          "goal_nl": "Build an n-shaped bridge standing at the two marked sites: stand a leg on each site pad, join the three span blocks end-to-end into one rigid span, and seat it resting across the two leg tops.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 7.704857,
+            "rounds": 1.0,
+            "sim_rollouts": 73.0,
+            "turns": 47.0
+          },
+          "skill_invocations": 20,
+          "split": "test",
+          "started_at": 1788869798.1293633,
+          "steps": 1147,
+          "steps_before_first_win": 1147,
+          "task_idx": 0,
+          "wall_clock": 1007.3211727142334,
+          "wall_clock_env": 7.687447899021208,
+          "won": true,
+          "won_at_step": 1147
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_bridge__agent_continual__1______bridge-agent_continual_uniform_r2",
+      "schema": 1,
+      "seed": 1,
+      "started_at": 1788868601.7703238,
+      "step_cap": 20000,
+      "totals": {
+        "levels_completed": 2,
+        "levels_total": 2,
+        "steps_remaining": 17825,
+        "total_downtime": 0.0,
+        "total_llm_cost": 14.287811999999997,
+        "total_resets": 0,
+        "total_skill_invocations": 38,
+        "total_steps": 2175,
+        "total_wall_clock": 2202.8998510837555
+      },
+      "updated_at": 1788870805.5574894,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Bridge",
+      "arm": "MB",
+      "seed": 2,
+      "config": "bridge-agent_continual_uniform_r2",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/bridge-agent_continual_uniform_r2/seed2/run_20260908_075645/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual",
+      "claude_account": "a",
+      "config": "bridge-agent_continual_uniform_r2",
+      "end_note": "",
+      "end_reason": "all_levels_won",
+      "env": "pybullet_bridge",
+      "finished_at": 1788872023.795373,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 3,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 1056,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788871468.9202812,
+          "game_overs": [],
+          "goal": [
+            "Bridged(site0:site, site1:site)"
+          ],
+          "goal_nl": "Build an n-shaped bridge standing at the two marked sites: stand a leg on each site pad, join the three span blocks end-to-end into one rigid span, and seat it resting across the two leg tops.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 14.038167000000003,
+            "rounds": 1.0,
+            "sim_rollouts": 135.0,
+            "turns": 131.0
+          },
+          "skill_invocations": 21,
+          "split": "train",
+          "started_at": 1788868608.6594343,
+          "steps": 1056,
+          "steps_before_first_win": 1056,
+          "task_idx": 0,
+          "wall_clock": 2860.2608540058136,
+          "wall_clock_env": 9.859651900129393,
+          "won": true,
+          "won_at_step": 1056
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 941,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788872023.6914024,
+          "game_overs": [],
+          "goal": [
+            "Bridged(site0:site, site1:site)"
+          ],
+          "goal_nl": "Build an n-shaped bridge standing at the two marked sites: stand a leg on each site pad, join the three span blocks end-to-end into one rigid span, and seat it resting across the two leg tops.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 3.9111815000000005,
+            "rounds": 1.0,
+            "sim_rollouts": 92.0,
+            "turns": 24.0
+          },
+          "skill_invocations": 19,
+          "split": "test",
+          "started_at": 1788871469.461365,
+          "steps": 941,
+          "steps_before_first_win": 941,
+          "task_idx": 0,
+          "wall_clock": 554.2300417423248,
+          "wall_clock_env": 8.8967343615368,
+          "won": true,
+          "won_at_step": 941
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_bridge__agent_continual__2______bridge-agent_continual_uniform_r2",
+      "schema": 1,
+      "seed": 2,
+      "started_at": 1788868608.2138948,
+      "step_cap": 20000,
+      "totals": {
+        "levels_completed": 2,
+        "levels_total": 2,
+        "steps_remaining": 18003,
+        "total_downtime": 0.0,
+        "total_llm_cost": 17.949348500000003,
+        "total_resets": 0,
+        "total_skill_invocations": 40,
+        "total_steps": 1997,
+        "total_wall_clock": 3414.4908957481384
+      },
+      "updated_at": 1788872023.795375,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Bridge",
+      "arm": "MF",
+      "seed": 0,
+      "config": "bridge-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/bridge-agent_continual_model_free_uniform/seed0/run_20260907_102819/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual_model_free",
+      "claude_account": "a",
+      "config": "bridge-agent_continual_model_free_uniform",
+      "end_note": "Level 2 is unwinnable from the current state and I have exhausted the reachable configuration space. The bridge is complete and correct by every geometric measure - both legs upright on their pads (4.8mm and 6.7mm), three spans welded into one rigid 30cm span resting level at z=0.5251 across both leg tops, both leg tops fully covered - and it is strictly better than level 1's certified winning state (which had a leg 9.6mm off its pad and tilted 3 degrees). Eliminated by direct test: both leg-site pairings, all four span-over-leg pairings, leg precision to 1.4mm, and the bottle's position. The blocker is the weld chain identity: the goal needs span1 as the middle block (Bonded(span0,span1) + Bonded(span1,span2)), but I welded span0-span2-span1 early on when span0's pick would not plan, and welds are permanent - verified by a 14cm free-fall drop that failed to separate them, and glue does not expire (3800 steps unchanged). No sequence of remaining actions can change which blocks are bonded, so I am forfeiting rather than burning the remaining 9652 steps on a state I have proven cannot be certified.",
+      "end_reason": "agent_ended",
+      "env": "pybullet_bridge",
+      "finished_at": 1788802224.5574179,
+      "git_sha": "ec09e55fcaac",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 4547.884995222092,
+          "episodes": [
+            {
+              "end": "reset",
+              "index": 0,
+              "rejected": null,
+              "reward": null,
+              "steps": 1191,
+              "terminated": null
+            },
+            {
+              "end": "reset",
+              "index": 1,
+              "rejected": null,
+              "reward": null,
+              "steps": 1969,
+              "terminated": null
+            },
+            {
+              "end": "reset",
+              "index": 2,
+              "rejected": null,
+              "reward": null,
+              "steps": 1367,
+              "terminated": null
+            },
+            {
+              "end": "win",
+              "index": 3,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 1814,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 16,
+          "finished_at": 1788800239.6890953,
+          "game_overs": [],
+          "goal": [
+            "AtSite(leg0:block, site0:site)",
+            "AtSite(leg1:block, site1:site)",
+            "NextToEnd(span1:block, span0:block)",
+            "NextToEnd(span2:block, span1:block)",
+            "SeatedOn(span0:block, leg0:block)",
+            "SeatedOn(span2:block, leg1:block)"
+          ],
+          "goal_nl": "Build an n-shaped bridge standing at the two marked sites: stand a leg on each site pad, join the three span blocks end-to-end into one rigid span, and seat it resting across the two leg tops.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 1,
+          "resets": 3,
+          "resets_before_first_win": 3,
+          "resumes": 1,
+          "sandbox": {
+            "llm_cost_usd": 23.8182285,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 94.0
+          },
+          "skill_invocations": 138,
+          "split": "train",
+          "started_at": 1788791300.944816,
+          "steps": 6344,
+          "steps_before_first_win": 6344,
+          "task_idx": 0,
+          "wall_clock": 4390.78354549408,
+          "wall_clock_env": 41.588911602506414,
+          "won": true,
+          "won_at_step": 6344
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "in_progress",
+              "index": 0,
+              "rejected": null,
+              "reward": null,
+              "steps": 4004,
+              "terminated": null
+            }
+          ],
+          "failed_skill_invocations": 1,
+          "finished_at": null,
+          "game_overs": [],
+          "goal": [
+            "AtSite(leg0:block, site0:site)",
+            "AtSite(leg1:block, site1:site)",
+            "NextToEnd(span1:block, span0:block)",
+            "NextToEnd(span2:block, span1:block)",
+            "SeatedOn(span0:block, leg0:block)",
+            "SeatedOn(span2:block, leg1:block)"
+          ],
+          "goal_nl": "Build an n-shaped bridge standing at the two marked sites: stand a leg on each site pad, join the three span blocks end-to-end into one rigid span, and seat it resting across the two leg tops.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": null,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 27.741324000000006,
+            "rounds": 3.0,
+            "sim_rollouts": 0.0,
+            "turns": 71.0
+          },
+          "skill_invocations": 74,
+          "split": "test",
+          "started_at": 1788800240.7001674,
+          "steps": 4004,
+          "steps_before_first_win": null,
+          "task_idx": 0,
+          "wall_clock": 1983.311726808548,
+          "wall_clock_env": 26.48464730847627,
+          "won": false,
+          "won_at_step": null
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_bridge__agent_continual_model_free__0______bridge-agent_continual_model_free_uniform",
+      "schema": 1,
+      "seed": 0,
+      "started_at": 1788791300.6216607,
+      "step_cap": 20000,
+      "totals": {
+        "levels_completed": 1,
+        "levels_total": 2,
+        "steps_remaining": 9652,
+        "total_downtime": 4547.884995222092,
+        "total_llm_cost": 51.55955250000001,
+        "total_resets": 3,
+        "total_skill_invocations": 212,
+        "total_steps": 10348,
+        "total_wall_clock": 6374.095272302628
+      },
+      "updated_at": 1788802224.5574205,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Bridge",
+      "arm": "MF",
+      "seed": 1,
+      "config": "bridge-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/bridge-agent_continual_model_free_uniform/seed1/run_20260907_160928/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual_model_free",
+      "claude_account": "b",
+      "config": "bridge-agent_continual_model_free_uniform",
+      "end_note": "",
+      "end_reason": "all_levels_won",
+      "env": "pybullet_bridge",
+      "finished_at": 1788852194.3228834,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 24650.918390989304,
+          "episodes": [
+            {
+              "end": "reset",
+              "index": 0,
+              "rejected": null,
+              "reward": null,
+              "steps": 1671,
+              "terminated": null
+            },
+            {
+              "end": "harness_reset",
+              "index": 1,
+              "rejected": null,
+              "reward": null,
+              "steps": 1067,
+              "terminated": null
+            },
+            {
+              "end": "harness_reset",
+              "index": 2,
+              "rejected": null,
+              "reward": null,
+              "steps": 589,
+              "terminated": null
+            },
+            {
+              "end": "reset",
+              "index": 3,
+              "rejected": null,
+              "reward": null,
+              "steps": 923,
+              "terminated": null
+            },
+            {
+              "end": "reset",
+              "index": 4,
+              "rejected": null,
+              "reward": null,
+              "steps": 1396,
+              "terminated": null
+            },
+            {
+              "end": "win",
+              "index": 5,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 1013,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 17,
+          "finished_at": 1788851755.4355497,
+          "game_overs": [],
+          "goal": [
+            "AtSite(leg0:block, site0:site)",
+            "AtSite(leg1:block, site1:site)",
+            "NextToEnd(span1:block, span0:block)",
+            "NextToEnd(span2:block, span1:block)",
+            "SeatedOn(span0:block, leg0:block)",
+            "SeatedOn(span2:block, leg1:block)"
+          ],
+          "goal_nl": "Build an n-shaped bridge standing at the two marked sites: stand a leg on each site pad, join the three span blocks end-to-end into one rigid span, and seat it resting across the two leg tops.",
+          "harness_resets": 2,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 3,
+          "resets": 3,
+          "resets_before_first_win": 3,
+          "resumes": 3,
+          "sandbox": {
+            "llm_cost_usd": 40.6714695,
+            "rounds": 2.0,
+            "sim_rollouts": 0.0,
+            "turns": 81.0
+          },
+          "skill_invocations": 174,
+          "split": "train",
+          "started_at": 1788811770.8076165,
+          "steps": 6662,
+          "steps_before_first_win": 6662,
+          "task_idx": 0,
+          "wall_clock": 15332.988347530365,
+          "wall_clock_env": 60.24226690758951,
+          "won": true,
+          "won_at_step": 6662
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 690,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 4,
+          "finished_at": 1788852194.2543895,
+          "game_overs": [],
+          "goal": [
+            "AtSite(leg0:block, site0:site)",
+            "AtSite(leg1:block, site1:site)",
+            "NextToEnd(span1:block, span0:block)",
+            "NextToEnd(span2:block, span1:block)",
+            "SeatedOn(span0:block, leg0:block)",
+            "SeatedOn(span2:block, leg1:block)"
+          ],
+          "goal_nl": "Build an n-shaped bridge standing at the two marked sites: stand a leg on each site pad, join the three span blocks end-to-end into one rigid span, and seat it resting across the two leg tops.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 6.893477,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 23.0
+          },
+          "skill_invocations": 18,
+          "split": "test",
+          "started_at": 1788851756.530645,
+          "steps": 690,
+          "steps_before_first_win": 690,
+          "task_idx": 0,
+          "wall_clock": 437.72374987602234,
+          "wall_clock_env": 4.908143223263323,
+          "won": true,
+          "won_at_step": 690
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_bridge__agent_continual_model_free__1______bridge-agent_continual_model_free_uniform",
+      "schema": 1,
+      "seed": 1,
+      "started_at": 1788811770.4142375,
+      "step_cap": 20000,
+      "totals": {
+        "levels_completed": 2,
+        "levels_total": 2,
+        "steps_remaining": 12648,
+        "total_downtime": 24650.918390989304,
+        "total_llm_cost": 47.5649465,
+        "total_resets": 3,
+        "total_skill_invocations": 192,
+        "total_steps": 7352,
+        "total_wall_clock": 15770.712097406387
+      },
+      "updated_at": 1788852194.3228848,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Bridge",
+      "arm": "MF",
+      "seed": 2,
+      "config": "bridge-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/bridge-agent_continual_model_free_uniform/seed2/run_20260907_160927/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual_model_free",
+      "claude_account": "a",
+      "config": "bridge-agent_continual_model_free_uniform",
+      "end_note": "Level 2 is provably unwinnable. The goal requires a leg standing on each of the two site pads. There are exactly two leg blocks: leg0 is on the table but lying (pick/place conserve roll and pitch, and a glue bond only forms when the contact normal aligns with the glued face's normal, so no bond can rotate a lying block upright - the count of upright blocks can never increase). leg1 was bulldozed off the table by a failed pick and lies on the floor at (0.8962,0.9664,0.025); the arm bottoms out at z~0.50 above that xy (measured from the IK stall residual of 0.450 m), so it is outside the arm's kinematic reach, and both PickBlock attempts failed, the second without even finding a plan. The three spans are permanently welded into the single rigid row the goal also requires, so none can substitute for a leg. This level has no resets, so there is no way to reach the goal; I am forfeiting rather than spending more of the step budget on a structure that cannot be certified.",
+      "end_reason": "agent_ended",
+      "env": "pybullet_bridge",
+      "finished_at": 1788825207.1772623,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 787,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 2,
+          "finished_at": 1788812808.586522,
+          "game_overs": [],
+          "goal": [
+            "AtSite(leg0:block, site0:site)",
+            "AtSite(leg1:block, site1:site)",
+            "NextToEnd(span1:block, span0:block)",
+            "NextToEnd(span2:block, span1:block)",
+            "SeatedOn(span0:block, leg0:block)",
+            "SeatedOn(span2:block, leg1:block)"
+          ],
+          "goal_nl": "Build an n-shaped bridge standing at the two marked sites: stand a leg on each site pad, join the three span blocks end-to-end into one rigid span, and seat it resting across the two leg tops.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 4.936602,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 45.0
+          },
+          "skill_invocations": 22,
+          "split": "train",
+          "started_at": 1788811769.2420793,
+          "steps": 787,
+          "steps_before_first_win": 787,
+          "task_idx": 0,
+          "wall_clock": 1039.344446182251,
+          "wall_clock_env": 5.886202243855223,
+          "won": true,
+          "won_at_step": 787
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "in_progress",
+              "index": 0,
+              "rejected": null,
+              "reward": null,
+              "steps": 1272,
+              "terminated": null
+            }
+          ],
+          "failed_skill_invocations": 5,
+          "finished_at": null,
+          "game_overs": [],
+          "goal": [
+            "AtSite(leg0:block, site0:site)",
+            "AtSite(leg1:block, site1:site)",
+            "NextToEnd(span1:block, span0:block)",
+            "NextToEnd(span2:block, span1:block)",
+            "SeatedOn(span0:block, leg0:block)",
+            "SeatedOn(span2:block, leg1:block)"
+          ],
+          "goal_nl": "Build an n-shaped bridge standing at the two marked sites: stand a leg on each site pad, join the three span blocks end-to-end into one rigid span, and seat it resting across the two leg tops.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": null,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 18.74609,
+            "rounds": 2.0,
+            "sim_rollouts": 0.0,
+            "turns": 51.0
+          },
+          "skill_invocations": 32,
+          "split": "test",
+          "started_at": 1788812809.0098097,
+          "steps": 1272,
+          "steps_before_first_win": null,
+          "task_idx": 0,
+          "wall_clock": 12398.017474412918,
+          "wall_clock_env": 11.14958478952758,
+          "won": false,
+          "won_at_step": null
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_bridge__agent_continual_model_free__2______bridge-agent_continual_model_free_uniform",
+      "schema": 1,
+      "seed": 2,
+      "started_at": 1788811768.85691,
+      "step_cap": 20000,
+      "totals": {
+        "levels_completed": 1,
+        "levels_total": 2,
+        "steps_remaining": 17941,
+        "total_downtime": 0.0,
+        "total_llm_cost": 23.682692,
+        "total_resets": 0,
+        "total_skill_invocations": 54,
+        "total_steps": 2059,
+        "total_wall_clock": 13437.361920595169
+      },
+      "updated_at": 1788825207.1772656,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Domino",
+      "arm": "MB",
+      "seed": 0,
+      "config": "domino_high_friction_turn-agent_continual_uniform_r2",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-agent_continual_uniform_r2/seed0/run_20260908_075659/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual",
+      "claude_account": "a",
+      "config": "domino_high_friction_turn-agent_continual_uniform_r2",
+      "end_note": "",
+      "end_reason": "all_levels_won",
+      "env": "pybullet_domino",
+      "finished_at": 1788877260.8950307,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 1,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 0.8,
+              "steps": 173,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788869796.5489252,
+          "game_overs": [],
+          "goal": [
+            "Toppled(domino_1:domino)"
+          ],
+          "goal_nl": "Arrange the blue dominoes so that when the green domino is pushed, the purple domino is toppled -- using AS FEW blue dominoes as possible (possibly none). Only the blue dominoes may be rearranged: the green and purple dominoes must stay untouched at their staged poses, upright and never held, until the green is pushed, and nothing may topple before that push. Only the green domino may ever be pushed. A solve only counts if the push itself causes the cascade: it is verified by replaying your push with every robot link except the fingertips made intangible, and the built layout must still cascade to the goal - topples that needed the arm's body earn nothing.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 4.418652000000001,
+            "rounds": 1.0,
+            "sim_rollouts": 61.0,
+            "turns": 50.0
+          },
+          "skill_invocations": 5,
+          "split": "train",
+          "started_at": 1788868751.1279233,
+          "steps": 173,
+          "steps_before_first_win": 173,
+          "task_idx": 0,
+          "wall_clock": 1045.421005487442,
+          "wall_clock_env": 1.1714823343791068,
+          "won": true,
+          "won_at_step": 173
+        },
+        {
+          "attempted": true,
+          "divergences": 1,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 0.7,
+              "steps": 223,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788877260.8676848,
+          "game_overs": [],
+          "goal": [
+            "Toppled(domino_1:domino)"
+          ],
+          "goal_nl": "Arrange the blue dominoes so that when the green domino is pushed, the purple domino is toppled -- using AS FEW blue dominoes as possible (possibly none). Only the blue dominoes may be rearranged: the green and purple dominoes must stay untouched at their staged poses, upright and never held, until the green is pushed, and nothing may topple before that push. Only the green domino may ever be pushed. A solve only counts if the push itself causes the cascade: it is verified by replaying your push with every robot link except the fingertips made intangible, and the built layout must still cascade to the goal - topples that needed the arm's body earn nothing.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 13.813339000000001,
+            "rounds": 1.0,
+            "sim_rollouts": 1614.0,
+            "turns": 78.0
+          },
+          "skill_invocations": 7,
+          "split": "test",
+          "started_at": 1788869796.882278,
+          "steps": 223,
+          "steps_before_first_win": 223,
+          "task_idx": 0,
+          "wall_clock": 7463.985411167145,
+          "wall_clock_env": 1.5501765368971974,
+          "won": true,
+          "won_at_step": 223
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_domino__agent_continual__0______domino_high_friction_turn-agent_continual_uniform_r2",
+      "schema": 1,
+      "seed": 0,
+      "started_at": 1788868750.7999032,
+      "step_cap": 10000,
+      "totals": {
+        "levels_completed": 2,
+        "levels_total": 2,
+        "steps_remaining": 9604,
+        "total_downtime": 0.0,
+        "total_llm_cost": 18.231991,
+        "total_resets": 0,
+        "total_skill_invocations": 12,
+        "total_steps": 396,
+        "total_wall_clock": 8509.406416654587
+      },
+      "updated_at": 1788877260.8950324,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Domino",
+      "arm": "MB",
+      "seed": 1,
+      "config": "domino_high_friction_turn-agent_continual_uniform_r2",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-agent_continual_uniform_r2/seed1/run_20260908_075707/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual",
+      "claude_account": "a",
+      "config": "domino_high_friction_turn-agent_continual_uniform_r2",
+      "end_note": "",
+      "end_reason": "all_levels_won",
+      "env": "pybullet_domino",
+      "finished_at": 1788874863.3163319,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 1,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 0.8,
+              "steps": 163,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788869590.6397521,
+          "game_overs": [],
+          "goal": [
+            "Toppled(domino_1:domino)"
+          ],
+          "goal_nl": "Arrange the blue dominoes so that when the green domino is pushed, the purple domino is toppled -- using AS FEW blue dominoes as possible (possibly none). Only the blue dominoes may be rearranged: the green and purple dominoes must stay untouched at their staged poses, upright and never held, until the green is pushed, and nothing may topple before that push. Only the green domino may ever be pushed. A solve only counts if the push itself causes the cascade: it is verified by replaying your push with every robot link except the fingertips made intangible, and the built layout must still cascade to the goal - topples that needed the arm's body earn nothing.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 4.101911,
+            "rounds": 1.0,
+            "sim_rollouts": 67.0,
+            "turns": 53.0
+          },
+          "skill_invocations": 5,
+          "split": "train",
+          "started_at": 1788868737.7401514,
+          "steps": 163,
+          "steps_before_first_win": 163,
+          "task_idx": 0,
+          "wall_clock": 852.8996062278748,
+          "wall_clock_env": 1.3470802493393421,
+          "won": true,
+          "won_at_step": 163
+        },
+        {
+          "attempted": true,
+          "divergences": 1,
+          "downtime": 3159.084252357483,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 0.8,
+              "steps": 180,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788874863.2822697,
+          "game_overs": [],
+          "goal": [
+            "Toppled(domino_1:domino)"
+          ],
+          "goal_nl": "Arrange the blue dominoes so that when the green domino is pushed, the purple domino is toppled -- using AS FEW blue dominoes as possible (possibly none). Only the blue dominoes may be rearranged: the green and purple dominoes must stay untouched at their staged poses, upright and never held, until the green is pushed, and nothing may topple before that push. Only the green domino may ever be pushed. A solve only counts if the push itself causes the cascade: it is verified by replaying your push with every robot link except the fingertips made intangible, and the built layout must still cascade to the goal - topples that needed the arm's body earn nothing.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 3,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 3,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 3.265993,
+            "rounds": 1.0,
+            "sim_rollouts": 152.0,
+            "turns": 20.0
+          },
+          "skill_invocations": 5,
+          "split": "test",
+          "started_at": 1788869591.0273898,
+          "steps": 180,
+          "steps_before_first_win": 180,
+          "task_idx": 0,
+          "wall_clock": 2113.1777341365814,
+          "wall_clock_env": 1.9593918653627043,
+          "won": true,
+          "won_at_step": 180
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_domino__agent_continual__1______domino_high_friction_turn-agent_continual_uniform_r2",
+      "schema": 1,
+      "seed": 1,
+      "started_at": 1788868737.3885028,
+      "step_cap": 10000,
+      "totals": {
+        "levels_completed": 2,
+        "levels_total": 2,
+        "steps_remaining": 9657,
+        "total_downtime": 3159.084252357483,
+        "total_llm_cost": 7.367904,
+        "total_resets": 0,
+        "total_skill_invocations": 10,
+        "total_steps": 343,
+        "total_wall_clock": 2966.077340364456
+      },
+      "updated_at": 1788874863.3163342,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Domino",
+      "arm": "MB",
+      "seed": 2,
+      "config": "domino_high_friction_turn-agent_continual_uniform_r2",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-agent_continual_uniform_r2/seed2/run_20260908_075707/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual",
+      "claude_account": "a",
+      "config": "domino_high_friction_turn-agent_continual_uniform_r2",
+      "end_note": "",
+      "end_reason": "all_levels_won",
+      "env": "pybullet_domino",
+      "finished_at": 1788872175.2593415,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 0.8,
+              "steps": 176,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": null,
+          "game_overs": [],
+          "goal": [
+            "Toppled(domino_1:domino)"
+          ],
+          "goal_nl": "Arrange the blue dominoes so that when the green domino is pushed, the purple domino is toppled -- using AS FEW blue dominoes as possible (possibly none). Only the blue dominoes may be rearranged: the green and purple dominoes must stay untouched at their staged poses, upright and never held, until the green is pushed, and nothing may topple before that push. Only the green domino may ever be pushed. A solve only counts if the push itself causes the cascade: it is verified by replaying your push with every robot link except the fingertips made intangible, and the built layout must still cascade to the goal - topples that needed the arm's body earn nothing.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {},
+          "skill_invocations": 5,
+          "split": "train",
+          "started_at": 1788868733.3328676,
+          "steps": 176,
+          "steps_before_first_win": 176,
+          "task_idx": 0,
+          "wall_clock": 891.7269923686981,
+          "wall_clock_env": 1.3953412238042802,
+          "won": true,
+          "won_at_step": 176
+        },
+        {
+          "attempted": true,
+          "divergences": 1,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 0.8,
+              "steps": 177,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788872175.228749,
+          "game_overs": [],
+          "goal": [
+            "Toppled(domino_1:domino)"
+          ],
+          "goal_nl": "Arrange the blue dominoes so that when the green domino is pushed, the purple domino is toppled -- using AS FEW blue dominoes as possible (possibly none). Only the blue dominoes may be rearranged: the green and purple dominoes must stay untouched at their staged poses, upright and never held, until the green is pushed, and nothing may topple before that push. Only the green domino may ever be pushed. A solve only counts if the push itself causes the cascade: it is verified by replaying your push with every robot link except the fingertips made intangible, and the built layout must still cascade to the goal - topples that needed the arm's body earn nothing.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 8.246343,
+            "rounds": 1.0,
+            "sim_rollouts": 677.0,
+            "turns": 54.0
+          },
+          "skill_invocations": 5,
+          "split": "test",
+          "started_at": 1788869826.4677017,
+          "steps": 177,
+          "steps_before_first_win": 177,
+          "task_idx": 0,
+          "wall_clock": 2348.76105093956,
+          "wall_clock_env": 1.1554159494116902,
+          "won": true,
+          "won_at_step": 177
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_domino__agent_continual__2______domino_high_friction_turn-agent_continual_uniform_r2",
+      "schema": 1,
+      "seed": 2,
+      "started_at": 1788868732.9757173,
+      "step_cap": 10000,
+      "totals": {
+        "levels_completed": 2,
+        "levels_total": 2,
+        "steps_remaining": 9647,
+        "total_downtime": 0.0,
+        "total_llm_cost": 8.246343,
+        "total_resets": 0,
+        "total_skill_invocations": 10,
+        "total_steps": 353,
+        "total_wall_clock": 3240.488043308258
+      },
+      "updated_at": 1788872175.2593439,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Domino",
+      "arm": "MF",
+      "seed": 0,
+      "config": "domino_high_friction_turn-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-agent_continual_model_free_uniform/seed0/run_20260907_102820/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual_model_free",
+      "claude_account": "b",
+      "config": "domino_high_friction_turn-agent_continual_model_free_uniform",
+      "end_note": "Level 2 is unwinnable from the current state and this is the last level, so nothing further is forfeited. Green was toppled by my first push and a flat domino is only T=0.0133 tall, while tipping anything requires a contact height above (T/2)/mu = 0.0443 - so a toppled green can never start another cascade; it can only slide things. Five distinct chains were swept exhaustively over nine rounds (1/2/3-blue pre-push chains; slab->slider->tipper with all yaws free; two-slider; bridge domino), all failing by 2-6 mm for one quantified reason: the toppled green's leading edge sits at y=1.49145, leaving 0.058 m of y to purple, while every intermediate body needs 0.015 planning clearance + ~0.030 slide standoff + its own ~0.035 half-extent. Purple is still upright and untouched at its staged pose; nothing is held; nothing toppled except by the single legitimate push. Run result: level 1 won (113 steps, 1 blue domino), level 2 lost; 992 steps, 0 resets, 0 GAME_OVERs.",
+      "end_reason": "agent_ended",
+      "env": "pybullet_domino",
+      "finished_at": 1788805062.623766,
+      "git_sha": "ec09e55fcaac",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 0.9,
+              "steps": 113,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788792531.8530364,
+          "game_overs": [],
+          "goal": [
+            "Toppled(domino_1:domino)"
+          ],
+          "goal_nl": "Arrange the blue dominoes so that when the green domino is pushed, the purple domino is toppled -- using AS FEW blue dominoes as possible (possibly none). Only the blue dominoes may be rearranged: the green and purple dominoes must stay untouched at their staged poses, upright and never held, until the green is pushed, and nothing may topple before that push. Only the green domino may ever be pushed. A solve only counts if the push itself causes the cascade: it is verified by replaying your push with every robot link except the fingertips made intangible, and the built layout must still cascade to the goal - topples that needed the arm's body earn nothing.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 4.0846304999999985,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 28.0
+          },
+          "skill_invocations": 3,
+          "split": "train",
+          "started_at": 1788791484.1130164,
+          "steps": 113,
+          "steps_before_first_win": 113,
+          "task_idx": 0,
+          "wall_clock": 1047.7400233745575,
+          "wall_clock_env": 1.2135271960869431,
+          "won": true,
+          "won_at_step": 113
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 4691.367162942886,
+          "episodes": [
+            {
+              "end": "harness_reset",
+              "index": 0,
+              "rejected": null,
+              "reward": null,
+              "steps": 206,
+              "terminated": null
+            },
+            {
+              "end": "in_progress",
+              "index": 1,
+              "rejected": null,
+              "reward": null,
+              "steps": 673,
+              "terminated": null
+            }
+          ],
+          "failed_skill_invocations": 12,
+          "finished_at": null,
+          "game_overs": [],
+          "goal": [
+            "Toppled(domino_1:domino)"
+          ],
+          "goal_nl": "Arrange the blue dominoes so that when the green domino is pushed, the purple domino is toppled -- using AS FEW blue dominoes as possible (possibly none). Only the blue dominoes may be rearranged: the green and purple dominoes must stay untouched at their staged poses, upright and never held, until the green is pushed, and nothing may topple before that push. Only the green domino may ever be pushed. A solve only counts if the push itself causes the cascade: it is verified by replaying your push with every robot link except the fingertips made intangible, and the built layout must still cascade to the goal - topples that needed the arm's body earn nothing.",
+          "harness_resets": 1,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 1,
+          "resets": 0,
+          "resets_before_first_win": null,
+          "resumes": 1,
+          "sandbox": {
+            "llm_cost_usd": 57.866511,
+            "rounds": 8.0,
+            "sim_rollouts": 0.0,
+            "turns": 124.0
+          },
+          "skill_invocations": 35,
+          "split": "test",
+          "started_at": 1788792532.252799,
+          "steps": 879,
+          "steps_before_first_win": null,
+          "task_idx": 0,
+          "wall_clock": 7838.928381681442,
+          "wall_clock_env": 8.863688560668379,
+          "won": false,
+          "won_at_step": null
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_domino__agent_continual_model_free__0______domino_high_friction_turn-agent_continual_model_free_uniform",
+      "schema": 1,
+      "seed": 0,
+      "started_at": 1788791483.6867986,
+      "step_cap": 10000,
+      "totals": {
+        "levels_completed": 1,
+        "levels_total": 2,
+        "steps_remaining": 9008,
+        "total_downtime": 4691.367162942886,
+        "total_llm_cost": 61.9511415,
+        "total_resets": 0,
+        "total_skill_invocations": 38,
+        "total_steps": 992,
+        "total_wall_clock": 8886.668405056
+      },
+      "updated_at": 1788805062.6237679,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Domino",
+      "arm": "MF",
+      "seed": 1,
+      "config": "domino_high_friction_turn-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-agent_continual_model_free_uniform/seed1/run_20260907_160930/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual_model_free",
+      "claude_account": "a",
+      "config": "domino_high_friction_turn-agent_continual_model_free_uniform",
+      "end_note": "Level 2 is unwinnable and I have verified this rather than assumed it. My push toppled green in the wrong direction because I mirrored the yaw convention: a domino's fall axis is Rz(yaw)*yhat = (-sin yaw, cos yaw), not the push option's facing = (sin yaw, cos yaw), and the two coincide only at yaw = 0/+-pi/2/pi, which was true of every domino in level 1. Purple is untouched and upright, but no legal action can now reach it: only green may ever be pushed; green is flat (roll -1.562) so it cannot topple anything by falling; it cannot even slide, because domino_5 lies flat 0.083 m ahead on exactly its push axis with the two bodies overlapping by 0.070 along that axis and green physically resting on it (z 0.4160 vs 0.4075); and even a free slide along that fixed axis passes purple at 0.166 m. The two standing blues can be rearranged but nothing can ever topple them. Rules are separately violated (green off its staged pose, two blues down). No remaining levels are forfeited. Full analysis in ./journal.md.",
+      "end_reason": "agent_ended",
+      "env": "pybullet_domino",
+      "finished_at": 1788827586.8467793,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 0.9,
+              "steps": 99,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788823923.0216947,
+          "game_overs": [],
+          "goal": [
+            "Toppled(domino_1:domino)"
+          ],
+          "goal_nl": "Arrange the blue dominoes so that when the green domino is pushed, the purple domino is toppled -- using AS FEW blue dominoes as possible (possibly none). Only the blue dominoes may be rearranged: the green and purple dominoes must stay untouched at their staged poses, upright and never held, until the green is pushed, and nothing may topple before that push. Only the green domino may ever be pushed. A solve only counts if the push itself causes the cascade: it is verified by replaying your push with every robot link except the fingertips made intangible, and the built layout must still cascade to the goal - topples that needed the arm's body earn nothing.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 6.622984499999999,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 7.0
+          },
+          "skill_invocations": 3,
+          "split": "train",
+          "started_at": 1788812068.9987614,
+          "steps": 99,
+          "steps_before_first_win": 99,
+          "task_idx": 0,
+          "wall_clock": 11854.022936582565,
+          "wall_clock_env": 1.0003855656832457,
+          "won": true,
+          "won_at_step": 99
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "in_progress",
+              "index": 0,
+              "rejected": null,
+              "reward": null,
+              "steps": 373,
+              "terminated": null
+            }
+          ],
+          "failed_skill_invocations": 3,
+          "finished_at": null,
+          "game_overs": [],
+          "goal": [
+            "Toppled(domino_1:domino)"
+          ],
+          "goal_nl": "Arrange the blue dominoes so that when the green domino is pushed, the purple domino is toppled -- using AS FEW blue dominoes as possible (possibly none). Only the blue dominoes may be rearranged: the green and purple dominoes must stay untouched at their staged poses, upright and never held, until the green is pushed, and nothing may topple before that push. Only the green domino may ever be pushed. A solve only counts if the push itself causes the cascade: it is verified by replaying your push with every robot link except the fingertips made intangible, and the built layout must still cascade to the goal - topples that needed the arm's body earn nothing.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": null,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 14.939459500000003,
+            "rounds": 2.0,
+            "sim_rollouts": 0.0,
+            "turns": 48.0
+          },
+          "skill_invocations": 13,
+          "split": "test",
+          "started_at": 1788823923.431626,
+          "steps": 373,
+          "steps_before_first_win": null,
+          "task_idx": 0,
+          "wall_clock": 3663.37628364563,
+          "wall_clock_env": 3.506712291855365,
+          "won": false,
+          "won_at_step": null
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_domino__agent_continual_model_free__1______domino_high_friction_turn-agent_continual_model_free_uniform",
+      "schema": 1,
+      "seed": 1,
+      "started_at": 1788812068.606848,
+      "step_cap": 10000,
+      "totals": {
+        "levels_completed": 1,
+        "levels_total": 2,
+        "steps_remaining": 9528,
+        "total_downtime": 0.0,
+        "total_llm_cost": 21.562444000000003,
+        "total_resets": 0,
+        "total_skill_invocations": 16,
+        "total_steps": 472,
+        "total_wall_clock": 15517.399220228195
+      },
+      "updated_at": 1788827586.8467803,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Domino",
+      "arm": "MF",
+      "seed": 2,
+      "config": "domino_high_friction_turn-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-agent_continual_model_free_uniform/seed2/run_20260907_160924/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual_model_free",
+      "claude_account": "b",
+      "config": "domino_high_friction_turn-agent_continual_model_free_uniform",
+      "end_note": "Level 2 is unwinnable and I am settling it rather than looping. The goal requires that pushing the UPRIGHT green domino cascades to purple, with nothing toppled beforehand. Green (domino_0, roll 1.4338) and domino_3 are already down from my push, and only blue dominoes may be rearranged - green may never be held or re-erected - so no further push can satisfy the win condition. This is level 2 of 2, so nothing further is forfeited. Cause of the loss, measured on two independent failures and written up in ./journal.md: a struck domino topples cleanly along its own axis but is ALSO skidded sideways by skid ~= K*tan^2(turn) with K ~ 0.07-0.24, independent of where the blow lands. My final layout used 27.8 deg on the first critical link (skid ~0.055, fatal); the analytically feasible winning layout was 3 blue dominoes with 11.7 deg critical turns (skid 0.0086) and the remaining 55 deg dumped on the last link into purple. I ruled that layout out only because it needs 0.065 m placement separations and I had imposed an unmeasured 0.090 m floor - the wrong call, since a refused Place is recoverable and a broken cascade is not.",
+      "end_reason": "agent_ended",
+      "env": "pybullet_domino",
+      "finished_at": 1788860387.2344167,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 0.8,
+              "steps": 180,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788813056.2312436,
+          "game_overs": [],
+          "goal": [
+            "Toppled(domino_1:domino)"
+          ],
+          "goal_nl": "Arrange the blue dominoes so that when the green domino is pushed, the purple domino is toppled -- using AS FEW blue dominoes as possible (possibly none). Only the blue dominoes may be rearranged: the green and purple dominoes must stay untouched at their staged poses, upright and never held, until the green is pushed, and nothing may topple before that push. Only the green domino may ever be pushed. A solve only counts if the push itself causes the cascade: it is verified by replaying your push with every robot link except the fingertips made intangible, and the built layout must still cascade to the goal - topples that needed the arm's body earn nothing.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 3.4235724999999997,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 31.0
+          },
+          "skill_invocations": 5,
+          "split": "train",
+          "started_at": 1788811956.1354392,
+          "steps": 180,
+          "steps_before_first_win": 180,
+          "task_idx": 0,
+          "wall_clock": 1100.095810174942,
+          "wall_clock_env": 1.3699413158465177,
+          "won": true,
+          "won_at_step": 180
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 24661.103048563004,
+          "episodes": [
+            {
+              "end": "harness_reset",
+              "index": 0,
+              "rejected": null,
+              "reward": null,
+              "steps": 237,
+              "terminated": null
+            },
+            {
+              "end": "in_progress",
+              "index": 1,
+              "rejected": null,
+              "reward": null,
+              "steps": 854,
+              "terminated": null
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": null,
+          "game_overs": [],
+          "goal": [
+            "Toppled(domino_1:domino)"
+          ],
+          "goal_nl": "Arrange the blue dominoes so that when the green domino is pushed, the purple domino is toppled -- using AS FEW blue dominoes as possible (possibly none). Only the blue dominoes may be rearranged: the green and purple dominoes must stay untouched at their staged poses, upright and never held, until the green is pushed, and nothing may topple before that push. Only the green domino may ever be pushed. A solve only counts if the push itself causes the cascade: it is verified by replaying your push with every robot link except the fingertips made intangible, and the built layout must still cascade to the goal - topples that needed the arm's body earn nothing.",
+          "harness_resets": 1,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 2,
+          "resets": 0,
+          "resets_before_first_win": null,
+          "resumes": 2,
+          "sandbox": {
+            "llm_cost_usd": 44.316474500000005,
+            "rounds": 3.0,
+            "sim_rollouts": 0.0,
+            "turns": 124.0
+          },
+          "skill_invocations": 12,
+          "split": "test",
+          "started_at": 1788813056.5385654,
+          "steps": 1091,
+          "steps_before_first_win": null,
+          "task_idx": 0,
+          "wall_clock": 22669.491560459137,
+          "wall_clock_env": 9.86759668868035,
+          "won": false,
+          "won_at_step": null
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_domino__agent_continual_model_free__2______domino_high_friction_turn-agent_continual_model_free_uniform",
+      "schema": 1,
+      "seed": 2,
+      "started_at": 1788811955.8148146,
+      "step_cap": 10000,
+      "totals": {
+        "levels_completed": 1,
+        "levels_total": 2,
+        "steps_remaining": 8729,
+        "total_downtime": 24661.103048563004,
+        "total_llm_cost": 47.740047000000004,
+        "total_resets": 0,
+        "total_skill_invocations": 17,
+        "total_steps": 1271,
+        "total_wall_clock": 23769.58737063408
+      },
+      "updated_at": 1788860387.234418,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Fan",
+      "arm": "MB",
+      "seed": 0,
+      "config": "fan-agent_continual_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/fan-agent_continual_uniform/seed0/run_20260907_102945/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual",
+      "claude_account": "a",
+      "config": "fan-agent_continual_uniform",
+      "end_note": "",
+      "end_reason": "all_levels_won",
+      "env": "pybullet_fan",
+      "finished_at": 1788798561.7195518,
+      "git_sha": "ec09e55fcaac",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 201,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788792760.2855973,
+          "game_overs": [],
+          "goal": [
+            "BallAtTarget(ball:ball, target:target)",
+            "FanOff(fan_0:fan)",
+            "FanOff(fan_1:fan)",
+            "FanOff(fan_2:fan)",
+            "FanOff(fan_3:fan)"
+          ],
+          "goal_nl": "Blow the ball to the target at position (x=0.75, y=1.72); all fans must be off.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 3.384299500000001,
+            "rounds": 1.0,
+            "sim_rollouts": 168.0,
+            "turns": 47.0
+          },
+          "skill_invocations": 8,
+          "split": "train",
+          "started_at": 1788791393.7982333,
+          "steps": 201,
+          "steps_before_first_win": 201,
+          "task_idx": 0,
+          "wall_clock": 1366.4873678684235,
+          "wall_clock_env": 1.0132324441801757,
+          "won": true,
+          "won_at_step": 201
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 5480.152149200439,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 204,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788798561.6777682,
+          "game_overs": [],
+          "goal": [
+            "BallAtTarget(ball:ball, target:target)",
+            "FanOff(fan_0:fan)",
+            "FanOff(fan_1:fan)",
+            "FanOff(fan_2:fan)",
+            "FanOff(fan_3:fan)"
+          ],
+          "goal_nl": "Blow the ball to the target at position (x=0.55, y=1.68); all fans must be off.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 2,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 2,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 2.0099485,
+            "rounds": 1.0,
+            "sim_rollouts": 11.0,
+            "turns": 15.0
+          },
+          "skill_invocations": 8,
+          "split": "test",
+          "started_at": 1788792760.7951517,
+          "steps": 204,
+          "steps_before_first_win": 204,
+          "task_idx": 0,
+          "wall_clock": 320.73150300979614,
+          "wall_clock_env": 0.938250889070332,
+          "won": true,
+          "won_at_step": 204
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_fan__agent_continual__0______fan-agent_continual_uniform",
+      "schema": 1,
+      "seed": 0,
+      "started_at": 1788791392.60996,
+      "step_cap": 10000,
+      "totals": {
+        "levels_completed": 2,
+        "levels_total": 2,
+        "steps_remaining": 9595,
+        "total_downtime": 5480.152149200439,
+        "total_llm_cost": 5.394248000000001,
+        "total_resets": 0,
+        "total_skill_invocations": 16,
+        "total_steps": 405,
+        "total_wall_clock": 1687.2188708782196
+      },
+      "updated_at": 1788798561.7195532,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Fan",
+      "arm": "MB",
+      "seed": 1,
+      "config": "fan-agent_continual_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/fan-agent_continual_uniform/seed1/run_20260907_160921/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual",
+      "claude_account": "b",
+      "config": "fan-agent_continual_uniform",
+      "end_note": "",
+      "end_reason": "all_levels_won",
+      "env": "pybullet_fan",
+      "finished_at": 1788813241.2290757,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 47,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788812706.253279,
+          "game_overs": [],
+          "goal": [
+            "BallAtTarget(ball:ball, target:target)",
+            "FanOff(fan_0:fan)",
+            "FanOff(fan_1:fan)",
+            "FanOff(fan_2:fan)",
+            "FanOff(fan_3:fan)"
+          ],
+          "goal_nl": "Blow the ball to the target at position (x=0.75, y=1.64); all fans must be off.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 5.6749849999999995,
+            "rounds": 1.0,
+            "sim_rollouts": 236.0,
+            "turns": 72.0
+          },
+          "skill_invocations": 2,
+          "split": "train",
+          "started_at": 1788811764.0634122,
+          "steps": 47,
+          "steps_before_first_win": 47,
+          "task_idx": 0,
+          "wall_clock": 942.1898739337921,
+          "wall_clock_env": 0.1787630623439327,
+          "won": true,
+          "won_at_step": 47
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 210,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788813241.1829438,
+          "game_overs": [],
+          "goal": [
+            "BallAtTarget(ball:ball, target:target)",
+            "FanOff(fan_0:fan)",
+            "FanOff(fan_1:fan)",
+            "FanOff(fan_2:fan)",
+            "FanOff(fan_3:fan)"
+          ],
+          "goal_nl": "Blow the ball to the target at position (x=0.63, y=1.76); all fans must be off.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 3.7941915,
+            "rounds": 1.0,
+            "sim_rollouts": 17.0,
+            "turns": 29.0
+          },
+          "skill_invocations": 10,
+          "split": "test",
+          "started_at": 1788812706.689505,
+          "steps": 210,
+          "steps_before_first_win": 210,
+          "task_idx": 0,
+          "wall_clock": 534.4934468269348,
+          "wall_clock_env": 0.812041575787589,
+          "won": true,
+          "won_at_step": 210
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_fan__agent_continual__1______fan-agent_continual_uniform",
+      "schema": 1,
+      "seed": 1,
+      "started_at": 1788811763.617967,
+      "step_cap": 10000,
+      "totals": {
+        "levels_completed": 2,
+        "levels_total": 2,
+        "steps_remaining": 9743,
+        "total_downtime": 0.0,
+        "total_llm_cost": 9.4691765,
+        "total_resets": 0,
+        "total_skill_invocations": 12,
+        "total_steps": 257,
+        "total_wall_clock": 1476.683320760727
+      },
+      "updated_at": 1788813241.2290773,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Fan",
+      "arm": "MB",
+      "seed": 2,
+      "config": "fan-agent_continual_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/fan-agent_continual_uniform/seed2/run_20260907_160923/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual",
+      "claude_account": "a",
+      "config": "fan-agent_continual_uniform",
+      "end_note": "",
+      "end_reason": "all_levels_won",
+      "env": "pybullet_fan",
+      "finished_at": 1788813086.4869854,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 197,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788812826.2992013,
+          "game_overs": [],
+          "goal": [
+            "BallAtTarget(ball:ball, target:target)",
+            "FanOff(fan_0:fan)",
+            "FanOff(fan_1:fan)",
+            "FanOff(fan_2:fan)",
+            "FanOff(fan_3:fan)"
+          ],
+          "goal_nl": "Blow the ball to the target at position (x=0.75, y=1.72); all fans must be off.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 5.234322,
+            "rounds": 1.0,
+            "sim_rollouts": 140.0,
+            "turns": 60.0
+          },
+          "skill_invocations": 9,
+          "split": "train",
+          "started_at": 1788811766.117561,
+          "steps": 197,
+          "steps_before_first_win": 197,
+          "task_idx": 0,
+          "wall_clock": 1060.1816430091858,
+          "wall_clock_env": 0.7279330408200622,
+          "won": true,
+          "won_at_step": 197
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 79,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788813086.4670804,
+          "game_overs": [],
+          "goal": [
+            "BallAtTarget(ball:ball, target:target)",
+            "FanOff(fan_0:fan)",
+            "FanOff(fan_1:fan)",
+            "FanOff(fan_2:fan)",
+            "FanOff(fan_3:fan)"
+          ],
+          "goal_nl": "Blow the ball to the target at position (x=0.87, y=1.68); all fans must be off.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "fits": 1.0,
+            "llm_cost_usd": 1.4879850000000001,
+            "rounds": 1.0,
+            "sim_rollouts": 6.0,
+            "turns": 10.0
+          },
+          "skill_invocations": 4,
+          "split": "test",
+          "started_at": 1788812826.7741501,
+          "steps": 79,
+          "steps_before_first_win": 79,
+          "task_idx": 0,
+          "wall_clock": 259.69293427467346,
+          "wall_clock_env": 0.30280275410041213,
+          "won": true,
+          "won_at_step": 79
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_fan__agent_continual__2______fan-agent_continual_uniform",
+      "schema": 1,
+      "seed": 2,
+      "started_at": 1788811765.6806514,
+      "step_cap": 10000,
+      "totals": {
+        "levels_completed": 2,
+        "levels_total": 2,
+        "steps_remaining": 9724,
+        "total_downtime": 0.0,
+        "total_llm_cost": 6.722307,
+        "total_resets": 0,
+        "total_skill_invocations": 13,
+        "total_steps": 276,
+        "total_wall_clock": 1319.8745772838593
+      },
+      "updated_at": 1788813086.4869864,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Fan",
+      "arm": "MF",
+      "seed": 0,
+      "config": "fan-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/fan-agent_continual_model_free_uniform/seed0/run_20260907_102819/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual_model_free",
+      "claude_account": "b",
+      "config": "fan-agent_continual_model_free_uniform",
+      "end_note": "",
+      "end_reason": "all_levels_won",
+      "env": "pybullet_fan",
+      "finished_at": 1788793020.6220844,
+      "git_sha": "ec09e55fcaac",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "reset",
+              "index": 0,
+              "rejected": null,
+              "reward": null,
+              "steps": 4338,
+              "terminated": null
+            },
+            {
+              "end": "win",
+              "index": 1,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 2066,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 16,
+          "finished_at": 1788792871.7539952,
+          "game_overs": [],
+          "goal": [
+            "BallAtTarget(ball:ball, target:target)",
+            "FanOff(fan_0:fan)",
+            "FanOff(fan_1:fan)",
+            "FanOff(fan_2:fan)",
+            "FanOff(fan_3:fan)"
+          ],
+          "goal_nl": "Blow the ball to the target at position (x=0.75, y=1.72); all fans must be off.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 1,
+          "resets_before_first_win": 1,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 6.8747644999999995,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 60.0
+          },
+          "skill_invocations": 20,
+          "split": "train",
+          "started_at": 1788791301.7828686,
+          "steps": 6405,
+          "steps_before_first_win": 6405,
+          "task_idx": 0,
+          "wall_clock": 1569.9711294174194,
+          "wall_clock_env": 31.731615639058873,
+          "won": true,
+          "won_at_step": 6405
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 1021,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 1,
+          "finished_at": 1788793020.4866707,
+          "game_overs": [],
+          "goal": [
+            "BallAtTarget(ball:ball, target:target)",
+            "FanOff(fan_0:fan)",
+            "FanOff(fan_1:fan)",
+            "FanOff(fan_2:fan)",
+            "FanOff(fan_3:fan)"
+          ],
+          "goal_nl": "Blow the ball to the target at position (x=0.55, y=1.68); all fans must be off.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 1.0183185000000001,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 7.0
+          },
+          "skill_invocations": 2,
+          "split": "test",
+          "started_at": 1788792873.1132472,
+          "steps": 1021,
+          "steps_before_first_win": 1021,
+          "task_idx": 0,
+          "wall_clock": 147.37342858314514,
+          "wall_clock_env": 5.168665601639077,
+          "won": true,
+          "won_at_step": 1021
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_fan__agent_continual_model_free__0______fan-agent_continual_model_free_uniform",
+      "schema": 1,
+      "seed": 0,
+      "started_at": 1788791301.3568068,
+      "step_cap": 10000,
+      "totals": {
+        "levels_completed": 2,
+        "levels_total": 2,
+        "steps_remaining": 2574,
+        "total_downtime": 0.0,
+        "total_llm_cost": 7.893083,
+        "total_resets": 1,
+        "total_skill_invocations": 22,
+        "total_steps": 7426,
+        "total_wall_clock": 1717.3445580005646
+      },
+      "updated_at": 1788793020.6220853,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Fan",
+      "arm": "MF",
+      "seed": 1,
+      "config": "fan-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/fan-agent_continual_model_free_uniform/seed1/run_20260907_160936/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual_model_free",
+      "claude_account": "a",
+      "config": "fan-agent_continual_model_free_uniform",
+      "end_note": "Level 2 is unwinnable from the current state and I have exhausted the approaches. The goal requires all fans off; fan_1 is on and cannot be switched off. Three independent lines of evidence: (1) the SwitchOff skill is impossible over its whole parameter range for switch_1 - approach_distance <= 0.09 aborts with the goal pose inside switch_1 (penetration is z-independent, ~0.0105 per 0.01 of approach, so clearing needs >= 0.11 > the 0.1 max), while approach_distance 0.1 plans but the arm physically bottoms out at z ~ 0.487 when contact requires z <= 0.47; (2) manual control - about 40 attempts, including a calibrated contact model built from the two flips that did work (sweep -y through y~1.1385 at z~0.443-0.452, contact face +0.028 in x of the TCP), which bracketed switch_1 at x=0.680 from both sides with implied contacts of 0.666, 0.671, 0.686, 0.689, 0.690 and 0.697, all at the correct height, none flipping it; (3) direct contact observation - at x=0.68 the gripper jams at y~1.149 and will not advance south at any lever height. Round 5's translation argument (shift park and swing by the same joint-0 delta so the fixed-slope sweep starts at x=0.771) parked correctly but the matched sweep then no longer reached the lever plane, since start and reach are not independent in this command family. Only the END switches (0 and 3) have a free side and can be turned off; the middle ones (1 and 2) cannot. Root cause of the loss: one large exploratory joint command near the switch bank in round 2 swept the gripper through it and turned switch_0 and switch_1 on simultaneously; that looked harmless because the two fans cancel and the ball never moved, but fan_1 was thereafter unrecoverable. No resets on this level. Stopping rather than burning more of the 6216 remaining steps on a vanishing chance. Level 1 was won.",
+      "end_reason": "agent_ended",
+      "env": "pybullet_fan",
+      "finished_at": 1788829686.6830118,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "reset",
+              "index": 0,
+              "rejected": null,
+              "reward": null,
+              "steps": 2282,
+              "terminated": null
+            },
+            {
+              "end": "win",
+              "index": 1,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 58,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 10,
+          "finished_at": 1788825047.5782528,
+          "game_overs": [],
+          "goal": [
+            "BallAtTarget(ball:ball, target:target)",
+            "FanOff(fan_0:fan)",
+            "FanOff(fan_1:fan)",
+            "FanOff(fan_2:fan)",
+            "FanOff(fan_3:fan)"
+          ],
+          "goal_nl": "Blow the ball to the target at position (x=0.75, y=1.64); all fans must be off.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 1,
+          "resets_before_first_win": 1,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 21.204114000000004,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 75.0
+          },
+          "skill_invocations": 11,
+          "split": "train",
+          "started_at": 1788811779.351119,
+          "steps": 2341,
+          "steps_before_first_win": 2341,
+          "task_idx": 0,
+          "wall_clock": 13268.227137804031,
+          "wall_clock_env": 11.179966636933386,
+          "won": true,
+          "won_at_step": 2341
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "in_progress",
+              "index": 0,
+              "rejected": null,
+              "reward": null,
+              "steps": 1443,
+              "terminated": null
+            }
+          ],
+          "failed_skill_invocations": 7,
+          "finished_at": null,
+          "game_overs": [],
+          "goal": [
+            "BallAtTarget(ball:ball, target:target)",
+            "FanOff(fan_0:fan)",
+            "FanOff(fan_1:fan)",
+            "FanOff(fan_2:fan)",
+            "FanOff(fan_3:fan)"
+          ],
+          "goal_nl": "Blow the ball to the target at position (x=0.63, y=1.76); all fans must be off.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": null,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 89.40349499999995,
+            "rounds": 4.0,
+            "sim_rollouts": 0.0,
+            "turns": 282.0
+          },
+          "skill_invocations": 7,
+          "split": "test",
+          "started_at": 1788825048.6611693,
+          "steps": 1443,
+          "steps_before_first_win": null,
+          "task_idx": 0,
+          "wall_clock": 4637.788880348206,
+          "wall_clock_env": 6.875315118813887,
+          "won": false,
+          "won_at_step": null
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_fan__agent_continual_model_free__1______fan-agent_continual_model_free_uniform",
+      "schema": 1,
+      "seed": 1,
+      "started_at": 1788811778.7719069,
+      "step_cap": 10000,
+      "totals": {
+        "levels_completed": 1,
+        "levels_total": 2,
+        "steps_remaining": 6216,
+        "total_downtime": 0.0,
+        "total_llm_cost": 110.60760899999995,
+        "total_resets": 1,
+        "total_skill_invocations": 18,
+        "total_steps": 3784,
+        "total_wall_clock": 17906.016018152237
+      },
+      "updated_at": 1788829686.6830137,
+      "wall_clock_cap": 172800.0
+    }
+  },
+  {
+    "selection": {
+      "domain": "Fan",
+      "arm": "MF",
+      "seed": 2,
+      "config": "fan-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/fan-agent_continual_model_free_uniform/seed2/run_20260907_160928/scorecard.json"
+    },
+    "scorecard": {
+      "arm": "agent_continual_model_free",
+      "claude_account": "b",
+      "config": "fan-agent_continual_model_free_uniform",
+      "end_note": "",
+      "end_reason": "all_levels_won",
+      "env": "pybullet_fan",
+      "finished_at": 1788814192.797353,
+      "git_sha": "fefee34c6206",
+      "levels": [
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 2352,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 6,
+          "finished_at": 1788813192.175633,
+          "game_overs": [],
+          "goal": [
+            "BallAtTarget(ball:ball, target:target)",
+            "FanOff(fan_0:fan)",
+            "FanOff(fan_1:fan)",
+            "FanOff(fan_2:fan)",
+            "FanOff(fan_3:fan)"
+          ],
+          "goal_nl": "Blow the ball to the target at position (x=0.75, y=1.72); all fans must be off.",
+          "harness_resets": 0,
+          "index": 0,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 6.4622715,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 47.0
+          },
+          "skill_invocations": 15,
+          "split": "train",
+          "started_at": 1788811771.1789217,
+          "steps": 2352,
+          "steps_before_first_win": 2352,
+          "task_idx": 0,
+          "wall_clock": 1420.99671459198,
+          "wall_clock_env": 13.803520887391642,
+          "won": true,
+          "won_at_step": 2352
+        },
+        {
+          "attempted": true,
+          "divergences": 0,
+          "downtime": 0.0,
+          "episodes": [
+            {
+              "end": "win",
+              "index": 0,
+              "rejected": false,
+              "reward": 1.0,
+              "steps": 351,
+              "terminated": true
+            }
+          ],
+          "failed_skill_invocations": 0,
+          "finished_at": 1788814192.728578,
+          "game_overs": [],
+          "goal": [
+            "BallAtTarget(ball:ball, target:target)",
+            "FanOff(fan_0:fan)",
+            "FanOff(fan_1:fan)",
+            "FanOff(fan_2:fan)",
+            "FanOff(fan_3:fan)"
+          ],
+          "goal_nl": "Blow the ball to the target at position (x=0.87, y=1.68); all fans must be off.",
+          "harness_resets": 0,
+          "index": 1,
+          "interrupted_invocations": 0,
+          "lost": false,
+          "preemptions": 0,
+          "resets": 0,
+          "resets_before_first_win": 0,
+          "resumes": 0,
+          "sandbox": {
+            "llm_cost_usd": 5.0791154999999995,
+            "rounds": 1.0,
+            "sim_rollouts": 0.0,
+            "turns": 21.0
+          },
+          "skill_invocations": 10,
+          "split": "test",
+          "started_at": 1788813193.0878122,
+          "steps": 351,
+          "steps_before_first_win": 351,
+          "task_idx": 0,
+          "wall_clock": 999.640772819519,
+          "wall_clock_env": 1.5951554935891181,
+          "won": true,
+          "won_at_step": 351
+        }
+      ],
+      "obs_noise_declared": true,
+      "obs_noise_orientation": 0.0,
+      "obs_noise_position": 0.0,
+      "run_id": "pybullet_fan__agent_continual_model_free__2______fan-agent_continual_model_free_uniform",
+      "schema": 1,
+      "seed": 2,
+      "started_at": 1788811770.687034,
+      "step_cap": 10000,
+      "totals": {
+        "levels_completed": 2,
+        "levels_total": 2,
+        "steps_remaining": 7297,
+        "total_downtime": 0.0,
+        "total_llm_cost": 11.541387,
+        "total_resets": 0,
+        "total_skill_invocations": 25,
+        "total_steps": 2703,
+        "total_wall_clock": 2420.637487411499
+      },
+      "updated_at": 1788814192.7973547,
+      "wall_clock_cap": 172800.0
+    }
+  }
+]

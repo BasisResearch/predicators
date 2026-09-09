@@ -1,0 +1,266 @@
+{
+  "generated_by": "make_crossdomain_table.py; do not edit manually",
+  "observed_at": "2026-09-08T21:18:18.636543+00:00",
+  "manifest": "/home/ycliang/predicators/logs/uncertainty_crossdomain_20260908/launch-manifest.json",
+  "base_sha": "92d37ec9723b4c46de37d8ff38c9c98015a010da",
+  "source_tree": "/home/ycliang/predicators-noise-crossdomain-r1",
+  "rows": [
+    {
+      "domain": "Bridge",
+      "noise": "5 mm / 0.02 rad",
+      "arm": "MF",
+      "experiment_id": "bridge-agent_continual_model_free_cross_noise",
+      "job_id": "22319432",
+      "uncertainty_flags": {
+        "code_sim_learning_interval_belief": false,
+        "agent_explorer_info_seeking_noise_aware": false,
+        "code_sim_learning_rollout_noise_filter": false,
+        "code_sim_learning_carry_posterior": false,
+        "code_sim_learning_fit_evidence": false,
+        "continual_belief_frame": false
+      },
+      "runs": [
+        {
+          "seed": 0,
+          "finished_at": null,
+          "status": "Missing"
+        },
+        {
+          "seed": 1,
+          "finished_at": null,
+          "status": "Missing"
+        }
+      ]
+    },
+    {
+      "domain": "Bridge",
+      "noise": "5 mm / 0.02 rad",
+      "arm": "MB without features",
+      "experiment_id": "bridge-agent_continual_cross_noise_off",
+      "job_id": "22319429",
+      "uncertainty_flags": {
+        "code_sim_learning_interval_belief": false,
+        "agent_explorer_info_seeking_noise_aware": false,
+        "code_sim_learning_rollout_noise_filter": false,
+        "code_sim_learning_carry_posterior": false,
+        "code_sim_learning_fit_evidence": false,
+        "continual_belief_frame": false
+      },
+      "runs": [
+        {
+          "seed": 0,
+          "finished_at": null,
+          "status": "Missing"
+        },
+        {
+          "seed": 1,
+          "finished_at": null,
+          "status": "Missing"
+        }
+      ]
+    },
+    {
+      "domain": "Bridge",
+      "noise": "5 mm / 0.02 rad",
+      "arm": "MB with features",
+      "experiment_id": "bridge-agent_continual_cross_noise_on",
+      "job_id": "22320299",
+      "uncertainty_flags": {
+        "code_sim_learning_interval_belief": true,
+        "agent_explorer_info_seeking_noise_aware": true,
+        "code_sim_learning_rollout_noise_filter": true,
+        "code_sim_learning_carry_posterior": true,
+        "code_sim_learning_fit_evidence": true,
+        "continual_belief_frame": true
+      },
+      "runs": [
+        {
+          "seed": 0,
+          "finished_at": null,
+          "status": "Unfinished",
+          "source": "logs/agent_continual/bridge-agent_continual_cross_noise_on/seed0/run_20260908_165814/scorecard.json",
+          "source_git_sha": "92d37ec9723b",
+          "end_reason": null,
+          "levels_solved": 0,
+          "levels_total": 2,
+          "steps": 99,
+          "resets": 0
+        },
+        {
+          "seed": 1,
+          "finished_at": null,
+          "status": "Unfinished",
+          "source": "logs/agent_continual/bridge-agent_continual_cross_noise_on/seed1/run_20260908_165814/scorecard.json",
+          "source_git_sha": "92d37ec9723b",
+          "end_reason": null,
+          "levels_solved": 0,
+          "levels_total": 2,
+          "steps": 782,
+          "resets": 0
+        }
+      ]
+    },
+    {
+      "domain": "Fan",
+      "noise": "5 mm / 0.02 rad",
+      "arm": "MF",
+      "experiment_id": "fan-agent_continual_model_free_cross_noise",
+      "job_id": "22319433",
+      "uncertainty_flags": {
+        "code_sim_learning_interval_belief": false,
+        "agent_explorer_info_seeking_noise_aware": false,
+        "code_sim_learning_rollout_noise_filter": false,
+        "code_sim_learning_carry_posterior": false,
+        "code_sim_learning_fit_evidence": false,
+        "continual_belief_frame": false
+      },
+      "runs": [
+        {
+          "seed": 0,
+          "finished_at": null,
+          "status": "Missing"
+        },
+        {
+          "seed": 1,
+          "finished_at": null,
+          "status": "Missing"
+        }
+      ]
+    },
+    {
+      "domain": "Fan",
+      "noise": "5 mm / 0.02 rad",
+      "arm": "MB without features",
+      "experiment_id": "fan-agent_continual_cross_noise_off",
+      "job_id": "22319430",
+      "uncertainty_flags": {
+        "code_sim_learning_interval_belief": false,
+        "agent_explorer_info_seeking_noise_aware": false,
+        "code_sim_learning_rollout_noise_filter": false,
+        "code_sim_learning_carry_posterior": false,
+        "code_sim_learning_fit_evidence": false,
+        "continual_belief_frame": false
+      },
+      "runs": [
+        {
+          "seed": 0,
+          "finished_at": null,
+          "status": "Missing"
+        },
+        {
+          "seed": 1,
+          "finished_at": null,
+          "status": "Missing"
+        }
+      ]
+    },
+    {
+      "domain": "Fan",
+      "noise": "5 mm / 0.02 rad",
+      "arm": "MB with features",
+      "experiment_id": "fan-agent_continual_cross_noise_on",
+      "job_id": "22319427",
+      "uncertainty_flags": {
+        "code_sim_learning_interval_belief": true,
+        "agent_explorer_info_seeking_noise_aware": true,
+        "code_sim_learning_rollout_noise_filter": true,
+        "code_sim_learning_carry_posterior": true,
+        "code_sim_learning_fit_evidence": true,
+        "continual_belief_frame": true
+      },
+      "runs": [
+        {
+          "seed": 0,
+          "finished_at": null,
+          "status": "Missing"
+        },
+        {
+          "seed": 1,
+          "finished_at": null,
+          "status": "Missing"
+        }
+      ]
+    },
+    {
+      "domain": "Balloons",
+      "noise": "10 mm / 0.02 rad",
+      "arm": "MF",
+      "experiment_id": "balloons-agent_continual_model_free_cross_noise",
+      "job_id": "22319435",
+      "uncertainty_flags": {
+        "code_sim_learning_interval_belief": false,
+        "agent_explorer_info_seeking_noise_aware": false,
+        "code_sim_learning_rollout_noise_filter": false,
+        "code_sim_learning_carry_posterior": false,
+        "code_sim_learning_fit_evidence": false,
+        "continual_belief_frame": false
+      },
+      "runs": [
+        {
+          "seed": 0,
+          "finished_at": null,
+          "status": "Missing"
+        },
+        {
+          "seed": 1,
+          "finished_at": null,
+          "status": "Missing"
+        }
+      ]
+    },
+    {
+      "domain": "Balloons",
+      "noise": "10 mm / 0.02 rad",
+      "arm": "MB without features",
+      "experiment_id": "balloons-agent_continual_cross_noise_off",
+      "job_id": "22319431",
+      "uncertainty_flags": {
+        "code_sim_learning_interval_belief": false,
+        "agent_explorer_info_seeking_noise_aware": false,
+        "code_sim_learning_rollout_noise_filter": false,
+        "code_sim_learning_carry_posterior": false,
+        "code_sim_learning_fit_evidence": false,
+        "continual_belief_frame": false
+      },
+      "runs": [
+        {
+          "seed": 0,
+          "finished_at": null,
+          "status": "Missing"
+        },
+        {
+          "seed": 1,
+          "finished_at": null,
+          "status": "Missing"
+        }
+      ]
+    },
+    {
+      "domain": "Balloons",
+      "noise": "10 mm / 0.02 rad",
+      "arm": "MB with features",
+      "experiment_id": "balloons-agent_continual_cross_noise_on",
+      "job_id": "22319428",
+      "uncertainty_flags": {
+        "code_sim_learning_interval_belief": true,
+        "agent_explorer_info_seeking_noise_aware": true,
+        "code_sim_learning_rollout_noise_filter": true,
+        "code_sim_learning_carry_posterior": true,
+        "code_sim_learning_fit_evidence": true,
+        "continual_belief_frame": true
+      },
+      "runs": [
+        {
+          "seed": 0,
+          "finished_at": null,
+          "status": "Missing"
+        },
+        {
+          "seed": 1,
+          "finished_at": null,
+          "status": "Missing"
+        }
+      ]
+    }
+  ]
+}

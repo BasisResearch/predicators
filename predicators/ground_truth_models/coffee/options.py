@@ -639,7 +639,9 @@ class PyBulletCoffeeGroundTruthOptionFactory(_PyBulletCoffeeLegacyOptionsMixin,
         PickJug = create_pick_skill(
             name="PickJug",
             types=[robot_type, jug_type],
-            config=config,
+            # The narrow handle needs a 5 mm arrival tolerance. Pour's
+            # coarser tolerance can end the descent above the handle.
+            config=replace(config, move_to_pose_tol=2.5e-5),
             get_target_pose_fn=_get_jug_pose,
         )
 
