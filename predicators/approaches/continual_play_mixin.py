@@ -21,6 +21,12 @@ conversation is the CLI's own transcript: the SDK's auto-compaction
 manages its size, the journal is the agent's durable memory, and a
 requeue resumes the conversation where it was (section 6.6).
 
+Rounds are conversation boundaries, episodes are environment attempts,
+and levels are tasks. A round includes all tool calls until the SDK
+query returns, so it can span several episodes if the agent resets.
+A reset starts a new episode on the same level without ending the round.
+A level can span several rounds if the agent returns before settling it.
+
 Why a mixin. The arms' learning and session machinery live in the
 phased approach classes (``AgentModelFreeApproach`` and its
 ``AgentSimPredicateInventionApproach`` descendant), where the simulator
@@ -235,6 +241,8 @@ class ContinualPlayMixin:
                 self._close_agent_session()
                 return
             steps_before = obs.ledger.run_steps
+            # An unfinished level gets another round in the same conversation;
+            # continuing the conversation does not reset the environment.
             state = self._play_one_round(session)
             self._sync_level_trajectories(session)
             if state.run_ended is not None:
@@ -257,6 +265,10 @@ class ContinualPlayMixin:
 
     def _play_one_round(self, session: ProtocolSession) -> PlayState:
         """One message to the run's conversation and the agent's turn on it.
+
+        The turn includes any number of tool calls, including resets and
+        model work; its boundary is the SDK query returning, not a reset
+        or an individual skill invocation.
 
         The CLI is reopened on the conversation for every round: the SDK
         fixes a client's tool surface when it opens, and the arm's

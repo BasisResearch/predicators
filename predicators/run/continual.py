@@ -285,6 +285,10 @@ class ProtocolSession:
     def reset(self, note: str = "") -> ProtocolObservation:
         """Restart the current level.
 
+        Starts a new environment episode on the same level. For continual
+        agents this is a tool call within the current conversation round;
+        it does not end that round or start a new conversation.
+
         One step plus one reset. Refused with ``ResetUnavailable`` on a
         level without resets (see ``resets_allowed``); nothing is
         charged then.
