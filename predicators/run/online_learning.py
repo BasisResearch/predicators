@@ -353,6 +353,19 @@ def generate_interaction_results(
         # stopping even if real-env execution happened to reach the goal —
         # the learned model still can't be planned with. None ⇒ no verdict.
         if request.mental_model_solved is False:
+            if solved:
+                # Say the discount out loud: without this line the ledger
+                # records a goal-reaching, env-accepted episode as a bare
+                # failure, indistinguishable from a plan that collapsed
+                # (2026-09-02 bridge seed3: two reward-1.0 episodes scored
+                # 0/2 and the "why" took a code dive). Format matches the
+                # below-bar line so log_viewer's INTERACTION_BAR_RE
+                # renders it.
+                logging.info(
+                    "Interaction episode on train task %d solved but the "
+                    "plan was not belief-certified (the mental model had "
+                    "no validated solve): does NOT count as solved for "
+                    "early stopping.", request.train_task_idx)
             solved = False
         task_solved_status.append(solved)
 

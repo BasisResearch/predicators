@@ -1022,6 +1022,17 @@ class GlobalSettings:
     gnn_use_validation_set = True
 
     # parameters for GNN option policy approach
+    # GNN dynamics + shooting baseline (gnn_dynamics_shooting, paper arm
+    # C5): how many previous pre-option states ride along as node
+    # features (so a hidden mechanism is inferable from the recent
+    # past), the longest option sequence one shooting try samples, how
+    # many tries a plan query gets before failing, and whether the plan
+    # is re-shot from the observed state after every option (MPC) or
+    # executed open-loop.
+    gnn_dynamics_history_len = 2
+    gnn_dynamics_max_plan_length = 30
+    gnn_dynamics_shooting_max_tries = 200
+    gnn_dynamics_replan_every_option = True
     gnn_option_policy_solve_with_shooting = True
     gnn_option_policy_shooting_variance = 0.1
     gnn_option_policy_shooting_max_samples = 100
@@ -2132,6 +2143,40 @@ class GlobalSettings:
     agent_sim_learn_oracle_sim_program = False
     # Relative scale for perturbing oracle parameter init_values before MCMC.
     agent_sim_learn_oracle_sim_param_noise_scale = 0.2
+    # Ablation A5 ("no uncertainty"): when False, nothing consumes a
+    # posterior over the model parameters. The physics-margin sigma
+    # points are never built (so the capture gate's physics margin and
+    # the probe's physics_sweep have nothing to sweep) and the
+    # rule-parameter ensemble stays empty (so the rule-param margin and
+    # the info-seeking disagreement score have nothing to score). Fits
+    # still run; only their point estimates are used.
+    agent_sim_learn_param_uncertainty = True
+    # Ablation A3 ("no parameter fitting"): when True, no parameter
+    # estimation runs anywhere - not sim.fit (it refuses), not the
+    # harness-side fallback fit, not the exploration posterior, not the
+    # residual report's fit_params / sweep_params. Each parameter's
+    # declared init_value is its point estimate and its declared
+    # [lo, hi] box is its plausible interval: the physics-margin points
+    # span the box and the rule-parameter ensemble is drawn uniformly
+    # from it, so sampling and perturbed rollouts are untouched and
+    # only estimation is removed.
+    agent_sim_learn_declared_params_only = False
+    # Program world model arm (agent_program_world_model, paper arm C4 in
+    # the form of Pinductor): the belief over the program's hidden state
+    # is a particle set of this size (drawn from the program's
+    # initial_latent; the capture gate re-rolls every submission under
+    # each particle), the score's distance kernel is
+    # exp(-distance / bandwidth) with distances in feature-std units,
+    # and the score report shows this many worst transitions.
+    agent_program_belief_particles = 6
+    agent_program_kernel_bandwidth = 0.2
+    agent_program_score_max_examples = 3
+    # Ablation A1 ("zero-shot synthesis"): when True, the synthesis
+    # session runs even when no transition has been recorded, so the
+    # agent writes its artifacts from the task description, the scene
+    # and its own knowledge. Pair with no demos and
+    # num_online_learning_cycles 0 for one learn, one solve, done.
+    agent_sim_learn_zero_shot = False
     # When True, use GT parameter values directly, skipping MCMC fitting.
     # Also grants planning base sims the TRUE physical params (e.g. the true
     # domino friction even when domino_planning_friction is set) — as if all
