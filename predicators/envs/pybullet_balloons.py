@@ -383,7 +383,7 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         init[self._box] = {
             "x": self.box_xy[0],
             "y": self.box_xy[1],
-            "z": self.box_z,
+            "z": self.table_height + self.box_half_extents()[2],
             "color": float(box_color),
             "speed": 0.0,
         }
@@ -404,6 +404,10 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                 "rot": self.clip_rot,
                 "is_on": 0.0,
             }
+        if CFG.balloons_scene == "hatch":
+            for obj, features in init.items():
+                if obj.type.name in {"box", "balloon"}:
+                    features.update(roll=0.0, pitch=0.0, yaw=0.0)
         init[self._band] = {
             "x": self.box_xy[0] + self.band_offset_x,
             "y": self.box_xy[1],
@@ -431,7 +435,9 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                tuple(CFG.balloons_box_masses), CFG.balloons_fade_height,
                CFG.balloons_drag, CFG.balloons_probe_max_steps,
                CFG.balloons_probe_rest_steps, CFG.balloons_probe_rest_tol,
-               CFG.balloons_settle_speed,
+               CFG.balloons_settle_speed, CFG.balloons_scene,
+               self.box_half_extents(), tuple(self.obstacle_geometry()),
+               CFG.balloons_hatch_attach_span,
                tuple(sorted(self._param_overrides.items())))
         if key not in self._candidate_cache:
             clean = self.level_state(box_color, colors, (lo, hi))
@@ -705,10 +711,18 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                 # between them.
                 reach_max = min(self.ceiling_z - self.ceiling_half_extents[2],
                                 self.chute_z_hi) - 0.06
+                reach_min = self.table_height + 0.12
+                if CFG.balloons_scene == "hatch":
+                    # Put the entire payload above the hatch at the goal,
+                    # including at its most tilted orientation.
+                    reach_min = (CFG.balloons_hatch_z +
+                                 CFG.balloons_hatch_half_thickness +
+                                 np.linalg.norm(self.box_half_extents()) +
+                                 half)
                 reachable = [
                     (subset, z)
                     for subset, z in self.lifting_subsets(box_color, colors)
-                    if self.table_height + 0.12 <= z <= reach_max
+                    if reach_min <= z <= reach_max
                 ]
                 # Nearby analytic equilibria provide candidate bands.
                 # Executable rollouts below establish the reference and
@@ -751,6 +765,14 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                               for outcome in results
                               if outcome.burst or outcome.jammed]
                     if not train and not decoys:
+                        continue
+                    if not train and CFG.balloons_scene == "hatch" and not any(
+                            len(subset) == len(reference) and outcomes and any(
+                                outcome.jammed for outcome in outcomes)
+                            for subset, outcomes in candidates.items()):
+                        # Equal counts prevent a fewest-balloons shortcut.
+                        # Contact depends on release order; certify a losing
+                        # sequence without claiming all orders of a set lose.
                         continue
                     if not train and CFG.balloons_require_jam_decoy:
                         eqz = dict(reachable)
@@ -795,11 +817,22 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                 f"held by the clip in front of it: {names}. A balloon that "
                 f"reaches the ceiling bursts and the level is lost; a freed "
                 f"balloon cannot be clipped back.")
+            if CFG.balloons_scene == "hatch":
+                dims = tuple(2 * size for size in self.box_half_extents())
+                goal_nl += (
+                    f" The payload dimensions are {dims} m. "
+                    f"A horizontal hatch at z={CFG.balloons_hatch_z:g} m "
+                    f"has an opening {2 * CFG.balloons_hatch_half_gap:g} m "
+                    f"wide, centred at x="
+                    f"{self.box_xy[0] + CFG.balloons_hatch_offset_x:g} m. "
+                    "The hatch panels collide with the payload. "
+                    "The target band is above the hatch.")
             metrics = {
                 f"solution_{b.name}": float(i in subset)
                 for i, b in enumerate(balloons)
             }
-            metrics["task_generation_version"] = 2.0
+            metrics["task_generation_version"] = (3.0 if CFG.balloons_scene
+                                                  == "hatch" else 2.0)
             metrics["witnessed_winning_candidate_subsets"] = float(
                 sum(
                     any(o.won for o in results)

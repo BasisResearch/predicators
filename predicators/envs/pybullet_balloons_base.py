@@ -182,7 +182,9 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
         if n_balloons <= 1:
             return 0.0
         frac = index / (n_balloons - 1)  # 0..1
-        return float(cls.attach_span * (2.0 * frac - 1.0))
+        span = (float(CFG.balloons_hatch_attach_span)
+                if CFG.balloons_scene == "hatch" else cls.attach_span)
+        return float(span * (2.0 * frac - 1.0))
 
     # The band: a translucent slab beside the box's column. Its ``lo``
     # and ``hi`` are heights of the box's centre.
@@ -239,11 +241,39 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
             list(CFG.balloons_num_balloons_test))
 
     @classmethod
+    def box_half_extents(cls) -> Tuple[float, float, float]:
+        """Visible payload geometry for the selected scene."""
+        if CFG.balloons_scene == "hatch":
+            x, y, z = CFG.balloons_hatch_box_half_extents
+            return float(x), float(y), float(z)
+        return cls.box_half, cls.box_half, cls.box_half
+
+    @classmethod
+    def obstacle_geometry(cls) -> List[Tuple[Pose3D, Pose3D]]:
+        """Visible obstacle half extents and centres; no hidden physics."""
+        if CFG.balloons_scene == "hatch":
+            half = (float(CFG.balloons_hatch_panel_half_width),
+                    float(CFG.balloons_hatch_half_depth),
+                    float(CFG.balloons_hatch_half_thickness))
+            center_x = cls.box_xy[0] + CFG.balloons_hatch_offset_x
+            return [
+                (half,
+                 (center_x + sign * (CFG.balloons_hatch_half_gap + half[0]),
+                  cls.box_xy[1], float(CFG.balloons_hatch_z)))
+                for sign in (-1.0, 1.0)
+            ]
+        half = (cls.chute_wall_half_thickness, cls.chute_wall_half_depth,
+                (cls.chute_z_hi - cls.chute_z_lo) / 2.0)
+        z = (cls.chute_z_lo + cls.chute_z_hi) / 2.0
+        return [(half, (cls.box_xy[0] + sign * (cls.chute_half_gap + half[0]),
+                        cls.box_xy[1], z)) for sign in (-1.0, 1.0)]
+
+    @classmethod
     def box_top_point(cls, state: State,
                       box: Object) -> Tuple[float, float, float]:
         """The centre of the box's top face, where strings are tied."""
         return (state.get(box, "x"), state.get(box, "y"),
-                state.get(box, "z") + cls.box_half)
+                state.get(box, "z") + cls.box_half_extents()[2])
 
     @classmethod
     def rack_xs(cls, count: int) -> List[float]:
@@ -258,6 +288,18 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
     # =========================================================================
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         self._param_overrides: Dict[str, float] = {}
+        if CFG.balloons_scene not in {"chute", "hatch"}:
+            raise ValueError(f"Unknown balloons scene: {CFG.balloons_scene}")
+        if CFG.balloons_scene == "hatch":
+            # Rotation is task-relevant and must survive noisy observations,
+            # saved recordings and simulator reconstruction in both arms.
+            self._box_type = Type(
+                "box",
+                list(self._box_type.feature_names) + ["roll", "pitch", "yaw"])
+            self._balloon_type = Type(
+                "balloon",
+                list(self._balloon_type.feature_names) +
+                ["roll", "pitch", "yaw"])
         self._robot = Object("robot", self._robot_type)
         self._box = Object("box", self._box_type)
         self._balloons: List[Object] = [
@@ -276,6 +318,11 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
         self._band_lo: float = 0.0
         self._band_hi: float = 0.0
         super().__init__(use_gui, **kwargs)
+        if CFG.balloons_scene == "hatch":
+            # Preserve construction, then make recorded contacts repeatable.
+            p.setPhysicsEngineParameter(
+                deterministicOverlappingPairs=1,
+                physicsClientId=self._physics_client_id)
 
     @property
     def types(self) -> Set[Type]:
@@ -359,7 +406,7 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
                                            physics_client_id=physics_client_id)
         bodies["box_id"] = create_pybullet_block(
             color=cls.BOX_PALETTE[0][1],
-            half_extents=(cls.box_half, cls.box_half, cls.box_half),
+            half_extents=cls.box_half_extents(),
             mass=cls.box_base_mass,
             friction=cls.box_friction,
             physics_client_id=physics_client_id)
@@ -415,10 +462,7 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
         # collide only with the box. Centred on the box's column, one on
         # each side of the slot.
         chute_ids = []
-        wall_half = (cls.chute_wall_half_thickness, cls.chute_wall_half_depth,
-                     (cls.chute_z_hi - cls.chute_z_lo) / 2.0)
-        wall_z = (cls.chute_z_lo + cls.chute_z_hi) / 2.0
-        for sign in (-1.0, 1.0):
+        for wall_half, wall_position in cls.obstacle_geometry():
             wall_col = p.createCollisionShape(
                 p.GEOM_BOX,
                 halfExtents=wall_half,
@@ -427,13 +471,11 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
                                            halfExtents=wall_half,
                                            rgbaColor=cls.chute_color,
                                            physicsClientId=physics_client_id)
-            wall_x = cls.box_xy[0] + sign * (cls.chute_half_gap +
-                                             cls.chute_wall_half_thickness)
             chute_ids.append(
                 p.createMultiBody(baseMass=0.0,
                                   baseCollisionShapeIndex=wall_col,
                                   baseVisualShapeIndex=wall_vis,
-                                  basePosition=(wall_x, cls.box_xy[1], wall_z),
+                                  basePosition=wall_position,
                                   physicsClientId=physics_client_id))
         bodies["chute_ids"] = chute_ids
         band_visual = p.createVisualShape(p.GEOM_BOX,
