@@ -38,44 +38,24 @@ def build_learn_system_prompt(
 ) -> str:
     """Compose the synthesis system prompt.
 
-    ``partially_observable`` selects the recurrent 5-argument rule
-    signature and appends the recurrent-rules tutorial;
-    ``residual_rule_signature`` is the matching ``def`` line for the
-    geometric-gate example. ``physical_params_section`` is the rendered
-    system-identification section (empty when the env reveals no
-    parameters). ``extra_sections`` (subclass additions such as
-    predicate invention) are inserted after the validation guidance;
-    ``latent_extra_sections`` follow the recurrent-rules tutorial (only
-    rendered when ``partially_observable``); ``workflow_extra`` is
-    appended to the workflow's validation step. ``declared_params_only``
-    adds the no-estimation section (ablation A4): every parameter is
-    used as declared, so the declaration is the estimate.
+    The shared subclass contract supplies dynamics, fitting and optional
+    model-state guidance. Extra sections add predicate invention and
+    workflow requirements for the particular learning arm.
     """
-    signature = render(
-        "learn_system",
-        "rule_signature_po" if partially_observable else "rule_signature_fo")
+    # Retain the keyword arguments for callers outside this package.
+    del residual_rule_signature, scene_viz_hint
     parts = [
         render("learn_system", "intro"),
-        render("learn_system", "produce"),
+        render("subclass_model", "simulator"),
+        render("subclass_model", "dynamics"),
         physical_params_section,
-        signature,
-        render("learn_system", "cmds"),
-        render("learn_system", "multi_object"),
-        render("learn_system", "timing"),
-        render("learn_system",
-               "geometric_gates",
-               residual_rule_signature=residual_rule_signature,
-               scene_viz_hint=scene_viz_hint),
-        render("learn_system", "paramspec"),
         render("learn_system", "declared_params")
         if declared_params_only else "",
-        render("learn_system", "preinjected"),
-        render("learn_system", "tools"),
-        render("learn_system", "validation"),
+        render("subclass_model", "tools"),
         *extra_sections,
     ]
     if partially_observable:
-        parts.append(render("learn_partial_observability", "rules"))
+        parts.append(render("subclass_model", "memory"))
         parts.extend(latent_extra_sections)
     parts += [
         render("learn_system", "plan_format"),
@@ -90,7 +70,7 @@ def build_learn_system_prompt(
 
 def render_physical_params_section(
         info: Mapping[str, Mapping[str, Any]]) -> str:
-    """The ``PHYSICAL_PARAM_SPECS`` section for a revealed parameter menu.
+    """The base-physics parameter menu for a revealed parameter menu.
 
     ``info`` maps a parameter name to its ``default``, ``lo``, ``hi``,
     ``description``, and optional ``scale``; empty input renders
@@ -105,7 +85,7 @@ def render_physical_params_section(
         lines.append(f"- `{name}` (built-in {meta['default']:.4g}, fit "
                      f"box [{meta['lo']:.4g}, {meta['hi']:.4g}]"
                      f"{scale_note}): {meta['description']}")
-    return render("learn_system",
+    return render("subclass_model",
                   "physical_params",
                   param_list="\n".join(lines))
 

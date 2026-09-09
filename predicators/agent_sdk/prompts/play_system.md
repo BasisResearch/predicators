@@ -151,8 +151,8 @@ conversation, to decide what to do. It is two files in your sandbox that
 you write and edit with `Write` and `Edit`:
 
 - `./simulator.py`: residual dynamics on top of the base simulator
-  (`RESIDUAL_RULES`, `PARAM_SPECS`, `RESIDUAL_FEATURES`, optionally
-  `PHYSICAL_PARAM_SPECS` and `LATENT_INIT`).
+  (`RESIDUAL_ENV`, a subclass declaring `AGENT_PARAM_SPECS` and
+  `RESIDUAL_FEATURES`, optionally `MODEL_STATE_INIT`).
 - `./predicates.py`: the predicates you invent (`LEARNED_PREDICATES`),
   the only atoms an observation will ever show you.
 
@@ -160,14 +160,12 @@ There is no separate learning step. `sim` in `run_python` probes the
 current content of these files: an edit is live on the next call.
 `sim.fit()` fits the current `simulator.py`'s parameters against every
 recorded episode so far and publishes them; `sim.residuals()` shows
-where the rules still disagree with the recordings, against the base
-simulator alone; `sim.predicates()` reloads `predicates.py` and
+where full simulator rollouts disagree with the recordings; `sim.predicates()` reloads `predicates.py` and
 installs it for the observation, the rollouts and the divergence
 checks. Every write is snapshotted into `./simulator_versions/` and
 `./predicates_versions/`, and each `sim` report is tagged with the
-content it scored. Before your first `sim.fit()`, `sim` is the base
-simulator alone: the visible physics (robot motion, grasping, rigid
-bodies) with none of the environment's hidden mechanisms.
+content it scored. Before a model file exists, `sim` uses the base simulator alone.
+After an edit, it uses the current subclass at carried or declared values until an explicit `sim.fit()`.
 
 `run_python` holds the data in one persistent namespace: `trajectories`
 (every recorded episode, the one in progress included, current after
