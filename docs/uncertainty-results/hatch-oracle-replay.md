@@ -87,8 +87,15 @@ The existing result watcher now includes both tasks, preserving its prior notifi
 
 The separate original-balloons modeling diagnostic remains on its frozen source at `a8ab7d48a`.
 Its conversation log is [the training-only synthesis transcript](../../logs/balloons_followup_20260909/offline-learning-v2/agent/001_learn_20260909_114132.md), and detailed fit progress is in [the compute-job log](../../logs/balloons_followup_20260909/offline-learning-22389016.out).
-At the latest inspection, turn 70 was waiting for `sim.fit()` while the compute log continued to report fitting progress.
+Job `22389016` reached its two-hour Slurm time limit at 17:41 UTC on September 9 while turn 70 was still waiting for `sim.fit()`.
+The scheduler records `TIMEOUT`, and the compute log confirms termination due to the time limit.
 The agent had declared 11 model parameters; the fitter repeatedly replays trajectories and refits the remaining parameters while testing whether each changed parameter can return to its baseline.
 This explains why the fit takes much longer than one replay of the 422 recorded training actions.
-There is no final model replay score yet.
+The provisional `agent/sandbox/simulator.py` was preserved, but neither `replay.txt` nor `outcome.json` was produced.
+There is no completed fit return or final model replay score from this attempt.
+This is an incomplete offline diagnostic caused by the job time limit, not a solved or failed agent seed.
 The offline diagnostic has no continual scorecard, so it is not listed as a continual run in the viewer.
+
+At the same verification, hatch v4 oracle seeds 4 and 5 were still running after roughly 30 minutes, with no scorecards yet.
+Their task generation and validation had not yielded new oracle outcomes.
+No experiment was relaunched or changed in response to the timeout notification.
