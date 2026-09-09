@@ -1,0 +1,79 @@
+# Noisy hatch v4 MB/MF pilot on the task generator validated by the oracle.
+# Paired seeds 4 and 5; MB uses the native subclass and uncertainty features.
+---
+START_SEED: 4
+NUM_SEEDS: 2
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ARGS:
+  - auto_resume
+FLAGS:
+  experiment_protocol: "continual"
+  continual_levels: "train_then_test"
+  continual_steps_per_level: 5000
+  continual_wall_clock_hours: 48.0
+  continual_render: True
+  continual_make_video: True
+  test_fresh_env_per_episode: True
+  continual_runs_dir: "/home/ycliang/predicators/logs"
+  log: "/home/ycliang/predicators/logs/"
+  continual_obs_noise_position: 0.01
+  continual_obs_noise_orientation: 0.02
+  continual_obs_noise_scalar: 0.0
+  continual_obs_noise_declared: True
+  code_sim_learning_interval_belief: False
+  agent_explorer_info_seeking_noise_aware: False
+  code_sim_learning_rollout_noise_filter: False
+  code_sim_learning_carry_posterior: False
+  code_sim_learning_fit_evidence: False
+  continual_belief_frame: False
+  agent_model_repair: False
+ENVS:
+  balloons:
+    SKIP: False
+    FLAGS:
+      num_train_tasks: 2
+      balloons_scene: "hatch"
+      balloons_hatch_z: 0.57
+      balloons_hatch_half_gap: 0.085
+      balloons_probe_max_steps: 500
+      balloons_require_jam_decoy: False
+APPROACHES:
+  oracle:
+    SKIP: True
+  agent_continual_hatch_v4_mb:
+    NAME: "agent_continual"
+    SKIP: False
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_sdk_max_agent_turns_per_iteration: 10000
+      agent_sdk_image_max_px: 900
+      agent_bilevel_use_llm_initial_params: True
+      agent_solve_use_journal: True
+      agent_validation_parallel_workers: 6
+      code_sim_learning_rollout_min_posterior_width: 0.1
+      continual_max_idle_rounds: 5
+      agent_plan_validation_rule_param_margin: True
+      agent_explorer_info_seeking: True
+      agent_explorer_info_seeking_adaptive: True
+      code_sim_learning_interval_belief: True
+      agent_explorer_info_seeking_noise_aware: True
+      code_sim_learning_rollout_noise_filter: True
+      code_sim_learning_carry_posterior: True
+      code_sim_learning_fit_evidence: True
+      continual_belief_frame: True
+      agent_model_repair: True
+  agent_continual_model_free_hatch_v4:
+    NAME: "agent_continual_model_free"
+    SKIP: False
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_planner_use_simulator: False
+      agent_solve_use_journal: True
+      agent_sdk_max_agent_turns_per_iteration: 10000
+      agent_sdk_image_max_px: 900
+      continual_max_idle_rounds: 5
