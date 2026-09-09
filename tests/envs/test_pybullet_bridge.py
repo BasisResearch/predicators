@@ -440,6 +440,30 @@ def _stage_flush_pair(env, task):
     return span0, span1
 
 
+def test_latch_consumes_both_wet_faces(env_and_task):
+    """A joint whose two faces are both wet latches once and consumes both.
+
+    An attached face never cures again, so glue left on the mate would
+    be a wet flag that can never clear (the continual agent glued both
+    faces of every joint and waited 360 steps for the second flag,
+    bridge seed 0, 2026-09-04).
+    """
+    env, task = env_and_task
+    span0, span1 = _stage_flush_pair(env, task)
+    env._set_attr(span1, "glue_end_a", 1.0)
+
+    for _ in range(env.cure_threshold + 5):
+        env.step(_hold_action(env))
+    state = env._get_state()
+    assert state.get(span0, "attached_end_b") == \
+        float(env._block_index[span1.name])
+    assert state.get(span1, "attached_end_a") == \
+        float(env._block_index[span0.name])
+    assert state.get(span0, "glue_end_b") == 0.0
+    assert state.get(span1, "glue_end_a") == 0.0
+    assert set(env._weld_constraints) == {frozenset({span0.id, span1.id})}
+
+
 def test_wet_joint_is_tacked_until_it_welds(env_and_task):
     """A curing joint carries a weak tack constraint, replaced by the weld."""
     env, task = env_and_task

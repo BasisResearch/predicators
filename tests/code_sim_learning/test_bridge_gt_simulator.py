@@ -139,6 +139,24 @@ def test_butt_joint_cures_and_latches():
     assert state.get(span0, "glue_end_b") == 0.0
 
 
+def test_latch_consumes_both_wet_faces():
+    """Both faces of a butt joint wet: one latch, both faces consumed, as in
+    the env (an attached face never cures, so its glue must not linger)."""
+    rules, params = _bridge_sim()
+    span0, arr0 = _make_block("span0", 0.60, 1.14, _TABLE_Z + _SPAN_HALF[2])
+    span1, arr1 = _make_block("span1", 0.703, 1.14, _TABLE_Z + _SPAN_HALF[2])
+    state = _make_state([(span0, arr0), (span1, arr1)])
+    state.set(span0, "glue_end_b", 1.0)
+    state.set(span1, "glue_end_a", 1.0)
+    latch_step, state = _roll_until_latched(state, rules, params, span0,
+                                            "end_b", 40)
+    assert latch_step is not None
+    assert state.get(span0, "attached_end_b") == _BLOCK_IDX["span1"]
+    assert state.get(span1, "attached_end_a") == _BLOCK_IDX["span0"]
+    assert state.get(span0, "glue_end_b") == 0.0
+    assert state.get(span1, "glue_end_a") == 0.0
+
+
 def test_stacked_top_joint_cures_and_latches():
     """A glued top face with a block resting on it latches too (the upward-face
     mate path)."""

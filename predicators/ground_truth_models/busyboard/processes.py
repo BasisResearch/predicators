@@ -2,29 +2,40 @@
 
 The busyboard is the one domain in the suite whose symbolic model does
 not fit a STRIPS operator. Pressing a button has no fixed effect: it
-lights a lamp only if that lamp's other button is already on, and it may
-light lamps the goal wants dark. That is a conditional effect, which an
-NSRT cannot express, so a planner built on ``PressButton`` operators
-alone would happily plan "press everything" and fail on execution.
+arms a lamp only if that lamp's enablers are already on, it lights
+nothing by itself, and it may light lamps the goal wants dark or trip
+the breaker. Those are conditional, delayed effects, which an NSRT
+cannot express, so a planner built on ``PressButton`` operators alone
+would happily plan "press everything" and fail on execution.
 
-Processes express it directly. A lamp lighting is an EXOGENOUS process
-whose ``condition_overall`` is the whole drive condition - both buttons
-on, held for the delay. The planner then reasons about the conjunction
-and about the wait, and never proposes a button assignment that would
-light an off-target lamp, because that lamp's own lighting process would
-fire too.
+Processes express it directly, with the wiring arriving through the
+helper predicates of ``predicates.py`` (``Drives``, ``Enables``,
+``Inhibits``), which only oracle approaches receive, and the derived
+predicates built on them (``Enabled``, ``Driven``, ``Overloaded``, ...)
+so that a lifted process can say "all of this lamp's enablers are on"
+without knowing how many it has.
 
-Two lighting processes rather than one, because a drive condition is
-either a single button or a conjunction of two and a lifted process
-cannot branch on which. The wiring itself arrives through the
-``SoleDriver`` / ``JointDrivers`` helper predicates (see
-``predicates.py``), which only oracle approaches receive.
+* ``PressButton`` turns a button on and emits a one-tick
+  ``JustPressed`` pulse, which ``ClearPressed`` removes a tick later.
+* ``ArmLamp`` fires on that pulse when the pressed button is the
+  lamp's driver and the lamp is ``Enabled`` - so it fires only when the
+  driver is pressed AFTER the enablers, which is the env's latch. With
+  the latch ablated (``busyboard_latch`` off) it fires whenever the
+  driver is on and the lamp enabled. ``DisarmLamp`` fires when the
+  driver goes off.
+* ``LightLamp`` is the charge: a lamp that is ``Driven`` (armed,
+  driver and enablers on, inhibitor off, breaker closed) for the delay
+  lights; ``DarkenLamp`` puts a lit lamp out once it is ``Undriven``.
+* ``TripBreaker`` fires when the board is ``Overloaded`` (more lamps
+  driven than the breaker allows), after which nothing is ``Driven``
+  and every lit lamp darkens; ``ResetBreaker`` closes it again once
+  ``AllButtonsOff``.
 
-Darkening is modelled too, even though an optimal plan never needs it:
+Darkening is modelled even though an optimal plan never needs it:
 every board starts dark, so a plan reaches its goal by lighting the
-right lamps and never driving the rest. Without the darkening processes
-the model would claim a lit lamp can never be turned off, which is false
-and would mislead any replanning after an execution slip.
+right lamps and never driving the rest. Without it the model would
+claim a lit lamp can never be turned off, which is false and would
+mislead any replanning after an execution slip.
 """
 
 from typing import Dict, Sequence, Set
@@ -33,15 +44,17 @@ import numpy as np
 import torch
 
 from predicators.ground_truth_models import GroundTruthProcessFactory
+from predicators.settings import CFG
 from predicators.structs import Array, CausalProcess, DelayDistribution, \
     EndogenousProcess, ExogenousProcess, GroundAtom, LiftedAtom, Object, \
     ParameterizedOption, Predicate, State, Type, Variable
 from predicators.utils import ConstantDelay, DiscreteGaussianDelay, \
     null_sampler
 
-# Symbolic delays, in process ticks. A lamp needs its drive condition
-# held for a stretch before it lights, and dies faster than it lights -
-# the same asymmetry the env's charge and decay rates carry.
+# Symbolic delays, in process ticks. A lamp needs its drive held for a
+# stretch before it lights, and dies faster than it lights - the same
+# asymmetry the env's charge and decay rates carry. Latch and breaker
+# events land on the next tick.
 _LIGHT_DELAY_MU = 2.0
 _DARKEN_DELAY_MU = 1.0
 _DELAY_SIGMA = 0.1
@@ -96,13 +109,23 @@ class PyBulletBusyBoardGroundTruthProcessFactory(GroundTruthProcessFactory):
         robot_type = types["robot"]
         button_type = types["button"]
         lamp_type = types["lamp"]
+        breaker_type = types["breaker"]
 
         ButtonOn = predicates["ButtonOn"]
         ButtonOff = predicates["ButtonOff"]
         LampOn = predicates["LampOn"]
         LampOff = predicates["LampOff"]
-        SoleDriver = predicates["SoleDriver"]
-        JointDrivers = predicates["JointDrivers"]
+        BreakerTripped = predicates["BreakerTripped"]
+        BreakerClosed = predicates["BreakerClosed"]
+        Drives = predicates["Drives"]
+        Armed = predicates["Armed"]
+        Disarmed = predicates["Disarmed"]
+        JustPressed = predicates["JustPressed"]
+        Enabled = predicates["Enabled"]
+        Driven = predicates["Driven"]
+        Undriven = predicates["Undriven"]
+        Overloaded = predicates["Overloaded"]
+        AllButtonsOff = predicates["AllButtonsOff"]
 
         PressButton = options["PressButton"]
         ReleaseButton = options["ReleaseButton"]
@@ -117,8 +140,10 @@ class PyBulletBusyBoardGroundTruthProcessFactory(GroundTruthProcessFactory):
         processes.add(
             EndogenousProcess("PressButton", [robot, button],
                               {LiftedAtom(ButtonOff, [button])}, set(), set(),
-                              {LiftedAtom(ButtonOn, [button])},
-                              {LiftedAtom(ButtonOff, [button])},
+                              {
+                                  LiftedAtom(ButtonOn, [button]),
+                                  LiftedAtom(JustPressed, [button])
+                              }, {LiftedAtom(ButtonOff, [button])},
                               _delay(_PUSH_DELAY_MU), torch.tensor(1.0),
                               PressButton, [robot, button], _push_sampler))
 
@@ -142,75 +167,89 @@ class PyBulletBusyBoardGroundTruthProcessFactory(GroundTruthProcessFactory):
 
         # ── Exogenous: what the board does ───────────────────────
 
-        # A single-button lamp.
+        # The press pulse lasts one tick.
+        button = Variable("?button", button_type)
+        processes.add(
+            ExogenousProcess("ClearPressed", [button],
+                             {LiftedAtom(JustPressed, [button])}, set(), set(),
+                             set(), {LiftedAtom(JustPressed, [button])},
+                             ConstantDelay(1), torch.tensor(1.0)))
+
+        # The latch: a lamp arms when its driver is pressed while its
+        # enablers are already on. Keyed to the pulse, so pressing the
+        # enablers afterwards does not arm it; ablated, keyed to the
+        # driver simply being on.
         button = Variable("?button", button_type)
         lamp = Variable("?lamp", lamp_type)
-        drive_sole = {
-            LiftedAtom(SoleDriver, [button, lamp]),
-            LiftedAtom(ButtonOn, [button]),
+        arm_condition = {
+            LiftedAtom(Drives, [button, lamp]),
+            LiftedAtom(JustPressed if CFG.busyboard_latch else ButtonOn,
+                       [button]),
+            LiftedAtom(Enabled, [lamp]),
         }
         processes.add(
-            ExogenousProcess("LightLampSole", [button, lamp], drive_sole,
-                             drive_sole.copy(), set(),
-                             {LiftedAtom(LampOn, [lamp])},
-                             {LiftedAtom(LampOff, [lamp])},
-                             _delay(_LIGHT_DELAY_MU), torch.tensor(1.0)))
+            ExogenousProcess("ArmLamp", [button, lamp], arm_condition, set(),
+                             set(), {LiftedAtom(Armed, [lamp])},
+                             {LiftedAtom(Disarmed, [lamp])}, ConstantDelay(1),
+                             torch.tensor(1.0)))
 
-        # The interlock: a lamp that needs both of its buttons. The
-        # conjunction sits in condition_overall, so the planner knows the
-        # lamp lights only while BOTH are held - and equally, that any
-        # assignment turning both on will light it whether or not that was
-        # wanted.
-        button_a = Variable("?button_a", button_type)
-        button_b = Variable("?button_b", button_type)
-        lamp = Variable("?lamp", lamp_type)
-        drive_joint = {
-            LiftedAtom(JointDrivers, [button_a, button_b, lamp]),
-            LiftedAtom(ButtonOn, [button_a]),
-            LiftedAtom(ButtonOn, [button_b]),
-        }
-        processes.add(
-            ExogenousProcess("LightLampJoint", [button_a, button_b, lamp],
-                             drive_joint, drive_joint.copy(), set(),
-                             {LiftedAtom(LampOn, [lamp])},
-                             {LiftedAtom(LampOff, [lamp])},
-                             _delay(_LIGHT_DELAY_MU), torch.tensor(1.0)))
-
-        # Losing the drive puts a lamp out again.
+        # Releasing the driver disarms the lamp.
         button = Variable("?button", button_type)
         lamp = Variable("?lamp", lamp_type)
-        undrive_sole = {
-            LiftedAtom(SoleDriver, [button, lamp]),
+        disarm_condition = {
+            LiftedAtom(Drives, [button, lamp]),
             LiftedAtom(ButtonOff, [button]),
-            LiftedAtom(LampOn, [lamp]),
+            LiftedAtom(Armed, [lamp]),
         }
         processes.add(
-            ExogenousProcess("DarkenLampSole", [button, lamp], undrive_sole,
-                             undrive_sole.copy(), set(),
+            ExogenousProcess("DisarmLamp", [button, lamp], disarm_condition,
+                             set(), set(), {LiftedAtom(Disarmed, [lamp])},
+                             {LiftedAtom(Armed, [lamp])}, ConstantDelay(1),
+                             torch.tensor(1.0)))
+
+        # The charge: a driven lamp lights after the delay, and only if
+        # it stayed driven throughout - so the planner knows the lamp
+        # lights only while its whole condition is held, and equally that
+        # any sequence driving it will light it whether or not that was
+        # wanted.
+        lamp = Variable("?lamp", lamp_type)
+        drive = {LiftedAtom(Driven, [lamp])}
+        processes.add(
+            ExogenousProcess("LightLamp",
+                             [lamp], drive | {LiftedAtom(LampOff, [lamp])},
+                             drive.copy(), set(), {LiftedAtom(LampOn, [lamp])},
                              {LiftedAtom(LampOff, [lamp])},
+                             _delay(_LIGHT_DELAY_MU), torch.tensor(1.0)))
+
+        # Losing the drive (a button released, the inhibitor pressed, the
+        # breaker tripped) puts a lamp out again.
+        lamp = Variable("?lamp", lamp_type)
+        undrive = {LiftedAtom(Undriven, [lamp]), LiftedAtom(LampOn, [lamp])}
+        processes.add(
+            ExogenousProcess("DarkenLamp",
+                             [lamp], undrive, {LiftedAtom(Undriven, [lamp])},
+                             set(), {LiftedAtom(LampOff, [lamp])},
                              {LiftedAtom(LampOn, [lamp])},
                              _delay(_DARKEN_DELAY_MU), torch.tensor(1.0)))
 
-        # For a conjunctive lamp, either button going off is enough to put
-        # it out. Disjunction is not expressible in a condition set, and
-        # JointDrivers is emitted in one canonical order only, so this is
-        # two processes - one keyed on each button - rather than one.
-        for suffix, off_var_idx in (("First", 0), ("Second", 1)):
-            button_a = Variable("?button_a", button_type)
-            button_b = Variable("?button_b", button_type)
-            lamp = Variable("?lamp", lamp_type)
-            off_button = (button_a, button_b)[off_var_idx]
-            undrive_joint = {
-                LiftedAtom(JointDrivers, [button_a, button_b, lamp]),
-                LiftedAtom(ButtonOff, [off_button]),
-                LiftedAtom(LampOn, [lamp]),
-            }
-            processes.add(
-                ExogenousProcess(f"DarkenLampJoint{suffix}",
-                                 [button_a, button_b, lamp], undrive_joint,
-                                 undrive_joint.copy(), set(),
-                                 {LiftedAtom(LampOff, [lamp])},
-                                 {LiftedAtom(LampOn, [lamp])},
-                                 _delay(_DARKEN_DELAY_MU), torch.tensor(1.0)))
+        # The breaker: overload trips it, a power cycle closes it.
+        breaker = Variable("?breaker", breaker_type)
+        processes.add(
+            ExogenousProcess("TripBreaker", [breaker], {
+                LiftedAtom(Overloaded, []),
+                LiftedAtom(BreakerClosed, [breaker])
+            }, set(), set(), {LiftedAtom(BreakerTripped, [breaker])},
+                             {LiftedAtom(BreakerClosed, [breaker])},
+                             ConstantDelay(1), torch.tensor(1.0)))
+
+        breaker = Variable("?breaker", breaker_type)
+        processes.add(
+            ExogenousProcess(
+                "ResetBreaker", [breaker], {
+                    LiftedAtom(AllButtonsOff, []),
+                    LiftedAtom(BreakerTripped, [breaker])
+                }, set(), set(), {LiftedAtom(BreakerClosed, [breaker])},
+                {LiftedAtom(BreakerTripped, [breaker])}, ConstantDelay(1),
+                torch.tensor(1.0)))
 
         return processes

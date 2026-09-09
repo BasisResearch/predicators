@@ -74,6 +74,63 @@ def test_pyguard_blocks_hidden_modules_and_sources(tmp_path) -> None:
     assert res.returncode == 0, res.stderr
 
 
+def test_pyguard_classifies_by_inode_when_realpath_cannot(tmp_path) -> None:
+    """A spelling of the repo that realpath cannot map onto the guard's
+    prefixes (a bind mount, simulated here by a symlink with realpath disabled)
+    is still classified: the hidden dirs deny, the sandbox allows."""
+    repo = tmp_path / "repo"
+    (repo / "predicators" / "envs").mkdir(parents=True)
+    (repo / "predicators" / "envs" / "secret.py").write_text("x = 1\n")
+    (repo / "logs" / "sb").mkdir(parents=True)
+    (repo / "logs" / "sb" / "mine.txt").write_text("hello\n")
+    alias = tmp_path / "alias"
+    alias.symlink_to(repo, target_is_directory=True)
+    sandbox = str(repo / "logs" / "sb")
+    write_pyguard(sandbox, str(repo))
+    prelude = ("import os, sitecustomize as g; "
+               "g._resolve = lambda p: os.fsdecode(p) if isinstance(p, bytes)"
+               " else os.fspath(p); ")
+    hidden = str(alias / "predicators" / "envs" / "secret.py")
+    res = _run(prelude + f"open({hidden!r}).read()", sandbox)
+    assert res.returncode != 0 and "sandbox guard" in res.stderr, res.stderr
+    mine = str(alias / "logs" / "sb" / "mine.txt")
+    res = _run(prelude + f"print(open({mine!r}).read())", sandbox)
+    assert res.returncode == 0, res.stderr
+    assert "hello" in res.stdout
+
+
+def test_pyguard_learns_other_spellings_from_the_mount_table(tmp_path) -> None:
+    """Two mount points of one source are two spellings of one tree: the
+    guard's prefixes cover the second spelling (with realpath disabled and the
+    inode fallback emptied, only the mount table can do it)."""
+    mnt_a, mnt_b = tmp_path / "mnt_a", tmp_path / "mnt_b"
+    repo = mnt_a / "repo"
+    (repo / "predicators" / "envs").mkdir(parents=True)
+    (repo / "predicators" / "envs" / "secret.py").write_text("x = 1\n")
+    (repo / "logs" / "sb").mkdir(parents=True)
+    (repo / "logs" / "sb" / "mine.txt").write_text("hello\n")
+    mnt_b.symlink_to(mnt_a, target_is_directory=True)
+    mounts = tmp_path / "mounts"
+    mounts.write_text(f"nfs:/export {mnt_a} nfs4 rw 0 0\n"
+                      f"nfs:/export {mnt_b} nfs4 rw 0 0\n"
+                      "tmpfs /run tmpfs rw 0 0\n")
+    sandbox = str(repo / "logs" / "sb")
+    write_pyguard(sandbox, str(repo), mounts_file=str(mounts))
+    prelude = ("import os, sitecustomize as g; "
+               "g._resolve = lambda p: os.fsdecode(p) if isinstance(p, bytes)"
+               " else os.fspath(p); g.IDENTS[:] = []; ")
+    res = _run(prelude + "print(g.ROOTS)", sandbox)
+    assert res.returncode == 0, res.stderr
+    assert str(mnt_b / "repo") in res.stdout
+    hidden = str(mnt_b / "repo" / "predicators" / "envs" / "secret.py")
+    res = _run(prelude + f"open({hidden!r}).read()", sandbox)
+    assert res.returncode != 0 and "sandbox guard" in res.stderr, res.stderr
+    mine = str(mnt_b / "repo" / "logs" / "sb" / "mine.txt")
+    res = _run(prelude + f"print(open({mine!r}).read())", sandbox)
+    assert res.returncode == 0, res.stderr
+    assert "hello" in res.stdout
+
+
 def test_pyguard_allows_a_sandbox_under_the_repo_logs(tmp_path) -> None:
     """The production layout puts the sandbox under <repo>/logs/, which is
     otherwise hidden: the sandbox's own files stay readable, its run dir

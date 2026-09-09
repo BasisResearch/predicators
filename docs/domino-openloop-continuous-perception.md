@@ -583,7 +583,7 @@ with a confident-looking identifiability report — fail loud.
    ranks the twin's own friction best, which is the defect §3.3 addresses.
 6. **Live.** Re-run with both flags on and read the identifiability sweep. Success
    is a monotone-ish sweep whose minimum sits near the real value — whether or not
-   the agent then declares `PHYSICAL_PARAMS`.
+   the agent then declares `PHYSICAL_PARAM_SPECS`.
 
 ## Also fix while here
 

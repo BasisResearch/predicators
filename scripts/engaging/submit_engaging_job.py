@@ -118,6 +118,12 @@ def _build_batch_script(entry_point: str, args_and_flags_str: str,
         f"module load {_MINIFORGE_MODULE}",
         f"conda activate {_CONDA_ENV}",
         f"cd {_REPO_ROOT}",
+        # Bind the job to the tree it was launched from. predicators is an
+        # editable install of the main tree, and `python predicators/main.py`
+        # puts predicators/ (not the root) first on sys.path, so without
+        # this a job launched from a worktree silently imports the main
+        # tree, and a requeue re-imports whatever that tree holds by then.
+        f"export PYTHONPATH={_REPO_ROOT}",
     ]
     run_cmd = (f"python predicators/{entry_point} "
                f"{args_and_flags_str} --seed $SLURM_ARRAY_TASK_ID")

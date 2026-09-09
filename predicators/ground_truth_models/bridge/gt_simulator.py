@@ -8,8 +8,8 @@ The residual slow processes the base rigid-body sim cannot model:
 2. Curing: while a wet face is in aligned resting contact with another
    block (neither held), that joint's ``cure_*`` counter ticks; at
    ``cure_threshold`` the joint irreversibly latches -- the glue is
-   consumed and both blocks record the partner in their ``attached_*``
-   slot.
+   consumed on both faces of the joint and both blocks record the
+   partner in their ``attached_*`` slot.
 3. Welding: every latched pair is re-emitted as an ``Attach`` physics
    command each step, so the pair moves as one rigid body. The base
    sim's own feature-to-weld sync is gated off in base-sim mode -- the
@@ -302,6 +302,9 @@ def _curing(state: State, updates: ResidualUpdate,
                 updates[mate][f"attached_{mate_slot}"] = \
                     float(idx_of[blk.name])
                 updates[blk][f"glue_{face}"] = 0.0
+                if mate_slot in GLUE_FACES:
+                    # The env consumes a wet mate face with the joint.
+                    updates[mate][f"glue_{mate_slot}"] = 0.0
     return updates
 
 

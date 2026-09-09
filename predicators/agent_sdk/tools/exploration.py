@@ -43,7 +43,7 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
                      "PARAM_SPECS (loaded fresh from simulator.py) against "
                      "the recorded data and returns the report (SSE "
                      "init->fit, fitted values, identifiability when "
-                     "PHYSICAL_PARAMS is declared). No arguments = the "
+                     "PHYSICAL_PARAM_SPECS is declared). No arguments = the "
                      "CANONICAL fit the probe deploys (system-ID values "
                      "applied to the planning env); traj_idxs (subset of "
                      "trajectories; on the system-ID path a "
@@ -78,7 +78,7 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
                      "registry) but it is the ONLY residual view that can "
                      "see physical-parameter error - run one (e.g. "
                      "sweep_params='all') BEFORE deciding whether to "
-                     "declare PHYSICAL_PARAMS, in either direction; ")
+                     "declare PHYSICAL_PARAM_SPECS, in either direction; ")
     else:
         sim_desc = "`sim` (a BeliefProbe over the belief simulator)"
         reset_desc = (

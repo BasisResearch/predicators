@@ -16,25 +16,49 @@ With per-task wiring that reconstruction is not available, and the
 factory withdraws rather than silently answering with the wrong board's
 wiring.
 
-Two predicates, because a drive condition is either a single button or a
-conjunction of two, and a lifted process cannot branch on which:
+Static wiring facts, one per role a button can play for a lamp:
 
-* ``SoleDriver(?button, ?lamp)`` - the lamp needs exactly this button.
-* ``JointDrivers(?b1, ?b2, ?lamp)`` - the lamp needs both, with ``?b1``
-  the lower-indexed one. Conjunction is symmetric, so emitting only the
-  canonical order keeps one ground atom per real hypothesis instead of
-  two spurious ones.
+* ``Drives(?button, ?lamp)`` - the button is the lamp's driver;
+* ``Enables(?button, ?lamp)`` - the button is one of its enablers;
+* ``Inhibits(?button, ?lamp)`` - the button is its inhibitor.
+
+Hidden dynamic state the process model needs:
+
+* ``Armed(?lamp)`` / ``Disarmed(?lamp)`` - the lamp's arming latch,
+  read from the fully-observable ``armed`` feature (the oracle runs the
+  board fully observed; absent the feature the lamp is taken as
+  disarmed, which only ever makes a plan re-press a driver);
+* ``JustPressed(?button)`` - a one-tick pulse the model's PressButton
+  process emits so that arming can be keyed to the driver's rising
+  edge. It is never true of a real state.
+
+And derived predicates over those, so a lifted process can say "all of
+the lamp's enablers are on" without knowing how many there are:
+``Enabled``, ``Uninhibited``, ``Driven``, ``Undriven``, the nullary
+``Overloaded`` (more lamps driven than the breaker allows) and
+``AllButtonsOff`` (what closes a tripped breaker). Every one of them is
+MONOTONE in the positive atoms it reads (``ButtonOff`` rather than "not
+``ButtonOn``", ``Disarmed`` rather than "not ``Armed``"), because the
+planner's reachability analysis is a delete relaxation: a derived
+predicate that read a negation would be false wherever its positive
+side is reachable, and the goal would look unreachable from the start.
 """
 
-from typing import Dict, List, Optional, Sequence, Set, Tuple
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Sequence, Set
 
 from predicators.ground_truth_models import GroundTruthPredicateFactory
 from predicators.settings import CFG
-from predicators.structs import Object, Predicate, State, Type
+from predicators.structs import DerivedPredicate, GroundAtom, Object, \
+    Predicate, State, Type
+
+if TYPE_CHECKING:
+    from predicators.envs.pybullet_busyboard import Condition
 
 
-def _board_wiring(state: State) -> Optional[List[Tuple[int, int]]]:
-    """This board's (driver, enabler) per lamp, or None if unavailable."""
+def _board_wiring(state: State) -> Optional[List[Condition]]:
+    """This board's condition per lamp, or None if unavailable."""
     if not CFG.busyboard_fixed_wiring:
         return None
     from predicators.envs.pybullet_busyboard import \
@@ -43,8 +67,7 @@ def _board_wiring(state: State) -> Optional[List[Tuple[int, int]]]:
     num_lamps = sum(1 for o in state if o.type.name == "lamp")
     if num_buttons == 0 or num_lamps == 0:
         return None
-    driver, enabler = canonical_wiring(num_buttons, num_lamps)
-    return list(zip(driver, enabler))
+    return canonical_wiring(num_buttons, num_lamps)
 
 
 def _index(obj: Object) -> int:
@@ -52,37 +75,157 @@ def _index(obj: Object) -> int:
     return int(obj.name[len(obj.type.name):])
 
 
-def _sole_driver_holds(state: State, objects: Sequence[Object]) -> bool:
-    """Whether ``lamp`` is driven by ``button`` alone."""
+def _condition(state: State, lamp: Object) -> Optional[Condition]:
+    wiring = _board_wiring(state)
+    if wiring is None:
+        return None
+    lamp_idx = _index(lamp)
+    if lamp_idx >= len(wiring):
+        return None
+    return wiring[lamp_idx]
+
+
+def _drives_holds(state: State, objects: Sequence[Object]) -> bool:
+    """Whether ``button`` is ``lamp``'s driver."""
     button, lamp = objects
-    wiring = _board_wiring(state)
-    if wiring is None:
-        return False
-    from predicators.envs.pybullet_busyboard import \
-        NO_ENABLER  # pylint: disable=import-outside-toplevel
-    lamp_idx = _index(lamp)
-    if lamp_idx >= len(wiring):
-        return False
-    driver, enabler = wiring[lamp_idx]
-    return enabler == NO_ENABLER and _index(button) == driver
+    cond = _condition(state, lamp)
+    return cond is not None and _index(button) == cond.driver
 
 
-def _joint_drivers_holds(state: State, objects: Sequence[Object]) -> bool:
-    """Whether ``lamp`` needs both buttons, lower index first."""
-    button_a, button_b, lamp = objects
-    wiring = _board_wiring(state)
-    if wiring is None:
+def _enables_holds(state: State, objects: Sequence[Object]) -> bool:
+    """Whether ``button`` is one of ``lamp``'s enablers."""
+    button, lamp = objects
+    cond = _condition(state, lamp)
+    return cond is not None and _index(button) in cond.enablers
+
+
+def _inhibits_holds(state: State, objects: Sequence[Object]) -> bool:
+    """Whether ``button`` is ``lamp``'s inhibitor."""
+    button, lamp = objects
+    cond = _condition(state, lamp)
+    return cond is not None and _index(button) == cond.inhibitor
+
+
+def _armed_holds(state: State, objects: Sequence[Object]) -> bool:
+    """The lamp's arming latch, when the state carries it."""
+    lamp, = objects
+    if "armed" not in lamp.type.feature_names:
         return False
-    from predicators.envs.pybullet_busyboard import \
-        NO_ENABLER  # pylint: disable=import-outside-toplevel
-    lamp_idx = _index(lamp)
-    if lamp_idx >= len(wiring):
+    return state.get(lamp, "armed") > 0.5
+
+
+def _disarmed_holds(state: State, objects: Sequence[Object]) -> bool:
+    """The latch's complement, as a positive fact."""
+    return not _armed_holds(state, objects)
+
+
+def _just_pressed_holds(state: State, objects: Sequence[Object]) -> bool:
+    """A model-only pulse; never true of a real state."""
+    del state, objects
+    return False
+
+
+# ── Derived predicates (over atoms) ──────────────────────────────
+
+
+def _named(atoms: Iterable[GroundAtom], name: str) -> List[GroundAtom]:
+    return [a for a in atoms if a.predicate.name == name]
+
+
+def _holds(atoms: Set[GroundAtom], name: str, *objects: Object) -> bool:
+    return any(a.objects == list(objects) for a in _named(atoms, name))
+
+
+def _roles(atoms: Set[GroundAtom], name: str, lamp: Object) -> List[Object]:
+    """The buttons in role ``name`` (Drives / Enables / Inhibits) for
+    ``lamp``."""
+    return [a.objects[0] for a in _named(atoms, name) if a.objects[1] == lamp]
+
+
+def _enabled(atoms: Set[GroundAtom], lamp: Object) -> bool:
+    return all(
+        _holds(atoms, "ButtonOn", b) for b in _roles(atoms, "Enables", lamp))
+
+
+def _uninhibited(atoms: Set[GroundAtom], lamp: Object) -> bool:
+    return all(
+        _holds(atoms, "ButtonOff", b) for b in _roles(atoms, "Inhibits", lamp))
+
+
+def _driven(atoms: Set[GroundAtom], lamp: Object) -> bool:
+    if not _holds(atoms, "Armed", lamp):
         return False
-    driver, enabler = wiring[lamp_idx]
-    if enabler == NO_ENABLER:
+    if not any(
+            _holds(atoms, "ButtonOn", b)
+            for b in _roles(atoms, "Drives", lamp)):
         return False
-    lo, hi = min(driver, enabler), max(driver, enabler)
-    return (_index(button_a), _index(button_b)) == (lo, hi)
+    if not _named(atoms, "BreakerClosed"):
+        return False
+    return _enabled(atoms, lamp) and _uninhibited(atoms, lamp)
+
+
+def _undriven(atoms: Set[GroundAtom], lamp: Object) -> bool:
+    """The positive spelling of "not driven": some part of the drive is visibly
+    missing."""
+    if _holds(atoms, "Disarmed", lamp) or _named(atoms, "BreakerTripped"):
+        return True
+    if any(
+            _holds(atoms, "ButtonOff", b)
+            for b in _roles(atoms, "Drives", lamp)):
+        return True
+    if any(
+            _holds(atoms, "ButtonOff", b)
+            for b in _roles(atoms, "Enables", lamp)):
+        return True
+    return any(
+        _holds(atoms, "ButtonOn", b) for b in _roles(atoms, "Inhibits", lamp))
+
+
+def _enabled_holds(atoms: Set[GroundAtom], objects: Sequence[Object]) -> bool:
+    lamp, = objects
+    return _enabled(atoms, lamp)
+
+
+def _uninhibited_holds(atoms: Set[GroundAtom],
+                       objects: Sequence[Object]) -> bool:
+    lamp, = objects
+    return _uninhibited(atoms, lamp)
+
+
+def _driven_holds(atoms: Set[GroundAtom], objects: Sequence[Object]) -> bool:
+    lamp, = objects
+    return _driven(atoms, lamp)
+
+
+def _undriven_holds(atoms: Set[GroundAtom], objects: Sequence[Object]) -> bool:
+    lamp, = objects
+    return _undriven(atoms, lamp)
+
+
+def _overloaded_holds(atoms: Set[GroundAtom],
+                      objects: Sequence[Object]) -> bool:
+    del objects
+    limit = int(CFG.busyboard_breaker_limit)
+    if limit <= 0:
+        return False
+    lamps = {a.objects[1] for a in _named(atoms, "Drives")}
+    return sum(1 for lamp in lamps if _driven(atoms, lamp)) > limit
+
+
+def _all_buttons_off_holds(atoms: Set[GroundAtom],
+                           objects: Sequence[Object]) -> bool:
+    del objects
+    # Every button carries ButtonOn or ButtonOff at all times, so the
+    # two together enumerate the board's buttons.
+    buttons = {a.objects[0] for a in _named(atoms, "ButtonOn")}
+    buttons |= {a.objects[0] for a in _named(atoms, "ButtonOff")}
+    return all(_holds(atoms, "ButtonOff", b) for b in buttons)
+
+
+def _never(state: State, objects: Sequence[Object]) -> bool:
+    """Classifier of a stand-in predicate that is never evaluated."""
+    del state, objects
+    return False
 
 
 class PyBulletBusyBoardGroundTruthPredicateFactory(GroundTruthPredicateFactory
@@ -100,14 +243,67 @@ class PyBulletBusyBoardGroundTruthPredicateFactory(GroundTruthPredicateFactory
         del env_name  # unused
         button_type = types["button"]
         lamp_type = types["lamp"]
+        breaker_type = types["breaker"]
 
-        SoleDriver = Predicate("SoleDriver", [button_type, lamp_type],
-                               _sole_driver_holds,
-                               natural_language_assertion=lambda os:
-                               f"lamp {os[1]} is driven by {os[0]} alone")
-        JointDrivers = Predicate(
-            "JointDrivers", [button_type, button_type, lamp_type],
-            _joint_drivers_holds,
+        Drives = Predicate("Drives", [button_type, lamp_type],
+                           _drives_holds,
+                           natural_language_assertion=lambda os:
+                           f"{os[0]} is the driver of lamp {os[1]}")
+        Enables = Predicate("Enables", [button_type, lamp_type],
+                            _enables_holds,
+                            natural_language_assertion=lambda os:
+                            f"{os[0]} must be on for lamp {os[1]} to respond")
+        Inhibits = Predicate(
+            "Inhibits", [button_type, lamp_type],
+            _inhibits_holds,
             natural_language_assertion=lambda os:
-            f"lamp {os[2]} needs both {os[0]} and {os[1]}")
-        return {SoleDriver, JointDrivers}
+            f"{os[0]} must be off for lamp {os[1]} to respond")
+        Armed = Predicate(
+            "Armed", [lamp_type],
+            _armed_holds,
+            natural_language_assertion=lambda os: f"lamp {os[0]} is armed")
+        Disarmed = Predicate(
+            "Disarmed", [lamp_type],
+            _disarmed_holds,
+            natural_language_assertion=lambda os: f"lamp {os[0]} is not armed")
+        JustPressed = Predicate("JustPressed", [button_type],
+                                _just_pressed_holds,
+                                natural_language_assertion=lambda os:
+                                f"{os[0]} was pressed on this tick")
+        # The env's own predicates the derived ones read. A Predicate is
+        # equal to another by name and types, so these stand-ins key the
+        # planner's dependency index to the env's atoms without this
+        # module holding the env's objects; they are never evaluated.
+        ButtonOn = Predicate("ButtonOn", [button_type], _never)
+        ButtonOff = Predicate("ButtonOff", [button_type], _never)
+        BreakerClosed = Predicate("BreakerClosed", [breaker_type], _never)
+        BreakerTripped = Predicate("BreakerTripped", [breaker_type], _never)
+
+        drive_facts = {
+            Drives, Enables, Inhibits, Armed, Disarmed, ButtonOn, ButtonOff,
+            BreakerClosed, BreakerTripped
+        }
+        Enabled = DerivedPredicate("Enabled", [lamp_type],
+                                   _enabled_holds,
+                                   auxiliary_predicates={Enables, ButtonOn})
+        Uninhibited = DerivedPredicate(
+            "Uninhibited", [lamp_type],
+            _uninhibited_holds,
+            auxiliary_predicates={Inhibits, ButtonOff})
+        Driven = DerivedPredicate("Driven", [lamp_type],
+                                  _driven_holds,
+                                  auxiliary_predicates=set(drive_facts))
+        Undriven = DerivedPredicate("Undriven", [lamp_type],
+                                    _undriven_holds,
+                                    auxiliary_predicates=set(drive_facts))
+        Overloaded = DerivedPredicate("Overloaded", [],
+                                      _overloaded_holds,
+                                      auxiliary_predicates=set(drive_facts))
+        AllButtonsOff = DerivedPredicate(
+            "AllButtonsOff", [],
+            _all_buttons_off_holds,
+            auxiliary_predicates={ButtonOn, ButtonOff})
+        return {
+            Drives, Enables, Inhibits, Armed, Disarmed, JustPressed, Enabled,
+            Uninhibited, Driven, Undriven, Overloaded, AllButtonsOff
+        }

@@ -1,0 +1,575 @@
+"""The play loop of the continual protocol's agent arms (docs/continual-
+protocol.md, section 5).
+
+``ContinualPlayMixin`` is the controller side of an agent arm: it plays
+the run's levels through one conversation of the SDK machinery, whose
+tool surface is the protocol's env and skill tools
+(``agent_sdk.tools.continual_tools``) plus whatever the arm attaches
+(the model-based arm attaches its model workbench, see
+``agent_continual_approach``). The loop sends the conversation one
+message per level and a short one when the agent stops before a level
+is settled; each message and the agent's turn on it is a round. Before
+a round it builds the message from the level, the journal and the
+recorded episodes; after it, it records the round in ``attempts.md``,
+refreshes the arm's data from the recorded episodes, services what the
+round asked for, and checkpoints. The conversation is the CLI's own
+transcript: the SDK's auto-compaction manages its size, the journal is
+the agent's durable memory, and a requeue resumes the conversation
+where it was (section 6.6).
+
+Why a mixin. The arms' learning and session machinery live in the
+phased approach classes (``AgentModelFreeApproach`` and its
+``AgentSimPredicateInventionApproach`` descendant), where the simulator
+synthesis, the parameter fit, predicate invention, the sandbox and the
+session managers are implemented. An arm keeps that class as its base
+and mixes this loop in front of it, the way ``AgentSessionMixin`` and
+``SamplerLearningMixin`` add their concerns; the phased loop's own entry
+points (``_solve``, the explorers, the learning sessions) are simply
+unused under the protocol. The mixin has no base class of its own, so
+there is no diamond, and what it needs from its host is declared below
+as the host contract.
+
+The harness never chooses for the agent: whether to act, reset, model
+or give up is decided inside the conversation; the loop only services
+what a round asked for and enforces one operational guard, the idle-
+round limit. There is no per-round clock or meaningful turn cap: the
+step cap and the run's wall-clock cap are the limits.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import shutil
+import time
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Set, \
+    Tuple
+
+from predicators.agent_sdk import journal as journal_mod
+from predicators.agent_sdk.play_prompts import build_play_query, \
+    build_play_system_prompt, render_data_status
+from predicators.agent_sdk.session_base import AgentSessionFatalError, \
+    query_fatal_error
+from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
+    PlayState, build_continual_tools, context_status, format_observation, \
+    visible_goal
+from predicators.agent_sdk.tools.digests import render_options_digest, \
+    render_types_digest
+from predicators.run import paths
+from predicators.run.episode import EpisodeState
+from predicators.settings import CFG
+from predicators.structs import Dataset, LowLevelTrajectory, Predicate
+
+if TYPE_CHECKING:  # pragma: no cover - the run package imports approaches
+    from predicators.agent_sdk.session_manager import SessionManagerProtocol
+    from predicators.agent_sdk.tools.context import ToolContext
+    from predicators.run.continual import ProtocolSession
+
+SESSION_KIND = "play"
+
+
+def _run_ended(reason: str, note: str = "") -> Exception:
+    """``RunEnded`` without a module-level import of the run package."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.run.continual import RunEnded
+    return RunEnded(reason, note)
+
+
+def env_predicate_names(session: ProtocolSession) -> Set[str]:
+    """The env's own predicate names, which an observation lists first."""
+    return {p.name for p in session.env_predicates}
+
+
+class ContinualPlayMixin:
+    """The play loop, mixed in front of an agent arm's phased base class.
+
+    The arm declares its tool surface through :meth:`_continual_tool_names`
+    and what a round carries beyond the protocol tools through the round
+    hooks (:meth:`_round_extra_tools`, :meth:`_round_hooks`,
+    :meth:`_after_round`, :meth:`_model_status`,
+    :meth:`_round_was_productive`, :meth:`_round_record_extra`); it
+    wires the parent-specific overrides (system prompt, checkpoint
+    state) with :meth:`_play_system_prompt`, :meth:`_continual_save_state`
+    and :meth:`_load_continual_save_state`.
+    """
+
+    # -- Host contract -------------------------------------------------
+    # The host is an AgentModelFreeApproach (or a descendant); these
+    # declare what the loop reads and calls on it, so a typo fails
+    # type-checking instead of surfacing at run time.
+    if TYPE_CHECKING:
+        # pylint: disable=unused-argument,missing-function-docstring
+        _tool_context: ToolContext
+        _agent_session: Optional[SessionManagerProtocol]
+        _offline_dataset: Dataset
+        _online_trajectories: List[LowLevelTrajectory]
+        _train_tasks: List[Any]
+        _initial_predicates: Set[Predicate]
+
+        def _get_all_predicates(self) -> Set[Predicate]:
+            raise NotImplementedError
+
+        def _sync_tool_context(self) -> None:
+            raise NotImplementedError
+
+        def _ensure_agent_session(self) -> None:
+            raise NotImplementedError
+
+        def _close_agent_session(self) -> None:
+            raise NotImplementedError
+
+        def _query_agent_sync(self, message: str,
+                              **query_kwargs: Any) -> List[Dict[str, Any]]:
+            raise NotImplementedError
+
+        def save(self, online_learning_cycle: Optional[int] = None) -> None:
+            raise NotImplementedError
+
+        # pylint: enable=unused-argument,missing-function-docstring
+
+    # -- Loop state, checkpointed by _continual_save_state -------------
+    _play_session: Optional[ProtocolSession] = None
+    _continual_level: Optional[int] = None
+    _rounds_played: int = 0
+    _level_rounds: int = 0
+    _round_in_flight: bool = False
+
+    # -- What the arm declares -------------------------------------------
+
+    def _continual_tool_names(self) -> List[str]:
+        """The MCP tools of a play session, in prompt order."""
+        raise NotImplementedError
+
+    def _round_extra_tools(self, session: ProtocolSession) -> List[Any]:
+        """Dynamic ``SdkMcpTool`` instances a round carries beyond the protocol
+        tools, built before the CLI opens on the conversation (the model-based
+        arm's ``run_python`` over its model workbench)."""
+        del session
+        return []
+
+    def _round_hooks(self, session: ProtocolSession) -> Dict[str, list]:
+        """SDK session hooks for the round (see ``ToolContext.
+
+        extra_session_hooks``).
+        """
+        del session
+        return {}
+
+    def _after_round(self, session: ProtocolSession, state: PlayState) -> None:
+        """Called once the round's query has returned (also after a failed
+        one), before the round is accounted."""
+        del session, state
+
+    def _model_status(self, session: ProtocolSession) -> str:
+        """The model-and-data block of the query; an arm with a belief model
+        overrides it."""
+        n_eps, n_steps = self._episode_counts(session)
+        return render_data_status(n_episodes=n_eps, n_steps=n_steps)
+
+    def _round_was_productive(self, session: ProtocolSession, state: PlayState,
+                              steps_before: int, steps_after: int) -> bool:
+        """Whether the round did work that resets the idle guard: env steps by
+        default; an arm with a model also counts model work."""
+        del session, state
+        return steps_after > steps_before
+
+    def _round_record_extra(self, state: PlayState) -> str:
+        """Extra lines for the round's ``attempts.md`` record."""
+        del state
+        return ""
+
+    # -- Hooks the session machinery reads ------------------------------
+
+    def _get_log_dir(self) -> str:
+        """The run directory's ``agent/``: one per run, not per launch (a
+        resuming launch adopts the run directory), so the sandbox and the CLI
+        transcripts survive a requeue (section 6.6)."""
+        return os.path.abspath(paths.agent_dir(paths.run_dir()))
+
+    def _get_solve_tool_names(self) -> Optional[List[str]]:
+        return list(self._continual_tool_names())
+
+    def _play_system_prompt(self) -> str:
+        """The system prompt of the arm's play sessions."""
+        return build_play_system_prompt(self._continual_tool_names())
+
+    def prepare_for_continual(self, dataset: Dataset) -> None:
+        """Take the offline data without a learning session: when to model is
+        the agent's decision."""
+        self._offline_dataset = dataset
+        self._sync_tool_context()
+
+    # -- The controller contract ----------------------------------------
+
+    def play_level(self, session: ProtocolSession) -> None:
+        """Play rounds until the level is won or lost, or the run ends."""
+        self._play_session = session
+        self._begin_level(session)
+        idle = 0
+        while True:
+            obs = session.observe()
+            if obs.state is EpisodeState.WIN:
+                logging.info(
+                    "[Continual agent] level %d won; the conversation "
+                    "continues on the next level", session.level_index + 1)
+                self._close_agent_session()
+                return
+            if session.level_card().lost:
+                logging.info(
+                    "[Continual agent] level %d lost (GAME_OVER with no "
+                    "reset available); ending the run's rounds",
+                    session.level_index + 1)
+                self._close_agent_session()
+                return
+            steps_before = obs.ledger.run_steps
+            state = self._play_one_round(session)
+            self._sync_level_trajectories(session)
+            if state.run_ended is not None:
+                reason, note = state.run_ended
+                raise _run_ended(reason, note)
+            if state.pending_give_up is not None:
+                self.save(session.level_index)
+                session.end_run(state.pending_give_up)
+            steps_after = session.observe().ledger.run_steps
+            productive = self._round_was_productive(session, state,
+                                                    steps_before, steps_after)
+            idle = 0 if productive else idle + 1
+            self.save(session.level_index)
+            if idle >= CFG.continual_max_idle_rounds:
+                raise _run_ended(
+                    "agent_ended", f"stalled: {idle} consecutive rounds "
+                    "without an environment step or model work")
+
+    # -- One session --------------------------------------------------------
+
+    def _play_one_round(self, session: ProtocolSession) -> PlayState:
+        """One message to the run's conversation and the agent's turn on it.
+
+        The CLI is reopened on the conversation for every round: the SDK
+        fixes a client's tool surface when it opens, and the arm's
+        extras (the model workbench over the data recorded so far) are
+        rebuilt here. The conversation itself, compactions included, is
+        the CLI's transcript, which ``resume`` restores; only the run's
+        first round starts one.
+        """
+        ctx = self._tool_context
+        state = PlayState()
+        # The arm's extras first: building them may install the probe
+        # providers the session manager reads when it opens.
+        extra_tools = self._round_extra_tools(session)
+        ctx.extra_mcp_tools = build_continual_tools(
+            ctx,
+            session,
+            state,
+            save_render=self._save_render,
+            tool_names=[
+                n for n in self._continual_tool_names()
+                if n in CONTINUAL_TOOL_NAMES
+            ]) + list(extra_tools)
+        ctx.extra_session_hooks = self._round_hooks(session)
+        # A checkpoint taken mid-round means a preemption: the round's
+        # message is re-issued as a resume (section 6.6).
+        preempted = self._round_in_flight
+        conversation = self._conversation_id()
+        self._close_agent_session()
+        self._ensure_agent_session()
+        assert self._agent_session is not None
+        self._agent_session.resume_session_id = conversation
+        if conversation is not None:
+            logging.info("[Continual agent] continuing conversation %s",
+                         conversation)
+        # The query reads the journal and the tools save renders into
+        # the sandbox, so it must exist before the first query.
+        ensure_sandbox = getattr(self._agent_session, "_ensure_sandbox_dir",
+                                 None)
+        if ensure_sandbox is not None:
+            ensure_sandbox()
+        if preempted and conversation is not None:
+            kind = "resumed"
+        elif self._rounds_played == 0:
+            kind = "first"
+        elif self._level_rounds == 0:
+            kind = "level"
+        else:
+            kind = "continue"
+        query = self._build_query(session, kind)
+        round_number = self._rounds_played + 1
+        # No per-round clock: the run's wall-clock cap is the only clock.
+        ctx.begin_attempt(round_number, 0.0)
+        self._round_in_flight = True
+        self.save(session.level_index)
+        entries_before = len(session.index_entries())
+        started = time.time()
+        try:
+            responses = self._query_agent_sync(query, kind=SESSION_KIND)
+        finally:
+            ctx.attempt_start = None
+            ctx.attempt_deadline = None
+            self._round_in_flight = False
+            self._agent_session.resume_session_id = None
+            self._after_round(session, state)
+        dead = query_fatal_error(responses)
+        if dead is not None:
+            raise AgentSessionFatalError(
+                f"play round died without doing work ({dead})")
+        self._rounds_played += 1
+        self._level_rounds += 1
+        self._account_round(session, responses, ctx.attempt_rollout_count)
+        self._record_round(session, round_number, entries_before, state,
+                           time.time() - started, responses)
+        return state
+
+    def _conversation_id(self) -> Optional[str]:
+        """The CLI session id of the run's conversation, which the session
+        manager records into ``session_info.json`` when the first round opens
+        it; None before that (or with ``agent_sdk_resume_session`` off, which
+        makes every round a fresh context, for debugging)."""
+        if not CFG.agent_sdk_resume_session:
+            return None
+        path = os.path.join(self._get_log_dir(), "session_info.json")
+        if not os.path.isfile(path):
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                info = json.load(f)
+        except (OSError, ValueError):
+            return None
+        sid = info.get("session_id")
+        return str(sid) if sid else None
+
+    def _build_query(self, session: ProtocolSession, kind: str) -> str:
+        ctx = self._tool_context
+        obs = session.observe()
+        ctx.current_observation = obs.frame
+        sandbox = ctx.sandbox_dir
+        render = self._save_render(f"round_{self._rounds_played + 1:03d}")
+        observation = format_observation(
+            obs,
+            ctx,
+            with_state=True,
+            render_path=render,
+            env_names=env_predicate_names(session))
+        # The ledger and the context line are already the observation's
+        # last lines; the query shows them once more on their own so
+        # they cannot be missed.
+        return build_play_query(
+            kind=kind,
+            round_number=self._rounds_played + 1,
+            level_number=obs.level.index + 1,
+            levels_total=obs.ledger.levels_total,
+            goal_nl=obs.level.task.goal_nl or "",
+            goal_atoms=visible_goal(ctx, obs.level.task),
+            ledger=obs.ledger.footer(),
+            context=context_status(ctx),
+            observation=observation,
+            skills=render_options_digest(
+                session.list_skills(),
+                gt_options_ref_path=ctx.gt_options_ref_path),
+            predicates=self._render_predicates(),
+            types=render_types_digest(ctx.types),
+            model=self._model_status(session),
+            journal=journal_mod.read_journal(sandbox),
+            attempts=journal_mod.read_journal(
+                sandbox, filename=journal_mod.ATTEMPTS_FILENAME),
+        )
+
+    def _render_predicates(self) -> str:
+        env_names = {p.name for p in self._initial_predicates}
+        lines = []
+        for pred in sorted(self._get_all_predicates(), key=lambda p: p.name):
+            sig = ", ".join(t.name for t in pred.types)
+            origin = "environment" if pred.name in env_names else "yours"
+            lines.append(f"- {pred.name}({sig}) [{origin}]")
+        return "\n".join(lines) or "(none)"
+
+    def _save_render(self, tag: str) -> Optional[str]:
+        """Save a render into the sandbox's image dir; returns its sandbox-
+        relative path."""
+        session = self._play_session
+        ctx = self._tool_context
+        if session is None or not ctx.image_save_dir:
+            return None
+        try:
+            src = session.render(tag)
+        except Exception as e:  # pylint: disable=broad-except
+            logging.debug("[Continual agent] render failed: %s", e)
+            return None
+        if not src:
+            return None
+        os.makedirs(ctx.image_save_dir, exist_ok=True)
+        name = os.path.basename(src)
+        dst = os.path.join(ctx.image_save_dir, name)
+        try:
+            shutil.copyfile(src, dst)
+        except OSError as e:
+            logging.debug("[Continual agent] render copy failed: %s", e)
+            return None
+        return f"./{os.path.basename(ctx.image_save_dir)}/{name}"
+
+    # -- Data ---------------------------------------------------------------
+
+    def _begin_level(self, session: ProtocolSession) -> None:
+        k = session.level_index
+        if self._continual_level != k:
+            self._continual_level = k
+            self._level_rounds = 0
+        # Only the levels reached so far are visible to the arm.
+        self._train_tasks = [spec.task for spec in session.levels[:k + 1]]
+        self._tool_context.train_tasks = list(self._train_tasks)
+        self._tool_context.current_task = session.levels[k].task
+        self._tool_context.test_task_idx = None
+        self._sync_level_trajectories(session)
+        session.abstract_predicates = set(self._get_all_predicates())
+
+    def _on_predicates_installed(self) -> None:
+        """``sim.predicates()`` installed a draft: the session's abstraction
+        (the observation's atoms, Wait targets, divergence checks) follows it
+        at once.
+
+        The set is otherwise snapshotted at level start and after a
+        model publish, so a level played before the first draft ran
+        with no invented predicates at all (every annotated Wait
+        misfired: a ``NOT`` target was satisfied by the empty set, an
+        unannotated one ran to its cap) and an edit within a level
+        left the checks on the previous draft (bridge seed 0,
+        2026-09-04).
+        """
+        session = self._play_session
+        if session is not None:
+            session.abstract_predicates = set(self._get_all_predicates())
+
+    def _sync_level_trajectories(self, session: ProtocolSession) -> None:
+        """Rebuild the online trajectories from the recorded episodes of every
+        level up to the current one.
+
+        The list object is kept (rebuilt in place), so anything holding
+        it, such as a session's ``run_python`` namespace, sees the
+        episodes recorded since.
+        """
+        k = session.level_index
+        by_level: Dict[int, List[LowLevelTrajectory]] = {}
+        for traj in self._online_trajectories:
+            idx = traj.train_task_idx
+            if idx is not None and idx < k:
+                by_level.setdefault(int(idx), []).append(traj)
+        for j in range(k):
+            if j not in by_level:
+                by_level[j] = self._episodes_to_trajectories(
+                    session.previous_level_episodes(j), j)
+        by_level[k] = self._episodes_to_trajectories(session.level_episodes(),
+                                                     k)
+        self._online_trajectories[:] = [
+            t for j in sorted(by_level) for t in by_level[j]
+        ]
+        self._sync_tool_context()
+
+    def _episodes_to_trajectories(self, episodes: Sequence[Dict[str, Any]],
+                                  level: int) -> List[LowLevelTrajectory]:
+        out = []
+        for ep in episodes:
+            if not ep["actions"]:
+                continue
+            states = list(ep["states"])
+            actions = list(ep["actions"])
+            if len(states) != len(actions) + 1:
+                continue
+            out.append(
+                LowLevelTrajectory(
+                    states,
+                    actions,
+                    _train_task_idx=level,
+                    _source_simulator_version=getattr(
+                        self, "_current_simulator_version", None),
+                    _source_predicates_version=getattr(
+                        self, "_current_predicates_version", None),
+                    _source_samplers_version=getattr(
+                        self, "_current_samplers_version", None),
+                    _env_reward=ep.get("reward"),
+                    _env_terminated=ep.get("terminated"),
+                ))
+        return out
+
+    def _episode_counts(self, session: ProtocolSession) -> Tuple[int, int]:
+        """(recorded episodes, their steps) across the levels so far."""
+        del session  # the online trajectories mirror the recording
+        n_eps = len(self._online_trajectories)
+        n_steps = sum(len(t.actions) for t in self._online_trajectories)
+        return n_eps, n_steps
+
+    # -- Records ------------------------------------------------------------
+
+    def _account_round(self, session: ProtocolSession,
+                       responses: List[Dict[str, Any]], rollouts: int) -> None:
+        cost = 0.0
+        turns = 0
+        for entry in responses:
+            if entry.get("type") == "result":
+                if entry.get("total_cost_usd") is not None:
+                    cost = float(entry["total_cost_usd"])
+                if entry.get("num_turns") is not None:
+                    turns = int(entry["num_turns"])
+        session.record_sandbox("rounds", 1)
+        session.record_sandbox("turns", turns)
+        session.record_sandbox("llm_cost_usd", cost)
+        session.record_sandbox("sim_rollouts", rollouts)
+
+    def _record_round(self, session: ProtocolSession, number: int,
+                      entries_before: int, state: PlayState, seconds: float,
+                      responses: List[Dict[str, Any]]) -> None:
+        """Append the harness's account of the round to attempts.md."""
+        entries = session.index_entries()[entries_before:]
+        lines = []
+        for e in entries:
+            event = e.get("event")
+            if event == "invoke":
+                params = ", ".join(f"{float(p):.3g}"
+                                   for p in e.get("params", []))
+                line = (f"- {e.get('skill')}[{params}]: {e.get('status')} "
+                        f"in {e.get('steps')} steps; episode "
+                        f"{e.get('state')}")
+                if e.get("missing") or e.get("present"):
+                    line += (" DIVERGED (missing " +
+                             ", ".join(e.get("missing", [])) + "; present " +
+                             ", ".join(e.get("present", [])) + ")")
+                lines.append(line)
+            elif event in ("reset", "win", "game_over"):
+                lines.append(f"- {event} {e.get('reason', '')}".rstrip())
+        subtype = next((e.get("subtype")
+                        for e in responses if e.get("type") == "result"), None)
+        errored = any(e.get("type") == "error" for e in responses)
+        how = ("hit the turn cap" if subtype == "error_max_turns" else
+               "ended by an error" if errored else "the agent stopped")
+        card = session.level_card()
+        extra = self._round_record_extra(state)
+        context = context_status(self._tool_context)[len("[context] "):]
+        body = (f"Level {card.index + 1}; {how}; {seconds:.0f} s; level "
+                f"steps now {card.steps}, resets {card.resets}, invocations "
+                f"{card.skill_invocations}; context {context}.\n" +
+                ("\n".join(lines) if lines else "- no environment action") +
+                (f"\n{extra}" if extra else ""))
+        journal_mod.append_entry(self._tool_context.sandbox_dir
+                                 or self._get_log_dir(),
+                                 f"Round {number}",
+                                 body,
+                                 filename=journal_mod.ATTEMPTS_FILENAME)
+
+    # -- Checkpoint -----------------------------------------------------------
+
+    def _continual_save_state(self) -> Dict[str, Any]:
+        """The loop's state for the arm's checkpoint (under ``continual``)."""
+        return {
+            "continual": {
+                "level": self._continual_level,
+                "rounds_played": self._rounds_played,
+                "level_rounds": self._level_rounds,
+                "round_in_flight": self._round_in_flight,
+            }
+        }
+
+    def _load_continual_save_state(self, save_dict: Dict[str, Any]) -> None:
+        """Inverse of :meth:`_continual_save_state`."""
+        cont = save_dict.get("continual") or {}
+        self._continual_level = cont.get("level")
+        self._rounds_played = int(cont.get("rounds_played", 0))
+        self._level_rounds = int(cont.get("level_rounds", 0))
+        self._round_in_flight = bool(cont.get("round_in_flight", False))

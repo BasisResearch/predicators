@@ -20,7 +20,7 @@ readouts that lag their actuators.
 <!-- section: produce -->
 ## What you produce
 
-One file, `simulator.py` (path given in the first message), defining
+One file, `simulator.py` (at the path your instructions give), defining
 three top-level names:
 
 ```python
@@ -37,7 +37,7 @@ listed feature no rule writes inflates the loss without giving the fit
 anything to optimize.
 
 <!-- section: physical_params -->
-## Base-sim system identification (`PHYSICAL_PARAMS`)
+## Base-sim system identification (`PHYSICAL_PARAM_SPECS`)
 
 The base sim's rigid-body physics is itself parameterized, and its
 built-in values may be mis-calibrated relative to the real environment.
@@ -50,7 +50,7 @@ motion itself (not on a process layered on top of it), declare a fourth
 export:
 
 ```python
-PHYSICAL_PARAMS: List[ParamSpec]  # subset of the names above; init = your hypothesis, lo/hi from the box
+PHYSICAL_PARAM_SPECS: List[ParamSpec]  # subset of the names above; init = your hypothesis, lo/hi from the box
 ```
 
 - Decide from open-loop evidence, in either direction. Per-step
@@ -81,11 +81,11 @@ PHYSICAL_PARAMS: List[ParamSpec]  # subset of the names above; init = your hypot
   "anchored" moved only to compensate the others and was reverted to
   its baseline; keep it only if you can collect an interaction that
   excites it specifically.
-- With `PHYSICAL_PARAMS` declared, the fit matches free-running
+- With `PHYSICAL_PARAM_SPECS` declared, the fit matches free-running
   rollouts of full trajectories and fits physical and rule parameters
   jointly in one posterior, so rules cannot silently absorb physics
   error. A physics-only artifact is valid: `RESIDUAL_RULES = []` and
-  `PARAM_SPECS = []` with a non-empty `PHYSICAL_PARAMS` means the
+  `PARAM_SPECS = []` with a non-empty `PHYSICAL_PARAM_SPECS` means the
   calibrated base sim carries all the dynamics; `RESIDUAL_FEATURES`
   must still name the features the rollout is scored on.
 - After the fit, the identified values are applied to the planning base
@@ -152,18 +152,18 @@ def rule(..., cmds):        # same leading args as above, plus `cmds`
     cmds.apply_force(obj, (fx, fy, fz))    # world-frame Newtons
     cmds.apply_torque(obj, (tx, ty, tz))   # world-frame N*m
     cmds.set_velocity(obj, linear=(vx, vy, vz))   # kinematic override
-    cmds.attach(obj_a, obj_b)   # rigid weld at their CURRENT relative pose
+    cmds.attach(obj_a, obj_b)   # fixed joint at their CURRENT relative pose
     return updates
 ```
 
 `cmds.attach` is the primitive for two bodies that move as one rigid
-body from some event on (a cured joint, a latch, a magnetized contact):
+body from some event on (a latch, a snap fit, a magnetized contact):
 the engine creates a fixed constraint at the pair's current relative
 pose and keeps it exactly while the command is re-emitted, so the base
 sim carries the whole assembly through pick, transport, and contact.
 Latch the decision in the rule's latent or feature state and re-emit
-from the latch every step. Do not emulate a weld by writing follower
-poses from the leader's pose: pose-written followers do not collide,
+from the latch every step. Do not emulate an attachment by writing
+follower poses from the leader's pose: pose-written followers do not collide,
 do not support anything, and swing free during a carry, so plans
 validate in the belief and fail for real.
 
@@ -180,7 +180,7 @@ Choosing the channel, in order:
 1. The base sim already produces the motion but quantitatively off
    (bodies move on replay, with drifting angles or timing): the
    mechanism lives in the engine and the error is a function of its
-   physical parameters. Declare `PHYSICAL_PARAMS` and write no rule for
+   physical parameters. Declare `PHYSICAL_PARAM_SPECS` and write no rule for
    it.
 2. A body moves in the data but is inert in base-sim replay whenever
    some observable condition holds: the mechanism is missing, an
@@ -346,7 +346,7 @@ Bounds shape both the fit's prior and the warm-start clamp. Set
 No parameter is fitted from data, by you or by the harness: `sim.fit`
 refuses, `sim.residuals(fit_params=True)` and `sweep_params=` are
 unavailable, and the deployed model uses every `ParamSpec` and
-`PHYSICAL_PARAMS` entry exactly as you declared it. That makes the
+`PHYSICAL_PARAM_SPECS` entry exactly as you declared it. That makes the
 declaration itself the estimate:
 
 - `init_value` is the point estimate the planner uses. Choose it from
