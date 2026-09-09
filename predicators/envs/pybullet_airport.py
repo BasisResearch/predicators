@@ -17,10 +17,19 @@ from predicators.structs import Action, EnvironmentTask, GroundAtom, \
 
 class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
     """PyBullet Airport domain."""
-    _camera_distance: ClassVar[float] = 0.9
+    # Framed to include the pusher at rest. At the old 0.9 m on (1.5, 0.75)
+    # the retracted pusher occupied ZERO pixels: it parks at y = 0.1, off the
+    # bottom of frame, and only appeared once extended -- 40 steps after a
+    # press, by which time nothing on screen connected it to the button.
+    # Sweep-3 airport seed 0 pressed twice, saw nothing happen, and reported
+    # "a 'pusher' object the camera never sees". At 1.3 m the pusher is 850 px
+    # retracted and 371 px extended, so the mechanism is at least observable;
+    # the goal item drops from 291 px to 96, still a clear blob, and agents
+    # measure its position with pixels_to_particles rather than by eye.
+    _camera_distance: ClassVar[float] = 1.3
     _camera_yaw: ClassVar[float] = 0.0
     _camera_pitch: ClassVar[float] = -45.0
-    _camera_target: ClassVar[Pose3D] = (1.5, 0.75, 0.4)
+    _camera_target: ClassVar[Pose3D] = (1.7, 0.7, 0.4)
     robot_init_x: ClassVar[float] = 1.5
     robot_init_y: ClassVar[float] = 0.75
     robot_init_z: ClassVar[float] = 0.5

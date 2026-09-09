@@ -130,11 +130,16 @@ def main() -> None:
     ap.add_argument("--clearances", type=float, nargs="+",
                     default=[0.004, 0.003, 0.0025, 0.002, 0.0015])
     ap.add_argument("--seeds", type=int, default=5)
-    ap.add_argument("--require", type=int, default=4,
-                    help="successes out of --seeds needed to accept a clearance")
+    ap.add_argument("--require", type=int, default=None,
+                    help="successes out of --seeds needed to accept a "
+                         "clearance (default: 80%% of --seeds, rounded up, "
+                         "which is the historical 4-of-5 rule; a fixed 4 "
+                         "silently failed every run with --seeds 3)")
     ap.add_argument("--offsets", type=float, nargs="*", default=[],
                     help="also probe these lateral errors at the accepted clearance")
     args = ap.parse_args()
+    if args.require is None:
+        args.require = int(np.ceil(0.8 * args.seeds))
     print(f"{'clearance':>10s} {'inserted':>9s} {'min depth mm':>13s} "
           f"{'tilt deg':>9s} {'steps':>6s} {'force N':>8s}")
     accepted: Optional[float] = None

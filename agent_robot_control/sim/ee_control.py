@@ -57,6 +57,9 @@ class MoveResult:
                            + ", ".join(contacts) + ")")
             else:
                 status += " (inverse kinematics failed: target likely out of reach)"
+        if self.extra.get("configuration_jump"):
+            status += (" (stopped before a configuration jump: reachable pose,"
+                       " but not on a continuous path from here)")
         if self.stalled:
             if self.extra.get("force_limited"):
                 status += " (stopped by the contact-force limit)"
@@ -93,7 +96,9 @@ class EEController:
                  stall_steps: int = 15,
                  stall_eps: float = 5e-4,
                  finger_settle_steps: int = 8,
-                 max_contact_force: float = 80.0) -> None:
+                 max_contact_force: float = 80.0,
+                 max_joint_step_rad: float = 0.35,
+                 jump_bisect_rounds: int = 5) -> None:
         self.env = env
         self.robot = env._pybullet_robot
         self.client = env._physics_client_id
@@ -111,6 +116,23 @@ class EEController:
         # newtons and pop objects out of the grasp). Contacts between the
         # fingers and the held object are excluded (that is the grip).
         self.max_contact_force = max_contact_force
+        # Largest single-joint move one waypoint may command, radians. A
+        # straight Cartesian line is executed one env step per waypoint, so a
+        # well-behaved step turns each joint by a few hundredths of a radian.
+        # IK is not continuous, though: near a singularity or a large
+        # orientation change it can return a solution in a different branch --
+        # same end-effector pose, elbow and wrist somewhere else entirely.
+        # Commanding that in one step swings the whole arm through whatever
+        # lies between the two configurations. Measured 2026-09-09, sweep 3
+        # airport seed 0: a roll of -90 deg flipped the branch, the hand went
+        # through the belt/table gap at 41,610 N, and the arm never recovered.
+        # 0.35 rad (20 deg) is an order of magnitude above normal tracking and
+        # far below a branch flip.
+        self.max_joint_step = max_joint_step_rad
+        # How many times a jumping waypoint may be halved back toward the
+        # current pose before the move is refused. Each round is IK only, no
+        # env step, so this costs nothing against the interaction budget.
+        self.jump_bisect_rounds = jump_bisect_rounds
         self.home_rot = _quat_xyzw_to_rot(env.get_robot_ee_home_orn())
         # Last commanded finger target; "keep" re-issues it.
         cur = self.gripper_value()
@@ -235,6 +257,23 @@ class EEController:
             low[self.robot.right_finger_joint_idx] = -0.01
         arr = np.clip(arr, low, self.robot.action_space.high)
         return Action(arr)
+
+    def _joint_jump(self, joints: Sequence[float]) -> float:
+        """Largest single-joint move (radians) this command would demand.
+
+        Finger joints are excluded: ``_action_from_joints`` overwrites them
+        with the gripper target, so their difference says nothing about how
+        far the arm would swing.
+        """
+        cur = np.asarray(self.robot.get_joints(), dtype=float)
+        tgt = np.asarray(joints, dtype=float)
+        n = min(len(cur), len(tgt))
+        fingers = {self.robot.left_finger_joint_idx,
+                   self.robot.right_finger_joint_idx}
+        idx = [i for i in range(n) if i not in fingers]
+        if not idx:
+            return 0.0
+        return float(np.max(np.abs(tgt[idx] - cur[idx])))
 
     def hold_action(self, gripper: str = GRIPPER_KEEP) -> Action:
         """Action that holds the current arm configuration."""
@@ -405,10 +444,15 @@ class EEController:
                        "holding": self.is_holding(),
                        "contacts": self.contact_names(),
                        "force_limited": False,
+                       # Always present on both return paths: callers read
+                       # this flag unguarded, and a refusal here is a
+                       # different thing from a configuration jump.
+                       "configuration_jump": False,
                        "refused": True})
         steps = 0
         ik_failed = False
         stalled = False
+        config_jump = False
         force_limited = False
         force_bodies: list = []
         stall_count = 0
@@ -418,9 +462,10 @@ class EEController:
         # with ONE env step, so the EE follows at roughly step_size per step.
         # Once all waypoints are issued we keep issuing the final target
         # until reached, stalled, or out of steps.
-        way_idx = 1
+        step_frac = 1.0 / n_way
+        frac_done = 0.0
         while steps < max_steps:
-            frac = min(1.0, way_idx / n_way)
+            frac = min(1.0, frac_done + step_frac)
             wp_pos = start_pos + frac * (target_pos - start_pos)
             wp_rot = slerp([frac])[0]
             joints = self._ik(wp_pos, wp_rot.as_quat())
@@ -432,9 +477,40 @@ class EEController:
                     message = ("IK failed for waypoint "
                                f"{np.round(wp_pos, 4).tolist()}.")
                     break
+            # Continuity guard. A waypoint that reconfigures the arm rather
+            # than nudging it is not executed as-is: first try to get there in
+            # a smaller bite, by bisecting back toward the pose we already
+            # hold. A jump caused merely by a coarse step dissolves after a
+            # round or two; a true branch boundary keeps jumping however small
+            # the step, and only then do we refuse.
+            if self._joint_jump(joints) > self.max_joint_step:
+                lo, hi = frac_done, frac
+                accepted = None
+                for _ in range(self.jump_bisect_rounds):
+                    mid = 0.5 * (lo + hi)
+                    cand = self._ik(
+                        start_pos + mid * (target_pos - start_pos),
+                        slerp([mid])[0].as_quat())
+                    if cand is not None and \
+                            self._joint_jump(cand) <= self.max_joint_step:
+                        accepted, lo = (cand, mid), mid
+                    else:
+                        hi = mid
+                if accepted is None:
+                    config_jump = True
+                    jump = self._joint_jump(joints)
+                    message = (
+                        f"Stopped before a {np.degrees(jump):.0f} deg jump in "
+                        "a single joint: this pose is reachable, but only "
+                        "through a different arm configuration, so moving "
+                        "there would swing the arm through whatever lies "
+                        "between. Move somewhere else first, or ask for a "
+                        "less extreme orientation.")
+                    break
+                joints, frac = accepted
             self.step_fn(self._action_from_joints(joints, finger_target))
             steps += 1
-            way_idx += 1
+            frac_done = frac
             cur = self.ee_position()
             force, force_bodies = self.contact_force()
             if force > self.max_contact_force:
@@ -448,7 +524,7 @@ class EEController:
                 self.ee_quat()).inv()).magnitude())
             if dist <= self.pos_tol and ang <= self.orn_tol:
                 break
-            if way_idx > n_way:
+            if frac_done >= 1.0 - 1e-9:
                 # Converging on the final target: detect a blocked arm.
                 if np.linalg.norm(cur - last_pos) < self.stall_eps:
                     stall_count += 1
@@ -482,4 +558,5 @@ class EEController:
                               "holding": self.is_holding(),
                               "contacts": self.contact_names(),
                               "force_limited": force_limited,
+                              "configuration_jump": config_jump,
                           })
