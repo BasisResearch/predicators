@@ -83,6 +83,30 @@ Scorecards will be written under the main `logs/oracle_process_planning/` direct
 There is no new oracle verdict at submission and no MB/MF comparison was launched.
 The existing result watcher now includes both tasks, preserving its prior notification state.
 
+### Hatch v4 results as of 17:47 UTC
+
+| Seed | Status | Levels won | Whole-run steps | Resets |
+|---|---|---:|---:|---:|
+| 4 | Completed | 3/3 | 281 | 0 |
+| 5 | Running, no scorecard yet | Pending | Pending | Pending |
+
+Seed 4's training levels took 92 and 72 steps, and its test level took 117 steps, all with zero resets.
+Its scorecard and completed Slurm job with exit code zero agree.
+The mean over whole-run successful v4 oracle seeds so far is 281 steps with n=1; seed 5 is unfinished and excluded.
+This is a v4 oracle result on regenerated tasks, not an MB result or a replay of the identical v3 seed 4 task.
+
+Neither workload's delay was mainly queueing.
+The offline synthesis job waited 42 seconds to start, and both v4 oracle tasks waited 40 seconds.
+The offline diagnostic spent roughly 19 minutes before entering the long `sim.fit()` call and about 101 minutes inside that call before its two-hour job limit.
+Its log contains 33 LM fit summaries, additional bracket-search results and repeated refits that pin parameters back to their declared baselines.
+
+The hatch generator simulates candidate balloon subsets in every release order, now using the public motion-planned Release controller.
+Unresolved probes can consume 500 wait steps, and qualifying contact failures require another rollout with payload-panel collisions disabled.
+It retries candidate tasks until the required winning reference and losing-sequence conditions are established.
+Seed 4's total job duration was 34 minutes 21 seconds, but its scorecard records only 59 seconds of active continual play.
+Roughly 33 minutes were spent before play, primarily on setup and task generation/validation.
+Seed 5 was still consuming CPU with no scorecard at the last check.
+
 ## Offline synthesis logs
 
 The separate original-balloons modeling diagnostic remains on its frozen source at `a8ab7d48a`.
