@@ -5,6 +5,15 @@ A box sits at the left of the table, balloons rest in a rack along the back, eac
 The robot pushes a clip open; the freed balloon's string pulls it to the box, and it pulls the box up.
 The goal is the box hanging at rest with its centre inside the band, with no balloon burst on the ceiling.
 
+## Visual explanation
+
+Open [the overview slides](overview_slides.html) for the original chute and the new hatch prototype.
+The Hatch navigation button jumps to the comparison, collision rules, and two embedded replay videos.
+The videos show red then gold jamming and gold then red passing on the same audited hatch task.
+They are mechanical demonstrations, separate from MB, MF and continual-oracle results.
+The [PDF](../../slides/balloons_domain_slides.pdf) includes stills in place of the videos.
+Individual [jam](visuals/hatch-jam.mp4) and [passage](visuals/hatch-pass.mp4) clips, the [height plot](visuals/hatch-height.png), and [reproduction notes](visuals/README.md) are also available.
+
 ## What is hidden
 
 - Each balloon colour's lift, which fades linearly with height, so a box with enough balloons rises to the height where the pull matches its weight and hangs there.
@@ -43,4 +52,6 @@ See [the version 2 validation plan](../../uncertainty-results/balloons-v2-plan.m
 - `tests/envs/test_pybullet_balloons.py`.
 - The video and images below are historical illustrations from an earlier generator, not version 2 results.
 - `oracle_solve.mp4` in this directory: the oracle playing a train level then a test level under the continual protocol.
-- `train_start.jpg`, `train_won.jpg`, `test_start.jpg`, `test_won.jpg`: four frames of that video, used by `docs/slides/balloons_domain_slides.html` (the reveal.js deck) and by `overview_slides.html` (the standalone overview).
+- `train_start.jpg`, `train_won.jpg`, `test_start.jpg`, `test_won.jpg`: historical frames of that video.
+- `sweep_20260907/`: the later chute sweep's recorded images and scorecards, retained in the overview slides.
+- `visuals/`: current geometry illustrations and audited hatch replay videos.
