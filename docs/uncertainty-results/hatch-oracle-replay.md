@@ -44,9 +44,9 @@ The separate exact-action replay above supplies the causal contact evidence for 
 Together, these checks show that the generator's guarantee over probe release orders does not carry over to the normal Release implementation.
 The supplied reference subset alone is insufficient to certify the oracle's executed plan.
 
-The next correction must align task certification with the actual Release execution and ensure that the oracle executes a certified order.
-Then repeat the full noisy continual checks before launching hatch agent comparisons.
-No production fix or new MB/MF solve-rate run is included in these diagnostics.
+These diagnostics established the need to align task certification with actual Release execution and ensure that the oracle executes a certified order.
+Full noisy continual checks are required before launching hatch agent comparisons.
+The diagnostics themselves contain no new MB/MF solve-rate run.
 
 Reports and scripts: `logs/balloons_followup_20260909/wait-diagnostic/{report,transit-report}.json`, `diagnose_wait.py`, and `diagnose_transit.py`.
 Earlier failed diagnostic jobs were setup errors and are excluded from results.
@@ -59,3 +59,36 @@ Their videos reproduce the earlier mechanical audit on seed 5 with motion planni
 They demonstrate the physical mechanism and do not certify the normal oracle controller.
 The deck and assets are committed as `c621f3be3`.
 All 17 slides passed browser playback, navigation and overflow checks; the PDF passed page-boundary and comparison-image checks.
+
+## Public Release correction
+
+Commit `a35937c33` on `balloons-hatch-release-parity` changes certification to construct the same Release controller as the public option set.
+The isolated checkout is `/home/ycliang/predicators-balloons-hatch-fix-r1`, based on integrated source `71f0dbe20`.
+Candidate cache keys now distinguish motion-planning mode, seed and release parameters, and probe options no longer survive configuration changes in a global cache.
+The generator retains its requirement that all tested immediate orders of its reference subset win.
+The physics and evaluator are unchanged.
+
+The new regression reproduces the failed task through public `env.step()` calls, including the saved initial robot pose.
+Job `22394867` failed before the fix because public Release did not win while certification reported a win in 66 actions.
+Job `22394904` passed all 17 focused hatch, probe-validation and balloons environment tests after the fix, including the regression with motion planning both enabled and disabled.
+Job `22394942` passed changed-file lint, formatting with the CI isort version, and mypy on all 886 source files.
+
+Task-generation metadata advances to hatch version 4 and chute version 3 because the correction can reject previously accepted tasks.
+Earlier scorecards and the failed task remain unchanged.
+Regenerated tasks can differ, so later successful oracle checks must not be described as solving the identical old seed 4 task.
+
+Noisy continual validation array `22395404`, seeds 4 and 5, was submitted on `mit_preemptable` from the committed fix.
+It uses the same noise settings and oracle configuration as the earlier validation, with a separate experiment name `balloons-hatch-v4-public-release-oracle`.
+Scorecards will be written under the main `logs/oracle_process_planning/` directory so the continual viewer can discover them.
+There is no new oracle verdict at submission and no MB/MF comparison was launched.
+The existing result watcher now includes both tasks, preserving its prior notification state.
+
+## Offline synthesis logs
+
+The separate original-balloons modeling diagnostic remains on its frozen source at `a8ab7d48a`.
+Its conversation log is [the training-only synthesis transcript](../../logs/balloons_followup_20260909/offline-learning-v2/agent/001_learn_20260909_114132.md), and detailed fit progress is in [the compute-job log](../../logs/balloons_followup_20260909/offline-learning-22389016.out).
+At the latest inspection, turn 70 was waiting for `sim.fit()` while the compute log continued to report fitting progress.
+The agent had declared 11 model parameters; the fitter repeatedly replays trajectories and refits the remaining parameters while testing whether each changed parameter can return to its baseline.
+This explains why the fit takes much longer than one replay of the 422 recorded training actions.
+There is no final model replay score yet.
+The offline diagnostic has no continual scorecard, so it is not listed as a continual run in the viewer.
