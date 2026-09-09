@@ -78,6 +78,10 @@ class ToolContext:
     # (see ``SynthesisToolkit.residuals_runner``). None in solve
     # sessions - residuals are a learning diagnostic.
     probe_residuals_provider: Optional[Callable[..., str]] = None
+    # The ``sim.score`` backend of a program-world-model synthesis
+    # session (particle-filter pseudo-likelihood of the candidate
+    # world_model.py on the recorded data); None everywhere else.
+    probe_score_provider: Optional[Callable[..., str]] = None
     # Active-experiment info-gain scorer, synced from the learning
     # approach when info-seeking exploration is on:
     # ``(state, atoms) -> disagreement``. The agent_model_based explorer
@@ -156,6 +160,12 @@ class ToolContext:
     # so the next exploration targets the gaps. None ⇒ no fit ran yet
     # (or it had no weak spots).
     sysid_diagnostics: Optional[str] = None
+    # The natural-language world-model arm's document (world_model.md
+    # content) and its agent-visible path: the solve prompt and the
+    # model-free explorer quote it into every task message. Empty
+    # everywhere else.
+    world_model_notes: str = ""
+    world_model_notes_path: str = ""
     # Set by submit_plan / submit_policy when a plan is verified
     # to reach the goal on the CURRENT solve task: the simulator-verified plan
     # (grounded options with found params) and the parallel subgoal sketch.
@@ -215,6 +225,13 @@ class ToolContext:
     # constant is rejected as PARAM-SENSITIVE. Installed by
     # AgentSimLearningApproach; consumed under
     # agent_plan_validation_rule_param_margin.
+    # How the capture gate names one rule-param margin point and the
+    # set it came from in its reports. The program-world-model arm
+    # sweeps belief particles over the model's hidden state through
+    # the same gate and relabels them here.
+    rule_param_margin_label: str = "rule-param ensemble member"
+    rule_param_margin_note: str = (
+        "calibrated posterior members of the learned rule parameters")
     rule_param_margin_provider: Optional[Callable[[],
                                                   List[Dict[str,
                                                             float]]]] = None

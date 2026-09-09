@@ -5,6 +5,7 @@ from predicators.agent_sdk.config import ToolSurfaceConfig
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.python_exec import _make_python_exec_tool
 from predicators.agent_sdk.tools.results import _region_syntax_blurb
+from predicators.settings import CFG
 
 
 def belief_probe_blurb(synthesis_probe: bool) -> str:
@@ -33,7 +34,11 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
             "feature overrides (`mods={'obj': {'x': 1.05}}`); ")
         task_desc = ("`sim.task(task_idx)` describes a train task (goal, "
                      "objects, initial atoms and state) without touching "
-                     "the current state; "
+                     "the current state; " +
+                     ("`sim.fit` is DISABLED in this run (parameter "
+                      "estimation is off: every parameter is used as "
+                      "declared - see the system prompt); "
+                      if CFG.agent_sim_learn_declared_params_only else "") +
                      "`sim.fit(traj_idxs=None, fixed=None)` MCMC-fits "
                      "PARAM_SPECS (loaded fresh from simulator.py) against "
                      "the recorded data and returns the report (SSE "

@@ -205,7 +205,8 @@ class AgentModelBasedExplorer(AgentExplorerBase):
                 "belief-certified):\n%s", train_task_idx, len(plan), record)
             self._tool_context.cycle_scheduled_plans.append(
                 record + "\n  NOTE: executes as written, without "
-                "belief-model certification.")
+                "belief-model certification; a real success will NOT "
+                "count toward early stopping.")
             policy = utils.option_plan_to_policy(
                 plan,
                 abstract_function=lambda s: utils.abstract(

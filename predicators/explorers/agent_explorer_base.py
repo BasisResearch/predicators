@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Set
 from gym.spaces import Box
 
 from predicators import utils
+from predicators.agent_sdk.learn_prompts import render_world_model_notes_block
 from predicators.agent_sdk.response_parser import extract_final_text
 from predicators.agent_sdk.session_manager import SessionManagerProtocol
 from predicators.agent_sdk.sketch_prompts import summarize_trajectories
@@ -56,6 +57,13 @@ class AgentExplorerBase(BaseExplorer):
         all_trajs = (self._tool_context.offline_trajectories +
                      self._tool_context.online_trajectories)
         return summarize_trajectories(all_trajs, self._predicates)
+
+    def _world_model_notes_block(self) -> str:
+        """The natural-language world model quoted into the explore prompt
+        (empty unless the approach keeps one)."""
+        return render_world_model_notes_block(
+            self._tool_context.world_model_notes,
+            self._tool_context.world_model_notes_path)
 
     @staticmethod
     def _extract_option_plan_text(responses: List[Dict[str, Any]]) -> str:

@@ -871,7 +871,7 @@ Generate an option plan to achieve the goal.
 
 ## Initial State Features
 {state_str}
-{initial_image_section}
+{initial_image_section}{self._solve_prompt_extra_sections()}
 ## Objects
 {chr(10).join(obj_strs)}
 
@@ -925,6 +925,11 @@ Output ONLY the option plan lines at the end, after any analysis."""
         """Summarize trajectory data for context."""
         return summarize_trajectories(self._get_all_trajectories(),
                                       self._get_all_predicates())
+
+    def _solve_prompt_extra_sections(self) -> str:
+        """Subclass hook: sections inserted into the solve prompt after the
+        initial-state image reference (empty by default)."""
+        return ""
 
     @staticmethod
     def _extract_option_plan_text(responses: List[Dict[str, Any]]) -> str:

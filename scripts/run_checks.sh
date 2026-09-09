@@ -1,42 +1,20 @@
 #!/bin/bash
+set -euo pipefail
 
 echo "Running autoformatting."
-yapf -i -r --style .style.yapf --exclude '**/third_party' predicators
-yapf -i -r --style .style.yapf scripts
-yapf -i -r --style .style.yapf tests
-# submodules/ holds git submodules: formatting them would dirty another repo's
-# working tree with changes this repo's style config, not theirs, asked for.
-# logs/ holds recorded experiment artifacts (including synthesized-code
-# snapshots); formatting would silently rewrite them.
-docformatter -i -r . --exclude venv predicators/third_party submodules logs
-isort . --skip submodules
+./run_autoformat.sh
 echo "Autoformatting complete."
 
 echo "Running type checking."
 mypy . --config-file mypy.ini
-if [ $? -eq 0 ]; then
-    echo "Type checking passed."
-else
-    echo "Type checking failed! Terminating check script early."
-    exit
-fi
+echo "Type checking passed."
 
 echo "Running linting."
 pytest . --pylint -m pylint --pylint-rcfile=.predicators_pylintrc
-if [ $? -eq 0 ]; then
-    echo "Linting passed."
-else
-    echo "Linting failed! Terminating check script early."
-    exit
-fi
+echo "Linting passed."
 
 echo "Running unit tests."
 pytest -s tests/ --cov-config=.coveragerc --cov=predicators/ --cov=tests/ --cov-report=term-missing:skip-covered --durations=0
-if [ $? -eq 0 ]; then
-    echo "Unit tests passed."
-else
-    echo "Unit tests failed!"
-    exit
-fi
+echo "Unit tests passed."
 
 echo "All checks passed!"

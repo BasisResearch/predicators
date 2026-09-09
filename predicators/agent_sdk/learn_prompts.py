@@ -34,6 +34,7 @@ def build_learn_system_prompt(
     extra_sections: Sequence[str] = (),
     latent_extra_sections: Sequence[str] = (),
     workflow_extra: str = "",
+    declared_params_only: bool = False,
 ) -> str:
     """Compose the synthesis system prompt.
 
@@ -46,7 +47,9 @@ def build_learn_system_prompt(
     predicate invention) are inserted after the validation guidance;
     ``latent_extra_sections`` follow the recurrent-rules tutorial (only
     rendered when ``partially_observable``); ``workflow_extra`` is
-    appended to the workflow's validation step.
+    appended to the workflow's validation step. ``declared_params_only``
+    adds the no-estimation section (ablation A3): every parameter is
+    used as declared, so the declaration is the estimate.
     """
     signature = render(
         "learn_system",
@@ -64,6 +67,8 @@ def build_learn_system_prompt(
                residual_rule_signature=residual_rule_signature,
                scene_viz_hint=scene_viz_hint),
         render("learn_system", "paramspec"),
+        render("learn_system", "declared_params")
+        if declared_params_only else "",
         render("learn_system", "preinjected"),
         render("learn_system", "tools"),
         render("learn_system", "validation"),
@@ -229,3 +234,172 @@ def render_predicate_invention_message(predicates_file: str,
 def render_partial_observability_message() -> str:
     """The short partial-observability note for the first message."""
     return render("learn_partial_observability", "message")
+
+
+def render_zero_shot_message() -> str:
+    """The no-data note for the first message (ablation A1)."""
+    return render("learn_message", "zero_shot")
+
+
+# ---------------------------------------------------------------------------
+# Program world model arm (C4)
+# ---------------------------------------------------------------------------
+
+
+def build_program_learn_system_prompt(
+        *,
+        scene_viz_hint: str,
+        extra_sections: Sequence[str] = (),
+        workflow_extra: str = "",
+) -> str:
+    """Compose the program-world-model synthesis system prompt.
+
+    ``extra_sections`` (predicate invention) follow the validation
+    guidance; the plan-format section is shared with the residual arm's
+    template. ``scene_viz_hint`` is accepted for parity with the
+    residual builder (the program template names the probe surface
+    itself) and is not rendered.
+    """
+    del scene_viz_hint
+    parts = [
+        render("learn_program_system", "intro"),
+        render("learn_program_system", "produce"),
+        render("learn_program_system", "modeling"),
+        render("learn_program_system", "tools"),
+        render("learn_program_system", "validation"),
+        *extra_sections,
+        render("learn_system", "plan_format"),
+        render("learn_program_system", "deliverables"),
+        render("learn_program_system",
+               "workflow",
+               workflow_extra=(" " +
+                               workflow_extra) if workflow_extra else ""),
+    ]
+    return _join(parts)
+
+
+def build_program_learn_message(
+        *,
+        n_trajs: int,
+        n_transitions: int,
+        n_demos: int,
+        n_interaction: int,
+        trajectory_listing: str,
+        structs_ref: str,
+        predicate_listing: str,
+        types_digest: str,
+        options_digest: str,
+        world_model_file: str,
+        objective_block: str = "",
+        prior_state_block: str = "",
+        tools_block: str = "",
+        extra_messages: Sequence[str] = (),
+) -> str:
+    """Compose the program-world-model synthesis session's first message."""
+    body = render(
+        "learn_program_message",
+        "skeleton",
+        n_trajs=str(n_trajs),
+        n_transitions=str(n_transitions),
+        n_demos=str(n_demos),
+        n_interaction=str(n_interaction),
+        trajectory_listing=trajectory_listing.strip("\n"),
+        objective_block=objective_block,
+        prior_state_block=prior_state_block,
+        structs_ref=structs_ref,
+        predicate_listing=predicate_listing,
+        types_digest=types_digest.strip("\n"),
+        options_digest=options_digest.strip("\n"),
+        tools_block=tools_block,
+        world_model_file=world_model_file,
+    )
+    return _join([body, *extra_messages])
+
+
+def render_program_zero_shot_message() -> str:
+    """The no-data note for the program arm's first message."""
+    return render("learn_program_message", "zero_shot")
+
+
+# ---------------------------------------------------------------------------
+# Natural-language world model arm (C3)
+# ---------------------------------------------------------------------------
+
+
+def build_notes_learn_system_prompt() -> str:
+    """Compose the natural-language world-model learn system prompt."""
+    return _join([
+        render("learn_notes_system", "intro"),
+        render("learn_notes_system", "produce"),
+        render("learn_notes_system", "tools"),
+        render("learn_notes_system", "deliverables"),
+        render("learn_notes_system", "workflow"),
+    ])
+
+
+def render_notes_solve_system_section() -> str:
+    """The solve / explore system-prompt section naming the document."""
+    return render("learn_notes_system", "solve_system")
+
+
+def render_world_model_notes_block(notes: str, notes_path: str) -> str:
+    """The document, quoted into a task message; empty when no notes."""
+    if not notes.strip():
+        return ""
+    return render("learn_notes_system",
+                  "notes_block",
+                  notes_path=notes_path,
+                  notes=notes.strip("\n"))
+
+
+def build_notes_learn_message(
+        *,
+        n_trajs: int,
+        n_transitions: int,
+        n_demos: int,
+        n_interaction: int,
+        trajectory_listing: str,
+        structs_ref: str,
+        predicate_listing: str,
+        types_digest: str,
+        options_digest: str,
+        notes_file: str,
+        goal_nls: Sequence[str] = (),
+        has_prior_notes: bool = False,
+        objective_block: str = "",
+        tools_block: str = "",
+        extra_messages: Sequence[str] = (),
+) -> str:
+    """Compose the natural-language world-model learn first message."""
+    goals = [g for g in dict.fromkeys(goal_nls) if g]
+    goal_block = (render("learn_notes_message",
+                         "goal",
+                         goals="\n".join(f"- {g}"
+                                         for g in goals)) if goals else "")
+    prior_block = (render("learn_notes_message",
+                          "prior_notes",
+                          notes_file=notes_file) if has_prior_notes else "")
+    body = render(
+        "learn_notes_message",
+        "skeleton",
+        n_trajs=str(n_trajs),
+        n_transitions=str(n_transitions),
+        n_demos=str(n_demos),
+        n_interaction=str(n_interaction),
+        trajectory_listing=trajectory_listing.strip("\n"),
+        objective_block=objective_block,
+        goal_block=goal_block,
+        prior_notes_block=prior_block,
+        structs_ref=structs_ref,
+        predicate_listing=predicate_listing,
+        types_digest=types_digest.strip("\n"),
+        options_digest=options_digest.strip("\n"),
+        tools_block=tools_block,
+        notes_file=notes_file,
+    )
+    return _join([body, *extra_messages])
+
+
+def render_notes_zero_shot_message() -> str:
+    """The no-data note for the natural-language arm's first message."""
+    return render("learn_notes_message", "zero_shot")
