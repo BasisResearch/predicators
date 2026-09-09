@@ -157,7 +157,7 @@ class AgentContinualApproach(ContinualPlayMixin,
             build_play_system_prompt
 
         # The contract of the model files (docs/continual-protocol.md,
-        # 5): the rule signature follows CFG.partially_observable, the
+        # 5): model memory follows CFG.partially_observable, the
         # system-identification menu is the base env's.
         contract = build_model_contract(
             partially_observable=CFG.partially_observable,
@@ -170,20 +170,26 @@ class AgentContinualApproach(ContinualPlayMixin,
 
     def _model_status(self, session: ProtocolSession) -> str:
         n_eps, n_steps = self._episode_counts(session)
-        data = f"Recorded episodes so far: {n_eps} ({n_steps} steps)."
-        ext = f" {self._probe_ext_status}" if self._probe_ext_status else ""
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.prompt_templates import render
         if self._current_simulator_version is None:
-            return ("No model yet: `sim` is the base simulator, the visible "
-                    "physics with none of the environment's hidden "
-                    "mechanisms. Build `./simulator.py` and `./predicates.py` "
-                    "in `run_python` and call `sim.fit()`. " + data + ext)
-        new = max(0, n_eps - self._episodes_at_last_fit)
-        refit = (f" {new} episode(s) recorded since your last fit; refit with "
-                 "`sim.fit()` before you rely on the model." if new else "")
-        return (
-            f"Your model: `simulator.py` {self._current_simulator_version}"
-            f", `predicates.py` {self._current_predicates_version or 'none'}"
-            f". Last fit: {self._fit_status_text()}. {data}{refit}{ext}")
+            status = render("play_query",
+                            "no_model",
+                            n_episodes=str(n_eps),
+                            n_steps=str(n_steps))
+        else:
+            status = render("play_query",
+                            "model_status",
+                            simulator_version=self._current_simulator_version,
+                            predicates_version=self._current_predicates_version
+                            or "none",
+                            fit_status=self._fit_status_text(),
+                            n_episodes=str(n_eps),
+                            n_steps=str(n_steps),
+                            new_episodes=str(
+                                max(0, n_eps - self._episodes_at_last_fit)))
+        return status + (f" {self._probe_ext_status}"
+                         if self._probe_ext_status else "")
 
     def _round_was_productive(self, session: ProtocolSession, state: Any,
                               steps_before: int, steps_after: int) -> bool:

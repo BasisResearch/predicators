@@ -9,7 +9,7 @@ def test_repair_is_opt_in_and_model_free_is_unchanged():
     utils.reset_config({"agent_model_repair": False})
     mb_before = build_play_system_prompt(["run_python", "env_step"])
     mf_before = build_play_system_prompt(["env_step"])
-    assert "## Model repair" not in mb_before
+    assert "### When the model disagrees with evidence" not in mb_before
     utils.reset_config({"agent_model_repair": True})
     mb_after = build_play_system_prompt(["run_python", "env_step"])
     assert "sim.validate()" in mb_after

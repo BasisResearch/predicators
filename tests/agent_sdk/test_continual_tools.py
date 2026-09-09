@@ -307,9 +307,9 @@ def test_parse_plan_lines_and_formatting(tmp_path: Any) -> None:
                                       base_sim_refs=["./reference/base.py"])
     for name in CONTINUAL_TOOL_NAMES:
         assert f"`{name}`" in system
-    assert "counts one step" in system and "very expensive" in system
-    assert "never a retry button" in system
-    assert "## Your context" in system and "`[context]`" in system
+    assert "counts one step and one reset" in system
+    assert "Recover in place" in system
+    assert "### Conversation rounds" in system and "`[context]`" in system
     assert "`handoff`" not in system and "`session_end`" not in system
     # The [context] line the tools and queries carry, from the streamed
     # usage and compaction entries the sandbox session feeds the context.
@@ -326,14 +326,14 @@ def test_parse_plan_lines_and_formatting(tmp_path: Any) -> None:
     ctx.context_window_tokens = 200000
     assert context_status(ctx) == ("[context] ~87k tokens of 200k; 1 turns "
                                    "this run; compacted 1x")
-    assert "## Your model" in system and "`sim`" in system
-    assert "`sim.fit()`" in system and "Model early and often" in system
+    assert "## Model workbench" in system and "`sim`" in system
+    assert "`sim.fit()`" in system and "## Decision workflow" in system
     assert "./reference/base.py" in system
     # The model-free arm's prompt describes neither a model nor tools it
     # does not have.
     free = build_play_system_prompt(list(CONTINUAL_TOOL_NAMES))
     assert "`run_python`" not in free
-    assert "`sim`" not in free and "## Your model" not in free
+    assert "`sim`" not in free and "## Model workbench" not in free
     assert "simulator.py" not in free
     assert "no learned model" in free
     assert "`give_up`" in free and "./data/trajectories.pkl" in free
@@ -356,7 +356,7 @@ def test_parse_plan_lines_and_formatting(tmp_path: Any) -> None:
                              model=status,
                              journal="",
                              attempts="")
-    assert "first round of the run" in query
+    assert "first conversation round of the run" in query
     assert "(empty: no journal yet)" in query and "[context] c" in query
     assert "not expressible" not in query
     query2 = build_play_query(kind="resumed",
@@ -374,7 +374,7 @@ def test_parse_plan_lines_and_formatting(tmp_path: Any) -> None:
                               model=status,
                               journal="j",
                               attempts="a")
-    assert "interrupted by a compute preemption" in query2
+    assert "resumes after compute preemption" in query2
     assert "do it" in query2 and "\nj\n" in query2
     assert "not expressible in your predicates" in query2
     # A continuation is short: the conversation already holds the level.
@@ -451,7 +451,7 @@ def test_model_contract_is_domain_general_and_only_for_the_model_arm() -> None:
         partially_observable=True,
         physical_params_section="## Base-sim system identification\n- `mu`")
     for text in (fo, po):
-        assert "## The model files" in text and "## `simulator.py`" in text
+        assert "## Model API reference" in text and "### `simulator.py`" in text
         assert "class MyDynamics(BaseSimulator):" in text
         assert "RESIDUAL_ENV = MyDynamics" in text
         assert "AGENT_PARAM_SPECS" in text and "RESIDUAL_FEATURES" in text
@@ -459,25 +459,27 @@ def test_model_contract_is_domain_general_and_only_for_the_model_arm() -> None:
         assert "engine constraints" in text
         assert "geometric conditions" in text
         assert "ParamSpec(name, init_value, lo=None, hi=None" in text
-        assert "LEARNED_PREDICATES: List[Predicate]" in text
-        assert "`sim.predicates()`" in text and "`Wait` terminates" in text
+        assert "LEARNED_PREDICATES = [" in text
+        assert "`sim.predicates()`" in text and "`Wait` targets" in text
         assert "__" not in text.replace("__init__", "")
         assert not _DOMAIN_WORDS.search(text), _DOMAIN_WORDS.search(text)
         assert "RESIDUAL_RULES" not in text and "LATENT_INIT" not in text
-    assert "## Hidden model state" not in fo
+    assert "### Hidden model state" not in fo
     assert "system identification" not in fo
-    assert "## Hidden model state" in po and "MODEL_STATE_INIT = {}" in po
+    assert "### Hidden model state" in po and "MODEL_STATE_INIT = {}" in po
     assert "update_model_state" in po and "self.model_state" in po
     assert "latent=None" in po and "- `mu`" in po
     # Placed after the model section of the model arm's prompt only.
     system = build_play_system_prompt(["run_python"] +
                                       list(CONTINUAL_TOOL_NAMES),
                                       model_contract=po)
-    assert system.index("## Your model") < system.index("## The model files")
-    assert system.index("## The model files") < system.index("## Journal")
+    assert system.index("## Model workbench") < system.index(
+        "## Model API reference")
+    assert system.index("## Run memory") < system.index(
+        "## Model API reference")
     free = build_play_system_prompt(list(CONTINUAL_TOOL_NAMES),
                                     model_contract=po)
-    assert "## The model files" not in free and "RESIDUAL_ENV" not in free
+    assert "## Model API reference" not in free and "RESIDUAL_ENV" not in free
 
 
 def test_an_invented_predicate_under_an_env_name_stays_the_arms(
@@ -526,7 +528,7 @@ def test_observation_noise_in_the_prompts_and_the_frame(tmp_path: Any) -> None:
         assert "sigma 0.005 m" in system and "sigma 0.02 rad" in system
         assert "costs a step" in system
     contract = build_model_contract(partially_observable=False)
-    assert "## Observation noise and the fit" in contract
+    assert "### Observation noise and the fit" in contract
     assert "Do not smooth or filter the data" in contract
     seen: Dict[str, Any] = {}
     driver = _Driver()

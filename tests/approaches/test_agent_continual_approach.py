@@ -174,7 +174,8 @@ def test_current_probe_refreshes_memory_after_parameter_change(
 
     monkeypatch.setattr(approach, "_query_agent_sync", fake_query)
     approach.prepare_for_continual(Dataset([]))
-    card = ContinualRun(env, approach, create_controller(env, approach)).run()
+    card = ContinualRun(env, approach, create_level_player(env,
+                                                           approach)).run()
     assert card.levels[0].steps == 1
 
 
@@ -222,7 +223,8 @@ RESIDUAL_ENV = Counter
 
     monkeypatch.setattr(approach, "_query_agent_sync", fake_query)
     approach.prepare_for_continual(Dataset([]))
-    card = ContinualRun(env, approach, create_controller(env, approach)).run()
+    card = ContinualRun(env, approach, create_level_player(env,
+                                                           approach)).run()
     assert card.levels[0].steps == 1
     assert approach._tool_context.current_observation_provider is None  # pylint: disable=protected-access
 
@@ -260,7 +262,7 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
         assert ctx.probe_option_model_provider is not None
         assert ctx.probe_fit_provider is not None
         if n == 1:
-            assert "first round of the run" in message
+            assert "first conversation round of the run" in message
             assert "No model yet" in message
             assert "[context] size not reported yet" in message
             assert mgr.resume_session_id is None
@@ -324,6 +326,14 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
 
     assert card.end_reason == "agent_ended" and card.end_note == "enough"
     assert [q["kind"] for q in queries] == ["play", "play"]
+    # Full and continuation prompts retain one authoritative budget block.
+    for query in queries:
+        message = query["message"]
+        assert message.count("[ledger]") == 1
+        assert message.count("[context]") == 1
+        assert "[level]" in message and "[episode]" in message
+    assert "[goal]" not in queries[0]["message"]
+    assert "Goal atoms:" in queries[0]["message"]
     # The workbench is torn down between rounds and at the end; its data
     # (predicted once per transition) stays for the run.
     ctx = approach._tool_context  # pylint: disable=protected-access

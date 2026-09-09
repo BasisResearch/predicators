@@ -147,15 +147,18 @@ def context_status(ctx: ToolContext) -> str:
             f"compacted {ctx.context_compactions}x")
 
 
-def format_observation(
-        obs: "ProtocolObservation",
-        ctx: ToolContext,
-        *,
-        with_state: bool,
-        render_path: Optional[str],
-        env_predicates: Optional[Iterable[Predicate]] = None) -> str:
+def format_observation(obs: "ProtocolObservation",
+                       ctx: ToolContext,
+                       *,
+                       with_state: bool,
+                       render_path: Optional[str],
+                       env_predicates: Optional[Iterable[Predicate]] = None,
+                       with_goal: bool = True,
+                       with_budget: bool = True) -> str:
     """The observation as text (section 5.2); ``env_predicates`` as in
-    :func:`_split_atoms`."""
+    :func:`_split_atoms`. Queries can omit goal and budget fields already
+    supplied by their template; tool results include them by default.
+    """
     lines = []
     if obs.state is EpisodeState.GAME_OVER and not obs.ledger.resets_allowed:
         lines.append(f"[episode] GAME_OVER ({obs.reason}); this level has "
@@ -176,9 +179,10 @@ def format_observation(
         "the goal)")
     resets_note = "" if obs.ledger.resets_allowed else ", no resets"
     lines.append(f"[level] {spec.index + 1}/{obs.ledger.levels_total} "
-                 f"({spec.split} task {spec.task_idx}{resets_note}); goal "
-                 f"atoms: {goal_text}")
-    if spec.task.goal_nl:
+                 f"({spec.split} task {spec.task_idx}{resets_note})")
+    if with_goal:
+        lines[-1] += f"; goal atoms: {goal_text}"
+    if with_goal and spec.task.goal_nl:
         lines.append(f"[goal] {spec.task.goal_nl}")
     noise = ObservationNoise.from_cfg()
     if noise.enabled and noise.declared:
@@ -225,8 +229,9 @@ def format_observation(
                     lines.append("  " + obs.belief.object_line(obj))
     if render_path:
         lines.append(f"[render] {render_path}")
-    lines.append(obs.ledger.footer())
-    lines.append(context_status(ctx))
+    if with_budget:
+        lines.append(obs.ledger.footer())
+        lines.append(context_status(ctx))
     return "\n".join(lines)
 
 

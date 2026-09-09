@@ -119,7 +119,7 @@ def test_model_free_arm_has_no_model_surface(tmp_path: Any) -> None:
     assert "`learn_run`" not in prompt and "`run_python`" not in prompt
     assert "`sim`" not in prompt and "## Learning" not in prompt
     assert "no learned model" in prompt and "`give_up`" in prompt
-    assert "`handoff`" not in prompt and "## Your context" in prompt
+    assert "`handoff`" not in prompt and "### Conversation rounds" in prompt
     # The play loop is a mixin in front of each arm's phased base, not
     # an approach of its own, so the registry never sees it.
     assert not issubclass(ContinualPlayMixin, BaseApproach)
@@ -149,7 +149,7 @@ def test_play_loop_with_a_scripted_model_free_agent(tmp_path: Any) -> None:
         ]
         assert names == MODEL_FREE_TOOLS
         if n == 1:
-            assert "first round of the run" in message
+            assert "first conversation round of the run" in message
             assert "no belief model" in message
             assert "Your model" not in message
             assert "not expressible in your predicates" in message
@@ -223,8 +223,8 @@ def test_both_arms_start_with_no_predicates(tmp_path: Any) -> None:
     names = learner._get_solve_tool_names()  # pylint: disable=protected-access
     assert names == ["run_python"] + list(CONTINUAL_TOOL_NAMES)
     prompt = learner._get_agent_system_prompt()  # pylint: disable=protected-access
-    assert "You start with no predicates" in prompt
-    assert "## Your model" in prompt and "`sim`" in prompt
+    assert "only supplied environment predicates in your vocabulary" in prompt
+    assert "## Model workbench" in prompt and "`sim`" in prompt
 
     _config(tmp_path,
             agent_sim_learn_kept_predicates_names=["Holding"],

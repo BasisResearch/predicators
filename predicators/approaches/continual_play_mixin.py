@@ -1,7 +1,7 @@
 """The play loop of the continual protocol's agent arms (docs/continual-
 protocol.md, section 5).
 
-``ContinualPlayMixin`` implements the level player role for an agent arm: it plays
+``ContinualPlayMixin`` is the level player for an agent arm: it plays
 the run's levels through one conversation of the SDK machinery, whose
 tool surface is the protocol's env and skill tools
 (``agent_sdk.tools.continual_tools``) plus whatever the arm attaches
@@ -375,10 +375,11 @@ class ContinualPlayMixin:
             ctx,
             with_state=True,
             render_path=render,
-            env_predicates=env_predicate_set(session))
-        # The ledger and the context line are already the observation's
-        # last lines; the query shows them once more on their own so
-        # they cannot be missed.
+            env_predicates=env_predicate_set(session),
+            with_goal=kind == "continue",
+            with_budget=False)
+        # Full queries own the goal; every query owns its budget block.
+        # Continuations keep the goal in the observation for orientation.
         return build_play_query(
             kind=kind,
             round_number=self._rounds_played + 1,

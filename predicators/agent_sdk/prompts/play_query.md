@@ -1,8 +1,7 @@
 # Continual-protocol play round: query
 
-Rendered by `play_prompts.build_play_query`. One message per round of
-the run's conversation: the run's first message, a new level, a
-continuation after the agent stopped, or a resume after a preemption.
+Rendered by `play_prompts.build_play_query`.
+One message per round of the run's conversation: the run's first message, a new level, a continuation after the agent stopped, or a resume after a preemption.
 The system prompt is `play_system.md`.
 
 <!-- section: skeleton -->
@@ -24,18 +23,6 @@ __CONTEXT__
 
 __OBSERVATION__
 
-## Skills
-
-__SKILLS__
-
-## Predicates
-
-__PREDICATES__
-
-## Types
-
-__TYPES__
-
 ## Model and data
 
 __MODEL__
@@ -48,7 +35,21 @@ __JOURNAL__
 
 __ATTEMPTS__
 
-## Instructions
+## Available vocabulary
+
+### Skills
+
+__SKILLS__
+
+### Predicates
+
+__PREDICATES__
+
+### Types
+
+__TYPES__
+
+## Next action
 
 __INSTRUCTIONS__
 
@@ -69,41 +70,29 @@ __OBSERVATION__
 
 __MODEL__
 
-## Instructions
+## Next action
 
 __INSTRUCTIONS__
 
 <!-- section: opening_first -->
-This is the first round of the run. The environment is new: its
-dynamics are hidden, and the recorded data is empty. Decide how to
-spend the budget.
+This is the first conversation round of the run.
+Use the current task, observation, and available records below to decide what to do next.
 
 <!-- section: opening_level -->
-Round __ROUND_NUMBER__ of the run: level __LEVEL_NUMBER__ begins, in
-the same conversation. Your journal, your sandbox files and the
-recorded data carry over; the environment is a new task.
+Round __ROUND_NUMBER__ of the run: level __LEVEL_NUMBER__ begins, in the same conversation.
+Your journal, your sandbox files and the recorded data carry over; the environment is a new task.
 
 <!-- section: opening_continue -->
-Round __ROUND_NUMBER__ of the run: you stopped, and level
-__LEVEL_NUMBER__ is not settled, so it continues from the observation
-below. The level, the skills and the journal are as before.
+Round __ROUND_NUMBER__ of the run: you stopped, and level __LEVEL_NUMBER__ is not settled, so it continues from the observation below.
+The level, the skills and the journal are as before.
 
 <!-- section: opening_resumed -->
-Round __ROUND_NUMBER__ of the run. Your previous turn on level
-__LEVEL_NUMBER__ was interrupted by a compute preemption and this
-conversation has been restored. The environment has been rebuilt at
-the last recorded step; any tool call that had not returned did not
-complete and its steps are not counted. Check the observation and
-continue.
+Round __ROUND_NUMBER__ of the run: level __LEVEL_NUMBER__ resumes after compute preemption.
+The conversation and recorded environment state have been restored.
+Check the observation, ledger, and recorded actions before retrying an interrupted call; do not assume that it made no progress.
 
 <!-- section: instructions -->
-Decide what to do next and do it with the tools. Read the observation,
-the ledger and the context line before you act. Test in the sandbox
-what the sandbox can answer. When you act in the environment, annotate
-the expected outcome. Write to `./journal.md` as you learn, not only at
-the end: it is what survives a compaction. When the level is won, say
-so and stop; when it is lost on a level with no resets, write your
-notes and stop.
+Choose the next action from this state and carry it out with the tools, following the decision workflow.
 
 <!-- section: no_journal -->
 (empty: no journal yet)
@@ -112,6 +101,14 @@ notes and stop.
 (empty: no round has acted in the environment yet)
 
 <!-- section: learning_model_free -->
-This arm has no belief model and no learning session. Recorded
-episodes so far: __N_EPISODES__ (__N_STEPS__ steps), in
-`./data/trajectories.pkl`.
+This arm has no belief model.
+Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps), in `./data/trajectories.pkl`.
+
+<!-- section: no_model -->
+No model yet: `sim` uses the visible base physics with hidden mechanisms disabled.
+Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps).
+
+<!-- section: model_status -->
+Current files: `simulator.py` __SIMULATOR_VERSION__, `predicates.py` __PREDICATES_VERSION__.
+Last fit: __FIT_STATUS__.
+Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps); __NEW_EPISODES__ episode(s) since the last fit.
