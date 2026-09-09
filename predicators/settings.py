@@ -74,6 +74,15 @@ class GlobalSettings:
     # Pooled step cap per run: this many low-level steps per level,
     # summed over the run's levels (4.8). A guard, not a scoring term.
     continual_steps_per_level = 5000
+    # Steps an episode may take before GAME_OVER, or None for no episode
+    # horizon: the pooled cap is then the only step budget (4.3). None
+    # since 2026-09-06: with the env's own horizon (busyboard 2000) three
+    # of four busyboard test levels ended at step 2000 of their one
+    # episode while 5000+ pooled steps sat unused, so on a level without
+    # resets the horizon was a second, hidden cap. A number restores the
+    # per-episode GAME_OVER (tests of that path, ablations); the phased
+    # loop's `horizon` is not read here.
+    continual_episode_horizon: Optional[int] = None
     # Active wall-clock cap per env run, in hours (6.5).
     continual_wall_clock_hours = 48.0
     # One directory per run (predicators/run/paths.py):
@@ -1140,6 +1149,179 @@ class GlobalSettings:
     # that some button setting realizes exactly.
     busyboard_max_sampling_attempts = 200
 
+    # ice rink env
+    # Tiles per rink. Test rinks carry more tiles, so more paths cross a
+    # tile or the patch; the materials keep their colours and friction.
+    icerink_num_tiles_train = [2]
+    icerink_num_tiles_test = [3]
+    # Sliding friction per material, in palette order (blue ice, black
+    # rubber, green felt, grey steel). The learning target: a tile's
+    # travel from one push is v^2 / (2 mu g), so blue reaches a wall from
+    # anywhere, black stops within a hand's width, green and grey in
+    # between. The base sim gives every tile 0.1.
+    icerink_material_frictions = [0.03, 0.35, 0.12, 0.06]
+    # The dark strip: a tile crossing it is braked by this much extra
+    # friction (a coefficient, on top of its own). False disables the
+    # strip's effect.
+    icerink_patch = True
+    icerink_patch_friction = 0.25
+    # The push skill's speed parameter: the gripper moves through the
+    # stroke at this many m/s and the tile leaves at about that speed.
+    # The range is what the arm tracks on this rink: travel grows with
+    # the commanded speed up to about 0.38 m/s and collapses above it
+    # (the position-controlled stroke lags and strikes late). The task
+    # generator draws a tile's target from a speed in the range, and the
+    # oracle's sampler searches it.
+    icerink_push_speed_range = [0.15, 0.38]
+    # Approach distance and contact height (the push skill's first two
+    # parameters) the generator's and the oracle's probes use.
+    icerink_push_approach = 0.07
+    icerink_push_contact_z = 0.03
+    # A tile is at rest below this planar speed (m/s), and a level is won
+    # only once every tile is.
+    icerink_settle_speed = 0.01
+    # A tile is on a target when both centre offsets are within this.
+    icerink_on_tol = 0.03
+    # Cap on a slide probe's env actions.
+    icerink_probe_max_steps = 150
+    # Rejection-sampling budget for a rink whose every tile has a
+    # single-push target.
+    icerink_max_sampling_attempts = 300
+
+    # launcher env
+    # Blocks in the tower. Test towers are taller and farther, with
+    # fewer spare balls.
+    launcher_num_blocks_train = [2]
+    launcher_num_blocks_test = [3]
+    launcher_stand_x_train = [0.84, 0.92]
+    launcher_stand_x_test = [0.88, 0.98]
+    launcher_balls_left_train = 3
+    launcher_balls_left_test = 1
+    # The launch law: the ball leaves the muzzle at spring_k times the
+    # deepest compression reached, in m/s per metre. The learning target.
+    launcher_spring_k = 24.0
+    # A snap from less compression than this fires nothing.
+    launcher_min_compression = 0.01
+    # Mass per block material, in palette order (wood, stone). The base
+    # sim gives every block 0.3 kg.
+    launcher_block_masses = [0.12, 0.8]
+    # The ball is at rest below this speed (m/s).
+    launcher_settle_speed = 0.02
+    # The push skill's approach and contact-height parameters the probes
+    # use on the handle.
+    launcher_push_approach = 0.07
+    launcher_push_contact_z = 0.012
+    launcher_probe_max_steps = 200
+    launcher_max_sampling_attempts = 60
+
+    # magnets env
+    # Pieces on the mat. Test mats carry more pieces; the colours keep
+    # their polarity and range.
+    magnets_num_pieces_train = [2]
+    magnets_num_pieces_test = [3]
+    # Per colour, in palette order (red, blue, green, yellow): +1 if the
+    # wand pulls the colour, -1 if it pushes it; and the range (metres
+    # from the point under the tip) within which the colour moves. The
+    # learning target.
+    magnets_polarities = [1, 1, -1, 1]
+    magnets_ranges = [0.10, 0.06, 0.08, 0.13]
+    # Speed law shared by every colour: a piece right at the edge of its
+    # range is still, one under the tip would move at max_speed, and it
+    # stops inside the dead zone.
+    magnets_max_speed = 0.25
+    magnets_dead_zone = 0.008
+    # The field only acts on pieces within this height below the tip.
+    magnets_field_height = 0.10
+    # A piece is in a slot when both centre offsets are within this (a
+    # carried piece settles within the dead zone of a tip that itself
+    # stops within the hover's tolerance).
+    magnets_in_tol = 0.03
+    # The tip is over a piece when their ground points are this close.
+    magnets_over_tol = 0.02
+    magnets_settle_speed = 0.01
+    magnets_probe_max_steps = 300
+    magnets_max_sampling_attempts = 60
+
+    # balloons env
+    # Balloons in the rack and box colours per split. A test level holds
+    # the whole palette in its rack, one more balloon than any train
+    # level; its box is a material training showed (the train levels
+    # together cover both materials and every colour, see
+    # PyBulletBalloonsEnv._make_tasks). The teak box (index 2) has no
+    # level the generator accepts under the ceiling with these lifts.
+    balloons_num_balloons_train = [2, 3]
+    balloons_num_balloons_test = [4]
+    balloons_box_colors_train = [0, 1]
+    balloons_box_colors_test = [0, 1]
+    # Lift per balloon colour at table height, in newtons, palette order
+    # (red, blue, green, gold); it fades linearly to zero this many
+    # metres above the table. The learning target, with the box masses
+    # (pine, oak, kilograms) and the air's drag.
+    balloons_lifts = [0.35, 0.5, 0.7, 1.0]
+    balloons_fade_height = 0.8
+    balloons_box_masses = [0.05, 0.08, 0.11]
+    # The air's drag (linear damping). Low enough that the fading lift
+    # makes the box an underdamped oscillator: it overshoots its
+    # equilibrium on the way up, and an in-band subset can overshoot into
+    # the ceiling and burst. The overshoot is set by this drag, which the
+    # rest height does not reveal, so identifying the safe subset needs a
+    # fitted dynamics model, not a static reading. The learning target,
+    # with the lifts and box masses.
+    balloons_drag = 2.2
+    # Half the band's height.
+    balloons_band_half = 0.025
+    # The box is at rest below this speed (m/s).
+    balloons_settle_speed = 0.01
+    # The push skill's approach and contact-height parameters that open
+    # a clip, for the oracle's and the generator's probes.
+    balloons_push_approach = 0.07
+    balloons_push_contact_z = 0.05
+    balloons_probe_max_steps = 400
+    # Test levels need two subsets in one band with only one overshoot-safe,
+    # a rarer draw than a single in-band subset, so allow more attempts.
+    balloons_max_sampling_attempts = 80
+    # Contact-only test levels (the default): require an in-band decoy that
+    # fails by JAM (the tilted box wedges in the chute), not by height or
+    # burst, whose equilibrium sits within balloons_contact_height_tol of the
+    # unique safe subset's. Then the safe subset and the decoy are
+    # indistinguishable by rest height or net lift - only a contact rollout
+    # (sim.run) tells them apart - so a model that reasons from equilibrium
+    # height alone cannot pick the winner and must trial-and-error (real
+    # steps, resets, or an irreversible burst). False keeps the original chute
+    # generation, where an in-band decoy may instead fail by overshoot burst.
+    balloons_require_jam_decoy = True
+    balloons_contact_height_tol = 0.02
+
+    # crane env
+    # Cable lengths and crate colours per split. Test levels bring a
+    # longer cable and a crate material the training levels never show.
+    crane_length_train = [0.5, 0.55]
+    crane_length_test = [0.65, 0.7]
+    crane_crate_colors_train = [0, 1]
+    crane_crate_colors_test = [0, 1, 2]
+    # Where the crate stands along the lane from the ball's rest
+    # position, where the lane runs across the table, and the bin pad's
+    # half length along the lane.
+    crane_gap_range = [0.20, 0.23]
+    crane_lane_y_range = [1.24, 1.36]
+    crane_bin_half = 0.06
+    # The learning target: mass (kilograms) and table friction of each
+    # crate material, palette order (foam, iron, stone), and the air's
+    # drag on the swinging ball (the engine's linear damping).
+    crane_crate_masses = [0.06, 0.3, 0.45]
+    crane_crate_frictions = [0.25, 0.15, 0.12]
+    crane_swing_damping = 0.02
+    # How far the Pull skill can draw the ball back, in metres.
+    crane_pull_range = [0.10, 0.26]
+    # The crate and the ball are still below this speed (m/s).
+    crane_settle_speed = 0.02
+    # The push skill's approach and contact-height parameters for the
+    # oracle's and the generator's swings.
+    crane_push_approach = 0.09
+    crane_push_contact_z = 0.0
+    crane_probe_max_steps = 300
+    crane_max_sampling_attempts = 30
+
     # parameters for random options approach
     random_options_max_tries = 100
 
@@ -1996,6 +2178,19 @@ class GlobalSettings:
     # its parameters. Off => the ensemble is built only when the
     # rule-param margin gate asks for it.
     agent_explorer_info_seeking = False
+    # Adaptive info-seeking: with this on (and agent_explorer_info_seeking
+    # on), the proactive half of info-seeking - the probe-ranking
+    # sim.suggest_probes result and the disagreement guidance - stays
+    # dormant until the
+    # capture gate has refused a plan as PARAM-SENSITIVE
+    # (ctx.param_sensitive_refusal_pending). The rule-param margin gate
+    # and its (Laplace) ensemble stay always on, so the FIRST refusal can
+    # still fire; only then does the agent start spending real steps to
+    # reduce the uncertainty the gate named. This removes the info-seeking
+    # step tax on easy levels no plan is ever refused on, while keeping
+    # the robustness on levels where a fragile plan is caught. Off =>
+    # info-seeking is always active (the original behaviour).
+    agent_explorer_info_seeking_adaptive = False
     # Ensemble size used to estimate disagreement. 1 disables scoring
     # (every candidate scores 0) and reduces to first-feasible.
     agent_explorer_info_ensemble_size = 6
@@ -2014,24 +2209,13 @@ class GlobalSettings:
     # Per-parameter jitter as a fraction of the ParamSpec box width, for
     # the uniform-fallback ensemble only (see calibrated flag below).
     agent_explorer_info_perturb_frac = 0.15
-    # Prefer a *calibrated* ensemble when the fit provides one: posterior
-    # subsample when MCMC ran, else a Laplace draw from the LM Jacobian
-    # (per-transition or recurrent); uniform jitter only when neither is
-    # available (e.g. oracle params, where no fit runs).
+    # Prefer a *calibrated* ensemble when the fit provides one: a Laplace
+    # draw from the LM Jacobian (per-transition or recurrent); uniform
+    # jitter only when it is not available (e.g. oracle params, where no
+    # fit runs).
     agent_explorer_info_calibrated_ensemble = True
-    # Extra MCMC budget for the once-per-cycle active-experiment posterior
-    # fit. The solver/test-time fit still follows
-    # code_sim_learning_num_mcmc_steps; this budget is used only when it
-    # exceeds the global solver budget, and only to calibrate the
-    # info-seeking ensemble. Keep >= ~250: emcee burn-in (200) eats the
-    # budget first. See _exploration_fit_num_steps for the rationale
-    # (posterior subsampling covers gate/threshold params that a Laplace
-    # approximation cannot).
-    agent_explorer_info_mcmc_steps = 300
 
     # Code sim-learning parameter fitting settings.
-    # Set to 0 to skip MCMC and use initial parameter values directly.
-    code_sim_learning_num_mcmc_steps = 0
     # Persist the raw rollout-fit trajectories (states + actions per
     # recorded episode) to <log_dir>/fit_data/ at every cycle-level
     # fit. The fit data otherwise lives only in memory, which made the
@@ -2291,15 +2475,16 @@ class GlobalSettings:
     # Diagnostic: log the Hessian eigendecomposition at the MAP to
     # spot unidentifiable parameter combinations. Adds ~5-15s per fit.
     code_sim_learning_log_hessian_identifiability = False
-    # If True, run an LM fit and center MCMC walkers on its MAP estimate
-    # instead of init_values. Adds ~5-15s per fit.
+    # If True, run the LM fit from a grid-seeded start rather than the
+    # declared init_values, and attach its MAP + Jacobian. Adds ~5-15s
+    # per fit.
     code_sim_learning_warm_start_with_lm = True
 
     # Sim-learning oracle flags (for ablation / debugging).
     # When True, load GT residual rules instead of running agent synthesis.
-    # Parameters init_values are perturbed so MCMC still has work to do.
+    # Parameters init_values are perturbed so the fit still has work to do.
     agent_sim_learn_oracle_sim_program = False
-    # Relative scale for perturbing oracle parameter init_values before MCMC.
+    # Relative scale for perturbing oracle parameter init_values before the fit.
     agent_sim_learn_oracle_sim_param_noise_scale = 0.2
     # Ablations A6+A7 combined ("no uncertainty"): when False, nothing
     # consumes a posterior over the model parameters. The physics-margin sigma
@@ -2311,8 +2496,8 @@ class GlobalSettings:
     agent_sim_learn_param_uncertainty = True
     # Ablation A4 ("no parameter fitting"): when True, no parameter
     # estimation runs anywhere - not sim.fit (it refuses), not the
-    # harness-side fallback fit, not the exploration posterior, not the
-    # residual report's fit_params / sweep_params. Each parameter's
+    # harness-side fallback fit, not the residual report's fit_params /
+    # sweep_params. Each parameter's
     # declared init_value is its point estimate and its declared
     # [lo, hi] box is its plausible interval: the physics-margin points
     # span the box and the rule-parameter ensemble is drawn uniformly
@@ -2335,7 +2520,7 @@ class GlobalSettings:
     # and its own knowledge. Pair with no demos and
     # num_online_learning_cycles 0 for one learn, one solve, done.
     agent_sim_learn_zero_shot = False
-    # When True, use GT parameter values directly, skipping MCMC fitting.
+    # When True, use GT parameter values directly, skipping the fit.
     # Also grants planning base sims the TRUE physical params (e.g. the true
     # domino friction even when domino_planning_friction is set) — as if all
     # param learning, rule-level and physical, had already succeeded. Task
@@ -2429,6 +2614,19 @@ class GlobalSettings:
                     # three-press plan runs past the default 100 and every
                     # refinement would be rejected on the horizon check.
                     "pybullet_busyboard": 2000,
+                    # A push is ~60 low-level steps and a slide settles
+                    # within ~40 more; a four-tile level needs room for
+                    # a few probes on top of its four pushes.
+                    "pybullet_icerink": 2000,
+                    # A cock-and-fire is ~60 steps plus a ~40-step
+                    # flight and settle; a level allows a few shots.
+                    "pybullet_launcher": 1500,
+                    # A hover is ~60 steps; a level is a few hovers and
+                    # jumps per piece.
+                    "pybullet_magnets": 1500,
+                    # A pick and a tie are ~150 steps; a level ties up to
+                    # three balloons and waits for the box to settle.
+                    "pybullet_balloons": 1500,
                     "doors": 1000,
                     "coffee": 1000,
                     "kitchen": 1000,

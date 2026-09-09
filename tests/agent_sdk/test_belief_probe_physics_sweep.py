@@ -213,6 +213,11 @@ def test_fresh_single_run_uses_scope_and_preserves_state():
     sim.reset()
     res = sim.run("Move(block0:block)[0.95]", fresh=True)
     assert res.goal_reached
+    # The rollout's state sequence rides on the result, start state
+    # first, ending at the rollout's final state.
+    assert len(res.states) >= 2
+    assert res.states[-1].allclose(res.final_state)
+    assert res.states[0].get(_block, "x") == 0.0
     # The scope was entered exactly once, with no physics overrides.
     assert scope_overrides == [None]
     # The shared session state was NOT advanced.

@@ -39,14 +39,17 @@ import copy
 import inspect
 import logging
 from functools import lru_cache
-from typing import Any, Callable, Dict, Iterable, Iterator, List, Mapping, \
-    Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Iterator, \
+    List, Mapping, Optional, Sequence, Tuple, Type
 
 import numpy as np
 
 from predicators.code_sim_learning.commands import CommandBuffer
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.structs import Action, Object, State
+
+if TYPE_CHECKING:
+    from predicators.envs.pybullet_env import PyBulletEnv
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +66,8 @@ Params = Dict[str, float]
 
 # Default smoothing scale for parameter-dependent soft gates. Small
 # enough that gates are ~99% saturated when the operand is one
-# threshold-width into the active region, large enough to give MCMC a
-# usable gradient near the cliff. 0.02 is in the right ballpark for
+# threshold-width into the active region, large enough to give the LM
+# fit a usable gradient near the cliff. 0.02 is in the right ballpark for
 # both spatial thresholds (~0.05–0.15 m) and water-level thresholds
 # (~0.3–1.3). Override per call site as needed.
 SOFT_EPS = 0.02
@@ -284,8 +287,8 @@ def init_latent(
     :class:`~predicators.code_sim_learning.fit_space.ParamSpec`
     instances, in which case the corresponding entry from
     ``params[name]`` is used (falling back to ``init_value`` if the
-    param hasn't been fit yet) — this lets MCMC fit the initial
-    latent value alongside rate parameters.
+    param hasn't been fit yet) — this lets the LM fit identify the
+    initial latent value alongside rate parameters.
     """
     if latent_init is None:
         return {}
@@ -495,6 +498,30 @@ def read_physical_param_specs(ns: Mapping[str, Any]) -> Optional[List]:
     if not isinstance(specs, list) or not specs:
         return None
     return specs
+
+
+def read_residual_env(ns: Mapping[str, Any]) -> Optional[Type["PyBulletEnv"]]:
+    """Pull ``RESIDUAL_ENV`` (optional) from a simulator namespace.
+
+    The subclass model form: instead of ``RESIDUAL_RULES`` the file
+    exports ``RESIDUAL_ENV``, a subclass of the env's base-sim class
+    that overrides ``_domain_specific_step`` with its own hidden
+    dynamics and declares its learnable constants in the class attribute
+    ``AGENT_PARAM_SPECS`` (read inside the step via
+    ``self.agent_param``) and the features it owns in
+    ``RESIDUAL_FEATURES``. The harness runs an instance of it
+    (``skip_residual_dynamics=False``) as the planning base env, and the
+    rollout system-ID fits the AGENT_PARAM_SPECS as physical parameters.
+    Returns the class, or ``None`` when the export is absent or is not a
+    ``PyBulletEnv`` subclass.
+    """
+    # Local import to avoid a module-load cycle (envs import this module).
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.envs.pybullet_env import PyBulletEnv
+    cls = ns.get("RESIDUAL_ENV")
+    if isinstance(cls, type) and issubclass(cls, PyBulletEnv):
+        return cls
+    return None
 
 
 def stamp_physical_spec_scales(specs: List, base_env: Any) -> List:

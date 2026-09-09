@@ -1,0 +1,74 @@
+# Adaptive info-seeking on the continual model-based arm (adaptive):
+# the margin gate stays on (as in unc), but the proactive info-seeking
+# apparatus - suggest_probes ranking, the exploration MCMC fit, the probe
+# guidance - stays dormant until the capture gate refuses a plan as
+# PARAM-SENSITIVE. The point of comparison:
+#   reg1 : both flags OFF   (baseline; the gate never runs)
+#   unc  : both flags ON     (always-on info-seeking; the step tax)
+#   this : gate ON + info-seeking ON + adaptive ON (pay the tax only when
+#          a fragile plan is actually caught)
+# All five domains, seed 0, same tip, so the three arms are directly
+# comparable. New ids (agent_continual_adaptive) so --auto_resume ignores
+# the reg1/unc runs. Run dirs + logs land in the main tree so the viewer
+# sees them.
+---
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ARGS:
+  # A requeue (preemption or the wall-time trap) resumes the run in its
+  # directory from the scorecard and the level recording (section 6.6).
+  - auto_resume
+FLAGS:
+  experiment_protocol: "continual"
+  continual_levels: "train_then_test"
+  continual_steps_per_level: 5000
+  continual_wall_clock_hours: 48.0
+  continual_render: True
+  continual_make_video: True
+  test_fresh_env_per_episode: True
+  continual_runs_dir: "/home/ycliang/predicators/logs"
+  log: "/home/ycliang/predicators/logs/"
+ENVS:
+  boil:
+    SKIP: False
+  bridge:
+    SKIP: False
+    FLAGS:
+      continual_steps_per_level: 10000
+  domino_high_friction_turn:
+    SKIP: False
+  fan:
+    SKIP: False
+  balloons:
+    SKIP: False
+    FLAGS:
+      num_train_tasks: 2
+  busyboard:
+    SKIP: True
+APPROACHES:
+  oracle:
+    SKIP: True
+  agent_continual_adaptive:
+    NAME: "agent_continual"
+    SKIP: False
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_sdk_max_agent_turns_per_iteration: 10000
+      agent_sdk_image_max_px: 900
+      agent_bilevel_use_llm_initial_params: True
+      agent_solve_use_journal: True
+      agent_validation_parallel_workers: 6
+      code_sim_learning_rollout_min_posterior_width: 0.1
+      continual_max_idle_rounds: 5
+      # The margin gate: always on, cheap (no real steps). Builds the
+      # Laplace ensemble and refuses a plan that only reaches the goal at
+      # the point estimate.
+      agent_plan_validation_rule_param_margin: True
+      # Info-seeking enabled but ADAPTIVE: dormant until the gate above
+      # refuses a plan, then it activates to reduce the flagged
+      # uncertainty. Removes the step tax on levels no plan is refused on.
+      agent_explorer_info_seeking: True
+      agent_explorer_info_seeking_adaptive: True

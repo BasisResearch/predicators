@@ -290,3 +290,53 @@ ENVS:
       # a step removed (run_20260902_152811 pressed three of four buttons
       # for a two-press goal).
       agent_plan_validation_necessity: True
+  icerink:
+    NAME: "pybullet_icerink"
+    # Parked by default; protocol_continual.yaml un-skips it.
+    SKIP: True
+    FLAGS:
+      max_initial_demos: 0
+      # A push is ~60 low-level steps and a slide settles within ~40
+      # more; a three-push plan plus a wait runs past the common 500 cap.
+      horizon: 2000
+      # A slide lands on its target a few ticks after the push option
+      # ends, so the per-step atom check would reject a plan that
+      # reaches the goal (same reason as pybullet_busyboard).
+      sesame_check_expected_atoms: False
+      pybullet_birrt_path_subsample_ratio: 2
+  launcher:
+    NAME: "pybullet_launcher"
+    SKIP: True
+    FLAGS:
+      max_initial_demos: 0
+      horizon: 1500
+      # The top block topples a few ticks after the launch option ends.
+      sesame_check_expected_atoms: False
+      pybullet_birrt_path_subsample_ratio: 2
+  magnets:
+    NAME: "pybullet_magnets"
+    SKIP: True
+    FLAGS:
+      max_initial_demos: 0
+      horizon: 1500
+      # A pulled piece settles under the tip a few ticks after the move.
+      sesame_check_expected_atoms: False
+      pybullet_birrt_path_subsample_ratio: 2
+  balloons:
+    NAME: "pybullet_balloons"
+    SKIP: True
+    FLAGS:
+      max_initial_demos: 0
+      horizon: 1500
+      # The box rises to the band a few ticks after the last tie.
+      sesame_check_expected_atoms: False
+      pybullet_birrt_path_subsample_ratio: 2
+  crane:
+    NAME: "pybullet_crane"
+    SKIP: True
+    FLAGS:
+      max_initial_demos: 0
+      horizon: 1500
+      # The crate settles on the bin some ticks after the pull option ends.
+      sesame_check_expected_atoms: False
+      pybullet_birrt_path_subsample_ratio: 2

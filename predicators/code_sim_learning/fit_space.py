@@ -78,8 +78,7 @@ class FitResult:
     Hessian/warm-start flags). They
     let a caller build a calibrated posterior covariance
     ``(J^T J / sigma^2 + diag(1/prior^2))^-1`` around the MAP without
-    re-deriving it. They stay ``None`` when LM was skipped or failed —
-    e.g. MCMC-only runs, where ``samples`` already carries the posterior.
+    re-deriving it. They stay ``None`` when LM was skipped or failed.
 
     Space conventions: ``samples`` (and therefore ``point_estimate``)
     are always in EXTERNAL (linear, simulator-facing) units, while
@@ -137,8 +136,8 @@ def param_bounds(
     (hi). A parameter that declares a negative ``lo`` -- e.g. a signed
     local offset whose true value is negative -- is therefore fit over
     its real range, while a parameter that declares no bounds keeps the
-    historical positivity assumption. Shared by the LM and emcee paths
-    so they constrain to the same box.
+    historical positivity assumption. Used by the LM fit to constrain to
+    the box.
     """
     lo = np.array([s.lo if s.lo is not None else 1e-6 for s in param_specs])
     hi = np.array([s.hi if s.hi is not None else np.inf for s in param_specs])

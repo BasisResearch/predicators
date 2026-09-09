@@ -62,7 +62,10 @@ def evaluate_states_with(evaluator: Any,
     including ``sim_env``, the belief env backing the rollout, passed
     through so physics-needing certificates (the domino counterfactual
     push probe) can probe with the same belief physics.
-    ``legitimate``/``reason`` are HARNESS-INTERNAL (capture gating,
+    ``note`` is the agent-facing sentence naming what a physics-
+    replaying certificate simulated and on what substrate (see
+    ``TaskEvaluator.verdict_note``); ``legitimate``/``reason`` are
+    HARNESS-INTERNAL (capture gating,
     logs), and ``terminated`` is agent-computable from the public goal
     atoms: agent-facing surfaces expose only the public (solved,
     reward) pair - the standard RL end-of-episode observables - so the
@@ -70,12 +73,17 @@ def evaluate_states_with(evaluator: Any,
     the outcomes its rollouts earn.
     """
     ok, reason = evaluator._certify(states, step_options, sim_env=sim_env)  # pylint: disable=protected-access
+    note_fn = getattr(evaluator, "verdict_note", None)
+    note = note_fn(states, step_options, sim_env=sim_env) if note_fn else ""
     return {
         "terminated": evaluator.terminated(states[-1]),
         "reward": evaluator.reward(states, step_options, sim_env=sim_env),
         "solved": evaluator.solved(states, step_options, sim_env=sim_env),
         "legitimate": ok,
         "reason": reason,
+        # Agent-facing, unlike ``reason``: what a physics-replaying
+        # certificate simulated (substrate and action), "" for a pure one.
+        "note": note,
     }
 
 

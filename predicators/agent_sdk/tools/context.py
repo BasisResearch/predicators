@@ -43,7 +43,7 @@ class ToolContext:
     example_state: Optional[State] = None
     option_model: Optional[_OptionModelBase] = None
     # Synthesis-session override for the run_python probe: a lazy
-    # builder over the CANDIDATE simulator.py (fresh MCMC fit, cached
+    # builder over the CANDIDATE simulator.py (fresh LM fit, cached
     # until the file changes). When set, BeliefProbe executes against it
     # instead of ``option_model`` - which during synthesis is the stale
     # pre-synthesis model (real physics on cycle 1: a live-env leak).
@@ -310,6 +310,31 @@ class ToolContext:
     # (agent_sdk_python_call_timeout); enforced at the same
     # probe checkpoints as attempt_deadline. None ⇒ no call in flight.
     python_call_deadline: Optional[float] = None
+    # Adaptive info-seeking trigger (agent_explorer_info_seeking_adaptive):
+    # set True the first time submit_plan's rule-param margin gate refuses
+    # a plan as PARAM-SENSITIVE, cleared when a plan is captured. While
+    # True the proactive info-seeking apparatus (suggest_probes ranking,
+    # disagreement guidance) is active; while False, and
+    # under the adaptive flag, it stays dormant so easy levels pay no
+    # info-seeking step tax. Ignored unless the adaptive flag is on.
+    param_sensitive_refusal_pending: bool = False
+
+    def info_seeking_active(self) -> bool:
+        """Whether the proactive info-seeking apparatus should run now.
+
+        Off when info-seeking exploration is disabled outright. On
+        whenever it is enabled and the adaptive flag is off (the
+        original always-on behaviour). Under the adaptive flag it turns
+        on only once the capture gate has refused a plan as PARAM-
+        SENSITIVE this run (``param_sensitive_refusal_pending``), so the
+        agent spends real steps reducing uncertainty only after a
+        fragile plan has actually been caught.
+        """
+        if not CFG.agent_explorer_info_seeking:
+            return False
+        if not CFG.agent_explorer_info_seeking_adaptive:
+            return True
+        return self.param_sensitive_refusal_pending
 
     def note_stream_entry(self, entry: Dict[str, Any]) -> None:
         """Fold one streamed SDK entry into the context counters."""

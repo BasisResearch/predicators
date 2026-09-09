@@ -1,8 +1,9 @@
 """Post-fit identifiability verdicts for the rollout system-ID stack.
 
-Posterior-vs-prior contraction reporting (MCMC widths or the noise-
-aware SSE curvature probe), at-bound detection, trust selection of the
-fitted values, and the human/agent-readable rendering. See the
+Posterior-vs-prior contraction reporting (sample widths when present,
+or the noise-aware SSE curvature probe), at-bound detection, trust
+selection of the fitted values, and the human/agent-readable rendering.
+See the
 :mod:`predicators.code_sim_learning.physical_sysid` module docstring
 for why non-identifiability is reported rather than regularized away.
 """
@@ -88,7 +89,7 @@ def identifiability_report(
 
     Posterior widths, in preference order per parameter:
 
-    * The MCMC chain's marginal widths, when a chain ran.
+    * The sample marginal widths, when multi-row samples are present.
     * The **grid landscape**: for a parameter the coordinate sweep
       covered, the width is the half-width (in FIT space) of its
       ``resolved_interval`` — the data-equivalent flat set widened to

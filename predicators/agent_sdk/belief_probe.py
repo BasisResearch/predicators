@@ -251,6 +251,11 @@ class ProbeResult(_StrLikeResult):
     final_atoms: List[str]
     final_state: State
     notes: List[str] = dataclasses.field(default_factory=list)
+    # The rollout's state sequence, start state first, per low-level
+    # step where the option model records one (else per option): what
+    # ``evaluate_trajectory`` scores, so a rollout can be scored or
+    # inspected without rebuilding it by hand.
+    states: List[State] = dataclasses.field(default_factory=list)
 
     def __repr__(self) -> str:
         lines = []
@@ -329,6 +334,9 @@ class ProbeTrialsResult(_StrLikeResult):
                 line += (f" - evaluator: solved={t['solved']}, "
                          f"reward={t['reward']:.2f}")
             lines.append(line)
+        replay_notes = [t["note"] for t in scored if t.get("note")]
+        if replay_notes:
+            lines.append(f"  verdict note: {replay_notes[0]}")
         if scored and any(t["goal_reached"] and not t["solved"]
                           for t in scored):
             lines.append(
@@ -590,7 +598,7 @@ class BeliefProbe:
         ``ctx.option_model``. Synthesis sessions install
         ``ctx.probe_option_model_provider`` instead - a lazy builder
         over the candidate ``simulator.py`` the agent is editing (fresh
-        MCMC fit, cached until the file changes) - so probes always
+        LM fit, cached until the file changes) - so probes always
         exercise the latest belief model, never the stale pre-synthesis
         one (real physics on cycle 1: a live-env leak).
         """
@@ -774,8 +782,8 @@ class BeliefProbe:
         mean heterogeneous data); ``fixed`` is rejected there - pin by
         narrowing the param's bounds in PHYSICAL_PARAM_SPECS. Reports SSE at
         init vs post-fit, fitted values with deltas, and (system-ID
-        path) per-parameter identifiability. MCMC - the expensive probe
-        call; use deliberately.
+        path) per-parameter identifiability. The fit is the expensive
+        probe call; use deliberately.
         """
         ctx = self._ctx
         _check_time_budget(ctx)
@@ -870,7 +878,7 @@ class BeliefProbe:
         no-rule baseline (negative = the rules hurt), and the worst-N
         example transitions - the fast inner loop for finding where the
         rules disagree with the data. Uses init_value params unless
-        ``fit_params=True`` (MCMC-fits first; diagnostic only, nothing
+        ``fit_params=True`` (LM-fits first; diagnostic only, nothing
         published). Tolerance: ``|pred - obs| > rel_tol * |obs| +
         abs_tol``. Snapshots the simulator file and tags the report
         ``[cycle_XXX_vers_YYY]``. ``path`` scores a DIFFERENT simulator
@@ -1384,6 +1392,7 @@ class BeliefProbe:
             def _one_trial(trial_idx: int) -> Dict[str, Any]:
                 trial_solved: Optional[bool] = None
                 trial_reward: Optional[float] = None
+                trial_note = ""
                 coarse = False
                 # decorrelated_rollout_seed: a fresh env alone gives
                 # bit-identical repeats (motion planning reads the
@@ -1440,6 +1449,7 @@ class BeliefProbe:
                             # the completed trials.
                             trial_reward = float(verdict["reward"])
                             trial_solved = bool(verdict["solved"])
+                            trial_note = str(verdict.get("note") or "")
                             # Only a produced verdict can be coarse; an
                             # errored one must not trip the coarse
                             # caveat.
@@ -1460,6 +1470,7 @@ class BeliefProbe:
                     "failure": failure,
                     "solved": trial_solved,
                     "reward": trial_reward,
+                    "note": trial_note,
                     "verdict_coarse": coarse,
                     "planner_seed": base_planner_seed + trial_idx,
                     "inexact_start_features": sorted(set(trial_inexact)),
@@ -1547,8 +1558,14 @@ class BeliefProbe:
                 "advanced.")
 
         step_dicts: List[Dict[str, Any]] = []
+        # The rollout's states for the result (bound once the option
+        # model exists below; the collector reads its per-step
+        # trajectory when it records one).
+        collectors: List[_EvalStateCollector] = []
 
         def _on_step(i: int, outcome: Any) -> None:
+            for c in collectors:
+                c.on_step(i, outcome)
             sig = _fmt_option(outcome.option)
             added: List[str] = []
             deleted: List[str] = []
@@ -1605,6 +1622,7 @@ class BeliefProbe:
 
         _count_rollout(ctx)
         model = self._option_model()
+        collectors.append(_EvalStateCollector(model, probe_task.init))
         # Contact recording rides on the physics env the option model
         # steps (its ``sim_env``, the same binding certificate probes
         # use); a candidate-simulator model without one degrades to a
@@ -1660,8 +1678,12 @@ class BeliefProbe:
         hn = _horizon_note(sum(s["num_actions"] for s in step_dicts))
         if hn is not None:
             notices.append(hn)
-        return ProbeResult(step_dicts, result.goal_reached, final_atoms,
-                           result.final_state, notices)
+        return ProbeResult(step_dicts,
+                           result.goal_reached,
+                           final_atoms,
+                           result.final_state,
+                           notices,
+                           states=list(collectors[0].states))
 
     def run_policy(
         self,
@@ -1962,6 +1984,19 @@ class BeliefProbe:
                 "no ensemble disagreement scorer is available in this "
                 "session (info-seeking ensemble not installed), so "
                 "alternatives cannot be ranked."
+            ])
+        if not ctx.info_seeking_active():
+            # Adaptive info-seeking: hold probing back until the capture
+            # gate has actually caught a fragile plan. Spending real steps
+            # to reduce uncertainty before then is the step tax this mode
+            # removes on easy levels.
+            return ProbeSuggestResult([], [
+                "adaptive info-seeking: no plan has been refused as "
+                "parameter-sensitive yet, so probing is not worth real "
+                "steps. Submit your best plan; if the capture gate refuses "
+                "it because a parameter's uncertainty threatens the goal, "
+                "it will name that parameter and this call will then rank "
+                "the probes that reduce it."
             ])
         probe_task, sketch_steps, all_predicates, notices = \
             self._parse_sketch(sketch_text)

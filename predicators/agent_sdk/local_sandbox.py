@@ -169,7 +169,7 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
 
         # Ensure sandbox exists before creating the log file.
         self._ensure_sandbox_dir()
-        self._export_data()
+        self.refresh_data()
 
         # Create and commit the log file BEFORE starting the session so that
         # Claude Code's Glob (which indexes files at session startup) can
@@ -308,15 +308,23 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
             logger.warning("git commit of session log failed: %s", e)
         return filepath
 
-    def _export_data(self) -> None:
+    def refresh_data(self, commit: bool = True) -> None:
         """Refresh ``data/trajectories.pkl`` from the tool context so the
         agent's own scripts read the same training data the prompts and tool
-        namespace expose."""
+        namespace expose.
+
+        Every query starts with a committed refresh; a caller that
+        refreshes between the agent's turns (the continual play loop,
+        after every environment call) passes ``commit=False`` and the
+        next query's refresh commits the file once.
+        """
         ctx = self._tool_context
         trajectories = list(getattr(ctx, "offline_trajectories", []) or []) + \
             list(getattr(ctx, "online_trajectories", []) or [])
         try:
-            if export_trajectories(self._sandbox_dir, trajectories):
+            if export_trajectories(self._sandbox_dir,
+                                   trajectories,
+                                   commit=commit):
                 logger.info("Sandbox data refreshed: %d trajectories.",
                             len(trajectories))
         except Exception as e:  # pylint: disable=broad-except

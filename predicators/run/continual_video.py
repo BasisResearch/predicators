@@ -425,10 +425,14 @@ def iter_level_frames(env: BaseEnv, card: RunCard, level: LevelCard,
         CFG.continual_allow_test_resets)
     level_env, fresh = _level_env(env)
     runner = EpisodeRunner(level_env,
-                           horizon=CFG.horizon,
+                           horizon=CFG.continual_episode_horizon,
                            max_option_steps=CFG.max_num_steps_option_rollout)
     level_steps = 0
     level_resets = 0
+    # How the scorecard says each episode ended ("game_over:<reason>",
+    # "win", "reset", "in_progress"), for a game over the replay's
+    # runner does not raise itself.
+    recorded_end = {rec.index: rec.end for rec in level.episodes}
     try:
         for ep in episodes:
             runner.finish()
@@ -518,6 +522,15 @@ def iter_level_frames(env: BaseEnv, card: RunCard, level: LevelCard,
                         render,
                         label(i, f"GAME OVER: {outcome.reason}",
                               PANEL_BAD)), 2 * hold
+                elif i + 1 == n and recorded_end.get(
+                        ep.index, "").startswith("game_over:"):
+                    # A recording made under an episode horizon the
+                    # current run has none of: the runner replays past
+                    # it, the scorecard still says how the episode ended.
+                    reason = recorded_end[ep.index].split(":", 1)[1]
+                    yield compose_frame(
+                        render, label(i, f"GAME OVER: {reason}",
+                                      PANEL_BAD)), 2 * hold
                 else:
                     yield compose_frame(render, label(i)), 1
     finally:

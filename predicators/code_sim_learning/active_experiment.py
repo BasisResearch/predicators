@@ -1,24 +1,27 @@
 """Active-experiment-design primitives for sim-learning exploration.
 
 Pure, dependency-light helpers used to turn the explorer's refinement
-from *feasibility-seeking* into *information-seeking*. Three pieces:
+from *feasibility-seeking* into *information-seeking*. The pieces:
 
 * :func:`perturbation_ensemble` — build a small ensemble of plausible
   parameter vectors around a point estimate (the MAP), by perturbing
   each parameter within its ``ParamSpec`` bounds. This is the universal
   fallback that works for both per-transition and recurrent simulators
-  (neither a Jacobian nor MCMC samples are required).
+  (no Jacobian required).
 
-* :func:`posterior_subsample_ensemble` / :func:`laplace_ensemble` — the
-  *calibrated* upgrades, preferred when the fit supplies the inputs. The
-  former subsamples real MCMC posterior draws (``num_mcmc_steps > 0``);
-  the latter draws from the Laplace covariance ``(J^T J / sigma^2 +
-  diag(1/prior^2))^-1`` at the MAP using the LM Jacobian — per-transition
-  or recurrent — when MCMC was skipped (``num_mcmc_steps == 0``). Both
-  let the ensemble spread reflect what the data actually leaves
-  uncertain — per-parameter, with correlations — rather than uniform
-  jitter, so disagreement concentrates on genuinely under-constrained
-  parameters instead of merely sensitive ones.
+* :func:`subsample_ensemble` — subsample an explicit sample set the fit
+  already carries (the declared-params ablation's
+  ``declared_interval_fit_result`` fills it with uniform draws over the
+  declared boxes), anchoring at the fit's own combined point estimate.
+
+* :func:`laplace_ensemble` — the *calibrated* upgrade, preferred when
+  the fit supplies a Jacobian. It draws from the Laplace covariance
+  ``(J^T J / sigma^2 + diag(1/prior^2))^-1`` at the MAP using the LM
+  Jacobian — per-transition or recurrent. This lets the ensemble spread
+  reflect what the data actually leaves uncertain — per-parameter, with
+  correlations — rather than uniform jitter, so disagreement concentrates
+  on genuinely under-constrained parameters instead of merely sensitive
+  ones.
 
 * :func:`mean_bernoulli_entropy` — score how much an ensemble
   *disagrees* about a set of boolean atoms in a given state. High
@@ -118,25 +121,26 @@ def perturbation_ensemble(
     return members
 
 
-def posterior_subsample_ensemble(
+def subsample_ensemble(
     point: Dict[str, float],
     names: Sequence[str],
     samples: np.ndarray,
     num_members: int,
     rng: np.random.Generator,
 ) -> List[Dict[str, float]]:
-    """Build an ensemble by subsampling MCMC posterior ``samples``.
+    """Build an ensemble by subsampling an EXPLICIT sample set ``samples``.
 
-    The calibrated counterpart to :func:`perturbation_ensemble` for the
-    ``num_mcmc_steps > 0`` case: ``samples`` (shape ``(num_draws,
-    len(names))``) already *is* the posterior, so each non-anchor member
-    is a random posterior draw rather than synthetic jitter — the spread
-    therefore reflects what the data actually leaves uncertain.
+    Used when the fit already carries its own draws rather than a
+    Jacobian - the declared-params ablation, whose
+    ``declared_interval_fit_result`` fills ``samples`` (shape
+    ``(num_draws, len(names))``) with uniform draws over each parameter's
+    declared box. Each non-anchor member is one of those rows verbatim,
+    so the spread is the declared plausible range.
 
-    Member 0 is always ``point`` (the ensemble anchor), so a size-1 ensemble
-    reduces to the point estimate. Draws are without replacement when the
-    pool is large enough, with replacement otherwise. Keys of ``point``
-    not in ``names`` are carried through each member unperturbed.
+    Member 0 is always ``point`` (the ensemble anchor), so a size-1
+    ensemble reduces to the point estimate. Draws are without replacement
+    when the pool is large enough, with replacement otherwise. Keys of
+    ``point`` not in ``names`` are carried through each member unperturbed.
     """
     if num_members < 1:
         raise ValueError("num_members must be >= 1")
@@ -168,10 +172,9 @@ def laplace_ensemble(
 ) -> List[Dict[str, float]]:
     """Build an ensemble from the Laplace posterior at the MAP.
 
-    The calibrated counterpart to :func:`perturbation_ensemble` for the
-    ``num_mcmc_steps == 0`` case (the Jacobian comes from the
-    per-transition or recurrent LM fit). Under a Laplace approximation
-    the negative-log-posterior Hessian at the MAP is
+    The calibrated counterpart to :func:`perturbation_ensemble` (the
+    Jacobian comes from the per-transition or recurrent LM fit). Under a
+    Laplace approximation the negative-log-posterior Hessian at the MAP is
 
         ``H = J^T J / sigma^2 + diag(1 / prior_sigma^2)``
 

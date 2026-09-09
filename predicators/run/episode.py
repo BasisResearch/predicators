@@ -75,10 +75,12 @@ class EpisodeRunner:
 
     def __init__(self,
                  env: BaseEnv,
-                 horizon: int,
+                 horizon: Optional[int],
                  max_option_steps: Optional[int] = None,
                  predicates: Optional[Set[Predicate]] = None) -> None:
         self._env = env
+        # None: no episode horizon; an episode ends only by a win, a
+        # reset, an env failure or a rejected or irrecoverable state.
         self._horizon = horizon
         self._max_option_steps = max_option_steps
         # Abstraction used by Wait termination and by divergence checks.
@@ -123,6 +125,12 @@ class EpisodeRunner:
     def num_steps(self) -> int:
         """Primitive steps taken in the current episode."""
         return len(self._actions)
+
+    @property
+    def horizon(self) -> Optional[int]:
+        """The episode's step horizon, reaching which is ``GAME_OVER``, or None
+        when episodes have none."""
+        return self._horizon
 
     @property
     def env_seconds(self) -> float:
@@ -279,7 +287,7 @@ class EpisodeRunner:
             else:
                 self._end(EpisodeState.GAME_OVER, f"rejected: {why}")
             return
-        if len(self._actions) >= self._horizon:
+        if self._horizon is not None and len(self._actions) >= self._horizon:
             self._end(EpisodeState.GAME_OVER, "horizon")
 
     def _end(self, state: EpisodeState, reason: str) -> None:

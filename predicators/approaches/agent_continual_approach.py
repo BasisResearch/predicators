@@ -28,15 +28,20 @@ predicates when an experiment wants that.
 from __future__ import annotations
 
 import logging
+import os
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, FrozenSet, List, Optional, Set, \
     Tuple
 
 from predicators.agent_sdk import journal as journal_mod
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES
+from predicators.agent_sdk.tools.sandbox_guard import \
+    _screen_text_for_sandbox_escape
 from predicators.agent_sdk.tools.synthesis import create_synthesis_tools
 from predicators.approaches.agent_model_free_approach import \
     AgentModelFreeApproach
 from predicators.approaches.agent_sim_learning_approach import \
+    count_residual_hits, residual_hint_from_hits, \
     resolve_kept_predicate_names
 from predicators.approaches.agent_sim_predicate_invention_approach import \
     AgentSimPredicateInventionApproach
@@ -46,7 +51,7 @@ from predicators.code_sim_learning.utils import LearnedSimulator, apply_rules
 from predicators.envs import create_new_env
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
-from predicators.structs import LowLevelTrajectory, Predicate, State
+from predicators.structs import Action, LowLevelTrajectory, Predicate, State
 
 if TYPE_CHECKING:  # pragma: no cover - the run package imports approaches
     from predicators.run.continual import ProtocolSession
@@ -55,9 +60,53 @@ if TYPE_CHECKING:  # pragma: no cover - the run package imports approaches
 # it some: none.
 NO_ENV_PREDICATES: FrozenSet[str] = frozenset()
 
-# What one round stashes for its post-round finalize.
-_RoundModel = Tuple[List[LowLevelTrajectory], List[Any], List[Any],
-                    Dict[str, List[str]], Any, Dict[str, str]]
+# The agent's own helpers around the probe, loaded into the run_python
+# namespace at every round start so they survive compaction and resume.
+PROBE_EXTENSION_FILE = "probe_ext.py"
+
+_Triple = Tuple[State, Action, State]
+
+
+@dataclass
+class _EpisodeTriples:
+    """One recorded episode's transitions, their base-sim predictions and
+    residual hits, extended as the episode grows.
+
+    ``first_state`` names the episode: the recording keeps its state
+    objects across syncs, so the first one identifies the episode and
+    pins it against id reuse.
+    """
+    first_state: State
+    obs: List[_Triple] = field(default_factory=list)
+    base: List[_Triple] = field(default_factory=list)
+    hits: Dict[Tuple[str, str], int] = field(default_factory=dict)
+
+
+@dataclass
+class _Workbench:
+    """The model workbench's data over the run.
+
+    The lists are what the ``run_python`` namespace, the synthesis
+    toolkit and the probe hold by reference; every charged env call
+    extends them in place (:meth:`AgentContinualApproach.
+    _refresh_workbench`), so a fit, a rollout or the agent's own code
+    sees the recording as it stands. The base env predicts the new
+    transitions; it opens on first use and is released with the round.
+    """
+    trajectories: List[LowLevelTrajectory] = field(default_factory=list)
+    obs_triples: List[_Triple] = field(default_factory=list)
+    base_pred_triples: List[_Triple] = field(default_factory=list)
+    inferred_hint: Dict[str, List[str]] = field(default_factory=dict)
+    episodes: Dict[int, _EpisodeTriples] = field(default_factory=dict)
+    env: Optional[Any] = None
+    # The recording's shape (one action count per episode) at the last
+    # refresh: a change invalidates the engine's memoized fits.
+    fingerprint: Tuple[int, ...] = ()
+
+
+# What one round stashes for its post-round finalize: the workbench, the
+# synthesis paths, the extra artifact paths.
+_RoundModel = Tuple[_Workbench, Any, Dict[str, str]]
 
 
 class AgentContinualApproach(ContinualPlayMixin,
@@ -69,11 +118,17 @@ class AgentContinualApproach(ContinualPlayMixin,
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        # Per-round workbench state, set in _round_extra_tools and
-        # consumed in _after_round.
+        # The workbench's data lives for the run (its base-sim
+        # predictions are computed once per transition); the round's
+        # paths are set in _round_extra_tools and consumed in
+        # _after_round.
+        self._workbench = _Workbench()
         self._round_model: Optional[_RoundModel] = None
         self._fit_version_before: Optional[str] = None
         self._episodes_at_last_fit = 0
+        # What loading ./probe_ext.py did at the round's start, for the
+        # query's model line.
+        self._probe_ext_status = ""
         self._last_round_modelled = False
 
     @classmethod
@@ -115,18 +170,19 @@ class AgentContinualApproach(ContinualPlayMixin,
     def _model_status(self, session: ProtocolSession) -> str:
         n_eps, n_steps = self._episode_counts(session)
         data = f"Recorded episodes so far: {n_eps} ({n_steps} steps)."
+        ext = f" {self._probe_ext_status}" if self._probe_ext_status else ""
         if self._current_simulator_version is None:
             return ("No model yet: `sim` is the base simulator, the visible "
                     "physics with none of the environment's hidden "
                     "mechanisms. Build `./simulator.py` and `./predicates.py` "
-                    "in `run_python` and call `sim.fit()`. " + data)
+                    "in `run_python` and call `sim.fit()`. " + data + ext)
         new = max(0, n_eps - self._episodes_at_last_fit)
         refit = (f" {new} episode(s) recorded since your last fit; refit with "
                  "`sim.fit()` before you rely on the model." if new else "")
         return (
             f"Your model: `simulator.py` {self._current_simulator_version}"
             f", `predicates.py` {self._current_predicates_version or 'none'}"
-            f". Last fit: {self._fit_status_text()}. {data}{refit}")
+            f". Last fit: {self._fit_status_text()}. {data}{refit}{ext}")
 
     def _round_was_productive(self, session: ProtocolSession, state: Any,
                               steps_before: int, steps_after: int) -> bool:
@@ -158,13 +214,14 @@ class AgentContinualApproach(ContinualPlayMixin,
         # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk.belief_probe import _check_time_budget, \
             build_probe_namespace
-        trajectories = self._get_all_trajectories()
-        obs_triples, base_pred_triples, inferred_hint = \
-            self._prepare_model_data(trajectories)
+        bench = self._workbench
+        self._refresh_workbench()
+        trajectories = bench.trajectories
+        base_pred_triples = bench.base_pred_triples
+        inferred_hint = bench.inferred_hint
         paths = self._resolve_synthesis_paths()
         extra_paths = self._compute_extra_synthesis_paths(paths.base)
-        self._round_model = (trajectories, obs_triples, base_pred_triples,
-                             inferred_hint, paths, extra_paths)
+        self._round_model = (bench, paths, extra_paths)
         self._fit_version_before = self._probe_fit_state().get("version")
 
         exec_ns = self._build_synthesis_exec_ns(trajectories)
@@ -193,14 +250,61 @@ class AgentContinualApproach(ContinualPlayMixin,
         probe_ns = build_probe_namespace(ctx)
         exec_ns["sim"] = probe_ns["sim"]
         exec_ns["BeliefProbe"] = probe_ns["BeliefProbe"]
+        self._load_probe_extension(exec_ns, paths.base)
         declared = set(self._get_synthesis_tool_names() or ())
         return [t for t in toolkit.tools if getattr(t, "name", "") in declared]
+
+    def _load_probe_extension(self, exec_ns: Dict[str, Any],
+                              sandbox_dir: str) -> None:
+        """Run the agent's ``./probe_ext.py`` in the ``run_python`` namespace.
+
+        The namespace is rebuilt every round and lost on a resume, so
+        helpers the agent wraps around ``sim`` (sweeps, scoring loops,
+        layout builders) vanished with the context unless it re-ran them
+        by hand (domino m2 and m3, 2026-09-05, both rebuilt their
+        helpers from the session log). The file's top-level definitions
+        land next to ``sim``, ``trajectories`` and the rest, under the
+        same sandbox screen as ``run_python`` code; what happened is
+        reported in the query's model line (:meth:`_model_status`).
+        """
+        path = os.path.join(sandbox_dir, PROBE_EXTENSION_FILE)
+        self._probe_ext_status = ""
+        if not os.path.isfile(path):
+            return
+        with open(path, encoding="utf-8") as f:
+            code = f.read()
+        reason = _screen_text_for_sandbox_escape(code, sandbox_dir)
+        if reason is not None:
+            self._probe_ext_status = (
+                f"`./{PROBE_EXTENSION_FILE}` was NOT loaded: the sandbox "
+                f"guard blocked it ({reason}).")
+            return
+        before = set(exec_ns)
+        prev_cwd = os.getcwd()
+        try:
+            os.chdir(sandbox_dir)
+            exec(compile(code, f"./{PROBE_EXTENSION_FILE}", "exec"), exec_ns)  # pylint: disable=exec-used
+        except Exception as e:  # pylint: disable=broad-except
+            logging.warning("[Continual agent] %s failed to load: %s",
+                            PROBE_EXTENSION_FILE, e)
+            self._probe_ext_status = (
+                f"`./{PROBE_EXTENSION_FILE}` failed to load "
+                f"({type(e).__name__}: {e}); its definitions are missing "
+                "from `run_python` until you fix it.")
+            return
+        finally:
+            os.chdir(prev_cwd)
+        names = sorted(n for n in set(exec_ns) - before
+                       if not n.startswith("_"))
+        listed = f" ({', '.join(names)})" if names else ""
+        self._probe_ext_status = (
+            f"`./{PROBE_EXTENSION_FILE}` loaded into `run_python`{listed}.")
 
     def _round_hooks(self, session: ProtocolSession) -> Dict[str, list]:
         del session
         if self._round_model is None:
             return {}
-        _, _, _, _, paths, extra_paths = self._round_model
+        _, paths, extra_paths = self._round_model
         targets = self._build_write_snapshot_targets(paths.simulator_file,
                                                      paths.versions_dir,
                                                      extra_paths)
@@ -213,13 +317,11 @@ class AgentContinualApproach(ContinualPlayMixin,
         self._last_round_modelled = False
         if self._round_model is None:
             return
-        trajectories, obs_triples, base_pred_triples, inferred_hint, paths, \
-            extra_paths = self._round_model
-        del obs_triples
+        bench, paths, extra_paths = self._round_model
         try:
-            self._deploy_session_model(session, trajectories,
-                                       base_pred_triples, inferred_hint, paths,
-                                       extra_paths)
+            self._deploy_session_model(session, bench.trajectories,
+                                       bench.base_pred_triples,
+                                       bench.inferred_hint, paths, extra_paths)
         except Exception as e:  # pylint: disable=broad-except
             logging.exception("[Continual agent] deploying the session's "
                               "model failed")
@@ -227,6 +329,11 @@ class AgentContinualApproach(ContinualPlayMixin,
         finally:
             self._clear_probe_providers()
             self._round_model = None
+            self._release_workbench_env()
+
+    def _refresh_arm_data(self, session: ProtocolSession) -> None:
+        del session
+        self._refresh_workbench()
 
     def _deploy_session_model(self, session: ProtocolSession,
                               trajectories: List[LowLevelTrajectory],
@@ -283,26 +390,92 @@ class AgentContinualApproach(ContinualPlayMixin,
             filename=journal_mod.ATTEMPTS_FILENAME)
         del paths
 
-    def _prepare_model_data(
-        self, trajectories: List[LowLevelTrajectory]
-    ) -> Tuple[List[Any], List[Any], Dict[str, List[str]]]:
-        """The recorded transitions, their base-sim predictions and the
-        residual-feature hint, over every episode so far."""
-        obs_triples = self._extract_obs_triples(trajectories)
+    # -- The workbench's data -----------------------------------------------
+
+    def _refresh_workbench(self) -> None:
+        """Bring the workbench's lists up to the recording, in place: the
+        trajectory list, the transitions with their base-sim predictions
+        (computed for the new transitions only), the residual-feature hint.
+
+        Called when a round opens and after every charged env call
+        inside it, so a fit, a rollout or the agent's own code over
+        ``trajectories`` sees the episode in progress. The per-episode
+        cache is keyed by the episode's first state object, which the
+        recording keeps; an episode that comes back as new objects (a
+        level reloaded from its pickle after a resume) is predicted once
+        more.
+        """
+        bench = self._workbench
+        bench.trajectories[:] = self._get_all_trajectories()
+        # The engine slices the flat triples back into per-episode
+        # groups by these lengths (a latent block threads within an
+        # episode, never across); the list object keeps them current.
+        self._fit_trajectories = bench.trajectories
+        fingerprint = tuple(len(t.actions) for t in bench.trajectories)
+        if fingerprint != bench.fingerprint:
+            # New data invalidates the memoized whole fits and
+            # explainability verdicts, as the phased learn hook does
+            # when its data arrives (the caches key trajectories by
+            # segment lengths, so a grown episode must not answer from
+            # its shorter self).
+            bench.fingerprint = fingerprint
+            self._explainability_cache.clear()
+            self._sysid_fit_cache.clear()
+        seen: Set[int] = set()
+        obs_all: List[_Triple] = []
+        base_all: List[_Triple] = []
+        for traj in bench.trajectories:
+            if not traj.actions:
+                continue
+            first = traj.states[0]
+            key = id(first)
+            ep = bench.episodes.get(key)
+            if ep is None or ep.first_state is not first:
+                ep = _EpisodeTriples(first)
+                bench.episodes[key] = ep
+            seen.add(key)
+            done = len(ep.obs)
+            if len(traj.actions) > done:
+                new_obs = [(traj.states[i], traj.actions[i],
+                            traj.states[i + 1])
+                           for i in range(done, len(traj.actions))]
+                new_base = self._base_predictions(new_obs)
+                ep.obs.extend(new_obs)
+                ep.base.extend(new_base)
+                count_residual_hits(new_base, ep.hits)
+            obs_all.extend(ep.obs)
+            base_all.extend(ep.base)
+        for key in [k for k in bench.episodes if k not in seen]:
+            del bench.episodes[key]
+        bench.obs_triples[:] = obs_all
+        bench.base_pred_triples[:] = base_all
+        hits: Dict[Tuple[str, str], int] = {}
+        for ep in bench.episodes.values():
+            for pair, n in ep.hits.items():
+                hits[pair] = hits.get(pair, 0) + n
+        hint = residual_hint_from_hits(hits)
+        bench.inferred_hint.clear()
+        bench.inferred_hint.update(hint)
+
+    def _base_predictions(self, obs_triples: List[_Triple]) -> List[_Triple]:
+        """The base sim's one-step prediction of each transition, on the
+        workbench's own env (the visible physics with no hidden mechanism),
+        opened on first use."""
         if not obs_triples:
-            return [], [], {}
-        fit_env = create_new_env(CFG.env,
-                                 do_cache=False,
-                                 use_gui=False,
-                                 skip_residual_dynamics=True)
-        try:
-            base_pred_triples = self._compute_base_pred_triples(
-                obs_triples, fit_env)
-        finally:
-            dispose_env(fit_env)
-        inferred_hint = self._infer_residual_features_from_scan(
-            obs_triples, base_pred_triples)
-        return obs_triples, base_pred_triples, inferred_hint
+            return []
+        bench = self._workbench
+        if bench.env is None:
+            bench.env = create_new_env(CFG.env,
+                                       do_cache=False,
+                                       use_gui=False,
+                                       skip_residual_dynamics=True)
+        return self._compute_base_pred_triples(obs_triples, bench.env)
+
+    def _release_workbench_env(self) -> None:
+        bench = self._workbench
+        if bench.env is not None:
+            dispose_env(bench.env)
+            bench.env = None
 
     def _fit_status_text(self) -> str:
         """The last fit as one line for the prompt: the point estimate per

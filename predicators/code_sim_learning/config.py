@@ -8,11 +8,10 @@ Public entry points resolve ``config = config or SysIdConfig.from_cfg()``
 at call time - never at import time - because tests reconfigure the
 global settings via ``utils.reset_config`` between calls.
 
-``warm_start_with_lm``, ``num_mcmc_steps`` and
-``log_hessian_identifiability`` are carried here for completeness of the
-sysID knob surface, but :mod:`fitting` and :mod:`lm` keep their direct
-``CFG`` reads for them (their use is small and shared with the
-non-sysID, per-transition fitting paths).
+``warm_start_with_lm`` and ``log_hessian_identifiability`` are carried
+here for completeness of the sysID knob surface, but :mod:`fitting` and
+:mod:`lm` keep their direct ``CFG`` reads for them (their use is small
+and shared with the non-sysID, per-transition fitting paths).
 """
 
 from __future__ import annotations
@@ -49,7 +48,6 @@ class SysIdConfig:
     """
 
     warm_start_with_lm: bool
-    num_mcmc_steps: int
     grid_seed_points: int
     grid_sweep_passes: int
     grid_refine_evals: int
@@ -88,7 +86,6 @@ class SysIdConfig:
         """
         return cls(
             warm_start_with_lm=CFG.code_sim_learning_warm_start_with_lm,
-            num_mcmc_steps=CFG.code_sim_learning_num_mcmc_steps,
             grid_seed_points=CFG.code_sim_learning_rollout_grid_seed_points,
             grid_sweep_passes=(
                 CFG.code_sim_learning_rollout_grid_sweep_passes),

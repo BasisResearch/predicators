@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Iterable, Sequence
 
 from predicators.agent_sdk.prompt_templates import render
+from predicators.settings import CFG
 
 # Tool descriptions shown in the system prompt, in this order. The
 # tool schemas carry the argument details; this list is the map.
@@ -84,7 +85,19 @@ def build_play_system_prompt(tool_names: Sequence[str],
             "play_system",
             "base_sim_refs",
             ref_listing="\n".join(f"  - {r}" for r in base_sim_refs)))
-        sections.append(render("play_system", "model", base_sim_refs=refs))
+        # Adaptive info-seeking: teach the submit-first protocol only when
+        # the flag is on, so the always-on info-seeking arm (flag off) is
+        # not told to hold probing back. A leading newline keeps the
+        # placeholder line blank when empty.
+        adaptive = ""
+        if (CFG.agent_explorer_info_seeking
+                and CFG.agent_explorer_info_seeking_adaptive):
+            adaptive = "\n" + render("play_system", "adaptive_info_seeking")
+        sections.append(
+            render("play_system",
+                   "model",
+                   base_sim_refs=refs,
+                   adaptive_info_seeking=adaptive))
         if model_contract:
             sections.append(model_contract)
     sections += [
@@ -128,6 +141,7 @@ def build_model_contract(
     if partially_observable:
         parts.append(render("play_model_contract", "hidden_state"))
     parts.append(render("play_model_contract", "paramspec"))
+    parts.append(render("play_model_contract", "subclass"))
     if physical_params_section:
         parts.append(physical_params_section)
     if declared_params_only:

@@ -388,10 +388,11 @@ the file fresh on every call and prefix their reports with
 `describe_trajectory(traj_idx)` (a per-timestep digest), `np`, and
 `ParamSpec` are in scope, plus `evaluate_trajectory(states,
 actions=None, task_idx=0)` when the learn message states a task
-objective (it scores a state sequence with the env's ground-truth
-evaluator; on your own simulator's rollouts the verdict is only as good
-as the simulator). The `sim` probe over your candidate simulator lives
-in the same namespace:
+objective (the task's reward model: the environment's scoring rules
+over a state sequence; on your own simulator's rollouts a rule that
+replays physics runs on that simulator, so the verdict is only as good
+as the simulator, and the returned `note` says what it replayed). The
+`sim` probe over your candidate simulator lives in the same namespace:
 
 - `sim.fit()`: parameter fitting plus report; the cheap inner-loop
   signal.

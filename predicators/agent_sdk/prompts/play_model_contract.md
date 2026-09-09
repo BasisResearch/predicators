@@ -242,6 +242,53 @@ multiplicative; `discrete=True` for an index or a count the rule
 rounds (a wiring slot), which the fit then treats as a choice, not a
 knob.
 
+<!-- section: subclass -->
+## Alternative: a base-sim subclass
+
+The rule form above runs your dynamics on top of a fixed base
+simulator through the command channel; a few effects that channel
+cannot express (setting a body's mass, damping or restitution,
+teleporting a body, wiring a constraint) need the engine directly.
+For those, `./simulator.py` may instead export the SUBCLASS form: a
+subclass of this environment's base-simulator class that overrides the
+one hidden-dynamics step with full engine access.
+
+```python
+RESIDUAL_ENV:      type                    # a subclass of the base-sim class
+RESIDUAL_FEATURES: Dict[str, List[str]]    # the features it owns, as in the rule form
+```
+
+The base-sim class source is provided read-only under
+`reference/base_sim/`; subclass it, and override `_domain_specific_step`
+(the hook the base sim calls each step for its hidden dynamics) to
+reach the engine (`p.changeDynamics`, `p.resetBasePositionAndOrientation`,
+`p.applyExternalForce`, constraints, ...). Declare the learnable
+constants as `ParamSpec`s in the class attribute `AGENT_PARAM_SPECS`
+and read them live inside the step with `self.agent_param(name)`.
+
+```python
+class MyDynamics(TheBaseSimClass):
+    AGENT_PARAM_SPECS = [ParamSpec("drag", 0.1, lo=0.0, hi=40.0, scale="log")]
+    RESIDUAL_FEATURES = {"ball": ["x", "y", "z"]}
+
+    def _domain_specific_step(self):
+        for ball in self._active_balls(self._get_state()):
+            p.changeDynamics(ball.id, -1,
+                             linearDamping=self.agent_param("drag"),
+                             physicsClientId=self._physics_client_id)
+
+RESIDUAL_ENV = MyDynamics
+```
+
+The harness runs an instance of `RESIDUAL_ENV` as the planning base env,
+so its `_domain_specific_step` fires under `sim.run` / `sim.refine`,
+and `sim.fit` identifies its `AGENT_PARAM_SPECS` exactly as it
+identifies the system-ID parameters above. Prefer the rule form when
+the command channel can express the effect (it keeps the base sim's
+dynamics untouched); reach for the subclass only for the effects it
+cannot. Export exactly one of `RESIDUAL_RULES` or `RESIDUAL_ENV`, never
+both.
+
 <!-- section: predicates -->
 ## `predicates.py`
 
