@@ -36,6 +36,7 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk import learn_prompts
+from predicators.agent_sdk.fit_status import format_fit_status
 from predicators.agent_sdk.session_base import AgentSessionFatalError, \
     max_session_log_number, query_fatal_error
 from predicators.agent_sdk.tools import SYNTHESIS_TOOL_NAMES, \
@@ -764,6 +765,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             list(self._physical_param_specs),
             "last_fit_result":
             self._last_fit_result,
+            "probe_fit_state":
+            dict(self._probe_fit_state()),
             "param_ensemble":
             list(self._param_ensemble),
             "identified_physical_params":
@@ -812,6 +815,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         self._physical_param_specs = list(
             save_dict.get("physical_param_specs") or [])
         self._last_fit_result = save_dict.get("last_fit_result")
+        self._probe_fit_state().clear()
+        self._probe_fit_state().update(save_dict.get("probe_fit_state") or {})
+        self._probe_model_cache().clear()
         self._param_ensemble = list(save_dict.get("param_ensemble") or [])
         self._identified_physical_params = dict(
             save_dict.get("identified_physical_params") or {})
@@ -1099,6 +1105,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         applied_physical: Optional[Dict[str, float]] = None,
         sigma_points: Optional[List[Dict[str, float]]] = None,
         pinned: bool = False,
+        coverage: Optional[Tuple[int, int]] = None,
     ) -> None:
         """Deploy a canonical ``sim.fit`` result to the candidate probe.
 
@@ -1137,6 +1144,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 "params); keeping the earlier finite fit %s (SSE %.6f) of "
                 "the same simulator.py as canonical.", version_tag,
                 state.get("version"), float(state["sse"]))
+            state["last_rejection"] = version_tag
+            self._tool_context.probe_param_status = format_fit_status(state)
+            self._probe_model_cache().clear()
             return
         self._fitted_params.clear()
         self._fitted_params.update(params)
@@ -1145,12 +1155,14 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         state["fit_result"] = fit_result
         state["sse"] = sse
         state["pinned"] = bool(pinned)
+        state["coverage"] = coverage
+        state.pop("last_rejection", None)
         state["applied_physical"] = dict(applied_physical or {})
         state["sigma_points"] = list(sigma_points or [])
         self._probe_model_cache().clear()
-        self._tool_context.probe_param_status = f"fitted ({version_tag})"
-        logger.info("Synthesis probe: sim.fit deployed %d params (%s).",
-                    len(params), version_tag)
+        self._tool_context.probe_param_status = format_fit_status(state)
+        logger.info("Synthesis probe: deployed %d params; %s.", len(params),
+                    self._tool_context.probe_param_status)
 
     def _published_fit_for_file(
         self,
@@ -1270,7 +1282,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                           "simulator.py (parameter estimation is disabled "
                           "in this run)")
             elif fit_state.get("digest") == digest:
-                status = f"fitted ({fit_state.get('version')})"
+                status = format_fit_status(fit_state)
             else:
                 status = (
                     "UNFITTED for the current simulator.py - the candidate "
@@ -1623,6 +1635,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             self._tool_context.probe_artifact_loaders.clear()
             self._tool_context.probe_option_model_provider = None
             self._tool_context.probe_fit_provider = None
+            self._tool_context.probe_validation_provider = None
             self._tool_context.probe_param_status = None
             self._tool_context.probe_residuals_provider = None
             self._tool_context.learn_cycle_index = None
@@ -1775,6 +1788,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 paths.simulator_file, trajectories, base_pred_triples,
                 inferred_hint)
         self._tool_context.probe_fit_provider = toolkit.fit_runner
+        self._tool_context.probe_validation_provider = toolkit.validation_runner
         self._tool_context.probe_residuals_provider = \
             toolkit.residuals_runner
         # pylint: disable-next=import-outside-toplevel

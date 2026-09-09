@@ -2592,6 +2592,11 @@ class GlobalSettings:
     # carried width would count the earlier levels twice. Off keeps the
     # registry anchor for every fit.
     code_sim_learning_carry_posterior = False
+    # Advisory, agent-owned structural repair and decision-driven probes.
+    # Spend simulator compute on recorded-action validation before more real
+    # experiments; default off for controlled continual MB comparisons.
+    agent_model_repair = False
+
     # Pre-fit sensitivity screen: a physical param whose SSE span over
     # its own grid sweep does not exceed factor * the same-theta SSE
     # noise floor is "insensitive" on this data - the rollouts do not

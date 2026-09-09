@@ -161,6 +161,26 @@ def test_candidate_probe_model_provider_glue(tmp_path, monkeypatch) -> None:
         "fitted (cycle_000_vers_002)"
     assert fit_calls["n"] == 0
 
+    # A rejected fit remains unvalidated through rebuild and cache reuse.
+    approach._publish_probe_fit({"k": 1.0},
+                                "rejected",
+                                simulator_file,
+                                pinned=True,
+                                coverage=(0, 3))
+    provider()
+    assert approach._tool_context.probe_param_status.startswith("UNVALIDATED")
+    assert "0/3" in approach._tool_context.probe_param_status
+    provider()
+    assert approach._tool_context.probe_param_status.startswith("UNVALIDATED")
+    approach._publish_probe_fit({"k": 1.7},
+                                "partial",
+                                simulator_file,
+                                coverage=(2, 3))
+    provider()
+    assert approach._tool_context.probe_param_status.startswith("PARTIAL FIT")
+    assert "2/3" in approach._tool_context.probe_param_status
+    assert fit_calls["n"] == 0
+
     # Changed content: rebuilt UNFITTED, carrying the last fit's value
     # for a param that still exists inside its box.
     with open(simulator_file, "w", encoding="utf-8") as f:

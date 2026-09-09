@@ -153,6 +153,7 @@ class AgentProgramWorldModelApproach(AgentSimPredicateInventionApproach):
             ctx.probe_artifact_loaders.clear()
             ctx.probe_option_model_provider = None
             ctx.probe_fit_provider = None
+            ctx.probe_validation_provider = None
             ctx.probe_residuals_provider = None
             ctx.probe_score_provider = None
             ctx.probe_param_status = None
@@ -200,6 +201,7 @@ class AgentProgramWorldModelApproach(AgentSimPredicateInventionApproach):
             self._make_candidate_program_provider(toolkit.load_candidate)
         ctx.probe_score_provider = toolkit.score_runner
         ctx.probe_fit_provider = None
+        ctx.probe_validation_provider = None
         ctx.probe_residuals_provider = None
         probe_ns = build_probe_namespace(ctx)
         exec_ns["sim"] = probe_ns["sim"]

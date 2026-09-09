@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Any, Dict, FrozenSet, List, Optional, Set, \
     Tuple
 
 from predicators.agent_sdk import journal as journal_mod
+from predicators.agent_sdk.fit_status import format_fit_status
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES
 from predicators.agent_sdk.tools.sandbox_guard import \
     _screen_text_for_sandbox_escape
@@ -246,6 +247,7 @@ class AgentContinualApproach(ContinualPlayMixin,
                 paths.simulator_file, trajectories, base_pred_triples,
                 inferred_hint)
         ctx.probe_fit_provider = toolkit.fit_runner
+        ctx.probe_validation_provider = toolkit.validation_runner
         ctx.probe_residuals_provider = toolkit.residuals_runner
         probe_ns = build_probe_namespace(ctx)
         exec_ns["sim"] = probe_ns["sim"]
@@ -376,6 +378,7 @@ class AgentContinualApproach(ContinualPlayMixin,
         ctx = self._tool_context
         ctx.probe_option_model_provider = None
         ctx.probe_fit_provider = None
+        ctx.probe_validation_provider = None
         ctx.probe_residuals_provider = None
         ctx.probe_param_status = None
         ctx.probe_artifact_loaders.clear()
@@ -481,6 +484,9 @@ class AgentContinualApproach(ContinualPlayMixin,
         """The last fit as one line for the prompt: the point estimate per
         parameter and the posterior sample count, never the raw result (its
         Jacobian dump is noise to the agent)."""
+        published = self._probe_fit_state()
+        if published:
+            return format_fit_status(published)
         result = getattr(self, "_last_fit_result", None)
         if result is None:
             return "no fit result"

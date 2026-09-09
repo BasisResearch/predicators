@@ -41,7 +41,22 @@ def _trim_cause_note(traj_rms: Sequence[float], threshold: float) -> List[str]:
     """
     # pylint: disable-next=import-outside-toplevel
     from predicators.observation_noise import ObservationNoise
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.settings import CFG
     dropped = [r for r in traj_rms if r > threshold]
+    if dropped and CFG.agent_model_repair:
+        return [
+            f"{len(dropped)} recorded segment(s) exceeded the trimming "
+            f"threshold {threshold:.4g} at the tested candidate values "
+            f"(best RMS range {min(dropped):.4g}-{max(dropped):.4g}). "
+            "This alone does not identify the cause: structural error, "
+            "initial-state uncertainty, an incomplete parameter search, "
+            "and contact-sensitive replay can all contribute. Use "
+            "sim.validate() on the existing recordings, compare dynamics "
+            "structures, and test repeatability in simulation before "
+            "spending more real steps. Collect a probe only when its "
+            "predicted outcomes would change the next action."
+        ]
     close = [r for r in dropped if r <= _TRIM_BORDERLINE_FACTOR * threshold]
     far = [r for r in dropped if r > _TRIM_BORDERLINE_FACTOR * threshold]
     notes: List[str] = []
@@ -93,6 +108,7 @@ class SynthesisToolkit:
     tools: list
     fit_runner: Callable[..., str]
     residuals_runner: Callable[..., str]
+    validation_runner: Callable[..., str]
 
 
 def moving_feature_scope(
@@ -493,7 +509,8 @@ def create_synthesis_tools(
                     simulator_file,
                     fit_result=outcome.fit_result,
                     sse=float(outcome.pre_sse),
-                    pinned=True)
+                    pinned=True,
+                    coverage=(0, len(rollouts)))
                 if hasattr(approach, "_record_sysid_diagnostics"):
                     approach._record_sysid_diagnostics(  # pylint: disable=protected-access
                         {}, physical_names, 0, len(rollouts), outcome.traj_rms)
@@ -509,10 +526,11 @@ def create_synthesis_tools(
                 "",
                 "Parameters were left at their baselines; nothing was "
                 "applied to the planning base env.",
-                ("Recorded as this file's canonical fit (pinned at the "
-                 "declared inits): the deployed model will use these "
-                 "values without a harness refit." if not exploratory else
-                 "Exploratory call: nothing recorded."),
+                ("This rejection was recorded without another harness fit. "
+                 "An earlier finite fit of this same file is retained if "
+                 "available; otherwise the model remains UNVALIDATED at "
+                 "declared rule values and unchanged planning physics." if
+                 not exploratory else "Exploratory call: nothing recorded."),
                 "",
             ] + _trim_cause_note(outcome.traj_rms, trim_threshold))
         fitted = outcome.fitted
@@ -536,6 +554,7 @@ def create_synthesis_tools(
                 fit_result=outcome.fit_result,
                 sse=post_sse,
                 applied_physical=dict(applied),
+                coverage=(outcome.num_survivors, len(rollouts)),
                 # Physics-margin points for the capture gate, restored
                 # when this fit is deployed as the cycle's model.
                 sigma_points=physics_sigma_points(
@@ -1590,6 +1609,73 @@ def create_synthesis_tools(
 
         return "\n".join(lines)
 
+    def run_validation(traj_idxs: Optional[List[int]] = None,
+                       params: Optional[Dict[str, float]] = None) -> str:
+        """Replay the current candidate at the values planning actually
+        uses."""
+        # pylint: disable=import-outside-toplevel,protected-access
+        from predicators.agent_sdk.fit_status import format_fit_status
+        from predicators.agent_sdk.model_validation import replay_report
+        if approach is None:
+            return "Error: sim.validate requires a bound learning approach."
+        rules, specs, _features, latent_init, _physical, version, err = \
+            _snapshot_and_load(simulator_file)
+        if err:
+            return str(err)
+        whole = approach._rollout_fit_trajectories(None)
+        if not whole:
+            return "No recorded actions to validate; collect initial evidence."
+        count = len(approach._fit_trajectories)
+        indices = list(range(count)) if traj_idxs is None else traj_idxs
+        if not indices or len(set(indices)) != len(indices) or any(
+                not isinstance(i, int) or not 0 <= i < count for i in indices):
+            return f"Error: traj_idxs must be distinct indices in [0, {count})."
+        selected = []
+        for index in indices:
+            recordings = approach._rollout_fit_trajectories(None, [index])
+            if not recordings:
+                return f"Error: trajectory {index} has no complete recording."
+            selected.append((index, recordings[0]))
+        scope = moving_feature_scope(whole)
+        if not scope:
+            return "No observed motion to score; this is not model validation."
+        info: Dict[str, Dict[str, Any]] = getattr(approach._base_env,
+                                                  "get_physical_param_info",
+                                                  lambda: {})()
+        physical = {n: float(v["default"]) for n, v in info.items()}
+        physical.update(approach._identified_physical_params)
+        values = {
+            s.name: approach._fitted_params.get(s.name, s.init_value)
+            for s in specs
+        }
+        values.update(physical)
+        if params is not None:
+            if set(params) - set(values) or any(
+                    not isinstance(v, (int, float)) or not np.isfinite(v)
+                    for v in params.values()):
+                return ("Error: params must contain known finite parameter "
+                        f"values; known names: {sorted(values)}.")
+            values.update(params)
+        fit_state = approach._probe_fit_state()
+        with open(simulator_file, "rb") as stream:
+            digest = hashlib.sha256(stream.read()).hexdigest()
+        status = (format_fit_status(fit_state)
+                  if fit_state.get("digest") == digest else
+                  f"UNFITTED ({version}); carried/declared values")
+        if params is not None:
+            status += "; explicit diagnostic overrides (nothing deployed)"
+        return f"[{version}] " + replay_report(approach._get_rollout_fit_env(),
+                                               whole,
+                                               selected,
+                                               scope,
+                                               values,
+                                               sorted(physical),
+                                               rules,
+                                               latent_init,
+                                               status,
+                                               budget_check=budget_check)
+
     return SynthesisToolkit(tools=[run_python],
                             fit_runner=run_fit,
-                            residuals_runner=run_residuals)
+                            residuals_runner=run_residuals,
+                            validation_runner=run_validation)

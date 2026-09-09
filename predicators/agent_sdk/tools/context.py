@@ -78,6 +78,8 @@ class ToolContext:
     # (see ``SynthesisToolkit.residuals_runner``). None in solve
     # sessions - residuals are a learning diagnostic.
     probe_residuals_provider: Optional[Callable[..., str]] = None
+    # Replay the current model on recorded actions without fitting or trimming.
+    probe_validation_provider: Optional[Callable[..., str]] = None
     # The ``sim.score`` backend of a program-world-model synthesis
     # session (particle-filter pseudo-likelihood of the candidate
     # world_model.py on the recorded data); None everywhere else.

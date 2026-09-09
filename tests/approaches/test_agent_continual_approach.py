@@ -111,12 +111,14 @@ def test_fit_status_text_is_a_point_estimate_line() -> None:
                        log_probs=np.array([0.0, -0.1]),
                        jacobian=np.zeros((3, 2)))
     render = AgentContinualApproach._fit_status_text  # pylint: disable=protected-access
-    fitted: Any = SimpleNamespace(_last_fit_result=result)
+    fitted: Any = SimpleNamespace(_last_fit_result=result,
+                                  _probe_fit_state=lambda: {})
     text = render(fitted)
     assert text.startswith("fitted 2 parameter(s) from 2 posterior")
     assert "lateral_friction=" in text and "chain_fwd_min=0.04" in text
     assert "jacobian" not in text and "array(" not in text
-    empty: Any = SimpleNamespace(_last_fit_result=None)
+    empty: Any = SimpleNamespace(_last_fit_result=None,
+                                 _probe_fit_state=lambda: {})
     assert render(empty) == "no fit result"
 
 

@@ -368,6 +368,7 @@ as `cycle_XXX_vers_YYY_samplers.py`."""
         # program), which is exactly what samplers must speed up. The
         # fit runner still targets simulator.py for consistency.
         self._tool_context.probe_fit_provider = toolkit.fit_runner
+        self._tool_context.probe_validation_provider = toolkit.validation_runner
         self._tool_context.probe_residuals_provider = \
             toolkit.residuals_runner
         # pylint: disable-next=import-outside-toplevel
@@ -422,6 +423,7 @@ samples-to-refine feedback signal)."""
             self._tool_context.extra_mcp_tools = []
             self._tool_context.probe_artifact_loaders.clear()
             self._tool_context.probe_fit_provider = None
+            self._tool_context.probe_validation_provider = None
             self._tool_context.probe_residuals_provider = None
             self._learning_mode = False
             self._close_agent_session()
