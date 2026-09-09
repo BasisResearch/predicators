@@ -103,6 +103,9 @@ class ToolContext:
     # play: every env tool result and the session query refresh it), so
     # ``sim.reset(current=True)`` can start a rollout from it.
     current_observation: Optional[State] = None
+    # Refresh inferred memory after a model edit/refit before a current-state
+    # probe. Continual MB sessions install this; other sessions keep None.
+    current_observation_provider: Optional[Callable[[], State]] = None
     # The execution-time belief over it (observation_belief.BeliefFrame)
     # when the run carries one, so sim.run(belief_draws=K) draws from
     # the belief the agent was shown.

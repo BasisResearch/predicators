@@ -75,6 +75,15 @@ class BaseApproach(abc.ABC):
         """
         return None
 
+    def model_state_revision(self) -> Optional[Any]:
+        """Identity of a model whose memory continual execution must track.
+
+        Change the identity when its dynamics or parameters change, so
+        the observed episode prefix is reinterpreted by a fresh tracker.
+        None keeps execution and observations unchanged.
+        """
+        return None
+
     def reset_for_new_episode(self) -> None:
         """Called by CogMan at the start of each episode, before the initial
         solve() for that episode.

@@ -34,6 +34,7 @@ Required overrides in subclasses:
 """
 
 import abc
+import copy
 import logging
 from typing import Any, ClassVar, Dict, FrozenSet, List, Optional, Protocol, \
     Sequence, Set, Tuple, Type, cast
@@ -47,6 +48,8 @@ from PIL import Image
 from predicators import utils
 from predicators.code_sim_learning.commands import ApplyForce, ApplyTorque, \
     Attach, PhysicsCommand, SetVelocity
+from predicators.code_sim_learning.model_state import advance_model_state, \
+    has_model_state, initial_model_state, restored_model_state
 from predicators.envs import BaseEnv
 from predicators.pybullet_helpers import retry_pybullet_call, studio_visuals
 from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
@@ -121,6 +124,12 @@ class PyBulletEnv(BaseEnv):
     # list of ParamSpec); a stock env leaves it empty. See
     # ``_agent_param_values`` in __init__ and ``agent_param``.
     AGENT_PARAM_SPECS: ClassVar[List[Any]] = []
+    # Optional learned memory. It is copied per rollout and carried on
+    # State.latent, so restoring a search node also restores its history.
+    MODEL_STATE_INIT: ClassVar[Any] = None
+    # A supplied model base retains visible-physics defaults while running
+    # the agent's own hook. Stock environments never enable this.
+    _agent_model_dynamics: ClassVar[bool] = False
     # Parameters that aren't important enough to need to clog up settings.py
 
     # General robot parameters.
@@ -317,6 +326,9 @@ class PyBulletEnv(BaseEnv):
             spec.name: float(spec.init_value)
             for spec in type(self).AGENT_PARAM_SPECS
         }
+        self._model_state = (initial_model_state(type(self),
+                                                 self._agent_param_values)
+                             if has_model_state(type(self)) else {})
 
         # Drives real hardware from this env's rollouts; None means pure sim,
         # which is what every env built by the planner stays.
@@ -695,6 +707,11 @@ class PyBulletEnv(BaseEnv):
           a new skeleton or backtracking), or on the very first call
           before any reset() (_current_observation is None).
         """
+        # Observable equality deliberately ignores latent. Restore memory
+        # independently, including a sibling node with identical body poses.
+        if has_model_state(type(self)):
+            self._model_state = restored_model_state(type(self), state,
+                                                     self._agent_param_values)
         if self._current_observation is None or \
             not state.allclose(self._current_state):
             # Commands already queued at this point were computed for
@@ -744,7 +761,13 @@ class PyBulletEnv(BaseEnv):
                    render_obs: bool = False) -> Observation:
         """Advance the simulation one action, with no executor involved."""
         self._step_base(action)
-        if not self._skip_domain_specific_dynamics:
+        run_model = (not self._skip_domain_specific_dynamics
+                     or self._agent_model_dynamics)
+        if run_model:
+            if has_model_state(type(self)):
+                advance_model_state(type(self), self._get_state(),
+                                    self._model_state,
+                                    self._agent_param_values, action)
             self._domain_specific_step()
         # After ALL of this step's dynamics (a domain step may have just
         # created or re-anchored welds), and regardless of
@@ -846,6 +869,28 @@ class PyBulletEnv(BaseEnv):
         """
 
     # ── Subclass model form: agent parameters ───────────────────
+
+    @property
+    def model_state(self) -> Dict[str, Any]:
+        """This rollout's learned memory, owned by the model instance.
+
+        Persistent learned values belong here, rather than in globals or
+        unrecorded instance fields. The framework snapshots and restores
+        it.
+        """
+        return self._model_state
+
+    @classmethod
+    def update_model_state(cls, observation: State, model_state: Dict[str,
+                                                                      Any],
+                           params: Dict[str, float], action: Action) -> None:
+        """Advance learned memory from an observed post-action state.
+
+        This pure observation callback also runs on real observations.
+        Use _domain_specific_step for engine operations, and this method
+        for inferred state needed by predicates and future predictions.
+        """
+        del observation, model_state, params, action
 
     def agent_param(self, name: str) -> float:
         """The current value of one ``AGENT_PARAM_SPECS`` parameter.
@@ -1411,6 +1456,9 @@ class PyBulletEnv(BaseEnv):
         # that merged state); welds a rule still wants are re-emitted
         # and re-frozen at the restored poses, and welds the State
         # itself records are restored below.
+        if has_model_state(type(self)):
+            self._model_state = restored_model_state(type(self), state,
+                                                     self._agent_param_values)
         self._pending_residual_commands = []
         self._clear_commanded_attachments()
 
@@ -2085,7 +2133,10 @@ class PyBulletEnv(BaseEnv):
         # round-trips and a rollout resumed from it continues the motion
         # instead of dropping the body from rest.
         sim_state_dict["body_velocities"] = self._body_velocity_records()
-        pyb_state = PyBulletState(state.data, simulator_state=sim_state_dict)
+        pyb_state = PyBulletState(state.data,
+                                  simulator_state=sim_state_dict,
+                                  latent=copy.deepcopy(self._model_state)
+                                  if has_model_state(type(self)) else None)
         return pyb_state
 
     def _robot_base_pose_tuple(

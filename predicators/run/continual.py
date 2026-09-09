@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
@@ -448,6 +448,9 @@ class ContinualRun:
         # atoms and the data file all show the one draw of that step.
         self._noise = noise_or_none(ObservationNoise.from_cfg())
         self._observed_views: Dict[Tuple[int, int, int], State] = {}
+        self._model_state_key: Optional[Any] = None
+        self._model_state_tracker: Optional[Any] = None
+        self._model_state_count = 0
         # The execution-time belief (observation_belief.py) rides on a
         # declared channel only: with exact observations the frame is
         # the belief, and an undeclared channel is the agent's problem.
@@ -626,8 +629,43 @@ class ContinualRun:
             self._observed(s, lv.index, episode["episode"], offset + k)
             for k, s in enumerate(states)
         ]
-        return smooth_frames(frames, self._noise, window,
-                             float(CFG.continual_belief_sigmas))
+        belief = smooth_frames(frames, self._noise, window,
+                               float(CFG.continual_belief_sigmas))
+        return replace(belief, frame=self._execution_frame(belief.frame))
+
+    def _execution_frame(self, state: State) -> State:
+        """Attach inferred memory without altering recorded or true frames.
+
+        Replay only unseen observations. A model edit, refit, episode
+        reset or resume starts a new tracker over the observed episode
+        prefix. This uses the same cached noise draws as the agent's
+        data.
+        """
+        revision = self._approach.model_state_revision()
+        if revision is None or not self._level_episodes:
+            return state
+        _, lv = self._require_level()
+        episode = self._level_episodes[-1]
+        key = (lv.index, episode["episode"], revision)
+        if key != self._model_state_key:
+            self._model_state_key = key
+            self._model_state_tracker = self._approach.make_latent_tracker()
+            self._model_state_count = 0
+        tracker = self._model_state_tracker
+        if tracker is None:
+            return state
+        states, actions = episode["states"], episode["actions"]
+        for index in range(self._model_state_count, len(states)):
+            observed = self._observed(states[index], lv.index,
+                                      episode["episode"], index)
+            tracker.attach(observed,
+                           None if index == 0 else actions[index - 1])
+        self._model_state_count = len(states)
+        if tracker.failed:
+            return state
+        inferred = state.copy()
+        inferred.latent = tracker.latent
+        return inferred
 
     def observation(self, *, truth: bool = False) -> ProtocolObservation:
         """The protocol observation of the current level.
@@ -641,6 +679,8 @@ class ContinualRun:
         true_state = runner.observation()
         frame = true_state if truth else self._observed(
             true_state, lv.index, self._episode_index(), runner.num_steps)
+        if not truth:
+            frame = self._execution_frame(frame)
         evaluation = None
         if runner.episode_state is not EpisodeState.NOT_FINISHED:
             evaluation = runner.evaluate()
@@ -1082,7 +1122,8 @@ class ContinualRun:
             self._level_env,
             horizon=CFG.continual_episode_horizon,
             max_option_steps=CFG.max_num_steps_option_rollout,
-            predicates=self._predicates)
+            predicates=self._predicates,
+            abstract_state_transform=self._execution_frame)
         self._runner.add_step_listener(self._on_runner_step)
         self._recording = LevelRecording(paths.level_dir(self._run_dir, k))
         self._level_episodes = []

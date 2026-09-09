@@ -12,16 +12,20 @@ import numpy as np
 import pytest
 
 from predicators import utils
+from predicators.agent_sdk.belief_probe import BeliefProbe
 from predicators.agent_sdk.sandbox_setup import trajectories_path
 from predicators.approaches import create_approach
 from predicators.approaches.agent_continual_approach import \
     AgentContinualApproach
 from predicators.code_sim_learning.fit_space import FitResult
+from predicators.code_sim_learning.latent_tracker import \
+    make_subclass_latent_tracker
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun
 from predicators.run.controllers import create_controller
 from predicators.structs import Dataset, Predicate
+from tests.code_sim_learning.test_subclass_model_state import _MemoryModel
 
 
 def _config(tmp_path: Any, **overrides: Any) -> None:
@@ -138,6 +142,89 @@ def test_predicates_install_refreshes_the_session(tmp_path: Any) -> None:
     approach._play_session = None  # pylint: disable=protected-access
     approach._on_predicates_installed()  # pylint: disable=protected-access
     assert hi in session.abstract_predicates
+
+
+@pytest.mark.slow
+def test_current_probe_refreshes_memory_after_parameter_change(
+        tmp_path: Any, monkeypatch: Any) -> None:
+    """A post-fit current-state rollout uses the revised episode memory."""
+    _config(tmp_path)
+    env, approach = _make_approach()
+    params = {"rate": .25}
+    monkeypatch.setattr(approach, "model_state_revision",
+                        lambda: tuple(params.items()))
+    monkeypatch.setattr(
+        approach, "make_latent_tracker",
+        lambda: make_subclass_latent_tracker(_MemoryModel, lambda: params))
+
+    def fake_query(*_args: Any, **_kwargs: Any) -> List[Dict[str, Any]]:
+        zero = [0.0] * env.action_space.shape[0]
+        assert "step applied" in _call(approach, "env_step", action=zero)
+        ctx = approach._tool_context  # pylint: disable=protected-access
+        assert ctx.current_observation.latent["charge"] == .25
+        # Publishing a fit changes parameters without another real action
+        # or env_observe call. Reset must reconstruct the current estimate.
+        params["rate"] = .5
+        probe = BeliefProbe(ctx).reset(current=True)
+        state = probe._require_state()  # pylint: disable=protected-access
+        assert state.latent is not None and state.latent["charge"] == .5
+        assert ctx.current_observation.latent["charge"] == .5
+        assert "Give-up recorded" in _call(approach, "give_up", note="done")
+        return _result()
+
+    monkeypatch.setattr(approach, "_query_agent_sync", fake_query)
+    approach.prepare_for_continual(Dataset([]))
+    card = ContinualRun(env, approach, create_controller(env, approach)).run()
+    assert card.levels[0].steps == 1
+
+
+@pytest.mark.slow
+def test_current_probe_loads_edited_subclass_before_replaying(
+        tmp_path: Any, monkeypatch: Any) -> None:
+    """Editing a model mid-episode reconstructs memory at carried values."""
+    _config(tmp_path)
+    env, approach = _make_approach()
+    source = '''
+class Counter(BaseSimulator):
+    AGENT_PARAM_SPECS = [ParamSpec("rate", .25, lo=0.0, hi=1.0)]
+    MODEL_STATE_INIT = {"charge": 0.0}
+    RESIDUAL_FEATURES = {}
+
+    @classmethod
+    def update_model_state(cls, observation, model_state, params, action):
+        model_state["charge"] += params["rate"] * 1.0
+
+RESIDUAL_ENV = Counter
+'''
+
+    def fake_query(*_args: Any, **_kwargs: Any) -> List[Dict[str, Any]]:
+        # pylint: disable=protected-access
+        ctx = approach._tool_context
+        assert "step applied" in _call(approach,
+                                       "env_step",
+                                       action=[0.0] *
+                                       env.action_space.shape[0])
+        assert ctx.current_observation.latent is None
+        path = os.path.join(ctx.sandbox_dir, "simulator.py")
+        with open(path, "w", encoding="utf-8") as file:
+            file.write(source)
+        probe = BeliefProbe(ctx).reset(current=True)
+        assert probe._require_state().latent == {"charge": .25}
+        approach._apply_identified_physical_params({"rate": .5})
+        probe.reset(current=True)
+        assert probe._require_state().latent == {"charge": .5}
+        with open(path, "w", encoding="utf-8") as file:
+            file.write(source.replace('* 1.0', '* 2.0'))
+        probe.reset(current=True)
+        assert probe._require_state().latent == {"charge": 1.0}
+        assert "Give-up recorded" in _call(approach, "give_up", note="done")
+        return _result()
+
+    monkeypatch.setattr(approach, "_query_agent_sync", fake_query)
+    approach.prepare_for_continual(Dataset([]))
+    card = ContinualRun(env, approach, create_controller(env, approach)).run()
+    assert card.levels[0].steps == 1
+    assert approach._tool_context.current_observation_provider is None  # pylint: disable=protected-access
 
 
 @pytest.mark.slow
