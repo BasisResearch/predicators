@@ -17,21 +17,13 @@ holds everything an agent must LEARN or must not see:
   drags the assembly;
 * task generation (the train/test distribution) and goal semantics.
 
-Design notes, and why this domain favours a model of the physics.
-
-**The rest height is not enough; the ascent decides.** The goal is a
-band of heights, and the box floats to the height where the freed
-balloons' fading lift equals its weight. But the fading lift makes the
-box an underdamped oscillator: it overshoots that equilibrium on the
-way up before settling. The air's drag is low, so the overshoot is
-large, and a subset whose equilibrium sits inside the band can still
-overshoot into the ceiling, burst a balloon, and lose the level - a
-freed balloon cannot be clipped back. A test level is generated so two
-subsets settle in the same band by the equilibrium law while only one
-is overshoot-safe. The rest heights are therefore identical to a reader
-who only observes equilibria; telling the safe subset from the one that
-bursts needs the drag, which the rest height never shows and which only
-a fitted dynamics model recovers from the observed transient.
+Task selection checks executable release sequences against the evaluator.
+A test level has an order-robust winning reference subset and a witnessed
+losing release sequence whose subset has an in-band analytic equilibrium.
+Other subsets or release orders may also win; uniqueness is not claimed.
+The underdamped ascent and irreversible bursts can make release order
+matter even when equilibrium heights are similar.
+Whether this benefits MB over MF is an experimental question.
 
 **Test extends train.** A test level holds the whole palette, one more
 balloon than any train level, on a box material training showed; the
@@ -39,7 +31,8 @@ train levels together cover every colour and both materials, so the
 test composes known lifts, a known mass, and the drag learned from the
 train ascents into a rack never seen.
 """
-from itertools import combinations
+from dataclasses import dataclass, replace
+from itertools import combinations, permutations
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
@@ -106,17 +99,41 @@ class BalloonsEvaluator(TaskEvaluator):
                 "and ends the level.")
 
 
+@dataclass(frozen=True)
+class BalloonsProbeOutcome:
+    """A witnessed success/failure, or an unresolved finite rollout."""
+    status: str
+    steps: int
+    height: float
+    speed: float
+    wall_supported: bool = False
+    wall_free_won: bool = False
+
+    @property
+    def won(self) -> bool:
+        """Whether the evaluator's success condition was witnessed."""
+        return self.status == "won"
+
+    @property
+    def burst(self) -> bool:
+        """Whether an irreversible ceiling burst was witnessed first."""
+        return self.status == "burst"
+
+    @property
+    def jammed(self) -> bool:
+        """A wall-supported failure whose identical wall-free replay wins."""
+        return (self.status == "resting_outside" and self.wall_supported
+                and self.wall_free_won)
+
+
 class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
     """A balloon puzzle whose lifts, fade and box masses must be learned."""
 
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         self._param_overrides: Dict[str, float] = {}
-        # Level identity -> the unique overshoot-safe subset (or None). The
-        # transient-aware solution is found by simulation, so it is cached per
-        # level and computed from a clean reconstruction of the level rather
-        # than a possibly mid-execution state, keeping it stable and cheap.
-        self._solution_cache: Dict[Tuple[Any, ...], Optional[Tuple[int,
-                                                                   ...]]] = {}
+        self._candidate_cache: Dict[Tuple[Any, ...],
+                                    Dict[Tuple[int, ...],
+                                         List[BalloonsProbeOutcome]]] = {}
         super().__init__(use_gui, **kwargs)
         self._InBand = Predicate(
             "InBand", [self._box_type, self._band_type],
@@ -458,40 +475,55 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         }
         return utils.create_state_from_dict(init)
 
-    def solution_subset(self, state: State) -> Optional[Tuple[int, ...]]:
-        """The balloons whose freed lift hangs the box at rest inside the band,
-        by the real dynamics; None when no subset does or more than one does.
+    def candidate_outcomes(
+            self,
+            state: State) -> Dict[Tuple[int, ...], List[BalloonsProbeOutcome]]:
+        """Executable outcomes for every order of each in-band candidate.
 
-        A subset settles in the band only if its analytic equilibrium is
-        in the band AND its ascent does not overshoot into the ceiling
-        and burst a balloon (an irreversible loss). Several subsets can
-        share the band by the equilibrium law while only one is
-        overshoot-safe, so the winner is found by rolling each
-        equilibrium-in-band candidate forward, not by the rest height
-        alone.
+        Reconstruct the clean level, so oracle predicates keep a stable
+        reference as execution progresses. These are immediate Release
+        sequences followed by a hold, not all possible release timings.
         """
         box_color = int(round(state.get(self._box, "color")))
-        balloons = self._active_balloons(state)
-        colors = [int(round(state.get(b, "color"))) for b in balloons]
-        lo = float(state.get(self._band, "lo"))
-        hi = float(state.get(self._band, "hi"))
-        key = (box_color, tuple(colors), round(lo, 4), round(hi, 4))
-        if key in self._solution_cache:
-            return self._solution_cache[key]
-        # Reconstruct the level from a clean initial state so the answer is the
-        # level's, not a function of how far execution has progressed.
-        clean = self.level_state(box_color, colors, (lo, hi))
-        in_band_eq = [
-            subset for subset, z in self.lifting_subsets(box_color, colors)
-            if lo <= z <= hi
+        colors = [
+            int(round(state.get(b, "color")))
+            for b in self._active_balloons(state)
         ]
-        winners = [
-            subset for subset in in_band_eq
-            if self.subset_outcome(clean, subset)[0]
+        lo, hi = (float(state.get(self._band, f)) for f in ("lo", "hi"))
+        key = (box_color, tuple(colors), lo, hi, tuple(CFG.balloons_lifts),
+               tuple(CFG.balloons_box_masses), CFG.balloons_fade_height,
+               CFG.balloons_drag, CFG.balloons_probe_max_steps,
+               CFG.balloons_probe_rest_steps, CFG.balloons_probe_rest_tol,
+               CFG.balloons_settle_speed,
+               tuple(sorted(self._param_overrides.items())))
+        if key not in self._candidate_cache:
+            clean = self.level_state(box_color, colors, (lo, hi))
+            self._candidate_cache[key] = {
+                subset: [
+                    self.release_sequence_outcome(clean, order)
+                    for order in permutations(subset)
+                ]
+                for subset, z in self.lifting_subsets(box_color, colors)
+                if lo <= z <= hi
+            }
+        return {
+            subset: list(results)
+            for subset, results in self._candidate_cache[key].items()
+        }
+
+    def solution_subset(self, state: State) -> Optional[Tuple[int, ...]]:
+        """A canonical reference whose tested Release orders all win.
+
+        Prefer fewer releases, then lexicographic order. Multiple
+        winning subsets are allowed and scored by the same evaluator.
+        """
+        candidates = self.candidate_outcomes(state)
+        robust = [
+            subset for subset, outcomes in candidates.items()
+            if outcomes and all(outcome.won for outcome in outcomes)
         ]
-        result = winners[0] if len(winners) == 1 else None
-        self._solution_cache[key] = result
-        return result
+        return min(robust, key=lambda subset: (len(subset), subset)) \
+            if robust else None
 
     def _hold_action(self) -> Action:
         """A no-op action that holds the robot at its initial joints, for
@@ -504,34 +536,171 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                 [arr, np.zeros(n - arr.shape[0], dtype=np.float32)])
         return Action(arr)
 
-    def subset_outcome(self, state: State,
-                       subset: Tuple[int, ...]) -> Tuple[bool, bool]:
-        """Free ``subset``'s balloons from ``state`` on this instance and roll
-        the sim to rest; ``(settles_in_band, burst)``.
+    def _probe_outcome(self,
+                       state: State,
+                       steps: int,
+                       status: str,
+                       wall_supported: bool = False) -> BalloonsProbeOutcome:
+        return BalloonsProbeOutcome(status, steps,
+                                    float(state.get(self._box, "z")),
+                                    float(state.get(self._box, "speed")),
+                                    wall_supported)
 
-        ``settles_in_band`` is True when the box hangs at rest with its
-        centre in the band; ``burst`` is True when a balloon reached the
-        ceiling on the way up (an overshoot the analytic equilibrium
-        does not reveal).
+    def _wall_support(self) -> bool:
+        """Contact alone is not a jam: require vertical load on a wall."""
+        for wall in self._chute_ids:
+            for contact in p.getContactPoints(
+                    self._box.id, wall,
+                    physicsClientId=self._physics_client_id):
+                vertical_force = (contact[9] * contact[7][2] +
+                                  contact[10] * contact[11][2] +
+                                  contact[12] * contact[13][2])
+                if abs(vertical_force) > 1e-4:
+                    return True
+        return False
+
+    def _wait_probe(self, state: State,
+                    max_steps: int) -> BalloonsProbeOutcome:
+        """Check every frame for success; only sustained rest ends failure."""
+        positions: List[np.ndarray] = []
+        supported = 0
+        action = Action(
+            np.array(self._pybullet_robot.get_joints(), dtype=np.float32))
+        for step in range(max_steps + 1):
+            if any_popped(state) is not None:
+                return self._probe_outcome(state, step, "burst")
+            if self._InBand_holds(state, [self._box, self._band]):
+                return self._probe_outcome(state, step, "won")
+            angular = p.getBaseVelocity(
+                self._box.id, physicsClientId=self._physics_client_id)[1]
+            if box_at_rest(state, self._box) and np.linalg.norm(angular) < .01:
+                positions.append(
+                    np.array(
+                        [state.get(self._box, f) for f in ("x", "y", "z")]))
+                positions = positions[-CFG.balloons_probe_rest_steps:]
+                supported = supported + 1 if self._wall_support() else 0
+                if (len(positions) == CFG.balloons_probe_rest_steps
+                        and np.max(np.ptp(positions, axis=0)) <=
+                        CFG.balloons_probe_rest_tol):
+                    return self._probe_outcome(
+                        state, step, "resting_outside",
+                        supported >= CFG.balloons_probe_rest_steps)
+            else:
+                positions.clear()
+                supported = 0
+            if step < max_steps:
+                state = self.simulate(state, action)
+        return self._probe_outcome(state, max_steps, "unresolved")
+
+    def assess_subset(self, state: State,
+                      subset: Tuple[int, ...]) -> BalloonsProbeOutcome:
+        """Free a subset simultaneously and classify the observed rollout.
+
+        This is a screening rollout. Task acceptance also checks
+        executable release orders. A timeout is unresolved, never a jam
+        or a known loss.
         """
         self._pybullet_robot.set_joints(
             self._pybullet_robot.initial_joint_positions)
         self._set_state(state)
-        s = self._get_state().copy()
+        current = self._get_state().copy()
         for i in subset:
-            s.set(self._clips[i], "is_on", 1.0)
-        action = self._hold_action()
-        moved = False
-        for _ in range(int(CFG.balloons_probe_max_steps)):
-            s = self.simulate(s, action)
-            if any_popped(s) is not None:
-                return (False, True)
-            resting = box_at_rest(s, self._box)
-            moved = moved or not resting
-            if moved and resting:
-                break
-        return (box_in_band(s, self._box, self._band)
-                and box_at_rest(s, self._box), False)
+            current.set(self._clips[i], "is_on", 1.0)
+        # Apply the releases before inspecting rest at the initial frame.
+        current = self.simulate(current, self._hold_action())
+        result = self._wait_probe(current,
+                                  int(CFG.balloons_probe_max_steps) - 1)
+        return BalloonsProbeOutcome(result.status, result.steps + 1,
+                                    result.height, result.speed,
+                                    result.wall_supported)
+
+    def subset_outcome(self, state: State,
+                       subset: Tuple[int, ...]) -> Tuple[bool, bool]:
+        """Compatibility view: (witnessed win, burst).
+
+        False/False includes unresolved motion and is NOT evidence of a
+        jam. Use assess_subset for task selection or failure
+        classification.
+        """
+        result = self.assess_subset(state, subset)
+        return result.won, result.burst
+
+    def release_sequence_outcome(self, state: State,
+                                 order: Sequence[int]) -> BalloonsProbeOutcome:
+        """Classify a sequence, verifying contact failures counterfactually.
+
+        Vertical wall contact by itself does not prove the wall caused a
+        failure. Call it a jam only if the same sequence wins when box-
+        wall collisions are disabled in a diagnostic replay. Restore
+        collisions even if that replay fails; the task's actual physics
+        is unchanged.
+        """
+        result = self._run_release_sequence(state, order)
+        if result.status != "resting_outside" or not result.wall_supported:
+            return result
+        try:
+            for wall in self._chute_ids:
+                p.setCollisionFilterPair(
+                    self._box.id,
+                    wall,
+                    -1,
+                    -1,
+                    False,
+                    physicsClientId=self._physics_client_id)
+            without_wall = self._run_release_sequence(state, order)
+        finally:
+            for wall in self._chute_ids:
+                p.setCollisionFilterPair(
+                    self._box.id,
+                    wall,
+                    -1,
+                    -1,
+                    True,
+                    physicsClientId=self._physics_client_id)
+        return replace(result, wall_free_won=without_wall.won)
+
+    def _run_release_sequence(self, state: State,
+                              order: Sequence[int]) -> BalloonsProbeOutcome:
+        """Execute Release skills without extra waits, then hold to an outcome.
+
+        Detect wins and bursts during each skill, matching continual
+        play. This certifies the supplied order only, not arbitrary
+        release timing.
+        """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.ground_truth_models.balloons.options import \
+            probe_release_option, release_params
+        self._pybullet_robot.set_joints(
+            self._pybullet_robot.initial_joint_positions)
+        self._set_state(state)
+        current = self._get_state()
+        self._current_observation = current
+        release = probe_release_option()
+        steps = 0
+        for index in order:
+            option = release.ground([self._robot, self._clips[index]],
+                                    release_params())
+            if not option.initiable(current):
+                return self._probe_outcome(current, steps, "skill_failed")
+            try:
+                for _ in range(int(CFG.balloons_probe_max_steps)):
+                    if option.terminal(current):
+                        break
+                    current = self._step_once(option.policy(current))
+                    self._current_observation = current
+                    steps += 1
+                    if any_popped(current) is not None:
+                        return self._probe_outcome(current, steps, "burst")
+                    if self._InBand_holds(current, [self._box, self._band]):
+                        return self._probe_outcome(current, steps, "won")
+                else:
+                    return self._probe_outcome(current, steps, "unresolved")
+            except utils.OptionExecutionFailure:
+                return self._probe_outcome(current, steps, "skill_failed")
+        result = self._wait_probe(current, int(CFG.balloons_probe_max_steps))
+        return BalloonsProbeOutcome(result.status, result.steps + steps,
+                                    result.height, result.speed,
+                                    result.wall_supported)
 
     @staticmethod
     def _draw_covering(rng: np.random.Generator, n: int,
@@ -571,6 +740,9 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         seen_boxes: Set[int] = set()
         attempts = int(CFG.balloons_max_sampling_attempts)
         tasks = []
+        # Retry draws can revisit identical candidates. Cache classifications
+        # only within this generation call, with exact band bounds.
+        rejected_levels: Set[Tuple[Any, ...]] = set()
         for _ in range(num_tasks):
             found = None
             for attempt in range(attempts):
@@ -601,15 +773,9 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                     for subset, z in self.lifting_subsets(box_color, colors)
                     if self.table_height + 0.12 <= z <= reach_max
                 ]
-                # Candidate band centres. A test level must hide the answer
-                # from a reader that only computes the equilibrium HEIGHT: two
-                # subsets share one band by the analytic (equilibrium) law
-                # while only one actually settles there - the other overshoots
-                # into the ceiling and bursts, or (unbalanced) tilts and jams
-                # in the chute. The band is 2*half wide, so two equilibria up
-                # to 2*half apart share it only when the band sits between
-                # them: centre on each close PAIR's midpoint. Train levels keep
-                # a single answer, so also allow a band centred on one subset.
+                # Nearby analytic equilibria provide candidate bands.
+                # Executable rollouts below establish the reference and
+                # losing sequence; other subsets or orders may also win.
                 centers = [
                     (reachable[a][1] + reachable[b][1]) / 2.0
                     for a in range(len(reachable))
@@ -619,9 +785,9 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                 if train:
                     centers += [z for _, z in reachable]
                 if not train and CFG.balloons_require_jam_decoy:
-                    # Contact-only test levels centre the band on a subset's own
-                    # equilibrium, so a jamming subset can sit at the band's
-                    # centre and the height reader is drawn to it.
+                    # The strict contact challenge also tests bands centred
+                    # on an equilibrium, requiring witnessed wall-supported
+                    # rest away from the goal for its central candidate.
                     centers += [z for _, z in reachable]
                 rng.shuffle(centers)
                 for center_z in centers:
@@ -632,57 +798,49 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                     ]
                     if not train and len(in_band) < 2:
                         continue
-                    state = self.level_state(box_color, colors, band)
-                    outcomes = {
-                        subset: self.subset_outcome(state, subset)
-                        for subset in in_band
-                    }
-                    safe = [
-                        s for s, (settled, _) in outcomes.items() if settled
-                    ]
-                    if len(safe) != 1:
+                    level_key = (box_color, tuple(colors), band)
+                    if level_key in rejected_levels:
                         continue
-                    # The test decoy: another subset whose equilibrium is in
-                    # the band but that fails in reality (bursts or jams), so a
-                    # height-only reader has a wrong answer to fall for. That
-                    # is exactly the in-band-by-eq subsets that are not the
-                    # unique safe one, which len(in_band) >= 2 guarantees.
+                    rejected_levels.add(level_key)
+                    state = self.level_state(box_color, colors, band)
+                    # Success/failure is measured through actual skills,
+                    # including every intermediate frame and release order.
+                    candidates = self.candidate_outcomes(state)
+                    reference = self.solution_subset(state)
+                    if reference is None:
+                        continue
+                    decoys = [(subset, outcome)
+                              for subset, results in candidates.items()
+                              for outcome in results
+                              if outcome.burst or outcome.jammed]
+                    if not train and not decoys:
+                        continue
                     if not train and CFG.balloons_require_jam_decoy:
-                        # Contact-only discrimination: the in-band subset
-                        # NEAREST the band centre must fail by JAM (the tilted
-                        # box wedges: settle=False, burst=False), not settle and
-                        # not burst. Then a reader that picks by rest height is
-                        # drawn to the jammer and loses, while the unique safe
-                        # subset sits off-centre (but in-band) and is found only
-                        # by a contact rollout. Its equilibrium must stay within
-                        # tol of the central jammer's so height gives no signal
-                        # pointing back to it.
                         eqz = dict(reachable)
-                        safe_eq = eqz[safe[0]]
-                        tol = float(CFG.balloons_contact_height_tol)
-                        dist_to_centre = {
-                            s: abs(eqz[s] - center_z)
-                            for s in in_band
+                        distances = {
+                            subset: abs(eqz[subset] - center_z)
+                            for subset in in_band
                         }
-                        central = min(dist_to_centre,
-                                      key=dist_to_centre.__getitem__)
-                        settled_c, burst_c = outcomes[central]
-                        if settled_c or burst_c:
-                            # Central subset settles (height would pick the safe
-                            # one) or bursts (height, not contact, separates).
-                            continue
-                        if abs(eqz[central] - safe_eq) > tol:
+                        central = min(distances, key=distances.__getitem__)
+                        if not any(subset == central and outcome.jammed
+                                   and abs(eqz[subset] - eqz[reference]) <=
+                                   CFG.balloons_contact_height_tol
+                                   for subset, outcome in decoys):
                             continue
                     if solve_level(self, state) is None:
                         continue
-                    found = (state, safe[0])
+                    rejected_levels.discard(level_key)
+                    found = (state, reference)
                     break
                 if found is not None:
                     break
             if found is None:
                 raise RuntimeError(
-                    "No balloon level whose unique overshoot-safe subset the "
-                    f"oracle clears in {attempts} draws.")
+                    "No balloon level with a verified winning reference and "
+                    f"verified decoys in {attempts} draws "
+                    f"(require_jam_decoy={CFG.balloons_require_jam_decoy}). "
+                    "Unresolved rollouts are not failures; the requested "
+                    "decoy property may be unavailable under this physics.")
             state, subset = found
             seen_boxes.add(box_color)
             seen_colors.update(colors)
@@ -704,6 +862,11 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                 f"solution_{b.name}": float(i in subset)
                 for i, b in enumerate(balloons)
             }
+            metrics["task_generation_version"] = 2.0
+            metrics["witnessed_winning_candidate_subsets"] = float(
+                sum(
+                    any(o.won for o in results)
+                    for results in self.candidate_outcomes(state).values()))
             tasks.append(
                 EnvironmentTask(state,
                                 goal,
@@ -733,17 +896,9 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                 obs = self._step_once(option.policy(obs))
         except utils.OptionExecutionFailure:
             return None
-        hold = Action(
-            np.array(self._pybullet_robot.get_joints(), dtype=np.float32))
-        moved = False
-        for i in range(max_steps):
-            obs = self._step_once(hold)
-            moving = self._speed(self._box) > CFG.balloons_settle_speed
-            moved |= moving
-            if moved and not moving:
-                break
-            if not moved and i > 20:
-                break
+        result = self._wait_probe(self._get_state(), max_steps)
+        if result.status == "unresolved":
+            return None
         return self._get_state()
 
 

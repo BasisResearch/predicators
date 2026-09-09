@@ -4,10 +4,10 @@ skills.
 Covers the properties the domain rests on: an open clip frees its
 balloon onto the box and the box hangs near the analytic height (and
 nothing happens on the base sim), a freed balloon carried to the ceiling
-bursts and loses the level, every generated level has a unique floating
-subset the oracle's own plan realizes, box colours weigh differently
-(and not on the base sim until overridden), and the process model builds
-on the lift-law helpers.
+bursts and loses the level, every generated level has a verified
+reference subset the oracle's own plan realizes, box colours weigh
+differently (and not on the base sim until overridden), and the process
+model builds on the lift-law helpers.
 """
 # pylint: disable=protected-access
 from __future__ import annotations
@@ -101,9 +101,9 @@ def test_reaching_the_ceiling_bursts_and_loses(env_module):
     assert not ok and "burst" in why
 
 
-def test_generated_levels_have_a_unique_subset_the_oracle_frees(env_module):
-    """Each task has one floating subset by the analytic law, recorded in its
-    metrics, and the oracle's plan hangs the box in the band."""
+def test_generated_levels_have_a_reference_subset_the_oracle_frees(env_module):
+    """Each task records a verified reference subset and the oracle's plan
+    reaches the evaluator's goal."""
     mod, env = env_module
     # pylint: disable-next=import-outside-toplevel
     from predicators.ground_truth_models.balloons.oracle import solve_level

@@ -1,18 +1,13 @@
 """The oracle's plan for a balloons level, executed on a probe instance.
 
-The level's floating subset (the analytic law's unique answer) is freed
-clip by clip, weakest lift first: push each clip open. The task
-generator accepts a level only when this plan hangs the box inside the
-band on the env's own physics with no balloon burst.
+The reference subset is freed clip by clip, weakest lift first. Task
+generation verifies every immediate release order of this reference
+against the evaluator, allowing other subsets and orders to win too.
 """
 
 from typing import List, Optional, Tuple
 
-from predicators.envs.pybullet_balloons import PyBulletBalloonsEnv, \
-    any_popped, box_in_band
-from predicators.ground_truth_models.balloons.options import \
-    probe_release_option, release_params
-from predicators.settings import CFG
+from predicators.envs.pybullet_balloons import PyBulletBalloonsEnv
 from predicators.structs import State
 
 Plan = List[Tuple[str, str]]
@@ -33,23 +28,9 @@ def solve_level(env: PyBulletBalloonsEnv, state: State) -> Optional[Plan]:
     subset = env.solution_subset(state)
     if subset is None:
         return None
-    release = probe_release_option()
-    balloons = env._active_balloons(state)  # pylint: disable=protected-access
+    order = release_order(env, state, subset)
+    outcome = env.release_sequence_outcome(state, order)
+    if not outcome.won:
+        return None
     clips = env._active_clips(state)  # pylint: disable=protected-access
-    plan: Plan = []
-    current = state
-    for i in release_order(env, state, subset):
-        grounded = release.ground(
-            [env._robot, clips[i]],  # pylint: disable=protected-access
-            release_params())
-        nxt = env.run_option(current, grounded,
-                             int(CFG.balloons_probe_max_steps))
-        if nxt is None or nxt.get(balloons[i], "tied") < 0.5:
-            return None
-        plan.append(("Release", clips[i].name))
-        current = nxt
-        if any_popped(current) is not None:
-            return None
-    if box_in_band(current, env._box, env._band):  # pylint: disable=protected-access
-        return plan
-    return None
+    return [("Release", clips[i].name) for i in order]

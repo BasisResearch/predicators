@@ -12,6 +12,6 @@ cd /home/ycliang/predicators
 export OPENBLAS_NUM_THREADS=1
 for s in 0 1 2; do
   echo "########## seed $s ##########"
-  python scripts/verify_balloons_contact.py --seed $s || echo "SEED $s FAILED"
+  python scripts/verify_balloons_contact.py --seed "$s" --require-jam
 done
 echo "ALL CONTACT VERIFICATION DONE"

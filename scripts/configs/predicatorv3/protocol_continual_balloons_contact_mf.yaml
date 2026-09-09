@@ -32,8 +32,9 @@ ENVS:
   balloons:
     SKIP: False
     FLAGS:
-      # Contact-only generation (balloons_require_jam_decoy) is now the env
-      # default; only the train-level count is level-set specific here.
+      # Strict contact challenge; corrected validation may reject this
+      # distribution if no genuine jam decoy can be generated.
+      balloons_require_jam_decoy: True
       num_train_tasks: 2
 APPROACHES:
   oracle:
