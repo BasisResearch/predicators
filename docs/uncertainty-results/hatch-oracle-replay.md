@@ -83,17 +83,19 @@ Scorecards will be written under the main `logs/oracle_process_planning/` direct
 There is no new oracle verdict at submission and no MB/MF comparison was launched.
 The existing result watcher now includes both tasks, preserving its prior notification state.
 
-### Hatch v4 results as of 17:47 UTC
+### Final hatch v4 results, 17:57 UTC
 
 | Seed | Status | Levels won | Whole-run steps | Resets |
 |---|---|---:|---:|---:|
 | 4 | Completed | 3/3 | 281 | 0 |
-| 5 | Running, no scorecard yet | Pending | Pending | Pending |
+| 5 | Completed | 3/3 | 274 | 0 |
 
 Seed 4's training levels took 92 and 72 steps, and its test level took 117 steps, all with zero resets.
-Its scorecard and completed Slurm job with exit code zero agree.
-The mean over whole-run successful v4 oracle seeds so far is 281 steps with n=1; seed 5 is unfinished and excluded.
-This is a v4 oracle result on regenerated tasks, not an MB result or a replay of the identical v3 seed 4 task.
+Seed 5's training levels took 89 and 92 steps, and its test level took 93 steps, all with zero resets.
+Both scorecards and completed Slurm jobs with exit code zero agree.
+Both whole runs succeeded (2/2), and all six levels were won (6/6).
+The mean over whole-run successful v4 oracle seeds is 277.5 steps with n=2, and mean resets are zero.
+These are v4 oracle results on regenerated tasks, not MB results or a replay of the identical v3 seed 4 task.
 
 Neither workload's delay was mainly queueing.
 The offline synthesis job waited 42 seconds to start, and both v4 oracle tasks waited 40 seconds.
@@ -105,7 +107,10 @@ Unresolved probes can consume 500 wait steps, and qualifying contact failures re
 It retries candidate tasks until the required winning reference and losing-sequence conditions are established.
 Seed 4's total job duration was 34 minutes 21 seconds, but its scorecard records only 59 seconds of active continual play.
 Roughly 33 minutes were spent before play, primarily on setup and task generation/validation.
-Seed 5 was still consuming CPU with no scorecard at the last check.
+Seed 5 finished in 43 minutes 50 seconds, with only 15.9 seconds of active continual play.
+The two-seed noisy continual oracle validation is complete.
+This establishes successful oracle execution on these generated tasks; the offline MB modeling diagnostic remains incomplete after its timeout.
+Both v4 runs are available under `balloons-hatch-v4-public-release-oracle` in the continual viewer.
 
 ## Offline synthesis logs
 
