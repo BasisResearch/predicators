@@ -11,6 +11,7 @@ import numpy as np
 import pybullet as p
 
 import predicators.approaches  # noqa: F401  # pylint: disable=unused-import
+from predicators import utils
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.identifiability import Verdict
 from predicators.code_sim_learning.orchestrator import run_rollout_sysid
@@ -131,3 +132,29 @@ def test_run_rollout_sysid_fit_cache_and_report_isolation():
                                  fit_cache_key="vers_002")
     assert not outcome4.from_cache
     assert len(fit_cache) == 2
+
+
+def test_fit_reports_the_laplace_evidence_when_asked():
+    """With code_sim_learning_fit_evidence on, a fit with a Jacobian at the MAP
+    carries a finite evidence; off, none is computed."""
+    env = _GainEnv()
+    spec = ParamSpec("gain", 1.0, lo=0.1, hi=10.0, scale="log")
+    traj = _trajectory()
+    utils.reset_config({"code_sim_learning_fit_evidence": True})
+    try:
+        outcome = run_rollout_sysid(env, [traj], [spec],
+                                    _RESIDUAL_FEATURES,
+                                    anchors={"gain": 1.0},
+                                    rms_cache={})
+        assert outcome.evidence is not None
+        assert np.isfinite(outcome.evidence.log_evidence)
+        assert outcome.evidence.num_params == 1
+        assert outcome.evidence.num_residuals > 0
+        utils.reset_config({"code_sim_learning_fit_evidence": False})
+        plain = run_rollout_sysid(env, [traj], [spec],
+                                  _RESIDUAL_FEATURES,
+                                  anchors={"gain": 1.0},
+                                  rms_cache={})
+        assert plain.evidence is None
+    finally:
+        utils.reset_config({})

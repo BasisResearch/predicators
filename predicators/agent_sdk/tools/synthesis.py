@@ -32,11 +32,29 @@ def _trim_cause_note(traj_rms: Sequence[float], threshold: float) -> List[str]:
     parameters - a model-fidelity floor, not a chaotic recording - so
     re-collecting equivalent experiments cannot help and the advice says
     so; only far-over segments get the chaotic-recording advice.
+
+    Under a declared observation-noise channel the note leads with the
+    exceeds-sigma bit (docs/continual-uncertainty.md, 3.5): the
+    threshold is in units of the total noise with the declared sigma
+    folded in, so a dropped segment's residual exceeds what the noise
+    can explain and the model, not the fit, has to change.
     """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.observation_noise import ObservationNoise
     dropped = [r for r in traj_rms if r > threshold]
     close = [r for r in dropped if r <= _TRIM_BORDERLINE_FACTOR * threshold]
     far = [r for r in dropped if r > _TRIM_BORDERLINE_FACTOR * threshold]
     notes: List[str] = []
+    noise = ObservationNoise.from_cfg()
+    if dropped and noise.enabled and noise.declared:
+        notes.append(
+            "The trimming threshold is in units of the total noise, which "
+            f"folds the declared observation sigma ({noise.summary()}) into "
+            f"every feature's residual scale: these {len(dropped)} "
+            "segment(s) exceed what the declared noise can explain, so the "
+            "answer is a different model where the replay deviates from "
+            "the recording, not a harder fit and not the same experiments "
+            "re-collected.")
     if close:
         pct = int(round((_TRIM_BORDERLINE_FACTOR - 1) * 100))
         notes.append(
@@ -243,6 +261,7 @@ def create_synthesis_tools(
     from claude_agent_sdk import tool as _sdk_tool
     tool = _make_coercing_tool(_sdk_tool)
 
+    from predicators.code_sim_learning.evidence import format_evidence_lines
     from predicators.code_sim_learning.fit_space import ParamSpec
     from predicators.code_sim_learning.fitting import compute_sse, \
         compute_sse_recurrent, fit_rule_parameters, \
@@ -253,8 +272,6 @@ def create_synthesis_tools(
     from predicators.code_sim_learning.orchestrator import run_rollout_sysid
     from predicators.code_sim_learning.physical_sysid import \
         DEFAULT_NOISE_SIGMA
-    from predicators.code_sim_learning.rollout_env import \
-        physical_param_anchors
     from predicators.code_sim_learning.rollout_objective import \
         compute_rollout_sse, per_trajectory_rms
     from predicators.code_sim_learning.trajectory_prep import \
@@ -420,9 +437,7 @@ def create_synthesis_tools(
             s.name: s.init_value
             for s in list(physical_specs) + list(rule_specs)
         }
-        anchors = physical_param_anchors(
-            approach._base_env,  # pylint: disable=protected-access
-            physical_specs)
+        anchors = approach.fit_prior_anchors(physical_specs)
         try:
             with suspend_budget_watchdog(CFG.agent_sdk_fit_call_timeout):
                 outcome = run_rollout_sysid(
@@ -506,6 +521,7 @@ def create_synthesis_tools(
         pre_sse, post_sse = outcome.pre_sse, outcome.post_sse
         if not exploratory:
             approach._apply_identified_physical_params(applied)  # pylint: disable=protected-access
+            approach.note_carried_posterior(applied, ident_report)
             # Deploy the rule params to the candidate probe (physical
             # params were applied to the planning base env above).
             rule_names = {s.name for s in rule_specs}
@@ -556,6 +572,12 @@ def create_synthesis_tools(
             if exploratory else "canonical")
         fit_reason = ("PHYSICAL_PARAM_SPECS declared"
                       if physical_specs else "command-emitting rules")
+        evidence_lines: List[str] = []
+        if CFG.code_sim_learning_fit_evidence:
+            evidence_lines = format_evidence_lines(
+                outcome.evidence, approach.previous_fit_evidence(version_tag))
+            if not exploratory and outcome.evidence is not None:
+                approach.note_fit_evidence(version_tag, outcome.evidence)
         lines = [
             f"[{version_tag}] JOINT ROLLOUT SYSTEM-ID FIT ({fit_reason}; "
             f"{mode_note}) on {len(rollouts)} motion segments "
@@ -569,6 +591,7 @@ def create_synthesis_tools(
             (f", {pre_surv:.6f}{surv_note}" if surv_note else ""),
             f"After joint fit:  rollout SSE = {post_sse:.6f}{surv_note}  "
             f"{pct_str}",
+            *evidence_lines,
             "",
             "Fitted parameters:",
         ]
@@ -611,12 +634,28 @@ def create_synthesis_tools(
             lines.append(f"  {name:<28} [{kind:<8}] {init_val:.4f} -> "
                          f"{fit_val:.4f}  (delta={delta:+.4f}, {ppct:+.1f}%)")
 
+        interval_belief = CFG.code_sim_learning_interval_belief
+        if interval_belief:
+            ident_heading = (
+                "Identifiability and belief (posterior_std / prior_std; the "
+                "'belief:' line under a parameter is the planner's belief - "
+                "the most likely value with its +-1 sigma interval, the "
+                "anchor's position relative to it, and whether the planner "
+                "runs on it. 'wide posterior' means the data moved the "
+                "parameter but only weakly: its most likely value is "
+                "deployed and plans are certified across the whole "
+                "interval. ~1 with no move means the data did NOT constrain "
+                "the parameter, so remove it from PHYSICAL_PARAM_SPECS or "
+                "collect data that exercises it):")
+        else:
+            ident_heading = (
+                "Identifiability (posterior_std / prior_std; ~1 means the "
+                "data did NOT constrain the parameter — its fitted value is "
+                "arbitrary, so remove it from PHYSICAL_PARAM_SPECS or "
+                "collect data that exercises it):")
         lines.extend([
             "",
-            "Identifiability (posterior_std / prior_std; ~1 means the data "
-            "did NOT constrain the parameter — its fitted value is "
-            "arbitrary, so remove it from PHYSICAL_PARAM_SPECS or collect data "
-            "that exercises it):",
+            ident_heading,
             format_identifiability(ident_report),
             "",
         ])
@@ -629,6 +668,23 @@ def create_synthesis_tools(
                 "individually-explainable trajectories indicate "
                 "heterogeneous data (e.g. an arm-touched episode), not a "
                 "parameter value.")
+        elif interval_belief:
+            kept_note = (
+                f"{', '.join(kept_at_init)} carried no information (or "
+                "failed the sensitivity screen, sat at a box edge, or was "
+                "data-equivalent to the baseline), so their baseline values "
+                "were kept. " if kept_at_init else "")
+            lines.append(
+                "Applied to the planning base env: the most likely value of "
+                "every parameter the data moved (identified, weakly "
+                "identified or wide posterior). " + kept_note +
+                "submit_plan and sim.run(plan, physics_sweep=True) certify "
+                "a plan across each deployed parameter's belief interval; "
+                "a plan that passes only part of an interval is reported "
+                "with the passing and failing ranges, which is the cue "
+                "that one real experiment narrowing that parameter is "
+                "worth more than more planning. Probe rollouts (sim.run / "
+                "sim.refine) now run against the calibrated sim.")
         elif kept_at_init:
             lines.append(
                 "Applied to the planning base env: fitted values for the "
@@ -684,13 +740,16 @@ def create_synthesis_tools(
             "- a per-timestep digest of one trajectory, np, ParamSpec, "
             "and (when the "
             "env defines task evaluators) evaluate_trajectory(states, "
-            "actions=None, task_idx=0) -> {reward, solved, note} - the "
+            "actions=None, task_idx=0, physics_sweep=False) -> {reward, "
+            "solved, note[, sweep]} - the "
             "task's reward model over a state sequence: the environment's "
             "scoring rules, on a simulator rollout or a hand-built "
             "sequence run against your belief simulator at its current "
             "fit (`note` says what a replaying rule simulated and on "
             "what; label transitions with (option, objects, params) so it "
-            "replays your action, not its canonical one). "
+            "replays your action, not its canonical one; physics_sweep=True "
+            "also scores it at every point of the identified parameters' "
+            "belief interval and reports the fraction scored solved). "
             "print() output "
             "is returned. The namespace persists across calls. If output "
             "exceeds ~30k chars it is saved to "

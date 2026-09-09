@@ -101,6 +101,10 @@ class ToolContext:
     # play: every env tool result and the session query refresh it), so
     # ``sim.reset(current=True)`` can start a rollout from it.
     current_observation: Optional[State] = None
+    # The execution-time belief over it (observation_belief.BeliefFrame)
+    # when the run carries one, so sim.run(belief_draws=K) draws from
+    # the belief the agent was shown.
+    current_belief: Optional[Any] = None
     skill_factory_context: Dict[str, Any] = field(default_factory=dict)
     proposals_disabled: bool = False  # set True during test-time solving
     log_dir: Optional[str] = None

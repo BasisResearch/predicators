@@ -12,6 +12,7 @@ else uniform jitter) and the LM-seed short-circuit of the recurrent fit.
 # pylint: disable=protected-access,import-outside-toplevel,unused-import
 
 import numpy as np
+import pytest
 
 from predicators import utils  # noqa: F401  (settles import order)
 from predicators.approaches.agent_sim_learning_approach import \
@@ -62,6 +63,49 @@ def test_disagreement_zero_far_from_boundary():
     assert approach.score_atom_disagreement(_state(0.05), {atom}) == 0.0
     # x=0.95 > every threshold -> all agree False -> no disagreement.
     assert approach.score_atom_disagreement(_state(0.95), {atom}) == 0.0
+
+
+def test_noise_aware_score_is_what_one_observation_can_resolve():
+    """Under a declared noise channel the score is the information a noisy read
+    carries about the member: thresholds closer than sigma score ~0, thresholds
+    far apart keep the full bit."""
+    utils.reset_config({
+        "agent_explorer_info_seeking_noise_aware": True,
+        "continual_obs_noise_position": 0.05,
+        "continual_obs_noise_declared": True,
+        "seed": 0,
+    })
+    near = _bare_approach([{
+        "thresh": t
+    } for t in (0.50, 0.505, 0.51)], {"thresh": 0.5})
+    atom = _at_target_atom(near)
+    # The plain split is 1 vs 2 members: a high entropy the noise makes
+    # unreadable (every member reads x=0.5 as a coin flip).
+    assert near.score_atom_disagreement(_state(0.5), {atom}) < 0.1
+    far = _bare_approach([{"thresh": t} for t in (0.2, 0.8)], {"thresh": 0.5})
+    atom_far = _at_target_atom(far)
+    utils.reset_config({
+        "agent_explorer_info_seeking_noise_aware": True,
+        "continual_obs_noise_position": 0.01,
+        "continual_obs_noise_declared": True,
+        "seed": 0,
+    })
+    assert far.score_atom_disagreement(_state(0.5),
+                                       {atom_far}) == pytest.approx(1.0)
+    assert far._fitted_params == {"thresh": 0.5}
+    # Flag off, or an undeclared channel: the plain entropy of the split.
+    utils.reset_config({
+        "agent_explorer_info_seeking_noise_aware": False,
+        "continual_obs_noise_position": 0.05,
+    })
+    assert near.score_atom_disagreement(_state(0.5), {atom}) > 0.9
+    utils.reset_config({
+        "agent_explorer_info_seeking_noise_aware": True,
+        "continual_obs_noise_position": 0.05,
+        "continual_obs_noise_declared": False,
+    })
+    assert near.score_atom_disagreement(_state(0.5), {atom}) > 0.9
+    utils.reset_config({})
 
 
 def test_fitted_params_restored_after_scoring():

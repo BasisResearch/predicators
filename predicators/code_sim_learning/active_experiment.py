@@ -268,3 +268,35 @@ def mean_bernoulli_entropy(truth_matrix: np.ndarray) -> float:
         raise ValueError("truth_matrix must be 2D (members x atoms)")
     fracs = arr.mean(axis=0)  # P(atom holds) across members
     return float(np.mean([_bernoulli_entropy(p) for p in fracs]))
+
+
+def noisy_read_information(prob_matrix: np.ndarray) -> float:
+    """Mean per-atom mutual information between the ensemble member and the
+    atom's truth as read from a noisy observation.
+
+    ``prob_matrix`` is a ``(num_members, num_atoms)`` array: entry
+    ``[k, m]`` is the probability that atom ``m`` READS true under
+    member ``k`` once the member's predicted state is observed through
+    the declared noise channel (the fraction of noise draws in which
+    the classifier fires). Per atom the score is ``H(mean_k p_k) -
+    mean_k H(p_k)``, the information one noisy observation of the atom
+    carries about which member is right: it equals
+    :func:`mean_bernoulli_entropy` when every ``p_k`` is 0 or 1 (an exact
+    channel, or predictions far from the atom's boundary relative to
+    sigma) and falls to 0 when every member reads the atom as the same
+    coin flip (predictions within sigma of the boundary, which one
+    observation cannot resolve). Averaged over atoms; 0 for an empty
+    matrix.
+    """
+    arr = np.asarray(prob_matrix, dtype=float)
+    if arr.size == 0:
+        return 0.0
+    if arr.ndim != 2:
+        raise ValueError("prob_matrix must be 2D (members x atoms)")
+    scores = []
+    for m in range(arr.shape[1]):
+        col = arr[:, m]
+        marginal = _bernoulli_entropy(float(col.mean()))
+        conditional = float(np.mean([_bernoulli_entropy(p) for p in col]))
+        scores.append(max(marginal - conditional, 0.0))
+    return float(np.mean(scores))

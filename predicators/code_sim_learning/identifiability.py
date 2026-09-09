@@ -35,6 +35,13 @@ class Verdict(enum.Enum):
 
     IDENTIFIED = "identified"
     WEAKLY_IDENTIFIED = "weakly identified"
+    # The interval belief's verdict (code_sim_learning_interval_belief):
+    # the posterior did not contract below the weak threshold, but it is
+    # narrower than the prior and the data moved the MAP off its anchor,
+    # so the MAP is the honest estimate and the planner's belief is the
+    # whole +-1 sigma interval. Deployed, and swept end to end by the
+    # certification gates. Never produced outside the interval belief.
+    WIDE = "wide posterior"
     NOT_IDENTIFIED = "NOT identified"
     # The grid-sweep SSE span never cleared the noise floor: rollouts do
     # not respond to this param anywhere in its box on this data.
@@ -54,12 +61,19 @@ class Verdict(enum.Enum):
     @property
     def applies_fitted(self) -> bool:
         """Whether the fitted value is trustworthy enough to deploy."""
-        return self in (Verdict.IDENTIFIED, Verdict.WEAKLY_IDENTIFIED)
+        return self in (Verdict.IDENTIFIED, Verdict.WEAKLY_IDENTIFIED,
+                        Verdict.WIDE)
 
 
 # Posterior/prior-width ratio thresholds for the identifiability verdicts.
 _IDENTIFIED_CONTRACTION = 0.3
 _WEAK_CONTRACTION = 0.7
+
+# A MAP within this fit-space distance of its anchor did not move: the
+# interval belief keeps such a parameter at the anchor instead of
+# calling it WIDE (the prior-folded LM leaves data-flat directions at
+# their anchors up to solver nudges of ~1e-9).
+_MOVED_Z_EPS = 1e-3
 
 # Same-theta SSE evaluations used to estimate the nondeterminism noise
 # floor (grid sweep and identifiability probe use the same count).
@@ -76,6 +90,8 @@ def identifiability_report(
     param_specs: Optional[Sequence[ParamSpec]] = None,
     num_explainable: Optional[int] = None,
     min_posterior_width: float = 0.0,
+    belief_interval: bool = False,
+    anchors: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Per-parameter posterior-vs-prior contraction from a rollout fit.
 
@@ -131,8 +147,22 @@ def identifiability_report(
       the rollouts at all on this data; its flat interval spans the box
       trivially, and the screen's dedicated verdict ("insensitive",
       fitted value not applied) says WHY.
+
+    ``belief_interval`` (the interval belief, settings
+    ``code_sim_learning_interval_belief``) changes two things. A
+    parameter that would read NOT identified while its posterior is
+    narrower than the prior and its MAP sits off its ``anchors`` entry
+    (the prior centre) by more than ``_MOVED_Z_EPS`` in fit space is
+    :attr:`Verdict.WIDE` instead: the data moved it, so its MAP is the
+    estimate and the whole interval is the belief. And every entry with
+    a finite width carries ``belief_interval`` (the MAP +-1 posterior
+    sigma in external units, clipped to the box when known), ``map``
+    and, when known, ``anchor``, which the report renders in words.
     """
     scales = _result_scales(result, param_specs)
+    centers = dict(anchors or {})
+    point = result.point_estimate
+    spec_by_name = {s.name: s for s in param_specs} if param_specs else {}
     sensitivity = result.sensitivity or {}
     ablation = getattr(result, "anchor_ablation", None) or {}
     if result.samples.shape[0] > 1:
@@ -206,6 +236,15 @@ def identifiability_report(
             verdict = Verdict.WEAKLY_IDENTIFIED
             note = ("sharp posterior, but only "
                     f"{num_explainable} explainable segment(s) back it")
+        z_map = _to_fit_scale(scales[i], float(point[name]))
+        if (belief_interval and verdict is Verdict.NOT_IDENTIFIED
+                and contraction < 1.0 - 1e-9 and name in centers
+                and abs(z_map - _to_fit_scale(scales[i], centers[name])) >
+                _MOVED_Z_EPS):
+            verdict = Verdict.WIDE
+            note = ("wide posterior, but the data moved it off the anchor: "
+                    "the most likely value is deployed and certification "
+                    "sweeps the whole interval")
         if name in at_bound:
             # A MAP pinned at its box edge means the optimizer ran out
             # of box: the data pushes the parameter outside its
@@ -240,6 +279,18 @@ def identifiability_report(
             "verdict": verdict,
             "note": note,
         }
+        if belief_interval and np.isfinite(post) and post > 0:
+            lo = _from_fit_scale(scales[i], z_map - post)
+            hi = _from_fit_scale(scales[i], z_map + post)
+            spec = spec_by_name.get(name)
+            if spec is not None:
+                box_lo, box_hi = param_bounds([spec])
+                lo = float(np.clip(lo, box_lo[0], box_hi[0]))
+                hi = float(np.clip(hi, box_lo[0], box_hi[0]))
+            report[name]["belief_interval"] = (lo, hi)
+            report[name]["map"] = float(point[name])
+            if name in centers:
+                report[name]["anchor"] = float(centers[name])
         if sens is not None:
             for key in ("sse_span", "noise_floor"):
                 if key in sens:
@@ -253,6 +304,53 @@ def identifiability_report(
         if abl is not None:
             report[name]["anchor_ablation"] = dict(abl)
     return report
+
+
+def _to_fit_scale(scale: str, value: float) -> float:
+    """``value`` in fit space for a ``scale`` ("log" or "linear")."""
+    if scale == "log":
+        return float(np.log(max(value, LOG_FLOOR)))
+    return float(value)
+
+
+def _from_fit_scale(scale: str, z: float) -> float:
+    """Inverse of :func:`_to_fit_scale`."""
+    return float(np.exp(z)) if scale == "log" else float(z)
+
+
+def straddle_summary(points: Sequence[Dict[str, float]],
+                     passed: Sequence[bool]) -> str:
+    """The sub-ranges of a certification sweep a plan passed and failed on.
+
+    ``points`` are the sweep points in hull order (see
+    :func:`physics_sigma_points`) and ``passed`` their outcomes. A mixed
+    sweep means the belief interval straddles the plan's success
+    boundary; naming the passing and failing ranges per swept parameter
+    tells the agent which side of the interval the plan needs the truth
+    to be on, which is what makes one narrowing experiment worth more
+    than more planning. Parameters that do not vary across the sweep
+    are omitted; the result is one ``name: ...`` clause per parameter,
+    joined by semicolons.
+    """
+    assert len(points) == len(passed)
+    parts: List[str] = []
+    for name in sorted({n for p in points for n in p}):
+        vals = [float(p[name]) for p in points if name in p]
+        if len(vals) != len(points) or max(vals) - min(vals) <= 0:
+            continue
+        runs: List[List[Any]] = []
+        for value, ok in zip(vals, passed):
+            if runs and runs[-1][0] == ok:
+                runs[-1][2] = value
+            else:
+                runs.append([ok, value, value])
+        descs = []
+        for ok, lo, hi in runs:
+            label = "passes" if ok else "fails"
+            descs.append(f"{label} at {lo:.4g}" if lo ==
+                         hi else f"{label} on [{lo:.4g}, {hi:.4g}]")
+        parts.append(f"{name}: " + ", ".join(descs))
+    return "; ".join(parts)
 
 
 def _interval_half_width(interval: Sequence[float], scale: str) -> float:
@@ -287,8 +385,11 @@ def physics_sigma_points(applied: Dict[str, float],
     having zero margin to the fit's parameter error
     (run_20260723_091108: a capture validated 8/8 at fitted
     lateral_friction 0.5319 failed deterministically at true 0.5). Each
-    param whose FITTED value was deployed (``Verdict.applies_fitted``)
-    and whose reported ``posterior_std`` is finite and nonzero is swept
+    param whose FITTED value was deployed (``Verdict.applies_fitted``,
+    which under the interval belief includes ``Verdict.WIDE``: a moved
+    parameter's whole posterior interval, however wide, is the belief
+    the plan has to hold across) and whose reported ``posterior_std``
+    is finite and nonzero is swept
     in FIT space (multiplicative for log-scale params) over
     ``num_points`` evenly spaced offsets in [-1, +1] sigma, all
     perturbed params moving together along that diagonal, each value
@@ -567,6 +668,29 @@ def select_trustworthy_params(
     return applied
 
 
+def _format_belief(info: Dict[str, Any], verdict: Verdict) -> str:
+    """The interval belief's line: the MAP, its interval, where the anchor sits
+    relative to it, and whether the planner runs on it."""
+    lo, hi = info["belief_interval"]
+    line = (f"      belief: most likely {info['map']:.4g}, interval "
+            f"[{lo:.4g}, {hi:.4g}] (+-1 posterior sigma)")
+    anchor = info.get("anchor")
+    if anchor is not None:
+        if anchor < lo:
+            where = "BELOW the interval (the data exclude the baseline)"
+        elif anchor > hi:
+            where = "ABOVE the interval (the data exclude the baseline)"
+        else:
+            where = "inside the interval"
+        line += f"; the anchor {anchor:.4g} lies {where}"
+    if verdict.applies_fitted:
+        line += ("; deployed as the planner's value, and certification "
+                 "sweeps the interval")
+    else:
+        line += f"; NOT deployed ({verdict.value})"
+    return line
+
+
 def format_identifiability(report: Dict[str, Dict[str, Any]]) -> str:
     """Human/agent-readable rendering of :func:`identifiability_report`."""
     lines = []
@@ -578,6 +702,9 @@ def format_identifiability(report: Dict[str, Dict[str, Any]]) -> str:
                      f"  prior_std={info['prior_std']:.4g}"
                      f"  contraction={info['contraction']:.2f}"
                      f"  -> {label}")
+        belief = info.get("belief_interval")
+        if belief is not None:
+            lines.append(_format_belief(info, verdict))
         interval = info.get("flat_interval")
         if interval is not None and interval[0] != interval[1]:
             note = (" - the fitted value is the edge of this interval "

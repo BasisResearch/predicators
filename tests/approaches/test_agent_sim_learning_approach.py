@@ -877,6 +877,8 @@ def _make_checkpoint_stub(tmp_path, monkeypatch):
     obj._last_fit_result = None
     obj._param_ensemble = [{"gain": 0.7}]
     obj._identified_physical_params = {"lateral_friction": 0.5}
+    obj._carried_physical_prior = {"lateral_friction": 0.5}
+    obj._fit_evidence_history = {"vers_001": {"log_evidence": -1.0}}
     obj._identified_physical_sigma_points = [{"lateral_friction": 0.55}]
     obj._sysid_fit_history = {}
     obj._residual_features = {"block": ["x"]}
@@ -942,6 +944,8 @@ def test_extra_save_state_round_trip_defers_sigma_points(
     }]
     assert fresh._fitted_params == {"gain": 0.7}
     assert fresh._identified_physical_params == {"lateral_friction": 0.5}
+    assert fresh._carried_physical_prior == {"lateral_friction": 0.5}
+    assert fresh._fit_evidence_history == {"vers_001": {"log_evidence": -1.0}}
 
 
 def test_rehydrate_rebuilds_simulator_from_restored_file(

@@ -26,6 +26,7 @@ from predicators.agent_sdk.tools.tasks import _resolve_task
 from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
     _format_evaluator_verdict, _resolve_task_evaluator, _sandbox_base, \
     evaluate_states_with, load_ground_sampler_fns
+from predicators.code_sim_learning.identifiability import straddle_summary
 from predicators.settings import CFG
 from predicators.structs import GroundAtom, State, Task
 
@@ -103,10 +104,12 @@ def _parameter_margin_sweep(
         prefetched = _prefetch_parallel(
             [functools.partial(_physics_rollout, point) for point in points],
             f"{subject} physics margin")
+        passed: List[bool] = []
         for point_idx, point in enumerate(points):
             ctx.attempt_rollout_count += 1
             pre = prefetched[point_idx]
             ok, why = pre if pre is not None else _physics_rollout(point)
+            passed.append(bool(ok))
             desc = ", ".join(f"{k}={v:.4g}" for k, v in sorted(point.items()))
             if ok:
                 outcomes.append(f"physics point ({desc}): goal reached")
@@ -114,6 +117,15 @@ def _parameter_margin_sweep(
                 outcomes.append(f"physics point ({desc}): FAILED - {why}")
                 if detail is None:
                     detail = f"at {desc}: {why}"
+        if (detail is not None and any(passed)
+                and CFG.code_sim_learning_interval_belief):
+            # Certification over the belief interval (interval belief):
+            # a mixed sweep is the interval straddling the plan's success
+            # boundary, and the passing/failing ranges say which way.
+            straddle = straddle_summary(points, passed)
+            detail += (f" ({sum(passed)}/{len(passed)} belief-interval "
+                       f"points passed" +
+                       (f"; {straddle}" if straddle else "") + ")")
         if points and detail is None:
             note += (
                 f" Physics-margin check passed: the {subject} also reached "
@@ -1113,6 +1125,17 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 "tuned at. Add margin to the DESIGN (not the execution) - "
                 "e.g. tighter spacing or impacts nearer the middle of the "
                 "fall path - then resubmit.")
+            if CFG.code_sim_learning_interval_belief and any(
+                    "goal reached" in o for o in margin_outcomes):
+                lines.append(
+                    "The belief interval straddles this plan's success "
+                    "boundary (the passing and failing ranges are named "
+                    "above). One real experiment that narrows that "
+                    "parameter is worth more than more planning here: call "
+                    "sim.suggest_probes(plan_text) to rank probes on your "
+                    "sketch, run the best one for real, refit, and "
+                    "resubmit - or find a design that holds across the "
+                    "whole interval.")
         elif decision is CaptureDecision.REWARD_HACK_NO_CAPTURE:
             assert verdict is not None
             _stash_uncaptured_submission()

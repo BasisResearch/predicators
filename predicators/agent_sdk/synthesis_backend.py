@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, \
     Protocol, Sequence, Set, Tuple
 
 if TYPE_CHECKING:
+    from predicators.code_sim_learning.evidence import LaplaceEvidence
     from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
     from predicators.code_sim_learning.rollout_env import RolloutTrajectory
     from predicators.code_sim_learning.utils import LearnedSimulator
@@ -111,6 +112,23 @@ class SynthesisBackend(Protocol):
     def _apply_identified_physical_params(
             self, identified: Dict[str, float]) -> None:
         ...
+
+    def fit_prior_anchors(
+            self, physical_specs: Sequence[ParamSpec]) -> Dict[str, float]:
+        """The prior centres of a rollout fit: the registry anchors, or the
+        carried posterior's values under code_sim_learning_carry_posterior."""
+
+    def note_carried_posterior(self, applied: Dict[str, float],
+                               report: Dict[str, Dict[str, Any]]) -> None:
+        """Record a fit's deployed values as the next fit's prior centres."""
+
+    def note_fit_evidence(self, version_tag: str,
+                          evidence: LaplaceEvidence) -> None:
+        """Record a canonical fit's Laplace evidence under its version."""
+
+    def previous_fit_evidence(
+            self, version_tag: str) -> Optional[Dict[str, LaplaceEvidence]]:
+        """The previous version's recorded evidence, as a one-entry dict."""
 
     def _record_sysid_diagnostics(self, report: Dict[str, Dict[str, Any]],
                                   physical_names: Sequence[str],
