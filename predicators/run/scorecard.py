@@ -132,6 +132,8 @@ class RunCard:
     # 0 for exact, and whether the agent's contract declared them.
     obs_noise_position: float = 0.0
     obs_noise_orientation: float = 0.0
+    # The scalar-reading class, in the readings' own units.
+    obs_noise_scalar: float = 0.0
     obs_noise_declared: bool = True
     schema: int = SCHEMA_VERSION
     started_at: float = field(default_factory=time.time)

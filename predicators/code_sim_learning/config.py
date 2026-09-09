@@ -66,6 +66,11 @@ class SysIdConfig:
     grid_sweep_passes: int
     grid_refine_evals: int
     grid_flat_frac: float
+    # The interval-first parameter belief (settings
+    # code_sim_learning_interval_belief) and its flat-tolerance floor in
+    # posterior sigmas (code_sim_learning_rollout_flat_sigmas).
+    interval_belief: bool
+    flat_sigmas: float
     min_posterior_width: float
     anchor_ablation: bool
     trim_rms_factor: float
@@ -74,11 +79,20 @@ class SysIdConfig:
     feature_scale_floor: float
     sensitivity_factor: float
     segment_min_rest_steps: int
+    # The fit-side filter (settings code_sim_learning_rollout_noise_*):
+    # sigma-relative windowed motion detection and denoised segment
+    # starts under a declared channel.
+    noise_filter: bool
+    noise_window: int
+    settle_sigmas: float
     scale_residuals: bool
     huber_delta: float
     summary_weight: float
     consistency_factor: float
     log_hessian_identifiability: bool
+    # The Laplace evidence in the fit report (settings
+    # code_sim_learning_fit_evidence).
+    fit_evidence: bool
     score_observed_only: bool
     track_path: str
     onset_confirm_deg: float
@@ -110,6 +124,8 @@ class SysIdConfig:
             grid_refine_evals=(
                 CFG.code_sim_learning_rollout_grid_refine_evals),
             grid_flat_frac=CFG.code_sim_learning_rollout_grid_flat_frac,
+            interval_belief=CFG.code_sim_learning_interval_belief,
+            flat_sigmas=CFG.code_sim_learning_rollout_flat_sigmas,
             min_posterior_width=(
                 CFG.code_sim_learning_rollout_min_posterior_width),
             anchor_ablation=(CFG.code_sim_learning_rollout_anchor_ablation),
@@ -122,6 +138,9 @@ class SysIdConfig:
                 CFG.code_sim_learning_rollout_sensitivity_factor),
             segment_min_rest_steps=(
                 CFG.code_sim_learning_rollout_segment_min_rest_steps),
+            noise_filter=CFG.code_sim_learning_rollout_noise_filter,
+            noise_window=CFG.code_sim_learning_rollout_noise_window,
+            settle_sigmas=CFG.code_sim_learning_rollout_settle_sigmas,
             scale_residuals=CFG.code_sim_learning_rollout_scale_residuals,
             huber_delta=CFG.code_sim_learning_rollout_huber_delta,
             summary_weight=CFG.code_sim_learning_rollout_summary_weight,
@@ -129,6 +148,7 @@ class SysIdConfig:
                 CFG.code_sim_learning_rollout_consistency_factor),
             log_hessian_identifiability=(
                 CFG.code_sim_learning_log_hessian_identifiability),
+            fit_evidence=CFG.code_sim_learning_fit_evidence,
             score_observed_only=(
                 CFG.code_sim_learning_rollout_score_observed_only),
             track_path=_anchor_at_launch_cwd(

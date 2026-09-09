@@ -73,7 +73,7 @@ Proposed flags and records:
 | `continual_obs_noise_declared` | whether the contract states the sigmas and the fit knows them (default on) |
 | scorecard | `obs_noise_position`, `obs_noise_orientation`, `obs_noise_declared`; `aggregate_scorecards.py` carries the columns and the viewer's run page shows the channel |
 
-A scalar-feature class (fill levels, sensor readings) was deferred in the first version because none of the target envs discriminated on one; the sweep showed that boil does (section 8), so it is now step 7 of the build order.
+A scalar-feature class (fill levels, sensor readings) was deferred in the first version because none of the target envs discriminated on one; the sweep showed that boil does (section 8), so it became step 7 of the build order and landed on 2026-09-08 as `continual_obs_noise_scalar`.
 A noisy discrete feature stays the dropout follow-up, not a Gaussian.
 
 Sigma values are chosen per env relative to the tightest predicate tolerance in that env, not as absolute numbers.
@@ -242,11 +242,16 @@ Where MDA does not reach:
    the interval in the fit report, in words, with the anchor's position;
    the probe trigger on a straddling interval, with the probe value normalised by sigma (section 3.5);
    the contraction thresholds and the flat tolerance in units of sigma, and the refusal's exceeds-sigma bit where it is still missing.
+   Landed 2026-09-08 (section 8), behind flags, untested on a run: the build-all-then-ablate plan runs steps 3 to 7 first and validates after.
 4. The filter inside the fit (section 3.3): each segment's initial condition as a latent under the declared sigma, sigma-relative motion detection for the settled-tail truncation and the rest-point segmentation, and the carried posterior as the next level's prior.
+   Landed 2026-09-08 (section 8), behind flags, untested on a run.
 5. The Laplace evidence in the fit report and the evidence delta between simulator versions (section 3.4).
+   Landed 2026-09-08 (section 8), behind a flag, untested on a run.
 6. The belief at execution (sections 3.3 and 3.6): the particle or smoothed frame beside the raw one, atom fractions in `sim.predicates`, belief draws in `sim.run` and `evaluate_trajectory`, the likelihood-based monitor, the spread in the attempts log, and placements certified over the target object's plausible positions.
+   Landed 2026-09-08 as the smoothed frame (section 8), behind a flag, untested on a run; the particle filter proper and belief draws in `evaluate_trajectory` were not built.
 7. The scalar-reading class of the channel: `continual_obs_noise_scalar` on `bubbling_level`, `water_volume`, `spilled_level` and any Type-declared sensor feature, additive and unclipped, switch states exact; the contract, the frame line and the scorecard carry the third sigma; the fit's residual scale folds it like the others.
    Boil sweep points relative to the ramp step of 0.15 and the 0.07 boil margin, about 0.03, 0.07 and 0.15, with pose noise and reading noise swept as separate axes.
+   Landed 2026-09-08 (section 8); the sweep configs are `scripts/configs/predicatorv3/protocol_continual_noise_boil_p12_r{03,07,15}.yaml`, each the earlier 1.25 cm pose point with the reading sigma on top (decided 2026-09-08: one experiment tests both channels at once), the 0.07 point launched the same day.
 
 Validation: domino at 1 cm with four seeds after step 3, which is where the advantage was lost first; boil under reading noise after step 7; the exact boil model-based baseline rerun under the sanitized-frame rule before the boil column is quoted; fan back in the sweep once its cap-stall fixes land.
 
@@ -269,7 +274,67 @@ Step 1 of section 7 landed on 2026-09-07 (branch `bridge-learning`).
 - The prompts: a declared channel adds an "Observation noise" section to both arms' system prompt, an "Observation noise and the fit" section to the model contract, and a `[noise]` line to every frame.
 - Tests: `tests/test_observation_noise.py`, the channel, resume-under-noise and card tests in `tests/run/test_continual.py`, the scaling fold in `tests/code_sim_learning/test_physical_sysid.py`, the prompt and frame test in `tests/agent_sdk/test_continual_tools.py`.
 
-Not yet built: the filter (3.3), the evidence comparison (3.4), the sigma-measured gates (3.5) and the belief-aware tool surface (3.6).
+Step 3 of section 7 landed on 2026-09-08 (branch `bridge-learning`), behind two flags so the later ablations are flag flips: `code_sim_learning_interval_belief` (the parameter belief) and `agent_explorer_info_seeking_noise_aware` (the probe value), both off by default.
+
+- The verdict `Verdict.WIDE` ("wide posterior") in `predicators/code_sim_learning/identifiability.py`: a parameter whose posterior did not contract below the weak threshold but is narrower than the prior, and whose most likely value moved off the prior centre by more than 0.001 in fit space.
+  It deploys, so `select_trustworthy_params` applies the most likely value and `physics_sigma_points` sweeps its whole interval; the verdict enum stays the single decision surface, so every consumer follows without a second switch.
+  A parameter that never moved, or whose reported width exceeds the prior, still reads NOT identified and keeps the anchor: the data said nothing.
+- Every report entry carries the belief interval (the most likely value plus and minus one posterior sigma, clipped to the box), the most likely value and the anchor, and `format_identifiability` renders a `belief:` line in words with the anchor's position (below, inside, above) and whether the planner runs on it.
+  The `sim.fit` report's heading and its "Applied" sentence say the same, and the explorer's system-identification diagnostics name the interval as the experiment target.
+- Certification: the capture gate's PARAM-SENSITIVE refusal and `sim.run(plan, physics_sweep=True)` report the fraction of interval points passed and the passing and failing ranges per parameter (`straddle_summary`).
+  A mixed sweep is the interval straddling the plan's success boundary; it arms adaptive info-seeking from the probe as well as from the gate, with the cue that one narrowing experiment beats more planning.
+- The flat tolerance in sigma units: `flat_tolerance` in `grid_seed.py` takes the relative tolerance on the SSE in excess of the declared channel's expected noise SSE (`expected_noise_sse` in `trajectory_prep.py`, one variance per scored residual) and floors it at `flat_sigmas^2 * noise_sigma^2` (`code_sim_learning_rollout_flat_sigmas`, the likelihood-ratio interval); the anchor ablation uses the same tolerance.
+  The contraction thresholds stay ratios: under the interval belief they label, they no longer gate.
+- The exceeds-sigma bit: under a declared channel the fit's trimming note leads with the statement that the dropped segments exceed what the declared noise can explain, so the model has to change rather than the fit.
+- The noise-aware probe value: `score_atom_disagreement` reads each ensemble member's predicted state through eight draws of the declared channel and scores the mutual information between the member and the read truth (`noisy_read_information`), so a disagreement finer than sigma scores zero and is not worth real steps.
+- Tests: `tests/code_sim_learning/test_interval_belief.py`, the noise-aware case in `tests/approaches/test_sim_learning_info_seeking.py`, the straddle cases in `tests/agent_sdk/test_belief_probe_physics_sweep.py` and `tests/agent_sdk/test_submit_plan_capture.py`, the declared-channel case in `tests/agent_sdk/test_trim_cause_note.py`.
+
+Step 4 of section 7 landed on 2026-09-08 (branch `bridge-learning`), behind `code_sim_learning_rollout_noise_filter` (the fit-side filter) and `code_sim_learning_carry_posterior` (the carried posterior), both off by default.
+
+- Sigma-relative motion detection in `predicators/code_sim_learning/trajectory_prep.py`: under a declared channel a step is active when the mean of the next `noise_window` frames differs from the mean of the previous `noise_window` frames by more than `settle_sigmas` standard errors of that difference, floored at the settle tolerance; exact features keep the per-step test and angular features are wrapped.
+  Both the settled-tail truncation and the rest-point segmentation use it, so under a centimetre of noise a tail is cut and a rest point is found again (the per-step detector flagged every step against its millimetre tolerance).
+- The initial condition: each rest-anchored segment starts from the mean of its preceding rest window (circular mean for angles), so the rollout's initial condition carries sigma over the square root of the window instead of one frame's sigma.
+  This is what an initial-condition latent under the declared sigma resolves to while the objects are at rest, at no extra fit parameters; the full latent (one per object feature per segment) would cost a rollout per Levenberg-Marquardt column and was not built.
+  The expected noise SSE of step 3 leaves the rollout's own start error out, so it stays conservative.
+- The carried posterior: `fit_prior_anchors` on the sim-learning approach hands both the harness fit and `sim.fit` the most likely value of every parameter the last applied fit deployed as the prior centre, in place of the env registry's default, and `note_carried_posterior` records it after each applied fit (never an anchor fallback).
+  The centre is what data-flat directions stay at, what the grid sweep's anchor-nearest choice and the anchor ablation revert to, and what an uninformative parameter falls back to, so a level's fit starts where the last one ended.
+  The width is not carried: the fit pools every level's data, and a carried width would count the earlier levels twice.
+  The carried values are checkpointed with the approach.
+- Tests: `tests/code_sim_learning/test_noise_filter.py`.
+
+Step 5 of section 7 landed on 2026-09-08 (branch `bridge-learning`), behind `code_sim_learning_fit_evidence`, off by default.
+
+- `predicators/code_sim_learning/evidence.py`: the Laplace log evidence at the MAP from what the fit already has, the SSE, the Jacobian, the noise width and the prior centres and widths in fit space: log likelihood plus log prior plus the Occam term (half the parameter count times log two pi, minus half the log determinant of the Gauss-Newton curvature).
+  The approximation is exact for a linear residual model, and the test checks it against quadrature; a data-flat parameter leaves the evidence unchanged and a constrained parameter that buys no residual lowers it.
+- The orchestrator computes it on the surviving segments when the fit carries a Jacobian (Levenberg-Marquardt ran and the anchor ablation pinned nothing) and hands it back on the fit outcome; the fit report states it next to the SSE with the residual and parameter counts, and quotes the delta against the previous canonical simulator version when both score the same residual set, naming the winner.
+  A different residual set (scope or survivors) is named as not comparable rather than compared.
+- The approach keeps the per-version history in its checkpoint, so the delta survives a resume.
+- Tests: `tests/code_sim_learning/test_evidence.py` and the flag case in `tests/code_sim_learning/test_orchestrator.py`.
+
+Step 6 of section 7 landed on 2026-09-08 (branch `bridge-learning`) as the smoothed frame, behind `continual_belief_frame`, off by default, with `continual_belief_window`, `continual_belief_sigmas` and `continual_belief_draws` as its knobs.
+
+- `predicators/observation_belief.py`: per object, the belief is the mean of its noisy features over the frames it has rested through, up to the window, with the spread sigma over the square root of the frames; rest is judged sigma-relatively on the window's two halves, the way the fit-side filter judges motion, so a moving object is never smoothed across its motion and the window restarts at a jump.
+  Angles average circularly.
+  Draws of the belief jitter each noisy feature by its spread, and the atom fractions are the share of draws on which an atom holds.
+- The observation carries the belief beside the raw frame: the `[objects]` block is followed by a `[belief]` block naming each object's smoothed features with their spread and the frames averaged, and the atom lines are followed by `[atoms under the belief]` listing the atoms whose fraction is strictly between zero and one.
+  The truth view the reference arms use carries no belief.
+- The likelihood-based monitor: an invocation's expected atom is missing when it holds on fewer than half the belief draws after the skill, and an expected-absent atom is present on the same rule, so one frame's noise never aborts a healthy plan; the invocation's result text and the level index carry the fractions and the belief's largest spread, which is where the agent's notes read the spread from.
+- `sim.run(plan, belief_draws=K)`: the plan rolled once from each of K draws of the belief, on a fresh env at the base planner seed, reporting the successes and each draw's largest feature shift; a mixed result says the plan depends on a pose the observation cannot pin down, and this is how a placement is certified over where its target may really be.
+  The draws come from the belief shown in the last observation when the probe still sits on it, else from the current state with the declared sigma on every noisy feature.
+- Added the same day: `evaluate_trajectory(states, actions, physics_sweep=True)` scores the sequence at every point of the identified parameters' belief interval on a fresh env at that physics and reports the per-point verdicts, the fraction scored solved and whether the sequence is certified at every point, so a replaying certificate that flips across the interval shows up before the agent acts on it; and `sim.belief()` on the probe lists the current belief (each object's smoothed features with their spread) and the fraction of belief draws on which each atom holds, the on-demand form of the observation's belief lines.
+- Not built: the particle filter proper (the smoothed frame is the rest-window special case of it, exact for objects at rest, and objects in motion keep the raw frame).
+  `sim.predicates()` reports on the invented predicates' file, not on a state, so the atom fractions live in the observation and in `sim.belief()`.
+- Tests: `tests/test_observation_belief.py`, the belief cases in `tests/run/test_continual.py`, `tests/agent_sdk/test_continual_tools.py` and `tests/agent_sdk/test_belief_probe_physics_sweep.py`.
+
+Step 7 of section 7 landed on 2026-09-08 (branch `bridge-learning`): the scalar-reading class of the channel, `continual_obs_noise_scalar`.
+
+- `ObservationNoise.scalar` applies to `bubbling_level`, `water_volume`, `spilled_level` and any feature a Type declares in its new `sensor_features` metadata, additive and unclipped (a full jug reads above one about half the time); switch states, discrete features and the robot stay exact.
+- Because every consumer reads sigmas through `feature_sigma`, the fit's residual scale, the expected noise SSE of step 3, the fit-side filter of step 4 and the execution-time belief of step 6 fold the reading sigma in without further change.
+- The contract and the frame line describe the third sigma through the channel's own text, and the run card, the level index, the scorecard aggregator and the viewer carry it (`obs_noise_scalar`); cards written before the field load as exact readings.
+- Tests: the scalar case in `tests/test_observation_noise.py` and the card round trip in `tests/run/test_continual.py`.
+
+Every step of the build order is now built, all behind flags that default off, and none has run on a level yet: the validation runs of section 7 come next, with the ablations as flag flips on one code tree.
+The particle filter proper (3.3) stays unbuilt; the smoothed frame is its rest-window special case.
 
 First launch (step 2, one point of the sweep), 2026-09-07: fan and domino, both arms, seeds 0 and 1, position sigma 5 mm and orientation sigma 0.02 rad, declared, via `scripts/configs/predicatorv3/protocol_continual_noise_fan_domino.yaml` from the worktree `predicators-noise-r1` (Slurm 22197846 domino model-based, 22197847 fan model-based, 22197848 domino model-free, 22197849 fan model-free).
 The sigma is about half the tightest scale of each env: fan's target tolerance is 1 cm on a 4 cm ball, a domino is 7 cm wide.

@@ -49,8 +49,10 @@ from predicators.approaches.sampler_learning_mixin import SamplerLearningMixin
 from predicators.approaches.synthesis_validation import \
     build_candidate_option_model
 from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
-    mean_bernoulli_entropy, perturbation_ensemble, subsample_ensemble
+    mean_bernoulli_entropy, noisy_read_information, perturbation_ensemble, \
+    subsample_ensemble
 from predicators.code_sim_learning.commands import CommandBuffer
+from predicators.code_sim_learning.evidence import LaplaceEvidence
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
     declared_interval_fit_result, declared_interval_report
 from predicators.code_sim_learning.fitting import FIT_NOISE_SIGMA, \
@@ -74,6 +76,7 @@ from predicators.code_sim_learning.utils import LearnedSimulator, \
     read_residual_env, read_simulator_components, stamp_physical_spec_scales
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_simulator
+from predicators.observation_noise import ObservationNoise
 from predicators.option_model import _OptionModelBase, _OracleOptionModel
 from predicators.settings import CFG
 from predicators.structs import Action, Dataset, DerivedPredicate, \
@@ -352,6 +355,14 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # _get_rollout_fit_env), never touching the planning base env.
         self._physical_param_specs: List[ParamSpec] = []
         self._identified_physical_params: Dict[str, float] = {}
+        # The carried posterior (code_sim_learning_carry_posterior): the
+        # most likely value of every physical param the last applied fit
+        # deployed, the prior centre of the next fit.
+        self._carried_physical_prior: Dict[str, float] = {}
+        # Per canonical simulator version, the fit's Laplace evidence
+        # record (code_sim_learning_fit_evidence): the sim.fit report's
+        # delta against the previous version reads from here.
+        self._fit_evidence_history: Dict[str, Dict[str, float]] = {}
         # +-1-posterior-sigma perturbations of the applied params (the
         # capture gate's physics-margin points). Set only by the joint
         # rollout fit, which has the identifiability report; cleared by
@@ -757,6 +768,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             list(self._param_ensemble),
             "identified_physical_params":
             dict(self._identified_physical_params),
+            "carried_physical_prior":
+            dict(self._carried_physical_prior),
+            "fit_evidence_history":
+            dict(self._fit_evidence_history),
             "identified_physical_sigma_points":
             list(self._identified_physical_sigma_points),
             "sysid_fit_history":
@@ -800,6 +815,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         self._param_ensemble = list(save_dict.get("param_ensemble") or [])
         self._identified_physical_params = dict(
             save_dict.get("identified_physical_params") or {})
+        self._carried_physical_prior = dict(
+            save_dict.get("carried_physical_prior") or {})
+        self._fit_evidence_history = dict(
+            save_dict.get("fit_evidence_history") or {})
         self._sysid_fit_history = dict(
             save_dict.get("sysid_fit_history") or {})
         self._residual_features = dict(
@@ -1385,21 +1404,62 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         Wired into refinement as the info-scorer for the agent_model_based
         explorer; a read-only query that leaves ``_fitted_params``
         unchanged on return.
+
+        Under ``agent_explorer_info_seeking_noise_aware`` with a declared
+        observation-noise channel, each member reads the atoms from
+        noisy views of ``state`` (:meth:`_noisy_read_views`) and the
+        score is the mutual information between the member and the
+        read truth (:func:`noisy_read_information`): members whose
+        predictions differ by less than sigma all read a coin flip and
+        contribute nothing, because one noisy observation cannot tell
+        them apart.
         """
         atom_list = list(atoms)
         if len(self._param_ensemble) <= 1 or not atom_list:
             return 0.0
+        views = self._noisy_read_views(state)
         saved = dict(self._fitted_params)
         try:
-            rows: List[List[bool]] = []
+            rows: List[List[float]] = []
             for member in self._param_ensemble:
                 self._fitted_params.clear()
                 self._fitted_params.update(member)
-                rows.append([bool(a.holds(state)) for a in atom_list])
+                if views is None:
+                    rows.append([float(a.holds(state)) for a in atom_list])
+                else:
+                    rows.append([
+                        float(np.mean([bool(a.holds(v)) for v in views]))
+                        for a in atom_list
+                    ])
         finally:
             self._fitted_params.clear()
             self._fitted_params.update(saved)
-        return mean_bernoulli_entropy(np.asarray(rows, dtype=bool))
+        if views is None:
+            return mean_bernoulli_entropy(np.asarray(rows, dtype=bool))
+        return noisy_read_information(np.asarray(rows, dtype=float))
+
+    # Noisy views per scored state: enough to resolve a coin flip from
+    # a near-certain read, few enough that scoring stays cheap.
+    _NOISY_READ_DRAWS = 8
+
+    def _noisy_read_views(self, state: State) -> Optional[List[State]]:
+        """The observations a real step ending at ``state`` could return under
+        the declared noise channel, or None when the score is exact (flag off,
+        channel off or undeclared).
+
+        Common random numbers: the draws are seeded identically for
+        every scored state, so candidate scores are comparable and a re-
+        score is repeatable.
+        """
+        if not CFG.agent_explorer_info_seeking_noise_aware:
+            return None
+        noise = ObservationNoise.from_cfg()
+        if not (noise.enabled and noise.declared):
+            return None
+        rng = np.random.default_rng(CFG.seed)
+        return [
+            noise.perturb(state, rng) for _ in range(self._NOISY_READ_DRAWS)
+        ]
 
     @contextmanager
     def _rule_param_override_scope(
@@ -2317,6 +2377,62 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                     {k: f"{v:.4f}"
                      for k, v in identified.items()})
 
+    def fit_prior_anchors(
+            self, physical_specs: Sequence[ParamSpec]) -> Dict[str, float]:
+        """The prior centres of a rollout fit: the env-registry anchors, or
+        under ``code_sim_learning_carry_posterior`` the carried posterior's
+        most likely values where one exists (see the flag in settings).
+
+        Shared by the harness fit and the ``sim.fit`` tool, so both fits
+        start from the same belief.
+        """
+        anchors = physical_param_anchors(self._base_env, physical_specs)
+        if not CFG.code_sim_learning_carry_posterior:
+            return anchors
+        carried = {
+            s.name: self._carried_physical_prior[s.name]
+            for s in physical_specs if s.name in self._carried_physical_prior
+        }
+        if carried:
+            logger.info(
+                "Rollout sysID: prior centres carried from the last applied "
+                "fit: %s (registry anchors for the rest).",
+                {k: f"{v:.4f}"
+                 for k, v in carried.items()})
+        anchors.update(carried)
+        return anchors
+
+    def note_carried_posterior(self, applied: Dict[str, float],
+                               report: Dict[str, Dict[str, Any]]) -> None:
+        """Record the values a fit just deployed as the next fit's prior
+        centres (``code_sim_learning_carry_posterior``): only params whose
+        verdict applied the fitted value, so an anchor fallback is never
+        carried as a belief."""
+        if not CFG.code_sim_learning_carry_posterior:
+            return
+        for name, value in applied.items():
+            verdict = report.get(name, {}).get("verdict")
+            if verdict is not None and verdict.applies_fitted:
+                self._carried_physical_prior[name] = float(value)
+
+    def note_fit_evidence(self, version_tag: str,
+                          evidence: LaplaceEvidence) -> None:
+        """Record a canonical fit's Laplace evidence under its simulator
+        version, the history the report's version delta reads from."""
+        self._fit_evidence_history[version_tag] = evidence.as_dict()
+
+    def previous_fit_evidence(
+            self, version_tag: str) -> Optional[Dict[str, LaplaceEvidence]]:
+        """The most recently recorded evidence of a version other than
+        ``version_tag``, as a one-entry dict, or None."""
+        for tag in reversed(list(self._fit_evidence_history)):
+            if tag != version_tag:
+                return {
+                    tag:
+                    LaplaceEvidence.from_dict(self._fit_evidence_history[tag])
+                }
+        return None
+
     def _fit_parameters_joint_rollout(
         self,
         rules: List,
@@ -2347,7 +2463,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             s.name: s.init_value
             for s in physical_specs + rule_specs
         }
-        anchors = physical_param_anchors(self._base_env, physical_specs)
+        anchors = self.fit_prior_anchors(physical_specs)
         if not rollouts:
             logger.warning(
                 "No complete trajectories for rollout sysID; keeping the "
@@ -2403,6 +2519,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                     format_identifiability(outcome.report))
         log_param_changes(init_params, outcome.fitted)
         self._apply_identified_physical_params(outcome.applied)
+        self.note_carried_posterior(outcome.applied, outcome.report)
+        if outcome.evidence is not None:
+            self.note_fit_evidence(
+                self._current_simulator_version or "harness", outcome.evidence)
         # Snapshot the cycle-level decision: this (not whatever the
         # agent's in-session sim.fit last applied) is what a future
         # INCONSISTENT verdict holds on to.
@@ -2635,6 +2755,25 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                         "covers that whole hull). A clean, repeatable "
                         "interaction that excites this parameter and "
                         "little else would collapse the hull.")
+                continue
+            belief = entry.get("belief_interval")
+            if verdict is Verdict.WIDE and belief is not None:
+                anchor = entry.get("anchor")
+                if anchor is None:
+                    where = ""
+                elif anchor < belief[0] or anchor > belief[1]:
+                    where = (f"; the baseline {anchor:.4g} lies outside it, "
+                             "so the data already exclude the baseline")
+                else:
+                    where = f"; the baseline {anchor:.4g} lies inside it"
+                lines.append(
+                    f"- physical param '{name}': the data moved it to "
+                    f"{entry.get('map', float('nan')):.4g} but only weakly; "
+                    f"the planner's belief is the interval [{belief[0]:.4g}, "
+                    f"{belief[1]:.4g}]{where}. Plans are certified across "
+                    "the whole interval, so an experiment whose observable "
+                    "outcome DIFFERS across it would narrow the belief and "
+                    "widen the set of certifiable plans.")
                 continue
             interval = entry.get("flat_interval")
             if (verdict in (Verdict.WEAKLY_IDENTIFIED, Verdict.NOT_IDENTIFIED)
@@ -3041,7 +3180,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
         def evaluate_trajectory(states: Sequence[State],
                                 actions: Optional[Sequence[Any]] = None,
-                                task_idx: int = 0) -> Dict[str, Any]:
+                                task_idx: int = 0,
+                                physics_sweep: bool = False) -> Dict[str, Any]:
             """Score ``states`` with the task's reward model.
 
             ``states``: the sequence, ``states[t]`` before action ``t``.
@@ -3056,6 +3196,16 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             substrate ("" when nothing was replayed). On a rollout of
             your simulator, or a sequence you assembled, the substrate
             is your belief simulator at its current fit.
+
+            ``physics_sweep=True`` also scores the sequence at every
+            point of the identified physical parameters' belief
+            interval (the same grid ``sim.run(physics_sweep=True)`` and
+            the capture gate use), each on a fresh env at that physics,
+            and adds ``sweep``: the per-point verdicts and the fraction
+            scored solved. A verdict that replays physics can flip
+            across the interval; a sequence is certified only when it
+            is scored a solve at every point. ``sweep`` is None with a
+            note when no identified parameter carries a width.
             """
             if not 0 <= task_idx < len(tasks):
                 raise ValueError(f"task_idx {task_idx} out of range "
@@ -3079,13 +3229,56 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                                            sim_env=getattr(
                                                self._option_model, "sim_env",
                                                None))
-            return {
+            result = {
                 "reward": verdict["reward"],
                 "solved": verdict["solved"],
                 "note": verdict.get("note", ""),
             }
+            if physics_sweep:
+                result["sweep"] = self._sweep_evaluation(
+                    evaluator, list(states), step_options)
+            return result
 
         return evaluate_trajectory
+
+    def _sweep_evaluation(self, evaluator: Any, states: List[State],
+                          step_options: Optional[Sequence[Any]]) -> Any:
+        """``evaluate_trajectory``'s ``physics_sweep``: the verdict at every
+        physics-margin point on a fresh env at that physics, and the fraction
+        scored solved; None with a note when there is nothing to sweep."""
+        points = list(self._identified_physical_sigma_points)
+        if not points:
+            return None
+        per_point: List[Dict[str, Any]] = []
+        for point in points:
+            with self._fresh_validation_env_scope(physical_overrides=point):
+                try:
+                    verdict = evaluate_states_with(evaluator,
+                                                   states,
+                                                   step_options,
+                                                   sim_env=getattr(
+                                                       self._option_model,
+                                                       "sim_env", None))
+                    entry = {
+                        "params": dict(point),
+                        "solved": bool(verdict["solved"]),
+                        "reward": float(verdict["reward"]),
+                        "note": str(verdict.get("note") or ""),
+                    }
+                except Exception as e:  # pylint: disable=broad-except
+                    entry = {
+                        "params": dict(point),
+                        "solved": None,
+                        "reward": None,
+                        "note": f"verdict failed: {e}",
+                    }
+            per_point.append(entry)
+        solved = sum(1 for p in per_point if p["solved"])
+        return {
+            "points": per_point,
+            "solved_fraction": solved / len(per_point),
+            "certified": solved == len(per_point),
+        }
 
     @staticmethod
     def _format_trajectory_listing(

@@ -572,6 +572,31 @@ def test_param_sensitive_plan_is_not_captured():
     ]
 
 
+def test_param_sensitive_refusal_names_the_straddle():
+    """Under the interval belief the refusal carries the certified fraction,
+    the passing and failing ranges and the probe cue."""
+    utils.reset_config({
+        "agent_plan_validation_rollouts": 3,
+        "agent_plan_validation_fresh_env": True,
+        "agent_plan_validation_physics_margin": True,
+        "code_sim_learning_interval_belief": True,
+    })
+    model = _PhysicsAwareModel()
+    ctx, _ = _physics_scope_ctx(model, [{
+        "lateral_friction": 0.48
+    }, {
+        "lateral_friction": 0.59
+    }])
+    text = _call_tool(ctx)
+    assert "PARAM-SENSITIVE (plan NOT captured)" in text
+    assert ("(1/2 belief-interval points passed; lateral_friction: fails at "
+            "0.48, passes at 0.59)") in text
+    assert "straddles this plan's success boundary" in text
+    assert "sim.suggest_probes" in text
+    assert ctx.param_sensitive_refusal_pending
+    assert ctx.solved_plan is None
+
+
 def test_physics_margin_pass_is_captured_with_note():
     """Margin points inside the success band capture with the margin note."""
     utils.reset_config({

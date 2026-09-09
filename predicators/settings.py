@@ -126,12 +126,40 @@ class GlobalSettings:
     # 0 disables a class; both 0 is the exact-observation protocol.
     continual_obs_noise_position = 0.0
     continual_obs_noise_orientation = 0.0
+    # The scalar-reading class (section 3.1, build-order step 7):
+    # additive, unclipped Gaussian noise on bubbling_level, water_volume,
+    # spilled_level and any feature a Type declares in sensor_features,
+    # in the reading's own units; switch states stay exact. Boil's sweep
+    # points sit against its ramp step of 0.15 and its 0.07 boil margin,
+    # about 0.03, 0.07 and 0.15, swept as an axis separate from pose
+    # noise.
+    continual_obs_noise_scalar = 0.0
     # Whether the channel is declared: the agent's contract states the
     # sigmas and the model arm's fit folds them into its likelihood
     # (predicators/observation_noise.py). Off is the harder ablation
     # where the agent has to find the noise itself and the harness's
     # model tools know nothing about it either.
     continual_obs_noise_declared = True
+    # The execution-time belief (docs/continual-uncertainty.md, sections
+    # 3.3 and 3.6; predicators/observation_belief.py). Under a declared
+    # channel the observation carries, beside the raw frame, the
+    # smoothed frame: per object, the mean of its noisy features over
+    # the frames it has rested through (up to continual_belief_window,
+    # rest judged at continual_belief_sigmas standard errors, like the
+    # fit-side filter), with the spread sigma / sqrt(frames). The atoms
+    # the agent is unsure about are listed with the fraction of
+    # continual_belief_draws draws of the belief on which they hold; an
+    # invocation's expected outcome is checked by the same fraction (an
+    # atom is missing when it holds on fewer than half the draws), so one
+    # noisy frame never aborts a healthy plan; and sim.run(plan,
+    # belief_draws=K) rolls a plan from K draws of the belief, which
+    # certifies a placement over where its target may really be. Off,
+    # or an exact channel: the raw frame, the hard atom check and no
+    # belief draws.
+    continual_belief_frame = False
+    continual_belief_window = 8
+    continual_belief_sigmas = 3.0
+    continual_belief_draws = 16
     # Slack (in reward units) below a task's ``early_stop_min_reward`` bar
     # that still counts as solved for early stopping. Only tasks that set
     # ``EnvironmentTask.early_stop_min_reward`` are affected (e.g. domino
@@ -2208,6 +2236,19 @@ class GlobalSettings:
     # the robustness on levels where a fragile plan is caught. Off =>
     # info-seeking is always active (the original behaviour).
     agent_explorer_info_seeking_adaptive = False
+    # Noise-aware probe value (docs/continual-uncertainty.md, section
+    # 3.5): under a declared observation-noise channel the ensemble
+    # disagreement that ranks probes (sim.suggest_probes, the
+    # info-seeking sampler, the explorer's disagreement summary) is the
+    # mutual information between the ensemble member and the atom's
+    # truth as READ from a noisy observation. Each member's predicted
+    # state is jittered by the declared sigmas; members whose
+    # predictions differ by less than sigma all read the atom as a coin
+    # flip and the score goes to 0, because one noisy observation
+    # cannot tell them apart and the probe is not worth real steps.
+    # Exact channel, undeclared channel or flag off: the plain Bernoulli
+    # entropy of the members' truth split (the original score).
+    agent_explorer_info_seeking_noise_aware = False
     # Ensemble size used to estimate disagreement. 1 disables scoring
     # (every candidate scores 0) and reduces to first-feasible.
     agent_explorer_info_ensemble_size = 6
@@ -2289,6 +2330,38 @@ class GlobalSettings:
     # of an arbitrary interior grid point. 0 disables the flat set (the
     # raw per-candidate argmin wins, the legacy behavior).
     code_sim_learning_rollout_grid_flat_frac = 0.05
+    # Interval-first parameter belief (docs/continual-uncertainty.md,
+    # section 3.7): the planner's belief about a physical parameter is
+    # the fit's posterior - the most likely value with its +-1 sigma
+    # interval - for every parameter the data moved off its anchor, not
+    # only for the ones whose posterior contracted below a fixed
+    # fraction of the prior. A parameter that moved but whose posterior
+    # stayed wide gets the dedicated verdict "wide posterior"
+    # (Verdict.WIDE): its most likely value is deployed, and the capture
+    # gate's physics-margin sweep and sim.run(physics_sweep=True)
+    # certify plans across its whole interval. A mixed sweep (some
+    # points pass, some fail) is reported as the interval straddling the
+    # plan's success boundary, with the passing and failing ranges, and
+    # arms adaptive info-seeking (the probe trigger). The fit report
+    # states each interval in words with the anchor's position relative
+    # to it. The grid sweep's data-equivalence tolerance then measures
+    # the model-bias part of the SSE only: the declared noise channel's
+    # expected SSE is subtracted first (see expected_noise_sse) and a
+    # likelihood-ratio floor of flat_sigmas^2 * noise_sigma^2 applies,
+    # so a wider posterior under noise reads as the honest answer rather
+    # than as failure. Motivated by the sigma sweep (section 8): at 1 cm
+    # domino noise the friction posterior 0.40 [0.22, 0.72] did not
+    # contract below 0.7 of the prior, so the verdict switch discarded
+    # it for the 0.1 anchor (outside the interval) and never swept.
+    # Off keeps the verdict switch (ablation).
+    code_sim_learning_interval_belief = False
+    # Likelihood-ratio floor of the grid sweep's flat tolerance under
+    # the interval belief, in posterior sigmas: candidates whose SSE
+    # differ by less than flat_sigmas^2 * noise_sigma^2 are
+    # data-equivalent at that confidence (delta chi-square = k^2 for
+    # one parameter under the objective's own Gaussian). Only used with
+    # code_sim_learning_interval_belief.
+    code_sim_learning_rollout_flat_sigmas = 1.0
     # Bisection evaluations per moved param that refine the anchor-side
     # edge of its flat set to sub-grid resolution (0 disables). The
     # 7-point log grid has ~2.4x spacing, so a true value mid-gap is
@@ -2466,6 +2539,39 @@ class GlobalSettings:
     # Consecutive settled steps (per settle_tol) required for a rest
     # point to become a segment boundary.
     code_sim_learning_rollout_segment_min_rest_steps = 10
+    # The fit-side filter (docs/continual-uncertainty.md, section 3.3,
+    # the errors-in-variables fallback): under a declared
+    # observation-noise channel the settled-tail truncation and the
+    # rest-point segmentation detect motion sigma-relatively. A step is
+    # active when the mean of the next noise_window frames differs from
+    # the mean of the previous noise_window frames by more than
+    # settle_sigmas standard errors of that difference
+    # (sigma_f * sqrt(2 / window)), floored at settle_tol, instead of
+    # the per-step delta, which under a centimetre of noise flags every
+    # step (1 cm noise against a 1 mm tolerance) so no rest point is
+    # ever found and no tail is ever cut. Each rest-anchored segment
+    # then starts from the mean of its preceding rest window: the
+    # rollout's initial condition is the denoised rest pose (noise
+    # sigma / sqrt(window)) rather than one noisy frame, which is what
+    # an initial-condition latent under the declared sigma resolves to
+    # while the objects are at rest, without extra fit parameters. Off,
+    # or an exact channel, keeps the per-step detector and the observed
+    # first frame.
+    code_sim_learning_rollout_noise_filter = False
+    code_sim_learning_rollout_noise_window = 8
+    code_sim_learning_rollout_settle_sigmas = 3.0
+    # Carried posterior (section 3.3): the most likely value of every
+    # physical parameter the last applied fit deployed becomes the prior
+    # centre (the anchor) of the next fit - the value data-flat
+    # directions stay at, the grid sweep's anchor-nearest choice, the
+    # anchor ablation's baseline and the fallback for an uninformative
+    # parameter - so a level's fit starts where the last one ended
+    # instead of at the env registry's default (domino at 2 cm noise:
+    # friction stayed at the 0.1 registry anchor for the whole run).
+    # The width is not carried: the fit pools every level's data, so a
+    # carried width would count the earlier levels twice. Off keeps the
+    # registry anchor for every fit.
+    code_sim_learning_carry_posterior = False
     # Pre-fit sensitivity screen: a physical param whose SSE span over
     # its own grid sweep does not exceed factor * the same-theta SSE
     # noise floor is "insensitive" on this data - the rollouts do not
@@ -2492,6 +2598,15 @@ class GlobalSettings:
     # Diagnostic: log the Hessian eigendecomposition at the MAP to
     # spot unidentifiable parameter combinations. Adds ~5-15s per fit.
     code_sim_learning_log_hessian_identifiability = False
+    # The Laplace evidence (docs/continual-uncertainty.md, section 3.4):
+    # every rollout fit with a Jacobian at the MAP reports its log
+    # evidence next to its SSE, and the sim.fit report quotes the delta
+    # against the previous canonical simulator version when both score
+    # the same residual set. A version that adds parameters has to win
+    # on evidence, not on residual: the evidence integrates over the
+    # parameters, so under noise a rule that only fits the noise lowers
+    # it while the SSE falls. Off: no evidence is computed or reported.
+    code_sim_learning_fit_evidence = False
     # If True, run the LM fit from a grid-seeded start rather than the
     # declared init_values, and attach its MAP + Jacobian. Adds ~5-15s
     # per fit.

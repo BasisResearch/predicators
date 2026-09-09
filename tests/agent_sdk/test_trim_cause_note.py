@@ -10,6 +10,7 @@ move it - and the advice must say so; only far-over segments earn the
 chaotic-recording advice.
 """
 
+from predicators import utils
 from predicators.agent_sdk.tools.synthesis import _TRIM_BORDERLINE_FACTOR, \
     _trim_cause_note
 
@@ -60,6 +61,31 @@ def test_no_dropped_segments_means_no_notes() -> None:
     """With nothing over the threshold there is nothing to advise on."""
     assert not _trim_cause_note([0.01, 0.02], _THRESHOLD)
     assert not _trim_cause_note([], _THRESHOLD)
+
+
+def test_declared_noise_leads_with_the_exceeds_sigma_bit() -> None:
+    """Under a declared channel a dropped segment is named as exceeding what
+    the noise can explain, before the fidelity or chaos advice; an exact
+    channel says nothing about noise."""
+    utils.reset_config({
+        "continual_obs_noise_position": 0.01,
+        "continual_obs_noise_declared": True,
+    })
+    try:
+        notes = _trim_cause_note([0.1126, 0.4216], _THRESHOLD)
+        assert len(notes) == 3
+        assert "exceed what the declared noise can explain" in notes[0]
+        assert "position sigma 0.01 m" in notes[0]
+        assert "2 segment(s)" in notes[0]
+        assert not _trim_cause_note([0.05], _THRESHOLD)
+        utils.reset_config({
+            "continual_obs_noise_position": 0.01,
+            "continual_obs_noise_declared": False,
+        })
+        assert len(_trim_cause_note([0.1126], _THRESHOLD)) == 1
+    finally:
+        utils.reset_config({})
+    assert len(_trim_cause_note([0.1126], _THRESHOLD)) == 1
 
 
 def test_boundary_lands_on_the_borderline_side() -> None:

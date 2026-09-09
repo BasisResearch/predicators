@@ -25,8 +25,11 @@ from predicators.agent_sdk.sketch_parsing import parse_sketch_from_text
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.digests import render_options_digest
 from predicators.agent_sdk.tools.results import _error_result, _text_result
+from predicators.observation_belief import atom_fractions, \
+    describe_fractions, uncertain_atoms
 from predicators.observation_noise import ObservationNoise
 from predicators.run.episode import EpisodeOver, EpisodeState
+from predicators.settings import CFG
 from predicators.structs import Action, GroundAtom, Predicate, State, Task, \
     _Option
 
@@ -186,9 +189,33 @@ def format_observation(
     lines.append("[atoms] " + (", ".join(env_origin) or note or "(none)"))
     if invented:
         lines.append("[your predicates] " + ", ".join(invented))
+    if obs.belief is not None:
+        try:
+            fractions = atom_fractions(
+                obs.belief, set(ctx.predicates),
+                int(CFG.continual_belief_draws),
+                np.random.default_rng(CFG.seed +
+                                      7919 * int(obs.ledger.run_steps)))
+            unsure = uncertain_atoms(fractions)
+        except Exception as e:  # pylint: disable=broad-except
+            fractions, unsure = {}, []
+            lines.append(f"[atoms under the belief] (could not be "
+                         f"evaluated: {e})")
+        if unsure:
+            lines.append(
+                "[atoms under the belief] unsure: " +
+                describe_fractions(fractions, unsure) +
+                " (the fraction of belief draws on which the atom holds; "
+                "atoms at 0 or 1 read as listed above)")
     if with_state:
         lines.append("[objects]")
         lines.append(obs.frame.dict_str(indent=2, num_decimal_points=4))
+        if obs.belief is not None and obs.belief.frames_used:
+            lines.append("[belief] each object smoothed over the frames it "
+                         "rested through (value+-spread):")
+            for obj in sorted(obs.frame, key=lambda o: o.name):
+                if obj.name in obs.belief.frames_used:
+                    lines.append("  " + obs.belief.object_line(obj))
     if render_path:
         lines.append(f"[render] {render_path}")
     lines.append(obs.ledger.footer())
@@ -338,6 +365,7 @@ def build_continual_tools(
     def _observe_text(with_state: bool, tag: str) -> str:
         obs = session.observe()
         ctx.current_observation = obs.frame
+        ctx.current_belief = obs.belief
         render = save_render(tag)
         return format_observation(obs,
                                   ctx,
@@ -615,5 +643,9 @@ def _format_result(result: InvocationResult, before: Set[GroundAtom],
             lines.append("  DIVERGENCE: " + "; ".join(parts))
         else:
             lines.append("  expected outcome held")
+        if result.fractions:
+            lines.append(
+                "  under the belief (fraction of draws): " +
+                describe_fractions(result.fractions, list(result.fractions)))
     lines.append(_atoms_change_line(before, after))
     return "\n".join(lines)

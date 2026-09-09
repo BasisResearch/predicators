@@ -1,0 +1,76 @@
+# Boil under pose noise and reading noise together (docs/continual-
+# uncertainty.md, sections 3.1 and 7, build-order step 7): position
+# sigma 1.25 cm and orientation sigma 0.05 rad, the quarter-tolerance
+# pose point of the earlier sweep, plus sigma 0.07 on bubbling_level,
+# water_volume and spilled_level, additive and unclipped, against the
+# bubbling ramp step of 0.15 and the 0.07 boil margin. Both arms, seeds 0
+# and 1; every uncertainty feature of steps 3 to 7 on for the model-based
+# arm, the model-free arm as it always has been (the ablation configs
+# flip them). Compare against the 1.25 cm pose-only point (model-based
+# 2/2 in 701 and 1171 steps, model-free 2/2 in 1525 and 5409 with 18
+# resets).
+---
+START_SEED: 0
+NUM_SEEDS: 2
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ARGS:
+  - auto_resume
+FLAGS:
+  experiment_protocol: "continual"
+  continual_levels: "train_then_test"
+  continual_steps_per_level: 5000
+  continual_wall_clock_hours: 48.0
+  continual_render: True
+  continual_make_video: True
+  test_fresh_env_per_episode: True
+  continual_runs_dir: "/home/ycliang/predicators/logs"
+  log: "/home/ycliang/predicators/logs/"
+  continual_obs_noise_position: 0.0125
+  continual_obs_noise_orientation: 0.05
+  continual_obs_noise_scalar: 0.07
+  continual_obs_noise_declared: True
+ENVS:
+  boil:
+    SKIP: False
+  domino_high_friction_turn:
+    SKIP: True
+  fan:
+    SKIP: True
+APPROACHES:
+  oracle:
+    SKIP: True
+  agent_continual_noise_p12_r07:
+    NAME: "agent_continual"
+    SKIP: False
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_sdk_max_agent_turns_per_iteration: 10000
+      agent_sdk_image_max_px: 900
+      agent_bilevel_use_llm_initial_params: True
+      agent_solve_use_journal: True
+      agent_validation_parallel_workers: 6
+      code_sim_learning_rollout_min_posterior_width: 0.1
+      continual_max_idle_rounds: 5
+      # The uncertainty build order, steps 3 to 7 (docs/continual-uncertainty.md
+      # section 8), all on; the ablations flip these one at a time.
+      code_sim_learning_interval_belief: True
+      agent_explorer_info_seeking_noise_aware: True
+      code_sim_learning_rollout_noise_filter: True
+      code_sim_learning_carry_posterior: True
+      code_sim_learning_fit_evidence: True
+      continual_belief_frame: True
+  agent_continual_model_free_noise_p12_r07:
+    NAME: "agent_continual_model_free"
+    SKIP: False
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_planner_use_simulator: False
+      agent_solve_use_journal: True
+      agent_sdk_max_agent_turns_per_iteration: 10000
+      agent_sdk_image_max_px: 900
+      continual_max_idle_rounds: 5

@@ -18,6 +18,8 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.agent_sdk.belief_probe import BeliefProbe, ProbeBudgetExceeded
 from predicators.agent_sdk.tools import ToolContext
+from predicators.observation_belief import smooth_frames
+from predicators.observation_noise import ObservationNoise
 from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
     Object, ParameterizedOption, Predicate, State, Task, Type
 
@@ -124,6 +126,31 @@ def test_physics_sweep_reports_interior_hole():
     # The sweep is a measurement, not navigation: state is unchanged.
     assert sim._require_state().get(_block, "x") == 0.0
     assert ctx.attempt_rollout_count == 5
+
+
+def test_physics_sweep_straddle_arms_the_probe_trigger():
+    """Under the interval belief a mixed sweep is reported as the interval
+    straddling the plan's success boundary, with the passing and failing
+    ranges, and arms adaptive info-seeking; off, the sweep reads as before."""
+    points = [{"friction": mu} for mu in (0.43, 0.48, 0.5, 0.52)]
+    utils.reset_config({"code_sim_learning_interval_belief": True})
+    ctx, _, _ = _make_ctx(points)
+    sim = BeliefProbe(ctx)
+    sim.reset()
+    res = sim.run("Move(block0:block)[0.95]", render=False, physics_sweep=True)
+    assert "straddles this plan's success boundary" in res.text
+    assert ("3/4 interval points passed; friction: passes on [0.43, 0.48], "
+            "fails at 0.5, passes at 0.52") in res.text
+    assert ctx.param_sensitive_refusal_pending
+    utils.reset_config({"code_sim_learning_interval_belief": False})
+    ctx_off, _, _ = _make_ctx(points)
+    sim_off = BeliefProbe(ctx_off)
+    sim_off.reset()
+    res_off = sim_off.run("Move(block0:block)[0.95]",
+                          render=False,
+                          physics_sweep=True)
+    assert "straddles" not in res_off.text
+    assert not ctx_off.param_sensitive_refusal_pending
 
 
 def test_physics_sweep_all_pass_has_no_hole_guidance():
@@ -259,3 +286,78 @@ def test_trials_report_inexact_start_reconstruction():
     assert "2/2 trials started from an inexactly reconstructed state" \
         in res.text
     assert "block0.x" in res.text
+
+
+def test_belief_draws_roll_the_plan_from_plausible_starts():
+    """belief_draws=K rolls the plan from K draws of where the objects may be;
+    without a declared channel, or mixed with another mode, it refuses."""
+    utils.reset_config({
+        "continual_obs_noise_position": 0.01,
+        "continual_obs_noise_declared": True,
+    })
+    ctx, _, scope_overrides = _make_ctx([])
+    sim = BeliefProbe(ctx)
+    sim.reset()
+    res = sim.run("Move(block0:block)[0.95]", render=False, belief_draws=4)
+    assert res.successes == 4 and len(res.draws) == 4
+    assert not res.from_belief
+    assert all(d["max_shift"] > 0.0 for d in res.draws)
+    assert "Belief draws: 4/4 start states reached the goal" in res.text
+    assert "the current state with the declared sigma" in res.text
+    assert scope_overrides == [None] * 4
+    assert sim._require_state().get(_block, "x") == 0.0
+    # With the observation's belief in hand the draws come from it.
+    state = sim._require_state()
+    ctx.current_observation = state
+    ctx.current_belief = smooth_frames([state] * 4,
+                                       ObservationNoise(position=0.01), 8, 3.0)
+    res2 = sim.run("Move(block0:block)[0.95]", render=False, belief_draws=3)
+    assert res2.from_belief and res2.successes == 3
+    assert all(d["max_shift"] < 0.03 for d in res2.draws)
+    with pytest.raises(ValueError, match="its own mode"):
+        sim.run("Move(block0:block)[0.95]",
+                render=False,
+                belief_draws=2,
+                trials=2)
+    utils.reset_config({"continual_obs_noise_position": 0.0})
+    with pytest.raises(ValueError, match="declared observation-noise"):
+        sim.run("Move(block0:block)[0.95]", render=False, belief_draws=2)
+    utils.reset_config({})
+
+
+def test_probe_belief_lists_the_unsure_atoms():
+    """sim.belief() scores the session's atoms on draws around the current
+    state (the declared sigma when the probe left the observation)."""
+    utils.reset_config({
+        "continual_obs_noise_position": 0.01,
+        "continual_obs_noise_declared": True,
+        "continual_belief_draws": 200,
+    })
+    ctx, _, _ = _make_ctx([])
+    sim = BeliefProbe(ctx)
+    sim.reset()
+    far = sim.belief()
+    assert not far.from_observation and far.num_draws == 200
+    assert not far.fractions
+    assert "atoms holding on every draw: (none)" in far.text
+    assert any(
+        line.startswith("block0: x 0.0000+-0.0100") for line in far.objects)
+    sim.run("Move(block0:block)[0.9]", render=False)
+    edge = sim.belief(draws=400)
+    frac = edge.fractions["ReachedHi(block0:block)"]
+    assert 0.3 < frac < 0.7
+    assert "unsure atoms (fraction of draws): ReachedHi(block0:block)" \
+        in edge.text
+    # On the observation itself the shown belief is used.
+    state = sim._require_state()
+    ctx.current_observation = state
+    ctx.current_belief = smooth_frames([state] * 16,
+                                       ObservationNoise(position=0.01), 16,
+                                       3.0)
+    shown = sim.belief(draws=100)
+    assert shown.from_observation
+    assert any("(16 frames)" in line for line in shown.objects)
+    utils.reset_config({"continual_obs_noise_position": 0.0})
+    with pytest.raises(ValueError, match="declared observation-noise"):
+        sim.belief()
+    utils.reset_config({})
