@@ -3,9 +3,9 @@
 This module provides ``create_wait_option``, which builds a
 ``ParameterizedOption`` that holds the robot's current joint positions
 while nudging fingers toward their current open/closed state to resist
-drift.  The option is always initiable; it never terminates unless the
-config sets ``wait_quiescence_eps``, in which case it terminates once
-the non-robot scene has stopped moving (see ``SkillConfig``).
+drift. A positive ``num_steps`` ends the option after that many actions.
+Zero or omitted parameters retain the default quiescence behavior;
+the executor also handles annotated subgoals and its step cap.
 
 Example::
 
@@ -60,12 +60,12 @@ def create_wait_option(
 ) -> ParameterizedOption:
     """Create a wait (no-op) option that holds the robot's current pose.
 
-    Nudges fingers toward their current open/closed state to resist drift
-    and keeps all other joints at their current positions.  With
-    ``config.wait_quiescence_eps`` unset the option never terminates
-    (the executor's option-rollout cap ends it); when set, it terminates
-    once every non-robot object's features have changed by less than the
-    eps for ``config.wait_quiescence_steps`` consecutive steps.
+    The optional integer ``num_steps`` gives an action count, not seconds.
+    Positive counts terminate after that many policy actions, unless an
+    annotated subgoal or executor cap stops execution sooner.
+    Zero (also the default for an empty parameter list) retains quiescence
+    termination when configured and no explicit subgoal is present.
+    Fingers are nudged toward their open/closed state to resist drift.
 
     Args:
         name: Option name (e.g. "Wait").
@@ -84,7 +84,13 @@ def create_wait_option(
 
     def _initiable(state: State, memory: Dict, objects: Sequence[Object],
                    params: Array) -> bool:
-        del state, objects, params
+        del state, objects
+        count = float(params[0])
+        if not np.isfinite(count) or count < 0 or not count.is_integer():
+            raise ValueError(
+                "Wait num_steps must be a finite nonnegative integer")
+        memory["wait_num_steps"] = int(count)
+        memory["wait_steps_taken"] = 0
         # A grounded option can be re-run (validation rollouts reuse the
         # grounded plan); stale quiescence tracking from a previous run
         # would terminate the new run instantly.
@@ -96,6 +102,12 @@ def create_wait_option(
     def _terminal(state: State, memory: Dict, objects: Sequence[Object],
                   params: Array) -> bool:
         del params
+        requested = memory.get("wait_num_steps", 0)
+        if requested:
+            return memory.get("wait_steps_taken", 0) >= requested
+        if memory.get("wait_target_atoms") or memory.get(
+                "wait_target_neg_atoms"):
+            return False
         if config.wait_quiescence_eps is None:
             return False
         robot_obj = objects[0]
@@ -127,7 +139,7 @@ def create_wait_option(
 
     def _policy(state: State, memory: Dict, objects: Sequence[Object],
                 params: Array) -> Action:
-        del memory, params
+        del params
         robot_obj = objects[0]
 
         current_joint = config.fingers_state_to_joint(
@@ -152,6 +164,7 @@ def create_wait_option(
                 action_arr,
                 np.zeros(n_action - action_arr.shape[0], dtype=np.float32)
             ])
+        memory["wait_steps_taken"] = memory.get("wait_steps_taken", 0) + 1
         return Action(
             np.clip(action_arr, robot.action_space.low,
                     robot.action_space.high))
@@ -159,9 +172,12 @@ def create_wait_option(
     return ParameterizedOption(
         name,
         types=[robot_type],
-        params_space=Box(0, 1, (0, )),
+        params_space=Box(0, np.inf, (1, )),
         policy=_policy,
         initiable=_initiable,
         terminal=_terminal,
-        params_description=params_description,
+        params_description=params_description
+        or ("num_steps: integer action count; 0 or [] uses default stopping; "
+            "subgoals and the execution cap can stop sooner", ),
+        default_params=(0.0, ),
     )

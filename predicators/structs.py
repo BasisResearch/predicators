@@ -1393,6 +1393,10 @@ class ParameterizedOption:
     terminal: ParameterizedTerminal = field(repr=False)
     params_description: Optional[Tuple[str, ...]] = field(default=None,
                                                           repr=False)
+    # Empty parameter lists use these values when the option has defaults.
+    # Existing options remain strict unless they explicitly opt in.
+    default_params: Optional[Tuple[float, ...]] = field(default=None,
+                                                        repr=False)
 
     @cached_property
     def _hash(self) -> int:
@@ -1428,6 +1432,9 @@ class ParameterizedOption:
                     f"position {i} has type '{obj.type.name}', "
                     f"expected '{t.name}'")
         params = np.array(params, dtype=self.params_space.dtype)
+        if params.size == 0 and self.default_params is not None:
+            params = np.array(self.default_params,
+                              dtype=self.params_space.dtype)
         if not self.params_space.contains(params):
             # Values that passed through float32 (e.g. parsed agent plans)
             # can round a boundary value just past a float64 bound, since
