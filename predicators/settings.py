@@ -115,6 +115,23 @@ class GlobalSettings:
     # turn on it. There is no per-round clock: the run's wall-clock cap
     # is the only clock.
     continual_max_idle_rounds = 5
+    # Observation-noise channel (docs/continual-uncertainty.md, 3.1):
+    # additive zero-mean Gaussian noise on every non-robot object's
+    # position features (x, y, z; metres) and orientation features (rot,
+    # roll, pitch, yaw and a Type's angular_features; radians) in the
+    # frame the agent sees and in the data it reads. Discrete features
+    # and the robot's own state stay exact, one draw per env step keyed
+    # by (seed, level, episode, step), and everything the harness judges
+    # (evaluators, checkpoints, the level index) keeps the true state.
+    # 0 disables a class; both 0 is the exact-observation protocol.
+    continual_obs_noise_position = 0.0
+    continual_obs_noise_orientation = 0.0
+    # Whether the channel is declared: the agent's contract states the
+    # sigmas and the model arm's fit folds them into its likelihood
+    # (predicators/observation_noise.py). Off is the harder ablation
+    # where the agent has to find the noise itself and the harness's
+    # model tools know nothing about it either.
+    continual_obs_noise_declared = True
     # Slack (in reward units) below a task's ``early_stop_min_reward`` bar
     # that still counts as solved for early stopping. Only tasks that set
     # ``EnvironmentTask.early_stop_min_reward`` are affected (e.g. domino

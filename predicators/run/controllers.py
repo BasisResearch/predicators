@@ -92,10 +92,14 @@ class OracleController:
         self._approach = approach
 
     def play_level(self, session: ProtocolSession) -> None:
-        """Plan from the current state, execute, replan on failure."""
+        """Plan from the current state, execute, replan on failure.
+
+        The oracle is the exact-perception upper bound: it plans on the
+        true state, which is also what its skills execute on.
+        """
         failures = 0
         while True:
-            obs = session.observe()
+            obs = session.observe_truth()
             if obs.state is EpisodeState.WIN:
                 return
             if obs.state is EpisodeState.GAME_OVER:

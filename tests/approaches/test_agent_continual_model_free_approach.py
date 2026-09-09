@@ -206,6 +206,7 @@ def test_play_loop_with_a_scripted_model_free_agent(tmp_path: Any) -> None:
 def test_both_arms_start_with_no_predicates(tmp_path: Any) -> None:
     """Neither arm starts with an env predicate; the allowlist can hand either
     some, and ``["none"]`` spells the empty vocabulary."""
+    _config(tmp_path)
     assert resolve_kept_predicate_names(None) is None
     assert resolve_kept_predicate_names(frozenset()) == frozenset()
     utils.update_config({"agent_sim_learn_kept_predicates_names": ["none"]})

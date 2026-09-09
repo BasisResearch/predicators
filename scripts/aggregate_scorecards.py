@@ -32,10 +32,11 @@ import statistics
 from typing import Any, Callable, Dict, List, Sequence
 
 RUN_COLUMNS = [
-    "run_id", "env", "arm", "seed", "config", "git_sha", "end_reason",
-    "levels_total", "levels_completed", "total_steps", "total_resets",
-    "total_skill_invocations", "total_wall_clock", "total_downtime",
-    "total_llm_cost", "step_cap", "started_at", "finished_at"
+    "run_id", "env", "arm", "seed", "config", "git_sha", "claude_account",
+    "obs_noise_position", "obs_noise_orientation", "obs_noise_declared",
+    "end_reason", "levels_total", "levels_completed", "total_steps",
+    "total_resets", "total_skill_invocations", "total_wall_clock",
+    "total_downtime", "total_llm_cost", "step_cap", "started_at", "finished_at"
 ]
 
 LEVEL_COLUMNS = [

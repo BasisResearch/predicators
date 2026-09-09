@@ -122,6 +122,17 @@ class RunCard:
     wall_clock_cap: float
     config: str = ""
     git_sha: str = field(default_factory=_git_sha)
+    # The Claude account the run's LLM calls are charged to, as exported
+    # by the Engaging launcher (scripts/engaging/claude_accounts.py);
+    # empty when launched without one.
+    claude_account: str = field(default_factory=lambda: os.environ.get(
+        "PREDICATORS_CLAUDE_ACCOUNT", ""))
+    # The observation-noise channel the run played under
+    # (predicators/observation_noise.py): sigmas in metres and radians,
+    # 0 for exact, and whether the agent's contract declared them.
+    obs_noise_position: float = 0.0
+    obs_noise_orientation: float = 0.0
+    obs_noise_declared: bool = True
     schema: int = SCHEMA_VERSION
     started_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)

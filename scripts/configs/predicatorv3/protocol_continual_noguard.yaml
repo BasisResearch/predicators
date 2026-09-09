@@ -1,0 +1,52 @@
+# Balloons WITHOUT the guard, same tip (noguard = baseline).
+# Balloons under-determination-guard A/B (3 seeds). Both arms are the
+# adaptive uncertainty config (margin gate + info-seeking + adaptive) on
+# the MCMC-removed tip; the ONLY difference is the guard flag. Guard
+# targets the seed-1/2 overfit give-ups (a 4-entry table fit to 4 points
+# -> false certainty -> irreversible overshoot).
+---
+START_SEED: 0
+NUM_SEEDS: 3
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ARGS:
+  - auto_resume
+FLAGS:
+  experiment_protocol: "continual"
+  continual_levels: "train_then_test"
+  continual_steps_per_level: 5000
+  continual_wall_clock_hours: 48.0
+  continual_render: True
+  continual_make_video: True
+  test_fresh_env_per_episode: True
+  continual_runs_dir: "/home/ycliang/predicators/logs"
+  log: "/home/ycliang/predicators/logs/"
+ENVS:
+  boil:
+    SKIP: True
+  balloons:
+    SKIP: False
+    FLAGS:
+      num_train_tasks: 2
+APPROACHES:
+  oracle:
+    SKIP: True
+  agent_continual_noguard:
+    NAME: "agent_continual"
+    SKIP: False
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_sdk_max_agent_turns_per_iteration: 10000
+      agent_sdk_image_max_px: 900
+      agent_bilevel_use_llm_initial_params: True
+      agent_solve_use_journal: True
+      agent_validation_parallel_workers: 6
+      code_sim_learning_rollout_min_posterior_width: 0.1
+      continual_max_idle_rounds: 5
+      agent_plan_validation_rule_param_margin: True
+      agent_explorer_info_seeking: True
+      agent_explorer_info_seeking_adaptive: True
+      agent_sim_learn_underdetermined_guard: False

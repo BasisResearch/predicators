@@ -36,3 +36,4 @@ An agent that has identified the lifts, the fade and the masses from the trainin
 - `predicators/ground_truth_models/balloons/`: options, helper predicates, processes, the oracle's plan.
 - `tests/envs/test_pybullet_balloons.py`.
 - `oracle_solve.mp4` in this directory: the oracle playing a train level then a test level under the continual protocol.
+- `train_start.jpg`, `train_won.jpg`, `test_start.jpg`, `test_won.jpg`: four frames of that video, used by `docs/slides/balloons_domain_slides.html` (the reveal.js deck) and by `overview_slides.html` (the standalone overview).

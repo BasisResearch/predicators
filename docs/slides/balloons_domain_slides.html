@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The Balloons Domain</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/theme/white.css">
+<style>
+  :root { --paper: #ffffff; --accent-soft: rgba(46,139,110,.14); --ink2: #555; --rule: #d5dce4; }
+  .reveal { font-size: 30px; }
+  .reveal h1 { font-size: 1.6em; }
+  .reveal h2 { font-size: 1.15em; margin-bottom: 0.6em; }
+  .reveal ul { font-size: 0.82em; line-height: 1.45; }
+  .reveal li { margin: 0.28em 0; }
+  .reveal table { font-size: 0.62em; margin: 0 auto; }
+  .reveal table th, .reveal table td { padding: 0.28em 0.6em; }
+  .reveal .small { font-size: 0.6em; color: #555; }
+  .reveal .good { color: #1a7a1a; }
+  .reveal .bad { color: #a01515; }
+  .reveal .hl { color: #b3541e; font-weight: 600; }
+  .reveal img { max-height: 540px; border-radius: 6px; }
+  .reveal code { color: #2a5d8a; }
+  .reveal pre { font-size: 0.55em; width: 96%; }
+  .reveal .cols { display: flex; gap: 0.8em; align-items: flex-start; }
+  .reveal .cols > div { flex: 1; }
+  .reveal .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 0.2em 0.4em; width: 80%; margin: 0 auto; }
+  .reveal .cards figure { margin: 0; }
+  .reveal .cards img { width: 100%; max-height: 300px; object-fit: contain; }
+  .reveal figcaption { font-size: 0.55em; color: #555; margin-top: 0.2em; }
+  .reveal video { max-height: 480px; border-radius: 6px; }
+  .reveal .formula { font-family: Georgia, serif; font-size: 0.9em; padding: 0.3em 0.6em; background: var(--accent-soft); border-left: 3px solid #2e8b6e; margin: 0.3em auto; width: 90%; text-align: left; }
+  .reveal .formula small { display: block; font-size: 0.6em; color: #555; margin-top: 0.15em; font-family: "Source Sans Pro", sans-serif; }
+  .reveal .chart { width: 100%; height: auto; }
+  .reveal .chart .band { fill: var(--accent-soft); }
+  .reveal .chart .lab { font-family: monospace; font-size: 11px; fill: var(--ink2); }
+  .reveal .chart .ax { stroke: var(--ink2); stroke-width: 1; }
+  .reveal .chart .grid { stroke: var(--rule); stroke-width: 1; }
+  .reveal .gloss { font-size: 0.56em; text-align: left; }
+  .reveal .gloss td:first-child { white-space: nowrap; font-family: monospace; color: #2a5d8a; }
+</style>
+</head>
+<body>
+<div class="reveal"><div class="slides">
+
+<!-- 1 - Title -->
+<section>
+  <h1>The Balloons Domain</h1>
+  <p>Balloons and a box: free the right balloons to float a box into a band</p>
+  <p class="small">
+    <code>pybullet_balloons</code> - branch <code>bridge-learning</code> - 2026-09-06<br>
+    Assets: <code>docs/envs/balloons/</code> - after the 2026-09-06 overview "Balloons and a Box"
+  </p>
+  <p class="small">Slides 2-4: the domain, its objects and features. 5-7: what happens and the hidden law. 8-11: predicates, skills, the train/test split, what has to be learned. 12-14: the continual protocol, pointers, glossary.</p>
+</section>
+
+<!-- 2 - Why this domain -->
+<section>
+  <h2>Why this domain?</h2>
+  <ul>
+    <li>A tabletop physics puzzle: the robot frees balloons tied to a box, and the box floats up to where the balloons' pull matches its weight.</li>
+    <li>The <span class="hl">lift law is hidden</span>: how hard each balloon colour pulls, how the pull fades with height, how heavy each box material is.
+      On the visible base simulator an open clip frees nothing and the box never moves.</li>
+    <li>The answer to a level is a <b>subset</b> of clips to open, a small discrete choice, but which subset is right is a <b>quantitative</b> composition of per-colour lifts, the fade and the box's mass. Exactly one subset per level lands the box in the band.</li>
+    <li>One balloon too many and the box rises to the ceiling, where a balloon bursts and the level is lost. A freed balloon cannot be clipped back.</li>
+    <li>Contrast with busyboard, which hides discrete structure with no numbers to fit: here two or three training levels give a few hover heights, each an equation in the unknown constants, and a fit turns the test level into arithmetic.</li>
+  </ul>
+</section>
+
+<!-- 3 - The world -->
+<section>
+  <h2>The world</h2>
+  <div class="cols">
+    <div style="flex:1.35">
+      <img src="../envs/balloons/test_start.jpg" alt="The robot at a table with a box, a rack of four clipped balloons and a green target band">
+      <p class="small">A test level at its start: four clipped balloons, one box, the green band above it.</p>
+    </div>
+    <div>
+      <ul style="font-size:0.72em">
+        <li>A <b>box</b> at the left of the table; its colour names its material (pine, oak, teak).</li>
+        <li>A rack of <b>balloons</b> along the back, each tied by a string to the box and held in the rack by a <b>clip</b> in front of it. A balloon's colour is its gas.</li>
+        <li>A translucent green <b>band</b> beside the box's column: the heights the goal wants.</li>
+        <li>A <b>ceiling</b> plate 0.78 m above the table.</li>
+        <li><b>Goal.</b> The box hangs at rest with its centre inside the band, and no balloon has burst.</li>
+        <li><b>Controls.</b> Push a clip open (<code>Release</code>) or hold still (<code>Wait</code>). Nothing else.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 4 - Object types and features -->
+<section>
+  <h2>Object types and features</h2>
+  <table style="font-size:0.58em">
+    <tr><th>Type</th><th>Features (in state order)</th><th>What they mean</th></tr>
+    <tr><td><code>robot</code> (1)</td><td>x, y, z, fingers, roll, tilt, wrist</td><td>end-effector pose and gripper; the arm's joints ride in the simulator state</td></tr>
+    <tr><td><code>box</code> (1)</td><td>x, y, z, <b>color</b>, <b>speed</b></td><td>where the box is, its material (0 pine, 1 oak, 2 teak), and how fast it moves; the goal reads z against the band and speed against the settle threshold</td></tr>
+    <tr><td><code>balloon</code> (2-4)</td><td>x, y, z, <b>color</b>, <b>tied</b>, <b>popped</b></td><td>the balloon's pose, its gas (0 red, 1 blue, 2 green, 3 gold), whether it has been freed and pulled onto the box, whether it has burst</td></tr>
+    <tr><td><code>clip</code> (one per balloon)</td><td>x, y, z, rot, <b>is_on</b></td><td>the toggle in front of each balloon; <code>is_on</code> is 1 once pushed open, and it never closes again</td></tr>
+    <tr><td><code>band</code> (1)</td><td>x, y, <b>lo</b>, <b>hi</b></td><td>the target: the box's centre must rest between <code>lo</code> and <code>hi</code>, 5 cm apart</td></tr>
+  </table>
+  <ul style="font-size:0.66em; margin-top:0.5em">
+    <li>Every feature above is observable; there is no partially observable variant. The hidden part is the <b>law</b>, not a feature: the lift of each colour, the fade height, the mass behind each box colour, the air drag.</li>
+    <li><b>color</b> is an identity that carries physics: the same gas pulls the same on every level, and the same wood weighs the same, so a rule stated over colours transfers to a rack never seen.</li>
+    <li>Objects are named <code>box</code>, <code>balloon0</code>.., <code>clip0</code>.. (clip <em>i</em> holds balloon <em>i</em>), <code>band</code>, <code>robot</code>. The goal text names the box by material and gives the band's heights, e.g.
+      <em>"Open clips to free balloons so that the oak box floats up and hangs still with its centre inside the green band (0.77 to 0.82 m)"</em>.</li>
+    <li>Not in the state: the strings (a balloon's tie is the <code>tied</code> flag), the forces, the constants of the law.</li>
+  </ul>
+</section>
+
+<!-- 5 - What an open clip does -->
+<section>
+  <h2>Release, lift, hover, pop</h2>
+  <div class="cols">
+    <div>
+      <ul style="font-size:0.72em">
+        <li><b>Release.</b> The freed balloon flies to the end of its string and seats on the box's top; later balloons stack above earlier ones.</li>
+        <li><b>Lift.</b> Every intact freed balloon pulls the box up with a force set by its colour. The pull fades linearly with the box's height.</li>
+        <li><b>Hover.</b> With enough balloons the box rises until the fading pull equals its weight, and hangs there. Air drag settles it.</li>
+        <li><b>Pop.</b> A balloon that reaches the ceiling bursts and pulls no more. That loses the level, and a freed balloon cannot be clipped back.</li>
+        <li>On the visible base simulator a clip opens and nothing else happens. Everything above is absent from it.</li>
+      </ul>
+    </div>
+    <div>
+      <img src="../envs/balloons/train_start.jpg" alt="Train level start: three balloons red, gold, blue clipped in the rack beside the box">
+      <p class="small">A train level: three balloons, an oak box, band at 0.77 to 0.82 m.</p>
+    </div>
+  </div>
+  <p class="small">Hidden mechanics live in <code>pybullet_balloons.py</code>; the base sim in <code>pybullet_balloons_base.py</code> is copied into the agent's sandbox as reference source.</p>
+</section>
+
+<!-- 6 - The hidden law -->
+<section>
+  <h2>The hidden law: two lines of physics</h2>
+  <div class="formula">L<sub>c</sub>(z) = L<sub>c</sub> &middot; (1 - (z - z<sub>table</sub>) / h)
+    <small>lift of colour c on a box at height z; h is the fade height</small></div>
+  <div class="formula">z* = z<sub>table</sub> + h &middot; (1 - W / &Sigma; L<sub>c</sub>)
+    <small>the hover height, where W is the weight of the box plus its freed balloons</small></div>
+  <table style="font-size:0.56em">
+    <tr><th>Quantity</th><th>True value</th><th>On the base sim</th></tr>
+    <tr><td>red, blue, green, gold lift</td><td>0.35, 0.50, 0.70, 1.00 N</td><td>absent</td></tr>
+    <tr><td>fade height h</td><td>0.80 m</td><td>absent</td></tr>
+    <tr><td>box mass pine / oak / teak</td><td>0.05 / 0.08 / 0.11 kg</td><td>0.10 kg for all</td></tr>
+    <tr><td>balloon mass</td><td>0.005 kg</td><td>visible</td></tr>
+    <tr><td>air drag</td><td>12</td><td>absent</td></tr>
+    <tr><td>ceiling height</td><td>0.78 m above the table</td><td>visible</td></tr>
+  </table>
+  <p class="small">Values from <code>predicators/settings.py</code> (<code>balloons_lifts</code>, <code>balloons_fade_height</code>, <code>balloons_box_masses</code>, <code>balloons_drag</code>).
+    Only pine and oak boxes appear in either split by default (<code>balloons_box_colors_{train,test}</code>).</p>
+</section>
+
+<!-- 7 - A worked level -->
+<section>
+  <h2>A worked level: oak box, red + gold + blue</h2>
+  <div class="cols">
+    <div style="flex:1.3">
+      <svg viewBox="0 0 660 300" class="chart" role="img" aria-label="Total lift versus box height for each lifting subset; the dot marks where lift equals weight"><rect x="333.6" y="30" width="35.6" height="220" class="band"/><text x="351.4" y="24" class="lab" text-anchor="middle">band 0.77 to 0.82 m</text><line x1="70.0" y1="250" x2="70.0" y2="256" class="ax"/><text x="70.0" y="272" class="lab" text-anchor="middle">0.4</text><line x1="212.5" y1="250" x2="212.5" y2="256" class="ax"/><text x="212.5" y="272" class="lab" text-anchor="middle">0.6</text><line x1="355.0" y1="250" x2="355.0" y2="256" class="ax"/><text x="355.0" y="272" class="lab" text-anchor="middle">0.8</text><line x1="497.5" y1="250" x2="497.5" y2="256" class="ax"/><text x="497.5" y="272" class="lab" text-anchor="middle">1.0</text><line x1="640.0" y1="250" x2="640.0" y2="256" class="ax"/><text x="640.0" y="272" class="lab" text-anchor="middle">1.2</text><line x1="66" y1="195.0" x2="640" y2="195.0" class="grid"/><text x="58" y="199.0" class="lab" text-anchor="end">0.5</text><line x1="66" y1="140.0" x2="640" y2="140.0" class="grid"/><text x="58" y="144.0" class="lab" text-anchor="end">1.0</text><line x1="66" y1="85.0" x2="640" y2="85.0" class="grid"/><text x="58" y="89.0" class="lab" text-anchor="end">1.5</text><line x1="66" y1="30.0" x2="640" y2="30.0" class="grid"/><text x="58" y="34.0" class="lab" text-anchor="end">2.0</text><line x1="70" y1="250" x2="640" y2="250" class="ax"/><line x1="70" y1="30" x2="70" y2="250" class="ax"/><text x="355" y="292" class="lab" text-anchor="middle">box height z (m)</text><text x="14" y="140" class="lab" text-anchor="middle" transform="rotate(-90 14 140)">force (N)</text><line x1="70.0" y1="140.0" x2="640.0" y2="250.0" stroke="#C9A227" stroke-width="2.5" fill="none"/><line x1="70" y1="158.3" x2="640" y2="158.3" stroke="#C9A227" stroke-width="1" stroke-dasharray="4 4" opacity="0.6"/><circle cx="164.7" cy="158.3" r="5" fill="#C9A227" stroke="var(--paper)" stroke-width="2"/><text x="76.0" y="134.0" class="lab" fill="#C9A227">gold</text><line x1="70.0" y1="101.5" x2="640.0" y2="250.0" stroke="#D9534F" stroke-width="2.5" fill="none"/><line x1="70" y1="152.9" x2="640" y2="152.9" stroke="#D9534F" stroke-width="1" stroke-dasharray="4 4" opacity="0.6"/><circle cx="267.2" cy="152.9" r="5" fill="#D9534F" stroke="var(--paper)" stroke-width="2"/><text x="76.0" y="95.5" class="lab" fill="#D9534F">red + gold</text><line x1="70.0" y1="85.0" x2="640.0" y2="250.0" stroke="#3F7FD1" stroke-width="2.5" fill="none"/><line x1="70" y1="152.9" x2="640" y2="152.9" stroke="#3F7FD1" stroke-width="1" stroke-dasharray="4 4" opacity="0.6"/><circle cx="304.5" cy="152.9" r="5" fill="#3F7FD1" stroke="var(--paper)" stroke-width="2"/><text x="76.0" y="79.0" class="lab" fill="#3F7FD1">gold + blue</text><line x1="70.0" y1="46.5" x2="640.0" y2="250.0" stroke="#2E8B6E" stroke-width="2.5" fill="none"/><line x1="70" y1="147.5" x2="640" y2="147.5" stroke="#2E8B6E" stroke-width="1" stroke-dasharray="4 4" opacity="0.6"/><circle cx="352.9" cy="147.5" r="5" fill="#2E8B6E" stroke="var(--paper)" stroke-width="2"/><text x="76.0" y="40.5" class="lab" fill="#2E8B6E">red + gold + blue</text></svg>
+    </div>
+    <div>
+      <table style="font-size:0.56em">
+        <tr><th>Clips opened</th><th>&Sigma; lift</th><th>Hover z*</th></tr>
+        <tr><td>gold</td><td>1.00 N</td><td>0.533 m</td></tr>
+        <tr><td>red + gold</td><td>1.35 N</td><td>0.677 m</td></tr>
+        <tr><td>gold + blue</td><td>1.50 N</td><td>0.729 m</td></tr>
+        <tr><td>red + gold + blue</td><td>1.85 N</td><td class="good">0.797 m, in band</td></tr>
+        <tr><td>red, blue, red + blue</td><td>&le; 0.85 N</td><td class="bad">never lifts</td></tr>
+      </table>
+      <p class="small">Each line is a subset's total lift falling with height; its dashed line is the weight it must carry. The dot is where they meet: the hover height. Only one subset reaches the band.
+        Band 0.77 to 0.82 m. Weight = (0.08 kg + 0.005 kg per freed balloon) x 9.81.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 8 - Predicates and skills -->
+<section>
+  <h2>Predicates and skills</h2>
+  <div class="cols">
+    <div>
+      <p><b>Env predicates</b></p>
+      <ul style="font-size:0.66em">
+        <li><code>InBand(box, band)</code>: the box hangs at rest with its centre inside the band; the goal is this one atom</li>
+        <li><code>Tied(b)</code>, <code>Untied(b)</code>: whether balloon <em>b</em> has been freed and pulled onto the box</li>
+        <li><code>Intact(b)</code>, <code>Popped(b)</code></li>
+        <li><code>ClipOn(c)</code>, <code>ClipOff(c)</code>: open or closed</li>
+        <li><code>AtRest(box)</code>: speed below the settle threshold; <code>HandEmpty(robot)</code></li>
+      </ul>
+      <p><b>Oracle-only helpers</b> (<code>ground_truth_models/balloons/</code>)</p>
+      <ul style="font-size:0.66em">
+        <li><code>Needed(b)</code>: the balloon is in the level's answer subset; <code>Holds(clip, b)</code>; derived <code>AllNeededTied(band)</code></li>
+        <li>Process <code>Rise</code> (the box climbs once every needed balloon is tied) and the endogenous <code>Wait</code>; the oracle opens the answer subset's clips weakest lift first.</li>
+      </ul>
+    </div>
+    <div>
+      <p><b>Skills</b> (shared push factory)</p>
+      <ul style="font-size:0.66em">
+        <li><code>Release(robot, clip)[approach, contact_z]</code>: push the clip's toggle open; the same push skill busyboard uses on its switches, with defaults <code>balloons_push_approach</code> 0.07 and <code>balloons_push_contact_z</code> 0.05</li>
+        <li><code>Wait(robot)[]</code>: hold still while the physics plays out; the box needs a few hundred steps to rise and settle</li>
+      </ul>
+      <p><b>Evaluator.</b> The level is won when the goal atom holds and the box is at rest. A burst balloon terminates the episode and the certificate says which balloon burst on the ceiling.</p>
+      <p class="small">Under the continual protocol the agent arms start with no predicates: the observation is the features above and a render, and the model arm invents its own predicates.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 9 - Train/test split: the contract -->
+<section>
+  <h2>Train / test split: the contract</h2>
+  <table style="font-size:0.58em">
+    <tr><th>Split</th><th>Balloons</th><th>Box materials</th><th>How the rack is drawn</th></tr>
+    <tr><td><b>Train</b></td><td>2 or 3 (<code>balloons_num_balloons_train</code>)</td><td>pine or oak</td><td>a <em>covering</em> draw: each level prefers the colours and the material earlier train levels have not shown, so two levels together show every colour and both materials</td></tr>
+    <tr><td><b>Test</b></td><td>4 (<code>balloons_num_balloons_test</code>): the whole palette</td><td>pine or oak</td><td>a rack training never showed, built from lifts and a mass it did</td></tr>
+  </table>
+  <ul style="font-size:0.66em; margin-top:0.5em">
+    <li><b>The band is built from the answer.</b> For the drawn rack the generator lists every subset that lifts the box and its analytic hover height, keeps the heights that clear the ceiling with the stack of balloons and lie at least 6 cm from every other subset's height, draws one, and sets the band to that height plus or minus 2.5 cm (<code>balloons_band_half</code>).</li>
+    <li><b>Exactly one subset per level</b> lands in the band by the law. The level is kept only if the oracle's own plan, open that subset's clips weakest lift first, hangs the box in the band on the simulator's physics with nothing burst (<code>balloons_max_sampling_attempts</code> 40 tries).</li>
+    <li>With four balloons there are 15 subsets; 14 of them either fail to lift the box or fly it past the band. In the test level on the next slide the pine box wants red + blue, at 0.646 m.</li>
+    <li>Train and test use separate random streams; a run under the continual protocol plays one training level (or two) and then one test level, and the test level allows no reset: one wrong clip loses it.</li>
+  </ul>
+</section>
+
+<!-- 10 - The split in practice -->
+<section>
+  <h2>The split in practice</h2>
+  <div class="cards">
+    <figure><img src="../envs/balloons/train_won.jpg" alt="The oak box hanging in the band with three balloons stacked above it"><figcaption>The train level won: all three balloons freed, the oak box at rest in the band at 0.797 m.</figcaption></figure>
+    <figure><img src="../envs/balloons/test_won.jpg" alt="The pine box hanging in the band with two balloons, two still clipped in the rack"><figcaption>The test level won: red and blue freed, gold and green left in the rack; the pine box at 0.646 m.</figcaption></figure>
+  </div>
+  <ul style="font-size:0.66em; margin-top:0.4em">
+    <li>Training shows red, gold and blue on an oak box; the test rack adds green, on a lighter pine box. Nothing in the test level is new but the combination.</li>
+    <li>An agent that took "open everything" from training would fly the pine box into the ceiling with four balloons; an agent that identified the three lifts, the fade and the oak mass in training still needs the pine mass, which the other train level shows.</li>
+  </ul>
+</section>
+
+<!-- 11 - What has to be learned -->
+<section>
+  <h2>What has to be learned: structure first, then parameters</h2>
+  <div class="cols">
+    <div>
+      <p><b>Structure: rules the base sim lacks</b></p>
+      <ul style="font-size:0.66em">
+        <li>An open clip frees its balloon, which seats on the box (an attachment).</li>
+        <li>A freed balloon applies an upward force on the box that depends on its colour and on height.</li>
+        <li>A balloon at the ceiling pops and stops pulling.</li>
+        <li>The agent writes these as residual rules on the base sim, through the same command channel the true env uses (<code>Attach</code>, <code>ApplyForce</code>).</li>
+      </ul>
+    </div>
+    <div>
+      <p><b>Parameters: constants to identify</b></p>
+      <ul style="font-size:0.66em">
+        <li>Four per-colour lifts and one shared fade height.</li>
+        <li>The mass of each box material, both shown in training.</li>
+        <li>The air drag, which only affects how fast the box settles.</li>
+        <li>Two or three train levels give a few hover heights. Each is one equation in the lifts, the fade and the mass, so a fit pins the law and the test subset for a heavier box becomes arithmetic.</li>
+      </ul>
+    </div>
+  </div>
+  <p class="small">Why it favours a model: a guessing agent pays for each wrong subset with a level; a model-fitting agent computes the subset before touching a clip.
+    This is the mirror image of busyboard, where the unknown is discrete and a parameter fit has nothing to grip.</p>
+</section>
+
+<!-- 12 - Under the continual protocol -->
+<section>
+  <h2>Under the continual protocol</h2>
+  <ul style="font-size:0.72em">
+    <li>One run per seed plays a training level, then a test level; every low-level step is counted, the sandbox is free, and the pooled step cap is the only step budget (no episode horizon since 2026-09-06). Test levels have no resets.</li>
+    <li>Two arms: the model-based <code>agent_continual</code>, with <code>run_python</code> over the recorded data and <code>sim.fit</code> / <code>sim.run</code> on its own <code>simulator.py</code>, and the model-free <code>agent_continual_model_free</code>, with the same env and skill tools and no model.</li>
+    <li>The oracle plays both levels in <code>docs/envs/balloons/oracle_solve.mp4</code>; the frames in this deck are from it.</li>
+    <li>The launch config parks the env by default (<code>SKIP: True</code> in <code>scripts/configs/predicatorv3/protocol_continual.yaml</code>); the env flags live in <code>envs/all.yaml</code> (<code>sesame_check_expected_atoms False</code>, since the box reaches the band a few ticks after the last release).</li>
+    <li class="hl">Status: no agent run has been launched on this domain yet. The oracle solves its levels; the numbers to watch when the arms run are steps to each win, resets on the training level, and whether the test subset was computed or guessed.</li>
+  </ul>
+  <video controls muted loop playsinline src="../envs/balloons/oracle_solve.mp4" style="max-height:300px"></video>
+</section>
+
+<!-- 13 - Pointers -->
+<section>
+  <h2>Where things live</h2>
+  <table style="font-size:0.58em">
+    <tr><th>Path</th><th>What</th></tr>
+    <tr><td><code>predicators/envs/pybullet_balloons_base.py</code></td><td>The visible simulator: table, box, clips, rack, band, ceiling. Surfaced to agents as reference source.</td></tr>
+    <tr><td><code>predicators/envs/pybullet_balloons.py</code></td><td>Release, lift, pop, masses, task generation, evaluator, predicates.</td></tr>
+    <tr><td><code>predicators/ground_truth_models/balloons/</code></td><td>Options, helper predicates (<code>Needed</code>, <code>Holds</code>, <code>AllNeededTied</code>), processes, the oracle's plan, the ground-truth simulator in the agent's contract.</td></tr>
+    <tr><td><code>tests/envs/test_pybullet_balloons.py</code></td><td>Tests.</td></tr>
+    <tr><td><code>docs/envs/balloons/README.md</code></td><td>The env's write-up; the four frames of this deck and <code>oracle_solve.mp4</code> sit beside it.</td></tr>
+    <tr><td><code>docs/envs/balloons/overview_slides.html</code></td><td>The 2026-09-06 standalone overview this deck follows.</td></tr>
+  </table>
+  <pre>
+# Oracle demo
+python predicators/main.py --env pybullet_balloons --approach oracle --seed 0 \
+    --experiment_protocol continual --num_train_tasks 1 --num_test_tasks 1 \
+    --sesame_check_expected_atoms False
+  </pre>
+  <p class="small">Sibling envs with the same base-plus-hidden split: ice rink, launcher, magnets, crane. Commits 2be513aaa (the domains) and 9728420ec (ground-truth simulators in the agent's contract).</p>
+</section>
+
+<!-- 14 - Glossary -->
+<section>
+  <h2>Glossary</h2>
+  <table class="gloss">
+    <tr><th>Name</th><th>Meaning</th></tr>
+    <tr><td>lift, fade height</td><td>The upward force a balloon colour exerts at table height, and the height over which it falls linearly to zero.</td></tr>
+    <tr><td>hover height z*</td><td>Where the total fading lift equals the weight of the box plus its freed balloons; the box hangs there.</td></tr>
+    <tr><td>band</td><td>The goal: a 5 cm range of heights set to one subset's hover height, plus or minus 2.5 cm.</td></tr>
+    <tr><td>subset, answer subset</td><td>A choice of clips to open; the unique one whose hover height lies in the band. The oracle's helper <code>Needed</code> marks its balloons.</td></tr>
+    <tr><td>release, tie, pop</td><td>Opening a clip; the freed balloon seating on the box (the <code>tied</code> flag); a balloon bursting at the ceiling (the <code>popped</code> flag, which loses the level).</td></tr>
+    <tr><td>covering draw</td><td>How training racks are chosen: each level prefers colours and a material earlier levels have not shown, so training covers the palette.</td></tr>
+    <tr><td>base sim, residual rules</td><td>The visible physics the agent rolls out, on which nothing lifts; the rules the model arm writes on top of it (<code>Attach</code>, <code>ApplyForce</code>) to reproduce release, lift and pop.</td></tr>
+    <tr><td>level, run, pooled cap</td><td>One task the run must win before the next; one env and seed played to its end; the run's only step budget.</td></tr>
+    <tr><td>model-based arm, model-free arm</td><td><code>agent_continual</code> with the fit-and-rollout workbench; <code>agent_continual_model_free</code> without it.</td></tr>
+  </table>
+</section>
+
+</div></div>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/reveal.js"></script>
+<script>
+  Reveal.initialize({ hash: true, slideNumber: true });
+</script>
+</body>
+</html>

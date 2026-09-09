@@ -242,6 +242,24 @@ multiplicative; `discrete=True` for an index or a count the rule
 rounds (a wiring slot), which the fit then treats as a choice, not a
 knob.
 
+<!-- section: observation_noise -->
+## Observation noise and the fit
+
+The declared channel (__NOISE_LINE__) is part of the fit's likelihood:
+every residual is scaled so that the observation noise on its feature
+counts as noise, not as model error.
+
+- Do not smooth or filter the data before `sim.fit`. The fit weights
+  the noise itself, and smoothing removes real motion with it.
+- The report's RMS thresholds are in units of the total noise (the
+  model floor plus the observation sigma). A fit whose residuals sit
+  inside that floor is at the floor, and a refusal means the model is
+  wrong, not that the data is noisy.
+- `sim.reset(current=True)` starts a rollout from the observed frame,
+  which is itself one noisy draw. A parameter whose effect over the
+  rollout is within a sigma of the start is not identifiable from one
+  frame; look for it in the recorded data instead.
+
 <!-- section: subclass -->
 ## Alternative: a base-sim subclass
 
