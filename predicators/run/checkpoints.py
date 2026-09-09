@@ -83,11 +83,22 @@ class ApproachCheckpoints:
         """Whether the approach writes checkpoints at all."""
         return self._suffix is not None
 
-    def exists(self, cycle: Optional[int]) -> bool:
-        """Whether a checkpoint file exists for ``cycle``."""
+    def _paths(self, cycle: Optional[int]) -> List[str]:
         pattern = glob.escape(f"{self._load_path}_{cycle}.") + (glob.escape(
             self._suffix) if self._suffix else "*")
-        return bool(glob.glob(pattern))
+        return glob.glob(pattern)
+
+    def exists(self, cycle: Optional[int]) -> bool:
+        """Whether a checkpoint file exists for ``cycle``."""
+        return bool(self._paths(cycle))
+
+    def mtime(self, cycle: Optional[int]) -> Optional[float]:
+        """Modification time of the newest checkpoint file for ``cycle``, or
+        None when there is none."""
+        paths = self._paths(cycle)
+        if not paths:
+            return None
+        return max(os.path.getmtime(p) for p in paths)
 
     def discover_resume_cycles(
             self,

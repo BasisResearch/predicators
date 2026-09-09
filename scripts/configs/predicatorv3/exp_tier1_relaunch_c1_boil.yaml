@@ -1,0 +1,16 @@
+# Relaunch of tier-1 C1 on boil after the 529 Overloaded crash; 1 seed, 1 test task.
+# Usage: python scripts/engaging/launch.py -c predicatorv3/exp_tier1_relaunch_c1_boil.yaml
+---
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ENVS:
+  boil:
+    SKIP: False
+APPROACHES:
+  # C1 keeps its pre-loop test (A1) and tests after every cycle, as in the sweeps.
+  sim_predicator:
+    SKIP: False
+    ARGS:
+      - auto_resume

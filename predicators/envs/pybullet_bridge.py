@@ -245,8 +245,17 @@ class PyBulletBridgeEnv(PyBulletEnv):
     # left built bridges with one seat joint that could never cure.
     lateral_perp_tol: ClassVar[float] = 0.03
     lateral_z_tol: ClassVar[float] = 0.015
-    # Seat tolerances for SeatedOn(span, leg).
-    seat_x_window: ClassVar[float] = 0.045
+    # Seat tolerances for SeatedOn(span, leg). The x window is measured
+    # from the leg's centre along the row. A three-span row (0.30 m) over
+    # sites 0.25 m apart puts each outer span's centre 25 mm past its leg
+    # by construction; on top of that, Place lands legs 8-14 mm off their
+    # command and a glued row shortens 5-8 mm per joint under the seat
+    # (welded partners do not collide, see _create_weld), so a bridge
+    # that is physically standing measured 47 mm (seed-3 cycle-0 test,
+    # 2026-09-03) and failed the old 45 mm gate. 60 mm still leaves the
+    # span end 10 mm short of the leg centre, i.e. 15 mm of the 50 mm
+    # leg top under the span, which is a seated joint by any reading.
+    seat_x_window: ClassVar[float] = 0.06
     seat_y_tol: ClassVar[float] = 0.035
     seat_z_tol: ClassVar[float] = 0.02
     # AtSite xy tolerance (plus a z check that the block rests on the

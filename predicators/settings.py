@@ -32,12 +32,15 @@ class GlobalSettings:
     num_online_learning_cycles = 10
     online_learning_max_transitions = float("inf")
     online_learning_early_stopping = False
+    # When True, the online loop tests only the final model (last cycle or
+    # the early-stopping cycle). The pre-loop test is governed separately
+    # by skip_initial_test.
     skip_test_until_last_ite_or_early_stopping = False
     # When True, skip only the pre-loop (cycle-0) test that evaluates the
     # offline-learned model before any online learning. Per-cycle testing is
     # unaffected, so the learning-progression curve is still measured; only
     # the (usually predictable) evaluation of the uncalibrated initial model
-    # is saved. Subsumed by skip_test_until_last_ite_or_early_stopping.
+    # is saved.
     skip_initial_test = False
     # just for plotting
     online_learning_early_stopping_by_test_solve_rate = False
@@ -996,6 +999,68 @@ class GlobalSettings:
     # push-throughs.
     boil_mobile_base_align_x = True
 
+    # busyboard env
+    # Use skill-factory-based option implementations
+    busyboard_use_skill_factories = True
+    # Board size. Test boards are larger than train boards and EXTEND them:
+    # every lamp of the smallest train board keeps its drive condition on
+    # every board, and the buttons and lamps a test board adds are decoys or
+    # a new lamp that goals only ever ask to keep dark. So what a learner
+    # finds out about the train board is true at test; test asks whether it
+    # trusts that on a busier board and leaves unfamiliar buttons alone.
+    # Four training buttons rather than three: with every lamp an
+    # interlock, three buttons have exactly three distinct pairs, so a
+    # three-lamp board uses them all and no button setting lights two lamps
+    # without lighting the third. Four buttons give six pairs and leave
+    # room for goals that light two lamps and keep one dark.
+    busyboard_num_buttons_train = [4]
+    busyboard_num_buttons_test = [5, 6]
+    busyboard_num_lamps_train = [3]
+    busyboard_num_lamps_test = [4]
+    # Fewest lamps a goal asks to be lit, per split. Test goals need at
+    # least two, so solving one means composing two learned conditions
+    # (and holding their shared buttons) rather than reproducing a single
+    # training goal on a bigger board. Only core lamps can be lit targets,
+    # so the count has to be realizable from the training lamps alone;
+    # with every core lamp wired to core buttons, latching every core
+    # button lights them all and keeps the extension lamp dark, so a
+    # value up to the number of training lamps is always satisfiable.
+    busyboard_min_lit_train = 1
+    busyboard_min_lit_test = 2
+    # Probability that a lamp's drive is conjunctive (needs a second
+    # "enabler" button on as well as its driver). This is the many-to-one
+    # relation that undirected play confounds. At 1.0 every lamp is an
+    # interlock, so every goal needs a combination of buttons rather than
+    # a single press; 0.5 mixes plain and conjunctive drives; 0.0 ablates
+    # the interlock and recovers a one-to-one board.
+    busyboard_interlock_prob = 1.0
+    # One wiring per run (extended onto each board size) rather than a fresh
+    # one per task. True is what today's fitting stack supports: PARAM_SPECS
+    # resolves once, before any task is chosen, so a hidden quantity that
+    # varied per task would have no home in a fitted model. False is the
+    # harder setting held in reserve - a model whose STRUCTURE is
+    # re-identified every episode by a policy that experiments before it
+    # commits - and needs a per-task parameter scope and a belief simulator
+    # that can represent an unknown wiring.
+    busyboard_fixed_wiring = True
+    # Decorrelates the wiring draw from every other use of CFG.seed, so
+    # changing the wiring does not also reshuffle the task distribution.
+    busyboard_wiring_salt = 7919
+    # Hidden charge accumulated / bled per low-level step. A lamp is slow to
+    # light and quick to die: the build-up delay is what makes a naive
+    # press-and-look policy mis-attribute causes, and the fast decay is what
+    # keeps plans short. Calibrated against the measured cost of a button
+    # operation on this board (~22 low-level steps for a press or release):
+    # a lamp lights after ~48 driven steps, so roughly two button operations
+    # pass between a cause and its visible effect and a press-then-press
+    # sequence genuinely confounds which press was responsible. Full decay
+    # takes ~20 steps, under one button operation, so undoing is cheap.
+    busyboard_charge_rate = 0.017
+    busyboard_decay_rate = 0.05
+    # Rejection-sampling budget for finding a wiring plus a goal assignment
+    # that some button setting realizes exactly.
+    busyboard_max_sampling_attempts = 200
+
     # parameters for random options approach
     random_options_max_tries = 100
 
@@ -1806,9 +1871,22 @@ class GlobalSettings:
     # sweep cannot catch these: it perturbs identified base-physics
     # params, while a learned rule constant baked near a data boundary
     # carries its own posterior uncertainty. No-op unless the approach
-    # installs the ensemble providers (see rule_param_margin_provider),
-    # which requires agent_explorer_info_seeking's ensemble.
+    # installs the ensemble providers (see rule_param_margin_provider);
+    # this flag alone is enough for the ensemble to be built.
     agent_plan_validation_rule_param_margin = False
+    # Necessity gate on captures: after a goal-reaching plan passes every
+    # other gate, re-run it once per step with that step removed. If the
+    # goal is still reached without a step, the plan is refused as
+    # REDUNDANT naming that step. A captured plan is an explanation of the
+    # goal, and a step whose absence changes nothing explains nothing: it
+    # is padding (a Wait on atoms that already hold, a press of a button
+    # the model says does nothing) that costs real episode steps and, when
+    # the model is wrong about the step, can break the plan for real.
+    # run_20260902_152811: a validated capture pressed three of four
+    # buttons and released one that was never on, for a goal its own
+    # model reached with two presses and a Wait. Costs one rollout per
+    # plan step, run in parallel with the other sweeps' workers.
+    agent_plan_validation_necessity = False
     # Fork-parallel rollouts: the capture gate's repeat rollouts, its
     # physics/rule-param margin sweeps, the belief probe's
     # trials/physics_sweep modes, and the rollout-sysID objective (each
@@ -1836,7 +1914,8 @@ class GlobalSettings:
     # ensemble's disagreement on a step's subgoal atoms
     # (sim.suggest_probes) and the capture gate can sweep the rule-param
     # margin. The agent decides what to run; the harness never moves
-    # its parameters. Off => no ensemble is built.
+    # its parameters. Off => the ensemble is built only when the
+    # rule-param margin gate asks for it.
     agent_explorer_info_seeking = False
     # Ensemble size used to estimate disagreement. 1 disables scoring
     # (every candidate scores 0) and reduces to first-feasible.
@@ -2143,15 +2222,15 @@ class GlobalSettings:
     agent_sim_learn_oracle_sim_program = False
     # Relative scale for perturbing oracle parameter init_values before MCMC.
     agent_sim_learn_oracle_sim_param_noise_scale = 0.2
-    # Ablation A5 ("no uncertainty"): when False, nothing consumes a
-    # posterior over the model parameters. The physics-margin sigma
+    # Ablations A6+A7 combined ("no uncertainty"): when False, nothing
+    # consumes a posterior over the model parameters. The physics-margin sigma
     # points are never built (so the capture gate's physics margin and
     # the probe's physics_sweep have nothing to sweep) and the
     # rule-parameter ensemble stays empty (so the rule-param margin and
     # the info-seeking disagreement score have nothing to score). Fits
     # still run; only their point estimates are used.
     agent_sim_learn_param_uncertainty = True
-    # Ablation A3 ("no parameter fitting"): when True, no parameter
+    # Ablation A4 ("no parameter fitting"): when True, no parameter
     # estimation runs anywhere - not sim.fit (it refuses), not the
     # harness-side fallback fit, not the exploration posterior, not the
     # residual report's fit_params / sweep_params. Each parameter's
@@ -2171,7 +2250,7 @@ class GlobalSettings:
     agent_program_belief_particles = 6
     agent_program_kernel_bandwidth = 0.2
     agent_program_score_max_examples = 3
-    # Ablation A1 ("zero-shot synthesis"): when True, the synthesis
+    # Ablation A2 ("zero-shot synthesis"): when True, the synthesis
     # session runs even when no transition has been recorded, so the
     # agent writes its artifacts from the task description, the scene
     # and its own knowledge. Pair with no demos and
@@ -2263,6 +2342,12 @@ class GlobalSettings:
                     "pybullet_bridge": 3000,
                     "pybullet_switch": 2000,
                     "pybullet_barrier": 2000,
+                    # Busyboard plans are short in options (a few presses
+                    # and a wait) but not in steps: a push is ~22 low-level
+                    # steps and a lamp needs ~48 driven ones to light, so a
+                    # three-press plan runs past the default 100 and every
+                    # refinement would be rejected on the horizon check.
+                    "pybullet_busyboard": 2000,
                     "doors": 1000,
                     "coffee": 1000,
                     "kitchen": 1000,

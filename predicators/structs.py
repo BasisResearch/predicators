@@ -27,7 +27,6 @@ from tabulate import tabulate
 from torch import Tensor
 
 import predicators.pretrained_model_interface
-import predicators.utils as utils  # pylint: disable=consider-using-from-import
 from predicators.settings import CFG
 
 # pylint: enable=wrong-import-position
@@ -241,6 +240,25 @@ class Variable(_TypedEntity):
         return self._hash
 
 
+def excluded_object_type_names() -> Set[str]:
+    """Type names hidden from every human/agent-facing state listing.
+
+    ``CFG.excluded_objects_in_state_str`` is a comma-separated list of
+    type names (fan and boil hide ``switch``). The objects stay in the
+    State - skills and simulators still need them - but ``dict_str``,
+    ``pretty_str``, the task digests and the probe's ``state()`` all
+    leave them out, so the agent never sees a listing that its state
+    views contradict.
+    """
+    if not CFG.excluded_objects_in_state_str:
+        return set()
+    return {
+        name.strip()
+        for name in CFG.excluded_objects_in_state_str.split(",")
+        if name.strip()
+    }
+
+
 @dataclass
 class State:
     """Low-level world state.
@@ -364,7 +382,10 @@ class State:
     def pretty_str(self) -> str:
         """Display the state in a nice human-readable format."""
         type_to_table: Dict[Type, List[List[str]]] = {}
+        excluded = excluded_object_type_names()
         for obj in self:
+            if obj.type.name in excluded:
+                continue
             if obj.type not in type_to_table:
                 type_to_table[obj.type] = []
             type_to_table[obj.type].append([obj.name] + \
@@ -389,9 +410,7 @@ class State:
         """Return a dictionary representation of the state."""
         if ignored_features is None:
             ignored_features = ["capacity_liquid", "target_liquid"]
-        excluded_objects = []
-        if CFG.excluded_objects_in_state_str:
-            excluded_objects = CFG.excluded_objects_in_state_str.split(",")
+        excluded_objects = excluded_object_type_names()
         state_dict = {}
 
         # Collect all unique types from objects in the state
@@ -3630,3 +3649,9 @@ BridgeDataset = List[Tuple[Set[_Option], _GroundNSRT, Set[GroundAtom], State]]
 Mask = NDArray[np.bool_]
 ClassificationEpisode = Tuple[str, List[Video], List[int], List[Video],
                               List[int]]
+
+# Imported last so that ``import predicators.structs`` works from a fresh
+# interpreter (an agent's sandbox script): utils imports this module's
+# names at load time, so importing it before they exist raises a partial
+# import error. Everything above only touches ``utils`` inside methods.
+import predicators.utils as utils  # isort: skip  # pylint: disable=consider-using-from-import,wrong-import-position

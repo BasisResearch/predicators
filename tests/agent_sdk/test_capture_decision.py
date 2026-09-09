@@ -76,6 +76,34 @@ def test_param_sensitive_no_capture():
     assert not outcome.captured
 
 
+def test_redundant_no_capture():
+    """A plan that reaches the goal without one of its steps is refused.
+
+    e2e: test_redundant_step_is_not_captured.
+    """
+    outcome = _decide(redundant=True)
+    assert outcome.decision is CaptureDecision.REDUNDANT_NO_CAPTURE
+    assert outcome.best_effort_reason is None
+    assert not outcome.captured
+
+
+def test_best_effort_redundant():
+    """Best-effort mode captures a redundant submission, flagged."""
+    outcome = _decide(best_effort_mode=True, redundant=True)
+    assert outcome.decision is CaptureDecision.BEST_EFFORT_CAPTURE
+    assert outcome.best_effort_reason is BestEffortReason.REDUNDANT
+
+
+def test_param_sensitive_outranks_redundant_reason():
+    """Param-sensitivity is the reason when both are set in best-effort mode
+    (the handler skips the necessity sweep after a margin failure, but the
+    ordering is pinned)."""
+    outcome = _decide(best_effort_mode=True,
+                      param_sensitive=True,
+                      redundant=True)
+    assert outcome.best_effort_reason is BestEffortReason.PARAM_SENSITIVE
+
+
 def test_best_effort_param_sensitive():
     """Best-effort mode captures a param-sensitive submission."""
     outcome = _decide(best_effort_mode=True, param_sensitive=True)

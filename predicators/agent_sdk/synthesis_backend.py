@@ -73,8 +73,14 @@ class SynthesisBackend(Protocol):
         sse: float = float("nan"),
         applied_physical: Optional[Dict[str, float]] = None,
         sigma_points: Optional[List[Dict[str, float]]] = None,
+        pinned: bool = False,
     ) -> None:
-        """Deploy a canonical ``sim.fit`` result to the candidate probe."""
+        """Deploy a canonical ``sim.fit`` result to the candidate probe.
+
+        ``pinned`` marks a fit that never ran (no explainable segment);
+        see the approach's implementation for how it is kept apart from
+        a real fit of the same file.
+        """
 
     # ── Vocabulary / engine accessors ────────────────────────────
     def _get_all_predicates(self) -> Set[Predicate]:

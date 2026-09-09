@@ -64,12 +64,13 @@ def test_targeted_wait_backstop_terminates() -> None:
     assert exhausted_at == 6
 
 
-def test_targeted_wait_still_waits_without_cap() -> None:
-    """With the default wait_option_max_steps (inf), a targeted Wait keeps.
-
-    waiting - the backstop changes nothing unless configured.
-    """
-    utils.reset_config({"wait_option_terminate_on_atom_change": True})
+def test_targeted_wait_still_waits_below_the_cap() -> None:
+    """With the default wait_option_max_steps (inf), a targeted Wait keeps
+    waiting until the belief rollout cap (max_num_steps_option_rollout)."""
+    utils.reset_config({
+        "wait_option_terminate_on_atom_change": True,
+        "max_num_steps_option_rollout": 1000,
+    })
     never = Predicate("Never", [_ROBOT], lambda s, o: False)
     robot_obj = Object("robby", _ROBOT)
     robot, option = _make_wait_option(GroundAtom(never, [robot_obj]))
@@ -77,6 +78,33 @@ def test_targeted_wait_still_waits_without_cap() -> None:
     policy = utils.option_plan_to_policy([option],
                                          abstract_function=lambda s: set())
     assert _run_until_exhausted(policy, state, max_calls=50) == -1
+
+
+def test_wait_backstop_defaults_to_the_belief_rollout_cap() -> None:
+    """With wait_option_max_steps infinite, the real executor's Wait ends where
+    a belief rollout's would: at max_num_steps_option_rollout.
+
+    The two caps agreeing is what makes a certified plan's Wait budget
+    transfer to the real episode.
+    """
+    utils.reset_config({
+        "wait_option_terminate_on_atom_change": True,
+        "max_num_steps_option_rollout": 5,
+    })
+    assert utils.wait_rollout_step_cap() == 5
+    never = Predicate("Never", [_ROBOT], lambda s, o: False)
+    robot_obj = Object("robby", _ROBOT)
+    robot, option = _make_wait_option(GroundAtom(never, [robot_obj]))
+    state = State({robot: np.array([0.0])})
+    policy = utils.option_plan_to_policy([option],
+                                         abstract_function=lambda s: set())
+    assert _run_until_exhausted(policy, state, max_calls=50) == 6
+    # An untargeted (any-atom-change) Wait shares the cap.
+    robot, option = _make_wait_option(GroundAtom(never, [robot_obj]))
+    option.memory.pop("wait_target_atoms")
+    policy = utils.option_plan_to_policy([option],
+                                         abstract_function=lambda s: set())
+    assert _run_until_exhausted(policy, state, max_calls=50) == 6
 
 
 def test_targeted_wait_terminates_on_target_before_cap() -> None:

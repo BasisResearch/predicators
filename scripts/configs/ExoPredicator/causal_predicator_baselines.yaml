@@ -68,6 +68,7 @@ APPROACHES:
       bilevel_planning_explorer_enumerate_plans: True
       exploit_bilevel_planning_explorer_fallback_explorer: "RandomNSRTs"
       skip_test_until_last_ite_or_early_stopping: True
+      skip_initial_test: True
       online_learning_assert_no_exclude_pred: False
       disable_harmlessness_check: True
       sampler_learner: "oracle"

@@ -107,6 +107,27 @@ def test_screen_without_sandbox_dir_still_guards_hidden_state() -> None:
     assert _screen_text_for_sandbox_escape("open('/etc/hosts')", None) is None
 
 
+# Bash-only: forms that would start a python without the sitecustomize
+# guard. ``run_python`` runs in-process, so its screen ignores them.
+_BLOCK_BASH_ONLY = [
+    "PYTHONPATH=/x python3 script.py",
+    "export PYTHONPATH=.",
+    "unset PYTHONPATH; python3 script.py",
+    "env -i python3 script.py",
+    "python3 -S script.py",
+    "python3 -I -c 'print(1)'",
+    "python -Es script.py",
+    "/usr/bin/python3 -S script.py",
+]
+_ALLOW_BASH = [
+    "python3 -c 'import sys; print(sys.path)'",
+    "python3 -m pytest -q",
+    "python3 -W ignore -u script.py",
+    "python3 -B -O script.py",
+    "./venv/bin/python3 script.py",
+]
+
+
 def _run_hook(tmp_path, tool_name, tool_input) -> bool:
     """Run the generated hook script; return True if it denied the call."""
     script = tmp_path / "validate_sandbox.py"
@@ -128,8 +149,11 @@ def test_hook_screens_bash(tmp_path) -> None:
     """The hook script blocks escaping Bash commands and allows safe ones."""
     for text in _ALLOW:
         assert not _run_hook(tmp_path, "Bash", {"command": text}), text
-    for text in _BLOCK:
+    for text in _BLOCK + _BLOCK_BASH_ONLY:
         assert _run_hook(tmp_path, "Bash", {"command": text}), text
+    for text in _ALLOW_BASH:
+        assert not _run_hook(tmp_path, "Bash", {"command": text}), text
+        assert _screen_text_for_sandbox_escape(text, str(tmp_path)) is None
 
 
 def test_hook_validates_file_paths(tmp_path) -> None:

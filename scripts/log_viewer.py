@@ -5,7 +5,8 @@ Stdlib-only TensorBoard-style browser for run directories of the form
 logs/<family>/<env>-<approach>/seed<N>/run_<timestamp>/. Features:
 
   * runs overview with one row per auto-resume lineage, per-episode
-    pass/fail chips, and costs
+    pass/fail chips, and costs; one table per (agent, env) pair, nested
+    under agent-name or env-name headers (a toggle flips the nesting)
   * episode markdown transcripts with collapsible turns, inline images, and
     the run's saved episode video from videos/<same run subdir>/
   * unified diffs between simulator_versions / predicates_versions files
@@ -346,6 +347,28 @@ def find_runs() -> List[Dict[str, Any]]:
     runs.sort(key=lambda r:
               (r["exp"], r["seed"], -_run_start_ts(r["name"], r["mtime"])))
     return runs
+
+
+def split_exp(exp: str) -> Tuple[str, str]:
+    """(env, agent) of an experiment dir path ``<family>/<env>-<agent>``.
+
+    Env names are snake_case and never contain "-", so the first "-"
+    splits the env from the agent (the approach config name, e.g.
+    sim_predicator_validation_no_uncertainty). A dir outside that layout
+    keeps its family as the env and its own name as the agent, so it
+    still lands somewhere findable on the index page.
+    """
+    fam, _, rest = exp.partition("/")
+    env, dash, agent = rest.partition("-")
+    if dash and env and agent:
+        return env, agent
+    return fam, rest or fam
+
+
+def _seed_num(seed: str) -> Tuple[int, str]:
+    """Sort key putting seed2 before seed10; non-numeric seeds last."""
+    digits = seed[4:] if seed.startswith("seed") else ""
+    return (int(digits), "") if digits.isdigit() else (10**9, seed)
 
 
 # (exp, seed, run name) triples pinned to a live process, plus (exp, seed)
@@ -1174,6 +1197,12 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
 
     learn_seen = 0
     interactions_seen = 0
+    # The cycle whose verdict-earning explore sessions interactions_seen
+    # is counting. Keyed by the verdict's own cycle, not by learn
+    # sessions: an arm with no learn phase (agent_model_free) never
+    # reset the counter, so its explore sessions were numbered 2, 4, 5
+    # ... across the run and matched no __ep<i>__cycle<C> video.
+    interactions_cycle: Optional[Any] = None
     for ep in episodes:
         cycle_row = _cycle_row(ep)
         ep["round"] = cycle_row if cycle_row is not None else learn_seen
@@ -1182,7 +1211,6 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
             ep["cycle_tag"] = "cycleNone" if c is None else f"cycle{c}"
         if ep["kind"] == "learn":
             learn_seen += 1
-            interactions_seen = 0
         if ep["kind"] == "explore":
             verdict = explore_verdicts.get(ep["num"])
             if verdict is not None and "accepted" in verdict:
@@ -1195,6 +1223,11 @@ def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
                 # Interaction episodes execute in session order, so this
                 # session's episode -- and its __ep<i> video -- is the
                 # i-th among the cycle's verdict-earning explore sessions.
+                cycle_key = (verdict.get("cycle") if verdict.get("cycle")
+                             is not None else ep.get("cycle_tag", learn_seen))
+                if cycle_key != interactions_cycle:
+                    interactions_cycle = cycle_key
+                    interactions_seen = 0
                 ep["interaction_idx"] = interactions_seen
                 interactions_seen += 1
             if verdict is not None and verdict.get("certified"):
@@ -1805,6 +1838,10 @@ details.grp[open] > summary { border-bottom: 1px solid var(--border);
 details.grp.family > summary { font-size: 15px; }
 details.grp > *:not(summary) { margin: 8px 12px; }
 details.grp.hidden { display: none; }
+/* A leaf table's header names the inner level of the current nesting:
+   the env under an agent header, the agent under an env header. */
+html:not([data-group='env']) .lbl.agent { display: none; }
+html[data-group='env'] .lbl.env { display: none; }
 .muted { color: var(--muted); }
 button.copybtn { padding: 0 3px; margin-left: 5px; border: none;
   background: none; color: var(--muted); font-size: 12px;
@@ -1882,6 +1919,10 @@ function setAllDetails(open) {
 }
 
 // Index page: filter + selected-only toggle + collapsible groups.
+// A group's open state is the user's, persisted in localStorage on
+// every toggle (manual, expand/collapse all, or the one-off expansion
+// when a filter changes) and restored on each auto-refresh reload - so
+// nothing on a reload reopens a collapsed group.
 function groupKey(d) { return 'lv-grp:' + d.dataset.key; }
 function restoreGroups() {
   $all('details.grp').forEach(function(d) {
@@ -1892,16 +1933,14 @@ function restoreGroups() {
 document.addEventListener('DOMContentLoaded', restoreGroups);
 document.addEventListener('toggle', function(e) {
   var d = e.target;
-  if (d.classList && d.classList.contains('grp') && !window._filtering)
+  if (d.classList && d.classList.contains('grp'))
     localStorage.setItem(groupKey(d), d.open ? '1' : '0');
 }, true);
 function setAllGroups(open) {
-  window._filtering = true;
   $all('details.grp').forEach(function(d) {
     d.open = open;
     localStorage.setItem(groupKey(d), open ? '1' : '0');
   });
-  window._filtering = false;
 }
 // Run selection: checkbox state is persisted per tab (sessionStorage)
 // so the auto-refresh reloads keep it; it drives the show-selected
@@ -1933,7 +1972,7 @@ function toggleSelOnly() {
   }
   sessionStorage.setItem('lv-selonly', selOnly() ? '0' : '1');
   paintSelBtn();
-  applyRunVisibility();
+  applyRunVisibility(true);
 }
 function paintSelBtn() {
   var b = $('#selbtn');
@@ -1941,17 +1980,42 @@ function paintSelBtn() {
   var n = $all('input.sel:checked').length;
   b.textContent = selOnly() ? 'show: selected (' + n + ')' : 'show: all';
 }
-function applyRunVisibility() {
+// Running-only toggle: keeps just the rows whose head run still has a
+// live process or Slurm job (data-live, set server-side by run_status).
+// A view preference rather than per-tab state, so it lives in
+// localStorage like the sort mode and survives new tabs.
+function liveOnly() { return localStorage.getItem('lv-liveonly') === '1'; }
+function toggleLiveOnly() {
+  localStorage.setItem('lv-liveonly', liveOnly() ? '0' : '1');
+  paintLiveBtn();
+  applyRunVisibility(true);
+}
+function paintLiveBtn() {
+  var b = $('#livebtn');
+  if (!b) return;
+  var n = $all('.runrow').filter(function(r) {
+    return r.dataset.live === '1';
+  }).length;
+  b.textContent = liveOnly() ? 'show: running (' + n + ')' : 'show: any status';
+}
+// Hides the rows (and then the groups) the active filters exclude.
+// With ``expand`` - passed only when the user just changed a filter -
+// every group that still has a match opens, so the matches are in
+// view; that open state persists like a manual toggle. A reload never
+// passes it, so a collapsed group stays collapsed across refreshes
+// even while a filter such as show-running is on.
+function applyRunVisibility(expand) {
   var text = (sessionStorage.getItem('lv-filter') || '').toLowerCase();
   var only = selOnly();
-  var narrowing = !!text || only;
-  window._filtering = true;
+  var live = liveOnly();
+  var narrowing = !!text || only || live;
   $all('.runrow').forEach(function(row) {
     var hide = !!text && row.dataset.key.indexOf(text) === -1;
     if (!hide && only) {
       var cb = row.querySelector('input.sel');
       hide = !(cb && cb.checked);
     }
+    if (!hide && live) hide = row.dataset.live !== '1';
     row.classList.toggle('hidden', hide);
   });
   $all('details.grp.exp').forEach(function(d) {
@@ -1959,48 +2023,59 @@ function applyRunVisibility() {
       return !r.classList.contains('hidden');
     });
     d.classList.toggle('hidden', !any);
-    if (narrowing) d.open = any;
+    if (expand && narrowing && any) d.open = true;
   });
   $all('details.grp.family').forEach(function(d) {
     var any = $all('details.grp.exp', d).some(function(x) {
       return !x.classList.contains('hidden');
     });
     d.classList.toggle('hidden', !any);
-    if (narrowing) d.open = any;
+    if (expand && narrowing && any) d.open = true;
   });
-  if (!narrowing) restoreGroups();
-  window._filtering = false;
 }
 function filterRuns(text) {
   sessionStorage.setItem('lv-filter', text.toLowerCase());
+  applyRunVisibility(true);
+}
+// Index page: nest the (agent, env) leaf tables under agent headers
+// (agent > env) or env headers (env > agent). The server renders each
+// leaf once, inside the agent view, plus an empty header per env; this
+// moves the leaves into the headers of the chosen view, sorted by the
+// inner level's name. A view preference, so it lives in localStorage.
+function groupMode() {
+  return localStorage.getItem('lv-group') === 'env' ? 'env' : 'agent';
+}
+function toggleGroupMode() {
+  localStorage.setItem('lv-group', groupMode() === 'env' ? 'agent' : 'env');
+  paintGroupBtn();
+  applyGroupMode();
   applyRunVisibility();
 }
-// Index page: sort runs by seed (the server order) or by start time.
-// Time mode interleaves each experiment's seeds newest-first; the
-// experiment and family groups themselves stay in place.
-function sortMode() { return localStorage.getItem('lv-sort') || 'seed'; }
-function toggleSort() {
-  localStorage.setItem('lv-sort', sortMode() === 'seed' ? 'time' : 'seed');
-  paintSortBtn();
-  applySort();
+function paintGroupBtn() {
+  var b = $('#groupbtn');
+  if (!b) return;
+  b.textContent = groupMode() === 'env' ? 'group: env \\u203a agent'
+                                        : 'group: agent \\u203a env';
 }
-function paintSortBtn() {
-  var b = $('#sortbtn');
-  if (b) b.textContent = 'sort: ' + sortMode();
-}
-function applySort() {
-  if (!$('#sortbtn')) return;
-  var byTime = sortMode() === 'time';
-  $all('table.runs').forEach(function(t) {
-    var rows = $all('tr.runrow', t);
-    rows.sort(function(a, b) {
-      if (!byTime && a.dataset.seed !== b.dataset.seed)
-        return a.dataset.seed < b.dataset.seed ? -1 : 1;
-      return b.dataset.start - a.dataset.start;
-    });
-    var tbody = rows.length ? rows[0].parentNode : null;
-    rows.forEach(function(r) { tbody.appendChild(r); });
+function applyGroupMode() {
+  var leaves = $all('details.grp.exp');
+  if (!leaves.length) return;
+  var mode = groupMode();
+  var inner = mode === 'env' ? 'agent' : 'env';
+  document.documentElement.dataset.group = mode;
+  var hosts = {};
+  $all('details.grp.family').forEach(function(d) {
+    hosts[d.dataset.kind + ':' + d.dataset.name] = d;
   });
+  leaves.sort(function(a, b) {
+    return a.dataset[inner] < b.dataset[inner] ? -1
+         : a.dataset[inner] > b.dataset[inner] ? 1 : 0;
+  });
+  leaves.forEach(function(l) {
+    hosts[mode + ':' + l.dataset[mode]].appendChild(l);
+  });
+  $('#view-agent').style.display = mode === 'env' ? 'none' : '';
+  $('#view-env').style.display = mode === 'env' ? '' : 'none';
 }
 // Kill / delete buttons on index run rows. POST only, so the auto-
 // refresh GETs can never trip these; reload shortly after success so
@@ -2169,14 +2244,15 @@ function pollStamp() {
 document.addEventListener('DOMContentLoaded', function() {
   paintAutoBtn();
   renderTimes();
-  paintSortBtn();
-  applySort();
+  paintGroupBtn();
+  applyGroupMode();
   pollStamp();
   setInterval(pollStamp, REFRESH_MS);
   var f = $('#runfilter');
   if (f) {
     f.value = sessionStorage.getItem('lv-filter') || '';
     restoreSelection();
+    paintLiveBtn();
     applyRunVisibility();
   }
   var r = window._restore;
@@ -2612,7 +2688,6 @@ def run_row(chain: List[Dict[str, Any]], summary: Dict[str, Any],
     cost = summary.get("total_cost", 0.0)
     fmt = "%Y-%m-%d %H:%M"
     first_start = _run_start_ts(chain[0]["name"], chain[0]["mtime"])
-    head_start = _run_start_ts(head["name"], head["mtime"])
     activity = max(r["activity"] for r in chain)
     # Server-local (MIT) text is only the no-JS fallback: renderTimes()
     # re-renders every .ts span client-side in the viewer's chosen
@@ -2634,7 +2709,9 @@ def run_row(chain: List[Dict[str, Any]], summary: Dict[str, Any],
     # every run name of the lineage joins it, so filtering by an
     # ancestor's timestamp still finds the row.
     names = " ".join(r["name"] for r in chain)
-    key = f"{head['exp']} {head['seed']} {names} {status}".lower()
+    env, agent = split_exp(head["exp"])
+    key = (f"{head['exp']} {env} {agent} {head['seed']} {names} "
+           f"{status}").lower()
     cost_str = f"${cost:.2f}" if cost else "-"
     is_live = status == "running"
     kill_btn = ""
@@ -2646,9 +2723,10 @@ def run_row(chain: List[Dict[str, Any]], summary: Dict[str, Any],
     run_cell = "".join(
         _run_cell_line(r, summaries.get(r["rel"], {}), r is head, is_live
                        and r is head) for r in chain)
+    # data-live feeds the running-only toggle (see liveOnly in the JS);
+    # the filter key's "running" word stays for free-text narrowing.
     return ("<tr class='runrow' "
-            f"data-key='{esc(key)}' data-seed='{esc(head['seed'])}' "
-            f"data-start='{head_start:.0f}'>"
+            f"data-key='{esc(key)}' data-live='{1 if is_live else 0}'>"
             f"<td><input type='checkbox' class='sel' "
             f"value='{esc(head['rel'])}' "
             "onchange='selChanged(this)' title='Select this run for the "
@@ -2663,31 +2741,96 @@ def run_row(chain: List[Dict[str, Any]], summary: Dict[str, Any],
             f"<td class='muted'>{dur_str}</td></tr>")
 
 
-def index_page() -> str:
-    """Runs overview page grouped by family and experiment."""
-    runs = find_runs()
-    families: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
+Chain = List[Dict[str, Any]]
+
+
+def leaf_groups(
+    runs: List[Dict[str, Any]],
+    summaries: Dict[str, Dict[str,
+                              Any]]) -> Dict[Tuple[str, str], List[Chain]]:
+    """Resume lineages of every run, keyed by ``(agent, env)``.
+
+    Lineages are built per experiment dir (a resume never crosses dirs),
+    then pooled by the dir's agent and env names, so the same agent-env
+    pair logged under two family dirs shares one table. Within a pair
+    the chains sort newest first by the head run's start time, seeds
+    interleaved (numeric seed order breaks exact ties).
+    """
+    by_exp: Dict[str, List[Dict[str, Any]]] = {}
     for r in runs:
-        fam, _, rest = r["exp"].partition("/")
-        families.setdefault(fam, {}).setdefault(rest or fam, []).append(r)
+        by_exp.setdefault(r["exp"], []).append(r)
+    leaves: Dict[Tuple[str, str], List[Chain]] = {}
+    for exp, exp_runs in by_exp.items():
+        env, agent = split_exp(exp)
+        leaves.setdefault((agent, env),
+                          []).extend(resume_chains(exp_runs, summaries))
+    for chains in leaves.values():
+        chains.sort(key=lambda ch: (-_run_start_ts(ch[-1]["name"], ch[-1][
+            "mtime"]), _seed_num(ch[0]["seed"])))
+    return leaves
+
+
+def _leaf_table(agent: str, env: str, chains: List[Chain],
+                chain_summaries: Dict[str, Dict[str, Any]],
+                summaries: Dict[str,
+                                Dict[str,
+                                     Any]], layout: Dict[str,
+                                                         Any], live: LiveProcs,
+                newest: Dict[Tuple[str, str],
+                             Tuple[float, str]], table_head: str) -> str:
+    """One (agent, env) pair's runs table, wrapped in its leaf group.
+
+    The summary carries both names; the CSS shows the one naming the
+    inner level of the current nesting (see applyGroupMode in the JS).
+    """
+    widths = [w or grid_width(layout) for w in RUN_COL_W]
+    cols = "<colgroup>" + "".join(f"<col style='width:{w}px'>"
+                                  for w in widths) + "</colgroup>"
+    rows = "".join(
+        run_row(
+            chain, chain_summaries[chain[-1]["rel"]], summaries, layout, live,
+            newest[(chain[-1]["exp"],
+                    chain[-1]["seed"])][1] == chain[-1]["rel"])
+        for chain in chains)
+    dirs = sorted({r["exp"] for chain in chains for r in chain})
+    n_runs = sum(len(chain) for chain in chains)
+    return (f"<details class='grp exp' data-key='exp:{esc(agent)}/{esc(env)}'"
+            f" data-agent='{esc(agent)}' data-env='{esc(env)}'>"
+            f"<summary title='{esc(', '.join(dirs))}'>"
+            f"<span class='lbl env'>{esc(env)}</span>"
+            f"<span class='lbl agent'>{esc(agent)}</span> "
+            f"<span class='muted'>({n_runs} runs)</span></summary>"
+            f"<table class='grid runs' style='width:{sum(widths)}px'>"
+            f"{cols}{table_head}{rows}</table></details>")
+
+
+def _group_header(kind: str, name: str, n_inner: int, n_runs: int) -> str:
+    """Opening tag and summary of an agent-name or env-name group."""
+    inner = "envs" if kind == "agent" else "agents"
+    return (f"<details class='grp family' data-key='{kind}:{esc(name)}' "
+            f"data-kind='{kind}' data-name='{esc(name)}' open>"
+            f"<summary>{esc(name)} <span class='muted'>"
+            f"({n_inner} {inner}, {n_runs} runs)</span></summary>")
+
+
+def index_page() -> str:
+    """Runs overview page: one table per (agent, env) pair, nested under agent-
+    name headers or env-name headers (client-side toggle)."""
+    runs = find_runs()
     summaries = {r["rel"]: run_summary(r["rel"]) or {} for r in runs}
     # One row per auto-resume lineage: a run that continued an earlier
     # run's checkpoints shares that run's row, its episodes merged into
     # the same off/c0/c1/... grid (see chain_summary).
-    exp_chains: Dict[Tuple[str, str], List[List[Dict[str, Any]]]] = {}
+    leaves = leaf_groups(runs, summaries)
     chain_summaries: Dict[str, Dict[str, Any]] = {}
-    for fam, exps in families.items():
-        for expname, exp_runs in exps.items():
-            chains = resume_chains(exp_runs, summaries)
-            exp_chains[(fam, expname)] = chains
-            for chain in chains:
-                chain_summaries[chain[-1]["rel"]] = chain_summary(
-                    chain, summaries)
+    for chains in leaves.values():
+        for chain in chains:
+            chain_summaries[chain[-1]["rel"]] = chain_summary(chain, summaries)
     # The task and round columns are laid out once for the whole page, so
-    # a task's chips line up across runs, experiments, and families. The
+    # a task's chips line up across runs, envs, and agents. The
     # explore/learn column sits to the right of every task column, so it
-    # can stay per-family without costing any of that alignment - which
-    # spares families that never explore its reserved width.
+    # can stay per-agent without costing any of that alignment - which
+    # spares agents that never explore its reserved width.
     page_layout = grid_layout(
         [s.get("episodes", []) for s in chain_summaries.values()])
     live = live_runs(runs)
@@ -2711,48 +2854,49 @@ def index_page() -> str:
                   "<th>episodes</th><th>test results (info.log)</th>"
                   "<th>cost</th><th>started</th><th>modified</th>"
                   "<th>time</th></tr>")
-    for fam in sorted(families):
-        exps = families[fam]
-        fam_runs = [r for rs in exps.values() for r in rs]
-        fam_misc = grid_layout([
-            chain_summaries[chain[-1]["rel"]].get("episodes", [])
-            for expname in exps for chain in exp_chains[(fam, expname)]
-        ])
-        layout = dict(page_layout, misc=fam_misc["misc"])
-        widths = [w or grid_width(layout) for w in RUN_COL_W]
-        cols = "<colgroup>" + "".join(f"<col style='width:{w}px'>"
-                                      for w in widths) + "</colgroup>"
-        body.append(f"<details class='grp family' data-key='fam:{esc(fam)}' "
-                    f"open><summary>{esc(fam)} <span class='muted'>"
-                    f"({len(exps)} experiments, {len(fam_runs)} runs)"
-                    "</span></summary>")
-        for expname in sorted(exps):
-            rows = "".join(
-                run_row(
-                    chain, chain_summaries[chain[-1]["rel"]], summaries,
-                    layout, live, newest[(
-                        chain[-1]["exp"],
-                        chain[-1]["seed"])][1] == chain[-1]["rel"])
-                for chain in exp_chains[(fam, expname)])
-            body.append(f"<details class='grp exp' data-key='exp:{esc(fam)}/"
-                        f"{esc(expname)}'>"
-                        f"<summary>{esc(expname)} <span class='muted'>"
-                        f"({len(exps[expname])} runs)</span></summary>"
-                        f"<table class='grid runs' "
-                        f"style='width:{sum(widths)}px'>"
-                        f"{cols}{table_head}{rows}</table></details>")
+    n_runs = {
+        key: sum(len(ch) for ch in chains)
+        for key, chains in leaves.items()
+    }
+    # Agent view: every leaf rendered once under its agent header.
+    body.append("<div id='view-agent'>")
+    for agent in sorted({a for a, _ in leaves}):
+        keys = sorted(k for k in leaves if k[0] == agent)
+        misc = grid_layout([
+            chain_summaries[chain[-1]["rel"]].get("episodes", []) for k in keys
+            for chain in leaves[k]
+        ])["misc"]
+        layout = dict(page_layout, misc=misc)
+        body.append(
+            _group_header("agent", agent, len(keys),
+                          sum(n_runs[k] for k in keys)))
+        for _, env in keys:
+            body.append(
+                _leaf_table(agent, env, leaves[(agent, env)], chain_summaries,
+                            summaries, layout, live, newest, table_head))
         body.append("</details>")
-    body.append("</div>")
+    # Env view: empty headers that applyGroupMode fills with the leaves.
+    body.append("</div><div id='view-env' style='display:none'>")
+    for env in sorted({e for _, e in leaves}):
+        keys = [k for k in leaves if k[1] == env]
+        body.append(
+            _group_header("env", env, len(keys), sum(n_runs[k]
+                                                     for k in keys)) +
+            "</details>")
+    body.append("</div></div>")
     topbar = ("<input id='runfilter' placeholder='filter runs…' "
               "oninput='filterRuns(this.value)'>"
-              "<button id='sortbtn' onclick='toggleSort()' title='seed: "
-              "group rows by seed, newest first within each seed; time: "
-              "newest runs first within each experiment'></button>"
+              "<button id='groupbtn' onclick='toggleGroupMode()' title='Nest "
+              "the run tables under agent names (one table per env) or "
+              "under env names (one table per agent)'></button>"
               "<button onclick='setAllGroups(true)'>expand all</button>"
               "<button onclick='setAllGroups(false)'>collapse all</button>"
               "<button id='selbtn' onclick='toggleSelOnly()' title='Show "
               "only the checked runs (grouped under their experiment "
               "tags; the selection survives refresh)'></button>"
+              "<button id='livebtn' onclick='toggleLiveOnly()' title='Show "
+              "only runs a local process or a Slurm job is still "
+              "running'></button>"
               f"<span class='crumb'>{esc(LOGS_ROOT)}</span>")
     return page("runs - log viewer", topbar, "".join(body))
 

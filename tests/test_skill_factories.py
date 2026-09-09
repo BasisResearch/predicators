@@ -101,6 +101,12 @@ def _make_obj() -> Object:
     return Object("obj0", _OBJ_TYPE)
 
 
+def _phases_of(opt: ParameterizedOption):
+    """The PhaseSkill phases behind a built option (its policy is the skill's
+    bound method)."""
+    return opt.policy.__self__._phases  # type: ignore[attr-defined]  # pylint: disable=protected-access
+
+
 def _build_state(
     robot_obj: Object,
     robot,
@@ -1108,6 +1114,85 @@ class TestCreatePickSkill:
         assert isinstance(opt, ParameterizedOption)
         assert opt.name == "Pick"
 
+    def test_default_descends_fully_open(self, robot_scene):
+        """Without a half-gap callback the pick keeps its four phases and
+        descends with the fingers opening."""
+        _, robot = robot_scene
+        config = SkillConfig(
+            robot=robot,
+            open_fingers_joint=robot.open_fingers,
+            closed_fingers_joint=robot.closed_fingers,
+            fingers_state_to_joint=_fingers_state_to_joint,
+            transport_z=0.8,
+        )
+        opt = create_pick_skill(
+            name="Pick",
+            types=[_ROBOT_TYPE, _OBJ_TYPE],
+            config=config,
+            get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
+        )
+        assert [ph.name for ph in _phases_of(opt)
+                ] == ["MoveAbove", "MoveToGrasp", "Grasp", "LiftSlightly"]
+
+    def test_half_gap_adds_pre_open_and_holds_width(self, robot_scene):
+        """With a half-gap callback a PreOpen finger phase precedes the
+        descent, the descent holds the width, and the PreOpen target is half-
+        gap + half the pose tolerance, clipped to the finger range."""
+        _, robot = robot_scene
+        config = SkillConfig(
+            robot=robot,
+            open_fingers_joint=robot.open_fingers,
+            closed_fingers_joint=robot.closed_fingers,
+            fingers_state_to_joint=_fingers_state_to_joint,
+            transport_z=0.8,
+        )
+        opt = create_pick_skill(
+            name="Pick",
+            types=[_ROBOT_TYPE, _OBJ_TYPE],
+            config=config,
+            get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
+            approach_open=True,
+            descend_finger_half_gap_fn=lambda s, o, p_, c: 0.02,
+        )
+        phases = {ph.name: ph for ph in _phases_of(opt)}
+        assert list(phases) == [
+            "MoveAbove", "PreOpen", "MoveToGrasp", "Grasp", "LiftSlightly"
+        ]
+        assert phases["PreOpen"].action_type == PhaseAction.CHANGE_FINGERS
+        assert phases["PreOpen"].finger_direction == "close"
+        robot_obj = _make_robot_obj()
+        obj = _make_obj()
+        state = _make_home_state(robot_obj,
+                                 robot,
+                                 obj=obj,
+                                 obj_xyz=(1.35, 0.75, 0.4))
+        _, target = phases["PreOpen"].target_fn(state, [robot_obj, obj],
+                                                np.zeros(1, dtype=np.float32),
+                                                config)
+        expected = _fingers_state_to_joint(
+            robot, 0.02 + 0.5 * float(np.sqrt(config.move_to_pose_tol)))
+        assert abs(target - expected) < 1e-9
+        # The descent holds the pre-set width instead of opening.
+        _, _, status = phases["MoveToGrasp"].target_fn(
+            state, [robot_obj, obj], np.zeros(1, dtype=np.float32), config)
+        assert status == "hold"
+        # A half gap wider than the hand clips to fully open.
+        wide = create_pick_skill(
+            name="PickWide",
+            types=[_ROBOT_TYPE, _OBJ_TYPE],
+            config=config,
+            get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
+            approach_open=True,
+            descend_finger_half_gap_fn=lambda s, o, p_, c: 10.0,
+        )
+        _, target = {ph.name: ph
+                     for ph in _phases_of(wide)
+                     }["PreOpen"].target_fn(state, [robot_obj, obj],
+                                            np.zeros(1, dtype=np.float32),
+                                            config)
+        assert abs(target -
+                   max(robot.open_fingers, robot.closed_fingers)) < 1e-9
+
     def test_pick_policy_returns_valid_action(self, robot_scene):
         """Test pick policy returns valid action."""
         _, robot = robot_scene
@@ -1386,6 +1471,91 @@ class TestIkStallAbort:
             skill._check_ik_stall(phase, state, memory, [robot_obj], params)  # pylint: disable=protected-access
         with pytest.raises(utils.OptionExecutionFailure):
             skill._check_ik_stall(phase, state, memory, [robot_obj], params)  # pylint: disable=protected-access
+
+
+class TestHeldContactLiftoff:
+    """A retreat-type phase refused by BiRRT for a held-object START contact
+    lifts off with incremental IK instead of aborting."""
+
+    def _make(self, robot, diagnostics, allow_shallow, target_dz=0.05):
+        config = _make_config(robot)
+        # Any non-None simulator selects the simulator planning branch;
+        # the planner itself is stubbed below.
+        object.__setattr__(config, "simulator", object())
+        robot_obj = _make_robot_obj()
+        home_orn = p.getQuaternionFromEuler([0, np.pi / 2, -np.pi])
+
+        def target_fn(state, _objects, _params, _cfg):
+            x = state.get(robot_obj, "x")
+            y = state.get(robot_obj, "y")
+            z = state.get(robot_obj, "z")
+            return (Pose((x, y, z),
+                         home_orn), Pose((x, y, z + target_dz),
+                                         home_orn), "hold")
+
+        phase = Phase(
+            name="Retreat",
+            action_type=PhaseAction.MOVE_TO_POSE,
+            target_fn=target_fn,
+            use_motion_planning=True,
+            allow_shallow_held_object_contacts=allow_shallow,
+        )
+        skill = PhaseSkill("Dab", [_ROBOT_TYPE], Box(0, 1, (0, )), config,
+                           [phase])
+
+        def _refuse(*_args, **_kwargs):
+            # A planner refusal: no trajectory, diagnostics recorded.
+            skill._last_plan_diagnostics = list(diagnostics)  # pylint: disable=protected-access
+
+        # setattr, not a plain assignment: astroid would otherwise infer
+        # the real method as None-returning across files and flag its
+        # callers in base.py (assignment-from-none).
+        setattr(skill, "_plan_with_simulator", _refuse)
+        return skill, phase, robot_obj
+
+    def test_held_object_start_contact_lifts_off(self, robot_scene, caplog):
+        """Held-object start contact on an upward retreat: incremental-IK
+        fallback, no raise, a warning naming the contact."""
+        _, robot = robot_scene
+        skill, phase, robot_obj = self._make(
+            robot, ["START: held object within -0.0065 m of span1"], True)
+        state = _build_state(robot_obj, robot, *_EE_HOME)
+        memory: dict = {}
+        params = np.zeros(0, dtype=np.float32)
+        with caplog.at_level("WARNING"):
+            action = skill._execute_move_birrt(  # pylint: disable=protected-access
+                phase, state, memory, [robot_obj], params)
+        assert isinstance(action, Action)
+        assert memory[_BIRRT_TRAJ_KEY.format(id(phase))] is None
+        assert any("lifting off" in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.parametrize(
+        "diagnostics, allow_shallow, target_dz",
+        [
+            (["START: held object within -0.0065 m of span1"], False, 0.05),
+            (["START: robot within -0.0040 m of span1"], True, 0.05),
+            (["GOAL: held object within -0.0065 m of span1"], True, 0.05),
+            ([
+                "START: held object within -0.0065 m of span1",
+                "GOAL: robot within -0.0099 m of span1"
+            ], True, 0.05),
+            # A descend (target below the end effector) moves INTO the
+            # contact: a place descend carries the shallow-contact flag too
+            # (bridge seed3 2026-09-02: the welded row seated 7-17 mm into
+            # the legs), and pressing on is not a lift-off.
+            (["START: welded span0 within -0.0075 m of leg0"], True, -0.05),
+        ])
+    def test_other_refusals_still_abort(self, robot_scene, diagnostics,
+                                        allow_shallow, target_dz):
+        """Robot-body contact, goal contact, a downward target, or a phase that
+        does not tolerate held contact keep the honest planner refusal."""
+        _, robot = robot_scene
+        skill, phase, robot_obj = self._make(robot, diagnostics, allow_shallow,
+                                             target_dz)
+        state = _build_state(robot_obj, robot, *_EE_HOME)
+        with pytest.raises(utils.OptionExecutionFailure, match="BiRRT"):
+            skill._execute_move_birrt(  # pylint: disable=protected-access
+                phase, state, {}, [robot_obj], np.zeros(0, dtype=np.float32))
 
 
 # ---------------------------------------------------------------------------

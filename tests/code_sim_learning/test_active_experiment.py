@@ -55,6 +55,26 @@ def test_perturbation_ensemble_respects_bounds():
         assert 0.03 <= m["jug_at_faucet_dist"] <= 0.25
 
 
+def test_perturbation_ensemble_leaves_discrete_params_alone():
+    """A discrete parameter (an index) is never jittered.
+
+    Its effect is a staircase, so jitter would either do nothing or
+    rewire the model; neither is an uncertainty the point estimate
+    carries.
+    """
+    specs = _specs() + [
+        ParamSpec("driver_0", 1.0, lo=0.0, hi=4.0, discrete=True)
+    ]
+    point = {"heat_rate": 1.0, "driver_0": 1.0}
+    members = perturbation_ensemble(point,
+                                    specs,
+                                    num_members=32,
+                                    perturb_frac=1.0,
+                                    rng=np.random.default_rng(3))
+    assert all(m["driver_0"] == 1.0 for m in members)
+    assert any(m["heat_rate"] != 1.0 for m in members[1:])
+
+
 def test_perturbation_ensemble_size_one_is_point_estimate():
     """Perturbation ensemble size one is point estimate."""
     point = {"heat_rate": 1.0}

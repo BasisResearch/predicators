@@ -46,7 +46,7 @@ from predicators.agent_sdk.tools.scene import apply_state_modifications, \
     draw_pybullet_annotation, render_pybullet_image, render_scene_image
 from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
     evaluate_states_with, load_ground_sampler_fns, make_solved_check
-from predicators.structs import State, Task
+from predicators.structs import State, Task, excluded_object_type_names
 
 if TYPE_CHECKING:
     from predicators.agent_sdk.tools import ToolContext
@@ -902,6 +902,10 @@ class BeliefProbe:
         keep working across a resume.
         """
         cur = self._require_state()
+        # Hidden types (CFG.excluded_objects_in_state_str) are absent
+        # from every listing the agent sees, this one included.
+        hidden = excluded_object_type_names()
+        listed = [obj for obj in cur if obj.type.name not in hidden]
 
         def _features(obj: Any) -> Dict[str, float]:
             return {
@@ -916,14 +920,14 @@ class BeliefProbe:
             # (bare-only lookups cost a KeyError per session:
             # run_20260830 hit it in four sessions).
             bare = obj_name.split(":", 1)[0]
-            for obj in cur:
+            for obj in listed:
                 if obj.name == bare:
                     return _features(obj)
             raise ValueError(f"Unknown object '{obj_name}'. Available: "
-                             f"{sorted(str(o) for o in cur)}")
+                             f"{sorted(str(o) for o in listed)}")
         return _BareNameFallbackDict(
             {str(obj): _features(obj)
-             for obj in sorted(cur, key=str)})
+             for obj in sorted(listed, key=str)})
 
     def atoms(self) -> List[str]:
         """Sorted ground atoms true in the current state."""

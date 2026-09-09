@@ -116,6 +116,37 @@ def test_rebuild_param_ensemble_respects_flag():
     assert approach._param_ensemble[0] == {"a": 1.0}  # member 0 is anchor
 
 
+def test_rebuild_param_ensemble_empty_under_oracle_params():
+    """Oracle params carry no uncertainty, so no ensemble is built.
+
+    Without this the uniform-jitter fallback would hand the capture gate
+    members that no plan can satisfy (a zero rate, a rewired lamp), and
+    the gate would refuse every plan on a model that is exactly right.
+    """
+    from predicators.code_sim_learning.fit_space import ParamSpec
+    approach = object.__new__(AgentSimLearningApproach)
+    approach._fitted_params = {"a": 1.0}
+    approach._param_specs = [ParamSpec("a", 1.0, lo=0.0, hi=2.0)]
+    approach._param_ensemble = [{"a": 1.0}, {"a": 2.0}]
+    approach._last_fit_result = None
+    approach._rng = np.random.default_rng(0)
+    utils.reset_config({
+        "agent_plan_validation_rule_param_margin": True,
+        "agent_explorer_info_ensemble_size": 5,
+        "agent_sim_learn_oracle_sim_params": True,
+    })
+    approach._rebuild_param_ensemble()
+    assert approach._param_ensemble == []
+
+    utils.reset_config({
+        "agent_plan_validation_rule_param_margin": True,
+        "agent_explorer_info_ensemble_size": 5,
+        "agent_sim_learn_oracle_sim_params": False,
+    })
+    approach._rebuild_param_ensemble()
+    assert len(approach._param_ensemble) == 5
+
+
 def _selector_approach(fit_result):
     from predicators.code_sim_learning.fit_space import ParamSpec
     approach = object.__new__(AgentSimLearningApproach)
