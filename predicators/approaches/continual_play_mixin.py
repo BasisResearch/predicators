@@ -218,11 +218,12 @@ class ContinualPlayMixin:
         self._play_session = session
         session.on_data_changed(lambda: self._on_data_changed(session))
         try:
-            self._play_rounds(session)
+            self._continue_current_level(session)
         finally:
             session.on_data_changed(None)
 
-    def _play_rounds(self, session: ProtocolSession) -> None:
+    def _continue_current_level(self, session: ProtocolSession) -> None:
+        """Prompt further rounds until this level is resolved or the run ends."""
         self._begin_level(session)
         idle = 0
         while True:
