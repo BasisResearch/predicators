@@ -32,11 +32,12 @@ def main():
         payload = capture(args.manifest, args.root)
         payload[
             "generated_by"] = "make_model_repair_table.py; do not edit manually"
-        atomic_write(snapshot, json.dumps(payload, indent=2) + "\n")
     else:
         payload = json.loads(snapshot.read_text())
     if payload.get("task_generation_version", 1) != args.task_version:
         raise ValueError("Task-generation version does not match the report")
+    if args.refresh:
+        atomic_write(snapshot, json.dumps(payload, indent=2) + "\n")
     summaries = [aggregate(row) for row in payload["rows"]]
     finished = sum(row["finished_seeds"] for row in summaries)
     total = sum(row["seeds"] for row in summaries)
