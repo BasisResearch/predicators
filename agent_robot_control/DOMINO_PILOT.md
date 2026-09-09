@@ -170,7 +170,10 @@ $5.00 against Opus's $6.14 over the cell, but took longer to its first success
 (median 209 vs 154) - it spends more of its budget probing before committing.
 Neither model triggered a single reachability refusal, so the controller fix
 (section 7) is not a confound for this comparison; only the `no_particles` cell
-is affected.
+is affected. Controller provenance: all three Fable processes started at
+16:47:39, before the other session's 16:51:18 edit adding a configuration-jump
+guard, and Python imports the module at process start - so these runs used the
+reachability pre-flight *without* that guard. A later re-run would include it.
 
 Fable's slowest seed is a good illustration of probing without ground truth: it
 lowered the open gripper onto the blue block at two different wrist angles,
